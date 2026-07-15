@@ -83,12 +83,21 @@ describe('buildEmailMetricInvocationSearchParams', () => {
     const dateFrom = '2026-07-01T00:00:00.000Z'
     const dateTo = '2026-07-13T00:00:00.000Z'
 
-    // bounced/blocked log at WARN/ERROR so they turn on "Logged errors" (inv_problems); bounce
-    // prevented logs at INFO and can't be isolated there, so it only scopes by date.
+    // Each metric drills into the Invocations tab filtered to its log message at the right level:
+    // bounced/blocked at WARN/ERROR, bounce prevented ("Skipping send") at INFO.
     it.each<[EmailMetric, Record<string, string>]>([
-        ['email_bounced', { inv_date_from: dateFrom, inv_date_to: dateTo, inv_problems: '1' }],
-        ['email_blocked', { inv_date_from: dateFrom, inv_date_to: dateTo, inv_problems: '1' }],
-        ['email_bounce_prevented', { inv_date_from: dateFrom, inv_date_to: dateTo }],
+        [
+            'email_bounced',
+            { inv_date_from: dateFrom, inv_date_to: dateTo, inv_log_search: 'bounce', inv_log_levels: 'WARN,ERROR' },
+        ],
+        [
+            'email_blocked',
+            { inv_date_from: dateFrom, inv_date_to: dateTo, inv_log_search: 'Complaint', inv_log_levels: 'WARN,ERROR' },
+        ],
+        [
+            'email_bounce_prevented',
+            { inv_date_from: dateFrom, inv_date_to: dateTo, inv_log_search: 'Skipping send', inv_log_levels: 'INFO' },
+        ],
     ])('maps %s to the expected Invocations-tab params', (metricKey, expected) => {
         expect(buildEmailMetricInvocationSearchParams(metricKey, dateFrom, dateTo)).toEqual(expected)
     })

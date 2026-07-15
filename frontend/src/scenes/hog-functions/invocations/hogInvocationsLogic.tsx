@@ -10,7 +10,7 @@ import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { escapeHogQLString, hogql } from '~/queries/utils'
-import { PersonType } from '~/types'
+import { LogEntryLevel, PersonType } from '~/types'
 
 import { hogFunctionsRerunCreate } from 'products/cdp/frontend/generated/api'
 import type { HogInvocationRerunFilterStatusEnumApi } from 'products/cdp/frontend/generated/api.schemas'
@@ -89,6 +89,15 @@ export interface HogInvocationsFilters {
      * no cross-shard subquery against `persons`.
      */
     person_uuid?: string
+    /**
+     * Restrict to invocations that logged an entry whose message contains this substring, optionally
+     * narrowed to `log_levels`. Powers precise metric drill-downs — e.g. the workflow "Bounced" tile
+     * links here with `log_search: 'bounce'` so the list shows only runs that logged a bounce, which
+     * the ID-only `search` box and level-only `problem_only` can't express. Resolved via a
+     * `log_entries` subquery, same as `problem_only`.
+     */
+    log_search?: string
+    log_levels?: LogEntryLevel[]
 }
 
 export interface HogInvocationsLogicProps {
@@ -129,6 +138,8 @@ const URL_PARAMS = {
     order_by: `${URL_PARAM_PREFIX}order`,
     problem_only: `${URL_PARAM_PREFIX}problems`,
     person_uuid: `${URL_PARAM_PREFIX}person`,
+    log_search: `${URL_PARAM_PREFIX}log_search`,
+    log_levels: `${URL_PARAM_PREFIX}log_levels`,
 } as const
 
 const filtersToSearchParams = (filters: HogInvocationsFilters): Record<string, string | undefined> => ({
@@ -141,6 +152,8 @@ const filtersToSearchParams = (filters: HogInvocationsFilters): Record<string, s
     [URL_PARAMS.order_by]: filters.order_by === 'first_scheduled' ? undefined : filters.order_by,
     [URL_PARAMS.problem_only]: filters.problem_only ? '1' : undefined,
     [URL_PARAMS.person_uuid]: filters.person_uuid,
+    [URL_PARAMS.log_search]: filters.log_search,
+    [URL_PARAMS.log_levels]: filters.log_levels?.length ? filters.log_levels.join(',') : undefined,
 })
 
 const searchParamsToFilters = (searchParams: Record<string, string | undefined>): Partial<HogInvocationsFilters> => {
@@ -176,6 +189,13 @@ const searchParamsToFilters = (searchParams: Record<string, string | undefined>)
     }
     if (searchParams[URL_PARAMS.person_uuid]) {
         next.person_uuid = searchParams[URL_PARAMS.person_uuid]
+    }
+    if (searchParams[URL_PARAMS.log_search]) {
+        next.log_search = searchParams[URL_PARAMS.log_search]
+    }
+    const logLevels = searchParams[URL_PARAMS.log_levels]
+    if (logLevels) {
+        next.log_levels = logLevels.split(',').filter(Boolean) as LogEntryLevel[]
     }
     return next
 }
@@ -345,6 +365,37 @@ export const problemClauseFor = (
 }
 
 /**
+ * Optional predicate restricting to invocations that logged an entry whose message contains
+ * `log_search` (case-insensitive substring), optionally narrowed to `log_levels`. Powers precise
+ * metric drill-downs the ID-only search box and level-only `problem_only` can't express — e.g. the
+ * workflow "Bounced" tile links here with `log_search: 'bounce'`. Uses the same `log_entries`
+ * subquery shape as `problemClauseFor`, and like it is deliberately not date-scoped: a
+ * bounce/complaint can land after the run's scheduled window, and the outer `scheduled_at` filter
+ * already bounds which invocations appear. Returns an empty clause when no log search is set.
+ */
+export const logMessageClauseFor = (
+    props: HogInvocationsLogicProps,
+    filters: HogInvocationsFilters
+): ReturnType<typeof hogql.raw> => {
+    const search = filters.log_search?.trim()
+    if (!search) {
+        return hogql.raw('')
+    }
+    const levels = filters.log_levels ?? []
+    const levelClause = levels.length
+        ? `AND lower(level) IN (${levels.map((level) => escapeHogQLString(level.toLowerCase())).join(',')})`
+        : ''
+    return hogql.raw(
+        `AND invocation_id IN (` +
+            `SELECT instance_id FROM log_entries ` +
+            `WHERE log_source = ${escapeHogQLString(props.functionKind)} ` +
+            `AND log_source_id = ${escapeHogQLString(props.id)} ` +
+            `AND message ILIKE concat('%', ${escapeHogQLString(search)}, '%') ` +
+            `${levelClause})`
+    )
+}
+
+/**
  * Tier selection for the sparkline. Each tier carries both the HogQL bucket
  * expression and the equivalent client-side interval (in ms) so we can
  * generate every bucket boundary in the filter range, not just the ones CH
@@ -455,6 +506,7 @@ async function fetchSparkline(props: HogInvocationsLogicProps, filters: HogInvoc
                ${optionalSearchClause}
                ${optionalPersonClause}
                ${problemClauseFor(props, filters)}
+               ${logMessageClauseFor(props, filters)}
         )
         GROUP BY bucket, status
         ORDER BY bucket
@@ -564,6 +616,7 @@ async function fetchRunsPage(
            ${optionalSearchClause}
            ${optionalPersonClause}
            ${problemClauseFor(props, filters)}
+           ${logMessageClauseFor(props, filters)}
         ${orderClause}
         LIMIT ${HOG_INVOCATIONS_PAGE_SIZE}
         OFFSET ${offset}

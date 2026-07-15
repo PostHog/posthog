@@ -16,7 +16,7 @@ import { urls } from 'scenes/urls'
 
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, EventsQuery, NodeKind } from '~/queries/schema/schema-general'
-import { ActivityTab, PropertyFilterType, PropertyOperator } from '~/types'
+import { ActivityTab, LogEntryLevel, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { isEmailAction } from './hogflows/steps/types'
 import { workflowLogic } from './workflowLogic'
@@ -162,16 +162,19 @@ export const WORKFLOW_EMAIL_METRICS: Record<
     },
 }
 
-// How each drillable email metric maps onto the Invocations tab. That tab can't text-search log
-// messages — its only log-based filter is "Logged errors" (problem_only), which surfaces runs that
-// logged a WARN/ERROR entry. That covers bounced and blocked. Bounce prevented logs "Skipping send"
-// at INFO, which problem_only can't isolate, so it only scopes by date and lands the user on the tab
-// for the timeframe. email_failed is left out: problem_only can't tell it apart from bounces, and it
-// has no distinct filter of its own.
-export const EMAIL_METRIC_INVOCATION_FILTERS: Partial<Record<EmailMetric, { problemOnly: boolean }>> = {
-    email_bounced: { problemOnly: true },
-    email_bounce_prevented: { problemOnly: false },
-    email_blocked: { problemOnly: true },
+// How each drillable email metric maps onto the Invocations tab. Each SES event also writes a
+// per-invocation log entry (see the SES webhook handler); the drill-down filters the tab to runs
+// that logged that entry by matching the message text at the right level. The `search` term matches
+// the start of the handler's message (e.g. "Permanent bounce to …"). email_failed is left out: its
+// two SES events emit differently-worded messages ("Rendering failure …" vs "Message rejected by
+// SES …") with no shared substring to match on.
+export const EMAIL_METRIC_INVOCATION_FILTERS: Partial<
+    Record<EmailMetric, { search: string; levels: LogEntryLevel[] }>
+> = {
+    email_bounced: { search: 'bounce', levels: ['WARN', 'ERROR'] },
+    // MX-validation skips log "Skipping send: …" at INFO (see HogFunctionHandler in the plugin server).
+    email_bounce_prevented: { search: 'Skipping send', levels: ['INFO'] },
+    email_blocked: { search: 'Complaint', levels: ['WARN', 'ERROR'] },
 }
 
 // Build the router search params that point the Invocations tab at the runs behind the given email
@@ -188,7 +191,8 @@ export function buildEmailMetricInvocationSearchParams(
     return buildHogInvocationsSearchParams({
         date_from: dateFrom,
         date_to: dateTo,
-        problem_only: filter.problemOnly || undefined,
+        log_search: filter.search,
+        log_levels: filter.levels,
     })
 }
 
