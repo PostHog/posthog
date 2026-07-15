@@ -28,6 +28,8 @@ uv run ty check posthog ee         # Check directories
 - Slower but thorough
 - Final source of truth (runs in CI and blocks on errors)
 - Checks changed Python files through `hogli ci:preflight`; mypy's default incremental cache speeds up repeat runs
+- Type errors and timeouts reject the strict pre-push check; a missing mypy executable skips locally and leaves CI as the gate
+- If a cached result looks stale, add `--no-incremental` to the printed mypy command to bypass cache reads
 - Recommended for local deep checks
 
 This trial helps us evaluate whether ty should become a blocking check in the future.
