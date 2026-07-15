@@ -332,6 +332,9 @@ def _score_candidates(
 ) -> dict[str, float]:
     """Blend blame weights with area recency; add capped activity-only fallbacks.
 
+    Invariants: a freshly-active area contributor always outranks a blame author who is
+    gone from the area (their base starts above the stale floor), and never outranks a
+    blame author still active within the window (the cap sits below the decay floor).
     With no activity data at all, blame weights pass through unchanged (legacy behavior).
     """
     if not activity_by_login:
@@ -347,8 +350,9 @@ def _score_candidates(
     for login, activity in activity_by_login.items():
         if login in scores:
             continue
-        saturation = min(activity.commit_count, ACTIVITY_BONUS_SATURATION_COMMITS)
-        scores[login] = ACTIVITY_ONLY_SCORE_CAP * max_blame_weight * (saturation / ACTIVITY_BONUS_SATURATION_COMMITS)
+        saturation = min(activity.commit_count, ACTIVITY_BONUS_SATURATION_COMMITS) / ACTIVITY_BONUS_SATURATION_COMMITS
+        base = STALE_BLAME_MULTIPLIER + (ACTIVITY_ONLY_SCORE_CAP - STALE_BLAME_MULTIPLIER) * saturation
+        scores[login] = max_blame_weight * base * _recency_multiplier(activity.days_since_last_commit)
     return scores
 
 

@@ -187,6 +187,42 @@ class TestRecencyScoring:
 
         assert scores["active-author"] > scores["bystander"]
 
+    def test_lightly_active_contributor_beats_stale_blame_even_with_tiny_blame_weight(self):
+        # Regression: a single old blame commit (weight 1) used to crush activity-only
+        # candidates via the cap, so the long-gone author still won the assign.
+        weights = Counter({"long-gone": 1})
+        activity = {
+            "light-owner": _AreaContributor(
+                name=None,
+                commit_count=3,
+                days_since_last_commit=1,
+                last_commit_sha="c" * 7,
+                last_commit_url="",
+                area="posthog/migrations",
+            ),
+        }
+
+        scores = _score_candidates(weights, activity)
+
+        assert scores["light-owner"] > scores["long-gone"]
+
+    def test_half_stale_bystander_does_not_beat_stale_blame(self):
+        weights = Counter({"long-gone": 1})
+        activity = {
+            "half-stale": _AreaContributor(
+                name=None,
+                commit_count=3,
+                days_since_last_commit=70,
+                last_commit_sha="c" * 7,
+                last_commit_url="",
+                area="posthog/migrations",
+            ),
+        }
+
+        scores = _score_candidates(weights, activity)
+
+        assert scores["long-gone"] >= scores["half-stale"]
+
 
 @pytest.mark.django_db
 class TestAreaWalkUp:
