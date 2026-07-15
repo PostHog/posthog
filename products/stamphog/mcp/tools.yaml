@@ -34,9 +34,9 @@ tools:
             idempotent: true
         title: Delete stamphog digest channel
         description: >
-            Disable a digest channel by id. This keeps the row as a disabled tombstone (so auto-provisioning
-            can't recreate and re-post it) rather than hard-deleting it — equivalent to
-            `stamphog-digest-channels-update` with `enabled: false`.
+            Disable a digest channel by id. This keeps the row as a disabled tombstone (so auto-provisioning can't
+            recreate and re-post it) rather than hard-deleting it — equivalent to `stamphog-digest-channels-update` with
+            `enabled: false`.
         feature_flag: stamphog
     stamphog-digest-channels-list:
         operation: stamphog_digest_channels_list
