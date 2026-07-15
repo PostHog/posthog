@@ -34,6 +34,9 @@ class SumoLogicEndpointConfig:
     # Stable, immutable datetime field used for partitioning (never a last-modified field).
     partition_key: Optional[str] = None
     incremental_fields: list[IncrementalField] = field(default_factory=list)
+    # Top-level keys stripped from every record before it's yielded. Used to drop credential-bearing
+    # fields (e.g. webhook URLs and auth headers) that a warehouse reader must never see.
+    redact_fields: frozenset[str] = frozenset()
 
 
 # Endpoint catalog. The headline stream is `logs` via the async Search Job API (the only Sumo Logic
@@ -91,7 +94,16 @@ SUMO_LOGIC_ENDPOINTS: dict[str, SumoLogicEndpointConfig] = {
     ),
     "partitions": SumoLogicEndpointConfig(name="partitions", path="/v1/partitions", data_key="data"),
     "ingest_budgets": SumoLogicEndpointConfig(name="ingest_budgets", path="/v1/ingestBudgets", data_key="data"),
-    "connections": SumoLogicEndpointConfig(name="connections", path="/v1/connections", data_key="data"),
+    "connections": SumoLogicEndpointConfig(
+        name="connections",
+        path="/v1/connections",
+        data_key="data",
+        # A connection definition embeds the outbound webhook secret: the destination URL carries
+        # the auth token for Slack/PagerDuty-style webhooks, and the header fields can carry an
+        # Authorization credential. Drop them so a warehouse reader sees that a connection exists
+        # (name, type, description) without the credentials needed to forge notifications through it.
+        redact_fields=frozenset({"url", "headers", "customHeaders", "defaultPayload"}),
+    ),
     "field_extraction_rules": SumoLogicEndpointConfig(
         name="field_extraction_rules", path="/v1/extractionRules", data_key="data"
     ),

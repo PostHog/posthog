@@ -128,14 +128,13 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "connections": {
-        "description": "Outbound connections (webhooks) used by monitors and scheduled searches to send notifications.",
+        "description": "Outbound connections (webhooks) used by monitors and scheduled searches to send notifications. Credential-bearing fields (the destination URL, headers, and default payload) are dropped on import.",
         "docs_url": "https://help.sumologic.com/docs/api/connections/",
         "columns": {
             "id": "Unique identifier for the connection.",
             "name": "Name of the connection.",
             "type": "Type of the connection.",
             "description": "Description of the connection.",
-            "url": "Destination URL of the webhook connection.",
         },
     },
     "field_extraction_rules": {

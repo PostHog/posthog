@@ -147,6 +147,13 @@ def _extract_items(response_json: Any, config: SumoLogicEndpointConfig) -> list[
     return []
 
 
+def _redact_row(row: dict[str, Any], redact_fields: frozenset[str]) -> dict[str, Any]:
+    """Drop credential-bearing keys from a record before it reaches the warehouse."""
+    if not redact_fields:
+        return row
+    return {key: value for key, value in row.items() if key not in redact_fields}
+
+
 def _unnest_item(item: dict[str, Any], config: SumoLogicEndpointConfig) -> dict[str, Any]:
     """Lift a nested record (e.g. monitors search's ``item``) to the root, keeping sibling keys."""
     if config.nest_key is None:
@@ -411,7 +418,7 @@ def get_rows(
 
     if config.pagination == "search_job":
         query = (search_query or "").strip() or DEFAULT_SEARCH_QUERY
-        yield from _get_log_rows(
+        batches = _get_log_rows(
             fetch,
             host,
             query,
@@ -422,11 +429,17 @@ def get_rows(
             db_incremental_field_last_value,
         )
     elif config.fan_out_over_collectors:
-        yield from _get_collector_fan_out_rows(fetch, host, config, resumable_source_manager)
+        batches = _get_collector_fan_out_rows(fetch, host, config, resumable_source_manager)
     elif config.pagination == "offset":
-        yield from _get_offset_paginated_rows(fetch, host, config, resumable_source_manager)
+        batches = _get_offset_paginated_rows(fetch, host, config, resumable_source_manager)
     else:
-        yield from _get_token_paginated_rows(fetch, host, config, resumable_source_manager)
+        batches = _get_token_paginated_rows(fetch, host, config, resumable_source_manager)
+
+    if config.redact_fields:
+        for batch in batches:
+            yield [_redact_row(row, config.redact_fields) for row in batch]
+    else:
+        yield from batches
 
 
 def sumo_logic_source(

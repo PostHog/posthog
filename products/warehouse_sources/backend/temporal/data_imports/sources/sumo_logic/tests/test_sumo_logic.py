@@ -189,6 +189,39 @@ class TestSessionPrivacy:
         assert "key" in mock_session_factory.call_args.kwargs["redact_values"]
 
 
+class TestCredentialRedaction:
+    def test_connections_drop_webhook_secrets_but_keep_metadata(self) -> None:
+        # A connection's destination URL carries the webhook auth token (Slack/PagerDuty put the
+        # secret in the URL itself) and header fields can carry an Authorization credential; a
+        # warehouse reader must never see them, only the connection's non-secret metadata.
+        manager, _saved = _make_manager()
+
+        def handler(method: str, url: str, json: Any = None, timeout: Any = None) -> Any:
+            return _response(
+                {
+                    "data": [
+                        {
+                            "id": "c1",
+                            "name": "prod-alerts",
+                            "type": "WebhookConnection",
+                            "description": "Slack alerts",
+                            "url": "https://hooks.slack.com/services/T00/B00/secret-token",
+                            "headers": [{"name": "Authorization", "value": "Bearer secret"}],
+                            "customHeaders": {"X-Api-Key": "secret"},
+                            "defaultPayload": "{...}",
+                        }
+                    ],
+                    "next": None,
+                }
+            )
+
+        rows = _run_get_rows("connections", handler, manager)
+
+        assert rows == [
+            [{"id": "c1", "name": "prod-alerts", "type": "WebhookConnection", "description": "Slack alerts"}]
+        ]
+
+
 class TestTokenPagination:
     def test_yields_pages_saves_token_after_yield_and_sends_it(self) -> None:
         manager, saved = _make_manager()
