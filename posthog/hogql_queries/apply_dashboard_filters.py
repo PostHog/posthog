@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, TypedDict
 
 from posthog.schema import DashboardFilter, HogQLVariable, NodeKind
 
@@ -13,6 +13,60 @@ _DATA_WAREHOUSE_NODE_KINDS = {"DataWarehouseNode", "FunnelsDataWarehouseNode", "
 # Fields where the higher-priority (override) layer replaces the lower-priority (base) value outright
 # when set. Property filters are handled separately (stacked unless they contradict).
 _SCALAR_OVERRIDE_FIELDS = ["breakdown_filter", "interval", "filterTestAccounts"]
+
+
+class FilterLayerResolution(TypedDict):
+    dashboard: dict
+    tile: dict
+    overridden_dashboard: dict
+
+
+def resolve_filter_layers_by_priority(
+    base_filters: dict | None, override_filters: dict | None
+) -> FilterLayerResolution:
+    base = base_filters or {}
+    override = override_filters or {}
+    effective_base = {**base}
+    overridden_base: dict = {}
+
+    for field in _SCALAR_OVERRIDE_FIELDS:
+        if override.get(field) is not None:
+            effective_base.pop(field, None)
+            if base.get(field) is not None:
+                overridden_base[field] = base[field]
+
+    if override.get("date_from") is not None or override.get("date_to") is not None:
+        if base.get("date_from") is not None or base.get("date_to") is not None:
+            overridden_base["date_from"] = base.get("date_from")
+            overridden_base["date_to"] = base.get("date_to")
+            if base.get("explicitDate") is not None:
+                overridden_base["explicitDate"] = base["explicitDate"]
+        effective_base.pop("date_from", None)
+        effective_base.pop("date_to", None)
+        effective_base.pop("explicitDate", None)
+
+    override_props = override.get("properties") or []
+    base_props = base.get("properties") or []
+    contradicted_base = []
+    surviving_base = []
+    for base_property in base_props:
+        if any(filters_contradict(base_property, override_property) for override_property in override_props):
+            contradicted_base.append(base_property)
+        else:
+            surviving_base.append(base_property)
+    if contradicted_base:
+        overridden_base["properties"] = contradicted_base
+    if base_props:
+        if surviving_base:
+            effective_base["properties"] = surviving_base
+        else:
+            effective_base.pop("properties", None)
+
+    return {
+        "dashboard": effective_base,
+        "tile": override,
+        "overridden_dashboard": overridden_base,
+    }
 
 
 def merge_filters_by_priority(base_filters: dict | None, override_filters: dict | None) -> dict:
@@ -31,16 +85,14 @@ def merge_filters_by_priority(base_filters: dict | None, override_filters: dict 
 
     Overriding the insight's own base filters (not just the lower-priority layer's) is handled separately
     by `remove_query_properties_overridden_by`, which the override-aware call sites apply to the query.
-
-    The frontend re-derives this precedence in `insightDetailsFilterOverrides.ts` purely to attribute each
-    shown filter to its source (display only); keep that tie-break in step when changing this one.
     """
     if not override_filters:
         return base_filters or {}
     if not base_filters:
         return override_filters or {}
 
-    merged = {**base_filters}
+    resolved_layers = resolve_filter_layers_by_priority(base_filters, override_filters)
+    merged = {**resolved_layers["dashboard"]}
 
     for field in _SCALAR_OVERRIDE_FIELDS:
         if override_filters.get(field) is not None:
@@ -55,9 +107,7 @@ def merge_filters_by_priority(base_filters: dict | None, override_filters: dict 
             merged["explicitDate"] = override_filters["explicitDate"]
 
     override_props = override_filters.get("properties") or []
-    base_props = base_filters.get("properties") or []
-    surviving_base = [p for p in base_props if not any(filters_contradict(p, o) for o in override_props)]
-    combined_properties = surviving_base + override_props
+    combined_properties = (resolved_layers["dashboard"].get("properties") or []) + override_props
     if combined_properties:
         merged["properties"] = combined_properties
 

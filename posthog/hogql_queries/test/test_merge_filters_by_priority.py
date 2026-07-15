@@ -5,6 +5,7 @@ from parameterized import parameterized
 from posthog.hogql_queries.apply_dashboard_filters import (
     merge_filters_by_priority,
     remove_query_properties_overridden_by,
+    resolve_filter_layers_by_priority,
 )
 
 
@@ -57,8 +58,17 @@ class TestMergeFiltersByPriority(SimpleTestCase):
             {"properties": [dashboard_prop]},
             {"properties": [tile_prop]},
         )
+        resolved_layers = resolve_filter_layers_by_priority(
+            {"properties": [dashboard_prop]},
+            {"properties": [tile_prop]},
+        )
 
         assert merged["properties"] == [tile_prop]
+        assert resolved_layers == {
+            "dashboard": {},
+            "tile": {"properties": [tile_prop]},
+            "overridden_dashboard": {"properties": [dashboard_prop]},
+        }
 
     def test_compatible_properties_on_same_key_stack_instead_of_replacing(self):
         # `utm_source = google` and `utm_source is set` describe a valid combined set, so both apply

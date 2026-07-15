@@ -52,6 +52,7 @@ import {
     InsightLogicProps,
     InsightShortId,
     QueryBasedInsightModel,
+    InsightFilterOverrideContext,
 } from '~/types'
 
 import {
@@ -105,15 +106,15 @@ interface InsightMetaProps extends Pick<
     onCreateAnomalyAlert?: () => void
 }
 
-// Tile and dashboard overrides merge (backend `merge_filters_by_priority`); the date range is a
-// unit, so the tile's range wins only when the tile sets a bound, otherwise the dashboard's range applies.
-// `!= null` (not truthiness) matches the backend's `is not None`, so an explicit empty-string bound counts.
 export function getEffectiveDateOverride(
+    filterOverrideContext: InsightFilterOverrideContext | null | undefined,
     filtersOverride: DashboardFilter | undefined,
     tileFiltersOverride: TileFilters | undefined
 ): { dateFromOverride: string | null | undefined; dateToOverride: string | null | undefined } {
-    const tileHasDate = tileFiltersOverride?.date_from != null || tileFiltersOverride?.date_to != null
-    const source = tileHasDate ? tileFiltersOverride : filtersOverride
+    const dashboardFilters = filterOverrideContext ? filterOverrideContext.dashboard : filtersOverride
+    const tileFilters = filterOverrideContext ? filterOverrideContext.tile : tileFiltersOverride
+    const tileHasDate = tileFilters?.date_from != null || tileFilters?.date_to != null
+    const source = tileHasDate ? tileFilters : dashboardFilters
     return { dateFromOverride: source?.date_from, dateToOverride: source?.date_to }
 }
 
@@ -198,7 +199,7 @@ export function InsightMeta({
     const showCompactHeading = !showCompactTile || !isSqlInsight
 
     const hasTileOverrides = Object.keys(tileFiltersOverride ?? {}).length > 0
-    const dateOverride = getEffectiveDateOverride(filtersOverride, tileFiltersOverride)
+    const dateOverride = getEffectiveDateOverride(insight.filter_override_context, filtersOverride, tileFiltersOverride)
     const topHeadingProps = {
         query: insight.query,
         lastRefresh: insight.last_refresh,
@@ -363,6 +364,7 @@ export function InsightMeta({
             variablesOverride={variablesOverride}
             filtersOverride={filtersOverride}
             tileFiltersOverride={tileFiltersOverride ?? null}
+            filterOverrideContext={insight.filter_override_context}
             hasDataWarehouseSeries={hasDataWarehouseSeries}
         />
     ) : null

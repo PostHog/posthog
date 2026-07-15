@@ -22,8 +22,6 @@ def filters_contradict(filter_a: dict, filter_b: dict) -> bool:
     Compatible pairs like `= google` and `is set` return False so they stack (AND-combine) rather than one
     replacing the other. Anything not provably contradictory is treated as compatible.
 
-    The frontend mirrors this in `insightDetailsFilterOverrides.ts` (`filtersContradict`) to attribute
-    which filters actually apply in the insight detail popup; keep the two in step.
     """
     if not _same_property(filter_a, filter_b):
         return False

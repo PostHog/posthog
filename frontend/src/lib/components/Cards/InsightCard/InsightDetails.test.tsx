@@ -12,10 +12,15 @@ describe('InsightDetails', () => {
     describe('getDateRangeOverrideDisplay', () => {
         it.each([
             {
-                label: 'tile date beats dashboard date (replaced = dashboard)',
+                label: 'backend-resolved tile date includes the replaced dashboard date',
                 insightDateRange: { date_from: '-14d' },
+                filterOverrideContext: {
+                    dashboard: null,
+                    tile: { date_from: '-7d' },
+                    overridden_dashboard: { date_from: '-30d' },
+                },
                 filtersOverride: { date_from: '-30d' },
-                tileFiltersOverride: { date_from: '-7d' },
+                tileFiltersOverride: { date_from: '-3d' },
                 expected: {
                     source: 'tile',
                     dateFrom: '-7d',
@@ -68,10 +73,15 @@ describe('InsightDetails', () => {
                 tileFiltersOverride: { date_from: '-7d' },
                 expected: { source: 'tile', dateFrom: '-7d', dateTo: undefined, replaced: undefined },
             },
-        ])('$label', ({ insightDateRange, filtersOverride, tileFiltersOverride, expected }) => {
-            expect(getDateRangeOverrideDisplay(insightDateRange, filtersOverride, tileFiltersOverride)).toEqual(
-                expected
-            )
+        ])('$label', ({ insightDateRange, filterOverrideContext, filtersOverride, tileFiltersOverride, expected }) => {
+            expect(
+                getDateRangeOverrideDisplay(
+                    insightDateRange,
+                    filterOverrideContext,
+                    filtersOverride,
+                    tileFiltersOverride
+                )
+            ).toEqual(expected)
         })
     })
 
@@ -134,14 +144,17 @@ describe('InsightDetails', () => {
     })
 
     describe('getEffectiveFilterOverrides', () => {
-        it('captures a dashboard filter the tile contradicts as overriddenByTile, out of the dashboard group', () => {
+        it('renders the backend-resolved filter layers without recalculating conflicts', () => {
             const result = getEffectiveFilterOverrides(
+                {
+                    dashboard: { properties: [countryUS] } as any,
+                    tile: { properties: [browserChrome] } as any,
+                    overridden_dashboard: { properties: [browserSafari] } as any,
+                },
                 { properties: [browserSafari, countryUS] } as any,
                 { properties: [browserChrome] } as any
             )
 
-            // The dashboard's $browser=Safari can't coexist with the tile's $browser=Chrome — surfaced
-            // separately, not in the group.
             expect(result.overriddenByTile).toEqual([browserSafari])
             expect(result.propertyGroups).toEqual([
                 { properties: [countryUS], source: 'dashboard' },
@@ -149,8 +162,9 @@ describe('InsightDetails', () => {
             ])
         })
 
-        it('keeps non-overlapping dashboard filters in the group with nothing overridden', () => {
+        it('falls back to raw layers when no backend context exists', () => {
             const result = getEffectiveFilterOverrides(
+                undefined,
                 { properties: [countryUS] } as any,
                 { properties: [browserChrome] } as any
             )
@@ -159,21 +173,6 @@ describe('InsightDetails', () => {
             expect(result.propertyGroups).toEqual([
                 { properties: [countryUS], source: 'dashboard' },
                 { properties: [browserChrome], source: 'tile' },
-            ])
-        })
-
-        it('stacks a dashboard filter that is compatible with the tile on the same key', () => {
-            const browserIsSet = { key: '$browser', type: 'event', operator: 'is_set' }
-            const result = getEffectiveFilterOverrides(
-                { properties: [browserChrome] } as any,
-                { properties: [browserIsSet] } as any
-            )
-
-            // $browser=Chrome and $browser is set describe a valid set, so both apply — nothing overridden.
-            expect(result.overriddenByTile).toEqual([])
-            expect(result.propertyGroups).toEqual([
-                { properties: [browserChrome], source: 'dashboard' },
-                { properties: [browserIsSet], source: 'tile' },
             ])
         })
     })

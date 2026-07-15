@@ -7721,6 +7721,27 @@ export namespace Schemas {
       Number37: 37,
     } as const;
 
+    export interface DashboardFilter {
+      breakdown_filter?: BreakdownFilter | null;
+      date_from?: string | null;
+      date_to?: string | null;
+      explicitDate?: boolean | null;
+      /** Tri-state test-account override. Null/absent = inherit; true = force on; false = force off. */
+      filterTestAccounts?: boolean | null;
+      /** Time granularity forced onto every insight that supports one. Absent/null = inherit. */
+      interval?: IntervalType | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+    }
+
+    export interface InsightFilterOverrideContext {
+      /** Dashboard filters that remain active after applying tile precedence. */
+      dashboard?: DashboardFilter | null;
+      /** Tile filters applied above the dashboard filters. */
+      tile?: DashboardFilter | null;
+      /** Dashboard filters replaced by the tile filters. */
+      overridden_dashboard?: DashboardFilter | null;
+    }
+
     export type SearchMatchTypeEnum = typeof SearchMatchTypeEnum[keyof typeof SearchMatchTypeEnum];
 
 
@@ -7834,6 +7855,8 @@ export namespace Schemas {
       readonly resolved_date_range: InsightResolvedDateRange;
       _create_in_folder?: string;
       readonly alerts: readonly unknown[];
+      /** Resolved dashboard and tile filter layers used to explain filter precedence in the UI. */
+      readonly filter_override_context: InsightFilterOverrideContext | null;
       /** @nullable */
       readonly last_viewed_at: string | null;
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
@@ -15745,18 +15768,6 @@ export namespace Schemas {
       readonly added_at: string;
       readonly updated_at: string;
       user_uuid: string;
-    }
-
-    export interface DashboardFilter {
-      breakdown_filter?: BreakdownFilter | null;
-      date_from?: string | null;
-      date_to?: string | null;
-      explicitDate?: boolean | null;
-      /** Tri-state test-account override. Null/absent = inherit; true = force on; false = force off. */
-      filterTestAccounts?: boolean | null;
-      /** Time granularity forced onto every insight that supports one. Absent/null = inherit. */
-      interval?: IntervalType | null;
-      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
     }
 
     /**
@@ -43862,6 +43873,8 @@ export namespace Schemas {
       readonly resolved_date_range?: PatchedInsightResolvedDateRange;
       _create_in_folder?: string;
       readonly alerts?: readonly unknown[];
+      /** Resolved dashboard and tile filter layers used to explain filter precedence in the UI. */
+      readonly filter_override_context?: InsightFilterOverrideContext | null;
       /** @nullable */
       readonly last_viewed_at?: string | null;
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */

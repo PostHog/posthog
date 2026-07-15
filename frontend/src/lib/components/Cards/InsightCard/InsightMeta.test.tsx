@@ -8,9 +8,14 @@ describe('InsightMeta', () => {
     describe('getEffectiveDateOverride', () => {
         it.each([
             {
-                label: 'tile override with dates → uses tile dates, ignores dashboard',
+                label: 'backend-resolved tile dates override raw dashboard and tile inputs',
+                filterOverrideContext: {
+                    dashboard: null,
+                    tile: { date_from: '-7d' },
+                    overridden_dashboard: { date_from: '-30d' },
+                },
                 filtersOverride: { date_from: '-30d' },
-                tileFiltersOverride: { date_from: '-7d' },
+                tileFiltersOverride: { date_from: '-3d' },
                 expected: { dateFromOverride: '-7d', dateToOverride: undefined },
             },
             {
@@ -31,8 +36,10 @@ describe('InsightMeta', () => {
                 tileFiltersOverride: undefined,
                 expected: { dateFromOverride: undefined, dateToOverride: undefined },
             },
-        ])('$label', ({ filtersOverride, tileFiltersOverride, expected }) => {
-            expect(getEffectiveDateOverride(filtersOverride, tileFiltersOverride)).toEqual(expected)
+        ])('$label', ({ filterOverrideContext, filtersOverride, tileFiltersOverride, expected }) => {
+            expect(getEffectiveDateOverride(filterOverrideContext, filtersOverride, tileFiltersOverride)).toEqual(
+                expected
+            )
         })
     })
 

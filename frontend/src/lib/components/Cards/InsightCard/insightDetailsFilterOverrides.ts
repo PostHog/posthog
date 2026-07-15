@@ -1,113 +1,24 @@
 import { DashboardFilter, TileFilters } from '~/queries/schema/schema-general'
-import { AnyPropertyFilter, PropertyGroupFilter } from '~/types'
-
-// Pure precedence logic for the dashboard/tile filter overrides shown in the insight detail popup. It
-// re-derives the merge the backend already computes (`merge_filters_by_priority` in
-// apply_dashboard_filters.py) purely to attribute each shown filter to its source ("Dashboard"/"Tile").
-// Keep the tie-break here in step with that backend rule.
+import { AnyPropertyFilter, InsightFilterOverrideContext, PropertyGroupFilter } from '~/types'
 
 export type OverrideSource = 'dashboard' | 'tile'
 
 export interface EffectiveFilterOverrides {
-    // Non-overlapping keys from both layers contribute; dashboard first to match backend order.
     propertyGroups: { properties: AnyPropertyFilter[]; source: OverrideSource }[]
-    // Dashboard property filters the tile contradicts — they don't apply, but we surface them
-    // struck-through so the precedence is visible rather than silently dropped.
     overriddenByTile: AnyPropertyFilter[]
     breakdown: { breakdownFilter: NonNullable<DashboardFilter['breakdown_filter']>; source: OverrideSource } | null
 }
 
-// Property filters stack (AND-combine) by default; a tile filter only replaces the dashboard's when the
-// two provably contradict. Mirrors backend `filters_contradict` in dashboard_filter_conflicts.py — keep
-// the two in step.
-const POSITIVE_EXACT_OPERATORS = new Set(['exact', 'in'])
-const NEGATIVE_EXACT_OPERATORS = new Set(['is_not', 'not_in'])
-// Operators that can never match an unset value; only these conflict with is_not_set.
-const MATCHES_ONLY_SET_VALUES = new Set(['exact', 'in', 'icontains', 'regex', 'is_set'])
-const INCOMPARABLE_FILTER_TYPES = new Set(['cohort', 'hogql'])
-
-function canonicalizeValue(value: unknown): string {
-    if (typeof value === 'boolean') {
-        return value ? 'true' : 'false'
-    }
-    return String(value)
-}
-
-function normalizedValues(value: unknown): string[] | null {
-    if (value == null) {
-        return null
-    }
-    const values = Array.isArray(value) ? value : [value]
-    return values.length === 0 ? null : values.map(canonicalizeValue)
-}
-
-function operatorAndValues(filter: AnyPropertyFilter): [string, string[] | null] {
-    const operator = ('operator' in filter && filter.operator) || 'exact'
-    return [operator, normalizedValues('value' in filter ? filter.value : undefined)]
-}
-
-function sameProperty(a: AnyPropertyFilter, b: AnyPropertyFilter): boolean {
-    for (const f of [a, b]) {
-        if (f.key == null || INCOMPARABLE_FILTER_TYPES.has((f.type as string) ?? '')) {
-            return false
-        }
-    }
-    const groupTypeIndex = (f: AnyPropertyFilter): unknown => ('group_type_index' in f ? f.group_type_index : undefined)
-    return a.key === b.key && a.type === b.type && groupTypeIndex(a) === groupTypeIndex(b)
-}
-
-function contradictsOneWay(opA: string, valuesA: string[] | null, opB: string, valuesB: string[] | null): boolean {
-    if (opB === 'is_not_set' && MATCHES_ONLY_SET_VALUES.has(opA)) {
-        return opA === 'is_set' || valuesA !== null
-    }
-    if (valuesA === null || valuesB === null) {
-        return false
-    }
-    const setA = new Set(valuesA)
-    const setB = new Set(valuesB)
-    if (POSITIVE_EXACT_OPERATORS.has(opA)) {
-        if (NEGATIVE_EXACT_OPERATORS.has(opB)) {
-            return [...setA].every((v) => setB.has(v))
-        }
-        if (POSITIVE_EXACT_OPERATORS.has(opB)) {
-            return ![...setA].some((v) => setB.has(v))
-        }
-    }
-    if (opA === 'icontains' && opB === 'not_icontains') {
-        const positive = valuesA.map((v) => v.toLowerCase())
-        const negative = valuesB.map((v) => v.toLowerCase())
-        return positive.every((p) => negative.some((n) => p.includes(n)))
-    }
-    if (opA === 'regex' && opB === 'not_regex') {
-        return valuesA.length === 1 && valuesB.length === 1 && valuesA[0] === valuesB[0]
-    }
-    return false
-}
-
-// Whether two filters on the same property provably contradict, so ANDing them could never match.
-function filtersContradict(a: AnyPropertyFilter, b: AnyPropertyFilter): boolean {
-    if (!sameProperty(a, b)) {
-        return false
-    }
-    const [opA, valuesA] = operatorAndValues(a)
-    const [opB, valuesB] = operatorAndValues(b)
-    return contradictsOneWay(opA, valuesA, opB, valuesB) || contradictsOneWay(opB, valuesB, opA, valuesA)
-}
-
 export function getEffectiveFilterOverrides(
+    filterOverrideContext: InsightFilterOverrideContext | null | undefined,
     filtersOverride: DashboardFilter | undefined,
     tileFiltersOverride: TileFilters | null | undefined
 ): EffectiveFilterOverrides {
-    const tileProperties = tileFiltersOverride?.properties ?? []
-    const dashboardProperties: AnyPropertyFilter[] = []
-    const overriddenByTile: AnyPropertyFilter[] = []
-    for (const property of filtersOverride?.properties ?? []) {
-        if (tileProperties.some((tile) => filtersContradict(property, tile))) {
-            overriddenByTile.push(property)
-        } else {
-            dashboardProperties.push(property)
-        }
-    }
+    const dashboardFilters = filterOverrideContext ? filterOverrideContext.dashboard : filtersOverride
+    const tileFilters = filterOverrideContext ? filterOverrideContext.tile : tileFiltersOverride
+    const dashboardProperties = (dashboardFilters?.properties ?? []) as AnyPropertyFilter[]
+    const tileProperties = (tileFilters?.properties ?? []) as AnyPropertyFilter[]
+    const overriddenByTile = (filterOverrideContext?.overridden_dashboard?.properties ?? []) as AnyPropertyFilter[]
     const propertyGroups: EffectiveFilterOverrides['propertyGroups'] = []
     if (dashboardProperties.length > 0) {
         propertyGroups.push({ properties: dashboardProperties, source: 'dashboard' })
@@ -116,10 +27,12 @@ export function getEffectiveFilterOverrides(
         propertyGroups.push({ properties: tileProperties, source: 'tile' })
     }
 
-    const breakdown = tileFiltersOverride?.breakdown_filter
-        ? { breakdownFilter: tileFiltersOverride.breakdown_filter, source: 'tile' as const }
-        : filtersOverride?.breakdown_filter
-          ? { breakdownFilter: filtersOverride.breakdown_filter, source: 'dashboard' as const }
+    const tileBreakdown = tileFilters?.breakdown_filter as DashboardFilter['breakdown_filter']
+    const dashboardBreakdown = dashboardFilters?.breakdown_filter as DashboardFilter['breakdown_filter']
+    const breakdown = tileBreakdown
+        ? { breakdownFilter: tileBreakdown, source: 'tile' as const }
+        : dashboardBreakdown
+          ? { breakdownFilter: dashboardBreakdown, source: 'dashboard' as const }
           : null
 
     return { propertyGroups, overriddenByTile, breakdown }
@@ -151,25 +64,34 @@ function hasDateBound(source: DateRangeSource | null | undefined): boolean {
 // insight's own range); returns null when the insight's own range wins.
 export function getDateRangeOverrideDisplay(
     insightDateRange: DateRangeSource | undefined,
+    filterOverrideContext: InsightFilterOverrideContext | null | undefined,
     filtersOverride: DashboardFilter | undefined,
     tileFiltersOverride: TileFilters | null | undefined
 ): EffectiveDateOverride | null {
+    const dashboardFilters = filterOverrideContext ? filterOverrideContext.dashboard : filtersOverride
+    const tileFilters = filterOverrideContext ? filterOverrideContext.tile : tileFiltersOverride
     let winner: {
         source: OverrideSource
         dateFrom: string | null | undefined
         dateTo: string | null | undefined
     } | null = null
-    if (hasDateBound(tileFiltersOverride)) {
-        winner = { source: 'tile', dateFrom: tileFiltersOverride?.date_from, dateTo: tileFiltersOverride?.date_to }
-    } else if (hasDateBound(filtersOverride)) {
-        winner = { source: 'dashboard', dateFrom: filtersOverride?.date_from, dateTo: filtersOverride?.date_to }
+    if (hasDateBound(tileFilters)) {
+        winner = { source: 'tile', dateFrom: tileFilters?.date_from, dateTo: tileFilters?.date_to }
+    } else if (hasDateBound(dashboardFilters)) {
+        winner = { source: 'dashboard', dateFrom: dashboardFilters?.date_from, dateTo: dashboardFilters?.date_to }
     }
     if (!winner) {
         return null
     }
 
     let replaced: EffectiveDateOverride['replaced']
-    if (winner.source === 'tile' && hasDateBound(filtersOverride)) {
+    if (hasDateBound(filterOverrideContext?.overridden_dashboard)) {
+        replaced = {
+            source: 'dashboard',
+            dateFrom: filterOverrideContext?.overridden_dashboard?.date_from,
+            dateTo: filterOverrideContext?.overridden_dashboard?.date_to,
+        }
+    } else if (winner.source === 'tile' && hasDateBound(filtersOverride)) {
         replaced = { source: 'dashboard', dateFrom: filtersOverride?.date_from, dateTo: filtersOverride?.date_to }
     } else if (hasDateBound(insightDateRange)) {
         replaced = { source: 'insight', dateFrom: insightDateRange?.date_from, dateTo: insightDateRange?.date_to }

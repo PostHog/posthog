@@ -76,6 +76,7 @@ from posthog.hogql_queries.apply_dashboard_filters import (
     apply_dashboard_filters_to_dict,
     apply_dashboard_variables_to_dict,
     resolve_effective_dashboard_filters,
+    resolve_filter_layers_by_priority,
 )
 from posthog.hogql_queries.legacy_compatibility.feature_flag import get_query_method
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
@@ -452,6 +453,18 @@ class QueryFieldSerializer(serializers.Serializer):
         return data
 
 
+class InsightFilterOverrideContext(BaseModel):
+    dashboard: schema.DashboardFilter | None = PydanticField(
+        default=None, description="Dashboard filters that remain active after applying tile precedence."
+    )
+    tile: schema.DashboardFilter | None = PydanticField(
+        default=None, description="Tile filters applied above the dashboard filters."
+    )
+    overridden_dashboard: schema.DashboardFilter | None = PydanticField(
+        default=None, description="Dashboard filters replaced by the tile filters."
+    )
+
+
 class InsightSerializer(InsightBasicSerializer):
     result = serializers.SerializerMethodField()
     hasMore = serializers.SerializerMethodField()
@@ -506,6 +519,11 @@ class InsightSerializer(InsightBasicSerializer):
     resolved_date_range = serializers.SerializerMethodField(read_only=True)
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
     alerts = serializers.SerializerMethodField(read_only=True)
+    filter_override_context = serializers.SerializerMethodField(
+        read_only=True,
+        allow_null=True,
+        help_text="Resolved dashboard and tile filter layers used to explain filter precedence in the UI.",
+    )
 
     class Meta:
         model = Insight
@@ -547,6 +565,7 @@ class InsightSerializer(InsightBasicSerializer):
             "resolved_date_range",
             "_create_in_folder",
             "alerts",
+            "filter_override_context",
             "last_viewed_at",
             "search_match_type",
         ]
@@ -941,6 +960,30 @@ class InsightSerializer(InsightBasicSerializer):
         from products.alerts.backend.api.alert import AlertSerializer
 
         return AlertSerializer(alerts, many=True, context=self.context).data
+
+    @extend_schema_field(InsightFilterOverrideContext)  # type: ignore[arg-type]
+    def get_filter_override_context(self, insight: Insight) -> dict[str, dict | None] | None:
+        dashboard: Dashboard | None = self.context.get("dashboard")
+        request: Request | None = self.context.get("request")
+        if request is None:
+            return None
+
+        is_shared = self.context.get("is_shared", False)
+        dashboard_filters_override = filters_override_requested_by_client(request, dashboard, is_shared=is_shared)
+        dashboard_tile = self.dashboard_tile_from_context(insight, dashboard)
+        tile_filters_override = tile_filters_override_requested_by_client(request, dashboard_tile, is_shared=is_shared)
+        dashboard_filters = (
+            dashboard_filters_override
+            if dashboard_filters_override is not None
+            else dashboard.filters
+            if dashboard
+            else {}
+        )
+        if not dashboard_filters and not tile_filters_override:
+            return None
+
+        resolved_layers = resolve_filter_layers_by_priority(dashboard_filters, tile_filters_override)
+        return {key: value or None for key, value in resolved_layers.items()}
 
     def get_effective_restriction_level(self, insight: Insight) -> Dashboard.RestrictionLevel:
         if self.context.get("is_shared"):

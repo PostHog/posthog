@@ -68,7 +68,13 @@ import {
     isTrendsQuery,
     hasBreakdownFilter,
 } from '~/queries/utils'
-import { AnyPropertyFilter, BaseMathType, FilterLogicalOperator, UserBasicType } from '~/types'
+import {
+    AnyPropertyFilter,
+    BaseMathType,
+    FilterLogicalOperator,
+    InsightFilterOverrideContext,
+    UserBasicType,
+} from '~/types'
 
 import { PropertyKeyInfo } from '../../PropertyKeyInfo'
 import { TZLabel } from '../../TZLabel'
@@ -618,21 +624,35 @@ interface InsightDetailsProps {
     variablesOverride?: Record<string, HogQLVariable>
     filtersOverride?: DashboardFilter
     tileFiltersOverride?: TileFilters | null
+    filterOverrideContext?: InsightFilterOverrideContext | null
     hasDataWarehouseSeries?: boolean
 }
 
 export const InsightDetails = React.memo(
     React.forwardRef<HTMLDivElement, InsightDetailsProps>(function InsightDetailsInternal(
-        { query, footerInfo, variablesOverride, filtersOverride, tileFiltersOverride, hasDataWarehouseSeries },
+        {
+            query,
+            footerInfo,
+            variablesOverride,
+            filtersOverride,
+            tileFiltersOverride,
+            filterOverrideContext,
+            hasDataWarehouseSeries,
+        },
         ref
     ): JSX.Element {
         const {
             propertyGroups,
             overriddenByTile,
             breakdown: overrideBreakdown,
-        } = getEffectiveFilterOverrides(filtersOverride, tileFiltersOverride)
+        } = getEffectiveFilterOverrides(filterOverrideContext, filtersOverride, tileFiltersOverride)
         const insightDateRange = isInsightVizNode(query) ? query.source.dateRange : undefined
-        const dateOverride = getDateRangeOverrideDisplay(insightDateRange, filtersOverride, tileFiltersOverride)
+        const dateOverride = getDateRangeOverrideDisplay(
+            insightDateRange,
+            filterOverrideContext,
+            filtersOverride,
+            tileFiltersOverride
+        )
         const overrideBreakdownFilter = overrideBreakdown?.breakdownFilter
         const hasPropertyOverrides = propertyGroups.length > 0
         const hasIgnoredBreakdownOverrides =
