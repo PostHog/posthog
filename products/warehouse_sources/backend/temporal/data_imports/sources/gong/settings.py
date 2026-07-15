@@ -24,6 +24,10 @@ class GongEndpointConfig:
     # alongside `parties` (participants) and CRM `context`. Requires the broader
     # `api:calls:read:extensive` scope.
     uses_extensive: bool = False
+    # Whether responses from this endpoint may be sampled into HTTP troubleshooting storage.
+    # Disabled for endpoints whose bodies carry participant names and free-form CRM field values
+    # that the name-based scrubbers can't recognise; requests stay metered and logged.
+    capture_http_samples: bool = True
 
 
 GONG_ENDPOINTS: dict[str, GongEndpointConfig] = {
@@ -57,6 +61,7 @@ GONG_ENDPOINTS: dict[str, GongEndpointConfig] = {
         supports_incremental=True,
         uses_date_window=True,
         uses_extensive=True,
+        capture_http_samples=False,
         incremental_fields=[
             {
                 "label": "started",

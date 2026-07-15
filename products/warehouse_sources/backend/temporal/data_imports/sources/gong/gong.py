@@ -161,7 +161,7 @@ def get_rows(
         reraise=True,
     )
     def fetch_page(url: str, json_body: Optional[dict[str, Any]] = None) -> dict[str, Any]:
-        session = make_tracked_session()
+        session = make_tracked_session(capture=config.capture_http_samples)
         # Extensive endpoints POST their filter/pagination in a JSON body; list endpoints GET.
         # `requests` sets `Content-Type: application/json` automatically for the `json=` kwarg.
         if json_body is not None:

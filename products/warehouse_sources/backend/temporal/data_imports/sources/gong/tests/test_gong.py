@@ -438,3 +438,34 @@ class TestExtensiveCalls:
         assert second_body is not None
         assert second_body["cursor"] == "page2"
         assert all("?" not in url for url in session.requested_urls)
+
+    def test_response_body_capture_disabled_for_extensive_only(self) -> None:
+        # Extensive responses carry participant names and free-form CRM fields, so they must be
+        # excluded from HTTP sample capture; basic list endpoints stay captured for troubleshooting.
+        last_value = datetime.now(UTC) - timedelta(days=5)
+
+        extensive_session = _FakeSession([_FakeResponse(json_data={"calls": [{"metaData": {"id": "c1"}}]})])
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong.make_tracked_session",
+            return_value=extensive_session,
+        ) as extensive_factory:
+            list(
+                get_rows(
+                    "key",
+                    "secret",
+                    "calls_extensive",
+                    mock.MagicMock(),
+                    _FakeResumableManager(),
+                    should_use_incremental_field=True,
+                    db_incremental_field_last_value=last_value,
+                )
+            )
+        assert extensive_factory.call_args.kwargs["capture"] is False
+
+        users_session = _FakeSession([_FakeResponse(json_data={"users": [{"id": "u1"}]})])
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong.make_tracked_session",
+            return_value=users_session,
+        ) as users_factory:
+            list(get_rows("key", "secret", "users", mock.MagicMock(), _FakeResumableManager()))
+        assert users_factory.call_args.kwargs["capture"] is True
