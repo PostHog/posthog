@@ -92,9 +92,9 @@ tools:
             idempotent: true
         title: Preview a loop fire
         description: >
-            Dry-run a loop: render the assembled instructions and trigger context for a sample payload (or a
-            synthetic schedule fire when omitted) without creating a task, run, or any other side effect. Use it to
-            check a loop's prompt before enabling it.
+            Dry-run a loop: render the assembled instructions and trigger context for a sample payload (or a synthetic
+            schedule fire when omitted) without creating a task, run, or any other side effect. Use it to check a loop's
+            prompt before enabling it.
         feature_flag: tasks
     loops-retrieve:
         operation: loops_retrieve
