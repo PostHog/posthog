@@ -1,6 +1,12 @@
 @import 'base';
 @import 'fonts';
 
+// Icon sizing must be in the always-loaded entry bundle: @posthog/icons SVGs across the
+// app rely on `.LemonIcon` to size them, but the rule otherwise ships only in the
+// lib/lemon-ui/icons chunk, so it can be absent on a route that renders those icons
+// without loading that chunk, leaving them to blow up to their `width="100%"` fallback.
+@import '../lib/lemon-ui/icons/icons.scss';
+
 /*
  * @posthog/quill — scoped tokens + primitive BEM rules. The scoped token
  * variant gates CSS custom properties behind `[data-quill]` so they don't

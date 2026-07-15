@@ -1,5 +1,12 @@
+// @posthog/icons SVGs render with `width="100%"` and no height attribute, so they
+// depend entirely on this rule to constrain their size. Both dimensions are pinned to
+// 1em (rather than leaving height to viewBox aspect-ratio inference) so an icon can
+// never fall back to filling its container. This rule is also pulled into the entry
+// bundle via styles/global.scss so it can't go missing on a route whose chunk renders
+// @posthog/icons without importing this module.
 .LemonIcon {
     display: inline-block;
     width: 1em;
+    height: 1em;
     vertical-align: -0.15em; // -0.15em ensures vertical centering in inline contexts
 }
