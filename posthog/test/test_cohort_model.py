@@ -711,9 +711,14 @@ _LIFECYCLE_FILTERS = {
 
 
 def _condition_flags(
-    *, person: bool = False, behavioral: bool = False, lifecycle: bool = False, cohorts: bool = False
+    *, person_properties: bool = False, behavioral: bool = False, lifecycle: bool = False, cohorts: bool = False
 ) -> CohortConditionFlags:
-    return {"person": person, "behavioral": behavioral, "lifecycle": lifecycle, "cohorts": cohorts}
+    return {
+        "person_properties": person_properties,
+        "behavioral": behavioral,
+        "lifecycle": lifecycle,
+        "cohorts": cohorts,
+    }
 
 
 _FIXED_TS = datetime(2026, 1, 1, tzinfo=UTC)
@@ -797,19 +802,19 @@ class TestCohortIsFlagCompatible(BaseTest):
 class TestCohortComputeConditionType(SimpleTestCase):
     @parameterized.expand(
         [
-            ("person_only", _PERSON_FILTERS, _condition_flags(person=True)),
+            ("person_only", _PERSON_FILTERS, _condition_flags(person_properties=True)),
             ("behavioral_only", _BEHAVIORAL_FILTERS, _condition_flags(behavioral=True)),
-            ("mixed", _MIXED_FILTERS, _condition_flags(person=True, behavioral=True)),
+            ("mixed", _MIXED_FILTERS, _condition_flags(person_properties=True, behavioral=True)),
             ("cohort_reference_only", _COHORT_REF_FILTERS, _condition_flags(cohorts=True)),
             ("empty_filters", {}, None),
             ("none_filters", None, None),
             # person_metadata reads a top-level persons-table column rather than the
             # properties JSON blob, but it's still a property-style (non-behavioral) condition.
-            ("person_metadata_only", _PERSON_METADATA_FILTERS, _condition_flags(person=True)),
+            ("person_metadata_only", _PERSON_METADATA_FILTERS, _condition_flags(person_properties=True)),
             (
                 "person_metadata_and_behavioral",
                 _PERSON_METADATA_AND_BEHAVIORAL_FILTERS,
-                _condition_flags(person=True, behavioral=True),
+                _condition_flags(person_properties=True, behavioral=True),
             ),
             # Lifecycle-style behavioral values (first-seen/regularly/stopped/restarted) are
             # distinct from plain event-count behavioral filters.
@@ -827,7 +832,7 @@ class TestCohortConditionTypeDerivedOnSave(BaseTest):
     # command or get_or_create_internal_test_users_cohort) must still get classified.
     def test_direct_orm_create_derives_condition_type(self):
         cohort = Cohort.objects.create(team=self.team, filters=_PERSON_FILTERS)
-        self.assertEqual(cohort.condition_type, _condition_flags(person=True))
+        self.assertEqual(cohort.condition_type, _condition_flags(person_properties=True))
 
     # Static cohorts skip cohort_type/realtime computation, but condition_type
     # classifies filter shape independent of that, so it must still be set.
@@ -839,9 +844,9 @@ class TestCohortConditionTypeDerivedOnSave(BaseTest):
     # recompute or drop condition_type.
     def test_narrow_update_fields_save_does_not_touch_condition_type(self):
         cohort = Cohort.objects.create(team=self.team, filters=_PERSON_FILTERS)
-        self.assertEqual(cohort.condition_type, _condition_flags(person=True))
+        self.assertEqual(cohort.condition_type, _condition_flags(person_properties=True))
 
         cohort.is_calculating = True
         cohort.save(update_fields=["is_calculating"])
         cohort.refresh_from_db()
-        self.assertEqual(cohort.condition_type, _condition_flags(person=True))
+        self.assertEqual(cohort.condition_type, _condition_flags(person_properties=True))

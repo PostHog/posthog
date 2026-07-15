@@ -14,9 +14,9 @@ class Migration(migrations.Migration):
                 blank=True,
                 help_text=(
                     "Flags describing which kinds of conditions the cohort's filters contain: "
-                    "person (property or person_metadata), behavioral, lifecycle (first-seen/regularly/"
-                    "stopped/restarted performing an event), and cohorts (nested cohort references). "
-                    "Null when the cohort has no filters to classify."
+                    "person_properties (property or person_metadata), behavioral, lifecycle "
+                    "(first-seen/regularly/stopped/restarted performing an event), and cohorts "
+                    "(nested cohort references). Null when the cohort has no filters to classify."
                 ),
                 null=True,
             ),

@@ -6413,7 +6413,12 @@ class TestCohortTypeIntegration(APIBaseTest):
         self.assertEqual(cohort.cohort_type, "realtime")
         self.assertEqual(response.data["cohort_type"], "realtime")
         # condition_type is auto-computed from the filter shape, independent of realtime eligibility
-        expected_condition_type = {"person": True, "behavioral": False, "lifecycle": False, "cohorts": False}
+        expected_condition_type = {
+            "person_properties": True,
+            "behavioral": False,
+            "lifecycle": False,
+            "cohorts": False,
+        }
         self.assertEqual(cohort.condition_type, expected_condition_type)
         self.assertEqual(response.data["condition_type"], expected_condition_type)
 
@@ -6486,7 +6491,12 @@ class TestCohortTypeIntegration(APIBaseTest):
         self.assertIn("cohort_type", response.data)
         self.assertEqual(response.data["cohort_type"], CohortType.BEHAVIORAL)
         self.assertIn("condition_type", response.data)
-        expected_condition_type = {"person": False, "behavioral": True, "lifecycle": False, "cohorts": False}
+        expected_condition_type = {
+            "person_properties": False,
+            "behavioral": True,
+            "lifecycle": False,
+            "cohorts": False,
+        }
         self.assertEqual(response.data["condition_type"], expected_condition_type)
 
         # Test LIST request

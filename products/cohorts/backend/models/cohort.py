@@ -58,7 +58,7 @@ class CohortConditionFlags(TypedDict):
     """Boolean flags describing which kinds of leaf conditions a cohort's filters contain,
     independent of `CohortType` (which is about realtime-evaluation eligibility, not filter shape)."""
 
-    person: bool
+    person_properties: bool
     behavioral: bool
     lifecycle: bool
     cohorts: bool
@@ -254,8 +254,8 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         null=True,
         blank=True,
         help_text="Flags describing which kinds of conditions the cohort's filters contain: "
-        "person (property or person_metadata), behavioral, lifecycle (first-seen/regularly/stopped/"
-        "restarted performing an event), and cohorts (nested cohort references). Null when the "
+        "person_properties (property or person_metadata), behavioral, lifecycle (first-seen/regularly/"
+        "stopped/restarted performing an event), and cohorts (nested cohort references). Null when the "
         "cohort has no filters to classify.",
     )
 
@@ -425,10 +425,10 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
         `person` and `person_metadata` are both property-style conditions (the latter reads
         top-level persons-table columns instead of the properties JSON blob, but is not
-        behavioral), so either sets the `person` flag. Behavioral filters split into plain
-        `behavioral` (performed_event, performed_event_multiple, performed_event_sequence) and
-        `lifecycle` (first-seen/regularly/stopped/restarted performing an event), matching the
-        frontend's "Lifecycle" cohort filter section. `cohorts` flags nested cohort references.
+        behavioral), so either sets the `person_properties` flag. Behavioral filters split into
+        plain `behavioral` (performed_event, performed_event_multiple, performed_event_sequence)
+        and `lifecycle` (first-seen/regularly/stopped/restarted performing an event), matching
+        the frontend's "Lifecycle" cohort filter section. `cohorts` flags nested cohort references.
 
         Returns None when the filters have no leaf conditions to classify (e.g. empty filters).
         """
@@ -437,7 +437,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             return None
 
         return {
-            "person": any(leaf.get("type") in ("person", "person_metadata") for leaf in leaves),
+            "person_properties": any(leaf.get("type") in ("person", "person_metadata") for leaf in leaves),
             "behavioral": any(
                 leaf.get("type") == "behavioral" and leaf.get("value") not in LIFECYCLE_BEHAVIORAL_VALUES
                 for leaf in leaves
