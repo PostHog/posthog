@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.customer_analytics.backend.consumers.person_property_update_consumer import (
+from products.customer_analytics.backend.logic.person_property_update_consumer import (
     DLQ,
     RETRY,
     SENT,
@@ -156,7 +156,7 @@ class TestProcessRecord:
         # A poison-heavy partition must not resolve a new producer per message; the routed singleton
         # is fetched lazily on first use and cached.
         with patch(
-            "products.customer_analytics.backend.consumers.person_property_update_consumer.get_producer"
+            "products.customer_analytics.backend.logic.person_property_update_consumer.get_producer"
         ) as get_producer:
             c = PersonPropertyUpdateConsumer(capture_fn=MagicMock(), bucket=MagicMock())
             c.process_record(b"not json")

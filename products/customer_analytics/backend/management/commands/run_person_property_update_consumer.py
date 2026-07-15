@@ -1,6 +1,6 @@
 from django.core.management.base import BaseCommand
 
-from products.customer_analytics.backend.consumers.person_property_update_consumer import PersonPropertyUpdateConsumer
+from products.customer_analytics.backend.logic.person_property_update_consumer import PersonPropertyUpdateConsumer
 
 
 class Command(BaseCommand):
