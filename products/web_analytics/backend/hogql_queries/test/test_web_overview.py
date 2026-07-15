@@ -1249,6 +1249,10 @@ class TestWebOverviewTwoPhaseFastPath(ClickhouseTestMixin, APIBaseTest):
         # keep results correct while regressing the sessions scan back to
         # aggregating every session in range.
         assert "globalIn(raw_sessions.session_id_v7" in sql
+        # The pushdown must MOVE the id filter, not copy it: a retained outer
+        # predicate makes ClickHouse execute the identical GLOBAL IN id-subquery
+        # twice — one extra full filtered-events scan per query.
+        assert sql.count("globalIn(") == 1
 
     def test_two_phase_falls_back_to_join_when_filter_is_unselective(self):
         self._create_pageviews()

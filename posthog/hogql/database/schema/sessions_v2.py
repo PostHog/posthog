@@ -526,6 +526,14 @@ def build_direct_session_id_in_pushdown(node: ast.SelectQuery, context: HogQLCon
             select=[id_expr],
             select_from=ast.JoinExpr(table=subquery),
         )
+        # Neutralize the original outer predicate in place: keeping it would make
+        # ClickHouse execute the identical GLOBAL IN id-subquery twice (once pushed
+        # down, once post-aggregation) — measured as an extra full filtered-events
+        # scan per query. The pushed copy below subsumes it exactly.
+        term.op = ast.CompareOperationOp.Eq
+        term.left = ast.Constant(value=1)
+        term.right = ast.Constant(value=1)
+
         return ast.CompareOperation(
             op=ast.CompareOperationOp.GlobalIn,
             left=ast.Field(chain=["raw_sessions", "session_id_v7"]),
