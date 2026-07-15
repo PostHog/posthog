@@ -366,7 +366,6 @@ export const FEATURE_FLAGS = {
     LOGS_SQL_VIEW: 'logs-sql-view', // owner: #team-logs
     LOGS_TABBED_VIEW: 'logs-tabbed-view', // owner: #team-logs
     MANAGED_VIEWSETS: 'managed-viewsets', // owner: @rafaeelaudibert #team-revenue-analytics
-    MARKDOWN_NOTEBOOKS: 'markdown-notebooks', // owner: #team-platform-features, enables Markdown notebooks upgrade path
     MARKETING_ANALYTICS_AI: 'marketing-analytics-ai', // owner: @jabahamondes #team-web-analytics
     MARKETING_ANALYTICS_COSTS_PRECOMPUTATION: 'marketing-analytics-costs-precomputation', // owner: @jabahamondes #team-web-analytics — gates reading the native cost precompute table
     MARKETING_ANALYTICS_DRILL_DOWN: 'marketing-analytics-drill-down', // owner: @jabahamondes  #team-web-analytics
@@ -390,8 +389,6 @@ export const FEATURE_FLAGS = {
     NEW_TEAM_CORE_EVENTS: 'new-team-core-events', // owner: @jabahamondes #team-web-analytics
     NOTEBOOK_PYTHON: 'notebook-python', // owner: #team-data-tools
     NOTEBOOK_SHARING: 'notebook-sharing', // owner: @reecejones #team-platform-features
-    NOTEBOOKS_COLLABORATION: 'notebooks-collaboration', // owner: #team-platform-features
-    NOTEBOOKS_COLLAPSIBLE_SECTIONS: 'notebooks-collapsible-sections', // owner: @benjackwhite
     ONBOARDING_DATA_WAREHOUSE_VALUE_PROP: 'onboarding-data-warehouse-value-prop', // owner: @fercgomes #team-growth multivariate=control,table,query
     ONBOARDING_FLOW_VARIANT: 'onboarding-flow-variant', // owner: @fercgomes #team-growth multivariate=control,self-driving — selects the whole onboarding experience; control is the existing flow (the historical `legacy` value is an alias of control)
     ONBOARDING_HIDE_BREADCRUMBS: 'onboarding-hide-breadcrumbs', // owner: @fercgomes #team-growth, multivariate=true, hides breadcrumbs during onboarding to reduce distractions
@@ -449,7 +446,6 @@ export const FEATURE_FLAGS = {
     QUILL_CHART_STYLE_REFRESH: 'quill-chart-style-refresh', // owner: #team-product-analytics, gates refreshed quill chart styling (monotone curves, axis lines + tick marks, faint dashed grid, crosshair)
     QUILL_DATE_PICKER: 'quill-date-picker', // owner: @pauldambra, flips the lib/components/DatePicker seam from LemonUI to Quill
     QUILL_SPARKLINE: 'quill-sparkline', // owner: @sampennington #team-product-analytics, gates rendering the shared lib Sparkline via @posthog/quill-charts (docs/internal/quill-migration-sparkline.md)
-    RBAC_UI_REDESIGN: 'rbac-ui-redesign', // owner: @reece #team-platform-features
     READ_ONLY_MODE: 'read-only-mode', // owner: @pauldambra, experiment: force users into read-only and steer mutations through Max/MCP
     REAL_TIME_NOTIFICATIONS: 'real-time-notifications', // owner: #team-platform-features
     REALTIME_COHORT_FLAG_TARGETING: 'realtime-cohort-flag-targeting', // owner: @dmarticus #team-feature-flags
@@ -510,11 +506,11 @@ export const FEATURE_FLAGS = {
     USER_INTERVIEWS: 'user-interviews', // owner: @Twixes @jurajmajerik
     UX_REMOVE_SIDEPANEL: 'ux-remove-sidepanel', // owner: #team-surveys
     VISUAL_REVIEW: 'visual-review', // owner: #team-devex
+    WAREHOUSE_PERSON_PROPERTIES: 'warehouse-person-properties', // owner: @tomowers #team-warehouse-sources, gates warehouse -> person properties (person-target custom property sources)
     WEB_ANALYTICS_ACHIEVEMENTS: 'web-analytics-achievements', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_BOT_ANALYSIS: 'web-analytics-bot-analysis', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_CONVERSION_GOAL_PREAGG: 'web-analytics-conversion-goal-preagg', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_DRAG_TO_ZOOM: 'web-analytics-drag-to-zoom', // owner: @jordanm-posthog #team-web-analytics
-    WAREHOUSE_PERSON_PROPERTIES: 'warehouse-person-properties', // owner: @tomowers #team-warehouse-sources, gates warehouse -> person properties (person-target custom property sources)
     WEB_ANALYTICS_EMPTY_ONBOARDING: 'web-analytics-empty-onboarding', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_FILTERS_V2: 'web-analytics-filters-v2', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_FOCUS_MODE: 'web-analytics-focus-mode', // owner: @jordanm-posthog #team-web-analytics

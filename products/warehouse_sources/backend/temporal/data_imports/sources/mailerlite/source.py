@@ -35,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MailerLiteSource(ResumableSource[MailerLiteSourceConfig, MailerLiteResumeConfig]):
+    api_docs_url = "https://developers.mailerlite.com"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

@@ -32,6 +32,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ZoomSource(ResumableSource[ZoomSourceConfig, ZoomResumeConfig]):
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://developers.zoom.us/docs/api/"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
