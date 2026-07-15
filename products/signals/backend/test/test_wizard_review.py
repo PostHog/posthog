@@ -13,6 +13,7 @@ from products.signals.backend.contracts import SIGNAL_VARIANT_LOOKUP
 from products.signals.backend.models import SignalReport
 from products.signals.backend.temporal.wizard_review import (
     MAX_REVIEW_SIGNALS,
+    REMEDIATION_AGENT,
     AuditCheck,
     EmitSignalsInputs,
     ReviewSignalDraft,
@@ -59,7 +60,7 @@ async def test_compose_falls_back_to_verbatim_drafts_by_severity(ateam):
         _check("identify-not-late", "error"),
     ]
 
-    with patch("products.signals.backend.temporal.llm.call_llm", side_effect=RuntimeError("llm down")):
+    with patch("products.signals.backend.temporal.wizard_review.call_llm", side_effect=RuntimeError("llm down")):
         drafts = await ActivityEnvironment().run(
             compose_review_signals_activity,
             WizardReviewInputs(team_id=ateam.id, repository=REPO, checks=checks),
@@ -103,15 +104,11 @@ async def test_compose_skips_already_reviewed_team(ateam):
 @pytest.mark.django_db
 async def test_emit_sends_each_draft_through_emit_signal(ateam):
     drafts = [
-        ReviewSignalDraft(
-            category="identify-stable-distinct-id", description="d1", remediation_human="h1", remediation_agent="a1"
-        ),
-        ReviewSignalDraft(
-            category="capture-growth-events", description="d2", remediation_human="h2", remediation_agent="a2"
-        ),
+        ReviewSignalDraft(category="identify-stable-distinct-id", description="d1"),
+        ReviewSignalDraft(category="capture-growth-events", description="d2"),
     ]
 
-    with patch("products.signals.backend.facade.api.emit_signal", new_callable=AsyncMock) as mock_emit:
+    with patch("products.signals.backend.temporal.wizard_review.emit_signal", new_callable=AsyncMock) as mock_emit:
         emitted = await ActivityEnvironment().run(
             emit_review_signals_activity,
             EmitSignalsInputs(team_id=ateam.id, repository=REPO, drafts=drafts),
@@ -126,7 +123,10 @@ async def test_emit_sends_each_draft_through_emit_signal(ateam):
         # Weight 1.0 is what makes the report promote immediately.
         assert kwargs["weight"] == 1.0
         assert kwargs["extra"] == {"repository": REPO, "category": draft.category}
-        assert kwargs["remediation"].agent == draft.remediation_agent
+        # Remediation is authoritative direction for downstream agents, so it must be the
+        # server-owned text — never derived from the (repository-controlled) audit ledger.
+        assert kwargs["remediation"].agent == REMEDIATION_AGENT
+        assert draft.description not in kwargs["remediation"].agent
 
 
 @pytest.mark.django_db

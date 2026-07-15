@@ -4,7 +4,11 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.tasks.backend.temporal.process_task.activities.run_wizard_audit import _MAX_DETAILS_CHARS, _parse_checks
+from products.tasks.backend.temporal.process_task.activities.run_wizard_audit import (
+    _MAX_DETAILS_CHARS,
+    _MAX_LABEL_CHARS,
+    _parse_checks,
+)
 
 
 class TestParseAuditChecks(SimpleTestCase):
@@ -29,7 +33,8 @@ class TestParseAuditChecks(SimpleTestCase):
                 {
                     "id": "identify-stable-distinct-id",
                     "area": "identify",
-                    "label": "Stable distinct id",
+                    # Every ledger field is repository-controlled, so the short fields are capped too.
+                    "label": "L" * (_MAX_LABEL_CHARS + 500),
                     "status": "error",
                     "file": "src/auth.ts",
                     "details": "x" * (_MAX_DETAILS_CHARS + 500),
@@ -43,6 +48,7 @@ class TestParseAuditChecks(SimpleTestCase):
 
         self.assertEqual(len(checks), 2)
         self.assertEqual(checks[0]["id"], "identify-stable-distinct-id")
+        self.assertEqual(len(checks[0]["label"]), _MAX_LABEL_CHARS)
         self.assertEqual(len(checks[0]["details"]), _MAX_DETAILS_CHARS)
         self.assertEqual(
             checks[1],

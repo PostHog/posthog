@@ -74,10 +74,11 @@ class SignalSourceConfig(UUIDModel):
     def is_source_enabled(cls, team_id: int, source_product: str, source_type: str) -> bool:
         """Check whether a given signal source is enabled for a team.
 
-        Scout findings are on by default (see below). For everything else, the team must have a
-        SignalSourceConfig row with enabled=True. AI observability evaluation signals additionally
-        carry a per-evaluation allowlist in the config row, enforced upstream in the llma evals
-        workflows — the row check here is the team-level gate.
+        Scout findings and wizard setup-review signals are on by default (see below). For
+        everything else, the team must have a SignalSourceConfig row with enabled=True. AI
+        observability evaluation signals additionally carry a per-evaluation allowlist in the
+        config row, enforced upstream in the llma evals workflows — the row check here is the
+        team-level gate.
         """
         # Replay Vision scanners are self-authorizing: the scanner's `emits_signals` flag is the
         # per-source config, so there's no separate SignalSourceConfig row to gate against.

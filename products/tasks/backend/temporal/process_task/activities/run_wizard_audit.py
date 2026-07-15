@@ -12,6 +12,7 @@ from temporalio import activity
 from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.logic.services.sandbox import Sandbox
+from products.tasks.backend.models import TaskRun
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 
 from .get_task_processing_context import TaskProcessingContext
@@ -38,6 +39,10 @@ _NON_FINDING_CHECK_IDS = frozenset({"write-report", "upload-notebook"})
 
 _MAX_CHECKS = 50
 _MAX_DETAILS_CHARS = 2000
+# The ledger is a file in the scanned repository's working tree, so every field is untrusted;
+# cap the short fields too, not just details.
+_MAX_ID_CHARS = 100
+_MAX_LABEL_CHARS = 300
 
 
 @dataclass
@@ -79,13 +84,14 @@ def _parse_checks(raw: str) -> list[dict[str, Any]]:
             continue
         if check_id in _NON_FINDING_CHECK_IDS:
             continue
+        area, file = entry.get("area"), entry.get("file")
         checks.append(
             {
-                "id": check_id,
-                "area": entry.get("area") if isinstance(entry.get("area"), str) else None,
-                "label": label,
+                "id": check_id[:_MAX_ID_CHARS],
+                "area": area[:_MAX_LABEL_CHARS] if isinstance(area, str) else None,
+                "label": label[:_MAX_LABEL_CHARS],
                 "status": status,
-                "file": entry.get("file") if isinstance(entry.get("file"), str) else None,
+                "file": file[:_MAX_LABEL_CHARS] if isinstance(file, str) else None,
                 "details": str(entry.get("details"))[:_MAX_DETAILS_CHARS] if entry.get("details") else None,
             }
         )
@@ -95,8 +101,6 @@ def _parse_checks(raw: str) -> list[dict[str, Any]]:
 
 
 def _persist_checks(run_id: str, checks: list[dict[str, Any]]) -> None:
-    from products.tasks.backend.models import TaskRun
-
     with transaction.atomic():
         run = TaskRun.objects.select_for_update().get(id=run_id)
         output = run.output if isinstance(run.output, dict) else {}

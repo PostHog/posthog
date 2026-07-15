@@ -1,3 +1,4 @@
+import asyncio
 import dataclasses
 from datetime import timedelta
 
@@ -7,6 +8,7 @@ import pydantic
 import structlog
 import temporalio
 import posthoganalytics
+from temporalio.common import WorkflowIDReusePolicy
 
 from posthog.event_usage import groups
 from posthog.helpers.tiktoken_encoding import LLM_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
@@ -396,11 +398,7 @@ def start_wizard_setup_review(team_id: int, repository: str, checks: list[dict])
     turns the failing ones into at most a handful of wizard signals that ride the regular
     pipeline into complimentary implementation PRs. No checks, no review.
     """
-    import asyncio  # noqa: PLC0415
-
-    from temporalio.common import WorkflowIDReusePolicy  # noqa: PLC0415
-
-    from products.signals.backend.temporal.wizard_review import (  # noqa: PLC0415
+    from products.signals.backend.temporal.wizard_review import (  # noqa: PLC0415 — wizard_review imports this facade (emit_signal); lazy breaks the cycle
         AuditCheck,
         WizardReviewInputs,
         WizardSetupReviewWorkflow,
