@@ -216,6 +216,28 @@ def _deprecated_fields_in_request(request: Any) -> dict[str, Any]:
     return props
 
 
+def _restrict_filters_to_frozen_cohort(filters: dict, cohort_id: int) -> dict:
+    """The facade's generic cohort restriction, bound to the experiments freeze marker."""
+    return restrict_groups_to_cohort(
+        filters,
+        cohort_id,
+        marker_key=EXPOSURE_FROZEN_GROUP_KEY,
+        cohort_key=EXPOSURE_FROZEN_COHORT_KEY,
+        marker_note=EXPOSURE_FROZEN_GROUP_MARKER,
+    )
+
+
+def _strip_frozen_exposure(filters: dict) -> tuple[dict, list[int]]:
+    """Inverse of _restrict_filters_to_frozen_cohort: strip the freeze marker and its cohort
+    conditions, returning the stripped filters plus the snapshot cohort ids for cleanup."""
+    return strip_group_cohort_restriction(
+        filters,
+        marker_key=EXPOSURE_FROZEN_GROUP_KEY,
+        cohort_key=EXPOSURE_FROZEN_COHORT_KEY,
+        marker_note=EXPOSURE_FROZEN_GROUP_MARKER,
+    )
+
+
 class ExperimentQueryStatus(str, Enum):
     """
     Filter values for the experiment list endpoint.
@@ -1888,13 +1910,7 @@ class ExperimentService:
                 # return the flag's default for everyone. This is the standard behavior of any static-cohort flag,
                 # not specific to freezing — it just means a frozen experiment is evaluated server-side via /decide
                 # rather than locally.
-                new_filters = restrict_groups_to_cohort(
-                    locked_flag.filters,
-                    exposure_snapshot.id,
-                    marker_key=EXPOSURE_FROZEN_GROUP_KEY,
-                    cohort_key=EXPOSURE_FROZEN_COHORT_KEY,
-                    marker_note=EXPOSURE_FROZEN_GROUP_MARKER,
-                )
+                new_filters = _restrict_filters_to_frozen_cohort(locked_flag.filters, exposure_snapshot.id)
 
                 # 5. Persist the narrowed filters via the gated flag write.
                 #
@@ -2193,12 +2209,7 @@ class ExperimentService:
             raise ValidationError("Experiment exposure is not frozen.")
 
         flag = experiment.feature_flag
-        new_filters, cohort_ids = strip_group_cohort_restriction(
-            flag.filters or {},
-            marker_key=EXPOSURE_FROZEN_GROUP_KEY,
-            cohort_key=EXPOSURE_FROZEN_COHORT_KEY,
-            marker_note=EXPOSURE_FROZEN_GROUP_MARKER,
-        )
+        new_filters, cohort_ids = _strip_frozen_exposure(flag.filters or {})
 
         update_flag(flag, {"filters": new_filters}, team=self.team, user=self.user, request=request)
 
@@ -2470,12 +2481,7 @@ class ExperimentService:
         )
         if flag is None or flag.deleted:
             return
-        stripped_filters, cohort_ids = strip_group_cohort_restriction(
-            flag.filters or {},
-            marker_key=EXPOSURE_FROZEN_GROUP_KEY,
-            cohort_key=EXPOSURE_FROZEN_COHORT_KEY,
-            marker_note=EXPOSURE_FROZEN_GROUP_MARKER,
-        )
+        stripped_filters, cohort_ids = _strip_frozen_exposure(flag.filters or {})
         if stripped_filters == (flag.filters or {}):
             return
 
@@ -2545,12 +2551,7 @@ class ExperimentService:
         # Shipping a winner ends the enrollment freeze by definition, so strip it in the same flag
         # write: preserved, it would lock the shipped variant to the stale snapshot forever in the
         # default mode, and linger as dead weight below the catch-all in release_to_everyone mode.
-        base_filters, frozen_cohort_ids = strip_group_cohort_restriction(
-            flag.filters,
-            marker_key=EXPOSURE_FROZEN_GROUP_KEY,
-            cohort_key=EXPOSURE_FROZEN_COHORT_KEY,
-            marker_note=EXPOSURE_FROZEN_GROUP_MARKER,
-        )
+        base_filters, frozen_cohort_ids = _strip_frozen_exposure(flag.filters)
 
         # Update the flag through the gated write to preserve the approval
         # workflow. If change-request approval is required, this raises
