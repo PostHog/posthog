@@ -12,7 +12,7 @@ import re
 import json
 import shlex
 from abc import ABC, abstractmethod
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -355,6 +355,13 @@ def _parse_pytest_paths(script: str) -> list[str]:
     return paths
 
 
+def _join(names: Sequence[str], limit: int = 5) -> str:
+    """Comma-join names for a message, trimming the tail once the list stops being readable."""
+    if len(names) <= limit:
+        return ", ".join(names)
+    return ", ".join(names[:limit]) + f" and {len(names) - limit} more"
+
+
 def _contract_check_withheld_note(status: IsolationStatus) -> str | None:
     """Why the contract-check skip is correctly withheld for an isolated product.
 
@@ -370,6 +377,8 @@ def _contract_check_withheld_note(status: IsolationStatus) -> str | None:
         return "legacy interface leak block present (external seal incomplete)"
     if not status.has_real_facade:
         return "facade/api.py is a re-export, not real functions"
+    if status.leaked_facade_names:
+        return f"facade/api.py re-exports {_join(status.leaked_facade_names)} from logic/models"
     return None
 
 
@@ -657,6 +666,22 @@ class IsolationChainCheck(ProductCheck):
             result.issues.append(
                 "has 'backend:contract-check' but no tach interfaces — isolation requires tach boundary enforcement"
             )
+
+        # tach proves no caller imports past the facade, but a facade that re-exports its own
+        # internals hands those callers the logic object anyway, through the one legal import.
+        # The behavior then lives outside the contract-check inputs, so it can change while
+        # facade/** stays byte-identical and turbo-discover skips the Django suite.
+        if status.leaked_facade_names:
+            message = (
+                f"facade/api.py re-exports {_join(status.leaked_facade_names)} from logic/models — their "
+                "behavior lives outside the contract-check inputs (facade/**, presentation/**), so a change "
+                "core can observe would skip the Django suite. Move constants to facade/enums.py, data and "
+                "error types to facade/contracts.py, and give behavioral classes a facade-owned entry point"
+            )
+            if has_script:
+                result.issues.append(f"has 'backend:contract-check' but {message}")
+            else:
+                result.warnings.append(message)
 
         if has_narrowed and not has_script:
             result.issues.append(

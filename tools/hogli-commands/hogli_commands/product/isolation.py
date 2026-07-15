@@ -27,7 +27,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
-from .ast_helpers import ast_parse_safe, get_imported_module_names, has_any_function_defs
+from .ast_helpers import ast_parse_safe, get_facade_reexports, get_imported_module_names, has_any_function_defs
 from .paths import REPO_ROOT, TACH_TOML, get_tach_block
 
 # ---------------------------------------------------------------------------
@@ -416,10 +416,32 @@ class IsolationStatus:
     # schema registry — so they don't qualify as irreducible interfaces and the marker is being
     # abused to keep an internal (models/logic) walled off. IsolationChainCheck blocks on these.
     unqualified_permanent_exposures: tuple[str, ...] = ()
+    # (name, kind) pairs the facade advertises in __all__ but defines under logic/ or models/.
+    facade_reexports: tuple[tuple[str, str], ...] = ()
 
     @property
     def deferred_count(self) -> int:
         return len(self.bypass_entries)
+
+    @property
+    def leaked_facade_names(self) -> tuple[str, ...]:
+        """Advertised facade names that disqualify the contract-check skip.
+
+        tach proves no caller imports past the facade, but a re-exported name is handed to
+        callers through that one legal import, and its behavior lives under logic/ or models/ —
+        outside the contract-check inputs. It can then change while facade/** stays
+        byte-identical, so turbo-discover skips the Django suite on a change core can observe.
+
+        Functions are excluded: one bounded entry point with one signature keeps "behavior tests
+        live in-product" checkable. A class hands callers every method, including ones no
+        in-product test pins. A constant belongs in facade/enums.py, which is a contract-check
+        input already.
+        """
+        return tuple(name for name, kind in self.facade_reexports if kind != "function")
+
+    @property
+    def facade_leaks_implementation(self) -> bool:
+        return bool(self.leaked_facade_names)
 
     @property
     def externally_sealed(self) -> bool:
@@ -438,7 +460,13 @@ class IsolationStatus:
         boundary is required too, but it's enforced separately (TachCheck demands the
         interface; IsolationChainCheck blocks a script without it). Callers that gate a
         "ready" *display* should additionally require `externally_sealed`."""
-        return self.is_isolated and self.has_real_facade and not self.has_legacy_leaks and self.deferred_count == 0
+        return (
+            self.is_isolated
+            and self.has_real_facade
+            and not self.facade_leaks_implementation
+            and not self.has_legacy_leaks
+            and self.deferred_count == 0
+        )
 
     @property
     def isolated_tests_enabled(self) -> bool:
@@ -479,4 +507,5 @@ def compute_isolation_status(
         unqualified_permanent_exposures=tuple(
             sorted(unqualified_permanent_modules(module_path, permanent_modules, repo_root=repo_root))
         ),
+        facade_reexports=tuple(get_facade_reexports(backend_dir)),
     )

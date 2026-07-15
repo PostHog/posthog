@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from hogli_commands.product import gh as gh_module
+from hogli_commands.product.ast_helpers import get_facade_reexports
 from hogli_commands.product.checks import (
     CheckContext,
     FileFolderConflictsCheck,
@@ -26,6 +27,7 @@ from hogli_commands.product.checks import (
     validate_tach_references,
 )
 from hogli_commands.product.isolation import (
+    IsolationStatus,
     has_narrowed_turbo_inputs,
     permanent_interface_modules,
     routes_in_turbo_inputs,
@@ -89,6 +91,93 @@ check = PackageJsonScriptsCheck()
 # ---------------------------------------------------------------------------
 # Unit tests for helpers
 # ---------------------------------------------------------------------------
+
+
+def _make_facade(tmp_path: Path, *, api_source: str, logic_source: str = "") -> Path:
+    backend_dir = tmp_path / "backend"
+    (backend_dir / "facade").mkdir(parents=True)
+    (backend_dir / "facade" / "api.py").write_text(api_source)
+    (backend_dir / "logic").mkdir(parents=True)
+    (backend_dir / "logic" / "matrix.py").write_text(logic_source)
+    return backend_dir
+
+
+class TestFacadeReexports:
+    @pytest.mark.parametrize(
+        "import_line, exported, logic_source, expected",
+        [
+            (
+                "from products.p.backend.logic.matrix import Thing",
+                "Thing",
+                "class Thing:\n    pass\n",
+                [("Thing", "class")],
+            ),
+            (
+                "from ..logic.matrix import Thing",
+                "Thing",
+                "class Thing:\n    pass\n",
+                [("Thing", "class")],
+            ),
+            (
+                "from ..logic.matrix import make_thing",
+                "make_thing",
+                "def make_thing():\n    pass\n",
+                [("make_thing", "function")],
+            ),
+            (
+                "from ..logic.matrix import MAX_SIZE",
+                "MAX_SIZE",
+                "MAX_SIZE = 10\n",
+                [("MAX_SIZE", "constant")],
+            ),
+            ("from .contracts import Thing", "Thing", "", []),
+            ("from .enums import Thing", "Thing", "", []),
+            ("from django.db.models import Q", "Q", "", []),
+        ],
+    )
+    def test_reexports_are_detected_by_import_style_and_kind(
+        self, tmp_path: Path, import_line: str, exported: str, logic_source: str, expected: list[tuple[str, str]]
+    ) -> None:
+        backend_dir = _make_facade(
+            tmp_path,
+            api_source=f'{import_line}\n\n__all__ = ["{exported}"]\n',
+            logic_source=logic_source,
+        )
+        assert get_facade_reexports(backend_dir) == expected
+
+    def test_locally_defined_export_is_not_a_reexport(self, tmp_path: Path) -> None:
+        backend_dir = _make_facade(
+            tmp_path,
+            api_source='from ..logic.matrix import _impl\n\n\ndef create():\n    return _impl()\n\n\n__all__ = ["create"]\n',
+            logic_source="def _impl():\n    pass\n",
+        )
+        assert get_facade_reexports(backend_dir) == []
+
+    @pytest.mark.parametrize(
+        "reexports, expected",
+        [
+            ((("Thing", "class"),), True),
+            ((("MAX_SIZE", "constant"),), True),
+            ((("make_thing", "function"),), False),
+            ((), False),
+        ],
+    )
+    def test_only_classes_and_constants_disqualify_the_skip(
+        self, reexports: tuple[tuple[str, str], ...], expected: bool
+    ) -> None:
+        status = IsolationStatus(
+            name="p",
+            is_isolated=True,
+            has_real_facade=True,
+            has_tach_interface=True,
+            has_legacy_leaks=False,
+            bypass_entries=(),
+            has_contract_check_script=True,
+            has_narrowed_turbo=True,
+            facade_reexports=reexports,
+        )
+        assert status.facade_leaks_implementation is expected
+        assert status.eligible_for_isolated_tests is not expected
 
 
 class TestParseHelpers:
