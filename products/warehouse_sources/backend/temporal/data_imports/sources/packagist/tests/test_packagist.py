@@ -108,6 +108,9 @@ class TestParsePackages:
             ("Monolog/Monolog", ["monolog/monolog"]),
             ("monolog/monolog\nMONOLOG/MONOLOG", ["monolog/monolog"]),
             ("monolog/monolog\n\n  \nsymfony", ["monolog/monolog", "symfony"]),
+            # Separator shapes Composer allows: `.`/`_`/`-` in both halves, `--` in the package half.
+            ("my-vendor/my_package.name", ["my-vendor/my_package.name"]),
+            ("vendor.name/pkg--name", ["vendor.name/pkg--name"]),
         ],
     )
     def test_valid(self, raw, expected):
@@ -127,6 +130,11 @@ class TestParsePackages:
             "monolog/",
             "/monolog",
             "monolog monolog",
+            "a--b",
+            # Long almost-valid tokens must be rejected in linear time — with ambiguous nested
+            # quantifiers in the name regexes these hang the API worker (ReDoS) instead.
+            "a" * 5000 + "!",
+            "vendor/" + "a" * 5000 + "!",
         ],
     )
     def test_malformed_raises(self, raw):

@@ -41,9 +41,11 @@ _HEADERS = {
 MAX_ROWS_PER_BATCH = 5000
 
 # Composer package names are lowercase `vendor/package`; keep validation lenient but reject
-# tokens that could break out of the URL path.
-_PACKAGE_NAME_RE = re.compile(r"^[a-z0-9]([_.-]?[a-z0-9]+)*/[a-z0-9](([_.]|-{1,2})?[a-z0-9]+)*$")
-_VENDOR_NAME_RE = re.compile(r"^[a-z0-9]([_.-]?[a-z0-9]+)*$")
+# tokens that could break out of the URL path. Alnum runs and separators alternate without
+# ambiguity (each group starts with a separator) so malformed input can't trigger the
+# exponential backtracking Composer's own upstream pattern is prone to.
+_PACKAGE_NAME_RE = re.compile(r"^[a-z0-9]+([_.-][a-z0-9]+)*/[a-z0-9]+((_|\.|-{1,2})[a-z0-9]+)*$")
+_VENDOR_NAME_RE = re.compile(r"^[a-z0-9]+([_.-][a-z0-9]+)*$")
 
 
 class PackagistRetryableError(Exception):
