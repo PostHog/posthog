@@ -10,10 +10,22 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor import (
     _apply_partitioning,
     _get_write_type,
+    _mark_job_completed,
     _promote_staged_cursor,
     process_message,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.test_mocks import mock_delta_table
+
+
+@pytest.fixture(autouse=True)
+def _no_close_old_connections():
+    # These are pure unit tests, but close_old_connections() touches the Django
+    # connection, which pytest-django blocks for unmarked tests once a django_db
+    # test has run in the same session — an order-dependent failure.
+    with patch(
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.close_old_connections"
+    ):
+        yield
 
 
 class TestGetWriteType:
@@ -260,3 +272,69 @@ class TestProcessMessageOwnershipGate:
 
         mock_post_load.assert_not_called()
         mock_mark_completed.assert_not_called()
+
+
+class TestMarkJobCompleted:
+    def _make_signal(self, **overrides: Any) -> MagicMock:
+        signal = MagicMock()
+        signal.schema_id = overrides.get("schema_id", "schema-1")
+        signal.team_id = overrides.get("team_id", 1)
+        signal.run_uuid = overrides.get("run_uuid", "run-abc-a1")
+        signal.job_id = overrides.get("job_id", "job-1")
+        return signal
+
+    @parameterized.expand(
+        [
+            # If the job was cancelled (absorbing Failed) after the final batch passed
+            # should_process_batch, the Completed write is rejected and the staged
+            # incremental cursor must NOT be promoted.
+            ("completed_write_lands", "Completed", True),
+            ("completed_write_absorbed_by_failed", "Failed", False),
+        ]
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.release_v3_pipeline_lock"
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.ExternalDataJob.objects"
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.finish_row_tracking",
+        new_callable=AsyncMock,
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.ExternalDataSchema.objects"
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.update_external_job_status"
+    )
+    def test_promotes_cursor_only_when_completed_write_lands(
+        self,
+        _case: str,
+        resulting_status: str,
+        expect_promotion: bool,
+        mock_update: MagicMock,
+        mock_schema_objects: MagicMock,
+        mock_finish_row_tracking: AsyncMock,
+        mock_job_objects: MagicMock,
+        mock_release: MagicMock,
+    ) -> None:
+        model = MagicMock()
+        model.status = resulting_status
+        mock_update.return_value = model
+
+        schema = MagicMock()
+        mock_schema_objects.get.return_value = schema
+        job = MagicMock()
+        job.workflow_run_id = "wf-run-1"
+        mock_job_objects.only.return_value.get.return_value = job
+
+        _mark_job_completed(self._make_signal())
+
+        if expect_promotion:
+            schema.promote_staged_incremental_values.assert_called_once_with("run-abc-a1")
+        else:
+            schema.promote_staged_incremental_values.assert_not_called()
+            mock_finish_row_tracking.assert_not_awaited()
+        # The pipeline lock must be released either way, or the next sync is blocked.
+        mock_release.assert_called_once_with(team_id=1, schema_id="schema-1", token="wf-run-1")
