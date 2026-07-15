@@ -1,26 +1,29 @@
 ---
 name: adding-inbox-sources
-description: Add a new warehouse-backed source to the PostHog Code Self-driving Inbox (the feature that ships GitHub, Linear, Zendesk, pganalyze). A source syncs one warehouse table (issues/tickets/conversations) and a cloud "signals scout" watches it and emits findings. Use when asked to "add a new inbox/self-driving source", "wire up <Jira/GitLab/Sentry/Intercom/Freshdesk/Front/Gorgias/etc> as a signal source", or to extend the source-toggle grid. Covers BOTH repos (posthog/code UI wiring + posthog/posthog scout emitter) and the deploy ordering between them.
+description: Add a new warehouse-backed source to the PostHog Code Self-driving Inbox (the feature that ships GitHub, Linear, Zendesk, pganalyze, Jira). A source syncs one warehouse table (issues/tickets/conversations) and a cloud "signals scout" watches it and emits findings. Use when asked to "add a new inbox/self-driving source", "wire up <Jira/GitLab/Sentry/Intercom/Freshdesk/Front/Gorgias/etc> as a signal source", or to extend the source-toggle grid. Covers all three surfaces (posthog/posthog scout emitter + posthog/code UI wiring + the context-mill self-driving wizard skill that offers the source in `npx @posthog/wizard self-driving`), the deploy ordering between them, and created_via attribution.
 ---
 
 # Adding a Self-driving Inbox source
 
 The Self-driving Inbox connects a PostHog **data-warehouse source** (GitHub, Linear,
-Zendesk, pganalyze today), syncs one "actionable records" table (`issues` /
+Zendesk, pganalyze, Jira today), syncs one "actionable records" table (`issues` /
 `tickets` / `conversations`), and a server-side **signals scout** in
 `posthog/posthog` watches new rows and emits findings/reports into the Code Inbox.
 
-**Adding a source is a two-repo change.** The scout is not generic over arbitrary
-tables — it is driven by a static registry keyed on `(source_type, table)`. So you
-must change both:
+**Adding a source touches three surfaces.** The scout is not generic over arbitrary
+tables — it is driven by a static registry keyed on `(source_type, table)`. The
+first two surfaces are mandatory (without them the source can't emit signals or be
+toggled in the app); the third is what makes the CLI `self-driving` wizard _offer_
+the source during onboarding.
 
-This skill lives in `posthog/posthog`; the UI half lives in the separate
-`posthog/code` repo. Both must change:
+This skill lives in `posthog/posthog`; the UI lives in the separate `posthog/code`
+repo; the wizard's onboarding script lives in `PostHog/context-mill`:
 
-| Repo                          | What changes                                                                                                                                                                             |
-| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `posthog/posthog` (this repo) | New scout emitter + registry entry + `SignalSourceProduct` enum value (+ migration) + contract variant. **The data-warehouse source itself must already exist** (all Tier-1 sources do). |
-| `posthog/code`                | ~8 UI/wiring files: the source-product unions, toggle card, setup form, hook maps, icon, filter option (+ OAuth service/router only for OAuth sources).                                  |
+| Surface                       | What changes                                                                                                                                                                                                                                                            |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `posthog/posthog` (this repo) | New scout emitter + registry entry + `SignalSourceProduct` enum value (+ migration) + contract variant. **The data-warehouse source itself must already exist** (all Tier-1 sources do).                                                                                |
+| `posthog/code`                | ~8 UI/wiring files: the source-product unions, toggle card, setup form, hook maps, icon, filter option (+ OAuth service/router only for OAuth sources).                                                                                                                 |
+| `PostHog/context-mill`        | The `self-driving` skill's connected-tools list, so `npx @posthog/wizard self-driving` offers the source. **Optional** — skip it and the source still works everywhere else; the wizard just won't proactively suggest it. See "The self-driving wizard surface" below. |
 
 > Backend work in `posthog/posthog` should be done in a **git worktree** (see
 > "Worktree setup" below). Merges in both repos go through the Trunk merge queue —
@@ -85,8 +88,10 @@ Verify exact `source_type` + `payload` key names against the posthog
 | Gorgias   | `Gorgias`     | `tickets`       | API key                 | `DynamicSourceSetup` | `gorgias_domain`, `email`, `api_key`               |
 | Intercom  | `Intercom`    | `conversations` | OAuth (`kind=intercom`) | Linear               | `intercom_integration_id`                          |
 
-(Zendesk `tickets`, GitHub `issues`, Linear `issues`, pganalyze `issues`+`servers`
-are already shipped — copy them, don't re-add.)
+(Zendesk `tickets`, GitHub `issues`, Linear `issues`, pganalyze `issues`+`servers`,
+and Jira `issues` are already shipped — copy them, don't re-add. The Jira row above
+stays as the canonical worked example for `payload` keys and the JSON-blob emitter
+gotcha below.)
 
 ---
 
@@ -156,6 +161,52 @@ generic; only the per-source emitter + registry entry are new.
 
 - Migration applies cleanly; `python manage.py makemigrations --check` is clean afterward.
 - The `ExternalDataSourceType` member exists in `products/warehouse_sources/backend/types.py`.
+
+---
+
+## The self-driving wizard surface (`PostHog/context-mill`) — optional
+
+The two surfaces above make a source work in the app. They do **not** make the CLI
+`npx @posthog/wizard self-driving` onboarding _offer_ it. That flow is an AI agent
+driven by a skill in the separate `PostHog/context-mill` repo, and its connected-tool
+list is **hardcoded** — it is not read dynamically from the wizard endpoint. So a new
+source is invisible to self-driving onboarding until you add it there.
+
+Edit `context/skills/self-driving/references/5-connected-tools.md` (plus the source-list
+mentions in `4-sources.md`, `2-read-context.md`, and `description.md`):
+
+1. Add the tool to the step-5 `wizard_ask` multi-select options (`{ label, value }`).
+2. Add its responder mapping — the same `source_product` / `source_type` pair as the
+   posthog emitter (e.g. Jira → `jira` / `issue`).
+3. Add its DWH `source_type` to the "already connected" detection list.
+4. Classify how the run connects it:
+   - **Credential source** (API key/token — Jira, Zendesk, pganalyze): the run can't
+     collect credentials in-flight, so it never sends the user to the UI. Group it with
+     Zendesk — arm the dormant responder and record a follow-up. **No connector file.**
+   - **One-click OAuth source** (Linear-style, `kind=<source>` integration): add a
+     dedicated connector reference (`5X-<source>.md`, clone `5b-linear.md`) that hands
+     over the authorize link and creates the source from the integration id.
+
+`dist/` is gitignored (built in CI), but run `node scripts/build.js` (Node ≥20) once to
+confirm the skill bundles; the build validates structure.
+
+## created_via attribution
+
+`ExternalDataSource.created_via` records **how** a source was created and is derived
+**server-side from the request transport** (`get_event_source` in
+`posthog/event_usage.py`, keyed on the user-agent) — an API caller **cannot** set it
+directly, which is deliberate (otherwise any client could self-label). A new source
+inherits this for free; there is nothing per-source to wire. For reference, the machine
+value `mcp` is upgraded based on the caller:
+
+| Caller                                       | Transport                  | `created_via`  |
+| -------------------------------------------- | -------------------------- | -------------- |
+| PostHog Code app inbox (`posthog/code`)      | `EventSource.POSTHOG_CODE` | `self_driving` |
+| `npx @posthog/wizard` (self-driving program) | `EventSource.WIZARD`       | `self_driving` |
+| Other MCP clients                            | `EventSource.MCP`          | `mcp`          |
+
+The upgrade lives in `_create_external_data_source` in
+`products/data_warehouse/backend/presentation/views/external_data_source.py`.
 
 ---
 

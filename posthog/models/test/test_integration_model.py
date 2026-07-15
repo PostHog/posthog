@@ -771,15 +771,19 @@ class TestOauthIntegrationModel(BaseTest):
 
     @parameterized.expand(
         [
-            ("invalid_grant", 400, {"error": "invalid_grant"}, "invalid_grant"),
-            ("invalid_client", 401, {"error": "invalid_client"}, "invalid_client"),
-            ("server_error", 502, {}, "http_5xx"),
-            ("other_4xx", 400, {"error": "temporarily_unavailable"}, "other"),
-            ("non_string_error", 400, {"error": {"code": 1}}, "other"),
+            ("invalid_grant", 400, {"error": "invalid_grant"}, None, "invalid_grant"),
+            ("invalid_client", 401, {"error": "invalid_client"}, None, "invalid_client"),
+            ("server_error", 502, {}, None, "http_5xx"),
+            ("other_4xx", 400, {"error": "temporarily_unavailable"}, None, "other"),
+            ("non_string_error", 400, {"error": {"code": 1}}, None, "other"),
+            ("reddit_dead_grant_shape", 400, {"message": "Bad Request", "error": 400}, "reddit-ads", "invalid_grant"),
+            ("reddit_shape_on_other_kind", 400, {"message": "Bad Request", "error": 400}, "hubspot", "other"),
+            ("reddit_5xx", 502, {"message": "Bad Gateway", "error": 502}, "reddit-ads", "http_5xx"),
+            ("reddit_oauth_error_code", 400, {"error": "invalid_grant"}, "reddit-ads", "invalid_grant"),
         ]
     )
-    def test_oauth_refresh_failure_reason(self, _name, status_code, body, expected):
-        assert oauth_refresh_failure_reason(status_code, body) == expected
+    def test_oauth_refresh_failure_reason(self, _name, status_code, body, kind, expected):
+        assert oauth_refresh_failure_reason(status_code, body, kind=kind) == expected
 
     @patch("posthog.models.integration.requests.post")
     def test_reconnect_clears_backoff_state(self, mock_post):

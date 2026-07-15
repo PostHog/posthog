@@ -49,8 +49,8 @@ Check these four things before a local `run_review`; don't re-derive them from c
    Without them the Modal sandboxes can't reach the local backend / gateway / MCP.
 3. **Target PR is reviewable** — non-fork (fork PRs are rejected at fetch) and open. Drafts ARE
    reviewed and published (there is no draft gate) — warn the user before publishing on someone's
-   draft. The PR's additions count picks the chunking path: ≤1000 single chunk (no chunking LLM),
-   ≤5000 one-shot LLM chunking, above that sandbox chunking (slowest).
+   draft. The PR's reviewable additions count picks the chunking path: ≤400 single chunk (no
+   chunking LLM), ≤5000 one-shot LLM chunking, above that sandbox chunking (slowest).
 4. **Prior state** — check for an existing report so you know whether this is a fresh r1 or a
    re-review (same-SHA re-runs no-op at publish via the marker + `published_head_sha`):
 
@@ -264,6 +264,21 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    ones; don't tune finders against a validator bar that item 4 may later loosen. Acceptance: dismissal
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
+
+### ✅ BUILT 2026-07-15 — reviewing-stage progress copy: "Reviewing chunks" → "Running review passes"
+
+Live misread on [posthog#71025](https://github.com/PostHog/posthog/pull/71025) (63 additions): the
+status comment read "Step 3/6 · Reviewing chunks · 2/3" and the author concluded the deterministic
+single-chunk gate had failed and split a tiny PR into 3 chunks. It hadn't — the persisted selection
+artefact showed one chunk (2 selected perspectives + the blind-spot unit = 3 review units, 2 done),
+and no chunking `$ai_generation` ran for the PR. The reviewing-stage counter has always counted
+(pass, chunk) review units, but the PR comment glued it onto a chunk-flavored label; the app UI
+renders a percentage, so only the comment invited the misread. Fix: the stage label is now "Running
+review passes" on both surfaces (`_STAGE_LABELS` + FE `progressLabel` — they must tell the same
+story), so the comment's raw `done/total` counter names its true unit. Grilled with the user
+2026-07-15: chunk count deliberately NOT added to the line ("keep it lean" — it stays visible in the
+drawer's Chunks tab). Same pass fixed the Preflight section's stale chunking-path numbers (still
+said the pre-2026-07-02 ≤1000 gate; the code's `SINGLE_CHUNK_GATE_ADDITIONS` is 400).
 
 ### ✅ BUILT 2026-07-08 — GitHub I/O moved to the gated egress transport (PyGithub removed)
 
@@ -2053,7 +2068,7 @@ pipeline just built + hardened).
 
 ```text
 reviewhog label on a non-fork PostHog/posthog PR
-  └─ .github/workflows/review-hog.yml   (gates: label==reviewhog, head.repo==base.repo, non-bot, non-draft, concurrency)
+  └─ .github/workflows/review-hog.yml   (gates: label==reviewhog, head.repo==base.repo, non-bot, concurrency; drafts allowed)
        └─ one authenticated curl  →  POST /api/review_hog/trigger  {repo, pr_number}   (Authorization: Bearer <secret>)
             └─ endpoint: verify shared secret · validate repo allowlist (forks blocked upstream by the Action
                  + downstream by the fetch activity) · resolve team-2 integration + run user
@@ -2118,8 +2133,8 @@ github-actions[bot] trick), and its Action carries **one** secret (no Anthropic 
    the review is **pinned to the reviewed `head_sha`** via `commit=repo_obj.get_commit(head_sha)`. Fork rejection is
    authoritative in the **fetch activity** (`PRMetadata.is_fork`, non-retryable `ApplicationError` before the report
    row is created).
-4. ✅ **The Action:** `.github/workflows/review-hog.yml` — `on: pull_request [labeled, ready_for_review, synchronize]`,
-   `permissions: {}`, per-PR concurrency, `if:` gates (label + non-fork + non-bot + non-draft), one `curl` with the
+4. ✅ **The Action:** `.github/workflows/review-hog.yml` — `on: pull_request [labeled]`,
+   `permissions: {}`, per-PR concurrency, `if:` gates (label + non-fork + non-bot; drafts allowed), one `curl` with the
    bearer secret. `pull_request` (not `pull_request_target`) ⇒ forks get no secret ⇒ can't trigger.
    **2026-07-14 update:** `synchronize` dropped (ADR 0002) — pushes no longer re-trigger; re-review = re-add the
    label (or mark an already-labeled draft ready).
