@@ -7,6 +7,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { isUUIDLike } from 'lib/utils/guards'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -408,7 +409,15 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         breadcrumbs: [
             (_, p) => [p.id],
             (id): Breadcrumb[] => {
-                const name = id === 'new' ? 'New ticket' : `Ticket #${id} detail`
+                let name: string
+                if (id === 'new') {
+                    name = 'New ticket'
+                } else if (typeof id === 'string' && isUUIDLike(id)) {
+                    // Legacy UUID URLs: show the first segment without a # (which implies a number)
+                    name = `Ticket ${id.split('-')[0]} detail`
+                } else {
+                    name = `Ticket #${id} detail`
+                }
                 return [{ key: ['SupportTicketDetail', id], name }]
             },
         ],
