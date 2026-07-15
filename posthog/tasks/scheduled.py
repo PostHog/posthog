@@ -92,8 +92,8 @@ from products.feature_flags.backend.tasks import (
 )
 from products.logs.backend.facade.tasks import logs_alert_events_cleanup_task
 from products.reminders.backend.tasks import process_due_reminders
-from products.stamphog.backend.facade.tasks import DAILY_DIGEST_CRONTAB, send_daily_digests
 from products.signals.backend.tasks import sync_pending_signals_refund_credits
+from products.stamphog.backend.facade.tasks import DAILY_DIGEST_CRONTAB, send_daily_digests
 from products.streamlit_apps.backend.facade.api import (
     auto_restart_crashed_streamlit_sandboxes,
     cleanup_deleted_streamlit_app_zips,
