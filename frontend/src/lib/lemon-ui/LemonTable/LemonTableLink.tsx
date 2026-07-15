@@ -35,12 +35,7 @@ export function LemonTableLink({
 function LemonTableLinkContent({ title, description, truncateTitle }: LemonTableLinkContentProps): JSX.Element {
     return (
         <div className={clsx('flex flex-col py-1', truncateTitle && 'min-w-0')}>
-            <div
-                className={clsx(
-                    'flex flex-row items-center font-semibold text-sm gap-1',
-                    truncateTitle && 'min-w-0'
-                )}
-            >
+            <div className={clsx('flex flex-row items-center font-semibold text-sm gap-1', truncateTitle && 'min-w-0')}>
                 {title}
             </div>
 
