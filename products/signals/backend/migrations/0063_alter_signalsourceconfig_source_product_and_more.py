@@ -4,7 +4,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("signals", "0062_add_analytics_anomaly_investigation_source"),
     ]
