@@ -144,7 +144,7 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                 <FilterPanel captureMethod={type} onCaptureMethodChange={changeCaptureMethod} />
                 <SceneDivider />
                 {isHeightCapped && (
-                    <LemonBanner type="info" dismissKey="heatmap-height-capped" className="mb-2">
+                    <LemonBanner type="info" className="mb-2">
                         This heatmap is capped at {MAX_HEATMAP_HEIGHT.toLocaleString()}px tall to keep rendering fast,
                         so data below that point isn't shown.
                     </LemonBanner>

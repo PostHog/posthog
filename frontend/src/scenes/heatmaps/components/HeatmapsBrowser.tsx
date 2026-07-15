@@ -373,7 +373,7 @@ export function HeatmapsBrowser(): JSX.Element {
                     <LemonDivider className="my-4" />
                     <div className="relative border">
                         {isHeightCapped && (
-                            <LemonBanner type="info" dismissKey="heatmap-height-capped">
+                            <LemonBanner type="info">
                                 This heatmap is capped at {MAX_HEATMAP_HEIGHT.toLocaleString()}px tall to keep rendering
                                 fast, so data below that point isn't shown.
                             </LemonBanner>
