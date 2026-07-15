@@ -10,6 +10,7 @@ from requests import Response
 from products.warehouse_sources.backend.temporal.data_imports.sources.airops.airops import (
     AirOpsRetryableError,
     _fetch_json,
+    _make_session,
     airops_source,
     get_rows,
     validate_credentials,
@@ -34,6 +35,20 @@ def _run(endpoint: str, responses: list[Response]) -> tuple[list[list[dict]], Ma
     ):
         batches = list(get_rows(api_key="k", endpoint=endpoint, logger=MagicMock()))
     return batches, session
+
+
+class TestMakeSession:
+    def test_disables_sample_capture_and_redirects(self) -> None:
+        # Executions carry free-form inputs/output that can hold user secrets the name-based
+        # scrubbers can't recognise, so response capture must stay off; redirects stay pinned off
+        # so a credentialed request can't be replayed against another host.
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.airops.airops.make_tracked_session"
+        ) as make_session:
+            _make_session("secret-key")
+        assert make_session.call_args.kwargs["capture"] is False
+        assert make_session.call_args.kwargs["allow_redirects"] is False
+        assert make_session.call_args.kwargs["redact_values"] == ("secret-key",)
 
 
 class TestGetApps:

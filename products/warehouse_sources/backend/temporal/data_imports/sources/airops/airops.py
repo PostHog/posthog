@@ -29,11 +29,14 @@ def _get_headers(api_key: str) -> dict[str, str]:
 def _make_session(api_key: str) -> requests.Session:
     """Session for all AirOps traffic. The bearer token is set once on the session (so its redaction
     policy applies to every request and captured sample) and redirects are pinned off so a credentialed
-    request can't be replayed against another host."""
+    request can't be replayed against another host. Response capture is disabled because executions
+    carry free-form `inputs`/`output` under arbitrary keys — a user can place credentials or other
+    secrets there, and the name-based sample scrubbers can't reliably recognise them."""
     return make_tracked_session(
         headers=_get_headers(api_key),
         redact_values=(api_key,),
         allow_redirects=False,
+        capture=False,
     )
 
 
