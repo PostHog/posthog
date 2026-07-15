@@ -197,7 +197,7 @@ fn create_recording_payload(token: &str) -> String {
         "properties": {
             "$session_id": "test_session_id",
             "$window_id": "test_window_id",
-            "$snapshot_data": [{"type": 2, "data": {"source": 0}, "timestamp": 1}]
+            "$snapshot_data": [{"type": 2, "data": {"source": 0}, "timestamp": 1753963200000_i64}]
         }
     })
     .to_string()
