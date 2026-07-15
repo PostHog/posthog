@@ -43,6 +43,8 @@ export type EmailMetric =
     | 'email_blocked'
     | 'email_spam'
 
+export type PushMetric = 'push_sent' | 'push_skipped' | 'push_failed'
+
 export type EmailMetricRow = {
     id: string
     email: string
@@ -158,6 +160,36 @@ export const WORKFLOW_EMAIL_METRICS: Record<
         description: 'Total number of emails that were marked as spam by recipient server or recipient email client',
         color: getColorVar('danger'),
         metricNames: ['email_spam'],
+    },
+}
+
+// Push has no delivery-receipt channel like email's SES webhook (FCM/APNs respond synchronously), so
+// these three send-time outcomes are all we can observe. "Sent" means the provider accepted the
+// notification for delivery, not that the device displayed it.
+export const WORKFLOW_PUSH_METRICS: Record<
+    PushMetric,
+    { name: string; description: string; color: string; metricNames: string[] }
+> = {
+    push_sent: {
+        name: 'Sent',
+        description:
+            'Total number of push notifications accepted by the provider (FCM or APNs) for delivery. The provider accepting a notification does not guarantee the device displayed it.',
+        color: getColorVar('primary'),
+        metricNames: ['push_sent'],
+    },
+    push_skipped: {
+        name: 'Skipped',
+        description:
+            'Total number of recipients skipped because they had no registered device token, or their token was reported dead by the provider (for example, the app was uninstalled) and removed.',
+        color: getColorVar('warning'),
+        metricNames: ['push_skipped'],
+    },
+    push_failed: {
+        name: 'Failed',
+        description:
+            'Total number of push notifications that could not be sent — for example invalid credentials, a rejected payload, or a provider outage after retries.',
+        color: getColorVar('danger'),
+        metricNames: ['push_failed'],
     },
 }
 
