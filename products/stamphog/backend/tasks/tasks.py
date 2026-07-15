@@ -242,7 +242,15 @@ def _resume_existing_delivery_run(delivery_id: str, team_id: int, repo: str) -> 
     already has a live or finished workflow, so it's a no-op. Raises if the restart itself fails, so
     the caller can retry the Celery task.
     """
-    existing = ReviewRun.objects.for_team(team_id).filter(delivery_id=delivery_id).first()
+    # Writer pin: this is a read-after-write recovery path — the first delivery attempt committed
+    # the QUEUED row moments ago, and a lagged reader missing it would send the retry down the
+    # create path into the unique delivery_id, stranding the queued run with no workflow.
+    existing = (
+        ReviewRun.objects.for_team(team_id)
+        .using(router.db_for_write(ReviewRun))
+        .filter(delivery_id=delivery_id)
+        .first()
+    )
     if existing is None:
         return False
     if existing.status == ReviewRunStatus.QUEUED:
@@ -490,7 +498,13 @@ def process_installation_event(payload: dict[str, Any], delivery_id: str) -> Non
         logger.warning("stamphog_installation_event_missing_installation")
         return
 
-    team_ids = _resolve_installation_team_ids(installation_id)
+    # Retry (don't drop) on a transient DB error: the webhook is already ACKed, and a lifecycle
+    # mutation that silently fails here is permanently skipped until a manual resync.
+    try:
+        team_ids = _resolve_installation_team_ids(installation_id)
+    except Exception as e:
+        logger.exception("stamphog_installation_team_resolution_failed", delivery_id=delivery_id, error=str(e))
+        raise cast(Any, process_installation_event).retry(exc=e)
     if not team_ids:
         # No config carries this installation yet — the user-driven sync flow will bind it to a team.
         logger.info("stamphog_installation_event_unbound", installation_id=installation_id)

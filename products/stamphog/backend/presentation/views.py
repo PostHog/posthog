@@ -189,6 +189,16 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.ModelViewSe
         except IntegrityError:
             raise already_claimed_error
 
+    def perform_destroy(self, instance: StamphogRepoConfig) -> None:
+        # Soft-disable rather than hard-delete (same tombstone pattern as digest channels). A hard
+        # delete cascades away the PRs and review runs — including posted_review_id — so a push to a
+        # previously approved PR could no longer resolve the config or dismiss the stale approval,
+        # leaving it satisfying required reviews forever. A disabled row keeps webhooks resolvable,
+        # and the disabled-repo skip path retracts standing approvals on the next head change.
+        instance.enabled = False
+        instance.digest_enabled = False
+        instance.save(update_fields=["enabled", "digest_enabled", "updated_at"])
+
     @extend_schema(responses={200: StamphogInstallInfoSerializer})
     @action(detail=False, methods=["GET"], url_path="install_info", required_scopes=["stamphog:read"])
     def install_info(self, request: Request, **kwargs) -> Response:

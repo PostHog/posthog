@@ -128,13 +128,16 @@ def _build_pr_data(context: dict) -> PRData:
     if not files:
         files = [_convert_api_file(f) for f in context.get("files") or []]
 
-    # Drop COMMENTED reviews from the offline reviews. The hosted context carries no inline
-    # review-thread comments (review_comments=[]), so a COMMENTED review here is a bare state with no
-    # readable feedback — yet _summarize_assurance would surface its author as a current-head reviewer
-    # ("head_commented"), which reads as independent assurance. Unseen feedback must reduce to "no
-    # assurance," never a positive vouch, so a COMMENTED review that can't be evaluated is filtered out.
-    # APPROVED and CHANGES_REQUESTED still flow through — the prerequisite gate depends on them.
-    reviews = [r for r in (context.get("reviews") or []) if r.get("state") != "COMMENTED"]
+    # Drop only EMPTY COMMENTED reviews from the offline reviews. The hosted context carries no
+    # inline review-thread comments (review_comments=[]), so a bare COMMENTED state has no readable
+    # feedback — yet _summarize_assurance would surface its author as a current-head reviewer
+    # ("head_commented"), reading as independent assurance. Unseen feedback must reduce to "no
+    # assurance," never a positive vouch. A COMMENTED review WITH a body is different: that text is
+    # a maintainer's visible feedback (possibly a comment-only "hold"), and dropping it would let
+    # the reviewer approve without ever seeing it — it flows through, body and all.
+    reviews = [
+        r for r in (context.get("reviews") or []) if r.get("state") != "COMMENTED" or (r.get("body") or "").strip()
+    ]
 
     # Trusted-bot reactions only: the offline path has no token for the org-membership check the
     # Action's reactor predicate performs, and the in-flight wait consumes only allowlisted bot 👀

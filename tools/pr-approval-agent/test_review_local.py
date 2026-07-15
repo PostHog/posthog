@@ -14,13 +14,14 @@ import review_local  # noqa: E402
 from review_pr import Pipeline  # noqa: E402
 
 
-def _review(login: str, state: str, head_sha: str) -> dict:
+def _review(login: str, state: str, head_sha: str, body: str = "") -> dict:
     return {
         "user": {"login": login, "type": "User"},
         "author_association": "MEMBER",
         "state": state,
         "commit_id": head_sha,
         "submitted_at": "2026-07-15T00:00:00Z",
+        "body": body,
     }
 
 
@@ -40,18 +41,23 @@ def test_commented_reviews_are_dropped_offline(monkeypatch) -> None:
             _review("carol", "COMMENTED", head_sha),
             _review("dave", "APPROVED", head_sha),
             _review("erin", "CHANGES_REQUESTED", head_sha),
+            # A comment-only "hold" carries real human feedback — it must reach the prompt, or the
+            # reviewer could approve without ever seeing it.
+            _review("frank", "COMMENTED", head_sha, body="Hold off, migration plan pending."),
         ],
     }
 
     pr = review_local._build_pr_data(context)
 
-    assert {r["state"] for r in pr.reviews} == {"APPROVED", "CHANGES_REQUESTED"}
     assert "carol" not in {r["user"] for r in pr.reviews}
+    assert "frank" in {r["user"] for r in pr.reviews}
 
     pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
     pipeline.pr = pr
     assurance = pipeline._summarize_assurance()
-    assert assurance["head_commented_users"] == []
+    # frank's comment is visible feedback, so counting him as a current-head commenter is factual;
+    # carol's bare state must not appear (unseen feedback never reads as assurance).
+    assert assurance["head_commented_users"] == ["frank"]
     assert assurance["head_approvals"] == ["dave"]
 
 

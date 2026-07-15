@@ -119,6 +119,19 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_404_NOT_FOUND
         assert StamphogRepoConfig.objects.unscoped().filter(id=theirs.id).exists()
 
+    def test_delete_soft_disables_as_tombstone(self) -> None:
+        # A hard delete would cascade away the PRs and review runs (including posted_review_id), so a
+        # push to a previously approved PR could no longer resolve the config or dismiss the stale
+        # approval — deleting a repo must not launder a standing approval.
+        mine = StamphogRepoConfig.objects.unscoped().create(
+            team_id=self.team.id, repository="PostHog/mine", installation_id="3", enabled=True, digest_enabled=True
+        )
+        response = self.client.delete(f"{self.url}{mine.id}/")
+        assert response.status_code == status.HTTP_204_NO_CONTENT, response.content
+        mine.refresh_from_db()
+        assert mine.enabled is False
+        assert mine.digest_enabled is False
+
 
 class TestReviewRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
     databases = PRODUCT_DATABASES
