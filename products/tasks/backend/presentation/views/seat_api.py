@@ -5,6 +5,7 @@ from typing import Any, cast
 
 import requests
 import structlog
+from drf_spectacular.utils import extend_schema
 from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
@@ -25,6 +26,11 @@ from ee.settings import BILLING_SERVICE_URL
 
 # Duplicated in services/llm-gateway/src/llm_gateway/services/plan_resolver.py
 PRO_PLAN_PREFIXES = ("posthog-code-200", "posthog-code-pro-")
+RETIRED_SEAT_PRODUCT_MESSAGE = (
+    "You can no longer create, upgrade, or reactivate PostHog Code seats. "
+    "PostHog Code with usage-based billing is launching shortly."
+)
+RETIRED_SEAT_PRODUCTS = {"posthog_code": RETIRED_SEAT_PRODUCT_MESSAGE}
 
 
 def _seat_priority(seat: dict[str, Any]) -> tuple[bool, int, float]:
@@ -62,6 +68,7 @@ def _is_org_admin(user: Any) -> bool:
     ).exists()
 
 
+@extend_schema(exclude=True)
 class SeatViewSet(viewsets.ViewSet):
     """
     Proxy for seat management through the billing service.
@@ -181,6 +188,22 @@ class SeatViewSet(viewsets.ViewSet):
         return distinct_id
 
     @staticmethod
+    def _retired_product_response(request: Request) -> Response | None:
+        product_key = request.data.get("product_key")
+        if not isinstance(product_key, str):
+            product_key = request.query_params.get("product_key")
+        message = RETIRED_SEAT_PRODUCTS.get(product_key) if isinstance(product_key, str) else None
+        if message is None:
+            return None
+        return Response(
+            {
+                "error": message,
+                "code": "seat_product_retired",
+            },
+            status=status.HTTP_410_GONE,
+        )
+
+    @staticmethod
     def _filtered_query_params(request: Request) -> dict[str, str]:
         product_key = request.query_params.get("product_key", "")
         if product_key:
@@ -217,6 +240,9 @@ class SeatViewSet(viewsets.ViewSet):
         if str(body_distinct_id) != str(cast(User, request.user).distinct_id):
             self._require_admin(request)
         self._require_org_member(request, str(body_distinct_id))
+
+        if retired_response := self._retired_product_response(request):
+            return retired_response
 
         headers = self._get_billing_headers(request)
         if not headers:
@@ -322,11 +348,14 @@ class SeatViewSet(viewsets.ViewSet):
         if pk != "me":
             self._require_admin(request)
 
+        distinct_id = self._resolve_and_check_membership(request, pk)
+        if retired_response := self._retired_product_response(request):
+            return retired_response
+
         headers = self._get_billing_headers(request)
         if not headers:
             return Response({"detail": "No organization or license found"}, status=status.HTTP_400_BAD_REQUEST)
 
-        distinct_id = self._resolve_and_check_membership(request, pk)
         resp = self._billing_request(
             "PATCH",
             f"/api/v2/seats/{distinct_id}/",
@@ -359,11 +388,14 @@ class SeatViewSet(viewsets.ViewSet):
         if pk != "me":
             self._require_admin(request)
 
+        distinct_id = self._resolve_and_check_membership(request, pk)
+        if retired_response := self._retired_product_response(request):
+            return retired_response
+
         headers = self._get_billing_headers(request)
         if not headers:
             return Response({"detail": "No organization or license found"}, status=status.HTTP_400_BAD_REQUEST)
 
-        distinct_id = self._resolve_and_check_membership(request, pk)
         resp = self._billing_request(
             "POST",
             f"/api/v2/seats/{distinct_id}/reactivate/",

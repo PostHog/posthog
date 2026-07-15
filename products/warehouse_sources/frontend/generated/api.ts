@@ -15,12 +15,12 @@ import type {
     ExternalDataSchemaApi,
     ExternalDataSchemasListParams,
     ExternalDataSchemasLogsRetrieveParams,
+    ExternalDataSourceConnectionOptionApi,
     ExternalDataSourceCreateApi,
     ExternalDataSourceSerializersApi,
     ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams,
     ExternalDataSourcesCheckCdcPrerequisitesCreate200,
     ExternalDataSourcesConnectLinkRetrieveParams,
-    ExternalDataSourcesConnectionsListParams,
     ExternalDataSourcesListParams,
     ExternalDataSourcesOauthAccountsRetrieveParams,
     ExternalDataSourcesRepairCdcCreate200,
@@ -28,7 +28,6 @@ import type {
     ExternalDataSourcesWizardRetrieveParams,
     IntegrationAccountsResponseApi,
     PaginatedExternalDataSchemaListApi,
-    PaginatedExternalDataSourceConnectionOptionListApi,
     PaginatedExternalDataSourceSerializersListApi,
     PatchedExternalDataSchemaApi,
     PatchedExternalDataSourceBulkUpdateSchemasApi,
@@ -176,14 +175,11 @@ export const getExternalDataSchemasCancelCreateUrl = (projectId: string, id: str
 export const externalDataSchemasCancelCreate = async (
     projectId: string,
     id: string,
-    externalDataSchemaApi?: NonReadonly<ExternalDataSchemaApi>,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getExternalDataSchemasCancelCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSchemaApi),
     })
 }
 
@@ -329,8 +325,8 @@ export const externalDataSourcesCreate = async (
     projectId: string,
     externalDataSourceCreateApi: ExternalDataSourceCreateApi,
     options?: RequestInit
-): Promise<ExternalDataSourceSerializersApi> => {
-    return apiMutator<ExternalDataSourceSerializersApi>(getExternalDataSourcesCreateUrl(projectId), {
+): Promise<ExternalDataSourceCreateApi> => {
+    return apiMutator<ExternalDataSourceCreateApi>(getExternalDataSourcesCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -870,23 +866,8 @@ export const externalDataSourcesConnectLinkRetrieve = async (
     })
 }
 
-export const getExternalDataSourcesConnectionsListUrl = (
-    projectId: string,
-    params?: ExternalDataSourcesConnectionsListParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/external_data_sources/connections/?${stringifiedParams}`
-        : `/api/projects/${projectId}/external_data_sources/connections/`
+export const getExternalDataSourcesConnectionsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/external_data_sources/connections/`
 }
 
 /**
@@ -894,16 +875,12 @@ export const getExternalDataSourcesConnectionsListUrl = (
  */
 export const externalDataSourcesConnectionsList = async (
     projectId: string,
-    params?: ExternalDataSourcesConnectionsListParams,
     options?: RequestInit
-): Promise<PaginatedExternalDataSourceConnectionOptionListApi> => {
-    return apiMutator<PaginatedExternalDataSourceConnectionOptionListApi>(
-        getExternalDataSourcesConnectionsListUrl(projectId, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
+): Promise<ExternalDataSourceConnectionOptionApi[]> => {
+    return apiMutator<ExternalDataSourceConnectionOptionApi[]>(getExternalDataSourcesConnectionsListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export const getExternalDataSourcesDatabaseSchemaCreateUrl = (projectId: string) => {

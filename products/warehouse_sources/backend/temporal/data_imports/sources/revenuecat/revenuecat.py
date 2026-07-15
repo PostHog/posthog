@@ -23,7 +23,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 from products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.constants import (
     REVENUECAT_API_BASE_URL,
     REVENUECAT_AUTO_WEBHOOK_NAME,
-    REVENUECAT_WEBHOOK_EVENT_TYPES,
 )
 
 LOGGER = structlog.get_logger(__name__)
@@ -309,53 +308,82 @@ def iterate_list_endpoint(
         params = {}
 
 
+def _update_webhook_integration(api_key: str, project_id: str, webhook_id: str, updates: dict[str, Any]) -> None:
+    """Update fields on an existing webhook integration in place.
+
+    RevenueCat models updates as a POST to the integration's own path
+    (``POST /v2/projects/{project_id}/integrations/webhooks/{id}``); only the
+    fields present in the body change.
+    """
+    url = f"{REVENUECAT_API_BASE_URL}{_project_path(project_id, f'/integrations/webhooks/{webhook_id}')}"
+    response = _session(api_key).post(url, json=updates, timeout=REQUEST_TIMEOUT_SECONDS)
+    response.raise_for_status()
+
+
 def create_webhook(
     api_key: str,
     project_id: str,
     webhook_url: str,
     authorization_header_value: str | None = None,
 ) -> WebhookCreationResult:
-    """Auto-register a webhook integration in RevenueCat pointing at ``webhook_url``.
+    """Register a webhook integration in RevenueCat pointing at ``webhook_url``.
 
-    Auth-header note: RevenueCat does not HMAC-sign its webhook deliveries —
-    instead, the integration ships an ``Authorization`` header whose value the
-    user sets at creation time. We let callers pass that value through so we
-    can later verify it in the Hog template. If not supplied, the integration
-    is created without an auth header and the user finishes setup by adding one
+    ``POST /v2/projects/{project_id}/integrations/webhooks`` — note the plural
+    ``webhooks``; the singular path is a 404 ("Resource not found") that our
+    error formatter would misreport as a bad project id. ``event_types`` is
+    deliberately omitted from the body: a null filter subscribes the
+    integration to every event type, including ones RevenueCat adds later,
+    which is exactly what the single ``events`` warehouse table wants.
+
+    Auth-header note: the integration ships an ``Authorization`` header on
+    every delivery whose value the user sets (the API field is
+    ``authorization_header``). We let callers pass that value through so we can
+    later verify it in the Hog template. If not supplied, the integration is
+    created without an auth header and the user finishes setup by adding one
     via the webhook fields (handled by the surrounding warehouse-source flow).
+    When a webhook for this URL already exists, a supplied header is bound to
+    it in place via the update endpoint.
     """
     project_id = _normalize_project_id(project_id)
     logger = LOGGER.bind(project_id=project_id)
 
     body: dict[str, Any] = {
-        "url": webhook_url,
-        "events": list(REVENUECAT_WEBHOOK_EVENT_TYPES),
         "name": REVENUECAT_AUTO_WEBHOOK_NAME,
+        "url": webhook_url,
     }
     if authorization_header_value:
-        # RevenueCat names this field `signing_secret` in their API even though
-        # the upstream behavior is just "send this verbatim as Authorization".
-        body["signing_secret"] = authorization_header_value
+        body["authorization_header"] = authorization_header_value
 
-    url = f"{REVENUECAT_API_BASE_URL}{_project_path(project_id, '/integrations/webhook')}"
+    url = f"{REVENUECAT_API_BASE_URL}{_project_path(project_id, '/integrations/webhooks')}"
 
     try:
         existing = _find_webhook_integration(api_key, project_id, webhook_url)
         if existing is not None:
             if authorization_header_value:
-                # We were asked to bind a new authorization header but a webhook
-                # already exists. RevenueCat has no in-place update for the
-                # auth header — surface a failure so the caller (typically
-                # `webhook_inputs_updated`) can drive an explicit delete +
-                # recreate instead of silently leaving the existing webhook
-                # bound to a stale header.
-                return WebhookCreationResult(
-                    success=False,
-                    error=(
-                        "A RevenueCat webhook integration already exists for this URL. "
-                        "Delete it and reconnect to bind a new authorization header."
-                    ),
+                webhook_id = existing.get("id")
+                if not webhook_id:
+                    return WebhookCreationResult(
+                        success=False,
+                        error="RevenueCat returned a webhook without an id; please recreate it manually.",
+                    )
+                # Resend name and url alongside the header. The update input's
+                # fields are all optional (patch semantics), but echoing the
+                # delivery-critical fields costs nothing and keeps the webhook
+                # pointed at us even if the endpoint ever replaces instead of
+                # patches. `event_types` is deliberately not echoed: the list
+                # response may contain event types newer than the update
+                # enum, which would fail validation.
+                _update_webhook_integration(
+                    api_key,
+                    project_id,
+                    str(webhook_id),
+                    {
+                        "name": str(existing.get("name") or REVENUECAT_AUTO_WEBHOOK_NAME),
+                        "url": webhook_url,
+                        "authorization_header": authorization_header_value,
+                    },
                 )
+                return WebhookCreationResult(success=True)
             # No auth header supplied yet — treat the existing webhook as
             # success so the user can finish setup by entering the header
             # value. RevenueCat omits the configured header from list
@@ -365,10 +393,10 @@ def create_webhook(
         response = _session(api_key).post(url, json=body, timeout=REQUEST_TIMEOUT_SECONDS)
         response.raise_for_status()
     except requests.HTTPError as e:
-        logger.warning("Failed to create RevenueCat webhook integration", error=str(e))
+        logger.warning("Failed to register RevenueCat webhook integration", error=str(e))
         return WebhookCreationResult(success=False, error=_format_http_error(e))
     except requests.RequestException as e:
-        logger.warning("Could not reach RevenueCat to create webhook", error=str(e))
+        logger.warning("Could not reach RevenueCat to register webhook", error=str(e))
         return WebhookCreationResult(success=False, error=f"Could not reach RevenueCat: {e}")
 
     pending: list[str] = []
@@ -382,7 +410,7 @@ def _list_webhook_integrations(api_key: str, project_id: str) -> list[dict[str, 
     items: list[dict[str, Any]] = []
     session = _session(api_key)
     params: dict[str, Any] = {"limit": DEFAULT_PAGE_SIZE}
-    url = f"{REVENUECAT_API_BASE_URL}{_project_path(project_id, '/integrations/webhook')}"
+    url = f"{REVENUECAT_API_BASE_URL}{_project_path(project_id, '/integrations/webhooks')}"
 
     while True:
         # Build the URL with explicit query encoding so the call signature stays
@@ -441,7 +469,7 @@ def delete_webhook(api_key: str, project_id: str, webhook_url: str) -> WebhookDe
             error="RevenueCat returned a webhook without an id; please delete it manually.",
         )
 
-    url = f"{REVENUECAT_API_BASE_URL}{_project_path(project_id, f'/integrations/webhook/{webhook_id}')}"
+    url = f"{REVENUECAT_API_BASE_URL}{_project_path(project_id, f'/integrations/webhooks/{webhook_id}')}"
     try:
         response = _session(api_key).delete(url, timeout=REQUEST_TIMEOUT_SECONDS)
         if response.status_code == 404:
@@ -470,7 +498,9 @@ def get_external_webhook_info(api_key: str, project_id: str, webhook_url: str) -
     if target is None:
         return ExternalWebhookInfo(exists=False)
 
-    events_value = target.get("events")
+    # `event_types` is null when the integration subscribes to every event type
+    # (the default for integrations we create).
+    events_value = target.get("event_types")
     enabled_events = events_value if isinstance(events_value, list) else None
     created_at_raw = target.get("created_at")
     created_at = str(created_at_raw) if created_at_raw is not None else None

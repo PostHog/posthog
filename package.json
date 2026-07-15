@@ -105,9 +105,10 @@
         "!(posthog/hogql/grammar/*|posthog/personhog_client/proto/generated/*|products/*/skills/*/scripts/*)*.{py,pyi}": [
             "bin/hogli lint:python:fix",
             "bin/hogli format:python",
-            "uv run ty check"
+            "uv run --no-sync ty check"
         ],
-        "*.{md,mdx}": "bin/hogli format:markdown"
+        "*.{md,mdx}": "bin/hogli format:markdown",
+        "products/agent_platform/**/*.{ts,py}": "products/agent_platform/bin/coherence-precommit"
     },
     "browserslist": {
         "development": [
