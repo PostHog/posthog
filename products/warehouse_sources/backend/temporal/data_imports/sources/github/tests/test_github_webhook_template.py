@@ -95,3 +95,31 @@ class TestGithubWarehouseWebhookTemplate(BaseHogFunctionTemplateTest):
 
         assert res.result["httpResponse"]["status"] == 200
         self.mock_produce_to_warehouse_webhooks.assert_not_called()
+
+    def test_repo_qualified_mapping_routes_by_repository_full_name(self):
+        # Multi-repo sources key the mapping by 'owner/repo.event' — without the qualified lookup
+        # two repos' workflow events would all land in whichever schema owns the bare key.
+        job = {"id": 1, "status": "completed"}
+        body = {"action": "completed", "workflow_job": job, "repository": {"full_name": "Acme/Widgets"}}
+        mapping = {"acme/widgets.workflow_job": "schema_widgets_jobs", "workflow_job": "schema_legacy_jobs"}
+
+        self._run("workflow_job", body, mapping)
+
+        self.mock_produce_to_warehouse_webhooks.assert_called_once_with(job, "schema_widgets_jobs")
+
+    def test_unqualified_repo_falls_back_to_bare_event_mapping(self):
+        # Legacy single-repo mappings only carry bare event keys; a payload from any repo must
+        # keep routing through them.
+        job = {"id": 1, "status": "completed"}
+        body = {"action": "completed", "workflow_job": job, "repository": {"full_name": "acme/other"}}
+
+        self._run("workflow_job", body, {"workflow_job": "schema_legacy_jobs"})
+
+        self.mock_produce_to_warehouse_webhooks.assert_called_once_with(job, "schema_legacy_jobs")
+
+    def test_unmapped_repo_and_event_no_ops(self):
+        body = {"action": "completed", "workflow_job": {"id": 1}, "repository": {"full_name": "acme/unknown"}}
+        res = self._run("workflow_job", body, {"acme/widgets.workflow_job": "schema_widgets_jobs"})
+
+        assert res.result["httpResponse"]["status"] == 200
+        self.mock_produce_to_warehouse_webhooks.assert_not_called()

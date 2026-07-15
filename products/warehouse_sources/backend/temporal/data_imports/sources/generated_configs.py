@@ -1479,7 +1479,8 @@ class GitLabSourceConfig(config.Config):
 @config.config
 class GithubSourceConfig(config.Config):
     auth_method: GithubAuthMethodConfig
-    repository: str
+    repositories: list[str] | None = config.value(converter=config.str_to_optional_list, default_factory=lambda: None)
+    repository: str | None = None
 
 
 @config.config

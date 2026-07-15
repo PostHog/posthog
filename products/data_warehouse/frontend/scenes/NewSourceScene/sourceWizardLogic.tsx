@@ -174,6 +174,11 @@ export const buildKeaFormDefaultFromSourceDetails = (
             return
         }
 
+        if (field.type === 'oauth-account-select' && field.multiple) {
+            obj[field.name] = []
+            return
+        }
+
         // All other types
         obj[field.name] = ''
     }
@@ -1888,8 +1893,14 @@ export const getErrorsForFields = (
             return
         }
 
-        if ('required' in field && field.required && !valueObj[field.name]) {
-            errorsObj[field.name] = `Please enter a ${field.label.toLowerCase()}`
+        // An empty array is truthy, so multi-value fields (e.g. repo pickers) need their own
+        // emptiness check or `required` would pass with zero selections.
+        const fieldValue = valueObj[field.name]
+        const valueMissing = Array.isArray(fieldValue) ? fieldValue.length === 0 : !fieldValue
+        if ('required' in field && field.required && valueMissing) {
+            errorsObj[field.name] = Array.isArray(fieldValue)
+                ? `Please enter at least one of your ${field.label.toLowerCase()}`
+                : `Please enter a ${field.label.toLowerCase()}`
         }
     }
 

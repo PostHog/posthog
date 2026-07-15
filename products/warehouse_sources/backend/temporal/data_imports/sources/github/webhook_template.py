@@ -67,7 +67,17 @@ if (empty(eventType)) {
   }
 }
 
-let schemaId := inputs.schema_mapping?.[eventType]
+// Multi-repo sources key their mapping by 'owner/repo.event' (the payload's
+// repository.full_name, lowercased) so two repos' events route to their own schemas.
+// The bare event-type key remains as the fallback for legacy single-repo mappings.
+let repoFullName := request.body?.repository?.full_name
+let schemaId := null
+if (not empty(repoFullName)) {
+  schemaId := inputs.schema_mapping?.[concat(lower(repoFullName), '.', eventType)]
+}
+if (empty(schemaId)) {
+  schemaId := inputs.schema_mapping?.[eventType]
+}
 
 if (empty(schemaId)) {
   return {
@@ -152,7 +162,7 @@ produceToWarehouseWebhooks(row, schemaId)""",
             "type": "json",
             "key": "schema_mapping",
             "label": "Schema mapping",
-            "description": "Maps GitHub event types (workflow_job, workflow_run, pull_request_review) to ExternalDataSchema IDs",
+            "description": "Maps GitHub event types to ExternalDataSchema IDs. Keys are either a bare event type (workflow_job, workflow_run, pull_request_review) for legacy single-repo sources, or 'owner/repo.event_type' for multi-repo sources.",
             "required": True,
             "secret": False,
             "hidden": True,

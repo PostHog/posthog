@@ -82,6 +82,28 @@ def test_str_to_optional_int(value, expected):
     "value,expected",
     [
         (None, None),
+        ("", None),
+        ("   ", None),
+        ([], None),
+        (["a/b", " c/d ", ""], ["a/b", "c/d"]),
+        # job_inputs are JSON so lists usually arrive natively, but double-encoded configs
+        # (the same failure mode from_dict guards elsewhere) arrive as a JSON-array string.
+        ('["a/b", "c/d"]', ["a/b", "c/d"]),
+        ("a/b, c/d", ["a/b", "c/d"]),
+        ("a/b", ["a/b"]),
+        # A malformed bracket-prefixed string must fall back to a single value, not crash.
+        ("[not-json", ["[not-json"]),
+    ],
+)
+def test_str_to_optional_list(value, expected):
+    """`str_to_optional_list` must accept lists, JSON-array strings, and comma-separated strings."""
+    assert config.str_to_optional_list(value) == expected
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (None, None),
         ("5432", 5432),
         (5432.0, 5432),
     ],

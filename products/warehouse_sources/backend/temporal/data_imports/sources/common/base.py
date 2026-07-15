@@ -372,6 +372,15 @@ class WebhookSource(_BaseSource[ConfigType], Generic[ConfigType]):
         table name mapped to the Stripe object type"""
         raise NotImplementedError()
 
+    def webhook_mapping_key(self, schema_name: str) -> str:
+        """The `schema_mapping` key incoming webhooks are routed by for one schema row.
+
+        Defaults to the `webhook_resource_map` translation (schema name -> provider event type).
+        Sources whose schema names carry a namespace (e.g. GitHub's `owner/repo.workflow_runs`)
+        override this to emit namespace-qualified keys, so two namespaces' rows for the same
+        event type don't collide in the mapping."""
+        return self.webhook_resource_map.get(schema_name, schema_name)
+
     def get_external_webhook_info(
         self, config: ConfigType, webhook_url: str, team_id: int
     ) -> ExternalWebhookInfo | None:

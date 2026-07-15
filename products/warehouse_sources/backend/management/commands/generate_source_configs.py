@@ -292,7 +292,18 @@ class SourceConfigGenerator:
     def _process_oauth_account_select_field(self, field: SourceFieldOauthAccountSelectConfig) -> str:
         # The selected account/property is persisted as a plain string on the config (e.g. Bing Ads
         # account_id, GSC site_url); the OAuth integration it's scoped to lives in its own field.
+        # With `multiple=True` the selection is a list of strings instead (e.g. GitHub repositories).
         python_field_name, should_alias = self._make_python_identifier(field.name)
+
+        if field.multiple:
+            # Always optional on the dataclass, even when the form field is required: configs
+            # stored before the field existed (e.g. single-repo GitHub sources) must keep parsing.
+            # "At least one value" is the source's job (validate_credentials / effective_* helpers).
+            field_parts = ["converter=config.str_to_optional_list"]
+            if should_alias:
+                field_parts.append(f'alias="{field.name}"')
+            field_parts.append("default_factory=lambda: None")
+            return f"    {python_field_name}: list[str] | None = config.value({', '.join(field_parts)})"
 
         if field.required:
             if should_alias:
