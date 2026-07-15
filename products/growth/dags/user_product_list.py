@@ -367,18 +367,13 @@ def sync_colleagues_products_monthly_job():
     """
     Monthly job that syncs products used by colleagues to each user's product list.
     For each team, finds the most popular products among colleagues and suggests them to users.
+
+    Not on a schedule: connection-time default seeding replaced it, but the job is kept
+    available for manual runs from the Dagster UI.
     """
     team_ids = get_all_team_ids_op()
     results = team_ids.map(sync_colleagues_products_for_team_op)
     aggregate_colleagues_sync_results_op(results.collect())
-
-
-sync_colleagues_products_monthly_schedule = dagster.ScheduleDefinition(
-    job=sync_colleagues_products_monthly_job,
-    cron_schedule="0 5 15 * *",  # 15th day of every month at 5am UTC
-    execution_timezone="UTC",
-    name="sync_colleagues_products_monthly_schedule",
-)
 
 
 @dataclass(kw_only=True)

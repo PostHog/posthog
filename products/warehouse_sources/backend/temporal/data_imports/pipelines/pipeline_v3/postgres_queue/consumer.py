@@ -76,6 +76,9 @@ NON_RETRYABLE_ERROR_PATTERNS: tuple[str, ...] = (
     # incoming values no longer fit the stored Delta column type
     # (SchemaColumnTypeChangedException) — only a reset and full re-sync can fix it
     "Source column type changed",
+    # the schema or job row was deleted mid-sync — no retry can bring it back
+    "ExternalDataSchema matching query does not exist",
+    "ExternalDataJob matching query does not exist",
 )
 
 # How long an "alive" job-status lookup stays cached before re-checking the app DB.

@@ -23,8 +23,15 @@ import type { Credential } from '../runtime/credential-broker'
 import type { GatewayCatalog } from '../runtime/gateway-catalog'
 import type { HttpFetcher } from '../runtime/http-client'
 import type { WebSearchProvider } from '../runtime/web-search'
+import type { NativeApprovalClass } from './spec'
 
 export type { Static, TSchema }
+export type { NativeApprovalClass }
+
+/** Runner timeout-selection + authoring-UI cost annotation. One source for the
+ *  closed set so the type and any runtime iteration (e.g. tests) can't drift. */
+export const COST_HINTS = ['cheap', 'medium', 'expensive'] as const
+export type CostHint = (typeof COST_HINTS)[number]
 
 export interface NativeToolSchema {
     description: string
@@ -40,7 +47,11 @@ export interface NativeToolSchema {
         provider?: { id: string; scopes: string[] }
     }
     /** Hint for runner timeout selection + authoring UI cost annotations. */
-    cost_hint: 'cheap' | 'medium' | 'expensive'
+    cost_hint: CostHint
+    /** Intrinsic authorization class (single source: {@link NativeApprovalClass}).
+     *  `allow` = read-only/own-footprint; `approve` reaches outside and is gated.
+     *  Author may escalate via `requires_approval`, not de-escalate below it. */
+    approval: NativeApprovalClass
 }
 
 export interface ToolContext {
@@ -186,6 +197,10 @@ export function defineNativeTool<TArgsSchema extends TSchema, TReturnSchema exte
     returns: TReturnSchema
     requires?: NativeToolSchema['requires']
     cost_hint?: NativeToolSchema['cost_hint']
+    /** Required — every tool declares its authorization class at the definition
+     *  site, so an unclassified tool is a compile error (totality by the type
+     *  system, not a separate registry + test). */
+    approval: NativeApprovalClass
     run: (args: Static<TArgsSchema>, ctx: ToolContext) => Promise<Static<TReturnSchema>>
 }): NativeTool<Static<TArgsSchema>, Static<TReturnSchema>> {
     return {
@@ -196,6 +211,7 @@ export function defineNativeTool<TArgsSchema extends TSchema, TReturnSchema exte
             returns: def.returns,
             requires: { provider: def.requires?.provider },
             cost_hint: def.cost_hint ?? 'medium',
+            approval: def.approval,
         },
         run: def.run,
     }
