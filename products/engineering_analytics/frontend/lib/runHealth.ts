@@ -1,4 +1,4 @@
-import { isDecisiveFailure } from './lifecycle'
+import { isDecisiveFailure, isPassingConclusion } from './lifecycle'
 
 /** Minimal run shape; WorkflowRunRow and PrRunRow both satisfy it. */
 export interface HealthRun {
@@ -96,11 +96,16 @@ export interface FleetSummary {
 // they pile up at the bottom of the activity scatter and drag duration percentiles toward zero.
 export const NO_OP_RUN_MAX_SECONDS = 10
 
-/** True for no-op runs (see {@link NO_OP_RUN_MAX_SECONDS}). Decisive failures are kept regardless of
- *  speed — a workflow that fails within seconds (broken config) is signal, not noise. */
+/** True for no-op runs (see {@link NO_OP_RUN_MAX_SECONDS}): completed fast with a benign conclusion —
+ *  the same set `verdictTag` paints as non-warning (passing or cancelled). Everything else is kept
+ *  regardless of speed: decisive failures (broken config fails in seconds) and attention-needing
+ *  conclusions like action_required or startup_failure are signal, not noise. */
 export function isNoOpRun(run: Pick<HealthRun, 'conclusion' | 'durationSeconds'>): boolean {
     return (
-        run.durationSeconds != null && run.durationSeconds < NO_OP_RUN_MAX_SECONDS && !isDecisiveFailure(run.conclusion)
+        run.conclusion != null &&
+        (isPassingConclusion(run.conclusion) || run.conclusion === 'cancelled') &&
+        run.durationSeconds != null &&
+        run.durationSeconds < NO_OP_RUN_MAX_SECONDS
     )
 }
 

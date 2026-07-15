@@ -71,7 +71,9 @@ describe('runHealth', () => {
     it.each([
         ['seconds-long success (gate job, rest skipped) → no-op', 'success', 4, true],
         ['seconds-long skipped run → no-op', 'skipped', 2, true],
+        ['seconds-long cancelled run (superseded) → no-op', 'cancelled', 3, true],
         ['seconds-long failure is signal, not noise → kept', 'failure', 4, false],
+        ['seconds-long action_required needs attention → kept', 'action_required', 3, false],
         ['at the threshold → kept', 'success', 10, false],
         ['still running (no duration yet) → kept', null, null, false],
     ])('flags no-op runs: %s', (_name, conclusion, durationSeconds, expected) => {
