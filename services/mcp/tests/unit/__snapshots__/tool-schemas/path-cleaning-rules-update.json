@@ -125,10 +125,12 @@
             "type": "array"
         },
         "sample_paths": {
-            "description": "Optional real paths (e.g. \"/users/123/profile\") to preview against. The response shows how the resulting rule set rewrites each one. Approximate (JS regex, not re2) — use execute-sql with replaceRegexpAll to confirm edge cases.",
+            "description": "Optional real paths (e.g. \"/users/123/profile\") to preview against, up to 25. The response shows how the resulting rule set rewrites each one. Approximate (JS regex, not re2) — use execute-sql with replaceRegexpAll to confirm edge cases.",
             "items": {
+                "maxLength": 2048,
                 "type": "string"
             },
+            "maxItems": 25,
             "type": "array"
         }
     },

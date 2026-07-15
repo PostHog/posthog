@@ -414,10 +414,13 @@ export const PathCleaningRulesUpdateSchema = z.object({
         .min(1)
         .describe('Ordered list of edits to apply to the current path cleaning rules, in sequence.'),
     sample_paths: z
-        .array(z.string())
+        // Bounded (count + length) so a pathological user-supplied regex can't burn unbounded
+        // CPU backtracking over the preview. A handful of representative paths is the point.
+        .array(z.string().max(2048))
+        .max(25)
         .optional()
         .describe(
-            'Optional real paths (e.g. "/users/123/profile") to preview against. The response shows how the resulting rule set rewrites each one. Approximate (JS regex, not re2) — use execute-sql with replaceRegexpAll to confirm edge cases.'
+            'Optional real paths (e.g. "/users/123/profile") to preview against, up to 25. The response shows how the resulting rule set rewrites each one. Approximate (JS regex, not re2) — use execute-sql with replaceRegexpAll to confirm edge cases.'
         ),
     confirm: z
         .boolean()

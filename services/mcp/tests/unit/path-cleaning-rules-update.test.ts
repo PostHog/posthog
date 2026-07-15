@@ -112,6 +112,43 @@ describe('applyOperations', () => {
         applyOperations(base, [{ action: 'remove', target_alias: '/users/<id>' }])
         expect(base.map((r) => r.alias)).toEqual(['/users/<id>', '/signup/<id>'])
     })
+
+    // Aliases are not unique — these guard the duplicate-alias handling.
+    const dupes: PathCleaningRule[] = [
+        { alias: '/x', regex: '/x/a' },
+        { alias: '/x', regex: '/x/b' },
+        { alias: '/y', regex: '/y' },
+    ]
+
+    it('reorders duplicate-aliased rules without dropping any', () => {
+        const { rules } = applyOperations(dupes, [{ action: 'reorder', ordered_aliases: ['/y', '/x', '/x'] }])
+        // All three rules survive; same-alias rules keep their original relative order.
+        expect(rules).toEqual([
+            { alias: '/y', regex: '/y' },
+            { alias: '/x', regex: '/x/a' },
+            { alias: '/x', regex: '/x/b' },
+        ])
+    })
+
+    it('rejects a reorder that would drop a duplicate-aliased rule', () => {
+        // ["/y","/x"] has the right distinct aliases but the wrong multiset (2 vs 3 rules).
+        expect(() => applyOperations(dupes, [{ action: 'reorder', ordered_aliases: ['/y', '/x'] }])).toThrow(
+            /must be exactly the current aliases/
+        )
+    })
+
+    it('rejects a reorder with a repeated alias beyond its real count', () => {
+        expect(() =>
+            applyOperations(base, [{ action: 'reorder', ordered_aliases: ['/users/<id>', '/users/<id>'] }])
+        ).toThrow(/must be exactly the current aliases/)
+    })
+
+    it('refuses to replace or remove an ambiguous (duplicated) alias instead of guessing', () => {
+        expect(() => applyOperations(dupes, [{ action: 'remove', target_alias: '/x' }])).toThrow(/ambiguous/)
+        expect(() => applyOperations(dupes, [{ action: 'replace', target_alias: '/x', regex: '/z' }])).toThrow(
+            /ambiguous/
+        )
+    })
 })
 
 function createMockContext(overrides: {
@@ -186,6 +223,47 @@ describe('path-cleaning-rules-update handler', () => {
             { alias: '/embedded/<hash>', regex: '^/embedded/[^/]+$', order: 0 },
         ])
         expect(result.applied).toBe(true)
+    })
+
+    it('previews before against the OLD rules and after against the NEW rules', async () => {
+        // Existing rule already rewrites the sample path (before is a non-trivial rewrite);
+        // the appended rule then matches that output and rewrites further, so after differs.
+        // Guards against before/after being swapped or both computed from the same rule set.
+        const existing = [{ alias: '/users/<id>', regex: '/users/[0-9]+', order: 0 }]
+        const context = createMockContext({ currentFilters: existing })
+
+        const result = await updatePathCleaningHandler(context, {
+            operations: [{ action: 'append', alias: '/users/<id>/anon', regex: '/users/<id>$' }],
+            sample_paths: ['/users/42'],
+            confirm: false,
+        })
+
+        expect(result.sample_preview).toEqual([{ path: '/users/42', before: '/users/<id>', after: '/users/<id>/anon' }])
+    })
+
+    it('keeps a literal $ in an alias through the preview', async () => {
+        const context = createMockContext({ currentFilters: [] })
+        const result = await updatePathCleaningHandler(context, {
+            operations: [{ action: 'append', alias: '/price/$amount', regex: '/price/[0-9]+' }],
+            sample_paths: ['/price/500'],
+            confirm: false,
+        })
+        // Not "/price/$&" or "/price/" — the alias $ must survive JS String.replace semantics.
+        expect(result.sample_preview).toEqual([{ path: '/price/500', before: '/price/500', after: '/price/$amount' }])
+    })
+
+    it('chains preview rules in order, each feeding the next', async () => {
+        const context = createMockContext({ currentFilters: [] })
+        const result = await updatePathCleaningHandler(context, {
+            operations: [
+                { action: 'append', alias: '/a/<id>', regex: '/a/[0-9]+' },
+                // Second rule only matches the output of the first — proves sequential chaining.
+                { action: 'append', alias: '/a/<id>/clean', regex: '/a/<id>$' },
+            ],
+            sample_paths: ['/a/7'],
+            confirm: false,
+        })
+        expect(result.sample_preview![0]!.after).toBe('/a/<id>/clean')
     })
 
     it('surfaces a read failure without attempting a write', async () => {

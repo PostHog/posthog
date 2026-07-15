@@ -72,7 +72,28 @@ export function applyOperations(
     const rules: PathCleaningRule[] = current.map((rule) => ({ ...rule }))
     const changes: string[] = []
 
-    const findByAlias = (alias: string): number => rules.findIndex((rule) => rule.alias === alias)
+    // Aliases are NOT guaranteed unique (two regexes can map to the same alias), so an
+    // alias-targeted op is only safe when exactly one rule carries it — otherwise we'd
+    // silently edit an arbitrary one. Reject the ambiguous case rather than guess.
+    const resolveSingle = (alias: string, verb: string): number => {
+        const matches = rules.reduce<number[]>((acc, rule, i) => {
+            if (rule.alias === alias) {
+                acc.push(i)
+            }
+            return acc
+        }, [])
+        if (matches.length === 0) {
+            throw new Error(
+                `Cannot ${verb}: no rule with alias "${alias}". Existing aliases: ${rules.map((rule) => rule.alias).join(', ')}`
+            )
+        }
+        if (matches.length > 1) {
+            throw new Error(
+                `Cannot ${verb}: alias "${alias}" matches ${matches.length} rules, so targeting it is ambiguous. Make the aliases distinct first, or edit the full list via project-settings-update.`
+            )
+        }
+        return matches[0]!
+    }
 
     for (const op of operations) {
         switch (op.action) {
@@ -90,14 +111,7 @@ export function applyOperations(
                 break
             }
             case 'replace': {
-                const index = findByAlias(op.target_alias)
-                if (index === -1) {
-                    throw new Error(
-                        `Cannot replace: no rule with alias "${op.target_alias}". Existing aliases: ${rules
-                            .map((rule) => rule.alias)
-                            .join(', ')}`
-                    )
-                }
+                const index = resolveSingle(op.target_alias, 'replace')
                 if (op.regex !== undefined) {
                     assertValidRegex(op.regex)
                 }
@@ -108,31 +122,40 @@ export function applyOperations(
                 break
             }
             case 'remove': {
-                const index = findByAlias(op.target_alias)
-                if (index === -1) {
-                    throw new Error(
-                        `Cannot remove: no rule with alias "${op.target_alias}". Existing aliases: ${rules
-                            .map((rule) => rule.alias)
-                            .join(', ')}`
-                    )
-                }
+                const index = resolveSingle(op.target_alias, 'remove')
                 rules.splice(index, 1)
                 changes.push(`Removed "${op.target_alias}"`)
                 break
             }
             case 'reorder': {
-                const byAlias = new Map(rules.map((rule) => [rule.alias, rule]))
+                // Group rules by alias so duplicate aliases are handled without loss: the
+                // permutation check is a true multiset comparison, and the rebuild consumes
+                // same-alias rules in their original relative order.
+                const groups = new Map<string, PathCleaningRule[]>()
+                for (const rule of rules) {
+                    const list = groups.get(rule.alias)
+                    if (list) {
+                        list.push(rule)
+                    } else {
+                        groups.set(rule.alias, [rule])
+                    }
+                }
+                const requestedCounts = new Map<string, number>()
+                for (const alias of op.ordered_aliases) {
+                    requestedCounts.set(alias, (requestedCounts.get(alias) ?? 0) + 1)
+                }
                 const isPermutation =
-                    op.ordered_aliases.length === byAlias.size &&
-                    op.ordered_aliases.every((alias) => byAlias.has(alias))
+                    op.ordered_aliases.length === rules.length &&
+                    [...requestedCounts].every(([alias, count]) => (groups.get(alias)?.length ?? 0) === count)
                 if (!isPermutation) {
                     throw new Error(
-                        `Cannot reorder: ordered_aliases must be exactly the current aliases, once each. Current: ${rules
+                        `Cannot reorder: ordered_aliases must be exactly the current aliases, once each (including duplicates). Current: ${rules
                             .map((rule) => rule.alias)
                             .join(', ')}`
                     )
                 }
-                const reordered = op.ordered_aliases.map((alias) => byAlias.get(alias)!)
+                const queues = new Map([...groups].map(([alias, list]) => [alias, [...list]]))
+                const reordered = op.ordered_aliases.map((alias) => queues.get(alias)!.shift()!)
                 rules.splice(0, rules.length, ...reordered)
                 changes.push(`Reordered to: ${op.ordered_aliases.join(' → ')}`)
                 break
