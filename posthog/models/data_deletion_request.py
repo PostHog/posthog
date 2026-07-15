@@ -503,6 +503,76 @@ def count_remaining_matching_events(request: "DataDeletionRequest") -> int:
     return int(result[0][0]) if result else 0
 
 
+def _property_presence_where(request: "DataDeletionRequest") -> tuple[str, dict]:
+    """WHERE predicate + params matching events that still carry any target (person_)property.
+
+    Mirrors ``event_removal_where`` but swaps the events filter for a presence check over
+    ``properties`` / ``person_properties``. Used to verify a property_removal request: once the
+    property has been stripped from every matching event, this count reaches zero.
+    """
+    parts = [_EVENT_REMOVAL_TIME_PREDICATE, event_match_sql_fragment(request)]
+    params = event_match_params(request)
+
+    presence: list[str] = []
+    for i, prop in enumerate(request.properties or []):
+        presence.append(jsonhas_expr(prop, f"fp_{i}"))
+        for j, part in enumerate(prop.split(".")):
+            params[f"fp_{i}_{j}"] = part
+    for i, prop in enumerate(request.person_properties or []):
+        presence.append(jsonhas_expr(prop, f"pp_{i}", column="person_properties"))
+        for j, part in enumerate(prop.split(".")):
+            params[f"pp_{i}_{j}"] = part
+    if presence:
+        parts.append(f"AND ({' OR '.join(presence)})")
+
+    hogql_sql, hogql_values = compile_hogql_predicate(request)
+    if hogql_sql:
+        parts.append(f"AND ({hogql_sql})")
+        params.update(hogql_values)
+    return " ".join(p for p in parts if p), params
+
+
+def count_remaining_property_events(request: "DataDeletionRequest") -> int:
+    """Count events that still carry any of a property-removal request's target properties."""
+    from posthog.clickhouse.client import sync_execute
+    from posthog.clickhouse.client.connection import ClickHouseUser
+    from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+    from posthog.clickhouse.workload import Workload
+
+    predicate, params = _property_presence_where(request)
+    with tags_context(
+        product=Product.INTERNAL,
+        feature=Feature.DATA_DELETION,
+        team_id=request.team_id,
+        workload=Workload.OFFLINE,
+        query_type="data_deletion_request_verify_property",
+    ):
+        # nosemgrep: clickhouse-fstring-param-audit (predicate built from internal helper, not user input)
+        result = sync_execute(
+            f"SELECT count() FROM events WHERE {predicate} AND _row_exists = 1",
+            params,
+            team_id=request.team_id,
+            readonly=True,
+            workload=Workload.OFFLINE,
+            ch_user=ClickHouseUser.META,
+        )
+    return int(result[0][0]) if result else 0
+
+
+def count_remaining_for_request(request: "DataDeletionRequest") -> int | None:
+    """Count rows still matching a deletion request's criteria in ClickHouse.
+
+    Dispatches on request type: matching events for event_removal, events still carrying the
+    target property for property_removal. Returns ``None`` for person_removal, which has no
+    automated remaining-count.
+    """
+    if request.request_type == RequestType.EVENT_REMOVAL:
+        return count_remaining_matching_events(request)
+    if request.request_type == RequestType.PROPERTY_REMOVAL:
+        return count_remaining_property_events(request)
+    return None
+
+
 @dataclass
 class VerifyOutcome:
     remaining: int
