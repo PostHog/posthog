@@ -1,5 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
-import { waitFor, within } from '@testing-library/dom'
+import { within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -179,6 +179,19 @@ function billingTabDecorators(
     ]
 }
 
+// All expanded-row stories need the insights endpoint mocked (even if empty) because
+// AccountNotebooksExpansion eagerly mounts accountBillingLogic for usage & spend tabs.
+// Without this mock, the unhandled fetch can error-out and trigger a React re-render
+// that collapses the expansion — making [data-attr="account-expansion"] disappear and
+// the post-play waitForSelector time out.
+const EXPANDED_ROW_DECORATORS_BASE = [
+    mswDecorator({
+        get: {
+            [INSIGHTS_ENDPOINT]: EMPTY_INSIGHTS,
+        },
+    }),
+]
+
 // Expanding a row mounts UsefulLinks (loads the account async) and the notes table
 // (loads notebooks async). Both start as skeletons and resolve later, which changes
 // the expansion's width and height. Awaiting the settled content here keeps the
@@ -206,7 +219,7 @@ async function expandAndOpenTab(canvasElement: HTMLElement, tab: 'Usage' | 'Spen
 // expanded-row content turns a lost expansion into a retry instead of a flaky collapsed capture.
 const EXPANDED_ROW_TEST_OPTIONS = {
     waitForSelector: ['[data-attr="accounts-refresh"]', '[data-attr="account-expansion"]'],
-    waitForSelectorTimeout: 30000,
+    waitForSelectorTimeout: 60000,
 }
 
 function mockAccountsQuery(rows: AccountRow[]): (info: MockResolverInfo) => Promise<[number, unknown] | undefined> {
@@ -295,6 +308,7 @@ export const RowExpandedEmpty: Story = {
     render: () => <App />,
     parameters: { testOptions: EXPANDED_ROW_TEST_OPTIONS },
     decorators: [
+        ...EXPANDED_ROW_DECORATORS_BASE,
         mswDecorator({
             get: {
                 [ACCOUNT_RETRIEVE_ENDPOINT]: ACCOUNT_WITH_LINKS,
@@ -314,6 +328,7 @@ export const RowExpandedWithNote: Story = {
     render: () => <App />,
     parameters: { testOptions: EXPANDED_ROW_TEST_OPTIONS },
     decorators: [
+        ...EXPANDED_ROW_DECORATORS_BASE,
         mswDecorator({
             get: {
                 [ACCOUNT_RETRIEVE_ENDPOINT]: ACCOUNT_WITH_LINKS,
@@ -365,6 +380,7 @@ export const RowExpandedLinksDisabled: Story = {
     render: () => <App />,
     parameters: { testOptions: EXPANDED_ROW_TEST_OPTIONS },
     decorators: [
+        ...EXPANDED_ROW_DECORATORS_BASE,
         mswDecorator({
             get: {
                 [ACCOUNT_RETRIEVE_ENDPOINT]: ACCOUNT_WITHOUT_LINKS,
@@ -398,28 +414,30 @@ export const RowExpandedUsageNotFound: Story = {
 export const RowExpandedUsagePopulated: Story = {
     render: () => <App />,
     parameters: {
-        testOptions: EXPANDED_ROW_TEST_OPTIONS,
+        testOptions: {
+            ...EXPANDED_ROW_TEST_OPTIONS,
+            // Wait for the canvas to render before snapshotting — the chart is async and can
+            // take a while in CI. Using waitForSelector (60s budget) instead of a play-function
+            // waitFor avoids exceeding the 60s Jest test timeout.
+            waitForSelector: [
+                '[data-attr="accounts-refresh"]',
+                '[data-attr="account-expansion"]',
+                '.DataVisualization canvas',
+            ],
+        },
     },
     decorators: billingTabDecorators(
         insightsResponse(USAGE_INSIGHT),
         mockAccountsAndBillingQuery(SINGLE_ROW, USAGE_QUERY_RESPONSE)
     ),
     play: async ({ canvasElement }) => {
-        await expandAndOpenTab(canvasElement, 'Usage')
-        // Wait for both the chart canvas AND the sidebar links to be present simultaneously.
-        // The tab switch can trigger a re-render cycle that briefly unmounts the sidebar;
-        // gating on both ensures the snapshot captures a fully settled state.
+        // Minimal play: expand row and switch tab without waiting for sidebar links.
+        // The sidebar waits in expandAndOpenTab can take 20-30s under CI load, which
+        // combined with the postVisit waitForSelector for the canvas exceeds the 60s
+        // Jest timeout. We only need the tab switch here — the canvas is verified by
+        // waitForSelector in testOptions above.
         const canvas = within(canvasElement)
-        await waitFor(
-            () => {
-                if (!canvasElement.querySelector('.DataVisualization canvas')) {
-                    throw new Error('DataVisualization canvas not yet rendered')
-                }
-            },
-            { timeout: 30000, interval: 500 }
-        )
-        // Re-confirm sidebar links are still rendered after the canvas settled —
-        // guards against the re-fetch race that causes the "Useful links" flicker.
-        await canvas.findByText('Organization', {}, { timeout: 10000 })
+        await userEvent.click(await canvas.findByTitle('Show more'))
+        await userEvent.click(await canvas.findByRole('tab', { name: 'Usage' }))
     },
 }

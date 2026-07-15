@@ -114,21 +114,15 @@ function orderCompareSeriesPreviousFirst(
     )
 }
 
-/** Derives the chart config from the base config plus whether the new pinnable tooltip is
- *  enabled. A breakdown always puts one series per breakdown value at each step, so a pinnable
- *  tooltip here always covers multiple series — `resolveClickToNearestSeries` resolves the
- *  click to the nearest one and opens its persons modal directly instead of pinning first. */
-export function withFunnelStepsBarInteraction(
-    baseConfig: BarChartConfig,
-    options: { quillTooltipEnabled: boolean }
-): BarChartConfig {
-    if (options.quillTooltipEnabled) {
-        return {
-            ...baseConfig,
-            tooltip: { ...INSIGHT_TOOLTIP_CONFIG, resolveClickToNearestSeries: true },
-        }
+/** Adds the pinnable tooltip to the base config. A breakdown always puts one series per breakdown
+ *  value at each step, so a pinnable tooltip here always covers multiple series —
+ *  `resolveClickToNearestSeries` resolves the click to the nearest one and opens its persons modal
+ *  directly instead of pinning first. */
+export function withFunnelStepsBarInteraction(baseConfig: BarChartConfig): BarChartConfig {
+    return {
+        ...baseConfig,
+        tooltip: { ...INSIGHT_TOOLTIP_CONFIG, resolveClickToNearestSeries: true },
     }
-    return baseConfig
 }
 
 export interface FunnelStepClickTarget {

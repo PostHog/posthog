@@ -360,7 +360,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                     return []
                 }
 
-                // we need to check wether results are an array, since isTimeToConvertFunnel can be false,
+                // we need to check whether results are an array, since isTimeToConvertFunnel can be false,
                 // while still having "time-to-convert" results in insightData
                 if (!isTimeToConvertFunnel && Array.isArray(results) && results.length > 0) {
                     // STEPS compare: the runner returns both periods' steps as a flat tagged list.

@@ -1,5 +1,5 @@
 import { logger } from '~/common/utils/logger'
-import { BatchProcessingStep } from '~/ingestion/framework/base-batch-pipeline'
+import { ChunkProcessingStep } from '~/ingestion/framework/base-chunk-pipeline'
 import { drop, ok } from '~/ingestion/framework/results'
 import { RetentionPeriod } from '~/ingestion/pipelines/sessionreplay/shared/constants'
 import { RetentionService } from '~/ingestion/pipelines/sessionreplay/shared/retention/retention-service'
@@ -27,7 +27,7 @@ import { SessionBatchMetrics } from './sessions/metrics'
  */
 export function createResolveRetentionStep<
     T extends { team: TeamForReplay; headers: SessionReplayHeaders } & SessionBatchContext,
->(retentionService: RetentionService): BatchProcessingStep<T, T & { retentionPeriod: RetentionPeriod }> {
+>(retentionService: RetentionService): ChunkProcessingStep<T, T & { retentionPeriod: RetentionPeriod }> {
     return async function resolveRetentionStep(values) {
         // Reuse retention already resolved for sessions still in this cycle's (unflushed) recorder;
         // resolve the rest. The recorder is minted per cycle and carried on every element.

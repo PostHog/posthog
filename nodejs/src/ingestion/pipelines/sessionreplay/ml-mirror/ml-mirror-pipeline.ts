@@ -4,7 +4,7 @@ import { Message } from 'node-rdkafka'
 import { OverflowOutput } from '~/common/outputs'
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '~/ingestion/common/steps/event-preprocessing'
 import { AccumulationContext } from '~/ingestion/framework/accumulating-pipeline'
-import { BatchPipelineBuilder, newBatchPipelineBuilder } from '~/ingestion/framework/builders'
+import { ChunkPipelineBuilder, newChunkPipelineBuilder } from '~/ingestion/framework/builders'
 import { createTopHogWrapper, sum, timer } from '~/ingestion/framework/extensions/tophog'
 import { PipelineConfig, ResultHandlingPipeline } from '~/ingestion/framework/result-handling-pipeline'
 import {
@@ -42,7 +42,7 @@ export function createMlMirrorReplayPipeline(config: SessionReplayInnerPipelineC
     const pipelineConfig: PipelineConfig<OverflowOutput> = { outputs, promiseScheduler }
     const topHogWrapper = createTopHogWrapper(topHog)
 
-    const processed = newBatchPipelineBuilder<
+    const processed = newChunkPipelineBuilder<
         SessionReplayPipelineInput & SessionBatchContext & AccumulationContext,
         { message: Message }
     >()
@@ -66,12 +66,12 @@ export function createMlMirrorReplayPipeline(config: SessionReplayInnerPipelineC
         // Resolve retention up front (before parse), keyed on the (validated) session_id
         // header; drop unresolvable sessions.
         .gather()
-        .pipeBatch(createResolveRetentionStep(retentionService), {
+        .pipeChunk(createResolveRetentionStep(retentionService), {
             retry: { tries: 3, sleepMs: 100 },
         })
         // Track sessions and rate-limit new ones for the whole batch, tagging the survivors with
         // isNewSession and dropping the blocked ones right here, in this step's own retry scope.
-        .pipeBatch(createTrackAndGateStep(sessionTracker, sessionFilter), {
+        .pipeChunk(createTrackAndGateStep(sessionTracker, sessionFilter), {
             retry: { tries: 3, sleepMs: 100 },
         })
         // Resolve each session's encryption key once per session (grouped), concurrently across
@@ -90,7 +90,7 @@ export function createMlMirrorReplayPipeline(config: SessionReplayInnerPipelineC
         // in a single Redis write and as the barrier that guarantees every key is resolved first.
         .gather()
         // Mark the surviving new sessions seen, now that every key is durably resolved.
-        .pipeBatch(createMarkSeenStep(sessionTracker))
+        .pipeChunk(createMarkSeenStep(sessionTracker))
         // Map TeamForReplay.teamId to context.team.id for handleIngestionWarnings
         .filterMap(
             (element) => ({
@@ -147,5 +147,5 @@ export function createMlMirrorReplayPipeline(config: SessionReplayInnerPipelineC
     // them — leave them on each result's context so the accumulating pipeline can lift and surface
     // them. The builder's handleResults() forces handleSideEffects (which would consume them), so
     // wrap the result handler directly.
-    return new BatchPipelineBuilder(new ResultHandlingPipeline(processed.build(), pipelineConfig)).gather().build()
+    return new ChunkPipelineBuilder(new ResultHandlingPipeline(processed.build(), pipelineConfig)).gather().build()
 }

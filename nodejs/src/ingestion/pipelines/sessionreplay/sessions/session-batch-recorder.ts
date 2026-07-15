@@ -340,7 +340,6 @@ export class SessionBatchRecorder {
             await this.consoleLogStore.flush()
             await this.featureStore.storeSessionFeatures(featureBlocks)
             await this.metadataStore.storeSessionBlocks(blockMetadata)
-
             // Clear sessions, total size, and rate limiter state after successful flush
             this.sessions = new SessionMap()
             this._size = 0

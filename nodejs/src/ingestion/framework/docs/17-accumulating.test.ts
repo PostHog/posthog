@@ -20,7 +20,7 @@
  *   recorder) at the start of each cycle: before the first feed, and again
  *   after every flush. The pipeline tags the accumulator onto every element
  *   it feeds through, so record steps fold into it without shared lookups.
- * - **`pipeline`** — a plain batch pipeline of steps (chapters 2–13) that
+ * - **`pipeline`** — a plain chunk pipeline of steps (chapters 2–13) that
  *   folds each element into the accumulator. It knows nothing about batches
  *   or flushes.
  * - **`afterRecord`** — the per-message bookkeeping point. It sees every
@@ -57,8 +57,8 @@ import {
     AccumulationContext,
     AfterRecordHook,
 } from '~/ingestion/framework/accumulating-pipeline'
-import { OkResultWithContext } from '~/ingestion/framework/batch-pipeline.interface'
-import { newAccumulatingPipeline, newBatchPipelineBuilder } from '~/ingestion/framework/builders'
+import { newAccumulatingPipeline, newChunkPipelineBuilder } from '~/ingestion/framework/builders'
+import { OkResultWithContext } from '~/ingestion/framework/chunk-pipeline.interface'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { isOkResult, ok } from '~/ingestion/framework/results'
 
@@ -72,13 +72,13 @@ type Batch = { records: number[] }
 type NoCtx = Record<string, never>
 
 /**
- * The record pipeline is a plain batch pipeline: its fold step reads the accumulator straight off
+ * The record pipeline is a plain chunk pipeline: its fold step reads the accumulator straight off
  * each element — the accumulating pipeline tagged it on — and folds into it. `recordSideEffect`,
  * when set, is attached to each result so tests can show the accumulating pipeline lifting element
  * side effects into the turn.
  */
 function buildRecordPipeline(recordSideEffect?: () => Promise<unknown>) {
-    return newBatchPipelineBuilder<Event & Batch & AccumulationContext, NoCtx>()
+    return newChunkPipelineBuilder<Event & Batch & AccumulationContext, NoCtx>()
         .sequentially((b) =>
             b.pipe(function foldIntoAccumulator(input) {
                 input.records.push(input.id)

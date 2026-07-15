@@ -6,7 +6,6 @@ import {
     BeforeAccumulationInput,
     BeforeAccumulationOutput,
 } from '~/ingestion/framework/accumulating-pipeline'
-import { BatchPipeline } from '~/ingestion/framework/batch-pipeline.interface'
 import {
     AfterBatchInput,
     AfterBatchOutput,
@@ -16,13 +15,14 @@ import {
     BeforeBatchInput,
     BeforeBatchOutput,
 } from '~/ingestion/framework/batching-pipeline'
-import { BufferingBatchPipeline } from '~/ingestion/framework/buffering-batch-pipeline'
+import { BufferingChunkPipeline } from '~/ingestion/framework/buffering-chunk-pipeline'
+import { ChunkPipeline } from '~/ingestion/framework/chunk-pipeline.interface'
 
-import { BatchPipelineBuilder } from './batch-pipeline-builders'
+import { ChunkPipelineBuilder } from './chunk-pipeline-builders'
 import { PipelineBuilder, StartPipelineBuilder } from './pipeline-builders'
 
-export function newBatchPipelineBuilder<T, C = Record<string, never>>(): BatchPipelineBuilder<T, T, C> {
-    return new BatchPipelineBuilder(new BufferingBatchPipeline<T, C>())
+export function newChunkPipelineBuilder<T, C = Record<string, never>>(): ChunkPipelineBuilder<T, T, C> {
+    return new ChunkPipelineBuilder(new BufferingChunkPipeline<T, C>())
 }
 
 export function newPipelineBuilder<T, C = Record<string, never>>(): StartPipelineBuilder<T, C> {
@@ -36,8 +36,6 @@ export function newBatchingPipeline<
     CBatch = NonNullable<unknown>,
     COutput = CInput,
     R extends string = never,
-    TPostOut = TOutput,
-    CPostOut = COutput & BatchingContext,
 >(
     beforeBatch: (
         builder: StartPipelineBuilder<BeforeBatchInput<TInput, CInput>, Record<string, never>>
@@ -47,13 +45,13 @@ export function newBatchingPipeline<
         Record<string, never>
     >,
     callback: (
-        builder: BatchPipelineBuilder<
+        builder: ChunkPipelineBuilder<
             TInput & CBatch,
             TInput & CBatch,
             CInput & BatchingContext,
             CInput & BatchingContext
         >
-    ) => BatchPipelineBuilder<TInput & CBatch, TOutput, CInput & BatchingContext, COutput & BatchingContext, R>,
+    ) => ChunkPipelineBuilder<TInput & CBatch, TOutput, CInput & BatchingContext, COutput & BatchingContext, R>,
     afterBatch: (
         builder: StartPipelineBuilder<
             AfterBatchInput<TOutput, COutput & BatchingContext, CBatch, R>,
@@ -61,13 +59,13 @@ export function newBatchingPipeline<
         >
     ) => PipelineBuilder<
         AfterBatchInput<TOutput, COutput & BatchingContext, CBatch, R>,
-        AfterBatchOutput<TPostOut, CPostOut, CBatch, R>,
+        AfterBatchOutput<TOutput, COutput & BatchingContext, CBatch, R>,
         Record<string, never>
     >,
     options?: Partial<BatchingPipelineOptions>
-): BatchingPipeline<TInput, TOutput, CInput, CBatch, COutput & BatchingContext, R, TPostOut, CPostOut> {
-    const startBuilder = new BatchPipelineBuilder(
-        new BufferingBatchPipeline<TInput & CBatch, CInput & BatchingContext>()
+): BatchingPipeline<TInput, TOutput, CInput, CBatch, COutput & BatchingContext, R> {
+    const startBuilder = new ChunkPipelineBuilder(
+        new BufferingChunkPipeline<TInput & CBatch, CInput & BatchingContext>()
     )
     const subPipeline = callback(startBuilder).build()
 
@@ -106,8 +104,8 @@ export function newAccumulatingPipeline<
     beforeBatch: (
         builder: StartPipelineBuilder<BeforeAccumulationInput, Record<string, never>>
     ) => PipelineBuilder<BeforeAccumulationInput, BeforeAccumulationOutput<CBatch>, Record<string, never>>
-    /** Pre-built record pipeline (a plain batch pipeline) that folds each message into the current batch context */
-    pipeline: BatchPipeline<TRecordIn & CBatch & AccumulationContext, TRecordOut, CRecordIn, CRecordOut, R>
+    /** Pre-built record pipeline (a plain chunk pipeline) that folds each message into the current batch context */
+    pipeline: ChunkPipeline<TRecordIn & CBatch & AccumulationContext, TRecordOut, CRecordIn, CRecordOut, R>
     /** Per-message bookkeeping and trimming for every drained result — see {@link AfterRecordHook} */
     afterRecord: AfterRecordHook<TRecordOut, CRecordOut, TAccOut, CAccOut, R>
     /**
@@ -116,12 +114,12 @@ export function newAccumulatingPipeline<
      * drain order.
      */
     flush: (
-        builder: BatchPipelineBuilder<
+        builder: ChunkPipelineBuilder<
             AccumulatedFlushInput<TAccOut, CAccOut, CBatch, R>,
             AccumulatedFlushInput<TAccOut, CAccOut, CBatch, R>,
             Record<string, never>
         >
-    ) => BatchPipelineBuilder<
+    ) => ChunkPipelineBuilder<
         AccumulatedFlushInput<TAccOut, CAccOut, CBatch, R>,
         TFlushOut,
         Record<string, never>,
@@ -149,8 +147,8 @@ export function newAccumulatingPipeline<
         .build()
     const flushPipeline = config
         .flush(
-            new BatchPipelineBuilder(
-                new BufferingBatchPipeline<AccumulatedFlushInput<TAccOut, CAccOut, CBatch, R>, Record<string, never>>()
+            new ChunkPipelineBuilder(
+                new BufferingChunkPipeline<AccumulatedFlushInput<TAccOut, CAccOut, CBatch, R>, Record<string, never>>()
             )
         )
         .build()

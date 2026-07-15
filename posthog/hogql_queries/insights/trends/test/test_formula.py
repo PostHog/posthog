@@ -150,11 +150,13 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
         query_dict = {
             "series": [
                 {
+                    "kind": "EventsNode",
                     "event": "session start",
                     "math": "sum",
                     "math_property": "xyz",
                 },
                 {
+                    "kind": "EventsNode",
                     "event": "session start",
                     "math": "avg",
                     "math_property": "xyz",
@@ -301,8 +303,8 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
             action_response = self._run(
                 {
                     "series": [
-                        {"event": "session start", "math": "unique_session"},
-                        {"event": "session start", "math": "dau"},
+                        {"kind": "EventsNode", "event": "session start", "math": "unique_session"},
+                        {"kind": "EventsNode", "event": "session start", "math": "dau"},
                     ],
                     "trendsFilter": {
                         "formula": "A / B",
@@ -318,6 +320,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                 {
                     "series": [
                         {
+                            "kind": "EventsNode",
                             "event": "session start",
                             "math": "unique_session",
                             "properties": [
@@ -329,7 +332,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                                 }
                             ],
                         },
-                        {"event": "session start", "math": "unique_session"},
+                        {"kind": "EventsNode", "event": "session start", "math": "unique_session"},
                     ],
                     "trendsFilter": {
                         "formula": "A / B",
@@ -346,6 +349,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                 {
                     "series": [
                         {
+                            "kind": "EventsNode",
                             "event": "$autocapture",
                             "math": "unique_session",
                             "properties": [
@@ -358,6 +362,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                             ],
                         },
                         {
+                            "kind": "EventsNode",
                             "event": "session start",
                             "math": "unique_session",
                             "properties": [
@@ -385,12 +390,14 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                 {
                     "series": [
                         {
+                            "kind": "EventsNode",
                             "event": "session start",
                             "name": "$pageview",
                             "math": "avg",
                             "math_property": "$session_duration",
                         },
                         {
+                            "kind": "EventsNode",
                             "event": "session end",
                             "name": "$pageview",
                             "math": "total",
@@ -415,12 +422,14 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                     },
                     "series": [
                         {
+                            "kind": "EventsNode",
                             "event": "session start",
                             "name": "session start",
                             "math": "sum",
                             "math_property": "xyz",
                         },
                         {
+                            "kind": "EventsNode",
                             "event": "session error",
                             "name": "session error",
                             "math": "sum",
@@ -462,11 +471,13 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
             {
                 "series": [
                     {
+                        "kind": "EventsNode",
                         "event": "session start",
                         "math": "sum",
                         "math_property": "xyz",
                     },
                     {
+                        "kind": "EventsNode",
                         "event": "session end",
                         "math": "sum",
                         "math_property": "xyz",
@@ -510,10 +521,12 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                     },
                     "series": [
                         {
+                            "kind": "EventsNode",
                             "event": "session start",
                             "name": "session start",
                         },
                         {
+                            "kind": "EventsNode",
                             "event": "session error",
                             "name": "session error",
                         },
@@ -709,7 +722,10 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
     def test_breakdown_mismatching_sizes(self):
         response = self._run(
             {
-                "series": [{"event": "session start"}, {"event": "session end"}],
+                "series": [
+                    {"kind": "EventsNode", "event": "session start"},
+                    {"kind": "EventsNode", "event": "session end"},
+                ],
                 "breakdownFilter": {
                     "breakdown": "location",
                 },
@@ -755,12 +771,14 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                 {
                     "series": [
                         {
+                            "kind": "EventsNode",
                             "event": "session start",
                             "math": "sum",
                             "math_property": "xyz",
                             "properties": [{"key": "$current_url", "value": "http://example.org"}],
                         },
                         {
+                            "kind": "EventsNode",
                             "event": "session start",
                             "math": "avg",
                             "math_property": "xyz",
@@ -826,16 +844,19 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                 {
                     "series": [
                         {
+                            "kind": "EventsNode",
                             "event": "session start",
                             "math": "sum",
                             "math_property": "xyz",
                         },
                         {
+                            "kind": "EventsNode",
                             "event": "session start",
                             "math": "avg",
                             "math_property": "xyz",
                         },
                         {
+                            "kind": "EventsNode",
                             "event": "session start",
                             "math": "avg",
                             "math_property": "xyz",
@@ -851,8 +872,8 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
             self._run(
                 {
                     "series": [
-                        {"event": "session start", "math": "unique_session"},
-                        {"event": "session start", "math": "unique_session"},
+                        {"kind": "EventsNode", "event": "session start", "math": "unique_session"},
+                        {"kind": "EventsNode", "event": "session start", "math": "unique_session"},
                     ]
                 }
             )[0]["data"],
@@ -871,11 +892,13 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                 {
                     "series": [
                         {
+                            "kind": "EventsNode",
                             "event": "session start",
                             "math": "unique_group",
                             "math_group_type_index": 0,
                         },
                         {
+                            "kind": "EventsNode",
                             "event": "session start",
                             "math": "unique_group",
                             "math_group_type_index": 0,
@@ -899,12 +922,14 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                     },
                     "series": [
                         {
+                            "kind": "EventsNode",
                             "event": "nonexistent_event_that_has_no_data",
                             "name": "custom hogql",
                             "math": "hogql",
                             "math_hogql": "sum(toFloat(properties.xyz))",
                         },
                         {
+                            "kind": "EventsNode",
                             "event": "session start",
                             "name": "session start",
                             "math": "sum",
@@ -925,6 +950,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                 {
                     "series": [
                         {
+                            "kind": "EventsNode",
                             "event": "session start",
                             "math": "sum",
                             "math_property": "xyz",

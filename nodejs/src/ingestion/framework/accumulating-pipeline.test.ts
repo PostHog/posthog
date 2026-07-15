@@ -6,7 +6,7 @@ import {
     BeforeAccumulationInput,
     BeforeAccumulationOutput,
 } from './accumulating-pipeline'
-import { BatchPipeline, BatchPipelineResultWithContext, OkResultWithContext } from './batch-pipeline.interface'
+import { ChunkPipeline, ChunkPipelineResultWithContext, OkResultWithContext } from './chunk-pipeline.interface'
 import { createOkContext } from './helpers'
 import { Pipeline } from './pipeline.interface'
 import { dlq, isOkResult, ok } from './results'
@@ -19,7 +19,7 @@ type Batch = { records: number[] }
 // accumulated records.
 class RecordsFlushPipeline
     implements
-        BatchPipeline<
+        ChunkPipeline<
             AccumulatedFlushInput<RecordIn, Record<string, never>, Batch>,
             number[],
             Record<string, never>,
@@ -40,7 +40,7 @@ class RecordsFlushPipeline
         this.buffer.push(...elements)
     }
 
-    next(): Promise<BatchPipelineResultWithContext<number[], Record<string, never>> | null> {
+    next(): Promise<ChunkPipelineResultWithContext<number[], Record<string, never>> | null> {
         if (this.buffer.length === 0) {
             return Promise.resolve(null)
         }
@@ -70,11 +70,11 @@ function feedBatch(ids: number[]): OkResultWithContext<RecordIn, Record<string, 
 }
 
 // Folds each fed element's id into the accumulator carried on its (tagged) value, then re-emits the
-// element — a plain batch pipeline, like the session-replay record pipeline folding into the
+// element — a plain chunk pipeline, like the session-replay record pipeline folding into the
 // recorder. `sideEffectPerDrain`, when set, is attached to the first emitted element's context per
 // drain, so tests can assert the accumulating pipeline lifts element side effects into the turn.
 class FoldingRecordPipeline
-    implements BatchPipeline<RecordIn & Batch, RecordIn, Record<string, never>, Record<string, never>>
+    implements ChunkPipeline<RecordIn & Batch, RecordIn, Record<string, never>, Record<string, never>>
 {
     private buffer: OkResultWithContext<RecordIn & Batch, Record<string, never>>[] = []
 
@@ -84,7 +84,7 @@ class FoldingRecordPipeline
         this.buffer.push(...elements)
     }
 
-    next(): Promise<BatchPipelineResultWithContext<RecordIn, Record<string, never>> | null> {
+    next(): Promise<ChunkPipelineResultWithContext<RecordIn, Record<string, never>> | null> {
         if (this.buffer.length === 0) {
             return Promise.resolve(null)
         }
@@ -201,7 +201,7 @@ describe('AccumulatingPipeline', () => {
     })
 
     it('runs afterRecord on every drained result and accumulates its output', async () => {
-        const afterRecord = jest.fn((elements: BatchPipelineResultWithContext<RecordIn, Record<string, never>>) =>
+        const afterRecord = jest.fn((elements: ChunkPipelineResultWithContext<RecordIn, Record<string, never>>) =>
             elements.map((element) => ({
                 result: isOkResult(element.result) ? ok({ id: element.result.value.id * 10 }) : element.result,
                 context: element.context,

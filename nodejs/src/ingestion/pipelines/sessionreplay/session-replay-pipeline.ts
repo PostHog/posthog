@@ -11,8 +11,8 @@ import {
     AccumulatingPipeline,
     AccumulationContext,
 } from '~/ingestion/framework/accumulating-pipeline'
-import { BatchPipeline } from '~/ingestion/framework/batch-pipeline.interface'
-import { BatchPipelineBuilder, newAccumulatingPipeline, newBatchPipelineBuilder } from '~/ingestion/framework/builders'
+import { ChunkPipelineBuilder, newAccumulatingPipeline, newChunkPipelineBuilder } from '~/ingestion/framework/builders'
+import { ChunkPipeline } from '~/ingestion/framework/chunk-pipeline.interface'
 import { TopHogRegistry, createTopHogWrapper, sum, timer } from '~/ingestion/framework/extensions/tophog'
 import { PipelineConfig, ResultHandlingPipeline } from '~/ingestion/framework/result-handling-pipeline'
 import { KafkaOffsetManager } from '~/ingestion/pipelines/sessionreplay/kafka/offset-manager'
@@ -52,12 +52,12 @@ export interface SessionReplayPipelineOutput {
 }
 
 /**
- * The per-message inner pipeline driven by the session replay pipeline: a plain batch pipeline of
+ * The per-message inner pipeline driven by the session replay pipeline: a plain chunk pipeline of
  * steps. Its input carries the batch context (the recorder) tagged on by the accumulating pipeline,
  * which the retention and record steps read; offset tracking and result trimming live in the
  * accumulating pipeline's afterRecord hook, not here.
  */
-export type SessionReplayInnerPipeline = BatchPipeline<
+export type SessionReplayInnerPipeline = ChunkPipeline<
     SessionReplayPipelineInput & SessionBatchContext & AccumulationContext, // TInput: raw input + batch recorder + batch id
     SessionReplayPipelineOutput, // TOutput: recorded element (narrowed to the declared output)
     { message: Message }, // CInput: per-element context in (the Kafka message)
@@ -160,7 +160,7 @@ export function createSessionReplayInnerPipeline(config: SessionReplayInnerPipel
 
     const topHogWrapper = createTopHogWrapper(topHog)
 
-    const processed = newBatchPipelineBuilder<
+    const processed = newChunkPipelineBuilder<
         SessionReplayPipelineInput & SessionBatchContext & AccumulationContext,
         { message: Message }
     >()
@@ -183,14 +183,14 @@ export function createSessionReplayInnerPipeline(config: SessionReplayInnerPipel
         // recorded — keyed on the (validated) session_id header. Sessions with unresolvable
         // retention are dropped before any parse or write.
         .gather()
-        .pipeBatch(createResolveRetentionStep(retentionService), {
+        .pipeChunk(createResolveRetentionStep(retentionService), {
             retry: { tries: 3, sleepMs: 100 },
         })
         // Track sessions and rate-limit new ones for the whole batch, tagging the survivors with
         // isNewSession and dropping the blocked ones right here (they carry no key, so nothing
         // downstream acts on them). Its own retry scope means a later key-resolution failure never
         // re-runs the rate limiter and double-charges the budget.
-        .pipeBatch(createTrackAndGateStep(sessionTracker, sessionFilter), {
+        .pipeChunk(createTrackAndGateStep(sessionTracker, sessionFilter), {
             retry: { tries: 3, sleepMs: 100 },
         })
         // Resolve each session's encryption key. Grouped by session so it runs once per session
@@ -211,7 +211,7 @@ export function createSessionReplayInnerPipeline(config: SessionReplayInnerPipel
         // in a single Redis write and as the barrier that guarantees every key is resolved first.
         .gather()
         // Mark the surviving new sessions seen, now that every key is durably resolved.
-        .pipeBatch(createMarkSeenStep(sessionTracker))
+        .pipeChunk(createMarkSeenStep(sessionTracker))
         // Map TeamForReplay.teamId to context.team.id for handleIngestionWarnings
         .filterMap(
             (element) => ({
@@ -270,7 +270,7 @@ export function createSessionReplayInnerPipeline(config: SessionReplayInnerPipel
     // them — leave them on each result's context so the accumulating pipeline can lift and surface
     // them. The builder's handleResults() forces handleSideEffects (which would consume them), so
     // wrap the result handler directly.
-    return new BatchPipelineBuilder(new ResultHandlingPipeline(processed.build(), pipelineConfig)).gather().build()
+    return new ChunkPipelineBuilder(new ResultHandlingPipeline(processed.build(), pipelineConfig)).gather().build()
 }
 
 /**

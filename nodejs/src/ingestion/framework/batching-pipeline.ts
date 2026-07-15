@@ -1,6 +1,6 @@
 import pLimit from 'p-limit'
 
-import { BatchPipeline, BatchPipelineResultWithContext, OkResultWithContext } from './batch-pipeline.interface'
+import { ChunkPipeline, ChunkPipelineResultWithContext, OkResultWithContext } from './chunk-pipeline.interface'
 import { createOkContext } from './helpers'
 import { Pipeline, PipelineResultWithContext } from './pipeline.interface'
 import { PipelineResult, isOkResult } from './results'
@@ -30,39 +30,31 @@ export interface BeforeBatchOutput<TInput, CInput, CBatch> {
 }
 
 export interface AfterBatchInput<TOutput, COutput, CBatch, R extends string = never> {
-    elements: BatchPipelineResultWithContext<TOutput, COutput, R>
+    elements: ChunkPipelineResultWithContext<TOutput, COutput, R>
     batchContext: CBatch
     batchId: number
 }
 
 /**
- * What an afterBatch pipeline produces. The out element/context types default to the in types, so a
- * passthrough step (one that returns its input untouched) satisfies the contract with no explicit
- * transformer. When they differ, afterBatch retypes the elements — e.g. trimming each result to a
- * lightweight shape — but must not change the element count (count changes throw); non-OK results
- * flow through as results, not by removal. The runtime downstream only reads `elements`, so carrying
- * `batchId` is harmless.
+ * What an afterBatch pipeline produces. Structurally the same as
+ * `AfterBatchInput` — extending it means a passthrough step (one that
+ * returns its input untouched) satisfies the afterBatch contract without
+ * needing an explicit Input→Output transformer in front. afterBatch may
+ * enrich elements but must not change their count (count changes throw);
+ * non-OK results flow through as results, not by removal. The runtime
+ * downstream of `afterPipeline.process(...)` only reads `elements`, so
+ * carrying `batchId` through is harmless.
  */
-export interface AfterBatchOutput<TOutput, COutput, CBatch, R extends string = never> {
-    elements: BatchPipelineResultWithContext<TOutput, COutput, R>
-    batchContext: CBatch
-    batchId: number
-}
+export interface AfterBatchOutput<TOutput, COutput, CBatch, R extends string = never>
+    extends AfterBatchInput<TOutput, COutput, CBatch, R> {}
 
 export type BeforeBatchStep<TInput, CInput, CBatchInput, CBatchOutput = CBatchInput> = (
     input: BeforeBatchInput<TInput, CInput, CBatchInput>
 ) => Promise<PipelineResult<BeforeBatchOutput<TInput, CInput, CBatchOutput>>>
 
-export type AfterBatchStep<
-    TOutput,
-    COutput,
-    CBatch,
-    R extends string = never,
-    TPostOut = TOutput,
-    CPostOut = COutput,
-> = (
+export type AfterBatchStep<TOutput, COutput, CBatch, R extends string = never> = (
     input: AfterBatchInput<TOutput, COutput, CBatch, R>
-) => Promise<PipelineResult<AfterBatchOutput<TPostOut, CPostOut, CBatch, R>>>
+) => Promise<PipelineResult<AfterBatchOutput<TOutput, COutput, CBatch, R>>>
 
 export interface BatchResult<T> {
     elements: T
@@ -101,9 +93,8 @@ interface TrackedBatch<TOutput, CBatch, COutput, R extends string = never> {
  *   fed — count changes throw) and side effects. Elements are tagged with
  *   messageId, then fed to the sub-pipeline.
  * - next() collects results. When all messages in a batch complete, calls
- *   afterBatch with the batchContext and ordered results (which may retype the
- *   elements but, like beforeBatch, must not change their count — count changes
- *   throw), then returns a BatchResult with concatenated side effects.
+ *   afterBatch with the batchContext and ordered results, then returns a
+ *   BatchResult with concatenated side effects.
  *
  * Ordering guarantees:
  * - Messages within a completed batch are returned in their original feed() order
@@ -125,8 +116,6 @@ export class BatchingPipeline<
     CBatchOutput,
     COutput extends BatchingContext,
     R extends string = never,
-    TPostOut = TOutput,
-    CPostOut = COutput,
 > {
     private nextBatchId = 0
     private nextMessageId = 0
@@ -136,7 +125,7 @@ export class BatchingPipeline<
     private feedEpoch = 0
     private batches = new Map<number, TrackedBatch<TOutput, CBatchOutput, COutput, R>>()
     private messageIdToBatchId = new Map<number, number>()
-    private completedResults: BatchResult<BatchPipelineResultWithContext<TPostOut, CPostOut, R>>[] = []
+    private completedResults: BatchResult<ChunkPipelineResultWithContext<TOutput, COutput, R>>[] = []
 
     // With concurrentBatches > 1, callers (e.g. HTTP request handlers in the
     // ingestion API server) invoke feed()/next() concurrently, but the
@@ -153,7 +142,7 @@ export class BatchingPipeline<
     private options: BatchingPipelineOptions
 
     constructor(
-        private subPipeline: BatchPipeline<
+        private subPipeline: ChunkPipeline<
             TInput & CBatchOutput & { batchId: number },
             TOutput,
             CInput & BatchingContext,
@@ -167,7 +156,7 @@ export class BatchingPipeline<
         >,
         private afterPipeline: Pipeline<
             AfterBatchInput<TOutput, COutput, CBatchOutput, R>,
-            AfterBatchOutput<TPostOut, CPostOut, CBatchOutput, R>,
+            AfterBatchOutput<TOutput, COutput, CBatchOutput, R>,
             Record<string, never>
         >,
         options?: Partial<BatchingPipelineOptions>
@@ -224,7 +213,7 @@ export class BatchingPipeline<
         // never complete and would leak its concurrentBatches slot forever.
         // That's a broken framework invariant, not an outcome a driver may
         // handle, so throw instead of returning a FeedResult — mirroring
-        // BaseBatchPipeline's count-mismatch throw for batch steps. Nothing has
+        // BaseChunkPipeline's count-mismatch throw for chunk steps. Nothing has
         // been registered yet, so the throw leaves no phantom batch behind.
         if (mappedElements.length !== elements.length) {
             throw new Error(
@@ -272,7 +261,7 @@ export class BatchingPipeline<
         return { ok: true }
     }
 
-    next(): Promise<BatchResult<BatchPipelineResultWithContext<TPostOut, CPostOut, R>> | null> {
+    next(): Promise<BatchResult<ChunkPipelineResultWithContext<TOutput, COutput, R>> | null> {
         // Serialize so exactly one caller pumps the sub-pipeline at a time,
         // restoring the single-caller assumption the stages were written under.
         // With one concurrent batch the caller is already sequential, so the
@@ -281,7 +270,7 @@ export class BatchingPipeline<
         return this.pumpLimit(() => this.pump())
     }
 
-    private async pump(): Promise<BatchResult<BatchPipelineResultWithContext<TPostOut, CPostOut, R>> | null> {
+    private async pump(): Promise<BatchResult<ChunkPipelineResultWithContext<TOutput, COutput, R>> | null> {
         // Re-check after acquiring the pump: a previous pump iteration may have
         // completed additional batches while this caller was waiting.
         if (this.completedResults.length > 0) {
@@ -346,7 +335,7 @@ export class BatchingPipeline<
                         throw new Error(`batching_pipeline afterBatch hook returned non-ok result for batch ${batchId}`)
                     }
 
-                    // afterBatch may retype elements but must not change the element count: every fed
+                    // afterBatch may enrich elements but must not change the element count: every fed
                     // message must surface exactly once downstream (non-OK results flow through as
                     // results, not by removal). Mirrors the beforeBatch count-mismatch throw.
                     const afterElements = afterResult.result.value.elements

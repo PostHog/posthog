@@ -1,6 +1,6 @@
 import pLimit from 'p-limit'
 
-import { BatchPipeline, BatchPipelineResultWithContext, OkResultWithContext } from './batch-pipeline.interface'
+import { ChunkPipeline, ChunkPipelineResultWithContext, OkResultWithContext } from './chunk-pipeline.interface'
 import { createOkContext } from './helpers'
 import { Pipeline } from './pipeline.interface'
 import { ResettableSignal } from './resettable-signal'
@@ -21,8 +21,8 @@ export interface AccumulationContext {
  * replacing contexts here cannot lose them.
  */
 export type AfterRecordHook<TRecordOut, CRecordOut, TAccOut, CAccOut, R extends string = never> = (
-    elements: BatchPipelineResultWithContext<TRecordOut, CRecordOut, R>
-) => BatchPipelineResultWithContext<TAccOut, CAccOut, R>
+    elements: ChunkPipelineResultWithContext<TRecordOut, CRecordOut, R>
+) => ChunkPipelineResultWithContext<TAccOut, CAccOut, R>
 
 /** Input to the beforeBatch hook. */
 export interface BeforeAccumulationInput {
@@ -45,12 +45,12 @@ export interface BeforeAccumulationOutput<CBatch> {
 export type AccumulatingResult<TRecordOut, CRecordOut, TFlushOut, CFlushOut, R extends string = never> =
     | {
           flushed: false
-          elements: BatchPipelineResultWithContext<TRecordOut, CRecordOut, R>
+          elements: ChunkPipelineResultWithContext<TRecordOut, CRecordOut, R>
           sideEffects: Promise<unknown>[]
       }
     | {
           flushed: true
-          elements: BatchPipelineResultWithContext<TFlushOut, CFlushOut, R>
+          elements: ChunkPipelineResultWithContext<TFlushOut, CFlushOut, R>
           sideEffects: Promise<unknown>[]
       }
 
@@ -61,7 +61,7 @@ export type AccumulatingResult<TRecordOut, CRecordOut, TFlushOut, CFlushOut, R e
  * compute per-message latency).
  */
 export interface AccumulatedFlushInput<TRecordOut, CRecordOut, CBatch, R extends string = never> {
-    elements: BatchPipelineResultWithContext<TRecordOut, CRecordOut, R>
+    elements: ChunkPipelineResultWithContext<TRecordOut, CRecordOut, R>
     batchContext: CBatch & AccumulationContext
 }
 
@@ -89,7 +89,7 @@ export interface AccumulatingPipelineConfig<
      * pipeline of steps. The accumulation boundary lives entirely in this class; the pipeline knows
      * nothing about batches or flushes.
      */
-    pipeline: BatchPipeline<TRecordIn & CBatch & AccumulationContext, TRecordOut, CRecordIn, CRecordOut, R>
+    pipeline: ChunkPipeline<TRecordIn & CBatch & AccumulationContext, TRecordOut, CRecordIn, CRecordOut, R>
     /** Per-message bookkeeping and trimming for every drained result — see {@link AfterRecordHook}. */
     afterRecord: AfterRecordHook<TRecordOut, CRecordOut, TAccOut, CAccOut, R>
     /** Size trigger: flush when this returns true for the current accumulator. */
@@ -101,7 +101,7 @@ export interface AccumulatingPipelineConfig<
      * {@link AccumulatedFlushInput} — the batch context plus every accumulated record result — and
      * fans out over sub-units (e.g. per session) internally if it needs to.
      */
-    flushPipeline: BatchPipeline<
+    flushPipeline: ChunkPipeline<
         AccumulatedFlushInput<TAccOut, CAccOut, CBatch, R>,
         TFlushOut,
         Record<string, never>,
@@ -117,14 +117,14 @@ export interface AccumulatingPipelineConfig<
  * Unlike BatchingPipeline — where each feed() is one batch — the accumulation boundary spans
  * many feed() calls and is decided by `shouldFlush` (size) plus an age timer. `beforeBatch`
  * mints a fresh accumulator after every flush (and before the first feed). The record pipeline is
- * a plain batch pipeline; as its results drain, this class lifts each element's side effects into
+ * a plain chunk pipeline; as its results drain, this class lifts each element's side effects into
  * the turn (so DLQ/overflow produces surface exactly once, before offsets commit) and runs the
  * `afterRecord` hook, which does per-message bookkeeping (e.g. offset tracking) and trims each
  * result to the lightweight shape that accumulates for the flush. Offsets stay entirely outside:
  * afterRecord tracks them and the caller commits them after a flushed turn's side effects are
  * durable — the pipeline itself never commits.
  *
- * A sibling of BatchingPipeline, deliberately not a reuse of BufferingBatchPipeline (that one is a
+ * A sibling of BatchingPipeline, deliberately not a reuse of BufferingChunkPipeline (that one is a
  * passthrough re-emit buffer used by filterMap); the defining difference from both is the batch
  * boundary spanning many feed() calls.
  *
@@ -176,7 +176,7 @@ export class AccumulatingPipeline<
         BeforeAccumulationOutput<CBatch>,
         Record<string, never>
     >
-    private readonly pipeline: BatchPipeline<
+    private readonly pipeline: ChunkPipeline<
         TRecordIn & CBatch & AccumulationContext,
         TRecordOut,
         CRecordIn,
@@ -184,7 +184,7 @@ export class AccumulatingPipeline<
         R
     >
     private readonly afterRecord: AfterRecordHook<TRecordOut, CRecordOut, TAccOut, CAccOut, R>
-    private readonly flushPipeline: BatchPipeline<
+    private readonly flushPipeline: ChunkPipeline<
         AccumulatedFlushInput<TAccOut, CAccOut, CBatch, R>,
         TFlushOut,
         Record<string, never>,
@@ -197,7 +197,7 @@ export class AccumulatingPipeline<
     // Record results accumulated (in drain order) since the last flush, handed to the flush
     // pipeline as AccumulatedFlushInput.elements. The afterRecord hook has already trimmed these
     // to whatever the flush needs, so this holds lightweight rows, not the full fed payloads.
-    private flushBuffer: BatchPipelineResultWithContext<TAccOut, CAccOut, R> = []
+    private flushBuffer: ChunkPipelineResultWithContext<TAccOut, CAccOut, R> = []
 
     constructor(
         config: AccumulatingPipelineConfig<
@@ -319,10 +319,10 @@ export class AccumulatingPipeline<
      * element (OK and non-OK) to its accumulated shape; it must preserve the count.
      */
     private async drainRecord(): Promise<{
-        elements: BatchPipelineResultWithContext<TAccOut, CAccOut, R>
+        elements: ChunkPipelineResultWithContext<TAccOut, CAccOut, R>
         sideEffects: Promise<unknown>[]
     }> {
-        const drained: BatchPipelineResultWithContext<TRecordOut, CRecordOut, R> = []
+        const drained: ChunkPipelineResultWithContext<TRecordOut, CRecordOut, R> = []
         let result = await this.pipeline.next()
         while (result !== null) {
             drained.push(...result)
@@ -389,9 +389,9 @@ export class AccumulatingPipeline<
     }
 
     private async drain<T, C>(
-        pipeline: BatchPipeline<any, T, any, C, R>
-    ): Promise<BatchPipelineResultWithContext<T, C, R>> {
-        const all: BatchPipelineResultWithContext<T, C, R> = []
+        pipeline: ChunkPipeline<any, T, any, C, R>
+    ): Promise<ChunkPipelineResultWithContext<T, C, R>> {
+        const all: ChunkPipelineResultWithContext<T, C, R> = []
         let result = await pipeline.next()
         while (result !== null) {
             all.push(...result)
