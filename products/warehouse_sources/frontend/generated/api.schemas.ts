@@ -89,6 +89,18 @@ export const CdcTableModeEnumApi = {
     Both: 'both',
 } as const
 
+export interface ExternalDataSourceApiVersionDeprecationApi {
+    /** The deprecated vendor API version this source is pinned to. */
+    version: string
+    /**
+     * Date the vendor stops serving this version; null if not announced.
+     * @nullable
+     */
+    sunset_at: string | null
+    /** The source's current default vendor API version — the migration target. */
+    default_version: string
+}
+
 /**
  * @nullable
  */
@@ -119,6 +131,9 @@ export type ExternalDataSchemaApiSource = {
     readonly supports_row_filters?: boolean
     /** @nullable */
     readonly user_access_level?: string | null
+    /** @nullable */
+    readonly api_version?: string | null
+    readonly supported_api_versions?: string[]
 } | null
 
 export interface ExternalDataSchemaApi {
@@ -219,6 +234,14 @@ export interface ExternalDataSchemaApi {
      * @nullable
      */
     readonly source: ExternalDataSchemaApiSource
+    /**
+     * Vendor API version override for this schema. `null` (default) syncs on the source's pinned version. Must be one of the source type's supported versions. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas.
+     * @maxLength 128
+     * @nullable
+     */
+    api_version?: string | null
+    /** Set when this schema's version override is deprecated by the vendor; null when there is no override or it is not deprecated. The source-level field covers the source pin. */
+    readonly api_version_deprecation: ExternalDataSourceApiVersionDeprecationApi | null
 }
 
 export interface PaginatedExternalDataSchemaListApi {
@@ -260,6 +283,9 @@ export type PatchedExternalDataSchemaApiSource = {
     readonly supports_row_filters?: boolean
     /** @nullable */
     readonly user_access_level?: string | null
+    /** @nullable */
+    readonly api_version?: string | null
+    readonly supported_api_versions?: string[]
 } | null
 
 export interface PatchedExternalDataSchemaApi {
@@ -360,6 +386,14 @@ export interface PatchedExternalDataSchemaApi {
      * @nullable
      */
     readonly source?: PatchedExternalDataSchemaApiSource
+    /**
+     * Vendor API version override for this schema. `null` (default) syncs on the source's pinned version. Must be one of the source type's supported versions. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas.
+     * @maxLength 128
+     * @nullable
+     */
+    api_version?: string | null
+    /** Set when this schema's version override is deprecated by the vendor; null when there is no override or it is not deprecated. The source-level field covers the source pin. */
+    readonly api_version_deprecation?: ExternalDataSourceApiVersionDeprecationApi | null
 }
 
 /**
@@ -2185,6 +2219,13 @@ export interface ExternalDataSourceSerializersApi {
     readonly supports_webhooks: boolean
     /** Whether this source supports per-column sync selection via `enabled_columns`. */
     readonly supports_column_selection: boolean
+    /**
+     * Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe date version). Null resolves to the source type's default version at sync time.
+     * @nullable
+     */
+    readonly api_version: string | null
+    /** Set when the vendor has deprecated the API version this source is pinned to; null otherwise. Drives the in-product deprecation warning. */
+    readonly api_version_deprecation: ExternalDataSourceApiVersionDeprecationApi | null
 }
 
 export interface PaginatedExternalDataSourceSerializersListApi {
@@ -3159,6 +3200,13 @@ export interface PatchedExternalDataSourceSerializersApi {
     readonly supports_webhooks?: boolean
     /** Whether this source supports per-column sync selection via `enabled_columns`. */
     readonly supports_column_selection?: boolean
+    /**
+     * Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe date version). Null resolves to the source type's default version at sync time.
+     * @nullable
+     */
+    readonly api_version?: string | null
+    /** Set when the vendor has deprecated the API version this source is pinned to; null otherwise. Drives the in-product deprecation warning. */
+    readonly api_version_deprecation?: ExternalDataSourceApiVersionDeprecationApi | null
 }
 
 export type ExternalDataSourceBulkUpdateSchemaApiRowFiltersItem = {

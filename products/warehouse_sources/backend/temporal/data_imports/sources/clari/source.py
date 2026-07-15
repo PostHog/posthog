@@ -37,6 +37,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class ClariSource(ResumableSource[ClariSourceConfig, ClariResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
+    supported_versions = ("v4",)
+    default_version = "v4"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.CLARI

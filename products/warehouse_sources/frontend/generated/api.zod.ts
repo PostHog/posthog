@@ -9,110 +9,10 @@
  */
 import * as zod from 'zod'
 
-export const externalDataSchemasCreateBodyIncrementalFieldLookbackSecondsMin = 0
-export const externalDataSchemasCreateBodyIncrementalFieldLookbackSecondsMax = 5184000
-
-export const ExternalDataSchemasCreateBody = /* @__PURE__ */ zod.object({
-    should_sync: zod.boolean().optional(),
-    sync_type: zod
-        .union([
-            zod
-                .enum(['full_refresh', 'incremental', 'append', 'webhook', 'cdc', 'xmin'])
-                .describe(
-                    '\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc\n\* `xmin` - xmin'
-                ),
-            zod.null(),
-        ])
-        .optional()
-        .describe(
-            'Sync strategy: incremental, full_refresh, append, cdc, or xmin.\n\n\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc\n\* `xmin` - xmin'
-        ),
-    incremental_field: zod.string().nullish().describe('Column name used to track sync progress.'),
-    incremental_field_type: zod
-        .union([
-            zod
-                .enum(['integer', 'numeric', 'datetime', 'date', 'timestamp', 'objectid', 'xid'])
-                .describe(
-                    '\* `integer` - integer\n\* `numeric` - numeric\n\* `datetime` - datetime\n\* `date` - date\n\* `timestamp` - timestamp\n\* `objectid` - objectid\n\* `xid` - xid'
-                ),
-            zod.null(),
-        ])
-        .optional()
-        .describe(
-            'Data type of the incremental field.\n\n\* `integer` - integer\n\* `numeric` - numeric\n\* `datetime` - datetime\n\* `date` - date\n\* `timestamp` - timestamp\n\* `objectid` - objectid\n\* `xid` - xid'
-        ),
-    incremental_field_lookback_seconds: zod
-        .number()
-        .min(externalDataSchemasCreateBodyIncrementalFieldLookbackSecondsMin)
-        .max(externalDataSchemasCreateBodyIncrementalFieldLookbackSecondsMax)
-        .nullish()
-        .describe(
-            'Seconds to subtract from the stored incremental watermark at sync time, so each incremental run re-reads a rolling overlap window and catches late or backdated rows. Applies to timestamp\/date incremental fields only. The stored watermark is unchanged. Maximum 5184000 (60 days).'
-        ),
-    sync_frequency: zod
-        .union([
-            zod
-                .enum([
-                    'never',
-                    '1min',
-                    '5min',
-                    '15min',
-                    '30min',
-                    '1hour',
-                    '6hour',
-                    '12hour',
-                    '24hour',
-                    '7day',
-                    '30day',
-                ])
-                .describe(
-                    '\* `never` - never\n\* `1min` - 1min\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
-                ),
-            zod.null(),
-        ])
-        .optional()
-        .describe(
-            'How often to sync.\n\n\* `never` - never\n\* `1min` - 1min\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
-        ),
-    sync_time_of_day: zod.iso.time({}).nullish().describe('UTC time of day to run the sync (HH:MM:SS).'),
-    primary_key_columns: zod.array(zod.string()).nullish().describe('Column names for primary key deduplication.'),
-    cdc_table_mode: zod
-        .union([
-            zod
-                .enum(['consolidated', 'cdc_only', 'both'])
-                .describe('\* `consolidated` - consolidated\n\* `cdc_only` - cdc_only\n\* `both` - both'),
-            zod.null(),
-        ])
-        .optional()
-        .describe(
-            'For CDC syncs: consolidated, cdc_only, or both.\n\n\* `consolidated` - consolidated\n\* `cdc_only` - cdc_only\n\* `both` - both'
-        ),
-    enabled_columns: zod
-        .array(zod.string())
-        .nullish()
-        .describe(
-            'Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.'
-        ),
-    row_filters: zod
-        .array(
-            zod.object({
-                column: zod.string(),
-                operator: zod.string().describe('One of: > >= < <= = != IN \"NOT IN\".'),
-                value: zod
-                    .unknown()
-                    .describe(
-                        "Comparison value; must match the column's type. For `IN` \/ `NOT IN`, a comma-separated list (e.g. `1, 2, 3` or `'a','b'`)."
-                    ),
-            })
-        )
-        .nullish()
-        .describe(
-            "Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`\/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN \"NOT IN\"` and the value must match the column's type (for `IN`\/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows."
-        ),
-})
-
 export const externalDataSchemasUpdateBodyIncrementalFieldLookbackSecondsMin = 0
 export const externalDataSchemasUpdateBodyIncrementalFieldLookbackSecondsMax = 5184000
+
+export const externalDataSchemasUpdateBodyApiVersionMax = 128
 
 export const ExternalDataSchemasUpdateBody = /* @__PURE__ */ zod.object({
     should_sync: zod.boolean().optional(),
@@ -211,10 +111,19 @@ export const ExternalDataSchemasUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             "Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`\/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN \"NOT IN\"` and the value must match the column's type (for `IN`\/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows."
         ),
+    api_version: zod
+        .string()
+        .max(externalDataSchemasUpdateBodyApiVersionMax)
+        .nullish()
+        .describe(
+            "Vendor API version override for this schema. `null` (default) syncs on the source's pinned version. Must be one of the source type's supported versions. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas."
+        ),
 })
 
 export const externalDataSchemasPartialUpdateBodyIncrementalFieldLookbackSecondsMin = 0
 export const externalDataSchemasPartialUpdateBodyIncrementalFieldLookbackSecondsMax = 5184000
+
+export const externalDataSchemasPartialUpdateBodyApiVersionMax = 128
 
 export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod.object({
     should_sync: zod.boolean().optional(),
@@ -313,10 +222,19 @@ export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             "Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`\/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN \"NOT IN\"` and the value must match the column's type (for `IN`\/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows."
         ),
+    api_version: zod
+        .string()
+        .max(externalDataSchemasPartialUpdateBodyApiVersionMax)
+        .nullish()
+        .describe(
+            "Vendor API version override for this schema. `null` (default) syncs on the source's pinned version. Must be one of the source type's supported versions. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas."
+        ),
 })
 
 export const externalDataSchemasIncrementalFieldsCreateBodyIncrementalFieldLookbackSecondsMin = 0
 export const externalDataSchemasIncrementalFieldsCreateBodyIncrementalFieldLookbackSecondsMax = 5184000
+
+export const externalDataSchemasIncrementalFieldsCreateBodyApiVersionMax = 128
 
 export const ExternalDataSchemasIncrementalFieldsCreateBody = /* @__PURE__ */ zod.object({
     should_sync: zod.boolean().optional(),
@@ -415,10 +333,19 @@ export const ExternalDataSchemasIncrementalFieldsCreateBody = /* @__PURE__ */ zo
         .describe(
             "Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`\/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN \"NOT IN\"` and the value must match the column's type (for `IN`\/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows."
         ),
+    api_version: zod
+        .string()
+        .max(externalDataSchemasIncrementalFieldsCreateBodyApiVersionMax)
+        .nullish()
+        .describe(
+            "Vendor API version override for this schema. `null` (default) syncs on the source's pinned version. Must be one of the source type's supported versions. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas."
+        ),
 })
 
 export const externalDataSchemasReloadCreateBodyIncrementalFieldLookbackSecondsMin = 0
 export const externalDataSchemasReloadCreateBodyIncrementalFieldLookbackSecondsMax = 5184000
+
+export const externalDataSchemasReloadCreateBodyApiVersionMax = 128
 
 export const ExternalDataSchemasReloadCreateBody = /* @__PURE__ */ zod.object({
     should_sync: zod.boolean().optional(),
@@ -517,10 +444,19 @@ export const ExternalDataSchemasReloadCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`\/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN \"NOT IN\"` and the value must match the column's type (for `IN`\/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows."
         ),
+    api_version: zod
+        .string()
+        .max(externalDataSchemasReloadCreateBodyApiVersionMax)
+        .nullish()
+        .describe(
+            "Vendor API version override for this schema. `null` (default) syncs on the source's pinned version. Must be one of the source type's supported versions. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas."
+        ),
 })
 
 export const externalDataSchemasResyncCreateBodyIncrementalFieldLookbackSecondsMin = 0
 export const externalDataSchemasResyncCreateBodyIncrementalFieldLookbackSecondsMax = 5184000
+
+export const externalDataSchemasResyncCreateBodyApiVersionMax = 128
 
 export const ExternalDataSchemasResyncCreateBody = /* @__PURE__ */ zod.object({
     should_sync: zod.boolean().optional(),
@@ -618,6 +554,13 @@ export const ExternalDataSchemasResyncCreateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe(
             "Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`\/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN \"NOT IN\"` and the value must match the column's type (for `IN`\/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows."
+        ),
+    api_version: zod
+        .string()
+        .max(externalDataSchemasResyncCreateBodyApiVersionMax)
+        .nullish()
+        .describe(
+            "Vendor API version override for this schema. `null` (default) syncs on the source's pinned version. Must be one of the source type's supported versions. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas."
         ),
 })
 

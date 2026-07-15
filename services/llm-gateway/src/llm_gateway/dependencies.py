@@ -233,7 +233,16 @@ async def enforce_throttles(
             team_id=user.team_id,
             product=product,
         )
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=model_error)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": {
+                    "message": f"{model_error} (rate_limit)",
+                    "type": "permission_error",
+                    "code": "model_gate",
+                }
+            },
+        )
 
     context = ThrottleContext(
         user=user,
@@ -262,11 +271,16 @@ async def enforce_throttles(
             status_code=result.status_code,
         )
         headers = {"Retry-After": str(result.retry_after)} if result.retry_after is not None else None
+        reason = result.detail
+        message = (
+            f"Rate limit exceeded: {reason}" if reason and reason != "Rate limit exceeded" else "Rate limit exceeded"
+        )
         detail = {
             "error": {
-                "message": "Rate limit exceeded",
+                "message": message,
                 "type": "rate_limit_error",
-                "reason": result.detail,
+                "reason": reason,
+                **({"code": result.scope} if result.scope else {}),
             }
         }
         raise HTTPException(status_code=result.status_code, detail=detail, headers=headers)
