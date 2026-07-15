@@ -24,15 +24,21 @@ from products.tasks.backend.temporal.constants import SEND_STEER_SIGNAL
 class TestSignalTaskFollowupMessage(SimpleTestCase):
     @parameterized.expand(
         [
-            (False, "send_followup_message"),
-            (True, SEND_STEER_SIGNAL),
+            (False, None, "send_followup_message"),
+            (True, 1, SEND_STEER_SIGNAL),
+            (True, RuntimeError("query not registered"), "send_followup_message"),
         ]
     )
-    def test_uses_versioned_signal_without_changing_legacy_argument_count(
-        self, steer: bool, expected_signal: str
+    def test_capability_gates_versioned_signal_without_changing_legacy_argument_count(
+        self, steer: bool, query_result: int | Exception | None, expected_signal: str
     ) -> None:
         handle = Mock()
         handle.signal = AsyncMock()
+        handle.query = AsyncMock()
+        if isinstance(query_result, Exception):
+            handle.query.side_effect = query_result
+        else:
+            handle.query.return_value = query_result
         client = Mock()
         client.get_workflow_handle.return_value = handle
 
@@ -40,6 +46,10 @@ class TestSignalTaskFollowupMessage(SimpleTestCase):
             signal_task_followup_message("workflow-id", "hello", ["artifact-1"], steer=steer)
 
         handle.signal.assert_awaited_once_with(expected_signal, args=["hello", ["artifact-1"]])
+        if steer:
+            handle.query.assert_awaited_once()
+        else:
+            handle.query.assert_not_awaited()
 
 
 @override_settings(DEBUG=False)

@@ -21,6 +21,8 @@ from products.tasks.backend.temporal.constants import (
     MAX_ACK_RETRIES,
     MAX_CI_REPETITIONS,
     SEND_STEER_SIGNAL,
+    STEERING_PROTOCOL_QUERY,
+    STEERING_PROTOCOL_VERSION,
 )
 from products.tasks.backend.temporal.execute_sandbox.workflow import (
     COMPLETE_TASK_SIGNAL,
@@ -63,6 +65,8 @@ from products.tasks.backend.temporal.task_management.activities.pending_followup
     persist_pending_followups,
     read_pending_followups,
 )
+
+_PATCH_ID_CAPABILITY_GATED_STEERING = "tasks-capability-gated-steering-signal"
 
 
 @dataclass
@@ -193,6 +197,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
         # whole task run and spawns sandboxes lazily: when a follow-up arrives
         # while `_sandbox_alive=False`, we re-bootstrap before forwarding.
         self._sandbox_alive: bool = False
+        self._child_steering_protocol_version: int = 0
 
         # Activity tracking for CI follow-up timing. `_last_active_time` is
         # set when the sandbox workflow forwards a heartbeat with
@@ -245,6 +250,10 @@ class TaskManagementWorkflow(PostHogWorkflow):
     @workflow.signal(name=SEND_STEER_SIGNAL)
     async def send_steer_message(self, message: str | None = None, artifact_ids: Optional[list[str]] = None) -> None:
         self._queue_external_followup(message, artifact_ids, steer=True)
+
+    @workflow.query(name=STEERING_PROTOCOL_QUERY)
+    def steering_protocol_version(self) -> int:
+        return STEERING_PROTOCOL_VERSION
 
     def _queue_external_followup(self, message: str | None, artifact_ids: Optional[list[str]], *, steer: bool) -> None:
         self._pending_external_followups.append(
@@ -654,6 +663,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
         self._pending_ack_slots.clear()
         self._child_completion = None
         self._sandbox_alive = False
+        self._child_steering_protocol_version = 0
         self._ci_repetitions = 0
         self._pr_fingerprint = None
         self._heartbeat_received = False
@@ -748,7 +758,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
             signal_name=PARENT_ATTACHED_SIGNAL,
             sent_at=workflow.now(),
         )
-        await workflow.execute_activity(
+        protocol_version = await workflow.execute_activity(
             ensure_execute_sandbox_started,
             EnsureExecuteSandboxStartedInput(
                 workflow_id=self._sandbox_workflow_id,
@@ -764,6 +774,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
+        self._child_steering_protocol_version = protocol_version if isinstance(protocol_version, int) else 0
         # Activity success means Signal-With-Start landed — either delivered
         # to an already-running execution or kicked off a fresh one. Either
         # way, a sandbox session is now in-flight.
@@ -789,7 +800,11 @@ class TaskManagementWorkflow(PostHogWorkflow):
             return
         ack_id = self._new_ack_id()
         signal_args: list[Any] = [ack_id, message, artifact_ids, source]
-        signal_name = SEND_STEER_SIGNAL if steer else SEND_FOLLOWUP_SIGNAL
+        supports_steering = self._child_steering_protocol_version >= STEERING_PROTOCOL_VERSION
+        if steer and workflow.patched(_PATCH_ID_CAPABILITY_GATED_STEERING):
+            signal_name = SEND_STEER_SIGNAL if supports_steering else SEND_FOLLOWUP_SIGNAL
+        else:
+            signal_name = SEND_STEER_SIGNAL if steer else SEND_FOLLOWUP_SIGNAL
         # Register the slot *before* sending so an in-flight send-failure
         # leaves the slot intact for the retry loop to re-attempt. The child
         # dedupes by ack_id so re-sending is safe.

@@ -158,6 +158,8 @@ from products.tasks.backend.temporal.constants import (  # noqa: E402
     PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS,
     RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
     SEND_STEER_SIGNAL,
+    STEERING_PROTOCOL_QUERY,
+    STEERING_PROTOCOL_VERSION,
     WARM_IDLE_TIMEOUT,
 )
 
@@ -1736,6 +1738,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
     @temporalio.workflow.signal(name=SEND_STEER_SIGNAL)
     async def send_steer_message(self, message: str | None = None, artifact_ids: Optional[list[str]] = None) -> None:
         self._queue_followup_message(message, artifact_ids, steer=True)
+
+    @temporalio.workflow.query(name=STEERING_PROTOCOL_QUERY)
+    def steering_protocol_version(self) -> int:
+        return STEERING_PROTOCOL_VERSION
 
     def _queue_followup_message(self, message: str | None, artifact_ids: Optional[list[str]], *, steer: bool) -> None:
         # Log signal arrival so we can correlate it with the adapter's "begin dispatch"

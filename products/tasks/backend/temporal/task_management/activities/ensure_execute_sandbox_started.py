@@ -20,6 +20,7 @@ from temporalio.common import WorkflowIDReusePolicy
 
 from posthog.temporal.common.client import async_connect
 
+from products.tasks.backend.temporal.constants import STEERING_PROTOCOL_QUERY
 from products.tasks.backend.temporal.execute_sandbox.workflow import PARENT_ATTACHED_SIGNAL, ExecuteSandboxInput
 from products.tasks.backend.temporal.observability import log_activity_execution
 
@@ -32,7 +33,7 @@ class EnsureExecuteSandboxStartedInput:
 
 
 @activity.defn
-async def ensure_execute_sandbox_started(input: EnsureExecuteSandboxStartedInput) -> None:
+async def ensure_execute_sandbox_started(input: EnsureExecuteSandboxStartedInput) -> int:
     with log_activity_execution(
         "ensure_execute_sandbox_started",
         run_id=input.workflow_input.run_id,
@@ -40,7 +41,7 @@ async def ensure_execute_sandbox_started(input: EnsureExecuteSandboxStartedInput
         bootstrap_ack_id=input.bootstrap_ack_id,
     ):
         client = await async_connect()
-        await client.start_workflow(
+        handle = await client.start_workflow(
             "execute-sandbox",
             input.workflow_input,
             id=input.workflow_id,
@@ -59,3 +60,8 @@ async def ensure_execute_sandbox_started(input: EnsureExecuteSandboxStartedInput
             # restart. Recovery from those failures lives at the orchestrator
             # level via the ACK-retry / re-bootstrap path.
         )
+        try:
+            protocol_version = await handle.query(STEERING_PROTOCOL_QUERY)
+        except Exception:
+            return 0
+        return protocol_version if isinstance(protocol_version, int) else 0

@@ -94,6 +94,8 @@ MAX_ACK_RETRIES = 5
 # Versioned signal for steer delivery. Keeping the legacy follow-up signal's
 # positional arguments unchanged makes mixed-worker rolling deployments safe.
 SEND_STEER_SIGNAL = "send_steer_message"
+STEERING_PROTOCOL_QUERY = "steering_protocol_version"
+STEERING_PROTOCOL_VERSION = 1
 
 # Cooldown after a failed outbound-signal flush on the child side. The child's
 # main loop wakes whenever `_pending_outbound` is non-empty; if the parent is

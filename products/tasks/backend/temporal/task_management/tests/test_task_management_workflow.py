@@ -10,6 +10,7 @@ from products.tasks.backend.temporal.constants import (
     MAX_ACK_RETRIES,
     MAX_CI_REPETITIONS,
     SEND_STEER_SIGNAL,
+    STEERING_PROTOCOL_VERSION,
 )
 from products.tasks.backend.temporal.execute_sandbox.workflow import PARENT_ATTACHED_SIGNAL, ChildCompletionPayload
 from products.tasks.backend.temporal.process_task.activities.get_pr_context import GetPrContextOutput, get_pr_context
@@ -547,10 +548,26 @@ class TestSignalChildFollowup:
         # can replay them — the child dedupes on ack_id so a replay is safe.
         assert slot.signal_args == ["ack-generated", "m", ["a"], "ci"]
 
-    async def test_steer_uses_versioned_signal_with_legacy_argument_count(self, monkeypatch, fixed_now):
+    @pytest.mark.parametrize(
+        ("patch_enabled", "protocol_version", "expected_signal"),
+        [
+            (True, STEERING_PROTOCOL_VERSION, SEND_STEER_SIGNAL),
+            (True, 0, "send_followup_message"),
+            (False, 0, SEND_STEER_SIGNAL),
+        ],
+    )
+    async def test_steer_signal_is_capability_gated_without_breaking_replay(
+        self,
+        monkeypatch,
+        fixed_now,
+        patch_enabled: bool,
+        protocol_version: int,
+        expected_signal: str,
+    ):
         workflow = TaskManagementWorkflow()
         workflow._run_id = "run-id"
         workflow._sandbox_workflow_id = "sandbox-wf"
+        workflow._child_steering_protocol_version = protocol_version
 
         handle = Mock()
         handle.signal = AsyncMock()
@@ -560,15 +577,16 @@ class TestSignalChildFollowup:
             Mock(return_value=handle),
         )
         monkeypatch.setattr(task_management_workflow_module.workflow, "uuid4", lambda: "ack-steer")
+        monkeypatch.setattr(task_management_workflow_module.workflow, "patched", lambda _patch_id: patch_enabled)
 
         await workflow._signal_child_followup(message="m", artifact_ids=["a"], source="user", steer=True)
 
         handle.signal.assert_awaited_once_with(
-            SEND_STEER_SIGNAL,
+            expected_signal,
             args=["ack-steer", "m", ["a"], "user"],
         )
         slot = workflow._pending_ack_slots["ack-steer"]
-        assert slot.signal_name == SEND_STEER_SIGNAL
+        assert slot.signal_name == expected_signal
         assert slot.signal_args == ["ack-steer", "m", ["a"], "user"]
 
     async def test_skips_when_no_sandbox_id(self, monkeypatch, silent_workflow_logger):

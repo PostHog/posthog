@@ -30,6 +30,8 @@ from products.tasks.backend.temporal.constants import (
     PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS,
     RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
     SEND_STEER_SIGNAL,
+    STEERING_PROTOCOL_QUERY,
+    STEERING_PROTOCOL_VERSION,
 )
 from products.tasks.backend.temporal.execute_sandbox.activities.reap_orphaned_sandbox import (
     ReapOrphanedSandboxInput,
@@ -703,6 +705,10 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             steer=True,
             signal_name=SEND_STEER_SIGNAL,
         )
+
+    @workflow.query(name=STEERING_PROTOCOL_QUERY)
+    def steering_protocol_version(self) -> int:
+        return STEERING_PROTOCOL_VERSION
 
     def _queue_followup_message(
         self,

@@ -20,7 +20,11 @@ from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.metrics import observe_task_run_workflow_start
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.build_image.workflow import BuildSandboxImageInput
-from products.tasks.backend.temporal.constants import SEND_STEER_SIGNAL
+from products.tasks.backend.temporal.constants import (
+    SEND_STEER_SIGNAL,
+    STEERING_PROTOCOL_QUERY,
+    STEERING_PROTOCOL_VERSION,
+)
 from products.tasks.backend.temporal.process_task.workflow import ProcessTaskInput
 from products.tasks.backend.temporal.slack_relay.activities import RelaySlackMessageInput
 
@@ -471,8 +475,23 @@ def signal_task_followup_message(
 ) -> None:
     client = sync_connect()
     handle = client.get_workflow_handle(workflow_id)
-    signal_name = SEND_STEER_SIGNAL if steer else "send_followup_message"
-    asyncio.run(handle.signal(signal_name, args=[message, artifact_ids]))
+
+    async def signal() -> None:
+        signal_name = "send_followup_message"
+        if steer:
+            try:
+                protocol_version = await handle.query(STEERING_PROTOCOL_QUERY)
+            except Exception:
+                logger.info(
+                    "task_followup_steering_capability_unavailable",
+                    extra={"workflow_id": workflow_id},
+                )
+            else:
+                if isinstance(protocol_version, int) and protocol_version >= STEERING_PROTOCOL_VERSION:
+                    signal_name = SEND_STEER_SIGNAL
+        await handle.signal(signal_name, args=[message, artifact_ids])
+
+    asyncio.run(signal())
 
 
 def signal_agent_text_delta(workflow_id: str, text: str) -> None:
