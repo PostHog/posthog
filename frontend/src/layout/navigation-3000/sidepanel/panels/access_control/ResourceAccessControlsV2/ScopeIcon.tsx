@@ -10,6 +10,7 @@ import {
     IconFlask,
     IconHome,
     IconLive,
+    IconListTree,
     IconLlmAnalytics,
     IconMessage,
     IconNotebook,
@@ -84,7 +85,7 @@ export function ScopeIcon(props: { scope: APIScopeObject }): JSX.Element | null 
         case 'web_analytics':
             return <IconPieChart />
         case 'tracing':
-            return <IconLive />
+            return <IconListTree />
         default:
             return null
     }

@@ -74,6 +74,24 @@ in `relevant_commit_hashes` to map to a user with a `SignalUserAutonomyConfig` w
 priority threshold (personal or team default) covers the report's priority — otherwise the
 report will be saved but no `Task` will be created.
 
+## Seeding billable reports (refund testing)
+
+`seed_refund_test_data` drops five minimal reports covering the refund/exemption matrix:
+PR-run-today (refund takes the `excluded` path), PR-run-4-days-ago (`credited` path — calls the
+billing dispute endpoint), PR-run-last-month (out of the billing period — the Refund button
+renders disabled with the reason), billing-exempt with a PR ("Free" badge with health-check
+tooltip; refund hidden), and no-PR (target for `exempt_signal_report_billing`). Re-run freely —
+a report can only be refunded once.
+
+```bash
+python manage.py seed_refund_test_data --team-id 1
+```
+
+`seed_inbox_data` reports are billable too (runs are recorded via the production dual-write),
+but their runs are created "now", so refunds on them always take the excluded path.
+Environment prerequisites (feature flag, local billing service): "Testing refunds locally"
+in `../../ARCHITECTURE.md`.
+
 ## Re-ingesting reports
 
 `reingest_signal_report` deletes specific reports and re-emits their signals through the active

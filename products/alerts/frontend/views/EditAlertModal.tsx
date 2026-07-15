@@ -19,7 +19,7 @@ import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
 
 import { AlertCalculationInterval, AlertState } from '~/queries/schema/schema-general'
-import { containsHogQLQuery, isFunnelsQuery, isInsightVizNode } from '~/queries/utils'
+import { isFunnelsQuery, isInsightVizNode } from '~/queries/utils'
 import { FunnelVizType, InsightLogicProps, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import { AlertAdvancedOptionsSection } from 'products/alerts/frontend/components/editAlertModal/AlertAdvancedOptionsSection'
@@ -29,7 +29,7 @@ import { AlertNotificationSection } from 'products/alerts/frontend/components/ed
 import { isSubDailyAlertInterval } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 
 import { SnoozeButton } from '../components/SnoozeButton'
-import { alertFormLogic, canCheckOngoingInterval } from '../logic/alertFormLogic'
+import { alertFormLogic, canCheckOngoingInterval, insightAlertKindForQuery } from '../logic/alertFormLogic'
 import { alertLogic } from '../logic/alertLogic'
 import { alertNotificationLogic } from '../logic/alertNotificationLogic'
 import { isNextPlannedEvaluationStale } from '../logic/alertSchedulingStale'
@@ -84,7 +84,6 @@ export function EditAlertModal({
     const { query } = useValues(insightVizDataLogic(insightLogicProps))
 
     const funnelSource = !!query && isInsightVizNode(query) && isFunnelsQuery(query.source) ? query.source : null
-    const isFunnelInsight = funnelSource !== null
     // Trends funnels alert on the overall conversion rate over time, so they skip the step picker and
     // the preview reads the latest period instead of a step snapshot. The backend dispatches on the
     // same viz type — see funnel_strategies.py.
@@ -92,11 +91,7 @@ export function EditAlertModal({
     const funnelStepLabels = (funnelSource?.series ?? []).map(
         (node, index) => getDisplayNameFromEntityNode(node) ?? `Step ${index + 1}`
     )
-    const insightAlertKind: 'hogql' | 'funnels' | 'trends' = containsHogQLQuery(query)
-        ? 'hogql'
-        : isFunnelInsight
-          ? 'funnels'
-          : 'trends'
+    const insightAlertKind = insightAlertKindForQuery(query)
 
     const formLogicProps = {
         alert,

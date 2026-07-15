@@ -77,7 +77,6 @@ You can find your User ID and API key in [OnePageCRM](https://app.onepagecrm.com
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
