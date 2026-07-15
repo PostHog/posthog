@@ -285,6 +285,19 @@ class TestPromptsRows:
         assert [body["page"] for body in bodies] == [0, 1]
         assert all(body["search"] == "" and body["tagsFilter"] == [] for body in bodies)
 
+    def test_resume_requests_saved_page_and_advances_by_page(self) -> None:
+        # Resume state holds the page index directly; deriving a page from a cumulative row count
+        # (offset // pageSize) would drift and re-request an already-paged page after a short page.
+        session = _session_returning([_response(json_body=[{"id": "p8"}])])
+        manager = mock.MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = HeliconeResumeConfig(offset=3)
+
+        list(_prompts_rows(session, "https://api.helicone.ai", {}, mock.MagicMock(), manager))
+
+        assert session.post.call_args.kwargs["json"]["page"] == 3
+        assert manager.save_state.call_args_list[0].args[0].offset == 4
+
 
 class TestHeliconeSourceResponse:
     def test_requests_response_metadata(self) -> None:

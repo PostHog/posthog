@@ -33,8 +33,9 @@ class HeliconeRetryableError(Exception):
 
 @dataclasses.dataclass
 class HeliconeResumeConfig:
-    # Rows already yielded for the endpoint being paged — the next request's `offset` (for the
-    # page-based prompts endpoint it's converted to a page number).
+    # Where to resume the endpoint being paged: for offset-based endpoints (requests, sessions)
+    # it's the next request's `offset` (rows already yielded); for the page-based prompts endpoint
+    # it's the next page index.
     offset: int = 0
     # The window bounds captured when the run started, pinned in the resume state so a resumed
     # attempt pages the exact same result set instead of recomputing "now" and shifting rows
@@ -259,14 +260,16 @@ def _prompts_rows(
     url = f"{host}{HELICONE_ENDPOINTS[PROMPTS_ENDPOINT].path}"
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    offset = resume.offset if resume is not None else 0
+    # This endpoint is page-based, so `offset` holds the next page index directly (not a row count)
+    # — deriving a page from an accumulated row count drifts the moment a page comes back short.
+    page = resume.offset if resume is not None else 0
 
     while True:
         # search/tagsFilter are required by the API; empty values match every prompt.
         body = {
             "search": "",
             "tagsFilter": [],
-            "page": offset // PROMPTS_PAGE_SIZE,
+            "page": page,
             "pageSize": PROMPTS_PAGE_SIZE,
         }
         rows = _extract_data(_post(session, url, headers, body, logger), url)
@@ -274,8 +277,8 @@ def _prompts_rows(
             break
 
         yield rows
-        offset += len(rows)
-        resumable_source_manager.save_state(HeliconeResumeConfig(offset=offset))
+        page += 1
+        resumable_source_manager.save_state(HeliconeResumeConfig(offset=page))
 
         if len(rows) < PROMPTS_PAGE_SIZE:
             break
