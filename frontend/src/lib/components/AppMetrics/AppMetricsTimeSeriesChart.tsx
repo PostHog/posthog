@@ -2,6 +2,7 @@ import clsx from 'clsx'
 import { useMemo } from 'react'
 
 import {
+    type ChartTheme,
     type Series,
     TimeSeriesLineChart,
     type TimeSeriesLineChartConfig,
@@ -10,6 +11,7 @@ import {
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { dayjs } from 'lib/dayjs'
+import { inStorybookTestRunner } from 'lib/utils/dom'
 
 import { AppMetricsTimeSeriesResponse } from './appMetricsLogic'
 
@@ -35,8 +37,15 @@ export function AppMetricsTimeSeriesChart({
     showLegend = false,
     minimal = false,
 }: AppMetricsTimeSeriesChartProps): JSX.Element {
-    // Track the <body theme> attribute so dark-mode storybook snapshots render dark canvas colors.
-    const theme = useChartTheme(undefined, { trackBodyTheme: true })
+    // quill charts paint to <canvas> on an async rAF, and the snapshot runner flips to dark mode
+    // *after* mount, so the dark screenshot races the repaint and captures a stale light canvas.
+    // Skip the draw under the test runner (blank canvas, deterministic) — the same escape hatch
+    // scenes reach for via testOptions.skipCanvasDraw, kept here so no consuming story can regress it.
+    const themeOverrides = useMemo<Partial<ChartTheme> | undefined>(
+        () => (inStorybookTestRunner() ? { skipDraw: true } : undefined),
+        []
+    )
+    const theme = useChartTheme(themeOverrides)
 
     const series = useMemo<Series[]>(
         () =>
