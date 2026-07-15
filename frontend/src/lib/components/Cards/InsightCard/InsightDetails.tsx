@@ -101,11 +101,16 @@ function assertNever(value: never): never {
 type OverrideSource = 'dashboard' | 'tile'
 
 interface EffectiveFilterOverrides {
-    // Property filters AND-combine, so both layers can contribute; dashboard first to match backend order.
+    // Non-overlapping keys from both layers contribute; dashboard first to match backend order.
     propertyGroups: { properties: AnyPropertyFilter[]; source: OverrideSource }[]
     // Breakdown is a single value: tile wins when set, otherwise the dashboard's.
     breakdown: { breakdownFilter: NonNullable<DashboardFilter['breakdown_filter']>; source: OverrideSource } | null
 }
+
+// NOTE: this re-derives the precedence encoded in the backend `merge_dashboard_and_tile_filters` /
+// `remove_query_properties_overridden_by_tile` purely to attribute each shown filter to its source
+// ("Dashboard"/"Tile"). It must stay in step with that backend rule — if the tie-break there changes
+// (e.g. a field is added to `_TILE_SCALAR_OVERRIDE_FIELDS`), update this too or the tags will mislead.
 
 // The (type, key) a property filter targets — the unit at which a tile takes precedence.
 // Mirrors backend `_property_identity`.

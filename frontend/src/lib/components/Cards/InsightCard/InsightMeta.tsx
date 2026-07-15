@@ -107,11 +107,12 @@ interface InsightMetaProps extends Pick<
 
 // Tile and dashboard overrides merge (backend `merge_dashboard_and_tile_filters`); the date range is a
 // unit, so the tile's range wins only when the tile sets a bound, otherwise the dashboard's range applies.
+// `!= null` (not truthiness) matches the backend's `is not None`, so an explicit empty-string bound counts.
 export function getEffectiveDateOverride(
     filtersOverride: DashboardFilter | undefined,
     tileFiltersOverride: TileFilters | undefined
 ): { dateFromOverride: string | null | undefined; dateToOverride: string | null | undefined } {
-    const tileHasDate = !!(tileFiltersOverride?.date_from || tileFiltersOverride?.date_to)
+    const tileHasDate = tileFiltersOverride?.date_from != null || tileFiltersOverride?.date_to != null
     const source = tileHasDate ? tileFiltersOverride : filtersOverride
     return { dateFromOverride: source?.date_from, dateToOverride: source?.date_to }
 }

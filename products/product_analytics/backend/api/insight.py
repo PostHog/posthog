@@ -1003,6 +1003,7 @@ class InsightSerializer(InsightBasicSerializer):
                 dashboard is not None
                 or dashboard_filters_override is not None
                 or dashboard_variables_override is not None
+                or tile_filters_override
             ):
                 base_filters = (
                     dashboard_filters_override

@@ -31,6 +31,9 @@ def merge_dashboard_and_tile_filters(dashboard_filters: dict | None, tile_filter
 
     Overriding the insight's own base filters (not just the dashboard's) is handled separately by
     `remove_query_properties_overridden_by_tile`, which the tile-aware call sites apply to the query.
+
+    The frontend re-derives this same precedence in `getEffectiveFilterOverrides` (InsightDetails.tsx)
+    to attribute each shown filter to its source; keep the two in step when changing the tie-break here.
     """
     if not tile_filters:
         return dashboard_filters or None
