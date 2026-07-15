@@ -62,6 +62,37 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
+/**
+ * Lightweight serializer for the topics list.
+ *
+ * Deliberately omits interviewee contact details, voice-agent configuration,
+ * questions, and invite copy — those are sensitive and payload-heavy, and are
+ * served only by the detail (retrieve) endpoint. List callers get metadata plus
+ * counts, which is all the topics table needs to render.
+ */
+export interface UserInterviewTopicSummaryApi {
+    readonly id: string
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    /** The product, feature, or idea interviewees are asked about. */
+    readonly topic: string
+    /** Number of email addresses targeted by this topic. */
+    readonly interviewee_email_count: number
+    /** Number of PostHog distinct IDs targeted by this topic. */
+    readonly interviewee_distinct_id_count: number
+    /** Number of questions the voice agent works through in this interview. */
+    readonly question_count: number
+}
+
+export interface PaginatedUserInterviewTopicSummaryListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: UserInterviewTopicSummaryApi[]
+}
+
 export interface UserInterviewTopicApi {
     readonly id: string
     readonly created_by: UserBasicApi
@@ -92,29 +123,6 @@ export interface UserInterviewTopicApi {
      * @maxLength 1000
      */
     invite_message?: string
-}
-
-export interface UserInterviewTopicSummaryApi {
-    readonly id: string
-    readonly created_by: UserBasicApi
-    readonly created_at: string
-    /** The product, feature, or idea interviewees are asked about. */
-    readonly topic: string
-    /** Number of email addresses targeted by this topic. */
-    readonly interviewee_email_count: number
-    /** Number of PostHog distinct IDs targeted by this topic. */
-    readonly interviewee_distinct_id_count: number
-    /** Number of questions the voice agent works through in this interview. */
-    readonly question_count: number
-}
-
-export interface PaginatedUserInterviewTopicSummaryListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: UserInterviewTopicSummaryApi[]
 }
 
 export interface PatchedUserInterviewTopicApi {

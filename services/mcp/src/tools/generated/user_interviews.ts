@@ -259,13 +259,13 @@ const UserInterviewTopicsListSchema = UserInterviewTopicsListQueryParams
 
 const userInterviewTopicsList = (): ToolBase<
     typeof UserInterviewTopicsListSchema,
-    WithPostHogUrl<Schemas.PaginatedUserInterviewTopicList>
+    WithPostHogUrl<Schemas.PaginatedUserInterviewTopicSummaryList>
 > => ({
     name: 'user-interview-topics-list',
     schema: UserInterviewTopicsListSchema,
     handler: async (context: Context, params: z.infer<typeof UserInterviewTopicsListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedUserInterviewTopicList>({
+        const result = await context.api.request<Schemas.PaginatedUserInterviewTopicSummaryList>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/user_interview_topics/`,
             query: {

@@ -40325,45 +40325,35 @@ export namespace Schemas {
       results: UserInterview[];
     }
 
-    export interface UserInterviewTopic {
+    /**
+     * Lightweight serializer for the topics list.
+     *
+     * Deliberately omits interviewee contact details, voice-agent configuration,
+     * questions, and invite copy — those are sensitive and payload-heavy, and are
+     * served only by the detail (retrieve) endpoint. List callers get metadata plus
+     * counts, which is all the topics table needs to render.
+     */
+    export interface UserInterviewTopicSummary {
       readonly id: string;
       readonly created_by: UserBasic;
       readonly created_at: string;
-      /**
-         * Email addresses of people to interview. May be combined with interviewee_distinct_ids.
-         * @items.maxLength 254
-         */
-      interviewee_emails?: string[];
-      /**
-         * PostHog distinct IDs of people to interview. May be combined with interviewee_emails.
-         * @items.maxLength 400
-         */
-      interviewee_distinct_ids?: string[];
-      /** The product, feature, or idea you want to ask interviewees about. */
-      topic: string;
-      /** Optional additional system prompt for the voice agent — extra background, tone, or constraints. */
-      agent_context?: string;
-      /** Ordered list of questions the voice agent should work through during the interview. */
-      questions?: string[];
-      /**
-         * Subject line for the invitation email. Plain text only — URLs, angle brackets, and control characters are rejected. Leave blank to use the default subject. Personalization is handled by the email template, so do not include placeholders.
-         * @maxLength 255
-         */
-      invite_subject?: string;
-      /**
-         * Intro message shown in the invitation email body, above the interview link. Plain prose only — URLs, angle brackets, and control characters are rejected (line breaks are allowed). Leave blank to use the default copy.
-         * @maxLength 1000
-         */
-      invite_message?: string;
+      /** The product, feature, or idea interviewees are asked about. */
+      readonly topic: string;
+      /** Number of email addresses targeted by this topic. */
+      readonly interviewee_email_count: number;
+      /** Number of PostHog distinct IDs targeted by this topic. */
+      readonly interviewee_distinct_id_count: number;
+      /** Number of questions the voice agent works through in this interview. */
+      readonly question_count: number;
     }
 
-    export interface PaginatedUserInterviewTopicList {
+    export interface PaginatedUserInterviewTopicSummaryList {
       count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
       previous?: string | null;
-      results: UserInterviewTopic[];
+      results: UserInterviewTopicSummary[];
     }
 
     /**
@@ -61019,6 +61009,38 @@ export namespace Schemas {
       topic_id: string | null;
       /** When the interview row was created. */
       created_at: string;
+    }
+
+    export interface UserInterviewTopic {
+      readonly id: string;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      /**
+         * Email addresses of people to interview. May be combined with interviewee_distinct_ids.
+         * @items.maxLength 254
+         */
+      interviewee_emails?: string[];
+      /**
+         * PostHog distinct IDs of people to interview. May be combined with interviewee_emails.
+         * @items.maxLength 400
+         */
+      interviewee_distinct_ids?: string[];
+      /** The product, feature, or idea you want to ask interviewees about. */
+      topic: string;
+      /** Optional additional system prompt for the voice agent — extra background, tone, or constraints. */
+      agent_context?: string;
+      /** Ordered list of questions the voice agent should work through during the interview. */
+      questions?: string[];
+      /**
+         * Subject line for the invitation email. Plain text only — URLs, angle brackets, and control characters are rejected. Leave blank to use the default subject. Personalization is handled by the email template, so do not include placeholders.
+         * @maxLength 255
+         */
+      invite_subject?: string;
+      /**
+         * Intro message shown in the invitation email body, above the interview link. Plain prose only — URLs, angle brackets, and control characters are rejected (line breaks are allowed). Leave blank to use the default copy.
+         * @maxLength 1000
+         */
+      invite_message?: string;
     }
 
     export interface UserPushTokenItem {

@@ -8455,7 +8455,7 @@
         "feature_flag": "user-interviews"
     },
     "user-interview-topics-list": {
-        "description": "List planned user interview topics in the current project, newest first. Each result includes the topic, targeting (interviewee_emails, interviewee_distinct_ids), and the voice agent setup (agent_context, questions). Supports `search` for substring match against the topic, and `limit`/`offset` for pagination.",
+        "description": "List planned user interview topics in the current project, newest first. Each result is a summary — the topic, who created it, and counts of targeted emails, distinct IDs, and questions. Use `user-interview-topics-retrieve` for the full targeting (`interviewee_emails`, `interviewee_distinct_ids`), voice agent setup (`agent_context`, `questions`), and invite copy. Supports `search` for substring match against the topic, and `limit`/`offset` for pagination.",
         "category": "User interview topics",
         "feature": "user_interviews",
         "summary": "List user interview topics",
