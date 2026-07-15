@@ -85,7 +85,11 @@ def validate_credentials(api_key: str) -> bool:
     # bad key) means invalid. Never raises; network blips fall through to False.
     url = _build_url("/users-ordered", {"pageSize": 1})
     try:
-        response = make_tracked_session(redact_values=(api_key,)).get(url, headers=_headers(api_key), timeout=10)
+        # capture=False: the probe returns a user record, which is customer content the
+        # name-based sample scrubbers can't strip. Stay metered/logged, just don't sample the body.
+        response = make_tracked_session(redact_values=(api_key,), capture=False).get(
+            url, headers=_headers(api_key), timeout=10
+        )
         return response.status_code == 200
     except Exception:
         return False
@@ -254,7 +258,9 @@ def get_rows(
     # One session reused across every page (and, for the fan-out, every thread) so urllib3 keeps
     # the connection alive instead of re-handshaking per request. The API key rides in a custom
     # `Authorization: Api-Key ...` header the auto-redactor can't recognise, so mask it explicitly.
-    session = make_tracked_session(redact_values=(api_key,))
+    # capture=False: response bodies are users/threads/messages — customer content the name-based
+    # sample scrubbers can't strip, so keep it out of HTTP sample capture (still metered/logged).
+    session = make_tracked_session(redact_values=(api_key,), capture=False)
 
     if config.fan_out_over_threads:
         yield from _fan_out_message_rows(session, headers, logger, resumable_source_manager, config)
