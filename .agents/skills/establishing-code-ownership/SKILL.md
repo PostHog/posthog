@@ -18,7 +18,7 @@ hogli owners:resolve --json posthog/api/survey.py products/surveys/backend/api.p
 hogli owners:unowned                          # every tracked file with no owner (append a prefix to scope: `owners:unowned products/`)
 ```
 
-`owners:who` prints the resolved `owners`, the `status`, the derived Slack channel, and `source` — the `owners.yaml`/`product.yaml` file that decided the answer.
+`owners:who` prints the resolved `owners`, the `status`, the Slack channel (the root `teams:` registry entry for the primary owner, else a derived `#<slug>`), and `source` — the `owners.yaml`/`product.yaml` file that decided the answer.
 `owners:resolve` takes paths as arguments or newline-delimited on stdin, so you can pipe a file list: `git ls-files posthog/hogql | hogli owners:resolve --json`.
 No hogli/flox available? The dependency-light fallback needs only pyyaml: `git ls-files posthog/hogql | PYTHONPATH=tools/owners python -m posthog_owners` (stdin paths → the same JSON).
 
