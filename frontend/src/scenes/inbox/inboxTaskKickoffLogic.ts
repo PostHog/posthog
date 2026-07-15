@@ -39,9 +39,14 @@ function buildCreatePrReportPrompt(report: SignalReport, feedback?: string): str
 }
 
 function buildDiscussReportPrompt(reportUrl: string, question: string): string {
-    // The task is already linked to the report, but including the URL lets the agent open and read
-    // the full report itself. The user's question follows after a blank line for clear separation.
-    return `Let's discuss this PostHog Inbox report: ${reportUrl}\n\n${question.trim()}`
+    // The task is already linked to the report, but pointing the agent at the retrieval tools makes
+    // sure it reads the full report before answering rather than reasoning from the URL alone. The
+    // report ID is the last path segment of the URL. The user's question follows after a blank line.
+    return `Let's discuss this PostHog Inbox report: ${reportUrl}
+
+Before answering, read the full report: call \`inbox-reports-retrieve\` with the report ID (the last path segment of the URL) for its summary, status, priority and any implementation PR, then \`inbox-report-artefacts-list\` for the evidence and judgments behind it. The \`inbox-exploration\` skill documents this drill-down flow.
+
+${question.trim()}`
 }
 
 async function createReportTask(
