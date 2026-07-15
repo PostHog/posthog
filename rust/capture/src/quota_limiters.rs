@@ -94,6 +94,10 @@ impl CaptureQuotaLimiter {
             ServiceName::Capture,
         )
         .expect(&err_msg);
+        let grace_period_err_msg = format!(
+            "failed to create billing grace period limiter: {:?}",
+            &config.capture_mode
+        );
         let grace_period_limiter = RedisLimiter::new(
             redis_timeout,
             redis_client.clone(),
@@ -102,7 +106,7 @@ impl CaptureQuotaLimiter {
             Self::get_resource_for_mode(config.capture_mode),
             ServiceName::Capture,
         )
-        .expect("failed to create billing grace period limiter");
+        .expect(&grace_period_err_msg);
 
         Self {
             capture_mode: config.capture_mode,
@@ -120,6 +124,8 @@ impl CaptureQuotaLimiter {
         F: Fn(EventInfo) -> bool + Send + Sync + Clone + 'static,
     {
         let err_msg = format!("failed to create scoped limiter: {resource:?}");
+        let grace_period_err_msg =
+            format!("failed to create scoped billing grace period limiter: {resource:?}");
         let limiter = ScopedLimiter::new(
             resource.clone(),
             RedisLimiter::new(
@@ -139,7 +145,7 @@ impl CaptureQuotaLimiter {
                 resource,
                 ServiceName::Capture,
             )
-            .expect("failed to create scoped billing grace period limiter"),
+            .expect(&grace_period_err_msg),
             event_matcher,
         );
         self.scoped_limiters.push(Box::new(limiter));
@@ -147,6 +153,14 @@ impl CaptureQuotaLimiter {
         self
     }
 
+    /// Drops events over quota for `token` and returns the rest.
+    ///
+    /// This only enforces limits — it does not report grace-period
+    /// admissions. Callers on an admission path must separately call
+    /// `report_grace_period_admission` (or the `_for_event_infos` variant)
+    /// with the returned, still-admitted events so the billing-grace
+    /// measurement counter stays accurate; nothing enforces that pairing at
+    /// compile time.
     pub async fn check_and_filter<T: HasEventName>(
         &self,
         token: &str,
@@ -251,6 +265,19 @@ impl CaptureQuotaLimiter {
     }
 
     pub async fn report_grace_period_admission<T: HasEventName>(&self, token: &str, events: &[T]) {
+        if events.is_empty() {
+            return;
+        }
+
+        // Grace-period membership is a handful of orgs at a time and each check is
+        // an in-memory DashMap read (no Redis round-trip), so it's cheap to probe
+        // every limiter up front and skip the EventInfo allocation entirely when
+        // this token isn't in any grace period — the common case on every request.
+        let scoped_in_grace = self.scoped_limiters_in_grace_period(token).await;
+        if scoped_in_grace.is_empty() && !self.grace_period_limiter.is_limited(token).await {
+            return;
+        }
+
         let event_infos: Vec<EventInfo> = events
             .iter()
             .map(|event| EventInfo {
@@ -258,8 +285,12 @@ impl CaptureQuotaLimiter {
                 has_product_tour_id: event.has_property("$product_tour_id"),
             })
             .collect();
-        self.report_grace_period_admission_for_event_infos(token, &event_infos)
-            .await;
+        self.report_grace_period_admission_for_event_infos_with_scoped_grace(
+            token,
+            &event_infos,
+            &scoped_in_grace,
+        )
+        .await;
     }
 
     pub async fn report_grace_period_admission_for_event_infos(
@@ -270,15 +301,44 @@ impl CaptureQuotaLimiter {
         if event_infos.is_empty() {
             return;
         }
+        let scoped_in_grace = self.scoped_limiters_in_grace_period(token).await;
+        self.report_grace_period_admission_for_event_infos_with_scoped_grace(
+            token,
+            event_infos,
+            &scoped_in_grace,
+        )
+        .await;
+    }
+
+    /// Returns the indices into `self.scoped_limiters` that are currently in
+    /// their grace period for `token`. Hoisted so callers can decide whether
+    /// there's any grace-admission work to do before building `EventInfo`s.
+    async fn scoped_limiters_in_grace_period(&self, token: &str) -> Vec<usize> {
+        let mut in_grace = Vec::new();
+        for (i, limiter) in self.scoped_limiters.iter().enumerate() {
+            if limiter.is_in_grace_period(token).await {
+                in_grace.push(i);
+            }
+        }
+        in_grace
+    }
+
+    async fn report_grace_period_admission_for_event_infos_with_scoped_grace(
+        &self,
+        token: &str,
+        event_infos: &[EventInfo<'_>],
+        scoped_in_grace: &[usize],
+    ) {
+        if event_infos.is_empty() {
+            return;
+        }
 
         let mut unreported_indices: Vec<usize> = (0..event_infos.len()).collect();
 
         // Scoped resources take precedence so each admitted event is counted once,
         // even when both scoped and global grace periods overlap.
-        for limiter in &self.scoped_limiters {
-            if !limiter.is_in_grace_period(token).await {
-                continue;
-            }
+        for &limiter_idx in scoped_in_grace {
+            let limiter = &self.scoped_limiters[limiter_idx];
             let (matched_indices, unmatched_indices) =
                 limiter.partition_event_indices(event_infos, &unreported_indices);
             if !matched_indices.is_empty() {
@@ -293,6 +353,17 @@ impl CaptureQuotaLimiter {
 
         self.report_global_grace_period_admission(token, unreported_indices.len() as u64)
             .await;
+    }
+
+    /// True if `token` is currently in the global grace period or any scoped
+    /// one. Lets a caller that filters or classifies events per-call site
+    /// (e.g. the v1 shim) skip building an `EventInfo` batch entirely when
+    /// there's no grace-admission work to report.
+    pub async fn is_token_in_any_grace_period(&self, token: &str) -> bool {
+        if self.grace_period_limiter.is_limited(token).await {
+            return true;
+        }
+        !self.scoped_limiters_in_grace_period(token).await.is_empty()
     }
 
     /// Check if a token is limited for a specific quota resource bucket.

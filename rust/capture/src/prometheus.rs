@@ -5,6 +5,34 @@ use metrics::counter;
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 
 pub const CAPTURE_EVENTS_DROPPED_TOTAL: &str = "capture_events_dropped_total";
+
+/// Counts events admitted while their org's token is in a billing grace
+/// period (the `@posthog/quota-limiting-suspended/<resource>` Redis set),
+/// i.e. events that would otherwise have been eligible for quota-limit
+/// enforcement. This is a measurement counter, not a billing source of
+/// truth — read it with these caveats:
+///
+/// - **Measurement point, not ingested volume.** It's incremented once an
+///   event has passed the billing quota gate for its path, before later
+///   stages that can still reject the batch (payload validation, Kafka
+///   sink, etc). Retries after a post-count failure re-increment the
+///   counter even though the event is only ingested once, so treat this as
+///   an upper bound on admitted volume, not an exact count.
+/// - **`resource` label units vary.** Most resources count individual
+///   events, but `resource="recordings"` counts raw `$snapshot` events —
+///   unlike the rest of billing, where "recordings" means deduplicated
+///   billable sessions. Don't read this label as "billable recordings
+///   admitted".
+/// - **Attribution when only the global grace period is active.** Scoped
+///   grace periods (exceptions, surveys, LLM events) take precedence, but
+///   when a scoped limiter isn't itself in grace, events it would have
+///   matched fall through and are counted under the global resource label
+///   (`events`/`recordings`) instead of the scoped one.
+/// - **Fails toward stale counts, not toward silence.** The underlying
+///   Redis reader fails open: if Redis is unreachable past a grace-period
+///   expiry, pods keep counting that org's traffic as grace-admitted using
+///   the last-known state, with only a warn log and the existing
+///   loaded-tokens gauge as a staleness signal.
 pub const CAPTURE_EVENTS_ADMITTED_DURING_BILLING_GRACE_PERIOD_TOTAL: &str =
     "capture_events_admitted_during_billing_grace_period_total";
 

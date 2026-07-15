@@ -60,6 +60,9 @@ pub async fn apply_quota_limits(
             if *resource == QuotaResource::LLMEvents && ev.is_gateway_verified {
                 continue;
             }
+            // No `$` prefix here: v1's WrappedEvent::has_property reads the
+            // structured `options.product_tour_id` field, not the raw property
+            // map — that's where the v0 path's "$product_tour_id" key lives.
             let info = EventInfo {
                 name: ev.event_name(),
                 has_product_tour_id: ev.has_property("product_tour_id"),
@@ -92,28 +95,34 @@ pub async fn apply_quota_limits(
         return Err(Error::BillingLimitExceeded);
     }
 
-    let mut global_only_event_count = 0;
-    let admitted_event_infos: Vec<EventInfo> = events
-        .iter()
-        .filter(|event| event.result == EventResult::Ok)
-        .filter_map(|event| {
-            if event.is_gateway_verified {
-                global_only_event_count += 1;
-                None
-            } else {
-                Some(EventInfo {
-                    name: event.event_name(),
-                    has_product_tour_id: event.has_property("product_tour_id"),
-                })
-            }
-        })
-        .collect();
-    limiter
-        .report_grace_period_admission_for_event_infos(token, &admitted_event_infos)
-        .await;
-    limiter
-        .report_global_grace_period_admission(token, global_only_event_count)
-        .await;
+    // Grace-period membership only covers a handful of orgs at a time, so skip
+    // building the EventInfo batch below on the common case where this token
+    // isn't in any grace period.
+    if limiter.is_token_in_any_grace_period(token).await {
+        let mut global_only_event_count = 0;
+        let admitted_event_infos: Vec<EventInfo> = events
+            .iter()
+            .filter(|event| event.result == EventResult::Ok)
+            .filter_map(|event| {
+                if event.is_gateway_verified {
+                    global_only_event_count += 1;
+                    None
+                } else {
+                    // No `$` prefix — see the scoped-checks loop above for why.
+                    Some(EventInfo {
+                        name: event.event_name(),
+                        has_product_tour_id: event.has_property("product_tour_id"),
+                    })
+                }
+            })
+            .collect();
+        limiter
+            .report_grace_period_admission_for_event_infos(token, &admitted_event_infos)
+            .await;
+        limiter
+            .report_global_grace_period_admission(token, global_only_event_count)
+            .await;
+    }
 
     Ok(())
 }
