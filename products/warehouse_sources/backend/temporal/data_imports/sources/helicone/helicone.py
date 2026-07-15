@@ -109,7 +109,9 @@ def validate_credentials(api_key: str, region: str) -> tuple[bool, Optional[str]
     # variant is documented to time out on point queries).
     url = f"{_host(region)}/v1/request/query"
     try:
-        response = make_tracked_session().post(
+        # capture=False so request/response bodies (which can carry customer prompts and model
+        # output) never land in diagnostic HTTP samples; redact the key for defense in depth.
+        response = make_tracked_session(redact_values=(api_key,), capture=False).post(
             url,
             headers=_headers(api_key),
             json={"filter": "all", "limit": 1, "offset": 0},
@@ -292,8 +294,10 @@ def _get_rows(
     host = _host(region)
     headers = _headers(api_key)
     # One session reused across every page so urllib3 keeps the connection alive instead of
-    # re-handshaking per request.
-    session = make_tracked_session()
+    # re-handshaking per request. capture=False so request/response bodies (which can carry
+    # customer prompts and model output) never land in diagnostic HTTP samples; redact the key
+    # for defense in depth.
+    session = make_tracked_session(redact_values=(api_key,), capture=False)
 
     if endpoint == REQUESTS_ENDPOINT:
         yield from _requests_rows(
