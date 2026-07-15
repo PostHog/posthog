@@ -775,6 +775,57 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                 },
             },
         },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['error-tracking-issue-reopened'],
+            template_id: 'template-linear',
+            name: 'Linear issue on issue reopened',
+            description: 'Create an issue in Linear when an issue is reopened.',
+            inputs: {
+                title: {
+                    value: '{event.properties.name}',
+                },
+                description: {
+                    value: '{event.properties.description}',
+                },
+                posthog_issue_id: {
+                    value: '{event.distinct_id}',
+                },
+            },
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['error-tracking-issue-reopened'],
+            template_id: 'template-github',
+            name: 'GitHub issue on issue reopened',
+            description: 'Create an issue in GitHub when an issue is reopened.',
+            inputs: {
+                title: {
+                    value: '{event.properties.name}',
+                },
+                description: {
+                    value: '{event.properties.description}',
+                },
+                posthog_issue_id: {
+                    value: '{event.distinct_id}',
+                },
+            },
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['error-tracking-issue-reopened'],
+            template_id: 'template-gitlab',
+            name: 'GitLab issue on issue reopened',
+            description: 'Create an issue in GitLab when an issue is reopened.',
+            inputs: {
+                title: {
+                    value: '{event.properties.name}',
+                },
+                description: {
+                    value: '{event.properties.description}',
+                },
+                posthog_issue_id: {
+                    value: '{event.distinct_id}',
+                },
+            },
+        },
     ],
     'error-tracking-issue-spiking': [
         {
@@ -856,6 +907,57 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                 },
                 text: {
                     value: 'Issue spiking: {event.properties.name}',
+                },
+            },
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['error-tracking-issue-spiking'],
+            template_id: 'template-linear',
+            name: 'Linear issue on issue spiking',
+            description: 'Create an issue in Linear when an issue is spiking.',
+            inputs: {
+                title: {
+                    value: '{event.properties.name}',
+                },
+                description: {
+                    value: '{event.properties.description}',
+                },
+                posthog_issue_id: {
+                    value: '{event.distinct_id}',
+                },
+            },
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['error-tracking-issue-spiking'],
+            template_id: 'template-github',
+            name: 'GitHub issue on issue spiking',
+            description: 'Create an issue in GitHub when an issue is spiking.',
+            inputs: {
+                title: {
+                    value: '{event.properties.name}',
+                },
+                description: {
+                    value: '{event.properties.description}',
+                },
+                posthog_issue_id: {
+                    value: '{event.distinct_id}',
+                },
+            },
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['error-tracking-issue-spiking'],
+            template_id: 'template-gitlab',
+            name: 'GitLab issue on issue spiking',
+            description: 'Create an issue in GitLab when an issue is spiking.',
+            inputs: {
+                title: {
+                    value: '{event.properties.name}',
+                },
+                description: {
+                    value: '{event.properties.description}',
+                },
+                posthog_issue_id: {
+                    value: '{event.distinct_id}',
                 },
             },
         },

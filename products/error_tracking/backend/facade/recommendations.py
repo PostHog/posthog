@@ -15,6 +15,7 @@ from . import contracts
 
 RecommendationNotFoundError = _store.RecommendationNotFoundError
 UnknownRecommendationTypeError = _store.UnknownRecommendationTypeError
+RecommendationRefreshUnavailableError = _store.RecommendationRefreshUnavailableError
 
 
 def _to_recommendation(obj) -> contracts.ErrorTrackingRecommendation:

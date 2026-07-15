@@ -17,6 +17,12 @@ class UnknownRecommendationTypeError(Exception):
     pass
 
 
+class RecommendationRefreshUnavailableError(Exception):
+    """Raised when a refresh can't be enqueued (e.g. the task broker is unavailable)."""
+
+    pass
+
+
 def list_recommendations(team_id: int) -> list[ErrorTrackingRecommendation]:
     return list(ErrorTrackingRecommendation.objects.filter(team_id=team_id).select_related("team").order_by("type"))
 
@@ -35,9 +41,9 @@ def refresh_recommendation(team_id: int, recommendation_id: UUID, *, force: bool
     if force and claim_for_compute(recommendation.id, team_id, timezone.now()):
         try:
             compute_error_tracking_recommendation.delay(str(recommendation.id), team_id)
-        except Exception:
+        except Exception as err:
             revert_to_ready(recommendation.id, team_id)
-            raise
+            raise RecommendationRefreshUnavailableError() from err
         recommendation.refresh_from_db()
     return recommendation
 
