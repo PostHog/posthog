@@ -208,9 +208,11 @@ async def maybe_flag_for_repartition(
 
         if schema.repartition_pending is not None:
             await logger.adebug(
-                f"repartition: over budget but already queued for the next run schema_id={schema.id} "
-                f"max_partition_bytes={max_bytes} budget_bytes={budget} repartition_pending={schema.repartition_pending}",
+                f"repartition: needs repartition (trigger_reason={trigger_reason}) but already queued for the next "
+                f"run schema_id={schema.id} max_partition_bytes={max_bytes} budget_bytes={budget} "
+                f"repartition_pending={schema.repartition_pending}",
                 schema_id=str(schema.id),
+                trigger_reason=trigger_reason,
                 max_partition_bytes=max_bytes,
                 budget_bytes=budget,
                 repartition_pending=schema.repartition_pending,
@@ -220,10 +222,11 @@ async def maybe_flag_for_repartition(
         cooldown_remaining = _cooldown_seconds_remaining(schema)
         if cooldown_remaining > 0:
             await logger.adebug(
-                f"repartition: over budget but skipped, in post-repartition cooldown schema_id={schema.id} "
-                f"max_partition_bytes={max_bytes} budget_bytes={budget} last_repartition_at={schema.last_repartition_at} "
-                f"cooldown_seconds_remaining={int(cooldown_remaining)}",
+                f"repartition: needs repartition (trigger_reason={trigger_reason}) but skipped, in post-repartition "
+                f"cooldown schema_id={schema.id} max_partition_bytes={max_bytes} budget_bytes={budget} "
+                f"last_repartition_at={schema.last_repartition_at} cooldown_seconds_remaining={int(cooldown_remaining)}",
                 schema_id=str(schema.id),
+                trigger_reason=trigger_reason,
                 max_partition_bytes=max_bytes,
                 budget_bytes=budget,
                 last_repartition_at=schema.last_repartition_at,
