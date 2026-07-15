@@ -24,9 +24,12 @@ DURATION_PERCENTILE_CONDITION = "status = 'completed' AND conclusion = 'success'
 # ``startup_failure``) are kept regardless of speed — failing in seconds is signal, not noise.
 NO_OP_RUN_MAX_SECONDS = 10
 NO_OP_RUN_EXCLUSION_CONDITION = (
-    # NULL-safe on purpose: an in-flight run has a NULL duration, and `NOT (duration < 10 AND ...)`
-    # would evaluate to NULL and drop it — so the keep-conditions are OR'd instead.
+    # NULL-safe on purpose, twice over: an in-flight run has a NULL duration, and a completed row can
+    # carry a NULL conclusion (the column is nullable; conclusions can lag the sync) — either NULL
+    # inside a `NOT (...)` would turn the whole predicate NULL and drop the row. So the keep-conditions
+    # are OR'd, with explicit IS NULL cases keeping undecided rows visible.
     f"(r.duration_seconds IS NULL OR r.duration_seconds >= {NO_OP_RUN_MAX_SECONDS} "
+    "OR r.conclusion IS NULL "
     "OR r.conclusion NOT IN ('success', 'skipped', 'neutral', 'completed', 'cancelled'))"
 )
 

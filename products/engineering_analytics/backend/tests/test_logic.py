@@ -1281,18 +1281,23 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
                 _run_row(8105, "CI", "sha-e", "completed", "success", *_ago_with_duration(1, 4)),
                 # Still running: no duration yet, but it must stay (it feeds the in-flight band).
                 _run_row(8106, "CI", "sha-f", "in_progress", None, _ago(3), _ago(3)),
+                # Completed fast but with a NULL conclusion (conclusions can lag the sync) — undecided,
+                # so it must stay; a non-NULL-safe `NOT IN` would silently drop it.
+                _run_row(8107, "CI", "sha-g", "completed", None, *_ago_with_duration(4, 4)),
             ],
         )
         activity = api.get_workflow_run_activity(team=self.team, repo="PostHog/posthog", workflow_name="CI")
-        # Only CI runs in window, newest first; the no-op 8105 is excluded, the in-flight 8106 kept.
-        assert [p.run_id for p in activity.points] == [8102, 8101, 8106]
+        # Only CI runs in window, newest first; the no-op 8105 is excluded, the in-flight 8106 and the
+        # fast-but-undecided 8107 are kept.
+        assert [p.run_id for p in activity.points] == [8102, 8101, 8106, 8107]
         assert activity.truncated is False
         assert activity.limit == 2000
         # Each field maps to the right column — guards a wrong unpack order in _to_point.
-        newest, failed, in_flight = activity.points
+        newest, failed, in_flight, undecided = activity.points
         assert (newest.run_id, newest.conclusion, newest.pr_number) == (8102, "success", 0)
         assert (failed.conclusion, failed.head_branch, failed.pr_number) == ("failure", "feat", 80)
         assert (in_flight.conclusion, in_flight.duration_seconds) == (None, None)
+        assert (undecided.conclusion, undecided.duration_seconds) == (None, 4)
         # run_started_at is non-null on this endpoint — the window filter excludes unparseable-start runs.
         assert all(p.run_started_at is not None for p in activity.points)
 
@@ -1300,7 +1305,7 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         wide = api.get_workflow_run_activity(
             team=self.team, repo="PostHog/posthog", workflow_name="CI", date_from="-90d"
         )
-        assert [p.run_id for p in wide.points] == [8102, 8101, 8106, 8104]
+        assert [p.run_id for p in wide.points] == [8102, 8101, 8106, 8107, 8104]
 
     def test_repo_run_activity_collapses_workflows_per_commit(self) -> None:
         # The repo-health chart folds every workflow run of a default-branch commit into ONE point: the
