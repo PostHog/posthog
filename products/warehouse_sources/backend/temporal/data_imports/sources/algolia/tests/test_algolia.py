@@ -299,3 +299,12 @@ class TestValidateCredentials:
         valid, error = self._run(_response({}, status_code=500), index_name="idx")
         assert valid is False
         assert error is not None and "500" in error
+
+    def test_not_found_returns_actionable_message(self) -> None:
+        # A 404 means the probed index (or application ID) doesn't exist. Give the user something to
+        # act on instead of a bare "returned status 404".
+        resp = _response({"message": "Index does not exist"}, status_code=404)
+        valid, error = self._run(resp, index_name="idx")
+        assert valid is False
+        assert error is not None
+        assert "Application ID" in error and "index" in error
