@@ -168,12 +168,7 @@ export function MessageInput({
                     {onDraftModeChange && (
                         <Tooltip title="In draft mode, sending asks you to confirm the recipient first.">
                             <span>
-                                <LemonSwitch
-                                    checked={draftMode}
-                                    onChange={onDraftModeChange}
-                                    label="Draft mode"
-                                    size="small"
-                                />
+                                <LemonSwitch checked={draftMode} onChange={onDraftModeChange} label="Draft mode" />
                             </span>
                         </Tooltip>
                     )}
