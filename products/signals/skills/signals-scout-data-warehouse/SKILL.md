@@ -140,19 +140,26 @@ Run this sweep only when the integrity lane is quiet — never on a run that fil
 
 Two probes:
 
-**Hot warehouse tables.** Take candidates from `system.data_warehouse_tables` (`SELECT name, row_count FROM system.data_warehouse_tables WHERE deleted = 0 ORDER BY row_count DESC LIMIT 15` — cache the roster + baselines as `pattern:data_warehouse:opt-watchlist`). Table names here are the queryable names; `system.source_schemas.name` values are source-side and will **not** match query text. Per candidate, one stats pass:
+**Hot warehouse tables.** Discover burn from the query side in one pass — match every sizable table name into the slow tail of the stream. Do **not** rank candidates by `row_count` and check the top N: the biggest tables are usually batch/API-fed and interactively silent, so size-first ranking misses the hot tables entirely. Table names from `system.data_warehouse_tables` are the queryable names; `system.source_schemas.name` values are source-side and will **not** match query text.
 
 ```sql
-SELECT count() AS queries, uniq(properties.$user_id) AS users,
-       round(quantile(0.5)(toFloat(properties.duration))) AS p50_ms,
-       round(sum(toFloat(properties.duration))/60000, 1) AS total_min
-FROM events
-WHERE event = 'query completed' AND properties.query.kind = 'HogQLQuery'
-  AND timestamp >= now() - INTERVAL 7 DAY
-  AND positionCaseInsensitive(toString(properties.query), '<table_name>') > 0
+SELECT tbl, count() AS runs, uniq(uid) AS users,
+       round(quantile(0.5)(d)/1000, 1) AS p50_s,
+       round(sum(d)/60000, 1) AS total_min
+FROM (
+  SELECT arrayJoin((SELECT groupArray(name) FROM system.data_warehouse_tables
+                    WHERE deleted = 0 AND row_count > 1000000)) AS tbl,
+         toString(properties.query) AS q,
+         toFloat(properties.duration) AS d, properties.$user_id AS uid
+  FROM events
+  WHERE event = 'query completed' AND timestamp >= now() - INTERVAL 7 DAY
+    AND toFloat(properties.duration) > 5000
+)
+WHERE length(tbl) > 8 AND positionCaseInsensitive(q, tbl) > 0
+GROUP BY tbl ORDER BY total_min DESC LIMIT 15
 ```
 
-A table with recurring multi-user queries at multi-second p50 (e.g. 13 runs / 6 users / p50 5s against a 55M-row table) is a materialization candidate. Before suggesting one, check `system.data_modeling_views` — if a matview already covers the shape, the finding is "queries bypass the existing view", not "build a new one".
+**Memory footgun: this sweep OOMs without both guards** — always pre-filter the event side to the slow tail (`duration > 5000`) and bound the roster (the `row_count` floor); `length(tbl) > 8` keeps short generic names from false-matching. Cache the resulting hot list + baselines as `pattern:data_warehouse:opt-watchlist`. A table with recurring multi-user slow queries (e.g. 329 runs / 13 users / p50 7s, ~50 min burned in a week) is a materialization candidate — drill into a confirmed one with a single-table pass over **all** durations (drop the slow-tail filter, add `positionCaseInsensitive(toString(properties.query), '<table_name>') > 0`) to get its true p50 and full volume. Before suggesting, check `system.data_modeling_views` — if a matview already covers the shape, the finding is "queries bypass the existing view", not "build a new one".
 
 **Recurring slow query shapes.** Group repeated expensive queries by hash and rank by total time burned:
 
@@ -167,7 +174,7 @@ WHERE event = 'query completed' AND properties.query.kind = 'HogQLQuery'
 GROUP BY qhash HAVING runs >= 5 ORDER BY total_min DESC LIMIT 10
 ```
 
-The shape that matters is high runs × high users × seconds of p50 — a shared saved insight or template everyone pays for (e.g. 851 runs / 635 users / p50 9s / 175 min a week). Single-user rows are one analyst's exploration — skip them. Read a candidate's text with a second, per-hash query (`WHERE cityHash64(toString(properties.query)) = <qhash> LIMIT 1`); **footgun: selecting a `substring()` sample inside the aggregate can fail on multi-byte characters ("Type is not JSON serializable: bytes") — always fetch text separately.** A query shape that touches a warehouse table gets the materialization framing; an events-only shape can still earn a suggestion (a saved view, a narrower date range default) when the burn is large.
+The shape that matters is high runs × high users × seconds of p50 — a shared saved insight or template everyone pays for (e.g. 851 runs / 635 users / p50 9s / 175 min a week). Single-user rows are one analyst's exploration — skip them. Read a candidate's text with a second, per-hash query (`WHERE cityHash64(toString(properties.query)) = <qhash> LIMIT 1`); **footgun: selecting a `substring()` sample inside the aggregate can fail on multi-byte characters ("Type is not JSON serializable: bytes") — always fetch text separately.** A query shape that touches a warehouse table gets the materialization framing; an events-only shape can still earn a suggestion (a saved view, a narrower date range default) when the burn is large. But a shape that is a **product default** — an SQL-editor starter query or docs example run by hundreds of distinct users (e.g. `SELECT count(*) from persons`) — is a product/engine finding, not a modeling gap: note it in memory, don't file it.
 
 **Matview waste.** The inverse: `is_materialized = 1`, healthy, but zero interactive queries match its name over 14+ days — a scheduled rebuild the team pays for with no visible reader. With the interactive-only caveat stated, that's a P3 cost-hygiene suggestion to confirm-and-retire.
 
@@ -182,7 +189,7 @@ Write a scratchpad entry whenever you observe something a future run should know
 - key `addressed:data_warehouse:hubspot-billing-limit` — _"Team aware: Hubspot schemas capped at the row quota on purpose. Don't re-file BillingLimitReached."_
 - key `report:data_warehouse:stripe` — _"Report `019f0a96-…` covers the `Stripe` source-level Error cascade. Edit it (append_note the fresh numbers / blast radius) while it persists and the report is still live; if it was resolved and the source later re-breaks, that's a fresh report."_
 - key `reviewer:data_warehouse:stripe` — _"`Stripe` source owned by `alice` (GitHub login) — route its reports there."_
-- key `pattern:data_warehouse:opt-watchlist` — _"Top tables by row_count + 7d interactive stats: `billing_usage_by_org_date` (55M rows, 13 q / 6 users / p50 5s), … Recheck weekly, not every run."_
+- key `pattern:data_warehouse:opt-watchlist` — _"Hot tables by 7d interactive burn: `prod_postgres_invoice_with_annual` (329 slow runs / 13 users / p50 7s / ~50 min), `iwa_summary_customer_month` (247 / 14 / 8.1s / ~48 min), … Recheck weekly, not every run."_
 - key `report:data_warehouse:opt-billing-usage` — _"Report `019f…` suggests materializing the recurring `billing_usage_by_org_date` join (2026-07-15: 13 q/wk, p50 5s). Edit with fresh numbers at most every few runs while live; on decline or fix, write `addressed:` and stop."_
 - key `addressed:data_warehouse:opt-usage-report-view` — _"Team declined materializing the usage-report query (2026-07-10, acceptable cost). Never re-file unless burn grows ~3×."_
 
