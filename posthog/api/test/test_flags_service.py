@@ -110,7 +110,7 @@ class TestGetFlagsFromServiceRetries(SimpleTestCase):
     def test_does_not_retry_http_error_responses(self, mock_post, mock_sleep):
         # A 4xx/5xx is a real response, not a connection blip — retrying it just hammers the service.
         response = MagicMock()
-        response.raise_for_status.side_effect = requests.HTTPError("500 Server Error")
+        response.raise_for_status.side_effect = requests.HTTPError("500 Server Error", response=response)
         mock_post.return_value = response
 
         with self.assertRaises(requests.HTTPError):

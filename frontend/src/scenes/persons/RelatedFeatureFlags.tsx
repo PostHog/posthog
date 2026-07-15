@@ -157,8 +157,7 @@ export function RelatedFeatureFlags({ distinctId, groupTypeIndex, groups }: Prop
                         onClick: () => loadRelatedFeatureFlags(),
                     }}
                 >
-                    Failed to load this person's feature flags. The evaluation service may be temporarily
-                    unavailable.
+                    Failed to load this person's feature flags. The evaluation service may be temporarily unavailable.
                 </LemonBanner>
             )}
             <div className="flex justify-between mb-4 gap-2 flex-wrap">
