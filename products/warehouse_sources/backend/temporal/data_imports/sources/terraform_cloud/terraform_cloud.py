@@ -101,13 +101,18 @@ def _normalize_keys(value: Any) -> Any:
     return value
 
 
-def _flatten_item(item: dict[str, Any]) -> dict[str, Any]:
+def _flatten_item(item: dict[str, Any], drop_fields: tuple[str, ...] = ()) -> dict[str, Any]:
     """Flatten a JSON:API resource object into a row: id + type + normalized attributes, with
-    each to-one relationship reduced to a `<name>_id` column (e.g. plan_id, workspace_id)."""
+    each to-one relationship reduced to a `<name>_id` column (e.g. plan_id, workspace_id).
+    `drop_fields` removes attributes that must never be persisted — state versions carry signed
+    state-file download/upload URLs that would grant raw state access to anyone who can query
+    the warehouse table."""
     row: dict[str, Any] = {"id": item["id"], "type": item.get("type")}
     attributes = item.get("attributes") or {}
     if isinstance(attributes, dict):
         row.update(_normalize_keys(attributes))
+    for field in drop_fields:
+        row.pop(field, None)
     relationships = item.get("relationships") or {}
     if isinstance(relationships, dict):
         for rel_name, rel in relationships.items():
@@ -195,7 +200,7 @@ def _get_top_level_rows(
 
     while url:
         data = _fetch_json(session, url, logger)
-        rows = [_flatten_item(item) for item in data.get("data") or []]
+        rows = [_flatten_item(item, config.drop_fields) for item in data.get("data") or []]
         next_url = _next_url(data)
         if rows:
             yield rows
@@ -262,7 +267,7 @@ def _get_fan_out_rows(
                 data = _fetch_json(session, url, logger)
                 rows = []
                 for item in data.get("data") or []:
-                    row = _flatten_item(item)
+                    row = _flatten_item(item, config.drop_fields)
                     row["workspace_id"] = workspace_id
                     row["workspace_name"] = workspace_name
                     rows.append(row)

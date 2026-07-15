@@ -38,6 +38,11 @@ class TerraformCloudEndpointConfig:
     # window of rows that merge dedupes on the primary key. Used for runs, whose
     # status/timestamps keep mutating until the run reaches a final state.
     incremental_lookback: Optional[timedelta] = None
+    # Normalized attribute keys stripped from rows before they're yielded. Keeps signed
+    # capability URLs (state-file download/upload) out of the warehouse — anyone who can query
+    # the table could otherwise read or write raw Terraform state, including its secrets,
+    # without any HCP Terraform authorization.
+    drop_fields: tuple[str, ...] = ()
 
 
 TERRAFORM_CLOUD_ENDPOINTS: dict[str, TerraformCloudEndpointConfig] = {
@@ -85,6 +90,13 @@ TERRAFORM_CLOUD_ENDPOINTS: dict[str, TerraformCloudEndpointConfig] = {
         incremental_fields=CREATED_AT_INCREMENTAL_FIELDS,
         sort_mode="desc",
         fan_out_over_workspaces=True,
+        drop_fields=(
+            "hosted_state_download_url",
+            "hosted_json_state_download_url",
+            "sanitized_state_download_url",
+            "hosted_state_upload_url",
+            "hosted_json_state_upload_url",
+        ),
     ),
 }
 

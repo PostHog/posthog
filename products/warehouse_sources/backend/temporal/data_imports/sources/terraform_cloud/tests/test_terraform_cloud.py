@@ -185,6 +185,39 @@ class TestFanOutEndpoints:
         assert "filter%5Bworkspace%5D%5Bname%5D=app" in child_url
         assert [row["id"] for batch in batches for row in batch] == ["sv-1"]
 
+    def test_state_versions_strip_signed_capability_urls(self) -> None:
+        # State-version payloads carry signed state-file download/upload URLs. Persisting them
+        # would let anyone who can query the warehouse table read or write raw Terraform state
+        # (including secrets) without any HCP Terraform authorization.
+        responses = [
+            _response(_page([_workspace("ws-1", "app")])),
+            _response(
+                _page(
+                    [
+                        {
+                            "id": "sv-1",
+                            "attributes": {
+                                "serial": 4,
+                                "created-at": "2026-01-01T00:00:00Z",
+                                "hosted-state-download-url": "https://archivist.terraform.io/v1/object/signed",
+                                "hosted-json-state-download-url": "https://archivist.terraform.io/v1/object/signed-json",
+                                "sanitized-state-download-url": "https://archivist.terraform.io/v1/object/sanitized",
+                                "hosted-state-upload-url": "https://archivist.terraform.io/v1/object/upload",
+                                "hosted-json-state-upload-url": "https://archivist.terraform.io/v1/object/upload-json",
+                            },
+                        }
+                    ]
+                )
+            ),
+        ]
+        batches, _, _ = _run_endpoint("state_versions", responses)
+        (row,) = [row for batch in batches for row in batch]
+        assert not any("download_url" in key or "upload_url" in key for key in row)
+        # The non-capability metadata still lands.
+        assert row["serial"] == 4
+        assert row["created_at"] == "2026-01-01T00:00:00Z"
+        assert row["workspace_id"] == "ws-1"
+
     def test_resumes_into_bookmarked_workspace(self) -> None:
         resume_url = f"{BASE}/workspaces/ws-2/runs?page%5Bnumber%5D=5"
         responses = [
