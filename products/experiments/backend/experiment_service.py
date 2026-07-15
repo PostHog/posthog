@@ -950,11 +950,7 @@ class ExperimentService:
         used_variant_keys = self._variant_keys(used_variants)
         self.validate_stats_config(stats_config, used_variant_keys)
 
-        # The web experiment editor and WebExperimentsAPISerializer hard-require a
-        # 'control' variant, so a control-less flag would create a web experiment
-        # that can never be edited or saved from the toolbar.
-        if type == "web" and CONTROL_VARIANT_KEY not in used_variant_keys:
-            raise ValidationError("Web experiments require a variant with key 'control'")
+        self._assert_web_experiment_has_control(type, used_variant_keys)
 
         stats_config = self._materialize_baseline_variant_key(stats_config, used_variant_keys)
 
@@ -1233,6 +1229,14 @@ class ExperimentService:
         if error:
             raise ValidationError(error)
 
+    @staticmethod
+    def _assert_web_experiment_has_control(experiment_type: str | None, variant_keys: list[str]) -> None:
+        """The toolbar editor and WebExperimentsAPISerializer hard-require a 'control'
+        variant, so a control-less web experiment could never be edited or saved from
+        the toolbar. Enforced on create, update, and launch."""
+        if experiment_type == "web" and CONTROL_VARIANT_KEY not in variant_keys:
+            raise ValidationError("Web experiments require a variant with key 'control'")
+
     def _assert_flag_not_deleted_for_launch(self, feature_flag: FeatureFlag) -> None:
         """A deleted flag distributes no traffic, so an experiment can never go live on it."""
         if feature_flag.deleted:
@@ -1247,8 +1251,7 @@ class ExperimentService:
         """
         self._assert_flag_not_deleted_for_launch(feature_flag)
         self._validate_existing_flag(feature_flag)
-        if experiment.type == "web" and CONTROL_VARIANT_KEY not in self._variant_keys(feature_flag.variants):
-            raise ValidationError("Web experiments require a variant with key 'control'")
+        self._assert_web_experiment_has_control(experiment.type, self._variant_keys(feature_flag.variants))
 
     @staticmethod
     def _assign_uuids_to_metrics(
@@ -2915,11 +2918,10 @@ class ExperimentService:
             effective_stats_config = update_data.get("stats_config", experiment.stats_config)
             self.validate_stats_config(effective_stats_config, variant_keys)
 
-            # Web experiments keep requiring 'control' (see the matching guard in create).
             # `type` is immutable on update (rejected by _validate_update_payload's
             # allowlist), so the persisted value is the effective one.
-            if update_variants is not None and experiment.type == "web" and CONTROL_VARIANT_KEY not in variant_keys:
-                raise ValidationError("Web experiments require a variant with key 'control'")
+            if update_variants is not None:
+                self._assert_web_experiment_has_control(experiment.type, variant_keys)
 
             # A variants update can leave an absent baseline pointing at an
             # order-sensitive default — pin the currently effective baseline, like on
