@@ -123,7 +123,11 @@ def download(request, *args, **kwargs) -> HttpResponse:
 
     if instance.media_location is None:
         return HttpResponse(status=404)
-    file_bytes = object_storage.read_bytes(instance.media_location)
+    # The DB row can outlive its stored object (e.g. lifecycle expiry). Treat a missing
+    # object as a 404 rather than letting object storage raise and turn this into a 500.
+    file_bytes = object_storage.read_bytes(instance.media_location, missing_ok=True)
+    if file_bytes is None:
+        return HttpResponse(status=404)
 
     statsd.incr(
         "uploaded_media.served",

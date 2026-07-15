@@ -112,6 +112,25 @@ class TestMediaAPI(APIBaseTest):
         response = self.client.get(f"/uploaded_media/{UUIDT()}")
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
+    def test_missing_object_in_storage_is_404_not_500(self) -> None:
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
+            with open(get_path_to("a-small-but-valid.gif"), "rb") as image:
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/uploaded_media",
+                    {"image": image},
+                    format="multipart",
+                )
+                self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+                media_id = response.json()["id"]
+
+            self.client.logout()
+            # The DB row exists but the object is gone from storage: read_bytes(missing_ok=True)
+            # returns None, and the endpoint must 404 rather than raising into a 500.
+            with patch("posthog.api.uploaded_media.object_storage.read_bytes", return_value=None):
+                download_response = self.client.get(f"/uploaded_media/{media_id}")
+
+        assert download_response.status_code == status.HTTP_404_NOT_FOUND
+
     def test_rejects_too_large_file_type(self) -> None:
         four_megabytes_plus_a_little = b"1" * (4 * 1024 * 1024 + 1)
         fake_big_file = SimpleUploadedFile(
