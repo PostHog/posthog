@@ -1097,6 +1097,11 @@ class DocusignSourceConfig(config.Config):
 
 
 @config.config
+class DodoPaymentsSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class DolibarrSourceConfig(config.Config):
     pass
 
@@ -3277,6 +3282,11 @@ class SalesforceSourceConfig(config.Config):
 
 
 @config.config
+class SalestricsSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class SanitySourceConfig(config.Config):
     pass
 
@@ -4450,6 +4460,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.DOCKERHUB: DockerhubSourceConfig,
         ExternalDataSourceType.DOCUSEAL: DocusealSourceConfig,
         ExternalDataSourceType.DOCUSIGN: DocusignSourceConfig,
+        ExternalDataSourceType.DODOPAYMENTS: DodoPaymentsSourceConfig,
         ExternalDataSourceType.DOLIBARR: DolibarrSourceConfig,
         ExternalDataSourceType.DREMIO: DremioSourceConfig,
         ExternalDataSourceType.DRIP: DripSourceConfig,
@@ -4853,6 +4864,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.SALESFLARE: SalesflareSourceConfig,
         ExternalDataSourceType.SALESFORCE: SalesforceSourceConfig,
         ExternalDataSourceType.SALESFORCEMARKETINGCLOUD: SalesforceMarketingCloudSourceConfig,
+        ExternalDataSourceType.SALESTRICS: SalestricsSourceConfig,
         ExternalDataSourceType.SANITY: SanitySourceConfig,
         ExternalDataSourceType.SAPCONCUR: SapConcurSourceConfig,
         ExternalDataSourceType.SAPERP: SapErpSourceConfig,
