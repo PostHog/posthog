@@ -32,6 +32,12 @@ tools:
     llm-analytics-parser-recipes-retrieve:
         operation: llm_analytics_parser_recipes_retrieve
         enabled: false
+    llm-prompts-name-labels-destroy:
+        operation: llm_prompts_name_labels_destroy
+        enabled: false
+    llm-prompts-name-labels-update:
+        operation: llm_prompts_name_labels_update
+        enabled: false
     llma-clustering-config-get:
         operation: llm_analytics_clustering_config_list
         enabled: true
