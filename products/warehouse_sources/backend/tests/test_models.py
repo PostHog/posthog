@@ -234,6 +234,27 @@ class TestExternalDataSchemaOOMEvent(BaseTest):
         assert ExternalDataSchemaOOMEvent.recent_count(schema_a, days=30) == 3
         assert ExternalDataSchemaOOMEvent.recent_count(schema_b, days=7) == 1
 
+    def test_recent_count_ignores_ooms_before_last_repartition(self) -> None:
+        # A repartition fixes the OOMs that preceded it. Without this floor, those OOMs keep counting
+        # and re-trigger a repartition on the same healthy table every cooldown until they age out.
+        schema = self._schema("orders")
+        self._oom(schema, age_days=2)
+        self._oom(schema, age_days=2)
+        self._oom(schema, age_days=2)
+        schema.sync_type_config = {
+            **(schema.sync_type_config or {}),
+            "last_repartition_at": (timezone.now() - timedelta(days=1)).isoformat(),
+        }
+        schema.save()
+
+        # All three OOMs predate the repartition, so none count toward re-triggering it.
+        assert ExternalDataSchemaOOMEvent.recent_count(schema, days=7) == 0
+
+        # An OOM recorded after the repartition still counts: the rewrite did not fix it, so this is a
+        # real escalation the controller should act on.
+        self._oom(schema)
+        assert ExternalDataSchemaOOMEvent.recent_count(schema, days=7) == 1
+
 
 class TestUpdateSyncTypeConfigKeys(BaseTest):
     """The locked-merge helper that keeps the CDC extract activity and concurrent API PATCHes from

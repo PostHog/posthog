@@ -3768,15 +3768,6 @@ export interface ExternalDataSourceConnectionOptionApi {
     readonly supports_hogql: boolean
 }
 
-export interface PaginatedExternalDataSourceConnectionOptionListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ExternalDataSourceConnectionOptionApi[]
-}
-
 /**
  * Validate credentials and preview available tables from a remote database.
  *
@@ -7140,21 +7131,6 @@ export type ExternalDataSourcesConnectLinkRetrieveParams = {
      * The source type to generate a connect link for (e.g. 'Stripe', 'Postgres', 'Hubspot').
      */
     source_type: string
-}
-
-export type ExternalDataSourcesConnectionsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    /**
-     * A search term.
-     */
-    search?: string
 }
 
 export type ExternalDataSourcesOauthAccountsRetrieveParams = {

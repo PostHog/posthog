@@ -29,8 +29,9 @@ class ReviewPRWorkflowInputs:
     no resolvable PR stores the review instead — the target's shape decides, not a mode flag.
 
     `acting_user_id` overrides whose perspectives run: the label trigger leaves it None (the workflow
-    resolves the PR author after fetch, skipping if not a PostHog user); the eval CLI and the inbox
-    trigger set it explicitly (the inbox PR author is a bot, so it can't be resolved from GitHub).
+    resolves the PR author after fetch, falling back to the default run user when the author isn't a
+    PostHog user); the eval CLI and the inbox trigger set it explicitly (the inbox PR author is a
+    bot, so it can't be resolved from GitHub).
 
     `trigger_source` / `signal_report_id` default so in-flight payloads serialized before these
     fields existed still deserialize.
