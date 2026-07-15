@@ -2988,7 +2988,7 @@ class PromptingCompanySourceConfig(config.Config):
 
 @config.config
 class PyPISourceConfig(config.Config):
-    pass
+    packages: str
 
 
 @config.config

@@ -331,6 +331,7 @@ the row lists both.
 | printify                  | HTTP                        | requests                                                        | ✅                          |
 | productboard              | HTTP                        | requests                                                        | ✅                          |
 | pylon                     | HTTP                        | requests                                                        | ✅                          |
+| pypi                      | HTTP                        | requests                                                        | ✅                          |
 | qualaroo                  | HTTP                        | requests                                                        | ✅                          |
 | recurly                   | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | ramp                      | HTTP                        | requests                                                        | ✅                          |
@@ -727,7 +728,6 @@ doesn't conflict with concurrent PRs.
 - primetric
 - productive
 - prompting_company
-- pypi
 - qdrant
 - qonto
 - qualtrics
