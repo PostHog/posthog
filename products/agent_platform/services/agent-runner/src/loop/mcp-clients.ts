@@ -217,11 +217,7 @@ export interface OpenMcpClientsDeps {
      * host allowlist). Absent → any `auth.provider` ref is refused at open time.
      */
     identity?: {
-        resolve(
-            provider: string,
-            scopes?: string[],
-            options?: { initiate?: boolean }
-        ): Promise<IdentityResolution>
+        resolve(provider: string, scopes?: string[], options?: { initiate?: boolean }): Promise<IdentityResolution>
     }
     /**
      * Agent-level shared-credential resolver (`ref.connection` → a native

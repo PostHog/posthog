@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
+
 def _identity_callback_base() -> str | None:
     callback_base = settings.AGENT_IDENTITY_CALLBACK_BASE_URL
     return callback_base.rstrip("/") if callback_base else None
