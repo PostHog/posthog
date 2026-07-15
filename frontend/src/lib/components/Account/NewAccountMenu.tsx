@@ -83,6 +83,9 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                         <ButtonPrimitive
                             {...props}
                             iconOnly={isLayoutNavCollapsed}
+                            // Desktop app: full-width menu row in the navbar footer, so the open
+                            // indicator lines up with the "More" row's caret above it
+                            menuItem={isDesktopApp() && !isLayoutNavCollapsed}
                             className={cn('relative flex-1 py-1 min-w-0 group', {
                                 'pl-[3px] gap-[6px]': !isLayoutNavCollapsed,
                             })}
