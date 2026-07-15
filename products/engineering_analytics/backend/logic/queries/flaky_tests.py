@@ -29,12 +29,13 @@ from posthog.clickhouse.workload import Workload
 from products.engineering_analytics.backend.facade.contracts import FlakyTestItem, FlakyTestList
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries._test_spans import (
+    flaky_bar,
     scan_placeholders,
     selector_from_nodeid,
     span_scan,
 )
 
-_SELECT = """
+_SELECT = f"""
     SELECT
         nodeid,
         anyIf(selector, selector != '') AS selector,
@@ -47,9 +48,9 @@ _SELECT = """
         max(span_timestamp) AS last_seen_at
     FROM (__SPAN_SCAN__)
     GROUP BY nodeid
-    HAVING rerun_passed_count >= {min_rerun_passes} OR failed_pr_count >= {min_failed_prs}
+    HAVING {flaky_bar("rerun_passed_count", "failed_pr_count")}
     ORDER BY (rerun_passed_count + failed_pr_count) DESC, failed_count DESC, last_seen_at DESC
-    LIMIT {limit_plus_one}
+    LIMIT {{limit_plus_one}}
 """
 
 

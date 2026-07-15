@@ -22,6 +22,12 @@ CI_SERVICE_NAME = "ci-backend"
 # Spans emitted before the owner stamp existed (or from paths with no owner) group here.
 UNOWNED_TEAM = "unowned"
 
+
+def flaky_bar(rerun_count: str, failed_pr_count: str) -> str:
+    """The one flaky-test qualification bar (SPEC §5): enough rerun passes OR enough distinct failed PRs."""
+    return f"{rerun_count} >= {{min_rerun_passes}} OR {failed_pr_count} >= {{min_failed_prs}}"
+
+
 # Scans [scan_from, date_to?]; `is_current` splits rows at {date_from} so a caller scanning
 # an extra prior window (scan_from < date_from) gets the current/prior split for free. A
 # caller without a prior window passes scan_from = date_from and ignores the column.
