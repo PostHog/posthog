@@ -63,10 +63,7 @@ pub async fn apply_quota_limits(
             // No `$` prefix here: v1's WrappedEvent::has_property reads the
             // structured `options.product_tour_id` field, not the raw property
             // map — that's where the v0 path's "$product_tour_id" key lives.
-            let info = EventInfo {
-                name: ev.event_name(),
-                has_product_tour_id: ev.has_property("product_tour_id"),
-            };
+            let info = EventInfo::from_event(ev, "product_tour_id");
             if predicate(info) {
                 ev.result = EventResult::Drop;
                 ev.destination = Destination::Drop;
@@ -97,8 +94,11 @@ pub async fn apply_quota_limits(
 
     // Grace-period membership only covers a handful of orgs at a time, so skip
     // building the EventInfo batch below on the common case where this token
-    // isn't in any grace period.
-    if limiter.is_token_in_any_grace_period(token).await {
+    // isn't in any grace period. Computed once here (rather than via a
+    // separate is-any-grace-period check) so it can be reused directly below
+    // instead of triggering a second lookup per scoped limiter.
+    let scoped_in_grace = limiter.scoped_limiters_in_grace_period(token).await;
+    if !scoped_in_grace.is_empty() || limiter.is_in_global_grace_period(token).await {
         let mut global_only_event_count = 0;
         let admitted_event_infos: Vec<EventInfo> = events
             .iter()
@@ -109,15 +109,16 @@ pub async fn apply_quota_limits(
                     None
                 } else {
                     // No `$` prefix — see the scoped-checks loop above for why.
-                    Some(EventInfo {
-                        name: event.event_name(),
-                        has_product_tour_id: event.has_property("product_tour_id"),
-                    })
+                    Some(EventInfo::from_event(event, "product_tour_id"))
                 }
             })
             .collect();
         limiter
-            .report_grace_period_admission_for_event_infos(token, &admitted_event_infos)
+            .report_grace_period_admission_for_event_infos(
+                token,
+                &admitted_event_infos,
+                &scoped_in_grace,
+            )
             .await;
         limiter
             .report_global_grace_period_admission(token, global_only_event_count)

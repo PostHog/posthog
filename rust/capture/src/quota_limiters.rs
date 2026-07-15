@@ -26,6 +26,20 @@ pub struct EventInfo<'a> {
     pub has_product_tour_id: bool,
 }
 
+impl<'a> EventInfo<'a> {
+    /// Builds an `EventInfo` from any `HasEventName` event. `product_tour_id_key`
+    /// is the property key to probe for `has_product_tour_id` — callers differ on
+    /// this because v0 events carry a raw `$`-prefixed property map (key
+    /// `"$product_tour_id"`) while v1's `WrappedEvent` promotes it to a
+    /// structured field checked via the unprefixed `"product_tour_id"` key.
+    pub fn from_event<T: HasEventName>(event: &'a T, product_tour_id_key: &str) -> Self {
+        Self {
+            name: event.event_name(),
+            has_product_tour_id: event.has_property(product_tour_id_key),
+        }
+    }
+}
+
 //
 // Add a new predicate function for each new quota limiter you
 // add to the CaptureQuotaLimiter. Each should match events by name
@@ -180,10 +194,7 @@ impl CaptureQuotaLimiter {
         let event_infos: Vec<EventInfo> = (0..indices_to_events.len())
             .map(|i| {
                 let event = indices_to_events.get(&i).unwrap();
-                EventInfo {
-                    name: event.event_name(),
-                    has_product_tour_id: event.has_property("$product_tour_id"),
-                }
+                EventInfo::from_event(event, "$product_tour_id")
             })
             .collect();
 
@@ -280,50 +291,18 @@ impl CaptureQuotaLimiter {
 
         let event_infos: Vec<EventInfo> = events
             .iter()
-            .map(|event| EventInfo {
-                name: event.event_name(),
-                has_product_tour_id: event.has_property("$product_tour_id"),
-            })
+            .map(|event| EventInfo::from_event(event, "$product_tour_id"))
             .collect();
-        self.report_grace_period_admission_for_event_infos_with_scoped_grace(
-            token,
-            &event_infos,
-            &scoped_in_grace,
-        )
-        .await;
+        self.report_grace_period_admission_for_event_infos(token, &event_infos, &scoped_in_grace)
+            .await;
     }
 
+    /// Reports grace-period admissions for pre-built `EventInfo`s against a
+    /// `scoped_in_grace` set the caller already computed (e.g. via
+    /// `scoped_limiters_in_grace_period`) — callers that also need the
+    /// scoped-grace set for a skip-guard should compute it once and pass it
+    /// here rather than triggering a second lookup per scoped limiter.
     pub async fn report_grace_period_admission_for_event_infos(
-        &self,
-        token: &str,
-        event_infos: &[EventInfo<'_>],
-    ) {
-        if event_infos.is_empty() {
-            return;
-        }
-        let scoped_in_grace = self.scoped_limiters_in_grace_period(token).await;
-        self.report_grace_period_admission_for_event_infos_with_scoped_grace(
-            token,
-            event_infos,
-            &scoped_in_grace,
-        )
-        .await;
-    }
-
-    /// Returns the indices into `self.scoped_limiters` that are currently in
-    /// their grace period for `token`. Hoisted so callers can decide whether
-    /// there's any grace-admission work to do before building `EventInfo`s.
-    async fn scoped_limiters_in_grace_period(&self, token: &str) -> Vec<usize> {
-        let mut in_grace = Vec::new();
-        for (i, limiter) in self.scoped_limiters.iter().enumerate() {
-            if limiter.is_in_grace_period(token).await {
-                in_grace.push(i);
-            }
-        }
-        in_grace
-    }
-
-    async fn report_grace_period_admission_for_event_infos_with_scoped_grace(
         &self,
         token: &str,
         event_infos: &[EventInfo<'_>],
@@ -355,15 +334,27 @@ impl CaptureQuotaLimiter {
             .await;
     }
 
-    /// True if `token` is currently in the global grace period or any scoped
-    /// one. Lets a caller that filters or classifies events per-call site
-    /// (e.g. the v1 shim) skip building an `EventInfo` batch entirely when
-    /// there's no grace-admission work to report.
-    pub async fn is_token_in_any_grace_period(&self, token: &str) -> bool {
-        if self.grace_period_limiter.is_limited(token).await {
-            return true;
+    /// True if `token` is in the global grace period for this capture mode's
+    /// resource. Scoped grace periods are checked separately via
+    /// `scoped_limiters_in_grace_period` — combine both to know whether
+    /// there's any grace-admission work to do for `token`.
+    pub async fn is_in_global_grace_period(&self, token: &str) -> bool {
+        self.grace_period_limiter.is_limited(token).await
+    }
+
+    /// Returns the indices into `self.scoped_limiters` that are currently in
+    /// their grace period for `token`. Exposed so callers that also need a
+    /// skip-guard (e.g. the v1 shim) can compute this once and pass it into
+    /// `report_grace_period_admission_for_event_infos` rather than triggering
+    /// a second lookup per scoped limiter.
+    pub async fn scoped_limiters_in_grace_period(&self, token: &str) -> Vec<usize> {
+        let mut in_grace = Vec::new();
+        for (i, limiter) in self.scoped_limiters.iter().enumerate() {
+            if limiter.is_in_grace_period(token).await {
+                in_grace.push(i);
+            }
         }
-        !self.scoped_limiters_in_grace_period(token).await.is_empty()
+        in_grace
     }
 
     /// Check if a token is limited for a specific quota resource bucket.
