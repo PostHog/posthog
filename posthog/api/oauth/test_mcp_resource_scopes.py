@@ -50,13 +50,18 @@ class TestMcpResourceScopes(SimpleTestCase):
         )
 
     def test_advertised_scopes_derives_from_real_committed_catalog(self):
-        # Guards the cross-service artifact path and shape: if
-        # services/mcp/schema/generated-tool-definitions.json moves or changes
-        # structure, this fails loudly instead of silently advertising nothing.
+        # Guards the cross-service artifact paths and shape: if the files under
+        # services/mcp/schema/ move or change structure, this fails loudly
+        # instead of silently advertising nothing.
         _tool_required_scopes.cache_clear()
         scopes = mcp_advertised_scopes()
         self.assertIn("openid", scopes)
         self.assertIn("notebook:read", scopes)
+        # Required only by hand-written tools (read-data-schema in
+        # tool-definitions.json) — absent if the union reads only the
+        # generated catalog.
+        self.assertIn("event_definition:read", scopes)
+        self.assertIn("property_definition:read", scopes)
         self.assertGreater(len(scopes), 50)
 
     def test_build_oauth_mcp_consent_context_success(self):

@@ -14,11 +14,17 @@ from posthog.settings.base_variables import BASE_DIR
 
 logger = structlog.get_logger(__name__)
 
-# The MCP server builds its RFC 9728 `scopes_supported` from this same committed
-# artifact (services/mcp/src/tools/toolDefinitions.ts reads it too). Deriving the
-# consent list from it here keeps the authorization server's promise sourced from
-# its own state instead of a runtime fetch to the resource server.
-_TOOL_DEFINITIONS_PATH = os.path.join(BASE_DIR, "services", "mcp", "schema", "generated-tool-definitions.json")
+# The MCP server builds its RFC 9728 `scopes_supported` from these same committed
+# artifacts (services/mcp/src/tools/toolDefinitions.ts merges both). Deriving the
+# consent list from them here keeps the authorization server's promise sourced from
+# its own state instead of a runtime fetch to the resource server. Both files are
+# needed: hand-written tools (e.g. read-data-schema) live in tool-definitions.json
+# and are the only users of some scopes, so reading the generated file alone drops
+# their scopes from the consent default.
+_TOOL_DEFINITIONS_PATHS = (
+    os.path.join(BASE_DIR, "services", "mcp", "schema", "tool-definitions.json"),
+    os.path.join(BASE_DIR, "services", "mcp", "schema", "generated-tool-definitions.json"),
+)
 
 # Keep in sync with services/mcp/src/lib/routing.ts regional MCP hostnames.
 PRODUCTION_MCP_HOSTS = frozenset(
@@ -58,12 +64,14 @@ def is_trusted_posthog_mcp_resource(resource_url: str) -> bool:
 
 @lru_cache(maxsize=1)
 def _tool_required_scopes() -> frozenset[str]:
-    with open(_TOOL_DEFINITIONS_PATH) as definitions_file:
-        definitions = json.load(definitions_file)
-
-    return frozenset(
-        scope for definition in definitions.values() for scope in (definition.get("required_scopes") or [])
-    )
+    scopes: set[str] = set()
+    for path in _TOOL_DEFINITIONS_PATHS:
+        with open(path) as definitions_file:
+            definitions = json.load(definitions_file)
+        scopes.update(
+            scope for definition in definitions.values() for scope in (definition.get("required_scopes") or [])
+        )
+    return frozenset(scopes)
 
 
 def mcp_advertised_scopes() -> list[str]:
