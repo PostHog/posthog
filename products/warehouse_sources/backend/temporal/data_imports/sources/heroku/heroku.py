@@ -102,6 +102,20 @@ def _fetch_page(
     return data, response.headers.get("Next-Range")
 
 
+def _redact_sensitive_fields(row: dict[str, Any], paths: list[str]) -> dict[str, Any]:
+    """Null out capability URLs (dotted paths) so they never land in the warehouse."""
+    for path in paths:
+        *parents, leaf = path.split(".")
+        node: Any = row
+        for key in parents:
+            node = node.get(key) if isinstance(node, dict) else None
+            if node is None:
+                break
+        if isinstance(node, dict) and leaf in node:
+            node[leaf] = None
+    return row
+
+
 def _iter_pages(
     session: requests.Session,
     url: str,
@@ -114,6 +128,8 @@ def _iter_pages(
     range_header = start_range or _initial_range_header(config)
     for _page_number in range(MAX_PAGES_PER_LIST):
         rows, next_range = _fetch_page(session, url, headers, range_header, logger)
+        if config.sensitive_fields:
+            rows = [_redact_sensitive_fields(row, config.sensitive_fields) for row in rows]
         yield rows, next_range
         if not next_range:
             return

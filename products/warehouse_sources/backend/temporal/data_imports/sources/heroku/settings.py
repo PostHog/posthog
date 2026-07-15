@@ -26,6 +26,10 @@ class HerokuEndpointConfig:
     # sort attribute and is accepted on every list endpoint.
     range_attribute: str = "id"
     should_sync_default: bool = True
+    # Dotted paths of capability URLs nulled before rows are yielded. These URLs grant
+    # access (source downloads, output streams, dyno attach) without Heroku auth, so they
+    # must not land in the warehouse where any member with query access could read them.
+    sensitive_fields: list[str] = field(default_factory=list)
 
 
 # Heroku's Platform API v3 exposes no updated-since/created-since query filters, so every
@@ -45,6 +49,7 @@ HEROKU_ENDPOINTS: dict[str, HerokuEndpointConfig] = {
         name="builds",
         path="/apps/{app_id}/builds",
         fan_out_over_apps=True,
+        sensitive_fields=["output_stream_url", "source_blob.url"],
     ),
     "collaborators": HerokuEndpointConfig(
         name="collaborators",
@@ -63,6 +68,7 @@ HEROKU_ENDPOINTS: dict[str, HerokuEndpointConfig] = {
         path="/apps/{app_id}/dynos",
         fan_out_over_apps=True,
         partition_key=None,
+        sensitive_fields=["attach_url"],
     ),
     "formation": HerokuEndpointConfig(
         name="formation",
@@ -82,6 +88,7 @@ HEROKU_ENDPOINTS: dict[str, HerokuEndpointConfig] = {
         name="releases",
         path="/apps/{app_id}/releases",
         fan_out_over_apps=True,
+        sensitive_fields=["output_stream_url"],
     ),
     "teams": HerokuEndpointConfig(
         name="teams",

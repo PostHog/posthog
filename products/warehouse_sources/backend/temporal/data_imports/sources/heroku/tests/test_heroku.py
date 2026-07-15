@@ -31,8 +31,7 @@ def _response(
     response.json.return_value = json_data if json_data is not None else []
     response.text = ""
     if status_code >= 400:
-        error = requests.HTTPError(f"{status_code} Client Error: for url: https://api.heroku.com")
-        error.response = response
+        error = requests.HTTPError(f"{status_code} Client Error: for url: https://api.heroku.com", response=response)
         response.raise_for_status.side_effect = error
     return response
 
@@ -198,6 +197,54 @@ class TestFanOut:
 
         assert pages == [[{"id": "rel-1"}]]
         assert session.get.call_args_list[1].kwargs["headers"]["Range"] == f"id ..; order=asc,max={DEFAULT_PAGE_SIZE}"
+
+
+class TestSensitiveFieldRedaction:
+    @parameterized.expand(
+        [
+            (
+                "build_capability_urls_nulled",
+                "builds",
+                {
+                    "id": "b-1",
+                    "output_stream_url": "https://build-output.heroku.com/streams/secret",
+                    "source_blob": {"url": "https://signed.example.com/tarball?sig=secret", "checksum": "SHA256:abc"},
+                },
+                {"id": "b-1", "output_stream_url": None, "source_blob": {"url": None, "checksum": "SHA256:abc"}},
+            ),
+            (
+                "release_output_stream_nulled",
+                "releases",
+                {"id": "r-1", "output_stream_url": "https://release-output.heroku.com/streams/secret", "version": 3},
+                {"id": "r-1", "output_stream_url": None, "version": 3},
+            ),
+            (
+                "dyno_attach_url_nulled",
+                "dynos",
+                {"id": "d-1", "attach_url": "rendezvous://rendezvous.runtime.heroku.com:5000/secret", "state": "up"},
+                {"id": "d-1", "attach_url": None, "state": "up"},
+            ),
+            (
+                "row_without_sensitive_fields_untouched",
+                "builds",
+                {"id": "b-2", "status": "succeeded"},
+                {"id": "b-2", "status": "succeeded"},
+            ),
+        ]
+    )
+    def test_capability_urls_never_reach_the_warehouse(
+        self, _name: str, endpoint: str, row: dict[str, Any], expected: dict[str, Any]
+    ) -> None:
+        session = MagicMock()
+        session.get.side_effect = [
+            _response(200, [{"id": "app-1"}]),
+            _response(200, [row]),
+        ]
+
+        with patch(PATCH_PATH, return_value=session):
+            pages = list(get_rows("key", endpoint, MagicMock(), _manager()))
+
+        assert pages == [[expected]]
 
 
 class TestValidateCredentials:
