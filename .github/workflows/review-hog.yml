@@ -9,12 +9,13 @@
 # here — the only secret is the shared trigger token. Publishing happens server-side via the PostHog
 # GitHub App installation token.
 #
-# Safety: `pull_request` (not `pull_request_target`) means fork PRs receive no secrets, so they cannot
-# trigger; the `if:` also hard-gates forks; and applying the label needs write access.
+# Safety: `pull_request_target` always runs the base branch's version of this file, so a PR cannot
+# edit its own trigger, and it fires even when the PR has merge conflicts. It does expose secrets to
+# fork PRs, so the `if:` hard-gates forks — safe because this job never checks out or runs PR code.
 name: ReviewHog
 
 on:
-    pull_request:
+    pull_request_target:
         types: [labeled]
 
 # No GitHub permissions needed — the job only makes an outbound authenticated request; the review is
@@ -45,7 +46,7 @@ jobs:
                   PR_NUMBER: ${{ github.event.pull_request.number }}
               run: |
                   if [ -z "$REVIEWHOG_TRIGGER_TOKEN" ]; then
-                    echo "::error::REVIEWHOG_TRIGGER_TOKEN secret is not set (or unavailable on a fork PR)." >&2
+                    echo "::error::REVIEWHOG_TRIGGER_TOKEN secret is not set." >&2
                     exit 1
                   fi
                   payload="$(jq -n --arg repo "$REPO" --argjson pr "$PR_NUMBER" '{repo: $repo, pr_number: $pr}')"
