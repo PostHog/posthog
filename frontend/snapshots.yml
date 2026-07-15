@@ -2148,6 +2148,22 @@ snapshots:
         hash: v1.k794b7964.9780bdf035a5bb22ce936937ce521d595eb15d7011129e7a1711de4b5474a360.XpzcHtsJC2xOCzqmbWID_XZ69gn1dQr--ugFlJ0uhaw
     errortracking-exceptioncard--exception-card-session-timeline-without-steps--light:
         hash: v1.k794b7964.d70d5f3dbdd36a4d42419973acec641ce0fde71a03abc6be8310f01a2c4dfe59.O6G9HRSQZkJp0TeO69qBJSDM20lECZtk-Dx67ZiC3kw
+    errortracking-ratelimithistorychart--empty--dark:
+        hash: v1.k794b7964.ba7eeab8b8da615a5f0641fa228edd6495cdba345860cbe418d736c1d6fbf5ad.Y17RTMCD78FYAVkdyD82nihxohmoVy0ye_eyLjzeTxQ
+    errortracking-ratelimithistorychart--empty--light:
+        hash: v1.k794b7964.f66957e8ff9ff2c64855e11cf8b302ef26e0685aee10fafb13fca532c8961c02.Hyr9wVcI0QF623YXZJo8P_0SErQ9g8760pFI1R9oyvw
+    errortracking-ratelimithistorychart--with-activity--dark:
+        hash: v1.k794b7964.9b619dd5750680566aea59cc7fb2a6ef4ee85764af540a290c6f91dec5c23dcd.tbNJeDRIA0crj-Os1-o5SSfDUv3u4VvOWrcBENc1vRU
+    errortracking-ratelimithistorychart--with-activity--light:
+        hash: v1.k794b7964.052aa085a958ff352472e76c6a0c7d4cb9420bc6e716b7bf344019f37a197018.rA9Lc4XyAbqkB1FUONUczhI39jVYe4QWQ6rksTxIlR0
+    errortracking-ratelimitsimulationchart--no-limit--dark:
+        hash: v1.k794b7964.6e4af837dc72dae0369f4c30c23dee98b8eebd01705c567ec1b3cb454e95eea6.ZCrDQfeX1Lxe93fRze8BuTQPpe11oqUHHdDyItofwL0
+    errortracking-ratelimitsimulationchart--no-limit--light:
+        hash: v1.k794b7964.cc6d841d30ef58412615b7dcb40a58bc99801a72f3048d875571625baf908c48.m6gBbseNOsfGd8XctUV3hYE_lBbSDMsjrSI1u6CEhfY
+    errortracking-ratelimitsimulationchart--with-limit--dark:
+        hash: v1.k794b7964.36082d7a3d4f26790b7e0bcc375133d7be27859f74067cad741da2f43222f15d.uxy9IHbuHm0USQ0tV68-SF2-mDjQPBa75Xc4QL8BNTc
+    errortracking-ratelimitsimulationchart--with-limit--light:
+        hash: v1.k794b7964.47b8236e3e4267d3071cec95282aca96a754f187c46803d1993cc39be7618b7c.DcIPXfSYV8tZEPZms6uKa7OOBiG5L0N71go5E93ltnE
     errortracking-stacktraceactions--default--dark:
         hash: v1.k794b7964.7d61dd20494b606d206e11b3b75c960a2167b74d7cde152896bda3f9e83b087d.B9ZzsaGlT7qCeZd8c1a84JkWecl6R-c7moayDeypC5c
     errortracking-stacktraceactions--default--light:
