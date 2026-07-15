@@ -617,6 +617,27 @@ export const ErrorTrackingQueryIssueEventsCreateBody = /* @__PURE__ */ zod.objec
         .min(errorTrackingQueryIssueEventsCreateBodyOffsetMin)
         .default(errorTrackingQueryIssueEventsCreateBodyOffsetDefault)
         .describe('Pagination offset.'),
+    include: zod
+        .array(
+            zod
+                .enum([
+                    'exception',
+                    'stacktrace',
+                    'code_variables',
+                    'environment',
+                    'release',
+                    'navigation',
+                    'correlation',
+                    'diagnostics',
+                ])
+                .describe(
+                    '\* `exception` - exception\n\* `stacktrace` - stacktrace\n\* `code_variables` - code_variables\n\* `environment` - environment\n\* `release` - release\n\* `navigation` - navigation\n\* `correlation` - correlation\n\* `diagnostics` - diagnostics'
+                )
+        )
+        .optional()
+        .describe(
+            'Context groups to return. Defaults to exception, environment, navigation, and correlation. Request stacktrace for frames, code_variables for captured and SDK-masked frame variables, release for release metadata, or diagnostics for ingestion errors. code_variables implies stacktrace.'
+        ),
     verbosity: zod
         .enum(['summary', 'stack', 'raw'])
         .describe('\* `summary` - summary\n\* `stack` - stack\n\* `raw` - raw')

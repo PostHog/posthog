@@ -199,6 +199,26 @@ class ErrorTrackingIssueEventsQueryRequestSerializer(serializers.Serializer):
     )
     limit = serializers.IntegerField(required=False, min_value=1, max_value=20, default=1, help_text="Page size.")
     offset = serializers.IntegerField(required=False, min_value=0, default=0, help_text="Pagination offset.")
+    include = serializers.ListField(
+        child=serializers.ChoiceField(
+            choices=[
+                "exception",
+                "stacktrace",
+                "code_variables",
+                "environment",
+                "release",
+                "navigation",
+                "correlation",
+                "diagnostics",
+            ]
+        ),
+        required=False,
+        help_text=(
+            "Context groups to return. Defaults to exception, environment, navigation, and correlation. "
+            "Request stacktrace for frames, code_variables for captured and SDK-masked frame variables, release for "
+            "release metadata, or diagnostics for ingestion errors. code_variables implies stacktrace."
+        ),
+    )
     verbosity = serializers.ChoiceField(
         choices=["summary", "stack", "raw"],
         required=False,

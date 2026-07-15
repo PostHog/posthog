@@ -592,3 +592,65 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert raw_event["properties"]["$exception_values"][0] == long_text
         assert raw_event["properties"]["$exception_list"][0]["value"] == long_text
         assert summary_event["properties"]["$session_id"] == "session-id-1"
+
+    @freeze_time("2026-04-24T12:00:00Z")
+    def test_issue_events_returns_only_requested_context_groups(self) -> None:
+        self.create_issue()
+        self.create_exception_event(
+            properties={
+                "$lib": "posthog-js",
+                "$current_url": "https://example.test/checkout",
+                "$exception_releases": {"release-id": {"version": "2026.04.24"}},
+                "$cymbal_errors": ["source map unavailable"],
+                "$exception_list": [
+                    {
+                        "type": "TypeError",
+                        "value": "Cannot read properties of undefined",
+                        "stacktrace": {
+                            "frames": [
+                                {
+                                    "mangled_name": "submitOrder",
+                                    "source": "src/checkout.ts",
+                                    "line": 42,
+                                    "in_app": True,
+                                    "code_variables": {"order": {"customer": None}},
+                                }
+                            ]
+                        },
+                    }
+                ],
+            }
+        )
+        flush_persons_and_events()
+
+        stack_response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issue_events",
+            data={
+                "issueId": self.issue_id,
+                "dateRange": {"date_from": "-1d", "date_to": "2026-04-25T00:00:00Z"},
+                "include": ["stacktrace"],
+            },
+            format="json",
+        )
+        variables_response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issue_events",
+            data={
+                "issueId": self.issue_id,
+                "dateRange": {"date_from": "-1d", "date_to": "2026-04-25T00:00:00Z"},
+                "include": ["code_variables", "release", "diagnostics"],
+            },
+            format="json",
+        )
+
+        assert stack_response.status_code == 200
+        assert variables_response.status_code == 200
+        stack_properties = stack_response.json()["results"][0]["properties"]
+        variables_properties = variables_response.json()["results"][0]["properties"]
+        stack_frame = stack_properties["$exception_list"][0]["stacktrace"]["frames"][0]
+        variables_frame = variables_properties["$exception_list"][0]["stacktrace"]["frames"][0]
+        assert "code_variables" not in stack_frame
+        assert variables_frame["code_variables"] == {"order": {"customer": None}}
+        assert variables_properties["$exception_releases"] == {"release-id": {"version": "2026.04.24"}}
+        assert variables_properties["$cymbal_errors"] == ["source map unavailable"]
+        assert "$lib" not in variables_properties
+        assert "$current_url" not in variables_properties

@@ -21563,6 +21563,30 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `exception` - exception
+     * * `stacktrace` - stacktrace
+     * * `code_variables` - code_variables
+     * * `environment` - environment
+     * * `release` - release
+     * * `navigation` - navigation
+     * * `correlation` - correlation
+     * * `diagnostics` - diagnostics
+     */
+    export type IncludeEnum = typeof IncludeEnum[keyof typeof IncludeEnum];
+
+
+    export const IncludeEnum = {
+      Exception: 'exception',
+      Stacktrace: 'stacktrace',
+      CodeVariables: 'code_variables',
+      Environment: 'environment',
+      Release: 'release',
+      Navigation: 'navigation',
+      Correlation: 'correlation',
+      Diagnostics: 'diagnostics',
+    } as const;
+
+    /**
      * * `summary` - summary
      * * `stack` - stack
      * * `raw` - raw
@@ -21606,6 +21630,8 @@ export namespace Schemas {
          * @minimum 0
          */
       offset?: number;
+      /** Context groups to return. Defaults to exception, environment, navigation, and correlation. Request stacktrace for frames, code_variables for captured and SDK-masked frame variables, release for release metadata, or diagnostics for ingestion errors. code_variables implies stacktrace. */
+      include?: IncludeEnum[];
       /** Controls exception detail size: summary, stack, or raw. Defaults to summary.
        *
        * * `summary` - summary

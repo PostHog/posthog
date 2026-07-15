@@ -42,25 +42,53 @@ def normalize_volume_resolution(volume_resolution: int) -> int:
 
 
 CONTEXT_EVENT_SELECTS = ["properties.$exception_list", "properties.$exception_releases"]
-EVENT_PROPERTY_SELECTS = [
-    "properties.$exception_types",
-    "properties.$exception_values",
-    "properties.$exception_list",
-    "properties.$exception_fingerprint",
-    "properties.$exception_issue_id",
-    "properties.$session_id",
-    "properties.$lib",
-    "properties.$browser",
-    "properties.$browser_version",
-    "properties.$os",
-    "properties.$os_version",
-    "properties.$current_url",
-]
+DEFAULT_EVENT_CONTEXT_INCLUDES = ["exception", "environment", "navigation", "correlation"]
+EVENT_CONTEXT_PROPERTY_SELECTS = {
+    "exception": [
+        "properties.$exception_types",
+        "properties.$exception_values",
+        "properties.$exception_list",
+        "properties.$exception_fingerprint",
+        "properties.$exception_issue_id",
+    ],
+    "stacktrace": ["properties.$exception_list"],
+    "code_variables": ["properties.$exception_list"],
+    "environment": [
+        "properties.$lib",
+        "properties.$lib_version",
+        "properties.$browser",
+        "properties.$browser_version",
+        "properties.$os",
+        "properties.$os_version",
+        "properties.$app_namespace",
+        "properties.$app_version",
+        "properties.$device_type",
+    ],
+    "release": ["properties.$exception_releases"],
+    "navigation": ["properties.$current_url", "properties.$screen_name", "properties.$referrer"],
+    "correlation": [
+        "properties.$session_id",
+        "properties.$recording_status",
+        "properties.$trace_id",
+        "properties.$span_id",
+    ],
+    "diagnostics": ["properties.$cymbal_errors"],
+}
+EVENT_PROPERTY_SELECTS = list(
+    dict.fromkeys(select for context_group in EVENT_CONTEXT_PROPERTY_SELECTS.values() for select in context_group)
+)
 EVENT_SELECTS = ["uuid", "timestamp", "distinct_id", *EVENT_PROPERTY_SELECTS]
 EVENT_SEARCH_PROPERTIES = ["properties.$exception_types", "properties.$exception_values", "properties.$current_url"]
 PROPERTY_COLUMN_NAMES = {
     select.removeprefix("properties.") for select in [*CONTEXT_EVENT_SELECTS, *EVENT_PROPERTY_SELECTS]
 }
+
+
+def build_event_selects(includes: list[str]) -> list[str]:
+    property_selects = list(
+        dict.fromkeys(select for include in includes for select in EVENT_CONTEXT_PROPERTY_SELECTS.get(include, []))
+    )
+    return ["uuid", "timestamp", "distinct_id", *property_selects]
 
 
 def compact_dict(record: dict[str, object]) -> dict[str, object]:
@@ -193,13 +221,17 @@ def strip_non_raw_fields(record: dict[str, object]) -> dict[str, object]:
     return {key: value for key, value in record.items() if key not in {"junk_drawer", "raw_id"}}
 
 
-def normalize_frame(frame: object, verbosity: str, only_app_frames: bool) -> dict[str, object] | None:
+def normalize_frame(
+    frame: object, verbosity: str, only_app_frames: bool, include_code_variables: bool = True
+) -> dict[str, object] | None:
     frame_record = as_record(parse_jsonish(frame))
     if frame_record is None:
         return None
     if only_app_frames and frame_record.get("in_app") is not True:
         return None
     base_frame = frame_record if verbosity == "raw" else strip_non_raw_fields(frame_record)
+    if not include_code_variables:
+        base_frame = {key: value for key, value in base_frame.items() if key != "code_variables"}
     normalized = {
         **base_frame,
         "mangled_name": frame_record.get("mangled_name") or frame_record.get("function") or frame_record.get("name"),
@@ -210,7 +242,9 @@ def normalize_frame(frame: object, verbosity: str, only_app_frames: bool) -> dic
     return compact_dict(normalized)
 
 
-def normalize_stacktrace(stacktrace: object, verbosity: str, only_app_frames: bool) -> dict[str, object] | None:
+def normalize_stacktrace(
+    stacktrace: object, verbosity: str, only_app_frames: bool, include_code_variables: bool = True
+) -> dict[str, object] | None:
     stacktrace_record = as_record(parse_jsonish(stacktrace))
     if stacktrace_record is None:
         return None
@@ -219,7 +253,7 @@ def normalize_stacktrace(stacktrace: object, verbosity: str, only_app_frames: bo
         [
             normalized
             for frame in cast(list[object], raw_frames)
-            if (normalized := normalize_frame(frame, verbosity, only_app_frames)) is not None
+            if (normalized := normalize_frame(frame, verbosity, only_app_frames, include_code_variables)) is not None
         ]
         if isinstance(raw_frames, list)
         else None
@@ -228,7 +262,9 @@ def normalize_stacktrace(stacktrace: object, verbosity: str, only_app_frames: bo
     return compact_dict({**base_stacktrace, "frames": frames})
 
 
-def normalize_exception(exception: object, verbosity: str, only_app_frames: bool) -> dict[str, object] | None:
+def normalize_exception(
+    exception: object, verbosity: str, only_app_frames: bool, include_code_variables: bool = True
+) -> dict[str, object] | None:
     exception_record = as_record(parse_jsonish(exception))
     if exception_record is None:
         return None
@@ -247,13 +283,17 @@ def normalize_exception(exception: object, verbosity: str, only_app_frames: bool
     )
     if verbosity == "summary":
         return summary
-    stacktrace = normalize_stacktrace(exception_record.get("stacktrace"), verbosity, only_app_frames)
+    stacktrace = normalize_stacktrace(
+        exception_record.get("stacktrace"), verbosity, only_app_frames, include_code_variables
+    )
     if verbosity == "raw":
         return compact_dict({**exception_record, "stacktrace": stacktrace})
     return compact_dict({**summary, "stacktrace": stacktrace})
 
 
-def normalize_exception_list(value: object, verbosity: str, only_app_frames: bool) -> object:
+def normalize_exception_list(
+    value: object, verbosity: str, only_app_frames: bool, include_code_variables: bool = True
+) -> object:
     parsed = parse_jsonish(value)
     record = as_record(parsed)
     exceptions = parsed if isinstance(parsed, list) else record.get("values") if record else None
@@ -262,7 +302,8 @@ def normalize_exception_list(value: object, verbosity: str, only_app_frames: boo
     return [
         normalized
         for exception in exceptions
-        if (normalized := normalize_exception(exception, verbosity, only_app_frames)) is not None
+        if (normalized := normalize_exception(exception, verbosity, only_app_frames, include_code_variables))
+        is not None
     ]
 
 
@@ -273,9 +314,11 @@ def normalize_string_array(value: object, verbosity: str = "summary", truncate_i
     return [truncate_text(item, verbosity) for item in parsed] if truncate_items else parsed
 
 
-def normalize_error_property(name: str, value: object, verbosity: str, only_app_frames: bool) -> object:
+def normalize_error_property(
+    name: str, value: object, verbosity: str, only_app_frames: bool, include_code_variables: bool = True
+) -> object:
     if name == "$exception_list":
-        return normalize_exception_list(value, verbosity, only_app_frames)
+        return normalize_exception_list(value, verbosity, only_app_frames, include_code_variables)
     if name == "$exception_releases":
         return parse_jsonish(value)
     if name == "$exception_types":
@@ -291,7 +334,13 @@ def property_name(select: str) -> str | None:
     return select if select in PROPERTY_COLUMN_NAMES else None
 
 
-def map_event_row(row: object, columns: list[str], verbosity: str, only_app_frames: bool) -> dict[str, object]:
+def map_event_row(
+    row: object,
+    columns: list[str],
+    verbosity: str,
+    only_app_frames: bool,
+    include_code_variables: bool = True,
+) -> dict[str, object]:
     if isinstance(row, list):
         values = row
     else:
@@ -305,7 +354,7 @@ def map_event_row(row: object, columns: list[str], verbosity: str, only_app_fram
             continue
         prop = property_name(column)
         if prop:
-            properties[prop] = normalize_error_property(prop, value, verbosity, only_app_frames)
+            properties[prop] = normalize_error_property(prop, value, verbosity, only_app_frames, include_code_variables)
         else:
             event[column] = value
     return event
