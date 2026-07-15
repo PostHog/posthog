@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     BatchConsumer,
     ConsumerConfig,
     _group_by_key,
+    coalesce_eligible,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     FRESHNESS_WINDOW_SECONDS,
@@ -353,6 +354,229 @@ class TestProcessGroup:
         # Another pod owns the group now — processing it here would double-write.
         process_mock.assert_not_called()
         mock_unlock.assert_called_once()
+
+
+def _cdc_batch(index: int, run: str = "run-1", **overrides: Any) -> PendingBatch:
+    """A coalesce-eligible batch (incremental-merge CDC, not first sync)."""
+    defaults: dict[str, Any] = {
+        "id": f"batch-{run}-{index}",
+        "batch_index": index,
+        "run_uuid": run,
+        "sync_type": "cdc",
+    }
+    defaults.update(overrides)
+    return _make_batch(**defaults)
+
+
+def _make_coalescing_consumer(max_attempts: int = 3, **kwargs: Any) -> tuple[BatchConsumer, AsyncMock]:
+    config = ConsumerConfig(
+        database_url="postgres://unused:unused@localhost/unused",
+        max_attempts=max_attempts,
+        **kwargs,
+    )
+    mock_process_unit = AsyncMock()
+    consumer = BatchConsumer(config=config, process_batch=AsyncMock(), process_batches=mock_process_unit)
+    consumer._poll_conn = _make_healthy_conn()
+    consumer._recovery_conn = _make_healthy_conn()
+    return consumer, mock_process_unit
+
+
+class TestCoalescing:
+    @pytest.mark.parametrize(
+        "sync_type,metadata,is_first_ever_sync,expected",
+        [
+            ("cdc", {}, False, True),
+            ("incremental", {}, False, True),
+            # scd2_append's valid_to chaining is computed per batch — coalescing corrupts it.
+            ("cdc", {"cdc_write_mode": "scd2_append"}, False, False),
+            # First-ever syncs rely on per-batch overwrite/partial-loading semantics.
+            ("cdc", {}, True, False),
+            ("full_refresh", {}, False, False),
+            ("append", {}, False, False),
+        ],
+    )
+    def test_coalesce_eligible(self, sync_type, metadata, is_first_ever_sync, expected):
+        batch = _make_batch(sync_type=sync_type, metadata=metadata, is_first_ever_sync=is_first_ever_sync)
+        assert coalesce_eligible(batch) is expected
+
+    @pytest.mark.parametrize(
+        "case,batches,config,expected",
+        [
+            (
+                "contiguous_same_run_one_unit",
+                [_cdc_batch(0), _cdc_batch(1), _cdc_batch(2)],
+                {},
+                [[("run-1", 0), ("run-1", 1), ("run-1", 2)]],
+            ),
+            (
+                # Coalescing across runs would stamp one run's commit metadata over
+                # another's batches and misroute final-batch actions.
+                "run_boundary_splits",
+                [_cdc_batch(0), _cdc_batch(1), _cdc_batch(0, run="run-2")],
+                {},
+                [[("run-1", 0), ("run-1", 1)], [("run-2", 0)]],
+            ),
+            (
+                # A gap means an unclaimed sibling exists; covering it with a range
+                # commit tag would make redelivery skip a never-merged batch.
+                "index_gap_splits",
+                [_cdc_batch(0), _cdc_batch(1), _cdc_batch(3)],
+                {},
+                [[("run-1", 0), ("run-1", 1)], [("run-1", 3)]],
+            ),
+            (
+                "batch_count_cap",
+                [_cdc_batch(0), _cdc_batch(1), _cdc_batch(2)],
+                {"coalesce_max_batches": 2},
+                [[("run-1", 0), ("run-1", 1)], [("run-1", 2)]],
+            ),
+            (
+                "byte_cap",
+                [_cdc_batch(0), _cdc_batch(1), _cdc_batch(2)],  # 1024 bytes each
+                {"coalesce_max_bytes": 2048},
+                [[("run-1", 0), ("run-1", 1)], [("run-1", 2)]],
+            ),
+            (
+                "oversized_batch_processes_alone",
+                [_cdc_batch(0, byte_size=4096), _cdc_batch(1), _cdc_batch(2)],
+                {"coalesce_max_bytes": 2048},
+                [[("run-1", 0)], [("run-1", 1), ("run-1", 2)]],
+            ),
+            (
+                "ineligible_member_isolated",
+                [_cdc_batch(0), _cdc_batch(1, metadata={"cdc_write_mode": "scd2_append"}), _cdc_batch(2)],
+                {},
+                [[("run-1", 0)], [("run-1", 1)], [("run-1", 2)]],
+            ),
+            (
+                # byte_size 0 = unknown size; letting it join a unit would defeat the byte cap.
+                "unknown_size_member_isolated",
+                [_cdc_batch(0), _cdc_batch(1, byte_size=0), _cdc_batch(2)],
+                {},
+                [[("run-1", 0)], [("run-1", 1)], [("run-1", 2)]],
+            ),
+            (
+                "kill_switch_restores_single_batch_units",
+                [_cdc_batch(0), _cdc_batch(1), _cdc_batch(2)],
+                {"coalesce_max_batches": 1},
+                [[("run-1", 0)], [("run-1", 1)], [("run-1", 2)]],
+            ),
+        ],
+    )
+    def test_build_units(self, case, batches, config, expected):
+        consumer, _ = _make_coalescing_consumer(**config)
+        units = consumer._build_units(batches)
+        assert [[(b.run_uuid, b.batch_index) for b in unit] for unit in units] == expected
+
+    def test_build_units_stays_single_batch_without_process_batches(self):
+        # Sinks that did not opt in (duckgres) must keep one-batch-per-cycle
+        # behavior even though the config defaults allow coalescing.
+        consumer = _make_consumer()
+        batches = [_cdc_batch(0), _cdc_batch(1)]
+        assert consumer._build_units(batches) == [[batches[0]], [batches[1]]]
+
+    @pytest.mark.asyncio
+    async def test_process_group_applies_unit_once_and_marks_every_member(self):
+        consumer, mock_unit = _make_coalescing_consumer()
+        batches = [_cdc_batch(i) for i in range(3)]
+        status_writes: list[tuple[str, str]] = []
+
+        async def track_status(conn, *, batch_id, job_state, attempt, error_response=None, batch_created_at=None):
+            status_writes.append((batch_id, job_state))
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+                side_effect=track_status,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.unlock_for_batches",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.verify_advisory_lock",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch.object(consumer, "_connect", new_callable=AsyncMock, return_value=_make_healthy_conn()),
+        ):
+            await consumer._process_group((1, "schema-1"), batches)
+
+        mock_unit.assert_awaited_once()
+        assert mock_unit.await_args is not None
+        unit_arg = mock_unit.await_args.args[0]
+        assert [b.batch_index for b in unit_arg] == [0, 1, 2]
+        # Each member must walk executing -> succeeded, or the head-of-line
+        # claim gate would keep the schema wedged on stale statuses.
+        for batch in batches:
+            states = [state for batch_id, state in status_writes if batch_id == batch.id]
+            assert states == [SourceBatchStatus.State.EXECUTING, SourceBatchStatus.State.SUCCEEDED]
+
+    @pytest.mark.asyncio
+    async def test_unit_retryable_failure_marks_every_member_waiting_retry(self):
+        consumer, mock_unit = _make_coalescing_consumer(max_attempts=3)
+        mock_unit.side_effect = RuntimeError("transient sink error")
+        batches = [_cdc_batch(0, latest_attempt=0), _cdc_batch(1, latest_attempt=1), _cdc_batch(2, latest_attempt=0)]
+        status_writes: list[tuple[str, str, int]] = []
+
+        async def track_status(conn, *, batch_id, job_state, attempt, error_response=None, batch_created_at=None):
+            status_writes.append((batch_id, job_state, attempt))
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+                side_effect=track_status,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.unlock_for_batches",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.verify_advisory_lock",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch.object(consumer, "_connect", new_callable=AsyncMock, return_value=_make_healthy_conn()),
+        ):
+            await consumer._process_group((1, "schema-1"), batches)
+
+        # A member left in executing would be invisible to the retry path and
+        # only recover via the (slow) stale-executing sweep.
+        retries = {
+            (batch_id, attempt)
+            for batch_id, state, attempt in status_writes
+            if state == SourceBatchStatus.State.WAITING_RETRY
+        }
+        assert retries == {(batch.id, batch.latest_attempt + 1) for batch in batches}
+
+    @pytest.mark.asyncio
+    async def test_unit_non_retryable_failure_fails_run_without_retry(self):
+        consumer, mock_unit = _make_coalescing_consumer(max_attempts=3)
+        mock_unit.side_effect = ValueError("Primary key required for incremental syncs")
+        batches = [_cdc_batch(0), _cdc_batch(1)]
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+                new_callable=AsyncMock,
+            ) as mock_status,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.unlock_for_batches",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.verify_advisory_lock",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch.object(consumer, "_fail_run", new_callable=AsyncMock) as mock_fail,
+            patch.object(consumer, "_connect", new_callable=AsyncMock, return_value=_make_healthy_conn()),
+        ):
+            await consumer._process_group((1, "schema-1"), batches)
+
+        mock_fail.assert_called_once()
+        states = [call[1]["job_state"] for call in mock_status.call_args_list]
+        assert SourceBatchStatus.State.WAITING_RETRY not in states
 
 
 class TestRecoverySweep:
@@ -1443,7 +1667,7 @@ class TestOwnershipVerification:
             ) as mock_status,
             patch("asyncio.sleep", new_callable=AsyncMock),  # don't wait the real interval
         ):
-            await consumer._batch_heartbeat(lock_conn, batch, attempt=1)
+            await consumer._batch_heartbeat(lock_conn, [batch], {batch.id: 1})
 
         mock_renew.assert_awaited_once()
         # Lease lost -> heartbeat returns before re-stamping executing.
@@ -1471,7 +1695,7 @@ class TestOwnershipVerification:
             ) as mock_status,
             patch("asyncio.sleep", new_callable=AsyncMock),
         ):
-            await consumer._batch_heartbeat(lock_conn, batch, attempt=2)
+            await consumer._batch_heartbeat(lock_conn, [batch], {batch.id: 2})
 
         mock_renew.assert_awaited()
         assert mock_renew.await_count == 2
@@ -1578,12 +1802,13 @@ class TestBatchHeartbeat:
             if sleep_count > 10:
                 raise AssertionError("heartbeat loop did not exit after lease loss")
 
+        batch = _make_batch()
         with (
             patch.object(consumer._adapter, "renew_lease", renew),
             patch.object(consumer._adapter, "update_status", refresh),
             patch.object(batch_consumer_module.asyncio, "sleep", fast_sleep),
         ):
-            await consumer._batch_heartbeat(AsyncMock(), _make_batch(), attempt=1)
+            await consumer._batch_heartbeat(AsyncMock(), [batch], {batch.id: 1})
 
         # blip -> continue; renewed -> status refresh; lease lost -> stop
         assert renew.await_count == 3

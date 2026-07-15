@@ -68,71 +68,6 @@ def helper():
     return DeltaTableHelper(resource_name="test_resource", job=MagicMock(), logger=_make_logger())
 
 
-_COMMIT_LAYOUT_CASES: list[tuple[str, list[dict], dict, bool]] = [
-    # nested dict layout (older delta-rs / fallback form)
-    (
-        "nested_dict_exact_match",
-        [{"userMetadata": {"run_uuid": "abc", "batch_index": "0"}}],
-        {"run_uuid": "abc", "batch_index": "0"},
-        True,
-    ),
-    # delta-rs 1.x flat layout: custom_metadata entries inlined onto the commit dict
-    (
-        "flat_inlined_exact_match",
-        [{"operation": "WRITE", "timestamp": 1, "run_uuid": "abc", "batch_index": "0", "version": 1}],
-        {"run_uuid": "abc", "batch_index": "0"},
-        True,
-    ),
-    (
-        "flat_missing_one_required_key",
-        [{"operation": "WRITE", "run_uuid": "abc", "version": 1}],
-        {"run_uuid": "abc", "batch_index": "0"},
-        False,
-    ),
-    # nested JSON-string layout (some delta-rs versions serialize userMetadata as JSON)
-    (
-        "nested_json_string_exact_match",
-        [{"userMetadata": json.dumps({"run_uuid": "abc", "batch_index": "0"})}],
-        {"run_uuid": "abc", "batch_index": "0"},
-        True,
-    ),
-    # match is a subset of the metadata — should still match
-    (
-        "match_is_subset",
-        [{"userMetadata": {"run_uuid": "abc", "batch_index": "0", "extra": "field"}}],
-        {"run_uuid": "abc"},
-        True,
-    ),
-    # multiple commits, none matching
-    (
-        "no_match_in_history",
-        [
-            {"userMetadata": {"run_uuid": "other", "batch_index": "9"}},
-            {"userMetadata": {"run_uuid": "abc", "batch_index": "1"}},
-        ],
-        {"run_uuid": "abc", "batch_index": "0"},
-        False,
-    ),
-    # commits without any custom metadata at all
-    (
-        "no_metadata_on_any_commit",
-        [{"operation": "WRITE"}, {}],
-        {"run_uuid": "abc"},
-        False,
-    ),
-    # one commit has invalid JSON userMetadata, the next is a valid match — still found
-    (
-        "invalid_json_string_skipped_then_match",
-        [
-            {"userMetadata": "not-valid-json{"},
-            {"userMetadata": {"run_uuid": "abc"}},
-        ],
-        {"run_uuid": "abc"},
-        True,
-    ),
-]
-
-
 class TestStorageOptionsCommitSafety:
     # Re-adding AWS_S3_ALLOW_UNSAFE_RENAME unconditionally would silently restore
     # the legacy rename backend, which has no commit-conflict detection.
@@ -163,52 +98,86 @@ class TestStorageOptionsCommitSafety:
         assert ("AWS_S3_ALLOW_UNSAFE_RENAME" in options) is allow_unsafe
 
 
-class TestHasCommitWithMetadata:
-    @pytest.mark.asyncio
-    async def test_returns_false_when_no_delta_table(self, helper: DeltaTableHelper):
-        with patch.object(helper, "get_delta_table", AsyncMock(return_value=None)):
-            assert await helper.has_commit_with_metadata({"run_uuid": "abc", "batch_index": "0"}) is False
-
-    @parameterized.expand(
-        [(name, history, match, expected) for (name, history, match, expected) in _COMMIT_LAYOUT_CASES]
-    )
-    @pytest.mark.asyncio
-    async def test_layout(self, _name: str, history: list[dict], match: dict, expected: bool):
-        helper = DeltaTableHelper(resource_name="t", job=MagicMock(), logger=_make_logger())
-        mock_delta = MagicMock()
-        mock_delta.history = MagicMock(return_value=history)
-
-        with patch.object(helper, "get_delta_table", AsyncMock(return_value=mock_delta)):
-            assert await helper.has_commit_with_metadata(match) is expected
-
-    @pytest.mark.asyncio
-    async def test_scan_limit_passed_to_history(self, helper: DeltaTableHelper):
-        mock_delta = MagicMock()
-        mock_delta.history = MagicMock(return_value=[])
-
-        with patch.object(helper, "get_delta_table", AsyncMock(return_value=mock_delta)):
-            await helper.has_commit_with_metadata({"k": "v"}, scan_limit=123)
-
-        mock_delta.history.assert_called_once_with(limit=123)
+_RANGE_COMMIT = {"run_uuid": "run-1", "batch_index": "7", "batch_index_start": "3", "batch_index_end": "7"}
 
 
 class TestHasBatchBeenCommitted:
     @parameterized.expand(
         [
-            ("string_run_uuid_int_batch", "run-123", 5, True),
-            ("zero_batch_index", "run-1", 0, False),
+            # single-batch tags, flat and nested layouts (backward compat)
+            ("exact_flat", [{"run_uuid": "run-1", "batch_index": "5"}], "run-1", 5, True),
+            ("exact_nested", [{"userMetadata": {"run_uuid": "run-1", "batch_index": "5"}}], "run-1", 5, True),
+            ("exact_other_index", [{"run_uuid": "run-1", "batch_index": "5"}], "run-1", 4, False),
+            # coalesced-unit range tags: a mid-unit member redelivered after a
+            # crash-post-commit is only detectable through the recorded range —
+            # missing it re-merges the member (duplicate rows on non-PK tables,
+            # wasted merges otherwise); over-matching skips unmerged data.
+            ("range_covers_mid_member", [_RANGE_COMMIT], "run-1", 5, True),
+            ("range_start_inclusive", [_RANGE_COMMIT], "run-1", 3, True),
+            ("range_end_inclusive", [_RANGE_COMMIT], "run-1", 7, True),
+            ("before_range", [_RANGE_COMMIT], "run-1", 2, False),
+            ("after_range", [_RANGE_COMMIT], "run-1", 8, False),
+            ("other_runs_range_ignored", [_RANGE_COMMIT], "run-2", 5, False),
+            ("range_nested_layout", [{"userMetadata": _RANGE_COMMIT}], "run-1", 4, True),
+            (
+                "malformed_range_ignored",
+                [{"run_uuid": "run-1", "batch_index_start": "x", "batch_index_end": "7"}],
+                "run-1",
+                5,
+                False,
+            ),
+            # some delta-rs versions serialize userMetadata as a JSON string
+            (
+                "nested_json_string_layout",
+                [{"userMetadata": json.dumps({"run_uuid": "run-1", "batch_index": "5"})}],
+                "run-1",
+                5,
+                True,
+            ),
+            # invalid JSON userMetadata must be skipped, not crash the scan
+            (
+                "invalid_json_string_skipped_then_match",
+                [{"userMetadata": "not-valid-json{"}, {"userMetadata": {"run_uuid": "run-1", "batch_index": "5"}}],
+                "run-1",
+                5,
+                True,
+            ),
+            (
+                "no_metadata_on_any_commit",
+                [{"operation": "WRITE"}, {}],
+                "run-1",
+                0,
+                False,
+            ),
         ]
     )
     @pytest.mark.asyncio
-    async def test_wraps_has_commit_with_metadata(
-        self, _name: str, run_uuid: str, batch_index: int, mocked_return: bool
+    async def test_matches_exact_and_range_tags(
+        self, _name: str, history: list[dict], run_uuid: str, batch_index: int, expected: bool
     ):
         helper = DeltaTableHelper(resource_name="t", job=MagicMock(), logger=_make_logger())
-        with patch.object(helper, "has_commit_with_metadata", AsyncMock(return_value=mocked_return)) as m:
-            result = await helper.has_batch_been_committed(run_uuid, batch_index)
+        mock_delta = MagicMock()
+        mock_delta.history = MagicMock(return_value=history)
 
-            assert result is mocked_return
-            m.assert_called_once_with({"run_uuid": run_uuid, "batch_index": str(batch_index)})
+        with patch.object(helper, "get_delta_table", AsyncMock(return_value=mock_delta)):
+            assert await helper.has_batch_been_committed(run_uuid, batch_index) is expected
+
+    @pytest.mark.asyncio
+    async def test_returns_false_when_no_delta_table(self, helper: DeltaTableHelper):
+        with patch.object(helper, "get_delta_table", AsyncMock(return_value=None)):
+            assert await helper.has_batch_been_committed("run-1", 0) is False
+
+    @pytest.mark.asyncio
+    async def test_scan_limit_bounds_history_read(self, helper: DeltaTableHelper):
+        # Dropping the limit turns every idempotency check into an unbounded
+        # S3 history scan.
+        mock_delta = MagicMock()
+        mock_delta.history = MagicMock(return_value=[])
+
+        with patch.object(helper, "get_delta_table", AsyncMock(return_value=mock_delta)):
+            await helper.has_batch_been_committed("run-1", 0, scan_limit=123)
+
+        mock_delta.history.assert_called_once_with(limit=123)
 
 
 class TestCompactIfFragmented:

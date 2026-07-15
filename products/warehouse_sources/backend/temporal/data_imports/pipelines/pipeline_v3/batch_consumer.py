@@ -50,6 +50,17 @@ POLL_BACKOFF_MAX_SECONDS = 30.0
 # re-creating the over-claim problem.
 BATCHES_PER_GROUP_FETCH_FACTOR = 3
 
+# Coalescing caps: contiguous same-run batches of a group are handed to the sink
+# as one unit, so a backlog drains in O(merge cycles) instead of O(batches).
+# max_batches=1 is the kill switch restoring one-batch-per-cycle behavior.
+# The byte cap sums `PendingBatch.byte_size` — the COMPRESSED parquet object
+# size. The sink decompresses the whole unit into one Arrow table and, when the
+# unit carries CDC DELETEs, materializes it again as Python lists for
+# enrichment, a 10-50x expansion — so this cap must stay a small multiple of a
+# single extraction batch, not a "comfortable" buffer size.
+COALESCE_MAX_BATCHES = 16
+COALESCE_MAX_BYTES = 64 * 1024 * 1024
+
 
 class OwnershipLostError(Exception):
     """Raised when the group lease for a (team_id, schema_id) is no longer held by this consumer."""
@@ -100,6 +111,11 @@ class BatchConsumerConfig:
     # Withhold liveness after this many consecutive failed polls: a pod that
     # cannot poll does no work but would otherwise pass liveness forever.
     poll_failure_liveness_threshold: int | None = 10
+    # Caps on how many contiguous same-run batches may be coalesced into one
+    # sink write. Only effective when the consumer was wired with a
+    # ``process_unit`` callable; 1 disables coalescing entirely.
+    coalesce_max_batches: int = COALESCE_MAX_BATCHES
+    coalesce_max_bytes: int = COALESCE_MAX_BYTES
 
     def __post_init__(self) -> None:
         if self.recovery_grace_seconds is None:
@@ -239,9 +255,16 @@ class BatchConsumer:
         adapter: BatchConsumerAdapter,
         health_reporter: Callable[[], None] | None = None,
         metrics: ConsumerMetrics | None = None,
+        process_unit: ProcessUnitFn | None = None,
+        coalesce_eligible: Callable[[PendingBatch], bool] | None = None,
     ) -> None:
         self._config = config
         self._process_batch = process_batch
+        # Sinks that can apply several contiguous same-run batches in one write
+        # opt in by providing ``process_unit`` (and an eligibility predicate);
+        # without it every unit is a single batch and behavior is unchanged.
+        self._process_unit = process_unit
+        self._coalesce_eligible = coalesce_eligible
         self._adapter = adapter
         # Per-pod identity for group-lease ownership. A new token each start means
         # a restarted pod cannot accidentally renew a lease it abandoned pre-restart.
@@ -525,17 +548,23 @@ class BatchConsumer:
                 )
                 return
 
-            for batch in batches:
+            units = self._build_units(batches)
+            remaining = len(batches)
+            for unit in units:
                 if self._shutdown.is_set():
                     logger.info(
                         self._event("shutdown_mid_group"),
                         team_id=team_id,
                         schema_id=schema_id,
-                        remaining=len(batches) - batches.index(batch),
+                        remaining=remaining,
                     )
                     break
+                remaining -= len(unit)
                 try:
-                    succeeded = await self._process_single(batch, lock_conn=group_conn)
+                    if len(unit) == 1:
+                        succeeded = await self._process_single(unit[0], lock_conn=group_conn)
+                    else:
+                        succeeded = await self._process_claimed(unit, lock_conn=group_conn)
                 except OwnershipLostError:
                     logger.warning(
                         self._event("ownership_lost_abandoning_group"),
@@ -548,8 +577,8 @@ class BatchConsumer:
                         self._event("process_single_unhandled_error"),
                         team_id=team_id,
                         external_data_schema_id=schema_id,
-                        batch_id=batch.id,
-                        batch_index=batch.batch_index,
+                        batch_id=unit[0].id,
+                        batch_index=unit[0].batch_index,
                     )
                     capture_exception(e)
                     succeeded = False
@@ -558,8 +587,8 @@ class BatchConsumer:
                         self._event("group_halted_by_non_success"),
                         team_id=team_id,
                         schema_id=schema_id,
-                        run_uuid=batch.run_uuid,
-                        remaining=len(batches) - batches.index(batch) - 1,
+                        run_uuid=unit[0].run_uuid,
+                        remaining=remaining,
                     )
                     break
         finally:
@@ -569,6 +598,53 @@ class BatchConsumer:
                     await group_conn.close()
                 except Exception:
                     pass
+
+    def _build_units(self, batches: list[PendingBatch]) -> list[list[PendingBatch]]:
+        """Group a claim's ordered batches into processing units.
+
+        A unit is a run of contiguous ``batch_index`` values from the same
+        ``run_uuid``, capped by ``coalesce_max_batches``/``coalesce_max_bytes``,
+        where every member passes the sink's eligibility predicate. Claim order
+        already guarantees scan order (created_at ASC, batch_index ASC per
+        group), so this is a single linear pass. A run boundary, index gap, or
+        full unit starts a new unit; an ineligible batch always forms a
+        single-batch unit processed exactly as before, as does everything when
+        coalescing is not wired.
+        """
+        max_batches = self._config.coalesce_max_batches
+        if self._process_unit is None or self._coalesce_eligible is None or max_batches <= 1:
+            return [[batch] for batch in batches]
+
+        max_bytes = self._config.coalesce_max_bytes
+        units: list[list[PendingBatch]] = []
+        unit: list[PendingBatch] = []
+        unit_bytes = 0
+        unit_coalescible = False
+        for batch in batches:
+            # byte_size <= 0 means the size probe failed at enqueue time; the
+            # byte cap can't account for an unknown size, so never coalesce it.
+            eligible = batch.byte_size > 0 and self._coalesce_eligible(batch)
+            extends_unit = (
+                bool(unit)
+                and unit_coalescible
+                and eligible
+                and batch.run_uuid == unit[-1].run_uuid
+                and batch.batch_index == unit[-1].batch_index + 1
+                and len(unit) < max_batches
+                and unit_bytes + batch.byte_size <= max_bytes
+            )
+            if extends_unit:
+                unit.append(batch)
+                unit_bytes += batch.byte_size
+            else:
+                if unit:
+                    units.append(unit)
+                unit = [batch]
+                unit_bytes = batch.byte_size
+                unit_coalescible = eligible
+        if unit:
+            units.append(unit)
+        return units
 
     async def _unlock_group(
         self,
@@ -616,8 +692,8 @@ class BatchConsumer:
     async def _batch_heartbeat(
         self,
         lock_conn: psycopg.AsyncConnection[Any],
-        batch: PendingBatch,
-        attempt: int,
+        batches: list[PendingBatch],
+        attempts: dict[str, int],
     ) -> None:
         """Renew the group lease and re-insert EXECUTING status periodically to prevent premature recovery.
 
@@ -625,16 +701,20 @@ class BatchConsumer:
         the same cadence keeps the two reclaim signals consistent: a pod that
         stops heartbeating loses its lease and ages out of the grace window at
         the same time. ``renew_lease`` returning False means another pod
-        reclaimed the group, so we stop heartbeating immediately.
+        reclaimed the group, so we stop heartbeating immediately. All batches
+        belong to one group, so one lease renewal covers them; the executing
+        refresh is per batch so none of a coalesced unit's members ages into
+        the recovery sweep's grace window mid-processing.
         """
         interval = max((self._config.recovery_grace_seconds or RECOVERY_GRACE_SECONDS) / 3, 10.0)
+        lead = batches[0]
         while True:
             await asyncio.sleep(interval)
             try:
                 renewed = await self._adapter.renew_lease(
                     lock_conn,
-                    team_id=batch.team_id,
-                    schema_id=batch.schema_id,
+                    team_id=lead.team_id,
+                    schema_id=lead.schema_id,
                     owner_token=self._owner_token,
                     lease_ttl_seconds=self._lease_ttl_seconds,
                 )
@@ -648,9 +728,9 @@ class BatchConsumer:
                 # failing and the lease-expiry backstop still applies.
                 logger.warning(
                     self._event("batch_heartbeat_renewal_failed"),
-                    batch_id=batch.id,
-                    team_id=batch.team_id,
-                    external_data_schema_id=batch.schema_id,
+                    batch_id=lead.id,
+                    team_id=lead.team_id,
+                    external_data_schema_id=lead.schema_id,
                     error=str(e),
                 )
                 continue
@@ -659,40 +739,58 @@ class BatchConsumer:
                 # in-flight apply is fenced by the per-batch ownership checks.
                 logger.warning(
                     self._event("batch_heartbeat_lease_lost"),
-                    batch_id=batch.id,
-                    team_id=batch.team_id,
-                    external_data_schema_id=batch.schema_id,
+                    batch_id=lead.id,
+                    team_id=lead.team_id,
+                    external_data_schema_id=lead.schema_id,
                 )
                 return
-            try:
-                await self._adapter.update_status(
-                    lock_conn,
-                    batch_id=batch.id,
-                    job_state=self._adapter.executing_state,
-                    attempt=attempt,
-                    batch_created_at=batch.created_at,
-                )
-            except Exception as e:
-                logger.warning(
-                    self._event("batch_heartbeat_status_refresh_failed"),
-                    batch_id=batch.id,
-                    team_id=batch.team_id,
-                    external_data_schema_id=batch.schema_id,
-                    error=str(e),
-                )
+            for batch in batches:
+                try:
+                    await self._adapter.update_status(
+                        lock_conn,
+                        batch_id=batch.id,
+                        job_state=self._adapter.executing_state,
+                        attempt=attempts[batch.id],
+                        batch_created_at=batch.created_at,
+                    )
+                except Exception as e:
+                    logger.warning(
+                        self._event("batch_heartbeat_status_refresh_failed"),
+                        batch_id=batch.id,
+                        team_id=batch.team_id,
+                        external_data_schema_id=batch.schema_id,
+                        error=str(e),
+                    )
+
+    @staticmethod
+    async def _stop_heartbeat(heartbeat_task: asyncio.Task[None] | None) -> None:
+        if heartbeat_task is None:
+            return
+        heartbeat_task.cancel()
+        try:
+            await heartbeat_task
+        except asyncio.CancelledError:
+            pass
 
     async def _process_single(self, batch: PendingBatch, lock_conn: psycopg.AsyncConnection[Any] | None = None) -> bool:
-        """Bind per-batch log context, then process. Returns True only on success.
+        return await self._process_claimed([batch], lock_conn=lock_conn)
+
+    async def _process_claimed(
+        self, unit: list[PendingBatch], lock_conn: psycopg.AsyncConnection[Any] | None = None
+    ) -> bool:
+        """Bind log context for a claimed unit (usually a single batch), then process.
+        Returns True only on success.
 
         Binds structlog contextvars so every downstream log line (including loader calls)
         routes to log_entries under the right schema/workflow before any logger fires.
         """
-        team_id = str(batch.team_id)
-        schema_id = batch.schema_id
-        attempt = batch.latest_attempt + 1
+        lead = unit[0]
+        team_id = str(lead.team_id)
+        schema_id = lead.schema_id
+        attempts = {batch.id: batch.latest_attempt + 1 for batch in unit}
 
-        workflow_id = batch.metadata.get("workflow_id") or ""
-        workflow_run_id = batch.metadata.get("workflow_run_id") or ""
+        workflow_id = lead.metadata.get("workflow_id") or ""
+        workflow_run_id = lead.metadata.get("workflow_run_id") or ""
         workflow_type = "cdc-extraction" if workflow_id.startswith("cdc-extraction-") else "external-data-job"
 
         bound_keys = (
@@ -710,25 +808,27 @@ class BatchConsumer:
             "attempt",
         )
         structlog.contextvars.bind_contextvars(
-            team_id=batch.team_id,
-            external_data_schema_id=batch.schema_id,
-            external_data_source_id=batch.source_id,
-            external_data_job_id=batch.job_id,
-            run_uuid=batch.run_uuid,
-            batch_id=batch.id,
-            resource_name=batch.resource_name,
+            team_id=lead.team_id,
+            external_data_schema_id=lead.schema_id,
+            external_data_source_id=lead.source_id,
+            external_data_job_id=lead.job_id,
+            run_uuid=lead.run_uuid,
+            batch_id=lead.id,
+            resource_name=lead.resource_name,
             workflow_type=workflow_type,
             workflow_id=workflow_id,
             workflow_run_id=workflow_run_id,
-            log_source_id=batch.schema_id,
-            attempt=attempt,
+            log_source_id=lead.schema_id,
+            attempt=max(attempts.values()),
         )
-        self._inflight_started[batch.id] = time.monotonic()
+        self._inflight_started[lead.id] = time.monotonic()
         try:
-            await self._verify_ownership(lock_conn, batch)
-            return await self._process_single_inner(batch, attempt, team_id, schema_id, lock_conn)
+            await self._verify_ownership(lock_conn, lead)
+            if len(unit) == 1:
+                return await self._process_single_inner(lead, attempts[lead.id], team_id, schema_id, lock_conn)
+            return await self._process_multi_inner(unit, attempts, team_id, schema_id, lock_conn)
         finally:
-            self._inflight_started.pop(batch.id, None)
+            self._inflight_started.pop(lead.id, None)
             structlog.contextvars.unbind_contextvars(*bound_keys)
 
     async def _process_single_inner(
@@ -781,7 +881,7 @@ class BatchConsumer:
 
             if should_process:
                 if lock_conn is not None:
-                    heartbeat_task = asyncio.create_task(self._batch_heartbeat(lock_conn, batch, attempt))
+                    heartbeat_task = asyncio.create_task(self._batch_heartbeat(lock_conn, [batch], {batch.id: attempt}))
                 await self._process_batch(batch)
 
                 # Cancel heartbeat before post-processing DB writes to avoid
@@ -829,12 +929,176 @@ class BatchConsumer:
             await self._handle_batch_failure(batch, attempt, err, lock_conn=lock_conn, status_conn=status_conn)
             return False
         finally:
-            if heartbeat_task is not None:
-                heartbeat_task.cancel()
-                try:
-                    await heartbeat_task
-                except asyncio.CancelledError:
-                    pass
+            await self._stop_heartbeat(heartbeat_task)
+
+    async def _process_multi_inner(
+        self,
+        unit: list[PendingBatch],
+        attempts: dict[str, int],
+        team_id: str,
+        schema_id: str,
+        lock_conn: psycopg.AsyncConnection[Any] | None = None,
+    ) -> bool:
+        assert self._process_unit is not None
+        lead, last = unit[0], unit[-1]
+        max_attempt = max(attempts.values())
+        if max_attempt > self._config.max_attempts:
+            logger.error(
+                self._event("batch_max_retries_exceeded"),
+                batch_id=lead.id,
+                run_uuid=lead.run_uuid,
+                attempt=max_attempt,
+            )
+            await self._fail_run(lead, reason=f"max retries exceeded (attempt {max_attempt})", conn=lock_conn)
+            return False
+
+        status_conn = await self._get_status_conn(lock_conn)
+
+        logger.info(
+            self._event("coalesced_unit_picked_up"),
+            batch_count=len(unit),
+            run_uuid=lead.run_uuid,
+            batch_index_start=lead.batch_index,
+            batch_index_end=last.batch_index,
+            is_final_batch=last.is_final_batch,
+            attempt=max_attempt,
+            resource_name=lead.resource_name,
+        )
+
+        # Before the executing writes: adapters may read each batch's latest
+        # status here. A unit whose members disagree cannot be applied as one
+        # write — fall back to the exact single-batch path per member.
+        should_process = [await self._adapter.should_process_batch(status_conn, batch=batch) for batch in unit]
+        if not all(should_process):
+            logger.info(self._event("coalesced_unit_split_by_should_process"), batch_count=len(unit))
+            for batch in unit:
+                if not await self._process_single(batch, lock_conn=lock_conn):
+                    return False
+            return True
+
+        self._metrics.coalesced_unit_batches.observe(len(unit))
+        self._metrics.coalesced_unit_bytes.observe(sum(batch.byte_size for batch in unit))
+
+        heartbeat_task: asyncio.Task[None] | None = None
+        try:
+            start = time.monotonic()
+            # Pre-increment every member: if we OOM during processing, recovery
+            # sees attempt=N+1 and knows this attempt was consumed.
+            for batch in unit:
+                await self._adapter.update_status(
+                    status_conn,
+                    batch_id=batch.id,
+                    job_state=self._adapter.executing_state,
+                    attempt=attempts[batch.id],
+                    batch_created_at=batch.created_at,
+                )
+
+            if lock_conn is not None:
+                heartbeat_task = asyncio.create_task(self._batch_heartbeat(lock_conn, unit, attempts))
+            await self._process_unit(unit)
+
+            # Cancel heartbeat before post-processing DB writes to avoid
+            # concurrent use of the group connection (psycopg async
+            # connections are not safe for concurrent coroutine access).
+            await self._stop_heartbeat(heartbeat_task)
+            heartbeat_task = None
+
+            for batch in unit:
+                await self._adapter.after_batch_processed(status_conn, batch=batch)
+
+            duration = time.monotonic() - start
+            self._metrics.batch_processing_duration_seconds.labels(team_id=team_id, schema_id=schema_id).observe(
+                duration
+            )
+
+            await self._verify_ownership(lock_conn, lead)
+            for batch in unit:
+                await self._adapter.update_status(
+                    status_conn,
+                    batch_id=batch.id,
+                    job_state=self._adapter.succeeded_state,
+                    attempt=attempts[batch.id],
+                    batch_created_at=batch.created_at,
+                )
+            self._metrics.batches_processed_total.labels(team_id=team_id, schema_id=schema_id, status="success").inc(
+                len(unit)
+            )
+            logger.info(
+                self._event("coalesced_unit_processed_ok"),
+                batch_count=len(unit),
+                run_uuid=lead.run_uuid,
+                batch_index_start=lead.batch_index,
+                batch_index_end=last.batch_index,
+                is_final_batch=last.is_final_batch,
+                duration_seconds=round(duration, 3),
+            )
+            return True
+        except OwnershipLostError:
+            raise
+        except Exception as err:
+            self._metrics.batches_processed_total.labels(team_id=team_id, schema_id=schema_id, status="error").inc(
+                len(unit)
+            )
+            self._metrics.batch_retry_total.labels(attempt=str(max_attempt), error_type=type(err).__name__).inc()
+
+            await self._handle_unit_failure(unit, attempts, err, lock_conn=lock_conn, status_conn=status_conn)
+            return False
+        finally:
+            await self._stop_heartbeat(heartbeat_task)
+
+    async def _handle_unit_failure(
+        self,
+        unit: list[PendingBatch],
+        attempts: dict[str, int],
+        err: Exception,
+        *,
+        lock_conn: psycopg.AsyncConnection[Any] | None,
+        status_conn: psycopg.AsyncConnection[Any],
+    ) -> None:
+        """Write the retry/terminal state after a processing error: non-retryable
+        or attempt-exhausted fails the run; otherwise the retry state is written
+        per member (each with its own attempt)."""
+        lead = unit[0]
+        max_attempt = max(attempts.values())
+        if not self._adapter.is_retryable_error(err):
+            logger.exception(
+                self._event("batch_failed_non_retryable"),
+                batch_id=lead.id,
+                run_uuid=lead.run_uuid,
+                attempt=max_attempt,
+                batch_count=len(unit),
+            )
+            capture_exception(err)
+            reason = f"permanent apply error: {err}" if isinstance(err, PermanentBatchApplyError) else str(err)
+            await self._fail_run(lead, reason=reason, conn=lock_conn)
+        elif max_attempt >= self._config.max_attempts:
+            reason = f"max retries exceeded: {err}"
+            logger.exception(
+                self._event("batch_failed_no_retries_left"),
+                batch_id=lead.id,
+                run_uuid=lead.run_uuid,
+                attempt=max_attempt,
+                batch_count=len(unit),
+            )
+            capture_exception(err)
+            await self._fail_run(lead, reason=reason, conn=lock_conn)
+        else:
+            logger.warning(
+                self._event("batch_failed_will_retry"),
+                batch_id=lead.id,
+                attempt=max_attempt,
+                batch_count=len(unit),
+                error=str(err),
+            )
+            for batch in unit:
+                await self._adapter.update_status(
+                    status_conn,
+                    batch_id=batch.id,
+                    job_state=self._adapter.waiting_retry_state,
+                    attempt=attempts[batch.id],
+                    error_response={"error": str(err)[:1000]},
+                    batch_created_at=batch.created_at,
+                )
 
     async def _handle_batch_failure(
         self,
@@ -846,43 +1110,7 @@ class BatchConsumer:
         status_conn: psycopg.AsyncConnection[Any],
     ) -> None:
         """Write the retry/terminal state after a processing error."""
-        if not self._adapter.is_retryable_error(err):
-            # Deterministic failures do not benefit from retrying. Preserve their
-            # messages, except for explicitly classified permanent apply errors.
-            logger.exception(
-                self._event("batch_failed_non_retryable"),
-                batch_id=batch.id,
-                run_uuid=batch.run_uuid,
-                attempt=attempt,
-            )
-            capture_exception(err)
-            reason = f"permanent apply error: {err}" if isinstance(err, PermanentBatchApplyError) else str(err)
-            await self._fail_run(batch, reason=reason, conn=lock_conn)
-        elif attempt >= self._config.max_attempts:
-            reason = f"max retries exceeded: {err}"
-            logger.exception(
-                self._event("batch_failed_no_retries_left"),
-                batch_id=batch.id,
-                run_uuid=batch.run_uuid,
-                attempt=attempt,
-            )
-            capture_exception(err)
-            await self._fail_run(batch, reason=reason, conn=lock_conn)
-        else:
-            logger.warning(
-                self._event("batch_failed_will_retry"),
-                batch_id=batch.id,
-                attempt=attempt,
-                error=str(err),
-            )
-            await self._adapter.update_status(
-                status_conn,
-                batch_id=batch.id,
-                job_state=self._adapter.waiting_retry_state,
-                attempt=attempt,
-                error_response={"error": str(err)[:1000]},
-                batch_created_at=batch.created_at,
-            )
+        await self._handle_unit_failure([batch], {batch.id: attempt}, err, lock_conn=lock_conn, status_conn=status_conn)
 
     async def _fail_run(
         self,
@@ -1145,6 +1373,8 @@ class BatchConsumer:
 
 
 ProcessBatchFn = Callable[[PendingBatch], Coroutine[Any, Any, None]]
+# Applies a coalesced unit of contiguous same-run batches as a single sink write.
+ProcessUnitFn = Callable[[list[PendingBatch]], Coroutine[Any, Any, None]]
 
 
 def _group_by_key(batches: list[PendingBatch]) -> dict[tuple[int, str], list[PendingBatch]]:

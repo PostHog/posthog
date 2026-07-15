@@ -64,6 +64,29 @@ RECOVERY_SWEEPS_TOTAL = Counter(
     labelnames=["outcome"],
 )
 
+COALESCED_UNIT_BATCHES_BUCKETS = (2, 3, 4, 6, 8, 12, 16, 24, 32)
+COALESCED_UNIT_BYTES_BUCKETS = (
+    1024**2,
+    4 * 1024**2,
+    16 * 1024**2,
+    64 * 1024**2,
+    128 * 1024**2,
+    256 * 1024**2,
+    512 * 1024**2,
+)
+
+COALESCED_UNIT_BATCHES = Histogram(
+    "warehouse_pg_consumer_coalesced_unit_batches",
+    "Number of contiguous same-run batches applied together as one sink write",
+    buckets=COALESCED_UNIT_BATCHES_BUCKETS,
+)
+
+COALESCED_UNIT_BYTES = Histogram(
+    "warehouse_pg_consumer_coalesced_unit_bytes",
+    "Total byte_size of the batches applied together as one sink write",
+    buckets=COALESCED_UNIT_BYTES_BUCKETS,
+)
+
 RUNS_RECONCILED_TOTAL = Counter(
     "warehouse_pg_consumer_runs_reconciled_total",
     "Runs whose ExternalDataJob was left non-terminal despite a failed queue batch and "
@@ -101,6 +124,8 @@ class ConsumerMetrics:
     poll_failures_total: Counter
     active_groups: Gauge
     recovery_sweeps_total: Counter
+    coalesced_unit_batches: Histogram
+    coalesced_unit_bytes: Histogram
 
 
 DELTA_CONSUMER_METRICS = ConsumerMetrics(
@@ -113,6 +138,8 @@ DELTA_CONSUMER_METRICS = ConsumerMetrics(
     poll_failures_total=POLL_FAILURES_TOTAL,
     active_groups=ACTIVE_GROUPS,
     recovery_sweeps_total=RECOVERY_SWEEPS_TOTAL,
+    coalesced_unit_batches=COALESCED_UNIT_BATCHES,
+    coalesced_unit_bytes=COALESCED_UNIT_BYTES,
 )
 
 _metrics_by_prefix: dict[str, ConsumerMetrics] = {}
@@ -170,6 +197,16 @@ def make_consumer_metrics(prefix: str) -> ConsumerMetrics:
             f"{p}_recovery_sweeps_total",
             "Total recovery sweeps executed",
             labelnames=["outcome"],
+        ),
+        coalesced_unit_batches=Histogram(
+            f"{p}_coalesced_unit_batches",
+            "Number of contiguous same-run batches applied together as one sink write",
+            buckets=COALESCED_UNIT_BATCHES_BUCKETS,
+        ),
+        coalesced_unit_bytes=Histogram(
+            f"{p}_coalesced_unit_bytes",
+            "Total byte_size of the batches applied together as one sink write",
+            buckets=COALESCED_UNIT_BYTES_BUCKETS,
         ),
     )
     _metrics_by_prefix[prefix] = metrics

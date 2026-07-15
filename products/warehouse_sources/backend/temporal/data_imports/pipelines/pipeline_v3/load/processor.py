@@ -361,7 +361,42 @@ def process_message(
 ) -> None:
     """Load one batch into Delta Lake. ``verify_ownership`` raises if the group lease was lost;
     re-checked before each lasting side effect since the heartbeat only detects loss between beats."""
-    export_signal = ExportSignalMessage.from_dict(message)
+    process_messages([message], progress_callback=progress_callback, verify_ownership=verify_ownership)
+
+
+def process_messages(
+    messages: list[Any],
+    progress_callback: Callable[[], None] | None = None,
+    verify_ownership: Callable[[], None] | None = None,
+) -> None:
+    """Load one batch — or a coalesced unit of contiguous same-run batches — into
+    Delta Lake as a single write.
+
+    Multi-batch units must belong to one run; the batch consumer only forms them
+    from contiguous ``batch_index`` values of one ``run_uuid``, never for
+    ``scd2_append`` (its cross-event ``valid_to`` chaining is computed per batch
+    at extraction) and never for first-ever syncs (batch-0 overwrite and partial
+    data loading are per-batch semantics). Already-processed members are excluded
+    from the write (crash-redelivery case); the rest concatenate in
+    ``batch_index`` order, so the writer's `_dedupe_incremental_batch` keeping
+    the last occurrence per (PK, partition) matches sequential per-batch merges.
+
+    ``verify_ownership`` raises if the group lease was lost; re-checked before
+    each lasting side effect since the heartbeat only detects loss between beats.
+    """
+    signals = sorted((ExportSignalMessage.from_dict(message) for message in messages), key=lambda s: s.batch_index)
+    if not signals:
+        return
+    lead = signals[0]
+    if len(signals) > 1:
+        if any(s.run_uuid != lead.run_uuid for s in signals):
+            raise ValueError("coalesced unit spans multiple runs")
+        if lead.cdc_write_mode == "scd2_append":
+            raise ValueError("scd2_append batches cannot be coalesced")
+        if lead.is_first_ever_sync:
+            raise ValueError("first-ever-sync batches cannot be coalesced")
+    # Producers mark only a run's last batch final, so it can only be the unit's last member.
+    final_signal = signals[-1] if signals[-1].is_final_batch else None
 
     # Reconnect stale app-DB connections up front so the ORM queries below don't burn all batch attempts.
     close_old_connections()
@@ -371,79 +406,100 @@ def process_message(
     s3fs.S3FileSystem.clear_instance_cache()
 
     try:
-        team_id_str = str(export_signal.team_id)
-        schema_id_str = str(export_signal.schema_id)
+        team_id_str = str(lead.team_id)
+        schema_id_str = str(lead.schema_id)
 
         # Build the helper early so the idempotency check can use it as a
         # delta-history fallback when the Redis dedup flag is missing — the case
         # where the writer crashed between `write_to_deltalake` committing and
         # `mark_batch_as_processed` being called.
-        job = ExternalDataJob.objects.prefetch_related("schema", "schema__source", "schema__table").get(
-            id=export_signal.job_id
-        )
+        job = ExternalDataJob.objects.prefetch_related("schema", "schema__source", "schema__table").get(id=lead.job_id)
         schema = job.schema
         if schema is None:
-            raise ValueError(f"ExternalDataJob {export_signal.job_id} has no schema")
+            raise ValueError(f"ExternalDataJob {lead.job_id} has no schema")
 
         delta_table_helper = DeltaTableHelper(
-            resource_name=export_signal.resource_name,
+            resource_name=lead.resource_name,
             job=job,
             logger=logger,
-            is_first_sync=export_signal.is_first_ever_sync,
+            is_first_sync=lead.is_first_ever_sync,
         )
 
-        already_processed = is_batch_already_processed(
-            export_signal.team_id,
-            export_signal.schema_id,
-            export_signal.run_uuid,
-            export_signal.batch_index,
-            delta_table_helper=delta_table_helper,
-        )
+        pending = [
+            signal
+            for signal in signals
+            if not is_batch_already_processed(
+                signal.team_id,
+                signal.schema_id,
+                signal.run_uuid,
+                signal.batch_index,
+                delta_table_helper=delta_table_helper,
+            )
+        ]
 
-        if already_processed and not export_signal.is_final_batch:
-            IDEMPOTENCY_HIT_TOTAL.labels(team_id=team_id_str, schema_id=schema_id_str).inc()
+        if not pending and final_signal is None:
+            IDEMPOTENCY_HIT_TOTAL.labels(team_id=team_id_str, schema_id=schema_id_str).inc(len(signals))
             logger.info(
                 "batch_already_processed",
-                team_id=export_signal.team_id,
-                external_data_schema_id=export_signal.schema_id,
-                run_uuid=export_signal.run_uuid,
-                batch_index=export_signal.batch_index,
+                team_id=lead.team_id,
+                external_data_schema_id=lead.schema_id,
+                run_uuid=lead.run_uuid,
+                batch_index=lead.batch_index,
+                batch_count=len(signals),
             )
             return
 
-        if already_processed and export_signal.is_final_batch:
+        if not pending and final_signal is not None:
             logger.info(
                 "batch_already_processed_running_post_load",
-                team_id=export_signal.team_id,
-                external_data_schema_id=export_signal.schema_id,
-                run_uuid=export_signal.run_uuid,
-                batch_index=export_signal.batch_index,
+                team_id=lead.team_id,
+                external_data_schema_id=lead.schema_id,
+                run_uuid=lead.run_uuid,
+                batch_index=final_signal.batch_index,
             )
             if verify_ownership is not None:
                 verify_ownership()
-            _run_post_load_for_already_processed_batch(export_signal)
-            _mark_job_completed(export_signal)
+            _run_post_load_for_already_processed_batch(final_signal)
+            _mark_job_completed(final_signal)
             return
+
+        if len(pending) < len(signals):
+            IDEMPOTENCY_HIT_TOTAL.labels(team_id=team_id_str, schema_id=schema_id_str).inc(len(signals) - len(pending))
+            logger.info(
+                "coalesced_members_already_processed",
+                run_uuid=lead.run_uuid,
+                already_processed=len(signals) - len(pending),
+                batch_count=len(signals),
+            )
+
+        first = pending[0]
+        last = pending[-1]
 
         logger.debug(
             "message_received",
-            team_id=export_signal.team_id,
-            external_data_schema_id=export_signal.schema_id,
-            resource_name=export_signal.resource_name,
-            batch_index=export_signal.batch_index,
-            is_final_batch=export_signal.is_final_batch,
-            row_count=export_signal.row_count,
-            s3_path=export_signal.s3_path,
-            sync_type=export_signal.sync_type,
+            team_id=lead.team_id,
+            external_data_schema_id=lead.schema_id,
+            resource_name=lead.resource_name,
+            batch_index=first.batch_index,
+            batch_index_end=last.batch_index,
+            batch_count=len(pending),
+            is_final_batch=final_signal is not None,
+            row_count=sum(signal.row_count for signal in pending),
+            s3_path=first.s3_path,
+            sync_type=lead.sync_type,
         )
 
         with PARQUET_READ_DURATION_SECONDS.time():
-            pa_table = read_parquet(export_signal.s3_path)
+            batch_tables = [read_parquet(signal.s3_path) for signal in pending]
+        pa_table = (
+            batch_tables[0] if len(batch_tables) == 1 else pa.concat_tables(batch_tables, promote_options="permissive")
+        )
 
         logger.debug(
             "parquet_file_read",
-            batch_index=export_signal.batch_index,
-            s3_path=export_signal.s3_path,
+            batch_index=first.batch_index,
+            batch_index_end=last.batch_index,
+            s3_path=first.s3_path,
             num_rows=pa_table.num_rows,
             num_columns=pa_table.num_columns,
             column_names=pa_table.column_names,
@@ -451,26 +507,34 @@ def process_message(
 
         existing_delta_table = async_to_sync(delta_table_helper.get_delta_table)()
 
-        pa_table = _apply_partitioning(export_signal, pa_table, existing_delta_table, schema)
+        pa_table = _apply_partitioning(lead, pa_table, existing_delta_table, schema)
 
         # Capture file URIs before write for partial data loading
         previous_file_uris = existing_delta_table.file_uris() if existing_delta_table else []
 
-        primary_keys = export_signal.primary_keys
-        cdc_write_mode = export_signal.cdc_write_mode
+        primary_keys = lead.primary_keys
+        cdc_write_mode = lead.cdc_write_mode
 
-        # Tag every delta commit with (run_uuid, batch_index) so that a Kafka
-        # redelivery after a writer crash can detect "already committed" even when
-        # the Redis dedup flag is missing. See `is_batch_already_processed`.
+        # Tag every delta commit with (run_uuid, batch_index) so that a redelivery
+        # after a writer crash can detect "already committed" even when the Redis
+        # dedup flag is missing. Multi-batch units also record the covered index
+        # range; `batch_index` stays the last index for backward compatibility.
+        # See `is_batch_already_processed` / `has_batch_been_committed`.
         commit_metadata = {
-            "run_uuid": export_signal.run_uuid,
-            "batch_index": str(export_signal.batch_index),
+            "run_uuid": lead.run_uuid,
+            "batch_index": str(last.batch_index),
         }
+        if len(pending) > 1:
+            commit_metadata["batch_index_start"] = str(first.batch_index)
+            commit_metadata["batch_index_end"] = str(last.batch_index)
 
         # Cross-batch DELETE enrichment: fill data columns on DELETE rows from the
         # existing DeltaLake state. Batch-internal enrichment was already applied
         # in the extraction activity; this handles standalone DELETEs that arrive
-        # in a batch with no preceding INSERT/UPDATE for the same PK.
+        # in a batch with no preceding INSERT/UPDATE for the same PK. A coalesced
+        # unit is enriched as one concatenated batch, so a standalone DELETE whose
+        # INSERT/UPDATE sits in an earlier member is filled from the unit itself
+        # (`enrich_delete_rows` prefers same-table rows over `existing_rows`).
         if cdc_write_mode is not None and primary_keys and existing_delta_table is not None:
             from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
                 CDC_OP_COLUMN,
@@ -494,7 +558,7 @@ def process_message(
                             delete_row_count=len(delete_key_set),
                             primary_key_count=len(present_pks),
                             cdc_write_mode=cdc_write_mode,
-                            batch_index=export_signal.batch_index,
+                            batch_index=first.batch_index,
                         )
                         # Delta-rs: single-column IN avoids tuple filters (weak NULL semantics).
                         # For composite PKs that IN is a superset — narrow in PyArrow below.
@@ -538,7 +602,7 @@ def process_message(
             logger.debug(
                 "writing_scd2_to_delta_lake",
                 primary_keys=primary_keys,
-                batch_index=export_signal.batch_index,
+                batch_index=first.batch_index,
             )
 
             with DELTA_WRITE_DURATION_SECONDS.labels(
@@ -550,17 +614,18 @@ def process_message(
                     commit_metadata=commit_metadata,
                 )
         else:
-            write_type = _get_write_type(export_signal.sync_type)
+            write_type = _get_write_type(lead.sync_type)
 
             # First batch should overwrite the table, but only if not resuming
-            should_overwrite_table = export_signal.batch_index == 0 and not export_signal.is_resume
+            should_overwrite_table = first.batch_index == 0 and not first.is_resume
 
             logger.debug(
                 "writing_to_delta_lake",
                 write_type=write_type,
                 should_overwrite_table=should_overwrite_table,
                 primary_keys=primary_keys,
-                batch_index=export_signal.batch_index,
+                batch_index=first.batch_index,
+                batch_index_end=last.batch_index,
             )
 
             with DELTA_WRITE_DURATION_SECONDS.labels(
@@ -585,32 +650,36 @@ def process_message(
 
         logger.debug(
             "batch_written_to_delta_lake",
-            batch_index=export_signal.batch_index,
+            batch_index=first.batch_index,
+            batch_index_end=last.batch_index,
             file_count=len(delta_table.file_uris()),
         )
 
-        # Handle partial data loading for first-ever sync
-        async_to_sync(_handle_partial_data_loading)(
-            export_signal=export_signal,
-            job=job,
-            schema=schema,
-            delta_table=delta_table,
-            previous_file_uris=previous_file_uris,
-            internal_schema=internal_schema,
-        )
+        # Handle partial data loading for first-ever sync (multi-batch units
+        # never contain first-ever-sync batches, so the hook only applies to
+        # single batches).
+        if len(signals) == 1:
+            async_to_sync(_handle_partial_data_loading)(
+                export_signal=lead,
+                job=job,
+                schema=schema,
+                delta_table=delta_table,
+                previous_file_uris=previous_file_uris,
+                internal_schema=internal_schema,
+            )
 
-        if export_signal.is_final_batch:
+        if final_signal is not None:
             logger.info(
                 "final_batch_received",
-                batch_index=export_signal.batch_index,
-                total_batches=export_signal.total_batches,
-                total_rows=export_signal.total_rows,
-                cdc_write_mode=export_signal.cdc_write_mode,
-                cdc_table_mode=export_signal.cdc_table_mode,
-                sync_type=export_signal.sync_type,
+                batch_index=final_signal.batch_index,
+                total_batches=final_signal.total_batches,
+                total_rows=final_signal.total_rows,
+                cdc_write_mode=final_signal.cdc_write_mode,
+                cdc_table_mode=final_signal.cdc_table_mode,
+                sync_type=final_signal.sync_type,
                 schema_sync_type=schema.sync_type,
                 schema_cdc_table_mode=schema.cdc_table_mode,
-                resource_name=export_signal.resource_name,
+                resource_name=final_signal.resource_name,
             )
 
             # Minutes may have passed since the batch's write — re-check before post-load
@@ -623,50 +692,53 @@ def process_message(
                 schema=schema,
                 source=schema.source,
                 delta_table_helper=delta_table_helper,
-                row_count=export_signal.total_rows or 0,
+                row_count=final_signal.total_rows or 0,
                 file_uris=delta_table.file_uris(),
                 table_schema_dict=internal_schema.to_hogql_types(),
-                resource_name=export_signal.resource_name,
+                resource_name=final_signal.resource_name,
                 logger=logger,
-                cdc_table_mode=export_signal.cdc_table_mode,
-                cdc_write_mode=export_signal.cdc_write_mode,
+                cdc_table_mode=final_signal.cdc_table_mode,
+                cdc_write_mode=final_signal.cdc_write_mode,
             )
 
-            _mark_job_completed(export_signal)
+            _mark_job_completed(final_signal)
 
             logger.debug("post_load_operations_complete")
 
-        mark_batch_as_processed(
-            export_signal.team_id, export_signal.schema_id, export_signal.run_uuid, export_signal.batch_index
-        )
+        for signal in signals:
+            mark_batch_as_processed(signal.team_id, signal.schema_id, signal.run_uuid, signal.batch_index)
 
-        if export_signal.is_final_batch:
+        if final_signal is not None:
             posthoganalytics.capture(
                 distinct_id=get_machine_id(),
                 event="warehouse_v3_load_completed",
                 properties={
-                    "team_id": export_signal.team_id,
-                    "schema_id": export_signal.schema_id,
-                    "source_id": export_signal.source_id,
-                    "resource_name": export_signal.resource_name,
-                    "sync_type": export_signal.sync_type,
-                    "total_batches": export_signal.total_batches,
-                    "total_rows": export_signal.total_rows,
+                    "team_id": final_signal.team_id,
+                    "schema_id": final_signal.schema_id,
+                    "source_id": final_signal.source_id,
+                    "resource_name": final_signal.resource_name,
+                    "sync_type": final_signal.sync_type,
+                    "total_batches": final_signal.total_batches,
+                    "total_rows": final_signal.total_rows,
                 },
             )
     except Exception as e:
+        properties: dict[str, Any] = {
+            "team_id": lead.team_id,
+            "schema_id": lead.schema_id,
+            "source_id": lead.source_id,
+            "resource_name": lead.resource_name,
+            "sync_type": lead.sync_type,
+            "batch_index": lead.batch_index,
+            "error_type": type(e).__name__,
+            "error_message": str(e)[:1000],
+        }
+        if len(signals) > 1:
+            properties["batch_index_end"] = signals[-1].batch_index
+            properties["coalesced_batch_count"] = len(signals)
         posthoganalytics.capture(
             distinct_id=get_machine_id(),
             event="warehouse_v3_load_failed",
-            properties={
-                "team_id": export_signal.team_id,
-                "schema_id": export_signal.schema_id,
-                "source_id": export_signal.source_id,
-                "resource_name": export_signal.resource_name,
-                "sync_type": export_signal.sync_type,
-                "batch_index": export_signal.batch_index,
-                "error_type": type(e).__name__,
-                "error_message": str(e)[:1000],
-            },
+            properties=properties,
         )
         raise
