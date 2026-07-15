@@ -13,9 +13,11 @@ from rest_framework.exceptions import ErrorDetail, ValidationError
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.errors import CHQueryErrorTooManyBytes
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 
 from products.experiments.backend.hogql_queries.error_handling import (
+    BYTE_LIMIT_MESSAGE,
     ERROR_TYPE_TO_CODE,
     classify_experiment_query_error,
     experiment_error_handler,
@@ -53,6 +55,16 @@ class TestExperimentErrorHandling(BaseTest):
             message,
             "This experiment query is using too much memory. Try viewing a shorter time period or contact support for help.",
         )
+
+    def test_get_user_friendly_message_for_byte_limit(self):
+        # CHQueryErrorTooManyBytes subclasses ExposedCHQueryError, so a regression that drops the
+        # byte_limit branch would silently hand back the generic "try refreshing the page" text —
+        # useless advice for a query that always scans too much.
+        error = CHQueryErrorTooManyBytes("too many bytes", code=307, code_name="too_many_bytes")
+        message = get_user_friendly_message(error)
+
+        self.assertEqual(message, BYTE_LIMIT_MESSAGE)
+        self.assertNotEqual(message, "Unable to retrieve experiment data. Please try refreshing the page.")
 
     def test_get_user_friendly_message_for_unmapped_error(self):
         """Test that unmapped errors return None."""
