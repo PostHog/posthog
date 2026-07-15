@@ -429,7 +429,10 @@ SURVEY_EDIT_TOOL_DESCRIPTION = dedent("""
 class EditSurveyToolArgs(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    survey_id: str = Field(description="UUID of the survey to edit")
+    survey_id: str | None = Field(
+        default=None,
+        description="UUID of the survey to edit. If omitted, the survey from the current editing context is used.",
+    )
     name: str | None = Field(default=None, description="New survey name")
     description: str | None = Field(default=None, description="New survey description")
     questions: list[SimpleSurveyQuestion] | None = Field(default=None, description="Replacement questions list")
@@ -458,13 +461,22 @@ class EditSurveyTool(MaxTool):
     name: str = "edit_survey"
     description: str = SURVEY_EDIT_TOOL_DESCRIPTION
     args_schema: type[BaseModel] = EditSurveyToolArgs
+    context_prompt_template: str = (
+        'The user is currently editing the survey "{survey_name}" (ID: {survey_id}). '
+        "Use this survey_id when editing unless the user clearly refers to a different survey. "
+        "Never guess or invent a survey ID."
+    )
 
     def get_required_resource_access(self):
         return [("survey", "editor")]
 
+    def _resolve_survey_id(self, survey_id: str | None) -> str | None:
+        """Fall back to the survey being edited on-page when the model omits the id."""
+        return survey_id or self.context.get("survey_id")
+
     async def is_dangerous_operation(
         self,
-        survey_id: str,
+        survey_id: str | None = None,
         launch: bool | None = None,
         stop: bool | None = None,
         archive: bool | None = None,
@@ -486,7 +498,7 @@ class EditSurveyTool(MaxTool):
 
     async def format_dangerous_operation_preview(
         self,
-        survey_id: str,
+        survey_id: str | None = None,
         launch: bool | None = None,
         stop: bool | None = None,
         archive: bool | None = None,
@@ -496,12 +508,14 @@ class EditSurveyTool(MaxTool):
         remove_wait_period: bool = False,
         **kwargs,
     ) -> str:
-        survey_name = survey_id
-        try:
-            survey = await sync_to_async(Survey.objects.get)(id=survey_id, team=self._team)
-            survey_name = f"'{survey.name}'"
-        except Survey.DoesNotExist:
-            survey_name = f"(ID: {survey_id})"
+        effective_survey_id = self._resolve_survey_id(survey_id)
+        survey_name = f"(ID: {effective_survey_id})" if effective_survey_id else "the survey"
+        if effective_survey_id:
+            try:
+                survey = await sync_to_async(Survey.objects.get)(id=effective_survey_id, team=self._team)
+                survey_name = f"'{survey.name}'"
+            except Survey.DoesNotExist:
+                pass
 
         actions = []
         if launch is True:
@@ -527,7 +541,7 @@ class EditSurveyTool(MaxTool):
 
     async def _arun_impl(
         self,
-        survey_id: str,
+        survey_id: str | None = None,
         name: str | None = None,
         description: str | None = None,
         questions: list[SimpleSurveyQuestion] | None = None,
@@ -548,12 +562,22 @@ class EditSurveyTool(MaxTool):
         try:
             team = self._team
 
+            effective_survey_id = self._resolve_survey_id(survey_id)
+            if not effective_survey_id:
+                return (
+                    "I couldn't tell which survey to edit. Open the survey you want to change, or tell me its ID.",
+                    {
+                        "error": "no_survey_id",
+                        "error_message": "No survey_id argument provided and none found in context.",
+                    },
+                )
+
             try:
-                survey = await sync_to_async(Survey.objects.get)(id=survey_id, team=team)
+                survey = await sync_to_async(Survey.objects.get)(id=effective_survey_id, team=team)
             except Survey.DoesNotExist:
-                return f"Survey with ID '{survey_id}' not found", {
+                return f"Survey with ID '{effective_survey_id}' not found", {
                     "error": "not_found",
-                    "error_message": f"No survey found with ID '{survey_id}' in your team.",
+                    "error_message": f"No survey found with ID '{effective_survey_id}' in your team.",
                 }
 
             update_data: dict[str, Any] = {}

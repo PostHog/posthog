@@ -940,6 +940,34 @@ class TestEditSurveyTool(BaseTest):
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
+    async def test_edit_survey_uses_survey_id_from_context(self):
+        survey = await self._create_test_survey()
+        config: RunnableConfig = {
+            "configurable": {
+                "team": self.team,
+                "user": self.user,
+                "contextual_tools": {"edit_survey": {"survey_id": str(survey.id)}},
+            },
+        }
+        tool = EditSurveyTool(team=self.team, user=self.user, config=config)
+
+        content, artifact = await tool._arun_impl(name="From Context")
+
+        assert artifact["survey_id"] == str(survey.id)
+        updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
+        assert updated_survey.name == "From Context"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_no_survey_id_anywhere(self):
+        tool = self._setup_tool()
+
+        content, artifact = await tool._arun_impl(name="New Name")
+
+        assert artifact["error"] == "no_survey_id"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
     async def test_edit_survey_wrong_team(self):
         from posthog.models import Organization, Team
 
