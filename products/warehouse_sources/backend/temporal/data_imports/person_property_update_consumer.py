@@ -18,11 +18,14 @@ import signal
 from collections.abc import Callable
 from typing import Any
 
+from django.conf import settings
+
 import structlog
 from prometheus_client import Counter
 
 from posthog.egress.limiter.outbound import OutboundRateLimiter
 from posthog.egress.limiter.policies import RatePolicy, register_policy
+from posthog.kafka_client import helper
 from posthog.kafka_client.client import _KafkaSecurityProtocol
 from posthog.kafka_client.routing import get_producer, get_profile_settings
 from posthog.kafka_client.topics import (
@@ -296,6 +299,32 @@ class PersonPropertyUpdateConsumer:
             outcome = self.process_record(value)
         return outcome
 
+    @staticmethod
+    def _build_consumer_config() -> dict[str, str | int | float | bool | None]:
+        # Resolve hosts + TLS/SASL through the router so the input topic's cluster profile (and any
+        # KAFKA_TOPIC_ROUTING_OVERRIDES) applies — never a bare plaintext KAFKA_HOSTS connection.
+        profile = get_profile_settings(topic=KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES)
+        security_protocol = profile.security_protocol
+        # Self-hosted base64 cert mode provides its own SSL material; force the protocol to SSL
+        # before SASL resolution so SASL creds aren't attached (mirrors _KafkaProducer).
+        if settings.KAFKA_BASE64_KEYS:
+            security_protocol = _KafkaSecurityProtocol.SSL
+        config: dict[str, str | int | float | bool | None] = {
+            "bootstrap.servers": ",".join(profile.hosts),
+            "group.id": CONSUMER_GROUP,
+            "auto.offset.reset": "earliest",
+            "enable.auto.commit": False,
+            "security.protocol": security_protocol or _KafkaSecurityProtocol.PLAINTEXT,
+        }
+        if security_protocol in (_KafkaSecurityProtocol.SASL_PLAINTEXT, _KafkaSecurityProtocol.SASL_SSL):
+            config["sasl.mechanism"] = profile.sasl_mechanism
+            config["sasl.username"] = profile.sasl_user
+            config["sasl.password"] = profile.sasl_password
+        if settings.KAFKA_BASE64_KEYS:
+            # Writes cert/key/CA files on first call; returns the ssl.* paths plus security.protocol=SSL.
+            config.update(helper.ssl_cert_config())
+        return config
+
     def run(
         self, poll_timeout: float = 1.0, health_reporter: Callable[[], None] | None = None
     ) -> None:  # pragma: no cover - exercised in dogfood
@@ -312,21 +341,7 @@ class PersonPropertyUpdateConsumer:
             except ValueError:
                 pass
 
-        # Resolve hosts + TLS/SASL through the router so the input topic's cluster profile (and any
-        # KAFKA_TOPIC_ROUTING_OVERRIDES) applies — never a bare plaintext KAFKA_HOSTS connection.
-        profile = get_profile_settings(topic=KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES)
-        config: dict[str, str | int | float | bool | None] = {
-            "bootstrap.servers": ",".join(profile.hosts),
-            "group.id": CONSUMER_GROUP,
-            "auto.offset.reset": "earliest",
-            "enable.auto.commit": False,
-            "security.protocol": profile.security_protocol or _KafkaSecurityProtocol.PLAINTEXT,
-        }
-        if profile.security_protocol in (_KafkaSecurityProtocol.SASL_PLAINTEXT, _KafkaSecurityProtocol.SASL_SSL):
-            config["sasl.mechanism"] = profile.sasl_mechanism
-            config["sasl.username"] = profile.sasl_user
-            config["sasl.password"] = profile.sasl_password
-        consumer = ConfluentConsumer(config)
+        consumer = ConfluentConsumer(self._build_consumer_config())
         consumer.subscribe([KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES])
         logger.info("person_property_update.consumer_started")
         try:

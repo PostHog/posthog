@@ -1,7 +1,10 @@
 import json
+from types import SimpleNamespace
 
 import pytest
 from unittest.mock import MagicMock, patch
+
+from django.test import override_settings
 
 from parameterized import parameterized
 
@@ -309,3 +312,72 @@ class TestCurrentRate:
     def test_valid_setting_is_parsed_and_floored(self, _name, raw, expected):
         with patch(_SETTING, return_value=raw):
             assert _current_rate() == expected
+
+
+_MODULE = "products.warehouse_sources.backend.temporal.data_imports.person_property_update_consumer"
+
+
+def _profile(security_protocol):
+    return SimpleNamespace(
+        hosts=["broker-1:9092", "broker-2:9092"],
+        security_protocol=security_protocol,
+        sasl_mechanism="PLAIN",
+        sasl_user="user",
+        sasl_password="pass",
+    )
+
+
+class TestBuildConsumerConfig:
+    def test_base64_keys_force_ssl_and_install_certs(self):
+        # Self-hosted cert-auth mode: the consumer must force security.protocol=SSL and merge the
+        # decoded cert/key/CA paths, exactly like the shared producer — otherwise it can fall back
+        # to plaintext or fail to join a TLS-secured cluster, leaking person data.
+        ssl_material = {
+            "security.protocol": "SSL",
+            "ssl.certificate.location": "/tmp/client.crt",
+            "ssl.key.location": "/tmp/client.key",
+            "ssl.ca.location": "/tmp/ca.crt",
+        }
+        with (
+            override_settings(KAFKA_BASE64_KEYS=True),
+            patch(f"{_MODULE}.get_profile_settings", return_value=_profile("SASL_SSL")),
+            patch(f"{_MODULE}.helper.ssl_cert_config", return_value=ssl_material) as ssl_cert_config,
+        ):
+            config = PersonPropertyUpdateConsumer._build_consumer_config()
+
+        ssl_cert_config.assert_called_once()
+        assert config["security.protocol"] == "SSL"
+        assert config["ssl.certificate.location"] == "/tmp/client.crt"
+        assert config["ssl.key.location"] == "/tmp/client.key"
+        assert config["ssl.ca.location"] == "/tmp/ca.crt"
+        # SSL is not a SASL protocol, so credentials must not be attached alongside the cert material.
+        assert "sasl.username" not in config
+
+    def test_sasl_ssl_profile_attaches_credentials(self):
+        with (
+            override_settings(KAFKA_BASE64_KEYS=False),
+            patch(f"{_MODULE}.get_profile_settings", return_value=_profile("SASL_SSL")),
+            patch(f"{_MODULE}.helper.ssl_cert_config") as ssl_cert_config,
+        ):
+            config = PersonPropertyUpdateConsumer._build_consumer_config()
+
+        ssl_cert_config.assert_not_called()
+        assert config["security.protocol"] == "SASL_SSL"
+        assert config["sasl.mechanism"] == "PLAIN"
+        assert config["sasl.username"] == "user"
+        assert config["sasl.password"] == "pass"
+        assert "ssl.certificate.location" not in config
+
+    def test_plaintext_profile_has_no_credentials_or_certs(self):
+        with (
+            override_settings(KAFKA_BASE64_KEYS=False),
+            patch(f"{_MODULE}.get_profile_settings", return_value=_profile(None)),
+            patch(f"{_MODULE}.helper.ssl_cert_config") as ssl_cert_config,
+        ):
+            config = PersonPropertyUpdateConsumer._build_consumer_config()
+
+        ssl_cert_config.assert_not_called()
+        assert config["security.protocol"] == "PLAINTEXT"
+        assert config["bootstrap.servers"] == "broker-1:9092,broker-2:9092"
+        assert "sasl.username" not in config
+        assert "ssl.certificate.location" not in config
