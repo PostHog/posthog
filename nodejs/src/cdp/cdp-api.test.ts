@@ -915,6 +915,7 @@ describe('CDP API', () => {
             api['batchResolverProducer'] = {
                 createJob: createJobMock,
                 countInFlightJobs: jest.fn().mockResolvedValue(0),
+                rescheduleParkedJobs: jest.fn(),
                 disconnect: jest.fn().mockResolvedValue(undefined),
             }
 
@@ -1002,6 +1003,7 @@ describe('CDP API', () => {
             api['batchResolverProducer'] = {
                 createJob: createJobMock,
                 countInFlightJobs: jest.fn().mockResolvedValue(0),
+                rescheduleParkedJobs: jest.fn(),
                 disconnect: jest.fn().mockResolvedValue(undefined),
             }
 
@@ -1063,6 +1065,7 @@ describe('CDP API', () => {
             api['batchResolverProducer'] = {
                 createJob: createJobMock,
                 countInFlightJobs: jest.fn().mockResolvedValue(0),
+                rescheduleParkedJobs: jest.fn(),
                 disconnect: jest.fn().mockResolvedValue(undefined),
             }
 
@@ -1181,6 +1184,7 @@ describe('CDP API', () => {
                 createJob: jest.fn(),
                 disconnect: jest.fn(),
                 countInFlightJobs: mockCountInFlightJobs,
+                rescheduleParkedJobs: jest.fn(),
             }
 
             countHogFlow = await insertHogFlow({
@@ -1239,6 +1243,127 @@ describe('CDP API', () => {
             const res = await supertest(app).get(
                 `/api/projects/${countHogFlow.team_id}/hog_flows/${countHogFlow.id}/in_flight_count`
             )
+
+            expect(res.status).toEqual(503)
+        })
+    })
+
+    describe('hogflow reschedule parked', () => {
+        let rescheduleHogFlow: HogFlow
+        let mockRescheduleParkedJobs: jest.Mock
+        const sweepFloor = new Date('2025-06-01T00:10:00.000Z')
+        const sweepUntil = new Date('2025-06-01T00:40:00.000Z')
+
+        beforeEach(async () => {
+            mockRescheduleParkedJobs = jest.fn().mockResolvedValue({
+                swept: 5,
+                remaining: 2,
+                done: false,
+                sweepFloor,
+                sweepUntil,
+            })
+            api['batchResolverProducer'] = {
+                createJob: jest.fn(),
+                disconnect: jest.fn(),
+                countInFlightJobs: jest.fn(),
+                rescheduleParkedJobs: mockRescheduleParkedJobs,
+            }
+
+            rescheduleHogFlow = await insertHogFlow({
+                id: new UUIDT().toString(),
+                name: 'test reschedule hog flow',
+                status: 'active',
+                version: 1,
+                exit_condition: 'exit_on_conversion',
+                edges: [],
+                actions: [],
+                trigger: {
+                    type: 'event',
+                    filters: {},
+                },
+            })
+        })
+
+        afterEach(() => {
+            api['batchResolverProducer'] = null
+        })
+
+        it('runs a sweep slice and returns the bounds for follow-up slices', async () => {
+            const res = await supertest(app)
+                .post(`/api/projects/${rescheduleHogFlow.team_id}/hog_flows/${rescheduleHogFlow.id}/reschedule_parked`)
+                .send({ action_ids: ['delay_1', 'wait_1'] })
+
+            expect(res.status).toEqual(200)
+            expect(res.body).toEqual({
+                swept: 5,
+                remaining: 2,
+                done: false,
+                sweep_floor: sweepFloor.toISOString(),
+                sweep_until: sweepUntil.toISOString(),
+            })
+            expect(mockRescheduleParkedJobs).toHaveBeenCalledWith({
+                teamId: rescheduleHogFlow.team_id,
+                functionId: rescheduleHogFlow.id,
+                actionIds: ['delay_1', 'wait_1'],
+                sweepFloor: undefined,
+                sweepUntil: undefined,
+            })
+        })
+
+        it('parses passed-through bounds into dates', async () => {
+            const res = await supertest(app)
+                .post(`/api/projects/${rescheduleHogFlow.team_id}/hog_flows/${rescheduleHogFlow.id}/reschedule_parked`)
+                .send({
+                    action_ids: ['delay_1'],
+                    sweep_floor: sweepFloor.toISOString(),
+                    sweep_until: sweepUntil.toISOString(),
+                })
+
+            expect(res.status).toEqual(200)
+            expect(mockRescheduleParkedJobs).toHaveBeenCalledWith(expect.objectContaining({ sweepFloor, sweepUntil }))
+        })
+
+        it.each([
+            ['missing action_ids', {}],
+            ['empty action_ids', { action_ids: [] }],
+            ['non-string action_ids', { action_ids: [42] }],
+            ['too many action_ids', { action_ids: Array.from({ length: 101 }, (_, i) => `a${i}`) }],
+            ['unparseable bounds', { action_ids: ['a'], sweep_floor: 'nope', sweep_until: 'nope' }],
+            ['only one bound', { action_ids: ['a'], sweep_floor: '2025-06-01T00:10:00.000Z' }],
+            [
+                'floor after until',
+                {
+                    action_ids: ['a'],
+                    sweep_floor: '2025-06-01T00:40:00.000Z',
+                    sweep_until: '2025-06-01T00:10:00.000Z',
+                },
+            ],
+        ])('rejects a bad body: %s', async (_desc, body) => {
+            const res = await supertest(app)
+                .post(`/api/projects/${rescheduleHogFlow.team_id}/hog_flows/${rescheduleHogFlow.id}/reschedule_parked`)
+                .send(body)
+
+            expect(res.status).toEqual(400)
+            expect(mockRescheduleParkedJobs).not.toHaveBeenCalled()
+        })
+
+        it("errors when requesting another team's hog flow", async () => {
+            const otherTeamId = await createTeam(hub.postgres, team.organization_id)
+
+            const res = await supertest(app)
+                .post(`/api/projects/${otherTeamId}/hog_flows/${rescheduleHogFlow.id}/reschedule_parked`)
+                .send({ action_ids: ['delay_1'] })
+
+            expect(res.status).toEqual(404)
+            expect(mockRescheduleParkedJobs).not.toHaveBeenCalled()
+        })
+
+        it('errors if the cyclotron producer is not configured', async () => {
+            api['batchResolverProducer'] = null
+
+            const res = await supertest(app)
+                .post(`/api/projects/${rescheduleHogFlow.team_id}/hog_flows/${rescheduleHogFlow.id}/reschedule_parked`)
+                .send({ action_ids: ['delay_1'] })
 
             expect(res.status).toEqual(503)
         })

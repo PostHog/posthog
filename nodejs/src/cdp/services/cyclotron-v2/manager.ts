@@ -1,11 +1,18 @@
 import { Pool } from 'pg'
-import { Counter } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 import { v7 as uuidv7 } from 'uuid'
 
 import { isTransientPgError } from '~/common/utils/db/postgres'
 import { logger } from '~/common/utils/logger'
+import { sleep } from '~/common/utils/utils'
 
-import { CyclotronV2JobInit, CyclotronV2JobInitSchema, CyclotronV2ManagerConfig } from './types'
+import {
+    CyclotronV2JobInit,
+    CyclotronV2JobInitSchema,
+    CyclotronV2ManagerConfig,
+    CyclotronV2RescheduleParkedOptions,
+    CyclotronV2RescheduleParkedResult,
+} from './types'
 
 /**
  * Block size used to compute the fair-dequeue sort key for email queue jobs:
@@ -65,6 +72,23 @@ const dbWriteFailureCounter = new Counter({
     labelNames: ['kind'] as const,
 })
 
+const rescheduleSweptCounter = new Counter({
+    name: 'cdp_cyclotron_v2_reschedule_parked_swept',
+    help: 'Parked cyclotron jobs whose scheduled time was pulled forward by a timing-edit reschedule sweep.',
+})
+
+const rescheduleWindowHistogram = new Histogram({
+    name: 'cdp_cyclotron_v2_reschedule_parked_window_seconds',
+    help: 'Spread window sized for a timing-edit reschedule sweep (observed once per sweep, on the sizing slice).',
+    buckets: [300, 600, 1800, 3600, 7200, 14400],
+})
+
+const rescheduleFailureCounter = new Counter({
+    name: 'cdp_cyclotron_v2_reschedule_parked_failures',
+    help: 'Failed reschedule sweep slices, split by kind=logical|transient.',
+    labelNames: ['kind'] as const,
+})
+
 /**
  * Thrown when an `overwriteExisting` createJob / bulkCreateJobs hits a row
  * that's still in an active state ('available' or 'running'). Callers should
@@ -89,6 +113,13 @@ export class CyclotronV2Manager {
     private readonly depthCheckIntervalMs: number
     private depthCheckPromise: Promise<boolean> | null = null
     private depthCheckExpiresAt = 0
+    private readonly rescheduleFloorSeconds: number
+    private readonly rescheduleWakeRatePerSecond: number
+    private readonly rescheduleMinWindowSeconds: number
+    private readonly rescheduleMaxWindowSeconds: number
+    private readonly rescheduleChunkSize: number
+    private readonly rescheduleMaxChunksPerCall: number
+    private readonly rescheduleChunkSleepMs: number
 
     constructor(config: CyclotronV2ManagerConfig) {
         this.pool = new Pool({
@@ -98,6 +129,13 @@ export class CyclotronV2Manager {
         })
         this.depthLimit = config.depthLimit ?? 1_000_000
         this.depthCheckIntervalMs = config.depthCheckIntervalMs ?? 10_000
+        this.rescheduleFloorSeconds = config.rescheduleFloorSeconds ?? 600
+        this.rescheduleWakeRatePerSecond = config.rescheduleWakeRatePerSecond ?? 200
+        this.rescheduleMinWindowSeconds = config.rescheduleMinWindowSeconds ?? 300
+        this.rescheduleMaxWindowSeconds = config.rescheduleMaxWindowSeconds ?? 14_400
+        this.rescheduleChunkSize = config.rescheduleChunkSize ?? 5_000
+        this.rescheduleMaxChunksPerCall = config.rescheduleMaxChunksPerCall ?? 20
+        this.rescheduleChunkSleepMs = config.rescheduleChunkSleepMs ?? 100
     }
 
     async connect(): Promise<void> {
@@ -400,6 +438,154 @@ export class CyclotronV2Manager {
             [teamId, functionId]
         )
         return result.rows[0].count
+    }
+
+    /**
+     * Pull forward the wake times of a workflow's parked jobs after a timing
+     * edit (issue #66380): jobs parked on one of `actionIds` get
+     * `scheduled = LEAST(scheduled, sweepFloor + random() * window)`, so each
+     * wakes somewhere inside the window, re-reads the live config, and either
+     * advances or re-parks at the recomputed target. Waking early is
+     * behaviourally idempotent (the executor's live-timing-edit contract
+     * tests), so this never needs to read job state or compute wake times.
+     *
+     * Two invariants make the sweep safe:
+     * - `LEAST` never moves a wake later than its natural time.
+     * - Swept rows land at or before `sweepUntil`, and the candidate predicate
+     *   is `scheduled > sweepUntil` — so the sweep is idempotent and naturally
+     *   terminating, and rows already waking within the window are untouched.
+     *
+     * The floor keeps the earliest sweep-induced wake beyond the hog flow
+     * cache's worst-case staleness (LazyLoader refreshAge + jitter, ~6 min),
+     * so a woken job always executes against the post-edit config even on a
+     * worker that missed the reload pubsub. The window is sized from the
+     * parked count and a wake rate: mass-waking parked jobs at once has
+     * dropped jobs in past load spikes, so wakes are trickled instead.
+     *
+     * Callers slice large sweeps across calls (maxChunksPerCall bounds one
+     * call's work) and MUST thread the returned bounds into follow-up calls —
+     * resizing the window per slice would re-compress the tail of the spread.
+     * Stale bounds (a retry landing after the window largely elapsed) are
+     * re-sized instead of honored: honoring them would `LEAST` the remainder
+     * into the past and mass-wake it.
+     */
+    async rescheduleParkedJobs(
+        options: CyclotronV2RescheduleParkedOptions
+    ): Promise<CyclotronV2RescheduleParkedResult> {
+        const { teamId, functionId, actionIds } = options
+        if (actionIds.length === 0) {
+            throw new Error('rescheduleParkedJobs requires at least one action id')
+        }
+
+        try {
+            let bounds: { sweepFloor: Date; sweepUntil: Date }
+            const staleBoundsCutoff = new Date(Date.now() + this.rescheduleMinWindowSeconds * 1000)
+            if (options.sweepFloor && options.sweepUntil && options.sweepUntil > staleBoundsCutoff) {
+                bounds = { sweepFloor: options.sweepFloor, sweepUntil: options.sweepUntil }
+            } else {
+                if (options.sweepUntil) {
+                    logger.warn('Reschedule sweep bounds are stale, re-sizing window', {
+                        teamId,
+                        functionId,
+                        sweepUntil: options.sweepUntil.toISOString(),
+                    })
+                }
+                const sized = await this.sizeRescheduleWindow(teamId, functionId, actionIds)
+                if (!sized) {
+                    const now = new Date()
+                    return { swept: 0, remaining: 0, done: true, sweepFloor: now, sweepUntil: now }
+                }
+                bounds = sized
+            }
+            const { sweepFloor, sweepUntil } = bounds
+
+            let swept = 0
+            for (let chunk = 0; chunk < this.rescheduleMaxChunksPerCall; chunk++) {
+                if (chunk > 0) {
+                    await sleep(this.rescheduleChunkSleepMs)
+                }
+                const result = await this.pool.query(
+                    `WITH candidates AS (
+                        SELECT id FROM cyclotron_jobs
+                        WHERE team_id = $1 AND function_id = $2 AND status = 'available'
+                          AND action_id = ANY($3::text[])
+                          AND scheduled > $5
+                        LIMIT $6
+                        FOR UPDATE SKIP LOCKED
+                    )
+                    UPDATE cyclotron_jobs j
+                    SET scheduled = LEAST(j.scheduled, $4::timestamptz + random() * ($5::timestamptz - $4::timestamptz))
+                    FROM candidates c
+                    WHERE j.id = c.id`,
+                    [teamId, functionId, actionIds, sweepFloor, sweepUntil, this.rescheduleChunkSize]
+                )
+                swept += result.rowCount ?? 0
+                if ((result.rowCount ?? 0) < this.rescheduleChunkSize) {
+                    break
+                }
+            }
+            rescheduleSweptCounter.inc(swept)
+
+            const remainingResult = await this.pool.query<{ count: number }>(
+                `SELECT COUNT(*)::int AS count FROM cyclotron_jobs
+                 WHERE team_id = $1 AND function_id = $2 AND status = 'available'
+                   AND action_id = ANY($3::text[])
+                   AND scheduled > $4`,
+                [teamId, functionId, actionIds, sweepUntil]
+            )
+            const remaining = remainingResult.rows[0].count
+
+            logger.info('Reschedule sweep slice completed', {
+                teamId,
+                functionId,
+                actionIds,
+                swept,
+                remaining,
+                sweepFloor: sweepFloor.toISOString(),
+                sweepUntil: sweepUntil.toISOString(),
+            })
+
+            return { swept, remaining, done: remaining === 0, sweepFloor, sweepUntil }
+        } catch (err) {
+            rescheduleFailureCounter.labels({ kind: isTransientPgError(err) ? 'transient' : 'logical' }).inc()
+            throw err
+        }
+    }
+
+    /**
+     * Size the sweep window for the current parked backlog: floor at
+     * `now + floorSeconds`, width `count / wakeRatePerSecond` clamped to
+     * [minWindow, maxWindow]. Counts everything beyond the floor — a slight
+     * overcount versus the final `scheduled > sweepUntil` predicate, which
+     * only widens the window (conservative). Returns null when nothing is
+     * parked beyond the floor.
+     */
+    private async sizeRescheduleWindow(
+        teamId: number,
+        functionId: string,
+        actionIds: string[]
+    ): Promise<{ sweepFloor: Date; sweepUntil: Date } | null> {
+        const countResult = await this.pool.query<{ count: number }>(
+            `SELECT COUNT(*)::int AS count FROM cyclotron_jobs
+             WHERE team_id = $1 AND function_id = $2 AND status = 'available'
+               AND action_id = ANY($3::text[])
+               AND scheduled > NOW() + make_interval(secs => $4)`,
+            [teamId, functionId, actionIds, this.rescheduleFloorSeconds]
+        )
+        const count = countResult.rows[0].count
+        if (count === 0) {
+            return null
+        }
+
+        const windowSeconds = Math.min(
+            this.rescheduleMaxWindowSeconds,
+            Math.max(this.rescheduleMinWindowSeconds, Math.ceil(count / this.rescheduleWakeRatePerSecond))
+        )
+        rescheduleWindowHistogram.observe(windowSeconds)
+
+        const sweepFloor = new Date(Date.now() + this.rescheduleFloorSeconds * 1000)
+        const sweepUntil = new Date(sweepFloor.getTime() + windowSeconds * 1000)
+        return { sweepFloor, sweepUntil }
     }
 
     async disconnect(): Promise<void> {

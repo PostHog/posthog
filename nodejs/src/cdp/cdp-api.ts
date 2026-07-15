@@ -239,6 +239,10 @@ export class CdpApi {
         )
         router.post('/api/projects/:team_id/hog_flows/:id/rerun', asyncHandler(this.postRerunInvocations('hog_flow')))
         router.get('/api/projects/:team_id/hog_flows/:id/in_flight_count', asyncHandler(this.getHogFlowInFlightCount))
+        router.post(
+            '/api/projects/:team_id/hog_flows/:id/reschedule_parked',
+            asyncHandler(this.postHogFlowRescheduleParked)
+        )
         router.get('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.getFunctionStatus()))
         router.patch('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.patchFunctionStatus()))
         router.get('/api/hog_functions/states', asyncHandler(this.getFunctionStates()))
@@ -835,6 +839,75 @@ export class CdpApi {
             return res.json({ count })
         } catch (e) {
             logger.error('Error counting in-flight hog flow jobs', {
+                error: e instanceof Error ? e.message : String(e),
+            })
+            return res.status(500).json({ error: e instanceof Error ? e.message : String(e) })
+        }
+    }
+
+    // Pull forward the wake times of this workflow's parked jobs after a timing edit. Django
+    // calls this (via a Celery task) when a published/saved change shortened a delay or moved a
+    // wait window; one call is one slice, and the caller loops with the returned bounds until
+    // `done`. See CyclotronV2Manager.rescheduleParkedJobs for the sweep semantics.
+    private postHogFlowRescheduleParked = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+        try {
+            if (!this.batchResolverProducer) {
+                return res.status(503).json({
+                    error: 'Cyclotron producer not initialized (CYCLOTRON_NODE_DATABASE_URL unset)',
+                })
+            }
+
+            const { team_id, id } = req.params
+            const team = await this.deps.teamManager.getTeam(parseInt(team_id)).catch(() => null)
+            if (!team) {
+                return res.status(404).json({ error: 'Team not found' })
+            }
+
+            const hogFlow = await this.hogFlowManager.getHogFlow(id)
+            if (!hogFlow || hogFlow.team_id !== team.id) {
+                return res.status(404).json({ error: 'Workflow not found' })
+            }
+
+            const body = req.body ?? {}
+            const actionIds = body.action_ids
+            if (
+                !Array.isArray(actionIds) ||
+                actionIds.length === 0 ||
+                actionIds.length > 100 ||
+                !actionIds.every((a: unknown) => typeof a === 'string' && a.length > 0)
+            ) {
+                return res.status(400).json({ error: 'action_ids must be a non-empty array of up to 100 strings' })
+            }
+            const sweepFloor = body.sweep_floor ? new Date(body.sweep_floor) : undefined
+            const sweepUntil = body.sweep_until ? new Date(body.sweep_until) : undefined
+            if ((sweepFloor && isNaN(sweepFloor.getTime())) || (sweepUntil && isNaN(sweepUntil.getTime()))) {
+                return res.status(400).json({ error: 'sweep_floor and sweep_until must be ISO datetimes' })
+            }
+            if (
+                (sweepFloor === undefined) !== (sweepUntil === undefined) ||
+                (sweepFloor && sweepUntil && sweepFloor >= sweepUntil)
+            ) {
+                return res
+                    .status(400)
+                    .json({ error: 'sweep_floor and sweep_until must be passed together, with floor before until' })
+            }
+
+            const result = await this.batchResolverProducer.rescheduleParkedJobs({
+                teamId: team.id,
+                functionId: id,
+                actionIds,
+                sweepFloor,
+                sweepUntil,
+            })
+            return res.json({
+                swept: result.swept,
+                remaining: result.remaining,
+                done: result.done,
+                sweep_floor: result.sweepFloor.toISOString(),
+                sweep_until: result.sweepUntil.toISOString(),
+            })
+        } catch (e) {
+            logger.error('Error rescheduling parked hog flow jobs', {
                 error: e instanceof Error ? e.message : String(e),
             })
             return res.status(500).json({ error: e instanceof Error ? e.message : String(e) })
