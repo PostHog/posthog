@@ -1169,7 +1169,7 @@ WEB_ANALYTICS_NO_JOIN_TEAM_IDS: list[int] = [
 # 100 enrolls every team. Defaults to 50 on US Cloud (verified region); EU stays 0
 # until its ClickHouse upgrade converges and the fast paths are verified there.
 # Env var overrides in either direction and is the kill switch.
-_NO_JOIN_DEFAULT_ROLLOUT_PERCENT = 50 if (CLOUD_DEPLOYMENT or "").upper() == "US" and not TEST else 0
+_NO_JOIN_DEFAULT_ROLLOUT_PERCENT = 100 if (CLOUD_DEPLOYMENT or "").upper() == "US" and not TEST else 0
 WEB_ANALYTICS_NO_JOIN_ROLLOUT_PERCENT: int = get_from_env(
     "WEB_ANALYTICS_NO_JOIN_ROLLOUT_PERCENT", _NO_JOIN_DEFAULT_ROLLOUT_PERCENT, type_cast=int
 )
