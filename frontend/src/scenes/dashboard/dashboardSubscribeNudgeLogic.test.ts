@@ -249,7 +249,9 @@ describe('dashboardSubscribeNudgeLogic', () => {
             expect(router.values.searchParams).toMatchObject({ prefill: 'nudge', via: 'toast' })
         })
 
-        it('marks notified without shown or toast when the server dedupe-skips', async () => {
+        it('does not burn the client marker when the server reports nothing was created', async () => {
+            // created:false covers a server dedupe-skip AND a released sentinel (notifications
+            // unavailable / opt-out) — the marker must not stick, so the nudge can retry later.
             nudgePostResponse = [200, { created: false }]
 
             await expectLogic(logic, () => {
@@ -257,9 +259,18 @@ describe('dashboardSubscribeNudgeLogic', () => {
             }).toFinishAllListeners()
 
             expect(nudgePostCount).toBe(1)
-            expect(logic.values.isNotified).toBe(true)
+            expect(logic.values.isNotified).toBe(false)
             expect(capturesOf('dashboard subscribe nudge shown')).toHaveLength(0)
             expect(lemonToast.info).not.toHaveBeenCalled()
+
+            // The next qualifying visit (fresh mount) retries; the server sentinel still
+            // collapses genuine duplicates.
+            logic.unmount()
+            logic = dashboardSubscribeNudgeLogic({ dashboardId: DASHBOARD_ID })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(nudgePostCount).toBe(2)
         })
 
         it('reports the notify failure and does not mark notified when the delivery request errors', async () => {

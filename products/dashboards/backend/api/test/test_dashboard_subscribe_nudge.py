@@ -6,7 +6,9 @@ from django.core.cache import cache
 from rest_framework import status
 
 from posthog.models.organization import Organization
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.notifications.backend.facade.api import NotificationType, Priority, TargetType
@@ -61,10 +63,38 @@ class TestDashboardSubscribeNudge(APIBaseTest):
         assert response.status_code == status.HTTP_404_NOT_FOUND
         mock_create_notification.assert_not_called()
 
-    def test_reports_not_created_when_notifications_unavailable(self, mock_create_notification: MagicMock) -> None:
+    def test_releases_the_dedupe_sentinel_when_notifications_unavailable(
+        self, mock_create_notification: MagicMock
+    ) -> None:
         mock_create_notification.return_value = None
 
         response = self._post_nudge(self.dashboard.id)
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"created": False}
+
+        # The sentinel must not burn the nudge for 30 days: once notifications become
+        # available again, the next call creates.
+        mock_create_notification.return_value = MagicMock()
+        retry = self._post_nudge(self.dashboard.id)
+        assert retry.status_code == status.HTTP_201_CREATED
+        assert retry.json() == {"created": True}
+
+    def test_rejects_read_scoped_api_key(self, mock_create_notification: MagicMock) -> None:
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="dashboard read only",
+            user=self.user,
+            secure_value=hash_key_value(token),
+            scopes=["dashboard:read"],
+            scoped_teams=[],
+            scoped_organizations=[],
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/dashboards/{self.dashboard.id}/subscribe_nudge/",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        mock_create_notification.assert_not_called()

@@ -458,6 +458,11 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             // ?prefill=nudge is set by the subscribe-nudge notification / toast, possibly opened in a
             // fresh session days later — the prefill is built here from URL + context, not kea state.
             if (searchParams.prefill === 'nudge' && props.dashboardId) {
+                // Consume the params before applying: the replace synchronously re-enters this
+                // handler (resetting the form to plain defaults), and it also makes a later refresh
+                // of the URL neither re-capture the click nor re-apply a stale prefill.
+                const { prefill: _prefill, via: _via, ...restSearchParams } = router.values.searchParams
+                router.actions.replace(router.values.location.pathname, restSearchParams, router.values.hashParams)
                 const prefill: Partial<SubscriptionType> = {
                     title: `${props.dashboardName || 'Dashboard'} weekly digest`,
                     ...(values.user?.email ? { target_value: values.user.email } : {}),

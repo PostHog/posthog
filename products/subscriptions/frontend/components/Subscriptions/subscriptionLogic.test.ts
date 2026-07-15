@@ -164,9 +164,20 @@ describe('subscriptionLogic', () => {
             target_type: 'email',
         })
         expect(prefilledLogic.values.subscriptionChanged).toBe(true)
-        expect(
+        const clickedCaptures = (): any[][] =>
             (posthog.capture as jest.Mock).mock.calls.filter(([name]) => name === 'dashboard subscribe nudge clicked')
-        ).toEqual([['dashboard subscribe nudge clicked', { dashboard_id: 9, prefilled: true, via: expectedVia }]])
+        expect(clickedCaptures()).toEqual([
+            ['dashboard subscribe nudge clicked', { dashboard_id: 9, prefilled: true, via: expectedVia }],
+        ])
+
+        // The params are consumed on apply, so refreshing the resulting URL neither re-captures
+        // the click nor re-applies a stale prefill.
+        expect(prefilledLogic.values.subscription.title).toBe('Key metrics weekly digest')
+        expect(router.values.searchParams.prefill).toBeUndefined()
+        expect(router.values.searchParams.via).toBeUndefined()
+        router.actions.push(router.values.location.pathname)
+        await expectLogic(prefilledLogic).toFinishListeners()
+        expect(clickedCaptures()).toHaveLength(1)
 
         prefilledLogic.unmount()
     })

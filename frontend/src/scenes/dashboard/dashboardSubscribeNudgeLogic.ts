@@ -169,12 +169,14 @@ export const dashboardSubscribeNudgeLogic = kea<dashboardSubscribeNudgeLogicType
             })
         },
         sendNudgeNotificationSuccess: ({ nudgeNotification }) => {
-            // Never request again from this browser — also on a server dedupe-skip, since the
-            // notification already exists.
-            actions.markDashboardNotified(props.dashboardId)
             if (!nudgeNotification?.created) {
+                // Nothing was delivered (server dedupe-skip, notifications unavailable, or user
+                // opt-out) — don't burn the client marker; a later qualifying visit retries and the
+                // server sentinel still collapses races.
                 return
             }
+            // Delivered — never request again from this browser.
+            actions.markDashboardNotified(props.dashboardId)
             posthog.capture('dashboard subscribe nudge shown', {
                 dashboard_id: props.dashboardId,
                 view_count_7d: values.viewCount7d,

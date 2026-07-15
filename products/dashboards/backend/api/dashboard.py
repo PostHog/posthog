@@ -3279,7 +3279,7 @@ class DashboardsViewSet(
         "dashboard. Deduplicated server-side: at most one notification per user and dashboard within the "
         "dedupe window, so repeat calls return 200 with created=false.",
     )
-    @action(methods=["POST"], detail=True, url_path="subscribe_nudge", required_scopes=["dashboard:read"])
+    @action(methods=["POST"], detail=True, url_path="subscribe_nudge", required_scopes=["dashboard:write"])
     def subscribe_nudge(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         dashboard = self.get_object()
         user = cast(User, request.user)
@@ -3304,7 +3304,9 @@ class DashboardsViewSet(
         )
         if event is None:
             # Notifications disabled or no recipients resolved — report honestly so the caller
-            # doesn't treat this as a delivered nudge.
+            # doesn't treat this as a delivered nudge, and release the sentinel so the nudge isn't
+            # silently burned for 30 days once the condition clears.
+            cache.delete(dedupe_key)
             return Response({"created": False}, status=status.HTTP_200_OK)
 
         return Response({"created": True}, status=status.HTTP_201_CREATED)
