@@ -333,3 +333,100 @@ class TestWizardSessionViewSet(APIBaseTest):
             return_value=flag_value,
         ):
             self.assertEqual(_wizard_sync_killswitch_enabled("distinct-id"), expected)
+
+
+class TestSetupReviewEndpoint(APIBaseTest):
+    def _url(self) -> str:
+        return f"/api/projects/{self.team.id}/wizard/sessions/setup_review/"
+
+    def _check(self, check_id: str = "identify-stable-distinct-id", **overrides) -> dict:
+        check = {
+            "id": check_id,
+            "area": "identify",
+            "label": f"Label for {check_id}",
+            "status": "error",
+            "file": "src/auth.ts",
+            "details": "distinct_id changes per session",
+        }
+        check.update(overrides)
+        return check
+
+    def _post(self, payload: dict):
+        with patch("products.wizard.backend.presentation.views.signals_facade.start_wizard_setup_review") as mock_start:
+            response = self.client.post(self._url(), payload, format="json")
+        return response, mock_start
+
+    def test_valid_ledger_dispatches_the_review(self):
+        checks = [self._check(), self._check("capture-growth-events", status="warning")]
+
+        response, mock_start = self._post({"repository": "acme/webapp", "checks": checks})
+
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        mock_start.assert_called_once_with(team_id=self.team.id, repository="acme/webapp", checks=checks)
+
+    def test_prunes_bookkeeping_rows_and_caps_the_ledger(self):
+        checks = [
+            self._check("write-report", status="pass"),
+            self._check("upload-notebook", status="pass"),
+            *(self._check(f"check-{i}") for i in range(60)),
+        ]
+
+        response, mock_start = self._post({"repository": "acme/webapp", "checks": checks})
+
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        dispatched = mock_start.call_args.kwargs["checks"]
+        self.assertEqual(len(dispatched), 50)
+        self.assertTrue(all(check["id"].startswith("check-") for check in dispatched))
+
+    def test_truncates_oversized_details(self):
+        checks = [self._check(details="x" * 5000)]
+
+        _, mock_start = self._post({"repository": "acme/webapp", "checks": checks})
+
+        self.assertEqual(len(mock_start.call_args.kwargs["checks"][0]["details"]), 2000)
+
+    def test_only_bookkeeping_rows_skips_dispatch_but_still_202s(self):
+        checks = [self._check("write-report", status="pass")]
+
+        response, mock_start = self._post({"repository": "acme/webapp", "checks": checks})
+
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        mock_start.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("missing_repository", {"checks": [{"id": "a", "label": "b", "status": "error"}]}),
+            (
+                "malformed_repository",
+                {"repository": "not-owner-repo", "checks": [{"id": "a", "label": "b", "status": "error"}]},
+            ),
+            ("empty_checks", {"repository": "acme/webapp", "checks": []}),
+            ("check_missing_required_fields", {"repository": "acme/webapp", "checks": [{"id": "a"}]}),
+        ]
+    )
+    def test_rejects_invalid_payloads(self, _name, payload):
+        response, mock_start = self._post(payload)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        mock_start.assert_not_called()
+
+    def test_temporal_failure_stays_202(self):
+        with patch(
+            "products.wizard.backend.presentation.views.signals_facade.start_wizard_setup_review",
+            side_effect=RuntimeError("temporal down"),
+        ):
+            response = self.client.post(
+                self._url(),
+                {"repository": "acme/webapp", "checks": [self._check()]},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+
+    def test_requires_authentication(self):
+        self.client.logout()
+
+        response, mock_start = self._post({"repository": "acme/webapp", "checks": [self._check()]})
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        mock_start.assert_not_called()

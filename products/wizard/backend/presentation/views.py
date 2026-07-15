@@ -28,6 +28,7 @@ from posthog.api.streaming import sse_streaming_response
 from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
 
+from products.signals.backend.facade import api as signals_facade
 from products.wizard.backend.facade import api as wizard_facade
 from products.wizard.backend.facade.contracts import (
     UpsertWizardSessionInput,
@@ -35,6 +36,7 @@ from products.wizard.backend.facade.contracts import (
     WizardSessionDTO,
 )
 from products.wizard.backend.presentation.serializers import (
+    SetupReviewRequestSerializer,
     UpsertWizardSessionRequestSerializer,
     WizardSessionSerializer,
 )
@@ -121,12 +123,12 @@ def _wizard_sync_killswitch_enabled(distinct_id: str) -> bool:
 class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "wizard_session"
     scope_object_read_actions = ["list", "retrieve", "stream", "latest"]
-    scope_object_write_actions = ["create"]
+    scope_object_write_actions = ["create", "setup_review"]
     http_method_names = ["get", "post", "head", "options"]
     lookup_field = "session_id"
-    # Negative lookahead so a session_id of `stream` or `latest` can't collide
-    # with the `@action(url_path=...)` detail-vs-action routes.
-    lookup_value_regex = r"(?!(?:stream|latest)$)[^/]+"
+    # Negative lookahead so a session_id of `stream`, `latest` or `setup_review`
+    # can't collide with the `@action(url_path=...)` detail-vs-action routes.
+    lookup_value_regex = r"(?!(?:stream|latest|setup_review)$)[^/]+"
 
     def check_permissions(self, request: Request) -> None:
         try:
@@ -283,6 +285,39 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
         response_status = status.HTTP_201_CREATED if created else status.HTTP_200_OK
         return Response(WizardSessionSerializer(dto).data, status=response_status)
+
+    @extend_schema(
+        description=(
+            "Submit a local wizard audit's check ledger for the post-onboarding setup "
+            "review. The signals pipeline turns the strongest failing checks into a "
+            "handful of complimentary implementation PRs in the inbox. This should only "
+            "be called by the PostHog Wizard. Fire-and-forget: always 202 once the "
+            "payload validates — the review itself is idempotent (one per team, ever) "
+            "and gated server-side on org AI consent."
+        ),
+        request=SetupReviewRequestSerializer,
+        responses={202: OpenApiResponse(description="Ledger accepted for review.")},
+    )
+    @action(detail=False, methods=["post"], url_path="setup_review")
+    def setup_review(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        serializer = SetupReviewRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        checks = serializer.validated_data["checks"]
+        if checks:
+            # Same best-effort contract as the PR-merge webhook dispatch (products/tasks
+            # webhooks.py): a Temporal hiccup must not bubble to the wizard, which treats
+            # this upload as fail-silent anyway. Deduping and consent live in the workflow.
+            try:
+                signals_facade.start_wizard_setup_review(
+                    team_id=self.team_id,
+                    repository=serializer.validated_data["repository"],
+                    checks=checks,
+                )
+            except Exception:
+                logger.warning("wizard_setup_review_dispatch_failed", team_id=self.team_id, exc_info=True)
+
+        return Response(status=status.HTTP_202_ACCEPTED)
 
     @extend_schema(
         description=(
