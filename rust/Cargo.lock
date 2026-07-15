@@ -7593,6 +7593,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "personhog-test-harness"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "assignment-coordination",
+ "chrono",
+ "clap",
+ "futures",
+ "hdrhistogram",
+ "humantime",
+ "personhog-coordination",
+ "personhog-proto",
+ "rand 0.8.5",
+ "rdkafka",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tonic 0.12.3",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "personhog-writer"
 version = "0.1.0"
 dependencies = [
