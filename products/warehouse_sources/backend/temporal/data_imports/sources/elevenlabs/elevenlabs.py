@@ -1,6 +1,6 @@
 import dataclasses
 from collections.abc import Iterator
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from typing import Any, Optional
 
 import requests
@@ -47,9 +47,13 @@ def _to_unix_seconds(value: Any) -> int:
     back an int; datetime/date are handled defensively in case a stored value was coerced upstream.
     """
     if isinstance(value, datetime):
+        # A naive datetime's timestamp() would assume the server's local timezone, so pin it to UTC
+        # to keep incremental boundaries identical across environments.
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=UTC)
         return int(value.timestamp())
     if isinstance(value, date):
-        return int(datetime(value.year, value.month, value.day).timestamp())
+        return int(datetime(value.year, value.month, value.day, tzinfo=UTC).timestamp())
     return int(value)
 
 
@@ -98,7 +102,7 @@ def validate_credentials(api_key: str, schema_name: Optional[str] = None) -> tup
     params: dict[str, Any] = {"page_size": 1} if config else {}
 
     try:
-        response = make_tracked_session(redact_values=(api_key,)).get(
+        response = make_tracked_session(redact_values=(api_key,), allow_redirects=False).get(
             url, headers=_get_headers(api_key), params=params, timeout=10
         )
     except Exception:
@@ -163,8 +167,10 @@ def get_rows(
     config = ELEVENLABS_ENDPOINTS[endpoint]
     headers = _get_headers(api_key)
     # One session reused across pages so urllib3 keeps the connection alive instead of re-handshaking.
-    # Redact the key so it can't leak into captured HTTP samples or logged URLs.
-    session = make_tracked_session(redact_values=(api_key,))
+    # Redact the key so it can't leak into captured HTTP samples or logged URLs. Don't follow redirects:
+    # requests preserves the custom `xi-api-key` header across a cross-origin 3xx, so a redirect off the
+    # fixed API host could replay the key to another origin — fail the request instead.
+    session = make_tracked_session(redact_values=(api_key,), allow_redirects=False)
     url = f"{ELEVENLABS_BASE_URL}{config.path}"
 
     params = _build_params(config, should_use_incremental_field, db_incremental_field_last_value, incremental_field)

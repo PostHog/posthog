@@ -1,4 +1,6 @@
-from datetime import UTC, datetime
+import os
+import time
+from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
@@ -44,6 +46,23 @@ class TestToUnixSeconds:
     )
     def test_to_unix_seconds(self, _name: str, value: Any, expected: int) -> None:
         assert _to_unix_seconds(value) == expected
+
+    def test_naive_values_are_interpreted_as_utc_regardless_of_server_tz(self) -> None:
+        # A local-time interpretation would shift the incremental watermark by the server's UTC offset,
+        # so the same date would sync different windows on different machines. Force a non-UTC zone and
+        # assert both a `date` and a naive `datetime` still resolve to the UTC epoch.
+        original_tz = os.environ.get("TZ")
+        os.environ["TZ"] = "America/New_York"
+        time.tzset()
+        try:
+            assert _to_unix_seconds(date(2024, 1, 1)) == 1704067200
+            assert _to_unix_seconds(datetime(2024, 1, 1)) == 1704067200
+        finally:
+            if original_tz is None:
+                os.environ.pop("TZ", None)
+            else:
+                os.environ["TZ"] = original_tz
+            time.tzset()
 
 
 class TestBuildParams:
@@ -199,6 +218,26 @@ class TestValidateCredentials:
             ok, msg = validate_credentials("k")
         assert ok is False
         assert msg is not None
+
+    def test_session_does_not_follow_redirects(self) -> None:
+        # requests keeps the custom xi-api-key header across a cross-origin 3xx; following one would
+        # replay the key to the redirect target, so the credentialed session must refuse redirects.
+        with patch.object(elevenlabs, "make_tracked_session") as mts:
+            mts.return_value.get.return_value = MagicMock(status_code=200)
+            validate_credentials("k")
+        assert mts.call_args.kwargs["allow_redirects"] is False
+
+
+class TestGetRowsSecurity:
+    def test_session_does_not_follow_redirects(self) -> None:
+        # Same key-leak boundary as validation: the sync session must not forward xi-api-key on a 3xx.
+        page = {"history": [], "has_more": False, "last_history_item_id": None}
+        with (
+            patch.object(elevenlabs, "make_tracked_session") as mts,
+            patch.object(elevenlabs, "_fetch_page", lambda *_a, **_k: page),
+        ):
+            list(get_rows("k", "history", MagicMock(), _FakeResumableManager()))  # type: ignore[arg-type]
+        assert mts.call_args.kwargs["allow_redirects"] is False
 
 
 class TestSourceResponse:
