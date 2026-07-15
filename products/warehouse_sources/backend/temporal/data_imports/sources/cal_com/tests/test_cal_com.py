@@ -10,7 +10,6 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.cal_com import cal_com
 from products.warehouse_sources.backend.temporal.data_imports.sources.cal_com.cal_com import (
     CAL_COM_BASE_URL,
-    PAGE_LIMIT,
     CalComResumeConfig,
     CalComRetryableError,
     cal_com_source,
@@ -82,9 +81,10 @@ class TestBookingsCursorPagination:
     def test_follows_next_cursor_until_has_more_false(self) -> None:
         manager = _FakeResumableManager()
         rows, calls = _collect(manager, self._pages, "bookings")
+        limit = CAL_COM_ENDPOINTS["bookings"].page_size
         assert rows == [{"id": 1}, {"id": 2}]
-        assert calls[0]["params"] == {"limit": PAGE_LIMIT}
-        assert calls[1]["params"] == {"limit": PAGE_LIMIT, "cursor": "c2"}
+        assert calls[0]["params"] == {"limit": limit}
+        assert calls[1]["params"] == {"limit": limit, "cursor": "c2"}
         # State is saved once — after the first page, pointing at the next cursor — then we stop.
         assert [s.cursor for s in manager.saved] == ["c2"]
 
@@ -165,15 +165,16 @@ class TestBookingsCursorPagination:
 class TestWebhooksOffsetPagination:
     def test_advances_skip_until_short_page(self) -> None:
         manager = _FakeResumableManager()
-        full_page = [{"id": i} for i in range(PAGE_LIMIT)]
+        take = CAL_COM_ENDPOINTS["webhooks"].page_size
+        full_page = [{"id": i} for i in range(take)]
 
         def pages(url: str, params: dict[str, Any]) -> dict[str, Any]:
             return {"data": full_page if params["skip"] == 0 else [{"id": "last"}]}
 
         rows, calls = _collect(manager, pages, "webhooks")
-        assert len(rows) == PAGE_LIMIT + 1
-        assert [c["params"]["skip"] for c in calls] == [0, PAGE_LIMIT]
-        assert [s.skip for s in manager.saved] == [PAGE_LIMIT]
+        assert len(rows) == take + 1
+        assert [c["params"]["skip"] for c in calls] == [0, take]
+        assert [s.skip for s in manager.saved] == [take]
 
     def test_resumes_from_saved_offset(self) -> None:
         manager = _FakeResumableManager(CalComResumeConfig(skip=500))
@@ -184,6 +185,25 @@ class TestWebhooksOffsetPagination:
 
         rows, _ = _collect(manager, pages, "webhooks")
         assert rows == [{"id": "resumed"}]
+
+
+class TestPaginationRespectsCalComLimits:
+    # Cal.com validates the page-size param per endpoint and 400s a larger value on the very first
+    # request (before any watermark exists). The shipped source sent limit=250 for bookings, whose
+    # documented `limit` max is 100, so every bookings sync failed. Webhooks `take` genuinely allows
+    # 250. Docs: cal.com/docs/api-reference/v2/bookings and .../webhooks (get-all).
+    @parameterized.expand(
+        [
+            ("bookings", "limit", 100),
+            ("webhooks", "take", 250),
+        ]
+    )
+    def test_first_page_size_within_documented_max(self, endpoint: str, param: str, documented_max: int) -> None:
+        manager = _FakeResumableManager()
+        _, calls = _collect(manager, lambda url, params: {"data": []}, endpoint)
+        sent = calls[0]["params"][param]
+        assert sent == CAL_COM_ENDPOINTS[endpoint].page_size
+        assert 1 <= sent <= documented_max
 
 
 class TestSingleFetchEndpoints:

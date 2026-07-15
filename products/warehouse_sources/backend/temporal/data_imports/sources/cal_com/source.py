@@ -80,6 +80,7 @@ You can create an API key under **Settings → Security → API keys** in [Cal.c
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
+            "400 Client Error: Bad Request for url: https://api.cal.com": "Cal.com rejected the request for this data. This usually means the connected data no longer matches what Cal.com's API accepts. Reconnect the source, and if it persists, let us know.",
             "401 Client Error: Unauthorized for url: https://api.cal.com": "Your Cal.com API key is invalid or has been revoked. Create a new API key under Settings → Security → API keys in Cal.com, then reconnect.",
             "403 Client Error: Forbidden for url: https://api.cal.com": "Your Cal.com API key does not have access to this data. Check the key owner's permissions in Cal.com, then reconnect.",
         }
