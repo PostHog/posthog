@@ -166,3 +166,17 @@ export const TileFilterOverrides: Story = {
         },
     },
 }
+
+// Both layers present: the tile breakdown wins over the dashboard's, per the merge semantics.
+export const MergedFilterOverrides: Story = {
+    args: {
+        insight: __trendsLine as any,
+        filtersOverride: {
+            date_from: '-30d',
+            breakdown_filter: { breakdown: '$os', breakdown_type: 'event' },
+        },
+        tileFiltersOverride: {
+            breakdown_filter: { breakdown: '$browser', breakdown_type: 'event' },
+        },
+    },
+}

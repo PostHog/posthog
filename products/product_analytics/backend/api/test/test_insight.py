@@ -4248,7 +4248,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert isinstance(response["query"]["source"], dict)
         assert response["query"]["source"]["dateRange"]["date_from"] == "-7d"
 
-    def test_tile_filters_override_replaces_dashboard_filters_in_returned_query(self) -> None:
+    def test_tile_filters_merge_with_dashboard_filters_in_returned_query(self) -> None:
         insight = Insight.objects.create(
             filters={},
             query={
@@ -4262,8 +4262,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             team=self.team,
         )
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard 1", created_by=self.user)
-        # Tile has its own date-range filter (no person properties). The compute path treats
-        # this as a complete replacement for all dashboard filters.
+        # Tile overrides only the date range; the dashboard's person filter must still apply.
         DashboardTile.objects.create(
             dashboard=dashboard,
             insight=insight,
@@ -4271,9 +4270,8 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
         # Dashboard-level filter includes a person property filter (e.g. $initial_host = readdy.ai).
-        dashboard_filters = {
-            "properties": [{"key": "$initial_host", "type": "person", "operator": "exact", "value": ["readdy.ai"]}]
-        }
+        person_filter = {"key": "$initial_host", "type": "person", "operator": "exact", "value": ["readdy.ai"]}
+        dashboard_filters = {"properties": [person_filter]}
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/insights/{insight.pk}",
@@ -4284,13 +4282,12 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         ).json()
 
         source = response["query"]["source"]
-        # The tile's filter (date_from = -7d, no person properties) must win over the
-        # dashboard filter. If the dashboard person properties appeared here the persons
-        # modal would use a different filter set than the chart — the bug this test guards.
+        # Tile date wins over the dashboard's, but the dashboard's person filter is merged in — not
+        # discarded. The compute path merges the same way, so the persons modal still matches the chart.
         assert source["dateRange"]["date_from"] == "-7d"
-        # properties must be absent or empty — the dashboard's person filter must not appear.
-        assert not source.get("properties"), (
-            f"Tile filters should replace dashboard filters; persons modal would diverge. Got: {source.get('properties')}"
+        merged_properties = source.get("properties") or []
+        assert any(p.get("key") == "$initial_host" and p.get("value") == ["readdy.ai"] for p in merged_properties), (
+            f"Dashboard person filter should be merged into the tile query. Got: {merged_properties}"
         )
 
     def test_insight_cache_key_changes_with_variable_override_when_tile_filters_are_set(self) -> None:

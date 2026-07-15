@@ -14,10 +14,10 @@ describe('InsightMeta', () => {
                 expected: { dateFromOverride: '-7d', dateToOverride: undefined },
             },
             {
-                label: 'tile override without dates (properties-only) → falls back to insight, not dashboard',
+                label: 'tile override without dates (properties-only) → keeps dashboard dates (merge)',
                 filtersOverride: { date_from: '-30d' },
                 tileFiltersOverride: { properties: [] },
-                expected: { dateFromOverride: undefined, dateToOverride: undefined },
+                expected: { dateFromOverride: '-30d', dateToOverride: undefined },
             },
             {
                 label: 'no tile override → uses dashboard override dates',

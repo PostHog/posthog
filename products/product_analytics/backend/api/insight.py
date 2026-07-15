@@ -75,6 +75,7 @@ from posthog.hogql_queries.apply_dashboard_filters import (
     WRAPPER_NODE_KINDS,
     apply_dashboard_filters_to_dict,
     apply_dashboard_variables_to_dict,
+    merge_dashboard_and_tile_filters,
 )
 from posthog.hogql_queries.legacy_compatibility.feature_flag import get_query_method
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
@@ -984,10 +985,10 @@ class InsightSerializer(InsightBasicSerializer):
             request, dashboard, list(self.context["insight_variables"]), is_shared=is_shared
         )
 
-        # Tile filters completely replace dashboard filters (same semantics as the compute path in
-        # calculate_results.py). Without this, the returned `query` field would reflect dashboard
-        # filters while the cached result was computed with tile filters — causing the persons modal
-        # to use a different filter set than the chart.
+        # Tile filters merge on top of dashboard filters (same semantics as the compute path in
+        # calculate_results.py). Keeping this in sync ensures the returned `query` field matches the
+        # filter set the cached result was computed with — otherwise the persons modal would use a
+        # different filter set than the chart.
         dashboard_tile = self.dashboard_tile_from_context(instance, dashboard)
         tile_filters_override = (
             tile_filters_override_requested_by_client(request, dashboard_tile, is_shared=is_shared) if request else {}
@@ -1002,17 +1003,14 @@ class InsightSerializer(InsightBasicSerializer):
                 or dashboard_filters_override is not None
                 or dashboard_variables_override is not None
             ):
-                effective_filters = (
-                    tile_filters_override
-                    if tile_filters_override
-                    else (
-                        dashboard_filters_override
-                        if dashboard_filters_override is not None
-                        else dashboard.filters
-                        if dashboard
-                        else {}
-                    )
+                base_filters = (
+                    dashboard_filters_override
+                    if dashboard_filters_override is not None
+                    else dashboard.filters
+                    if dashboard
+                    else {}
                 )
+                effective_filters = merge_dashboard_and_tile_filters(base_filters, tile_filters_override) or {}
                 query = apply_dashboard_filters_to_dict(
                     query,
                     effective_filters,
