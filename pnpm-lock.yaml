@@ -1396,8 +1396,8 @@ importers:
         specifier: ^16.0.0
         version: 16.0.0
       kea-typegen:
-        specifier: 3.7.1
-        version: 3.7.1(typescript@6.0.3)
+        specifier: 3.8.2
+        version: 3.8.2(typescript@6.0.3)
       less:
         specifier: ^3.12.2
         version: 3.13.1
@@ -2995,6 +2995,9 @@ importers:
       '@testing-library/user-event':
         specifier: '*'
         version: 14.6.1(@testing-library/dom@9.3.4)
+      '@tiptap/core':
+        specifier: 3.20.6
+        version: 3.20.6(@tiptap/pm@3.20.6)
       '@types/react':
         specifier: 18.3.27
         version: 18.3.27
@@ -17759,8 +17762,8 @@ packages:
     peerDependencies:
       kea: '>= 3'
 
-  kea-typegen@3.7.1:
-    resolution: {integrity: sha512-hQuV38I9OyCui/0HviWsgblabeN6iE8t2sOCF8cmoAd1Zk5nR3/5kkaepQGvkaqgwBjy8XcWzVgkCimE8jExoQ==}
+  kea-typegen@3.8.2:
+    resolution: {integrity: sha512-EiRWMT2c61p+uJlerEgKcZs7bLrUTku03sVceSAZXb0lZr/8vqios3UcnnP3H3Xag/vtb8RFsPoxgme8O4Xycg==}
     hasBin: true
     peerDependencies:
       typescript: 6.0.3
@@ -39894,7 +39897,7 @@ snapshots:
       kea: 4.0.0-pre.5(react@18.3.1)
       kea-waitfor: 0.2.1(kea@4.0.0-pre.5(react@18.3.1))
 
-  kea-typegen@3.7.1(typescript@6.0.3):
+  kea-typegen@3.8.2(typescript@6.0.3):
     dependencies:
       '@babel/core': 7.29.0
       '@babel/preset-env': 7.23.5(@babel/core@7.29.0)
