@@ -176,7 +176,7 @@ def _iter_workspaces(
     session: requests.Session, organization: str, logger: FilteringBoundLogger
 ) -> Iterator[dict[str, Any]]:
     """Page through the organization's workspaces, yielding raw JSON:API workspace objects."""
-    url = _build_url(f"/organizations/{quote(organization, safe='')}/workspaces", {"page[size]": PAGE_SIZE})
+    url: str | None = _build_url(f"/organizations/{quote(organization, safe='')}/workspaces", {"page[size]": PAGE_SIZE})
     while url:
         data = _fetch_json(session, url, logger)
         yield from data.get("data") or []
