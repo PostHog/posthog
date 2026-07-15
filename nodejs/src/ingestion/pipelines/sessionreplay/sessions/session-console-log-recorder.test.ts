@@ -1,12 +1,13 @@
 import { DateTime } from 'luxon'
 
+import { extractConsoleLogs } from '~/ingestion/pipelines/sessionreplay/extract-console-logs-step'
 import { ConsoleLogLevel, RRWebEventType } from '~/ingestion/pipelines/sessionreplay/rrweb-types'
 import { MessageWithTeam } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
-import { SessionConsoleLogRecorder, extractConsoleLogs } from './session-console-log-recorder'
+import { SessionConsoleLogRecorder } from './session-console-log-recorder'
 import { SessionConsoleLogStore } from './session-console-log-store'
 
-// Extracts the message's console logs and folds them into the recorder, as the reduce steps do in production.
+// Extracts the message's console logs and folds them into the recorder, as the pipeline steps do in production.
 const recordMessage = (recorder: SessionConsoleLogRecorder, message: MessageWithTeam): Promise<void> =>
     recorder.recordSessionLogs(extractConsoleLogs(message))
 

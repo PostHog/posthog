@@ -2,8 +2,10 @@ import { DateTime } from 'luxon'
 import { validate as uuidValidate } from 'uuid'
 
 import { parseJSON } from '~/common/utils/json-parse'
+import { extractConsoleLogs } from '~/ingestion/pipelines/sessionreplay/extract-console-logs-step'
 import { KafkaOffsetManager } from '~/ingestion/pipelines/sessionreplay/kafka/offset-manager'
 import { SnapshotEvent } from '~/ingestion/pipelines/sessionreplay/kafka/types'
+import { serializeSessionData } from '~/ingestion/pipelines/sessionreplay/serialize-session-step'
 import { RetentionPeriod } from '~/ingestion/pipelines/sessionreplay/shared/constants'
 import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
 import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
@@ -14,15 +16,10 @@ import { MessageWithTeam } from '~/ingestion/pipelines/sessionreplay/teams/types
 import { SessionBatchMetrics } from './metrics'
 import { SessionBatchFileStorage, SessionBatchFileWriter } from './session-batch-file-storage'
 import { SessionBatchRecorder, SessionRef } from './session-batch-recorder'
-import { SessionConsoleLogRecorder, extractConsoleLogs } from './session-console-log-recorder'
+import { SessionConsoleLogRecorder } from './session-console-log-recorder'
 import { SessionConsoleLogStore } from './session-console-log-store'
 import { SessionFeatureRecorder } from './session-feature-recorder'
-import {
-    EndResult,
-    SerializedSessionData,
-    SnappySessionRecorder,
-    serializeSessionData,
-} from './snappy-session-recorder'
+import { EndResult, SerializedSessionData, SnappySessionRecorder } from './snappy-session-recorder'
 
 // RRWeb event type constants
 const enum EventType {
@@ -109,7 +106,6 @@ export class SnappySessionRecorderMock {
 }
 
 jest.mock('./session-console-log-recorder', () => ({
-    ...jest.requireActual('./session-console-log-recorder'),
     SessionConsoleLogRecorder: jest.fn().mockImplementation((_sessionId, _teamId, _batchId) => ({
         recordSessionLogs: jest.fn().mockResolvedValue(undefined),
         end: jest.fn().mockReturnValue({
@@ -185,7 +181,6 @@ jest.mock('./metrics', () => ({
 
 jest.mock('./blackhole-session-batch-writer')
 jest.mock('./snappy-session-recorder', () => ({
-    ...jest.requireActual('./snappy-session-recorder'),
     SnappySessionRecorder: jest
         .fn()
         .mockImplementation(

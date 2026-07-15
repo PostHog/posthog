@@ -1,11 +1,11 @@
 import { DateTime } from 'luxon'
 
 import { PipelineResultType } from '~/ingestion/framework/results'
+import { extractConsoleLogs } from '~/ingestion/pipelines/sessionreplay/extract-console-logs-step'
 import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
 import { SessionRecordingIngesterMetrics } from '~/ingestion/pipelines/sessionreplay/metrics'
+import { serializeSessionData } from '~/ingestion/pipelines/sessionreplay/serialize-session-step'
 import { SessionBatchRecorder } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-recorder'
-import { extractConsoleLogs } from '~/ingestion/pipelines/sessionreplay/sessions/session-console-log-recorder'
-import { serializeSessionData } from '~/ingestion/pipelines/sessionreplay/sessions/snappy-session-recorder'
 import { createMockSessionKey } from '~/ingestion/pipelines/sessionreplay/shared/test-helpers'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 

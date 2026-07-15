@@ -12,6 +12,7 @@ import {
     SessionReplayPipelineOutput,
 } from '~/ingestion/pipelines/sessionreplay'
 import { createAiTrainingOptInFilterStep } from '~/ingestion/pipelines/sessionreplay/ai-training-optin-filter-step'
+import { createExtractConsoleLogsStep } from '~/ingestion/pipelines/sessionreplay/extract-console-logs-step'
 import { createParseAndAnonymizeMessageStep } from '~/ingestion/pipelines/sessionreplay/parse-and-anonymize-step'
 import { MessageContext } from '~/ingestion/pipelines/sessionreplay/pipeline-types'
 import { createRecordSessionEventStep } from '~/ingestion/pipelines/sessionreplay/record-session-event-step'
@@ -123,30 +124,33 @@ export function createMlMirrorReplayPipeline(config: SessionReplayPipelineConfig
                                                         })),
                                                     ])
                                                 )
-                                                // Serialize the session block chunks and extract the
-                                                // console logs — the per-message business logic, done
-                                                // here so the record step only aggregates.
-                                                return parsed.pipe(createSerializeSessionStep()).pipe(
-                                                    topHogWrapper(
-                                                        createRecordSessionEventStep({
-                                                            isDebugLoggingEnabled,
-                                                        }),
-                                                        [
-                                                            sum(
-                                                                'message_size_by_session_id',
-                                                                (input) => ({
+                                                // Derive the per-message record data — the session
+                                                // block chunks and the console logs — here, so the
+                                                // record step only aggregates.
+                                                return parsed
+                                                    .pipe(createSerializeSessionStep())
+                                                    .pipe(createExtractConsoleLogsStep())
+                                                    .pipe(
+                                                        topHogWrapper(
+                                                            createRecordSessionEventStep({
+                                                                isDebugLoggingEnabled,
+                                                            }),
+                                                            [
+                                                                sum(
+                                                                    'message_size_by_session_id',
+                                                                    (input) => ({
+                                                                        token: input.parsedMessage.token ?? 'unknown',
+                                                                        session_id: input.parsedMessage.session_id,
+                                                                    }),
+                                                                    (input) => input.parsedMessage.metadata.rawSize
+                                                                ),
+                                                                timer('consume_time_ms_by_session_id', (input) => ({
                                                                     token: input.parsedMessage.token ?? 'unknown',
                                                                     session_id: input.parsedMessage.session_id,
-                                                                }),
-                                                                (input) => input.parsedMessage.metadata.rawSize
-                                                            ),
-                                                            timer('consume_time_ms_by_session_id', (input) => ({
-                                                                token: input.parsedMessage.token ?? 'unknown',
-                                                                session_id: input.parsedMessage.session_id,
-                                                            })),
-                                                        ]
+                                                                })),
+                                                            ]
+                                                        )
                                                     )
-                                                )
                                             })
                                             .gather()
                                     )

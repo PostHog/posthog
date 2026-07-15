@@ -112,7 +112,7 @@ export class SessionBatchRecorder {
     }
 
     /**
-     * Aggregates one message's precomputed session data ({@link serializeSessionData}) into the
+     * Aggregates one message's precomputed session data (from the serialize step) into the
      * appropriate session block, enforcing the per-session rate limit and consistency checks.
      *
      * @returns Whether the message was accepted — when false the caller must not record the
@@ -206,7 +206,7 @@ export class SessionBatchRecorder {
     }
 
     /**
-     * Aggregates one message's precomputed console log data ({@link extractConsoleLogs}) into the
+     * Aggregates one message's precomputed console log data (from the extract-console-logs step) into the
      * session. Call only after {@link recordSessionData} accepted the message for this session.
      */
     public async recordSessionLogs(session: SessionRef, logs: ExtractedConsoleLogs): Promise<void> {

@@ -22,6 +22,7 @@ import { KeyStore } from '~/ingestion/pipelines/sessionreplay/shared/types'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 import { ValueMatcher } from '~/types'
 
+import { createExtractConsoleLogsStep } from './extract-console-logs-step'
 import { createLibVersionMonitorStep } from './lib-version-monitor-step'
 import { createParseMessageStep } from './parse-message-step'
 import { MessageContext } from './pipeline-types'
@@ -90,8 +91,9 @@ export interface SessionReplayPipelineConfig {
  * 2. Team Filter - Validate team ownership and enrich with team context
  * 3. Parse - Parse Kafka messages into structured session recording data (inside teamAware for warning handling)
  * 4. Version Monitor - Check library version and emit warnings for old versions
- * 5. Serialize - Derive the per-message record data (session block chunks, console logs)
- * 6. Record - Aggregate the serialized data into the batch's recorder
+ * 5. Serialize - Derive the per-message session block data (chunks, counts, session ref)
+ * 6. Extract console logs - Derive the per-message console log data
+ * 7. Record - Aggregate the derived data into the batch's recorder
  */
 export function createSessionReplayPipeline(config: SessionReplayPipelineConfig): SessionReplayPipeline {
     const {
@@ -206,11 +208,11 @@ export function createSessionReplayPipeline(config: SessionReplayPipelineConfig)
                                                     )
                                                     // Monitor library version and emit warnings for old versions
                                                     .pipe(createLibVersionMonitorStep())
-                                                    // Serialize the session block chunks and extract
-                                                    // the console logs — the per-message business
-                                                    // logic, done here so the record step only
-                                                    // aggregates.
+                                                    // Derive the per-message record data — the
+                                                    // session block chunks and the console logs —
+                                                    // here, so the record step only aggregates.
                                                     .pipe(createSerializeSessionStep())
+                                                    .pipe(createExtractConsoleLogsStep())
                                                     .pipe(
                                                         topHogWrapper(
                                                             createRecordSessionEventStep({

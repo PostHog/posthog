@@ -4,8 +4,9 @@ import snappy from 'snappy'
 import { parseJSON } from '~/common/utils/json-parse'
 import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
 import { RRWebEventType } from '~/ingestion/pipelines/sessionreplay/rrweb-types'
+import { serializeSessionData } from '~/ingestion/pipelines/sessionreplay/serialize-session-step'
 
-import { SnappySessionRecorder, serializeSessionData } from './snappy-session-recorder'
+import { SnappySessionRecorder } from './snappy-session-recorder'
 
 describe('SnappySessionRecorder', () => {
     let recorder: SnappySessionRecorder

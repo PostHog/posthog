@@ -3,27 +3,17 @@ import snappy from 'snappy'
 
 import { logger } from '~/common/utils/logger'
 import {
-    PRE_SERIALIZED_FLAG_ACTIVE,
-    PRE_SERIALIZED_FLAG_CLICK,
-    PRE_SERIALIZED_FLAG_KEYPRESS,
-    PRE_SERIALIZED_FLAG_MOUSE_ACTIVITY,
-    ParsedMessageData,
-} from '~/ingestion/pipelines/sessionreplay/kafka/types'
-import { hrefFrom, isClick, isKeypress, isMouseActivity } from '~/ingestion/pipelines/sessionreplay/rrweb-types'
-import {
     SegmentationEvent,
     activeMillisecondsFromSegmentationEvents,
-    toSegmentationEvent,
 } from '~/ingestion/pipelines/sessionreplay/segmentation'
 
-const MAX_SNAPSHOT_FIELD_LENGTH = 1000
 const MAX_URL_LENGTH = 4 * 1024 // 4KB
 const MAX_URLS_COUNT = 25
 
 /**
- * Per-message session data, precomputed by the serialize reduce step (business logic): the
- * serialized JSONL chunks plus everything the session block aggregates per message. Pure data —
- * the recorder folds it into session state without looking at the raw events again.
+ * Per-message session data, precomputed by the serialize step (business logic): the serialized
+ * JSONL chunks plus everything the session block aggregates per message. Pure data — the recorder
+ * folds it into session state without looking at the raw events again.
  */
 export interface SerializedSessionData {
     /** Serialized JSONL chunks of `[windowId, event]` lines. */
@@ -41,105 +31,6 @@ export interface SerializedSessionData {
     distinctId: string
     snapshotSource: string
     snapshotLibrary: string | null
-}
-
-/**
- * Serializes one parsed message into the per-message session data the recorder aggregates:
- * the JSONL block chunks plus the counts, urls, and segmentation events derived from the events.
- * Handles both parsed events and the native anonymizer's pre-serialized fast path.
- */
-export function serializeSessionData(message: ParsedMessageData): SerializedSessionData {
-    const base = {
-        eventsRange: { start: message.eventsRange.start, end: message.eventsRange.end },
-        distinctId: message.distinct_id,
-        snapshotSource: (message.snapshot_source || 'web').slice(0, MAX_SNAPSHOT_FIELD_LENGTH),
-        snapshotLibrary: message.snapshot_library ? message.snapshot_library.slice(0, MAX_SNAPSHOT_FIELD_LENGTH) : null,
-    }
-
-    if (message.preSerialized) {
-        // The native anonymizer already serialized the block lines; the counts, segmentation, and
-        // urls come from the per-event metadata instead of walking parsed events.
-        const { lines, events } = message.preSerialized
-        const segmentationEvents: SegmentationEvent[] = []
-        const urls: string[] = []
-        let clickCount = 0
-        let keypressCount = 0
-        let mouseActivityCount = 0
-        for (const event of events) {
-            segmentationEvents.push({
-                timestamp: event.ts,
-                isActive: (event.flags & PRE_SERIALIZED_FLAG_ACTIVE) !== 0,
-            })
-            if (event.href) {
-                urls.push(event.href)
-            }
-            if (event.flags & PRE_SERIALIZED_FLAG_CLICK) {
-                clickCount += 1
-            }
-            if (event.flags & PRE_SERIALIZED_FLAG_KEYPRESS) {
-                keypressCount += 1
-            }
-            if (event.flags & PRE_SERIALIZED_FLAG_MOUSE_ACTIVITY) {
-                mouseActivityCount += 1
-            }
-        }
-        return {
-            ...base,
-            chunks: [lines],
-            rawBytes: lines.length,
-            eventCount: events.length,
-            segmentationEvents,
-            urls,
-            clickCount,
-            keypressCount,
-            mouseActivityCount,
-        }
-    }
-
-    const chunks: Buffer[] = []
-    const segmentationEvents: SegmentationEvent[] = []
-    const urls: string[] = []
-    let rawBytes = 0
-    let eventCount = 0
-    let clickCount = 0
-    let keypressCount = 0
-    let mouseActivityCount = 0
-    for (const [windowId, events] of Object.entries(message.eventsByWindowId)) {
-        for (const event of events) {
-            const serializedLine = JSON.stringify([windowId, event]) + '\n'
-            const chunk = Buffer.from(serializedLine)
-            chunks.push(chunk)
-            rawBytes += chunk.length
-
-            segmentationEvents.push(toSegmentationEvent(event))
-
-            const eventUrl = hrefFrom(event)
-            if (eventUrl) {
-                urls.push(eventUrl)
-            }
-            if (isClick(event)) {
-                clickCount += 1
-            }
-            if (isKeypress(event)) {
-                keypressCount += 1
-            }
-            if (isMouseActivity(event)) {
-                mouseActivityCount += 1
-            }
-            eventCount++
-        }
-    }
-    return {
-        ...base,
-        chunks,
-        rawBytes,
-        eventCount,
-        segmentationEvents,
-        urls,
-        clickCount,
-        keypressCount,
-        mouseActivityCount,
-    }
 }
 
 export interface EndResult {
@@ -224,7 +115,7 @@ export class SnappySessionRecorder {
     ) {}
 
     /**
-     * Aggregates one message's precomputed session data ({@link serializeSessionData}) into the
+     * Aggregates one message's precomputed session data (from the serialize step) into the
      * session block: appends the serialized chunks and folds the counts, urls, and ranges in.
      * Buffered until end() is called.
      *

@@ -3,16 +3,16 @@ import { DateTime } from 'luxon'
 import snappy from 'snappy'
 
 import { parseJSON } from '~/common/utils/json-parse'
+import { extractConsoleLogs } from '~/ingestion/pipelines/sessionreplay/extract-console-logs-step'
 import { KafkaOffsetManager } from '~/ingestion/pipelines/sessionreplay/kafka/offset-manager'
+import { serializeSessionData } from '~/ingestion/pipelines/sessionreplay/serialize-session-step'
 import {
     SessionBatchFileStorage,
     SessionBatchFileWriter,
     WriteSessionData,
 } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-file-storage'
 import { SessionBatchRecorder, SessionRef } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-recorder'
-import { extractConsoleLogs } from '~/ingestion/pipelines/sessionreplay/sessions/session-console-log-recorder'
 import { SessionConsoleLogStore } from '~/ingestion/pipelines/sessionreplay/sessions/session-console-log-store'
-import { serializeSessionData } from '~/ingestion/pipelines/sessionreplay/sessions/snappy-session-recorder'
 import { RetentionPeriod, RetentionPeriodToDaysMap } from '~/ingestion/pipelines/sessionreplay/shared/constants'
 import { SodiumRecordingDecryptor, SodiumRecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/crypto'
 import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
