@@ -95,7 +95,6 @@ You can find your API key in the [Mem0 dashboard](https://app.mem0.ai/dashboard/
                     ),
                 ],
             ),
-            unreleasedSource=True,
             releaseStatus=ReleaseStatus.ALPHA,
         )
 
