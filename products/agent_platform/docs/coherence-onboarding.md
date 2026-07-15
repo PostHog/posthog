@@ -168,6 +168,34 @@ deliberate not-yet for this one-week evaluation.
 The declared invariants live in the `*.spec.md` next to the code — read the ones in any
 directory you edit; they are the checklist of what your change must not break.
 
+## Backing this out
+
+This is a one-week evaluation, so the exit is designed to be clean. The one thing to
+understand first: the adoption PR squash-merges into a single commit on master that carries
+**two** things — the harness (this tooling + the `*.spec.md` claims + per-root config) _and_
+real chokepoint hardening (IDOR / owner-scoping / bug-class fixes in `*.ts`). Those are woven
+into the same squash.
+
+**Do not `git revert` that commit.** It would undo the hardening too and reopen the exact bug
+classes the branch closed. Removing coherence means removing the _harness_ while keeping the
+_hardening_. Three tiers, easiest first:
+
+1. **Disable, don't remove (instant, zero-risk).** The gate is a _local_ pre-commit hook, not
+   CI. Delete the one lint-staged line in `package.json`
+   (`"products/agent_platform/**/*.{ts,py}": ".../coherence-precommit"`) and the gate goes
+   dormant for everyone immediately; the specs and configs become inert. This is the real
+   "call off the evaluation" move — no history rewrite.
+2. **Full teardown (later, at leisure).** Run
+   [`bin/coherence-uninstall`](../bin/coherence-uninstall). It removes exactly the harness —
+   every `coherence.config.json`, every `*.spec.md`, the CLI scripts, the docs, the gitignored
+   caches — and prints the one manual step (the `package.json` line, which it won't edit
+   blindly). It touches no `*.ts` / `*.test.ts`: a test that enumerates its domain is a better
+   test whether or not coherence reads it, so those stay.
+3. **Never the blunt revert** — see above.
+
+The oracle test files, the `mcp_store` facade, and the `pyproject.toml` / `tach.toml` edits are
+hardening, not harness; they survive all three tiers.
+
 ## Command reference
 
 - `verify [--fast|--staged|--since <ref>]`: run claims + boundary anchoring + coverage.
