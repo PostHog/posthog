@@ -345,6 +345,20 @@ class GoogleAdsSource(
                     "Your Google Ads connection is no longer available — it may have been disconnected. "
                     "Please reconnect your Google Ads account.",
                 )
+            # Revoked/expired OAuth credentials stringify as a raw gRPC UNAUTHENTICATED status and
+            # protobuf dump (with a per-request peer IP and timestamp) the user can't act on. gapic also
+            # wraps the transport-level status into google.api_core.exceptions.Unauthenticated, whose
+            # str() is "401 Request is missing required authentication credential. ..." and never contains
+            # the bare UNAUTHENTICATED token. Match both and surface the same clean reconnect prompt the
+            # sync pipeline's get_non_retryable_errors() uses, instead of leaking the dump.
+            if (
+                "UNAUTHENTICATED" in error_message
+                or "Request is missing required authentication credential" in error_message
+            ):
+                return (
+                    False,
+                    "Your Google Ads connection could not be authenticated. Please reconnect your Google Ads account.",
+                )
             # A transient Google-side blip (INTERNAL / UNAVAILABLE) stringifies as a raw gRPC status and
             # protobuf failure dump the user can't act on. The sync rides these out in-process; here on
             # the interactive create path we surface a clean retry prompt instead of leaking the dump.
