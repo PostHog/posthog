@@ -1,21 +1,22 @@
 import { logger } from '~/common/utils/logger'
-import { captureException } from '~/common/utils/posthog'
+import * as posthog from '~/common/utils/posthog'
 
 import { timeoutGuard } from './utils'
 
-jest.mock('~/common/utils/logger')
-jest.mock('~/common/utils/posthog')
-
-const mockCaptureException = captureException as jest.MockedFunction<typeof captureException>
-
+// utils.ts is loaded (via postgres.ts) by jest.setup.ts before any test-file jest.mock runs, so
+// auto-mocking captureException can't rebind it. Spy on the live module export instead — utils.ts
+// reads the property at call time, so the spy is observed regardless of load order.
 describe('timeoutGuard', () => {
+    let captureExceptionSpy: jest.SpyInstance
+
     beforeEach(() => {
-        jest.clearAllMocks()
         jest.useFakeTimers()
+        captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => {})
     })
 
     afterEach(() => {
         jest.useRealTimers()
+        captureExceptionSpy.mockRestore()
     })
 
     it('captures with a per-message fingerprint so unrelated timeouts do not collapse into one issue', () => {
@@ -24,19 +25,19 @@ describe('timeoutGuard', () => {
 
         jest.advanceTimersByTime(1000)
 
-        expect(mockCaptureException).toHaveBeenCalledTimes(2)
-        expect(mockCaptureException.mock.calls[0]).toEqual([
+        expect(captureExceptionSpy).toHaveBeenCalledTimes(2)
+        expect(captureExceptionSpy.mock.calls[0]).toEqual([
             'Redis call startup-ping delayed.',
             expect.objectContaining({ fingerprint: 'plugin-server-timeout-guard:Redis call startup-ping delayed.' }),
         ])
-        expect(mockCaptureException.mock.calls[1][1]).toEqual(
+        expect(captureExceptionSpy.mock.calls[1][1]).toEqual(
             expect.objectContaining({
                 fingerprint: 'plugin-server-timeout-guard:cdpConsumer.publishBehavioralEvents timeout!',
             })
         )
         // Distinct fingerprints keep the two timeouts in separate error-tracking issues.
-        expect(mockCaptureException.mock.calls[0][1]!.fingerprint).not.toEqual(
-            mockCaptureException.mock.calls[1][1]!.fingerprint
+        expect(captureExceptionSpy.mock.calls[0][1]?.fingerprint).not.toEqual(
+            captureExceptionSpy.mock.calls[1][1]?.fingerprint
         )
     })
 
@@ -48,6 +49,6 @@ describe('timeoutGuard', () => {
 
         expect(logger.warn).toHaveBeenCalled()
         expect(reportMetric).toHaveBeenCalledTimes(1)
-        expect(mockCaptureException).not.toHaveBeenCalled()
+        expect(captureExceptionSpy).not.toHaveBeenCalled()
     })
 })
