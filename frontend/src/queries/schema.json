@@ -23275,7 +23275,9 @@
                 "GoogleChat",
                 "Kickscale",
                 "Zellify",
-                "RudderStack"
+                "RudderStack",
+                "DodoPayments",
+                "Salestrics"
             ],
             "type": "string"
         },

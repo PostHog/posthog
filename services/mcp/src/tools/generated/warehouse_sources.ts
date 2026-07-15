@@ -468,7 +468,7 @@ const ExternalDataSourcesCreateSchema = ExternalDataSourcesCreateBody.extend({
 
 const externalDataSourcesCreate = (): ToolBase<
     typeof ExternalDataSourcesCreateSchema,
-    Schemas.ExternalDataSourceSerializers
+    Schemas.ExternalDataSourceCreate
 > => ({
     name: 'external-data-sources-create',
     schema: ExternalDataSourcesCreateSchema,
@@ -494,7 +494,7 @@ const externalDataSourcesCreate = (): ToolBase<
             body['direct_query_enabled'] = params.direct_query_enabled
         }
         body['created_via'] = 'mcp'
-        const result = await context.api.request<Schemas.ExternalDataSourceSerializers>({
+        const result = await context.api.request<Schemas.ExternalDataSourceCreate>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/`,
             body,
