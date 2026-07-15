@@ -285,6 +285,36 @@ class TestHttpSampleCapture:
         assert mock_session.call_args.kwargs["capture"] is False
 
 
+class TestRedirectsDisabled:
+    # The API key rides in the custom X-Browser-Use-API-Key header, which requests preserves across
+    # a cross-host 3xx (it only strips Authorization). Both sessions must pin allow_redirects=False
+    # so the key can't replay to a redirect target; a regression that drops the flag re-opens that leak.
+    def test_get_rows_disables_redirects(self) -> None:
+        session = MagicMock()
+        with (
+            patch.object(browser_use, "make_tracked_session", return_value=session) as mock_session,
+            patch.object(browser_use, "_fetch_page", return_value={"sessions": []}),
+        ):
+            list(
+                get_rows(
+                    api_key="bu_test",
+                    endpoint="sessions",
+                    logger=MagicMock(),
+                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                )
+            )
+        assert mock_session.call_args.kwargs["allow_redirects"] is False
+
+    def test_validate_credentials_disables_redirects(self) -> None:
+        response = MagicMock()
+        response.status_code = 200
+        session = MagicMock()
+        session.get.return_value = response
+        with patch.object(browser_use, "make_tracked_session", return_value=session) as mock_session:
+            validate_credentials("bu_test")
+        assert mock_session.call_args.kwargs["allow_redirects"] is False
+
+
 class TestSourceResponse:
     @parameterized.expand(
         [

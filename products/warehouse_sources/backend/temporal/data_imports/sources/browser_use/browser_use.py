@@ -80,7 +80,10 @@ def validate_credentials(api_key: str) -> bool:
     try:
         # capture=False: the probe lists a session, whose body carries the same free-form agent
         # content as the export bodies below — keep it out of HTTP sample capture.
-        response = make_tracked_session(redact_values=(api_key,), capture=False).get(
+        # allow_redirects=False: the API key rides in a custom header that `requests` preserves
+        # across cross-host 3xx (it only strips `Authorization`), so pin redirects off to keep the
+        # key from replaying to a redirect target. The fixed API host never needs redirects.
+        response = make_tracked_session(redact_values=(api_key,), capture=False, allow_redirects=False).get(
             url, headers=_get_headers(api_key), timeout=10
         )
         return response.status_code == 200
@@ -210,7 +213,9 @@ def get_rows(
     # the shared HTTP observer masks it anywhere it surfaces in captured URLs or samples.
     # capture=False: session titles and session_messages.data hold arbitrary user/agent content the
     # name-based scrubbers can't recognise, so exclude the bodies from HTTP sample capture entirely.
-    session = make_tracked_session(redact_values=(api_key,), capture=False)
+    # allow_redirects=False: the API key rides in a custom header that `requests` preserves across
+    # cross-host 3xx, so pin redirects off to keep it from replaying to a redirect target.
+    session = make_tracked_session(redact_values=(api_key,), capture=False, allow_redirects=False)
 
     if config.fan_out_over_sessions:
         yield from _get_session_message_rows(session, headers, logger, resumable_source_manager, config)
