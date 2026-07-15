@@ -301,7 +301,7 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
     )
     sandbox = sandbox_class.create(config)
     try:
-        _clone_pr(sandbox, repo, base_sha, run.head_sha, token)
+        _clone_pr(sandbox, repo, base_sha, run.head_sha, run.pull_request.pr_number, token)
         _inject_policy_files(sandbox, policy_files)
         _ship_engine(sandbox)
         _write_context(sandbox, invocation)
@@ -487,16 +487,22 @@ def _scrub_credentials(text: str, *secrets: str) -> str:
     return text
 
 
-def _clone_pr(sandbox: SandboxBase, repo: str, base_sha: str, head_sha: str, token: str) -> None:
+def _clone_pr(sandbox: SandboxBase, repo: str, base_sha: str, head_sha: str, pr_number: int, token: str) -> None:
     """Clone the repo with full history, then fetch the PR base and head and check out head.
 
     Full history (no ``--depth``) is required so git-blame familiarity resolves: the
     engine blames ``merge-base(base, head)`` for the diff's base-side lines, which needs
     the merge-base commit AND the file history behind it present with real blobs. A
     shallow clone would truncate blame to the graft boundary (undercounting, which only
-    ever weakens the signal — a one-way ratchet — but is still avoidable here). Both the
-    base and head shas are fetched explicitly so the merge-base is reachable even when the
-    PR targets a non-default branch.
+    ever weakens the signal — a one-way ratchet — but is still avoidable here).
+
+    The head is fetched through ``pull/<n>/head`` rather than the bare sha: a fork PR's
+    head commit only exists in the base repo through that ref, so a bare-sha fetch fails
+    for member-authored fork PRs (the only fork PRs that pass the webhook's author gate).
+    The base sha is still fetched directly so the merge-base is reachable even when the
+    PR targets a non-default branch. If the head moved since this run was queued, the
+    checkout of the recorded sha fails and the superseding run takes over — a stale sha
+    must not be reviewed against a newer pull ref.
 
     The installation token is passed via a per-invocation ``http.extraheader`` rather than
     embedded in the remote URL, so git never persists it to ``.git/config`` inside the
@@ -514,7 +520,7 @@ def _clone_pr(sandbox: SandboxBase, repo: str, base_sha: str, head_sha: str, tok
     if clone_result.exit_code != 0:
         raise RuntimeError(f"Failed to clone {repo}: {_scrub_credentials(clone_result.stderr, token, basic)[:500]}")
 
-    fetch_specs = f"{auth} fetch origin {shlex.quote(head_sha)}"
+    fetch_specs = f"{auth} fetch origin {shlex.quote(f'pull/{pr_number}/head')}"
     if base_sha:
         fetch_specs = f"{auth} fetch origin {shlex.quote(base_sha)} && {fetch_specs}"
     checkout = f"cd {shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)} && {fetch_specs} && git checkout {shlex.quote(head_sha)}"
