@@ -163,13 +163,19 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
         fixedRangeGranularity,
     } = useValues(dateFilterLogic(logicProps))
 
+    // Hold the callback in a ref so the visibility effect below depends only on `isVisible` —
+    // callers pass an inline function, which would otherwise re-run the effect every render.
+    const onOpenChangeRef = useRef(onOpenChange)
+    useEffect(() => {
+        onOpenChangeRef.current = onOpenChange
+    })
     const wasVisibleRef = useRef(isVisible)
     useEffect(() => {
         if (isVisible !== wasVisibleRef.current) {
             wasVisibleRef.current = isVisible
-            onOpenChange?.(isVisible)
+            onOpenChangeRef.current?.(isVisible)
         }
-    }, [isVisible, onOpenChange])
+    }, [isVisible])
 
     const { weekStartDay } = useValues(teamLogic)
     const optionsRef = useRef<HTMLDivElement | null>(null)
