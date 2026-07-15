@@ -3,10 +3,10 @@
 PostHog runs both ty and mypy.
 Both checks reject type errors in CI, while local hooks run narrower checks for faster feedback.
 
-| Checker | Local hook | CI role |
-| --- | --- | --- |
-| ty | Runs on staged Python files through lint-staged and rejects the commit on errors | Runs across the repository and blocks CI on errors |
-| mypy | Runs on eligible changed Python files through `hogli ci:preflight --strict` and rejects the push on errors or timeouts | Runs across the repository and remains the authoritative type checker |
+| Checker | Local hook                                                                                                             | CI role                                                               |
+| ------- | ---------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| ty      | Runs on staged Python files through lint-staged and rejects the commit on errors                                       | Runs across the repository and blocks CI on errors                    |
+| mypy    | Runs on eligible changed Python files through `hogli ci:preflight --strict` and rejects the push on errors or timeouts | Runs across the repository and remains the authoritative type checker |
 
 `hogli ci:preflight` applies `[tool.mypy].exclude` before passing explicit paths to mypy, matching the files discovered by the full CI check.
 If mypy is unavailable locally, preflight skips it and leaves CI as the gate.
