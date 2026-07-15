@@ -142,6 +142,9 @@ class PersonPropertyUpdateConsumer:
         self._dlq_producer = dlq_producer
         self._sleep = sleep
         self._shutdown = False
+        # Set by run() from the health server; called on every loop turn and during any wait
+        # (throttle / retry) so a pod stuck waiting still passes its liveness probe. No-op by default.
+        self._health_reporter: Callable[[], None] = lambda: None
 
     def _get_dlq_producer(self) -> Any:
         # Reuse the routed, process-wide singleton producer for the DLQ topic rather than
@@ -186,6 +189,7 @@ class PersonPropertyUpdateConsumer:
                 throttled = True
             if self._shutdown:
                 return False
+            self._health_reporter()
             self._sleep(_THROTTLE_BACKOFF_SECONDS)
         return True
 
@@ -235,12 +239,20 @@ class PersonPropertyUpdateConsumer:
         mid-retry so the uncommitted offset is redelivered on the next start."""
         outcome = self.process_record(value)
         while outcome == RETRY and not self._shutdown:
+            self._health_reporter()
             self._sleep(_RETRY_BACKOFF_SECONDS)
             outcome = self.process_record(value)
         return outcome
 
-    def run(self, poll_timeout: float = 1.0) -> None:  # pragma: no cover - exercised in dogfood
+    def run(
+        self, poll_timeout: float = 1.0, health_reporter: Callable[[], None] | None = None
+    ) -> None:  # pragma: no cover - exercised in dogfood
         from confluent_kafka import Consumer as ConfluentConsumer  # noqa: PLC0415
+
+        # Report liveness each loop turn (and, via self._health_reporter, during throttle/retry
+        # waits) so a wedged loop fails its liveness probe. No-op when no health server is wired.
+        if health_reporter is not None:
+            self._health_reporter = health_reporter
 
         for sig in (signal.SIGINT, signal.SIGTERM):
             try:
@@ -267,6 +279,7 @@ class PersonPropertyUpdateConsumer:
         logger.info("person_property_update.consumer_started")
         try:
             while not self._shutdown:
+                self._health_reporter()
                 message = consumer.poll(poll_timeout)
                 if message is None:
                     continue

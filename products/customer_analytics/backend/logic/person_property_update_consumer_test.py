@@ -213,3 +213,17 @@ class TestRateGate:
 
         assert c.process_record(self._VALUE) == SENT
         assert sleeps == []
+
+    def test_reports_liveness_while_throttled(self):
+        # A pod that's merely rate-limited must keep heartbeating, or its liveness probe kills it
+        # mid-wait. The reporter fires on each throttled poll.
+        grants = iter([False, False, True])
+        capture = MagicMock(return_value=_capture_result(succeeded=True))
+        heartbeats: list[int] = []
+        c = PersonPropertyUpdateConsumer(
+            capture_fn=capture, grant_fn=lambda: next(grants), dlq_producer=MagicMock(), sleep=lambda _s: None
+        )
+        c._health_reporter = lambda: heartbeats.append(1)
+
+        assert c.process_record(self._VALUE) == SENT
+        assert len(heartbeats) == 2  # one per throttled poll before the grant
