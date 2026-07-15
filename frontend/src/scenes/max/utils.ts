@@ -34,6 +34,7 @@ import {
     QuerySchema,
     QuerySchemaRoot,
 } from '~/queries/schema/schema-general'
+import { QueryContext } from '~/queries/types'
 import { isHogQLQuery, isInsightQueryNode } from '~/queries/utils'
 import { ActionType, DashboardType, EventDefinition, QueryBasedInsightModel } from '~/types'
 
@@ -360,6 +361,19 @@ export function getAgentModeForScene(
         }
     }
     return null
+}
+
+/**
+ * Empty-state copy for PostHog AI query previews. These previews re-run the assistant's generated
+ * query live, so they can come back with no rows even when the assistant already found an answer
+ * (e.g. via the query it executed). The generic "There are no matching events for this query" copy
+ * reads as a dead-end and points at filters the user can't edit here, which erodes trust in the
+ * assistant's output. Shared across every Max render path so the message stays consistent.
+ */
+export const POSTHOG_AI_PREVIEW_EMPTY_STATE: Pick<QueryContext, 'emptyStateHeading' | 'emptyStateDetail'> = {
+    emptyStateHeading: 'This preview returned no results',
+    emptyStateDetail:
+        "PostHog AI re-runs this query live, so it can come back empty even when the assistant already found the answer. Check the assistant's steps above for the full results.",
 }
 
 export const visualizationTypeToQuery = (
