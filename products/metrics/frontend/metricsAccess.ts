@@ -2,8 +2,7 @@ import { getAccessControlDisabledReason, userHasAccess } from 'lib/utils/accessC
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-export const canViewMetrics = (): boolean =>
-    userHasAccess(AccessControlResourceType.Metrics, AccessControlLevel.Viewer)
+export const canViewMetrics = (): boolean => userHasAccess(AccessControlResourceType.Metrics, AccessControlLevel.Viewer)
 
 export const getMetricsInsightEditorDisabledReason = (): string | null =>
     getAccessControlDisabledReason(AccessControlResourceType.Metrics, AccessControlLevel.Viewer) ??

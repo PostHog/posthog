@@ -98,7 +98,7 @@ class TestMetricsAccessControl(APIBaseTest):
         ]
     )
     def test_none_access_blocks_every_metrics_action_before_validation(
-        self, action: str, method: str, payload: dict[str, object]
+        self, action: str, method: str, payload: dict[str, str]
     ) -> None:
         self._create_access_control(self.no_access_user, "none")
         self.client.force_login(self.no_access_user)
