@@ -12,6 +12,7 @@ import typing
 from django.conf import settings
 
 from temporalio import activity, workflow
+from temporalio.exceptions import ApplicationError
 from temporalio.worker import (
     ActivityInboundInterceptor,
     ExecuteActivityInput,
@@ -94,6 +95,14 @@ def increment_workflow_finished(status: str) -> None:
     ).add(1)
 
 
+def _failure_error_type(exc: BaseException) -> str:
+    """Low-cardinality label for the failure counter: the ApplicationError type set by the activity
+    (taxonomy strings like out_of_memory, or the backpressure class names), else the exception class name."""
+    if isinstance(exc, ApplicationError) and exc.type:
+        return exc.type
+    return type(exc).__name__
+
+
 class _ActivityInboundInterceptor(ActivityInboundInterceptor):
     async def execute_activity(self, input: ExecuteActivityInput) -> typing.Any:
         info = activity.info()
@@ -104,13 +113,14 @@ class _ActivityInboundInterceptor(ActivityInboundInterceptor):
         meter = activity.metric_meter().with_additional_attributes(
             {"activity_type": activity_type, "workflow_type": _RECALCULATION_WORKFLOW_TYPE}
         )
-        # Queue-pressure signal (see bucket comment above). Pattern mirrors mcp_analytics' intent_clustering.
-        if info.scheduled_time and info.started_time:
+        # Queue-pressure signal (see bucket comment above). Per-attempt scheduling time, so retry backoff
+        # (including the intentional quota-wait delays) doesn't read as queue pressure.
+        if info.current_attempt_scheduled_time and info.started_time:
             meter.create_histogram_timedelta(
                 name="experiment_metrics_recalculation_activity_schedule_to_start_latency",
-                description="Time between activity scheduling and start (task queue wait).",
+                description="Time between the current attempt's scheduling and start (task queue wait).",
                 unit="ms",
-            ).record(info.started_time - info.scheduled_time)
+            ).record(info.started_time - info.current_attempt_scheduled_time)
         # Fires on every attempt (first run + each retry). Comparing this to `_activity_successes` reveals
         # retry rate; without it a transient ClickHouse blip is indistinguishable from a healthy first-try
         # success. Pattern mirrors batch_exports' `batch_exports_activity_attempts`.
@@ -129,8 +139,8 @@ class _ActivityInboundInterceptor(ActivityInboundInterceptor):
                 },
             ):
                 result = await super().execute_activity(input)
-        except Exception:
-            meter.create_counter(
+        except Exception as e:
+            meter.with_additional_attributes({"error_type": _failure_error_type(e)}).create_counter(
                 "experiment_metrics_recalculation_activity_failures",
                 "Number of failed experiment metrics recalculation activity executions.",
             ).add(1)

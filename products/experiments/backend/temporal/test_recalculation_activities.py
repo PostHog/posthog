@@ -10,6 +10,7 @@ from django.utils import timezone
 
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 from temporalio.exceptions import ApplicationError
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
@@ -451,23 +452,30 @@ class TestCalculateActivity(BaseTest):
             recalc.refresh_from_db()
             assert "m1" in recalc.metric_errors
 
-    def test_concurrency_limit_bounce_defers_with_retry_delay_and_no_capture(self):
-        # A query bouncing off the per-org ClickHouse limiter is backpressure, not a fault: it must re-raise
-        # as an ApplicationError carrying next_retry_delay (overriding the retry policy's 5s exponential
-        # schedule with the flat quota-wait delay), must never reach capture_exception (a saturated org would
-        # spam error tracking with expected bounces), and must persist nothing before the final attempt.
-        exp = self._experiment(flag_key="calc-quota", metrics=[_mean_metric("m1")])
+    @parameterized.expand(
+        [
+            ("org_quota", ConcurrencyLimitExceeded("org quota saturated")),
+            ("cluster_at_capacity", ClickHouseAtCapacity()),
+        ]
+    )
+    def test_backpressure_bounce_defers_with_retry_delay_and_no_capture(self, name: str, exc: Exception):
+        # A query bouncing off the per-org ClickHouse limiter or the cluster's at-capacity guard is
+        # backpressure, not a fault: it must re-raise as an ApplicationError carrying next_retry_delay
+        # (overriding the retry policy's 5s exponential schedule with the flat quota-wait delay), must never
+        # reach capture_exception (a saturated org would spam error tracking with expected bounces), and must
+        # persist nothing before the final attempt.
+        exp = self._experiment(flag_key=f"calc-quota-{name}", metrics=[_mean_metric("m1")])
         recalc = self._recalc(exp, metric_uuids=["m1"])
 
         with (
             patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner,
             patch("products.experiments.backend.temporal.recalculation_logic.capture_exception") as mock_capture,
         ):
-            mock_runner.return_value.run.side_effect = ConcurrencyLimitExceeded("org quota saturated")
+            mock_runner.return_value.run.side_effect = exc
 
             with pytest.raises(ApplicationError) as exc_info:
                 _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=False)
-            assert exc_info.value.type == "ConcurrencyLimitExceeded"
+            assert exc_info.value.type == type(exc).__name__
             assert exc_info.value.next_retry_delay == timedelta(seconds=CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS)
             mock_capture.assert_not_called()
             recalc.refresh_from_db()
@@ -482,6 +490,36 @@ class TestCalculateActivity(BaseTest):
             assert "m1" in recalc.metric_errors
             row = ExperimentMetricResult.objects.get(experiment=exp, metric_uuid="m1")
             assert row.status == ExperimentMetricResult.Status.FAILED
+
+    @parameterized.expand(
+        [
+            ("out_of_memory", ClickHouseQueryMemoryLimitExceeded(), "out_of_memory"),
+            ("byte_limit", ServerException("too many bytes", code=307), "byte_limit"),
+            ("validation_error", ValidationError("bad metric config"), "validation_error"),
+            ("config_value_error", ValueError("No control variant found"), "server_error"),
+        ]
+    )
+    def test_permanent_error_fails_non_retryable_and_persists_on_first_attempt(
+        self, name: str, exc: Exception, expected_type: str
+    ):
+        # Deterministic failures (out-of-memory, byte limits, invalid config) can't succeed on retry, so
+        # even a NON-final attempt must persist the FAILED row immediately and raise non_retryable — every
+        # retry would burn a full ClickHouse query without changing the outcome.
+        exp = self._experiment(flag_key=f"calc-permanent-{name}", metrics=[_mean_metric("m1")])
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+
+        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+            mock_runner.return_value.run.side_effect = exc
+
+            with pytest.raises(ApplicationError) as exc_info:
+                _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=False)
+
+        assert exc_info.value.non_retryable is True
+        assert exc_info.value.type == expected_type
+        recalc.refresh_from_db()
+        assert "m1" in recalc.metric_errors
+        row = ExperimentMetricResult.objects.get(experiment=exp, metric_uuid="m1")
+        assert row.status == ExperimentMetricResult.Status.FAILED
 
     def test_query_to_is_passed_as_as_of_to_runner(self):
         # The run's shared query_to MUST be threaded into the ClickHouse query bounds via the runner's
@@ -919,18 +957,21 @@ class TestRecalculationAnalytics(BaseTest):
 
     @parameterized.expand(
         [
-            ("wrapped_oom", ClickHouseQueryMemoryLimitExceeded(), "out_of_memory"),
-            ("wrapped_timeout", ClickHouseQueryTimeOut(), "timeout"),
-            ("wrapped_at_capacity", ClickHouseAtCapacity(), "rate_limited"),
-            ("ch_timeout_code", ServerException("timed out", code=159), "timeout"),
-            ("ch_socket_timeout_code", ServerException("socket timed out", code=209), "timeout"),
-            ("ch_memory_limit_code", ServerException("memory limit exceeded", code=241), "out_of_memory"),
-            ("ch_too_many_bytes_code", ServerException("too many bytes", code=307), "byte_limit"),
-            ("ch_too_many_queries_code", ServerException("too many queries", code=202), "rate_limited"),
-            ("other", RuntimeError("kaboom"), "server_error"),
+            # name, exc, expected_error_type, raises_application_error
+            # Permanent classes (oom/byte_limit/validation) and backpressure (at_capacity) re-raise as
+            # ApplicationError; genuinely transient classes re-raise the original exception for Temporal.
+            ("wrapped_oom", ClickHouseQueryMemoryLimitExceeded(), "out_of_memory", True),
+            ("wrapped_timeout", ClickHouseQueryTimeOut(), "timeout", False),
+            ("wrapped_at_capacity", ClickHouseAtCapacity(), "rate_limited", True),
+            ("ch_timeout_code", ServerException("timed out", code=159), "timeout", False),
+            ("ch_socket_timeout_code", ServerException("socket timed out", code=209), "timeout", False),
+            ("ch_memory_limit_code", ServerException("memory limit exceeded", code=241), "out_of_memory", True),
+            ("ch_too_many_bytes_code", ServerException("too many bytes", code=307), "byte_limit", True),
+            ("ch_too_many_queries_code", ServerException("too many queries", code=202), "rate_limited", False),
+            ("other", RuntimeError("kaboom"), "server_error", False),
         ]
     )
-    def test_terminal_failure_emits_metric_error_event(self, name, exc, expected_error_type):
+    def test_terminal_failure_emits_metric_error_event(self, name, exc, expected_error_type, raises_application_error):
         # On the terminal attempt (retries exhausted) an infra failure emits 'experiment metric error'
         # with the shared backend error_type taxonomy — including byte_limit (307) and rate_limited (202),
         # the two real failure modes that used to collapse into server_error and stay invisible.
@@ -942,7 +983,7 @@ class TestRecalculationAnalytics(BaseTest):
                 "products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner"
             ) as mock_runner:
                 mock_runner.return_value.run.side_effect = exc
-                with pytest.raises(type(exc)):
+                with pytest.raises(ApplicationError if raises_application_error else type(exc)):
                     _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=True)
 
         assert len(captured) == 1
