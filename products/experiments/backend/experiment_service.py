@@ -72,6 +72,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentSavedMetric,
     ExperimentTimeseriesRecalculation,
     ExperimentToSavedMetric,
+    ExposureFreezeBlocker,
     experiment_has_legacy_metrics,
     holdout_filters_for_flag,
 )
@@ -89,11 +90,7 @@ from products.feature_flags.backend.facade.api import (
     update_flag,
     user_can_edit_flag,
 )
-from products.feature_flags.backend.facade.filters import (
-    group_cohort_restriction_blocker,
-    restrict_groups_to_cohort,
-    strip_group_cohort_restriction,
-)
+from products.feature_flags.backend.facade.filters import restrict_groups_to_cohort, strip_group_cohort_restriction
 from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notifications.backend.facade.api import (
@@ -214,6 +211,27 @@ def _deprecated_fields_in_request(request: Any) -> dict[str, Any]:
     if deprecated_param_keys:
         props["experiment_create_deprecated_parameters_keys"] = deprecated_param_keys
     return props
+
+
+# The user-facing validation message for each freeze-exposure blocker the model can report.
+_FREEZE_EXPOSURE_BLOCKER_MESSAGES: dict[ExposureFreezeBlocker, str] = {
+    "draft": "Experiment has not been launched yet.",
+    "stopped": "Experiment has already ended.",
+    "paused": "Cannot freeze a paused experiment. Resume it first.",
+    "already_frozen": "Experiment exposure is already frozen.",
+    "no_flag": "Experiment does not have a feature flag linked.",
+    "flag_deleted": "Experiment's feature flag has been deleted.",
+    "group_aggregation": "Group-aggregated experiments cannot have their exposure frozen.",
+    "holdout": (
+        "Experiments in a holdout cannot have their exposure frozen: holdout assignment is "
+        "evaluated before release conditions, so new users would keep entering the holdout."
+    ),
+    "super_groups": (
+        "This experiment's feature flag has early access conditions, which are evaluated "
+        "before release conditions, so freezing cannot stop new enrollment."
+    ),
+    "no_groups": "Experiment's feature flag has no release conditions to freeze.",
+}
 
 
 def _restrict_filters_to_frozen_cohort(filters: dict, cohort_id: int) -> dict:
@@ -1962,44 +1980,12 @@ class ExperimentService:
 
     def _validate_freeze_exposure_state(self, experiment: Experiment) -> None:
         """Guards for freeze_exposure, run twice: unlocked before the expensive snapshot build to
-        fail fast, and again under the flag lock to fail closed against whatever landed mid-build."""
-        if experiment.is_draft:
-            raise ValidationError("Experiment has not been launched yet.")
-        if experiment.is_stopped:
-            raise ValidationError("Experiment has already ended.")
-        if experiment.is_paused:
-            # A paused flag serves no one, so there is no live enrollment to freeze; freezing anyway
-            # would mislabel the (inactive) experiment as "exposure_frozen". Resume first.
-            raise ValidationError("Cannot freeze a paused experiment. Resume it first.")
-        if experiment.is_exposure_frozen:
-            raise ValidationError("Experiment exposure is already frozen.")
-
-        # Guard on the id, not the relation: feature_flag is a non-nullable FK, so accessing
-        # experiment.feature_flag when it's unset raises RelatedObjectDoesNotExist rather than
-        # returning None.
-        if experiment.feature_flag_id is None:
-            raise ValidationError("Experiment does not have a feature flag linked.")
-        flag = experiment.feature_flag
-        if flag.deleted:
-            raise ValidationError("Experiment's feature flag has been deleted.")
-        # The flag-shape preconditions (group aggregation, evaluation order, empty groups) live
-        # flag-side in group_cohort_restriction_blocker; each blocker maps to an experiments-facing
-        # message here. Fail closed rather than freeze partially.
-        blocker = group_cohort_restriction_blocker(flag.filters or {})
-        if blocker == "group_aggregation":
-            raise ValidationError("Group-aggregated experiments cannot have their exposure frozen.")
-        if experiment.holdout_id is not None or blocker == "holdout":
-            raise ValidationError(
-                "Experiments in a holdout cannot have their exposure frozen: holdout assignment is "
-                "evaluated before release conditions, so new users would keep entering the holdout."
-            )
-        if blocker == "super_groups":
-            raise ValidationError(
-                "This experiment's feature flag has early access conditions, which are evaluated "
-                "before release conditions, so freezing cannot stop new enrollment."
-            )
-        if blocker == "no_groups":
-            raise ValidationError("Experiment's feature flag has no release conditions to freeze.")
+        fail fast, and again under the flag lock to fail closed against whatever landed mid-build.
+        The preconditions live on the model (Experiment.freeze_exposure_blocker) so the serializer's
+        can_freeze_exposure gate and this validator can't drift apart."""
+        blocker = experiment.freeze_exposure_blocker
+        if blocker is not None:
+            raise ValidationError(_FREEZE_EXPOSURE_BLOCKER_MESSAGES[blocker])
 
     def _fetch_exposed_person_uuids(self, experiment: Experiment) -> list[str]:
         """Return the UUIDs of persons already exposed to the experiment, bounded by time and count.
