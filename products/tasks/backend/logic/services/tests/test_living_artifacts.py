@@ -428,6 +428,7 @@ class TestLivingArtifacts(TestCase):
             {
                 "id": "artifact-1",
                 "name": "report.zip",
+                "type": "output",
                 "source": "agent_output",
                 "size": len(workbook_bytes),
                 "content_type": "application/zip",
@@ -460,6 +461,45 @@ class TestLivingArtifacts(TestCase):
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
         slack.api_call.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("internal_type_by_id", "tree_snapshot", "agent_output", "id"),
+            ("user_attachment_by_id", "user_attachment", "user_attachment", "id"),
+            ("unlabeled_source_by_id", "output", "", "id"),
+            ("internal_type_by_storage_path", "tree_snapshot", "agent_output", "storage_path"),
+        ]
+    )
+    def test_internal_run_artifacts_rejected_as_living_artifact_sources(
+        self, _name: str, entry_type: str, entry_source: str, reference_by: str
+    ) -> None:
+        storage_path = f"tasks/artifacts/team_{self.team.id}/task_{self.task.id}/run_{self.task_run.id}/state.bin"
+        self.task_run.artifacts = [
+            {
+                "id": "artifact-1",
+                "name": "state.bin",
+                "type": entry_type,
+                "source": entry_source,
+                "size": 4,
+                "content_type": "application/octet-stream",
+                "storage_path": storage_path,
+            }
+        ]
+        self.task_run.save(update_fields=["artifacts", "updated_at"])
+        source_artifact_id = "artifact-1" if reference_by == "id" else None
+        source_storage_path = storage_path if reference_by == "storage_path" else None
+
+        with self.assertRaisesRegex(ValueError, "not a shareable run output"):
+            create_living_artifact(
+                run=self.task_run,
+                name="state.bin",
+                artifact_type=TaskArtifact.ArtifactType.FILE,
+                adapter=TaskArtifact.Adapter.SLACK_FILE,
+                source_artifact_id=source_artifact_id,
+                source_storage_path=source_storage_path,
+            )
+
+        self.assertFalse(TaskArtifact.objects.for_team(self.team.id).exists())
 
     @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=True)
     @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")

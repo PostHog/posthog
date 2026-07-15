@@ -1,10 +1,17 @@
-import { MOCK_DEFAULT_BASIC_USER, MOCK_DEFAULT_PROJECT, MOCK_TEAM_ID } from 'lib/api.mock'
+import {
+    MOCK_DEFAULT_BASIC_USER,
+    MOCK_DEFAULT_PROJECT,
+    MOCK_DEFAULT_TEAM,
+    MOCK_ORGANIZATION_ID,
+    MOCK_TEAM_ID,
+} from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
 import { dayjs } from 'lib/dayjs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
@@ -44,6 +51,15 @@ import {
     validateFeatureFlagKey,
 } from './featureFlagLogic'
 import { featureFlagsLogic } from './featureFlagsLogic'
+
+// jest.config.ts sets clearMocks: true, so these mock.fn() call histories reset before every test.
+jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
+    lemonToast: {
+        success: jest.fn(),
+        error: jest.fn(),
+        warning: jest.fn(),
+    },
+}))
 
 const MOCK_FEATURE_FLAG = {
     ...NEW_FLAG,
@@ -239,6 +255,51 @@ describe('featureFlagLogic', () => {
             expect(featureFlagsLogic.values.featureFlags.results[0].active).toBe(true)
 
             featureFlagsLogic.unmount()
+        })
+    })
+
+    describe('saveFeatureFlag error handling', () => {
+        it('shows the friendly permission toast on a save-time 403', async () => {
+            useMocks({
+                patch: {
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/`]: () => [
+                        403,
+                        { type: 'authentication_error', code: 'permission_denied', detail: 'Nope' },
+                    ],
+                },
+            })
+            const toastSpy = jest.spyOn(lemonToast, 'error').mockReturnValue('toast-id')
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.saveFeatureFlag(logic.values.featureFlag)
+                }).toDispatchActions(['saveFeatureFlagFailure'])
+
+                expect(toastSpy).toHaveBeenCalledWith('Nope')
+            } finally {
+                toastSpy.mockRestore()
+            }
+        })
+
+        it('does not show the permission toast for other save errors', async () => {
+            useMocks({
+                patch: {
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/`]: () => [
+                        500,
+                        { type: 'server_error', detail: 'boom' },
+                    ],
+                },
+            })
+            const toastSpy = jest.spyOn(lemonToast, 'error').mockReturnValue('toast-id')
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.saveFeatureFlag(logic.values.featureFlag)
+                }).toDispatchActions(['saveFeatureFlagFailure'])
+
+                // The permission-specific branch must not fire; the generic loaders toast owns this case.
+                expect(toastSpy).not.toHaveBeenCalledWith('Nope')
+            } finally {
+                toastSpy.mockRestore()
+            }
         })
     })
 
@@ -1333,6 +1394,72 @@ describe('featureFlagLogic', () => {
             expect(dialogProps.title).toBe('Disable feature flag "test-flag"?')
             expect(dialogProps.primaryButton?.children).toBe('Disable flag')
             dialogOpenSpy.mockRestore()
+        })
+    })
+
+    describe('copyFlagSuccess', () => {
+        const copyFlagsUrl = `/api/organizations/${MOCK_ORGANIZATION_ID}/feature_flags/copy_flags/`
+
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    // Hit by the loadProjectsWithCurrentFlag() the listener always triggers afterward.
+                    [`/api/organizations/${MOCK_ORGANIZATION_ID}/feature_flags/${MOCK_FEATURE_FLAG.key}/`]: () => [
+                        200,
+                        [],
+                    ],
+                },
+            })
+            logic.actions.setCopyDestinationProject(MOCK_TEAM_ID)
+        })
+
+        it('shows a pending-approval warning, not a raw error, when the target project gates the write', async () => {
+            useMocks({
+                post: {
+                    [copyFlagsUrl]: () => [
+                        200,
+                        {
+                            success: [],
+                            failed: [
+                                {
+                                    project_id: MOCK_TEAM_ID,
+                                    error_message: 'Approval required',
+                                    approval_pending: true,
+                                    change_request_id: 'cr-1',
+                                },
+                            ],
+                        },
+                    ],
+                },
+            })
+
+            logic.actions.copyFlag()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(lemonToast.warning).toHaveBeenCalledWith(
+                `A change request was created for ${MOCK_DEFAULT_TEAM.name}; the copy will apply once approved.`
+            )
+            expect(lemonToast.error).not.toHaveBeenCalled()
+        })
+
+        it('shows a plain error toast for a hard failure', async () => {
+            useMocks({
+                post: {
+                    [copyFlagsUrl]: () => [
+                        200,
+                        {
+                            success: [],
+                            failed: [{ project_id: MOCK_TEAM_ID, error_message: 'Project not found.' }],
+                        },
+                    ],
+                },
+            })
+
+            logic.actions.copyFlag()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(lemonToast.error).toHaveBeenCalledWith('Error while copying feature flag: Project not found.')
+            expect(lemonToast.warning).not.toHaveBeenCalled()
         })
     })
 })

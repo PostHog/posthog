@@ -463,3 +463,21 @@ export interface PatchedReviewValidatorConfigSelectApi {
     /** Set true to make this the single validator that runs on the user's PR reviews. Only true is accepted — validators are single-active, so you switch by selecting a different one, not by deactivating the current one. */
     active?: boolean
 }
+
+export type ReviewHogReviewsListParams = {
+    /**
+     * Whose reviews to list: `mine` for reviews of the requesting user's pull requests (the default), `everyone` for every review on this project.
+     *
+     * * `mine` - mine
+     * * `everyone` - everyone
+     * @minLength 1
+     */
+    scope?: ReviewHogReviewsListScope
+}
+
+export type ReviewHogReviewsListScope = (typeof ReviewHogReviewsListScope)[keyof typeof ReviewHogReviewsListScope]
+
+export const ReviewHogReviewsListScope = {
+    Mine: 'mine',
+    Everyone: 'everyone',
+} as const
