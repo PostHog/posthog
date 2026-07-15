@@ -48,9 +48,7 @@ type InsightQuillDateFilterProps = {
 
 export function InsightQuillDateFilter({ disabled }: InsightQuillDateFilterProps): JSX.Element {
     const { insightProps, editingDisabledReason } = useValues(insightLogic)
-    const { dateRange, trendsFilter, isTrends, isRetention, querySource } = useValues(
-        insightVizDataLogic(insightProps)
-    )
+    const { dateRange, trendsFilter, isTrends, isRetention, querySource } = useValues(insightVizDataLogic(insightProps))
     const { updateDateRange, updateQuerySource } = useActions(insightVizDataLogic(insightProps))
     const { reportInsightDatePickerOpened } = useActions(eventUsageLogic)
     const { weekStartDay } = useValues(teamLogic)
