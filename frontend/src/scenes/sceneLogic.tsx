@@ -1,4 +1,4 @@
-import equal from 'fast-deep-equal'
+import { deepEqual as equal } from 'fast-equals'
 import { BuiltLogic, actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
