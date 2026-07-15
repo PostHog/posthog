@@ -1121,6 +1121,11 @@ class Loop(ModelActivityMixin, TeamScopedRootMixin):
     behaviors = models.JSONField(default=dict, blank=True)
     connectors = models.JSONField(default=dict, blank=True)
     notifications = models.JSONField(default=dict, blank=True)
+    # Binding to a context (a "#channel" / desktop folder) this loop is attached to, or {} when
+    # unattached. Shape: {folder_id, name, outputs: {post_to_feed, update_context, canvas_id}}.
+    # Drives feed placement (each run's Task.channel) and the context.md / canvas publish contract
+    # injected into every run's prompt. See products/tasks/docs/LOOPS.md.
+    context_target = models.JSONField(default=dict, blank=True)
     internal = models.BooleanField(
         default=False,
         help_text="If true, this loop is for internal use and should not be exposed to end users.",

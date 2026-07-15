@@ -33,6 +33,7 @@ from pydantic import Field
 from pydantic.dataclasses import dataclass
 
 from posthog.models import User
+from posthog.models.file_system.file_system import FileSystem
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 
@@ -84,10 +85,18 @@ IDENTITY_FIELDS: frozenset[str] = frozenset(
         "sandbox_environment_id",
         "behaviors",
         "connectors",
+        "context_target",
         "triggers",
     }
 )
 _PAUSE_FIELD = "enabled"
+
+# Desktop file-system node types the loop's context attachment references (see LOOPS.md). A context
+# is a `folder`; a maintained living dashboard is a `dashboard` (canvas). Both live on the `desktop`
+# surface.
+DESKTOP_SURFACE = "desktop"
+DESKTOP_FOLDER_TYPE = "folder"
+DESKTOP_CANVAS_TYPE = "dashboard"
 
 
 class LoopPermissionError(Exception):
@@ -150,6 +159,24 @@ class LoopNotificationsDTO:
 
 
 @dataclass(frozen=True)
+class LoopContextOutputsDTO:
+    """What a context-attached loop maintains each run (see LOOPS.md "Contexts")."""
+
+    post_to_feed: bool = False
+    update_context: bool = False
+    canvas_id: str | None = None
+
+
+@dataclass(frozen=True)
+class LoopContextTargetDTO:
+    """The context (a "#channel" / desktop folder) a loop is attached to, plus what it maintains."""
+
+    folder_id: str
+    name: str
+    outputs: LoopContextOutputsDTO = Field(default_factory=LoopContextOutputsDTO)
+
+
+@dataclass(frozen=True)
 class LoopTriggerDTO:
     """A single loop trigger. `config` shape depends on `type` — see LOOPS.md `LoopTrigger`."""
 
@@ -191,6 +218,7 @@ class LoopDTO:
     consecutive_failures: int
     created_at: datetime
     updated_at: datetime
+    context_target: LoopContextTargetDTO | None = None
     triggers: list[LoopTriggerDTO] = Field(default_factory=list)
 
 
@@ -262,6 +290,25 @@ def _connectors_dto(raw: dict | None) -> LoopConnectorsDTO:
     )
 
 
+def _context_target_dto(raw: dict | None) -> LoopContextTargetDTO | None:
+    raw = raw or {}
+    folder_id = raw.get("folder_id")
+    name = raw.get("name")
+    if not folder_id or not name:
+        return None
+    outputs = raw.get("outputs") or {}
+    canvas_id = outputs.get("canvas_id")
+    return LoopContextTargetDTO(
+        folder_id=str(folder_id),
+        name=str(name),
+        outputs=LoopContextOutputsDTO(
+            post_to_feed=bool(outputs.get("post_to_feed", False)),
+            update_context=bool(outputs.get("update_context", False)),
+            canvas_id=str(canvas_id) if canvas_id else None,
+        ),
+    )
+
+
 def _repository_dtos(raw: list | None) -> list[LoopRepositoryEntryDTO]:
     entries = []
     for entry in raw or []:
@@ -317,6 +364,7 @@ def _loop_to_dto(loop: Loop) -> LoopDTO:
         consecutive_failures=loop.consecutive_failures,
         created_at=loop.created_at,
         updated_at=loop.updated_at,
+        context_target=_context_target_dto(loop.context_target),
         triggers=[_trigger_to_dto(trigger) for trigger in triggers],
     )
 
@@ -447,6 +495,23 @@ def github_integration_ids_for_team(team_id: int, integration_ids: Iterable[int]
     )
 
 
+def _desktop_node_exists(team_id: int, node_id: str, *, node_type: str) -> bool:
+    parsed = _parse_uuid(node_id)
+    if parsed is None:
+        return False
+    return FileSystem.objects.filter(team_id=team_id, surface=DESKTOP_SURFACE, type=node_type, id=parsed).exists()
+
+
+def desktop_folder_exists(team_id: int, folder_id: str) -> bool:
+    """Whether `folder_id` is a desktop context folder in this team (loop context-attach validation)."""
+    return _desktop_node_exists(team_id, folder_id, node_type=DESKTOP_FOLDER_TYPE)
+
+
+def desktop_canvas_exists(team_id: int, canvas_id: str) -> bool:
+    """Whether `canvas_id` is a desktop canvas in this team (loop context-attach validation)."""
+    return _desktop_node_exists(team_id, canvas_id, node_type=DESKTOP_CANVAS_TYPE)
+
+
 # --- CRUD ---
 
 
@@ -507,6 +572,7 @@ def create_loop(team_id: int, user: User | None, validated_data: dict) -> LoopDT
             behaviors=data.get("behaviors") or {},
             connectors=data.get("connectors") or {},
             notifications=data.get("notifications") or {},
+            context_target=data.get("context_target") or {},
             # Backend-only: the API write serializer never carries these, so loops made through
             # the public API are always user-facing and attributed to `user_created`.
             internal=data.get("internal", False),
@@ -543,6 +609,9 @@ def update_loop(loop_id: str | UUID, team_id: int, user: User | None, validated_
 
     data = dict(validated_data)
     trigger_payloads = data.pop("triggers", None)
+    # Detaching from a context sends `context_target: null`; the column is NOT NULL, so store {}.
+    if "context_target" in data and data["context_target"] is None:
+        data["context_target"] = {}
 
     with transaction.atomic():
         for field_name, value in data.items():
@@ -757,6 +826,8 @@ __all__ = [
     "POSTHOG_MCP_SCOPES_CHOICES",
     "LoopBehaviorsDTO",
     "LoopConnectorsDTO",
+    "LoopContextOutputsDTO",
+    "LoopContextTargetDTO",
     "LoopDTO",
     "LoopFireResult",
     "LoopNotificationChannelDTO",
@@ -776,6 +847,8 @@ __all__ = [
     "LoopVisibility",
     "active_mcp_installation_ids",
     "create_loop",
+    "desktop_canvas_exists",
+    "desktop_folder_exists",
     "fire_loop_api",
     "fire_loop_manual",
     "get_loop",

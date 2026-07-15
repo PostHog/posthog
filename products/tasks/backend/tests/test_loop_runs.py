@@ -19,7 +19,7 @@ from products.tasks.backend.logic.services.loop_runs import (
     handle_loop_run_terminal,
     render_trigger_context,
 )
-from products.tasks.backend.models import Loop, LoopFire, LoopTrigger, SandboxEnvironment, Task, TaskRun
+from products.tasks.backend.models import Channel, Loop, LoopFire, LoopTrigger, SandboxEnvironment, Task, TaskRun
 
 LOOP_RUNS_MODULE = "products.tasks.backend.logic.services.loop_runs"
 
@@ -350,6 +350,140 @@ class TestFireLoopCreatesRun(LoopRunsTestCase):
             self.assertEqual(task_run.state["sandbox_environment_id"], str(sandbox_environment.id))
         else:
             self.assertNotIn("sandbox_environment_id", task_run.state)
+
+
+class TestFireLoopContextTarget(LoopRunsTestCase):
+    FOLDER_ID = "11111111-1111-1111-1111-111111111111"
+    CANVAS_ID = "22222222-2222-2222-2222-222222222222"
+
+    def setUp(self):
+        super().setUp()
+        # The cloud usage gate is a billing boundary; with no limit it returns None. Mock it so a
+        # fire actually spawns a run regardless of the local env's billing state (CI returns None).
+        gate = patch(f"{LOOP_RUNS_MODULE}.cloud_usage_limit_response", return_value=None)
+        gate.start()
+        self.addCleanup(gate.stop)
+
+    def context_target(self, **outputs) -> dict:
+        return {"folder_id": self.FOLDER_ID, "name": "Growth Team", "outputs": outputs}
+
+    def fire_and_capture(self, loop: Loop, trigger: LoopTrigger, fire_key: str = "fire-ctx"):
+        """Fire once, executing the post-commit dispatch against a mock so the resolved
+        posthog_mcp_scopes are observable. Returns (result, dispatched_scopes | None)."""
+        with patch(f"{LOOP_RUNS_MODULE}._execute_task_processing_workflow_for_loop") as mock_dispatch:
+            with self.captureOnCommitCallbacks(execute=True):
+                result = fire_loop(loop, trigger, fire_key, "ctx")
+        scopes = mock_dispatch.call_args.kwargs["posthog_mcp_scopes"] if mock_dispatch.call_args else None
+        return result, scopes
+
+    def team_channel(self, name: str) -> Channel:
+        return Channel.objects.for_team(self.team.id, canonical=True).get(
+            name=name, channel_type=Channel.ChannelType.PUBLIC
+        )
+
+    def test_feed_output_files_the_run_into_the_contexts_feed_channel(self):
+        # Attaching a loop to a context with post_to_feed must land each run in that context's
+        # feed. The feed channel is keyed by the normalized context name, resolved (or created)
+        # at fire time — dropping the channel wiring would silently orphan the runs.
+        loop = self.create_loop(context_target=self.context_target(post_to_feed=True))
+        trigger = self.create_trigger(loop)
+
+        result, _ = self.fire_and_capture(loop, trigger)
+
+        assert result.task_id is not None
+        task = Task.objects.get(id=result.task_id)
+        self.assertEqual(task.channel_id, self.team_channel("growth-team").id)
+
+    def test_feed_output_reuses_an_existing_feed_channel(self):
+        existing = Channel(
+            team=self.team, name="growth-team", channel_type=Channel.ChannelType.PUBLIC, created_by=self.user
+        )
+        existing.save()
+        loop = self.create_loop(context_target=self.context_target(post_to_feed=True))
+        trigger = self.create_trigger(loop)
+
+        result, _ = self.fire_and_capture(loop, trigger)
+
+        assert result.task_id is not None
+        task = Task.objects.get(id=result.task_id)
+        self.assertEqual(task.channel_id, existing.id)
+        self.assertEqual(Channel.objects.unscoped().filter(team=self.team, name="growth-team").count(), 1)
+
+    @parameterized.expand(
+        [
+            ("update_context_only", {"update_context": True}, [FOLDER_ID], ["desktop-file-system-instructions"]),
+            ("canvas_only", {"canvas_id": CANVAS_ID}, [CANVAS_ID], ["desktop-file-system-canvas-partial-update"]),
+            (
+                "both",
+                {"update_context": True, "canvas_id": CANVAS_ID},
+                [FOLDER_ID, CANVAS_ID],
+                ["desktop-file-system-instructions", "desktop-file-system-canvas-partial-update"],
+            ),
+        ]
+    )
+    def test_context_write_outputs_add_the_publish_block_to_the_prompt(
+        self, _name, outputs, expected_ids, expected_tool_fragments
+    ):
+        # A context-maintaining loop must be told, in its prompt, which folder/canvas to publish to
+        # and through which tool — the sandbox agent has no other way to know its target.
+        loop = self.create_loop(context_target=self.context_target(**outputs))
+        trigger = self.create_trigger(loop)
+
+        result, _ = self.fire_and_capture(loop, trigger)
+
+        assert result.task_id is not None
+        description = Task.objects.get(id=result.task_id).description
+        for expected_id in expected_ids:
+            self.assertIn(expected_id, description)
+        for fragment in expected_tool_fragments:
+            self.assertIn(fragment, description)
+
+    @parameterized.expand(
+        [
+            ("update_context", {"update_context": True}),
+            ("canvas", {"canvas_id": CANVAS_ID}),
+        ]
+    )
+    def test_context_write_outputs_grant_file_system_write_without_widening_to_full(self, _name, outputs):
+        # Least privilege: maintaining context.md / a canvas needs file_system write, but must not
+        # promote the run to the whole `full` write surface. Regressing either way is a real bug —
+        # too narrow breaks the publish, too broad hands an unattended run every write scope.
+        loop = self.create_loop(
+            connectors={"posthog_mcp_scopes": "read_only"}, context_target=self.context_target(**outputs)
+        )
+        trigger = self.create_trigger(loop)
+
+        _, scopes = self.fire_and_capture(loop, trigger)
+
+        self.assertIsInstance(scopes, list)
+        self.assertIn("file_system:write", scopes)
+        self.assertIn("file_system:read", scopes)
+        self.assertNotEqual(scopes, "full")
+
+    def test_feed_only_attachment_keeps_read_only_scope_and_omits_publish_block(self):
+        # The negative of the write cases: a feed-only attachment writes nothing to the file system,
+        # so it must stay on read_only and never inject the publish contract.
+        loop = self.create_loop(
+            connectors={"posthog_mcp_scopes": "read_only"}, context_target=self.context_target(post_to_feed=True)
+        )
+        trigger = self.create_trigger(loop)
+
+        result, scopes = self.fire_and_capture(loop, trigger)
+
+        assert result.task_id is not None
+        self.assertNotIn("desktop-file-system", Task.objects.get(id=result.task_id).description)
+        self.assertEqual(scopes, "read_only")
+
+    def test_unattached_loop_sets_no_channel_and_no_publish_block(self):
+        loop = self.create_loop()
+        trigger = self.create_trigger(loop)
+
+        result, _ = self.fire_and_capture(loop, trigger)
+
+        assert result.task_id is not None
+        task = Task.objects.get(id=result.task_id)
+        self.assertIsNone(task.channel_id)
+        self.assertNotIn("desktop-file-system", task.description)
 
 
 class TestHandleLoopRunTerminal(LoopRunsTestCase):

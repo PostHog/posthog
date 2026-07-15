@@ -176,6 +176,20 @@ Per-channel event filters from `loop.notifications`. A Redis cooldown per (loop,
 
 `needs_attention`, defined. Raised by the system on: usage-gate rejection, `connector_unavailable`, auto-pause, partial multi-repo failure, policy-gated CI, permanent notification-channel failure and cap-exhausted fires. Raised by the agent through a `raise_attention` tool exposed in loop runs.
 
+### Contexts
+
+A loop can be attached to a context (a "#channel" / desktop folder), stored on `Loop.context_target`: `{folder_id, name, outputs: {post_to_feed, update_context, canvas_id}}`, or `{}` when unattached.
+Attachment is identity-bearing (owner-only to change on a team loop) and drives three independent outputs, each a toggle:
+
+- `post_to_feed`: each run's task is filed into the context's feed (`Task.channel`, resolved from the context name at fire time), so the run shows up as a card alongside interactive tasks. No new feed machinery, just the channel the run's task already supports.
+- `update_context`: each run reads the context's `context.md` and republishes it, reflecting the latest state. Reuses the existing `desktop-file-system-instructions-retrieve` / `-partial-update` MCP tools (the same contract the "Build with agent" flow uses); the run does a read-modify-write since there is no server-side append.
+- `canvas_id`: the loop maintains one canvas (a living dashboard) in the context, rewriting the complete single-file React source each run via `desktop-file-system-canvas-partial-update`.
+
+The publish contract (folder id, canvas id, which tool to call) is appended to the run's prompt only when a write output is on; a feed-only attachment needs no prompt change.
+Write outputs widen the run's PostHog MCP scopes by exactly `file_system:read` + `file_system:write` on top of whatever the loop already carries, rather than promoting it to the broad `full` write surface.
+A feed-only attachment grants no extra scope.
+`folder_id` and `canvas_id` are validated against the team's desktop file system on write; the resolved feed channel is always team-scoped, so no cross-team id can be attached.
+
 ## Access control
 
 - Personal loops: owner-only for everything (view, edit, fire, run history).
@@ -211,6 +225,8 @@ Loop            team FK, owner FK, name, description, visibility,
                 repositories JSON, sandbox_environment FK (nullable),
                 enabled, overlap_policy,
                 behaviors JSON, connectors JSON, notifications JSON,
+                context_target JSON (context attachment + outputs, {} when unattached),
+                internal, origin_product,
                 last_run_at, last_run_status, last_error,
                 consecutive_failures, created_at, updated_at, deleted
 

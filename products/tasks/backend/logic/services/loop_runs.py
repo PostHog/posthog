@@ -6,6 +6,7 @@ GitHub, API, manual) goes through, so dedup, the usage gate, the per-loop rate c
 and the overlap policy are enforced once, in one order, regardless of caller.
 """
 
+import re
 import json
 import logging
 from dataclasses import dataclass
@@ -17,13 +18,13 @@ from django.db import IntegrityError, connection, transaction
 from django.utils import timezone as django_timezone
 
 from posthog.models import User
-from posthog.temporal.oauth import PosthogMcpScopes
+from posthog.temporal.oauth import PosthogMcpScopes, resolve_scopes
 
 from products.tasks.backend.logic.services.code_usage_gate import cloud_usage_limit_response
 from products.tasks.backend.loop_notifications import dispatch_loop_event
 from products.tasks.backend.loop_service import pause_loop_schedules
 from products.tasks.backend.metrics import observe_loop_auto_paused, observe_loop_fire
-from products.tasks.backend.models import Loop, LoopFire, LoopTrigger, Task, TaskRun
+from products.tasks.backend.models import Channel, Loop, LoopFire, LoopTrigger, Task, TaskRun
 from products.tasks.backend.temporal.process_task.utils import get_default_model_for_runtime_adapter
 
 logger = logging.getLogger(__name__)
@@ -51,12 +52,102 @@ LOOP_FRAMING_BLOCK = (
 )
 
 
+# Least-privilege write grant for a loop that maintains a context's context.md or canvas: the two
+# file_system scopes only, added on top of whatever posthog_mcp_scopes the loop already carries,
+# rather than escalating the run to the broad `full` write surface. resolve_scopes() re-adds the
+# internal scopes at mint time.
+_CONTEXT_WRITE_SCOPES = ["file_system:read", "file_system:write"]
+
+
 @dataclass
 class LoopFireResult:
     created: bool
     reason: str
     task_id: UUID | None
     task_run_id: UUID | None
+
+
+def _context_outputs(context_target: dict | None) -> dict:
+    """Normalize a loop's `context_target.outputs` into a flat, defaulted shape."""
+    raw = (context_target or {}).get("outputs") or {}
+    canvas_id = raw.get("canvas_id")
+    return {
+        "post_to_feed": bool(raw.get("post_to_feed", False)),
+        "update_context": bool(raw.get("update_context", False)),
+        "canvas_id": str(canvas_id) if canvas_id else None,
+    }
+
+
+def render_context_target_block(context_target: dict | None) -> str:
+    """The publish contract appended to a loop's prompt when it maintains a context's deliverables.
+
+    Empty for an unattached loop or a feed-only attachment — filing the run into the feed needs no
+    prompt (the run's Task.channel does it). The agent reaches these through the PostHog MCP tools
+    the run's token is scoped for (`file_system:write`, granted in `_create_loop_task_and_run`).
+    """
+    context_target = context_target or {}
+    outputs = _context_outputs(context_target)
+    folder_id = context_target.get("folder_id")
+    if not folder_id or not (outputs["update_context"] or outputs["canvas_id"]):
+        return ""
+
+    name = context_target.get("name") or "this context"
+    lines = [
+        f'This loop is attached to the "{name}" context. When the work above is done, keep its '
+        "living deliverables current:"
+    ]
+    if outputs["update_context"]:
+        lines.append(
+            f"- Update its context.md: read the current version with the "
+            f"`desktop-file-system-instructions-retrieve` tool (id: {folder_id}), revise it to reflect "
+            f"this run, then publish the full new markdown with "
+            f"`desktop-file-system-instructions-partial-update` (id: {folder_id}, base_version: the "
+            f"version you just read). Edit in place, carrying forward anything still true instead of "
+            f"rewriting from scratch."
+        )
+    if outputs["canvas_id"]:
+        lines.append(
+            f"- Update its canvas: publish the complete single-file React source with the "
+            f"`desktop-file-system-canvas-partial-update` tool (id: {outputs['canvas_id']}). Send the "
+            f"whole file each time; partial edits are not supported."
+        )
+    return "\n".join(lines)
+
+
+def _resolve_feed_channel_id(loop: Loop) -> str | None:
+    """Resolve-or-create the public feed channel a loop's runs are filed into, by context name.
+
+    The context is a desktop folder whose feed is a `Channel` keyed by the same (normalized) name;
+    this bridges the two the way the client does. Returns None when the loop names no context.
+    """
+    name = (loop.context_target or {}).get("name")
+    if not name:
+        return None
+    # Same key as facade.api.normalize_channel_name (Slack-style: lowercase, whitespace to dashes).
+    # Replicated here so the logic layer doesn't import the facade.
+    normalized = re.sub(r"\s+", "-", str(name).strip().lower())[:128]
+    if not normalized:
+        return None
+    channel, _ = Channel.objects.for_team(loop.team_id, canonical=True).get_or_create(
+        name=normalized,
+        channel_type=Channel.ChannelType.PUBLIC,
+        deleted=False,
+        defaults={"team_id": loop.team_id, "created_by_id": loop.created_by_id},
+    )
+    return str(channel.id)
+
+
+def _augment_scopes_for_context(scopes: PosthogMcpScopes, *, needs_write: bool) -> PosthogMcpScopes:
+    """Add file_system write to a run's PostHog MCP scopes when it maintains context.md / a canvas.
+
+    Least privilege: a preset/list is widened by exactly the two file_system scopes rather than
+    promoted to `full`, so a report-only loop that also freshens a context doesn't gain the whole
+    write surface. `full` already includes them, so it's returned unchanged.
+    """
+    if not needs_write or scopes == "full":
+        return scopes
+    base = resolve_scopes(scopes, include_internal_scopes=False)
+    return list(dict.fromkeys([*base, *_CONTEXT_WRITE_SCOPES]))
 
 
 def render_trigger_context(trigger_type: str, payload: dict | None, loop: Loop) -> str:
@@ -228,8 +319,16 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
         repository = first_repo.get("full_name")
         github_integration_id = first_repo.get("github_integration_id")
 
+    context_target = loop.context_target if isinstance(loop.context_target, dict) else {}
+    outputs = _context_outputs(context_target)
+
     title = f"{loop.name} ({django_timezone.now().isoformat()})"
-    description = "\n\n".join([LOOP_FRAMING_BLOCK, loop.instructions, trigger_context])
+    context_block = render_context_target_block(context_target)
+    description = "\n\n".join(
+        part for part in [LOOP_FRAMING_BLOCK, loop.instructions, context_block, trigger_context] if part
+    )
+
+    feed_channel_id = _resolve_feed_channel_id(loop) if outputs["post_to_feed"] else None
 
     task = Task.objects.create(
         team_id=loop.team_id,
@@ -241,6 +340,7 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
         github_integration_id=github_integration_id,
         internal=True,
         loop=loop,
+        channel_id=feed_channel_id,
     )
 
     config_snapshot = {
@@ -248,6 +348,7 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
         "connectors": loop.connectors,
         "notifications": loop.notifications,
         "repositories": loop.repositories,
+        "context_target": context_target,
     }
     extra_state: dict[str, Any] = {
         "loop_id": str(loop.id),
@@ -271,7 +372,10 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
     task_id = str(task.id)
     run_id = str(task_run.id)
     create_pr = bool((loop.behaviors or {}).get("create_prs", True))
-    posthog_mcp_scopes = _resolve_posthog_mcp_scopes(loop.connectors)
+    needs_file_system_write = outputs["update_context"] or bool(outputs["canvas_id"])
+    posthog_mcp_scopes = _augment_scopes_for_context(
+        _resolve_posthog_mcp_scopes(loop.connectors), needs_write=needs_file_system_write
+    )
 
     transaction.on_commit(
         lambda: _execute_task_processing_workflow_for_loop(

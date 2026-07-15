@@ -104,6 +104,34 @@ class LoopNotificationsSerializer(serializers.Serializer):
     slack = LoopNotificationChannelSerializer(required=False, help_text="Slack notification settings.")
 
 
+class LoopContextOutputsWriteSerializer(serializers.Serializer):
+    post_to_feed = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Whether each run is filed into the context's feed as a card (sets the run's channel).",
+    )
+    update_context = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Whether each run reads and republishes the context's context.md to reflect the latest state.",
+    )
+    canvas_id = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        default=None,
+        help_text="Id of a canvas in this context the loop keeps up to date each run, or null to maintain none.",
+    )
+
+
+class LoopContextTargetWriteSerializer(serializers.Serializer):
+    folder_id = serializers.CharField(help_text="Desktop folder id of the context this loop is attached to.")
+    name = serializers.CharField(max_length=128, help_text="Context (channel) name, used to file runs into its feed.")
+    outputs = LoopContextOutputsWriteSerializer(
+        required=False, default=dict, help_text="What the loop maintains in this context each run."
+    )
+
+
 def _parse_iso_datetime(value: object) -> datetime | None:
     if not isinstance(value, str):
         return None
@@ -293,6 +321,14 @@ class LoopWriteSerializer(serializers.Serializer):
     notifications = LoopNotificationsSerializer(
         required=False, default=dict, help_text="Per-channel notification configuration."
     )
+    context_target = LoopContextTargetWriteSerializer(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Context (channel) this loop is attached to, or null to detach. Drives feed placement "
+            "and the context.md / canvas it keeps up to date."
+        ),
+    )
     triggers = LoopTriggerWriteSerializer(
         many=True,
         required=False,
@@ -354,6 +390,15 @@ class LoopWriteSerializer(serializers.Serializer):
                     {"connectors": f"MCP installation(s) not found or inactive: {invalid}"}
                 )
 
+        context_target = attrs.get("context_target")
+        if context_target:
+            team_id = self.context["team"].id
+            if not loops_facade.desktop_folder_exists(team_id, context_target.get("folder_id")):
+                raise serializers.ValidationError({"context_target": "Context folder not found for this team."})
+            canvas_id = (context_target.get("outputs") or {}).get("canvas_id")
+            if canvas_id and not loops_facade.desktop_canvas_exists(team_id, canvas_id):
+                raise serializers.ValidationError({"context_target": "Canvas not found in this team."})
+
         return attrs
 
 
@@ -399,6 +444,18 @@ class LoopNotificationsResponseSerializer(DataclassSerializer):
         dataclass = loops_facade.LoopNotificationsDTO
 
 
+class LoopContextOutputsResponseSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = loops_facade.LoopContextOutputsDTO
+
+
+class LoopContextTargetResponseSerializer(DataclassSerializer):
+    outputs = LoopContextOutputsResponseSerializer(help_text="What the loop maintains in this context each run.")
+
+    class Meta:
+        dataclass = loops_facade.LoopContextTargetDTO
+
+
 class LoopRepositoryEntryResponseSerializer(DataclassSerializer):
     class Meta:
         dataclass = loops_facade.LoopRepositoryEntryDTO
@@ -411,6 +468,9 @@ class LoopSerializer(DataclassSerializer):
     behaviors = LoopBehaviorsResponseSerializer(help_text="PR / CI-follow-up behavior configuration.")
     connectors = LoopConnectorsResponseSerializer(help_text="MCP connector configuration for this loop's runs.")
     notifications = LoopNotificationsResponseSerializer(help_text="Per-channel notification configuration.")
+    context_target = LoopContextTargetResponseSerializer(
+        allow_null=True, required=False, help_text="Context this loop is attached to, or null when unattached."
+    )
     triggers = LoopTriggerSerializer(many=True, help_text="Triggers attached to this loop.")
 
     class Meta:
@@ -433,6 +493,7 @@ class LoopSerializer(DataclassSerializer):
             "behaviors",
             "connectors",
             "notifications",
+            "context_target",
             "internal",
             "origin_product",
             "last_run_at",
