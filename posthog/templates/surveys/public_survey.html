@@ -9,10 +9,7 @@
     <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/favicon-16x16.png?v=2023-07-07">
     <link rel="mask-icon" href="/static/icons/safari-pinned-tab.svg?v=2023-07-07" color="#FF053C">
     <link rel="manifest" href="/static/site.webmanifest?v=2023-07-07">
-    {% comment %}
-    Reference the raw path, not the static templatetag: this file ships via frontend/public/ and is
-    served unhashed, so the manifest-hashed URL the static templatetag produces 404s in production.
-    {% endcomment %}
+    {# Raw path, not the static tag: frontend/public/ ships unhashed, so a manifest-hashed URL 404s. #}
     <link rel="stylesheet" href="/static/surveys/hosted-survey.css?v=1">
     <meta name="apple-mobile-web-app-title" content="{{ name }}">
     <meta name="application-name" content="{{ name }}">
