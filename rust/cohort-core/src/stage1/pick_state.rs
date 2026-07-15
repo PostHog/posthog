@@ -6,7 +6,7 @@ use crate::filters::tree::{BehavioralLeafConfig, BehavioralValue};
 use crate::stage1::bucket_tz::{
     day_idx_in_tz, day_idx_of_naive_date, start_of_day_ms_in_tz, DayIdx,
 };
-use crate::stage1::state::StateVariant;
+use crate::stage1::variant::StateVariant;
 
 /// A cohort time interval with its fixed second-count (the `INTERVAL_TO_SECONDS` contract).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -1,0 +1,41 @@
+[package]
+name = "cohort-seeder"
+version = "0.1.0"
+edition = "2021"
+
+[lints]
+workspace = true
+
+[features]
+pg-test-support = []
+
+[dependencies]
+anyhow = { workspace = true }
+axum = { workspace = true }
+chrono = { workspace = true }
+chrono-tz = { workspace = true }
+clickhouse = { workspace = true }
+cohort-core = { path = "../cohort-core" }
+common-alloc = { path = "../common/alloc" }
+common-database = { path = "../common/database" }
+common-kafka = { path = "../common/kafka" }
+common-liveness = { path = "../common/liveness" }
+common-types = { path = "../common/types" }
+envconfig = { workspace = true }
+governor = { workspace = true }
+lifecycle = { path = "../common/lifecycle" }
+metrics = { workspace = true }
+metrics-exporter-prometheus = { workspace = true }
+rdkafka = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
+uuid = { workspace = true }
+
+[dev-dependencies]
+proptest = "1"

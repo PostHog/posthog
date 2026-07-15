@@ -244,7 +244,7 @@ mod tests {
         assert_eq!(leaf.bytecode.as_ref(), &bytecode_loaded());
         assert_eq!(
             leaf.state_variant,
-            Some(crate::stage1::state::StateVariant::BehavioralSingle),
+            Some(crate::stage1::variant::StateVariant::BehavioralSingle),
         );
     }
 
@@ -269,7 +269,7 @@ mod tests {
         assert_eq!(leaf.operator_value, Some(3));
         assert_eq!(
             leaf.state_variant,
-            Some(crate::stage1::state::StateVariant::BehavioralDailyBuckets),
+            Some(crate::stage1::variant::StateVariant::BehavioralDailyBuckets),
         );
     }
 
@@ -323,7 +323,7 @@ mod tests {
             };
             assert_eq!(
                 leaf.state_variant,
-                Some(crate::stage1::state::StateVariant::BehavioralCompressedHistory),
+                Some(crate::stage1::variant::StateVariant::BehavioralCompressedHistory),
                 "{why}",
             );
         }
@@ -331,7 +331,7 @@ mod tests {
 
     #[test]
     fn performed_event_multiple_explicit_relative_lower_window_is_kept() {
-        use crate::stage1::state::StateVariant;
+        use crate::stage1::variant::StateVariant;
         // The cohort UI stores "in the last N days" as `explicit_datetime: "-Nd"` with no
         // time_interval/time_value; the multiple path must resolve it like the single path does.
         for (explicit_datetime, expected_variant, why) in [

@@ -26,10 +26,8 @@ use chrono_tz::{Tz, UTC};
 /// A calendar-day index: days since the Unix epoch (1970-01-01) in a given timezone.
 pub type DayIdx = i32;
 
-/// Upper bound (minutes) on the forward probe used to find the post-gap instant for a local time
-/// that falls inside a spring-forward gap. Comfortably exceeds the largest real DST shift; the probe
-/// only runs when a transition lands exactly on the requested boundary (rare).
-const MAX_DST_GAP_MINUTES: i64 = 180;
+/// Covers the largest IANA local-time discontinuity: a fully skipped civil day.
+const MAX_LOCAL_GAP_MINUTES: i64 = 24 * 60;
 
 /// The calendar-day index of `epoch_ms` in `tz`. Instant → day is never DST-ambiguous.
 pub fn day_idx_in_tz(epoch_ms: i64, tz: Tz) -> DayIdx {
@@ -37,8 +35,8 @@ pub fn day_idx_in_tz(epoch_ms: i64, tz: Tz) -> DayIdx {
 }
 
 /// Local-midnight epoch-ms for day index `day` in `tz` — the base for an eviction deadline. On a
-/// fall-back midnight picks the earliest instant; on a spring-forward gap at midnight picks the
-/// post-gap instant.
+/// fall-back midnight picks the earliest instant; on a local-time gap picks the post-gap instant.
+/// A fully skipped civil day therefore has the same start as its following day.
 pub fn start_of_day_ms_in_tz(day: DayIdx, tz: Tz) -> i64 {
     let midnight = date_for_day(day)
         .and_hms_opt(0, 0, 0)
@@ -152,17 +150,22 @@ fn local_naive_to_instant(naive: NaiveDateTime, tz: Tz) -> DateTime<Tz> {
         LocalResult::Single(dt) => dt,
         // Overlap: the wall-clock time occurs twice. Earliest = Python `ZoneInfo` fold=0.
         LocalResult::Ambiguous(earliest, _latest) => earliest,
-        // Gap: the wall-clock time does not exist. Walk forward to the first representable local
-        // minute and take its earliest instant — the post-gap instant. Bounded by the max DST shift;
-        // only reachable when a transition lands exactly on this boundary.
-        LocalResult::None => (1..=MAX_DST_GAP_MINUTES)
-            .find_map(|m| {
-                naive
-                    .checked_add_signed(Duration::minutes(m))
-                    .and_then(|t| tz.from_local_datetime(&t).earliest())
-            })
+        LocalResult::None => first_valid_after_gap(naive, tz)
             .unwrap_or_else(|| Utc.from_utc_datetime(&naive).with_timezone(&tz)),
     }
+}
+
+fn first_valid_after_gap(naive: NaiveDateTime, tz: Tz) -> Option<DateTime<Tz>> {
+    let upper = (1..=MAX_LOCAL_GAP_MINUTES).find_map(|minutes| {
+        let candidate = naive.checked_add_signed(Duration::minutes(minutes))?;
+        tz.from_local_datetime(&candidate)
+            .earliest()
+            .map(|_| candidate)
+    })?;
+    (0..60).rev().find_map(|seconds_before| {
+        let candidate = upper.checked_sub_signed(Duration::seconds(seconds_before))?;
+        tz.from_local_datetime(&candidate).earliest()
+    })
 }
 
 #[cfg(test)]
@@ -170,6 +173,7 @@ mod tests {
     use super::*;
     use chrono_tz::America::{New_York, Sao_Paulo};
     use chrono_tz::Asia::Kolkata;
+    use chrono_tz::Pacific::Apia;
 
     const MS_PER_DAY: i64 = 86_400_000;
     const MS_PER_HOUR: i64 = 3_600_000;
@@ -291,6 +295,30 @@ mod tests {
             local.hour(),
             1,
             "post-gap instant is 01:00 local, not the skipped midnight"
+        );
+    }
+
+    #[test]
+    fn fully_skipped_civil_day_projects_to_the_following_midnight() {
+        let preceding = day_idx_of_naive_date(NaiveDate::from_ymd_opt(2011, 12, 29).unwrap());
+        let skipped = day_idx_of_naive_date(NaiveDate::from_ymd_opt(2011, 12, 30).unwrap());
+        let following = day_idx_of_naive_date(NaiveDate::from_ymd_opt(2011, 12, 31).unwrap());
+
+        assert_eq!(
+            start_of_day_ms_in_tz(preceding, Apia),
+            utc_ms(2011, 12, 29, 10, 0)
+        );
+        assert_eq!(
+            start_of_day_ms_in_tz(skipped, Apia),
+            utc_ms(2011, 12, 30, 10, 0)
+        );
+        assert_eq!(
+            start_of_day_ms_in_tz(following, Apia),
+            utc_ms(2011, 12, 30, 10, 0)
+        );
+        assert_eq!(
+            start_of_day_ms_in_tz(following + 1, Apia),
+            utc_ms(2011, 12, 31, 10, 0)
         );
     }
 
