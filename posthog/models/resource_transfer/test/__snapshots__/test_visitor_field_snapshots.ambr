@@ -831,6 +831,7 @@
     'has_feature_enrollment',
     'holdout',
     'id',
+    'is_eligible_for_experiment',
     'key_without_tombstone',
     'last_called_at',
     'last_modified_by_id',

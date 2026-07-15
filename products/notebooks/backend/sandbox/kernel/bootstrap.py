@@ -122,6 +122,16 @@ class KernelSession:
         # setting error_in_exec, and they must not masquerade as a successful empty run.
         error = execution.error_in_exec or execution.error_before_exec
         if error is not None:
+            # A SIGINT (the /interrupt path) surfaces as KeyboardInterrupt inside run_cell;
+            # it is a user-requested stop, not a failure, and the captured output still ships.
+            if isinstance(error, KeyboardInterrupt):
+                return envelope.from_python_execution(
+                    status="interrupted",
+                    stdout=stdout,
+                    stderr=stderr,
+                    error=envelope.INTERRUPTED_MESSAGE,
+                    media=media,
+                )
             return envelope.from_python_execution(
                 status="error",
                 stdout=stdout,
