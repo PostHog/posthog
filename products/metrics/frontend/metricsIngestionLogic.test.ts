@@ -84,5 +84,14 @@ describe('metricsIngestionLogic', () => {
         await expectLogic(logic).delay(10)
 
         expect(metricsHasMetricsRetrieve).not.toHaveBeenCalled()
+
+        // A denied check must stay "unknown", not become "no metrics" - false would
+        // show the setup prompt to a user on a team that may have plenty of metrics.
+        await expectLogic(logic, () => {
+            logic.actions.loadTeamHasMetrics()
+        }).toFinishAllListeners()
+
+        expect(metricsHasMetricsRetrieve).not.toHaveBeenCalled()
+        expect(logic.values.hasMetrics).toBeUndefined()
     })
 })

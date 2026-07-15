@@ -58,12 +58,7 @@ export const MetricsSqlEditor = (): JSX.Element => {
 
     return (
         <div className="flex flex-col flex-1 min-h-0 min-w-0 border rounded overflow-hidden">
-            <SQLEditor
-                tabId={sqlEditorTabId}
-                mode={SQLEditorMode.Embedded}
-                defaultShowDatabaseTree={false}
-                runQueryDisabledReason={warehouseViewerDisabledReason ?? undefined}
-            />
+            <SQLEditor tabId={sqlEditorTabId} mode={SQLEditorMode.Embedded} defaultShowDatabaseTree={false} />
         </div>
     )
 }

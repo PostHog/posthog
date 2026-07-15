@@ -39,6 +39,25 @@ describe('LemonInputSelect', () => {
         expect(await screen.findByText("You don't have access to edit this field")).toBeInTheDocument()
     })
 
+    it('does not allow removing selected values when disabledReason is set', () => {
+        const onChange = jest.fn()
+
+        const { container } = render(
+            <LemonInputSelect
+                mode="multiple"
+                options={[{ key: 'option-a', label: 'Option A' }]}
+                value={['option-a']}
+                onChange={onChange}
+                disabledReason="You don't have access to edit this field"
+            />
+        )
+
+        // The selected value still shows, but its remove (x) button must not render
+        expect(screen.getByText('Option A')).toBeInTheDocument()
+        expect(container.querySelector('.LemonSnack__close')).toBeNull()
+        expect(onChange).not.toHaveBeenCalled()
+    })
+
     it('works with string values (backwards compatibility)', () => {
         const onChange = jest.fn()
 

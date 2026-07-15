@@ -21,9 +21,10 @@ export const metricsIngestionLogic = kea<metricsIngestionLogicType>([
     loaders(({ values }) => ({
         teamHasMetrics: {
             __default: undefined as boolean | undefined,
-            loadTeamHasMetrics: async (): Promise<boolean> => {
+            loadTeamHasMetrics: async (): Promise<boolean | undefined> => {
                 if (!canViewMetrics()) {
-                    return false
+                    // No access means "unknown", not "no metrics" - false would show the setup prompt
+                    return values.teamHasMetrics
                 }
                 const response = await retryWithBackoff(() => metricsHasMetricsRetrieve(String(values.currentTeamId)), {
                     maxAttempts: 3,
@@ -55,7 +56,11 @@ export const metricsIngestionLogic = kea<metricsIngestionLogicType>([
     listeners(({ actions, cache }) => ({
         loadTeamHasMetricsSuccess: ({ teamHasMetrics }) => {
             if (!teamHasMetrics) {
-                cache.sawNoMetrics = true
+                // Only an observed "no metrics yet" arms the intent - an access-denied
+                // skip resolves with undefined and must not count.
+                if (teamHasMetrics === false) {
+                    cache.sawNoMetrics = true
+                }
                 return
             }
             // Only an observed no-metrics -> has-metrics transition is an intent: the user
