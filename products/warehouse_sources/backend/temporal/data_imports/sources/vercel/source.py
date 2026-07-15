@@ -53,7 +53,6 @@ class VercelSource(ResumableSource[VercelSourceConfig, VercelResumeConfig]):
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Vercel",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter a Vercel access token to pull your Vercel deployments, projects, teams, domains, and aliases into the PostHog Data warehouse.
 
 Create an access token in your [Vercel account settings](https://vercel.com/account/tokens). A read-only token is sufficient.

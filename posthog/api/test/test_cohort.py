@@ -5336,6 +5336,7 @@ email@example.org,
                 "source": {
                     "series": [
                         {
+                            "kind": "EventsNode",
                             "event": "$pageview",
                             "properties": [{"type": "cohort", "value": cohort_id}],
                         }

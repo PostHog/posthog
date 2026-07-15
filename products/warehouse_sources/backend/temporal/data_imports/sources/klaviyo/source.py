@@ -106,24 +106,28 @@ Make sure to grant the following read permissions:
     ) -> list[SourceSchema]:
         # Events are immutable - append-only is the only sync mode
         append_only_endpoints = {"events"}
+        # The fan-out's incremental lookback intentionally re-pulls a window of rows each run; only
+        # merge dedupes those on the primary key, append would materialize them as duplicates.
+        merge_only_endpoints = {"list_profiles"}
 
         def _description(endpoint: str) -> str | None:
             if endpoint == "events":
                 return "Only syncs the last 365 days on initial sync"
             if KLAVIYO_ENDPOINTS[endpoint].fan_out_over_lists:
-                return "Maps which profiles belong to which list as {list_id, profile_id} rows. Full refresh only"
+                return (
+                    "Maps which profiles belong to which list as {list_id, profile_id, joined_group_at} rows. "
+                    "Incremental syncs pick up new joins and re-joins; profiles removed from a list are only "
+                    "reflected on a full refresh"
+                )
             return None
 
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = KLAVIYO_ENDPOINTS[endpoint]
-            # Fan-out endpoints have no server-side incremental filter, so they're full refresh only.
-            has_incremental = (
-                INCREMENTAL_FIELDS.get(endpoint, None) is not None and not endpoint_config.fan_out_over_lists
-            )
+            has_incremental = INCREMENTAL_FIELDS.get(endpoint, None) is not None
             return SourceSchema(
                 name=endpoint,
                 supports_incremental=has_incremental and endpoint not in append_only_endpoints,
-                supports_append=has_incremental,
+                supports_append=has_incremental and endpoint not in merge_only_endpoints,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 should_sync_default=endpoint_config.should_sync_default,
                 description=_description(endpoint),

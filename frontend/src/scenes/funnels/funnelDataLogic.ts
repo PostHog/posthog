@@ -360,7 +360,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                     return []
                 }
 
-                // we need to check wether results are an array, since isTimeToConvertFunnel can be false,
+                // we need to check whether results are an array, since isTimeToConvertFunnel can be false,
                 // while still having "time-to-convert" results in insightData
                 if (!isTimeToConvertFunnel && Array.isArray(results) && results.length > 0) {
                     // STEPS compare: the runner returns both periods' steps as a flat tagged list.
@@ -537,13 +537,20 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 // and per-value orders (both periods of a value share one order, hence one color).
                 if (isBreakdownCompareFunnel) {
                     const baselineRows = flattenedBreakdowns.filter((b) => b.isBaseline)
+                    // Offset stays 1 while the baseline is merely hidden, so the remaining values keep
+                    // their color positions when the baseline is toggled — same as the plain-breakdown
+                    // path, which assigns orders before filtering.
                     const baselineOffset = baselineRows.length > 0 ? 1 : 0
                     // Size each baseline bar by its period's share of the larger period (the larger fills,
                     // the smaller is proportionally shorter) — matching how the value and pure-compare bars
                     // are scaled, so the previous baseline isn't drawn at full height.
                     const compareBasis = Math.max(0, ...baselineRows.map((row) => row.steps?.[0]?.count ?? 0))
+                    const visibleBaselineRows = baselineRows.filter(
+                        (row) =>
+                            isOnlySeries || !hiddenLegendBreakdowns?.includes(getVisibilityKey(row.breakdown_value))
+                    )
                     return steps.map((step, stepIndex) => {
-                        const baselineEntries = baselineRows
+                        const baselineEntries = visibleBaselineRows
                             .map((row) => row.steps?.[stepIndex])
                             .filter((s): s is FunnelStepWithConversionMetrics => s != null)
                             .map((s) => ({

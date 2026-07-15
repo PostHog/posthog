@@ -7,8 +7,6 @@ import type { PointClickData, TooltipContext } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { StepLegend } from 'scenes/funnels/FunnelBarVertical/StepLegend'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
@@ -47,8 +45,6 @@ export function FunnelStepsBarChart({
     showPersonsModal: showPersonsModalProp = true,
     inCardView,
 }: ChartParams): JSX.Element | null {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const quillTooltipEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
     const theme = useChartTheme()
     const { insightProps } = useValues(insightLogic)
     const { visibleStepsWithConversionMetrics, getFunnelsColor, breakdownFilter, querySource, insightData } = useValues(
@@ -70,10 +66,7 @@ export function FunnelStepsBarChart({
         [steps, getFunnelsColor]
     )
 
-    const config = useChartConfig(
-        () => withFunnelStepsBarInteraction(chartConfig, { quillTooltipEnabled }),
-        [quillTooltipEnabled]
-    )
+    const config = useChartConfig(() => withFunnelStepsBarInteraction(chartConfig), [])
 
     const groupTypeLabel = aggregationLabel(querySource?.aggregation_group_type_index).plural
     const showTime = steps.some((step) => step.average_conversion_time != null)

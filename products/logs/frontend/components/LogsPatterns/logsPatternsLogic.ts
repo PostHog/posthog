@@ -2,6 +2,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { loaders } from 'kea-loaders'
 
 import { dayjs } from 'lib/dayjs'
+import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { LogsQuery } from '~/queries/schema/schema-general'
@@ -15,10 +16,11 @@ import {
 
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
-import { logsPatternsCreate } from 'products/logs/frontend/generated/api'
+import { logsPatternsCreate, logsPatternsDiffCreate } from 'products/logs/frontend/generated/api'
 import type {
     _LogPatternApi,
     _LogPropertyFilterApi,
+    _LogsPatternsDiffResponseApi,
     _LogsPatternsResponseApi,
 } from 'products/logs/frontend/generated/api.schemas'
 
@@ -36,6 +38,24 @@ const CANONICAL_SEVERITIES = ['trace', 'debug', 'info', 'warn', 'error', 'fatal'
 // been truncated at the cap, so filtering by it could exclude services the pattern also hits.
 // severity_counts has no cap, so it never needs this guard.
 const SERVICES_LIST_CAP = 4
+
+// Explicit baseline window for 'preceding' mode: the same-length window ending where the
+// current one starts. Computed at request time (not memoized) because a relative range like
+// "-1h" resolves against "now" — a cached computation would drift away from the current
+// window the backend resolves at query time. 'lastWeek' sends no baseline: the backend's
+// default is the current window shifted back one week, from its own resolved bounds.
+export function precedingDateRange(utcDateRange: { date_from?: string | null; date_to?: string | null }): {
+    date_from: string
+    date_to: string
+} {
+    const from = dateStringToDayJs(utcDateRange.date_from ?? null) ?? dayjs().subtract(1, 'hour')
+    const to = dateStringToDayJs(utcDateRange.date_to ?? null) ?? dayjs()
+    const windowMs = Math.max(to.diff(from), 0)
+    return {
+        date_from: from.subtract(windowMs, 'millisecond').toISOString(),
+        date_to: from.toISOString(),
+    }
+}
 
 const EMPTY_RESPONSE: _LogsPatternsResponseApi = {
     patterns: [],
@@ -61,7 +81,7 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
             logsViewerFiltersLogic({ id: props.id }),
             ['filters', 'utcDateRange', 'queryFilterGroup'],
             logsViewerConfigLogic({ id: props.id }),
-            ['viewMode'],
+            ['viewMode', 'compareEnabled', 'baselineMode'],
         ],
         actions: [
             logsViewerFiltersLogic({ id: props.id }),
@@ -76,7 +96,7 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
                 'setPinnedFilters',
             ],
             logsViewerConfigLogic({ id: props.id }),
-            ['setViewMode'],
+            ['setViewMode', 'setCompareEnabled', 'setBaselineMode'],
         ],
     })),
 
@@ -90,27 +110,39 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
             {
                 loadPatterns: async (debounceMs: number = 0, breakpoint) => {
                     await breakpoint(debounceMs)
-                    return await logsPatternsCreate(String(values.currentTeamId), {
-                        query: {
-                            dateRange: values.utcDateRange,
-                            severityLevels: values.filters.severityLevels,
-                            serviceNames: values.filters.serviceNames,
-                            searchTerm: values.filters.searchTerm || undefined,
-                            // Scope mining to the same filters the Logs/sparkline queries use —
-                            // `queryFilterGroup` folds in any pinned filters from an embedded viewer
-                            // (person/trace logs), so a scoped viewer can't mine project-wide patterns.
-                            filterGroup: values.queryFilterGroup as unknown as _LogPropertyFilterApi[],
-                        },
+                    const response = await logsPatternsCreate(String(values.currentTeamId), {
+                        query: values.patternsQueryBody,
                     })
+                    // A superseded call must not land its (stale) response after the newer one.
+                    breakpoint()
+                    return response
+                },
+            },
+        ],
+        diffResponse: [
+            null as _LogsPatternsDiffResponseApi | null,
+            {
+                loadDiff: async (debounceMs: number = 0, breakpoint) => {
+                    await breakpoint(debounceMs)
+                    const response = await logsPatternsDiffCreate(String(values.currentTeamId), {
+                        query: values.patternsQueryBody,
+                        baselineDateRange:
+                            values.baselineMode === 'preceding' ? precedingDateRange(values.utcDateRange) : undefined,
+                    })
+                    breakpoint()
+                    return response
                 },
             },
         ],
     })),
 
     // A failed mine (e.g. the sampling query exceeding its execution budget) must surface as
-    // an error, not render as "no patterns found" — that would misrepresent the data.
+    // an error, not render as "no patterns found" — that would misrepresent the data. The two
+    // modes track their own error: the loaders run independently (toggling compare off fires a
+    // plain mine without cancelling an in-flight diff), so a shared error would let a stale diff
+    // failure clobber a successful plain-mine table's empty state.
     reducers({
-        patternsError: [
+        mineError: [
             null as string | null,
             {
                 loadPatterns: () => null,
@@ -118,9 +150,41 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
                 loadPatternsFailure: (_, { error }) => error ?? 'Pattern analysis failed',
             },
         ],
+        diffError: [
+            null as string | null,
+            {
+                loadDiff: () => null,
+                loadDiffSuccess: () => null,
+                loadDiffFailure: (_, { error }) => error ?? 'Pattern comparison failed',
+            },
+        ],
     }),
 
     selectors({
+        // Surface only the active mode's error. The loaders run independently, so a stale diff
+        // failure landing after the user toggled compare off must not overwrite the successful
+        // plain-mine table's empty state (and vice versa).
+        patternsError: [
+            (s) => [s.compareEnabled, s.mineError, s.diffError],
+            (compareEnabled: boolean, mineError: string | null, diffError: string | null): string | null =>
+                compareEnabled ? diffError : mineError,
+        ],
+        // The shared query body for both the mine and the diff — the diff must scope its two
+        // windows with exactly the filters a plain mine would use, or compare mode would
+        // silently answer a different question than the table next to it.
+        patternsQueryBody: [
+            (s) => [s.filters, s.utcDateRange, s.queryFilterGroup],
+            (filters, utcDateRange, queryFilterGroup) => ({
+                dateRange: utcDateRange,
+                severityLevels: filters.severityLevels,
+                serviceNames: filters.serviceNames,
+                searchTerm: filters.searchTerm || undefined,
+                // Scope mining to the same filters the Logs/sparkline queries use —
+                // `queryFilterGroup` folds in any pinned filters from an embedded viewer
+                // (person/trace logs), so a scoped viewer can't mine project-wide patterns.
+                filterGroup: queryFilterGroup as unknown as _LogPropertyFilterApi[],
+            }),
+        ],
         patterns: [
             (s) => [s.patternsResponse],
             (response: _LogsPatternsResponseApi): _LogPatternApi[] => response.patterns,
@@ -151,7 +215,11 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
             if (values.viewMode !== 'patterns') {
                 return
             }
-            actions.loadPatterns(300)
+            if (values.compareEnabled) {
+                actions.loadDiff(300)
+            } else {
+                actions.loadPatterns(300)
+            }
         }
         return {
             setDateRange: reload,
@@ -162,6 +230,21 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
             setFilters: reload,
             setFilterGroup: reload,
             setPinnedFilters: reload,
+
+            // Entering compare mode always diffs fresh; leaving it re-mines because the
+            // filters may have changed while the plain response sat unused.
+            setCompareEnabled: ({ enabled }) => {
+                if (enabled) {
+                    actions.loadDiff()
+                } else {
+                    actions.loadPatterns()
+                }
+            },
+            setBaselineMode: () => {
+                if (values.compareEnabled) {
+                    actions.loadDiff()
+                }
+            },
 
             // Pivot to the Logs view scoped to this pattern. The predicate lands in the shared
             // filterGroup like any user-added filter — visible and removable in the filter bar,
@@ -224,7 +307,14 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
         }
     }),
 
-    afterMount(({ actions }) => {
-        actions.loadPatterns()
+    afterMount(({ actions, values }) => {
+        // Compare state lives on the config logic and survives Logs↔Patterns lens switches,
+        // so this logic can mount with compare already on — loading the plain mine then would
+        // answer the wrong question.
+        if (values.compareEnabled) {
+            actions.loadDiff()
+        } else {
+            actions.loadPatterns()
+        }
     }),
 ])

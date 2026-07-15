@@ -199,6 +199,11 @@ class NotebookNodeRun(TeamScopedRootMixin, UUIDModel):
         PYTHON = "python", "python"
         DUCKDB = "duckdb", "duckdb"
 
+    class NodeType(models.TextChoices):
+        HOGQL = "hogql", "hogql"
+        PYTHON = "python", "python"
+        DUCKDB = "duckdb", "duckdb"
+
     # db_constraint=False: creating a real FK to the hot posthog_team table locks it on deploy.
     # Tenant isolation is still enforced by the fail-closed TeamScopedRootMixin manager.
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)

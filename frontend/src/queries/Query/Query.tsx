@@ -1,8 +1,9 @@
 import { BuiltLogic, LogicWrapper } from 'kea'
-import { Suspense, lazy, useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { HogDebug } from 'scenes/debug/HogDebug'
 import { MarketingAnalyticsOverview } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsOverview/MarketingAnalyticsOverview'
 
@@ -24,6 +25,7 @@ import {
 import { QueryContext } from '~/queries/types'
 
 import { EndpointsUsageOverviewNode, EndpointsUsageTrendsNode } from 'products/endpoints/frontend/nodes'
+import { MetricsQueryNode } from 'products/metrics/frontend/nodes'
 import {
     RevenueAnalyticsGrossRevenueNode,
     RevenueAnalyticsMRRNode,
@@ -42,6 +44,7 @@ import {
     isHogQuery,
     isInsightVizNode,
     isMarketingAnalyticsAggregatedQuery,
+    isMetricsQuery,
     isRevenueAnalyticsGrossRevenueQuery,
     isRevenueAnalyticsMRRQuery,
     isRevenueAnalyticsMetricsQuery,
@@ -53,8 +56,10 @@ import {
     isWebVitalsQuery,
 } from '../utils'
 
-const WebVitals = lazy(() => import('~/queries/nodes/WebVitals/WebVitals').then((m) => ({ default: m.WebVitals })))
-const WebVitalsPathBreakdown = lazy(() =>
+const WebVitals = lazyWithRetry(() =>
+    import('~/queries/nodes/WebVitals/WebVitals').then((m) => ({ default: m.WebVitals }))
+)
+const WebVitalsPathBreakdown = lazyWithRetry(() =>
     import('../nodes/WebVitals/WebVitalsPathBreakdown').then((m) => ({ default: m.WebVitalsPathBreakdown }))
 )
 
@@ -226,6 +231,15 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
     } else if (isRevenueAnalyticsTopCustomersQuery(query)) {
         component = (
             <RevenueAnalyticsTopCustomersNode
+                attachTo={props.attachTo}
+                query={query}
+                cachedResults={props.cachedResults}
+                context={queryContext}
+            />
+        )
+    } else if (isMetricsQuery(query)) {
+        component = (
+            <MetricsQueryNode
                 attachTo={props.attachTo}
                 query={query}
                 cachedResults={props.cachedResults}

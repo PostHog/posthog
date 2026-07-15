@@ -473,8 +473,13 @@ def parse_conventional_commit(subject: str) -> dict:
 # ── File classification ──────────────────────────────────────────
 
 
+# Directory matching is exact-segment only (__tests__/, test/, tests/, _tests/):
+# suffix matching like `*_tests/` catches runtime packages that merely end in
+# the word (destination_tests/ is API code, ingestion_acceptance_test/ is a
+# Temporal worker). Files inside looser test-tree layouts are still covered by
+# the filename branches (test_*.py, *.test.*, *_test.py).
 _TEST_FILE_RE = re.compile(
-    r"(?:^|/)(?:__tests__|tests?)/|[_.](?:test|spec)\.[^/]+$|_test\.py$",
+    r"(?:^|/)(?:__tests__|tests?|_tests?)/|(?:^|/)test_[^/]+\.py$|[_.](?:test|spec)\.[^/]+$|_test\.py$",
     re.IGNORECASE,
 )
 
@@ -652,11 +657,14 @@ def is_allow_listed_only(files: list[str]) -> bool:
 MAX_LINES = POLICY.size_gate.max_lines
 MAX_FILES = POLICY.size_gate.max_files
 
-# Files that inflate a diff without adding review surface: prose docs,
-# regenerated artifacts, and test snapshots. The size ceiling counts only the
-# substantive remainder, so a 2000-line docs rewrite or type regen isn't
-# auto-denied. Exempt files still count toward tier/subclass classification
-# (which calibrates LLM scrutiny) and still appear in the diff the LLM reads.
+# Files that inflate a diff without raising auto-approval risk: prose docs,
+# regenerated artifacts, test snapshots, and tests (which cannot change
+# production runtime behavior; counting them punished exactly the well-tested
+# PRs the review philosophy waves through). The size ceiling counts only the substantive
+# remainder, so a 2000-line docs rewrite, a type regen, or a fix arriving with
+# extensive tests isn't auto-denied. Exempt files still count toward
+# tier/subclass classification (which calibrates LLM scrutiny) and still
+# appear in the diff the LLM reads.
 # Deliberately narrower than ALLOW_ONLY_EXTENSIONS: .json/.yaml/.toml configs
 # change runtime behavior, so they stay in the count.
 SIZE_EXEMPT_EXTENSIONS = {
@@ -692,7 +700,11 @@ _SIZE_EXEMPT_PATH_RE = re.compile(
 
 
 def is_size_exempt(path: str) -> bool:
-    return Path(path).suffix.lower() in SIZE_EXEMPT_EXTENSIONS or bool(_SIZE_EXEMPT_PATH_RE.search(path))
+    return (
+        Path(path).suffix.lower() in SIZE_EXEMPT_EXTENSIONS
+        or bool(_SIZE_EXEMPT_PATH_RE.search(path))
+        or bool(_TEST_FILE_RE.search(path))
+    )
 
 
 def substantive_size(files: list[dict]) -> tuple[int, int]:

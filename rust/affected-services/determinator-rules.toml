@@ -89,3 +89,17 @@ globs = [
     "bin/migrate-*",
 ]
 mark-changed = []
+
+# The e2e test harness exercises the personhog services as spawned
+# binaries — a runtime dependency the cargo graph cannot see (compile-time
+# deps like personhog-proto flow through the graph already). Mark the
+# harness affected whenever a service it spawns changes so the CI gate
+# runs against those changes.
+[[package-rule]]
+on-affected = [
+    "personhog-replica",
+    "personhog-router",
+    "personhog-leader",
+    "personhog-writer",
+]
+mark-changed = ["personhog-test-harness"]

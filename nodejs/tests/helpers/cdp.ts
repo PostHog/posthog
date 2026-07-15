@@ -64,8 +64,6 @@ export function createCdpConsumerDeps(hub: Hub, kafkaProducer?: KafkaProducerWra
         geoipService: hub.geoipService,
         groupRepository: noopGroupReadRepository,
         quotaLimiting: hub.quotaLimiting,
-        emailValidationValkey: hub.CDP_EMAIL_MX_VALIDATION_ENABLED
-            ? createSesRateLimiterValkeyPool(hub, 'email-mx-validation')
-            : null,
+        emailValidationValkey: createSesRateLimiterValkeyPool(hub, 'email-mx-validation'),
     }
 }

@@ -50,7 +50,7 @@ import { CdpCyclotronWorkerHogFlow } from './consumers/cdp-cyclotron-worker-hogf
 import { CdpDatawarehouseEventsConsumer } from './consumers/cdp-data-warehouse-events.consumer'
 import { CdpEventsConsumer } from './consumers/cdp-events.consumer'
 import { CdpHogflowSubscriptionMatcherConsumer } from './consumers/cdp-hogflow-subscription-matcher.consumer'
-import { CyclotronV2Manager, CyclotronV2Worker } from './services/cyclotron-v2'
+import { CyclotronV2Janitor, CyclotronV2Manager, CyclotronV2Worker } from './services/cyclotron-v2'
 import {
     HOGFLOW_BATCH_RESOLVE_QUEUE,
     MAX_RESOLVER_ATTEMPTS,
@@ -1690,6 +1690,102 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             )
         })
     })
+
+    // Heartbeat + janitor is postgres-v2-only. Skipping on the legacy postgres
+    // mode where the heartbeat wrapper is a no-op.
+    if (mode === 'postgres-v2') {
+        describe('heartbeat during long batches', () => {
+            let janitor: CyclotronV2Janitor
+
+            beforeEach(async () => {
+                // Restart the worker with a short heartbeat interval so the
+                // interval fires several times inside the test's ~1s fetch delay.
+                // Default is 10s — nothing would fire in a test.
+                await hogflowWorker.stop()
+                hub.CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS = 100
+                hogflowWorker = new CdpCyclotronWorkerHogFlow(hub, deps, hogflowQueue)
+                await hogflowWorker.start()
+
+                // Aggressive stall/poison thresholds so the test observes the
+                // exact regression the heartbeat guards against: without heartbeats
+                // firing, a 1.2s fetch would exceed the 300ms stall window and
+                // the janitor would reset the row on the very first runOnce().
+                // cleanupGraceMs is huge so terminal jobs stay queryable after
+                // completion — we assert on their final janitor_touch_count.
+                janitor = new CyclotronV2Janitor({
+                    pool: { dbUrl: CYCLOTRON_NODE_DB_URL },
+                    stallTimeoutMs: 300,
+                    maxTouchCount: 2,
+                    cleanupGraceMs: 99_999_000,
+                    cleanupBatchSize: 100,
+                    cleanupIntervalMs: 60_000,
+                })
+
+                await createWorkflow({
+                    actions: {
+                        trigger: trigger(),
+                        slow_fetch: fetchAction('https://example.com/slow'),
+                        exit: exitAction(),
+                    },
+                    edges: [
+                        { from: 'trigger', to: 'slow_fetch', type: 'continue' },
+                        { from: 'slow_fetch', to: 'exit', type: 'continue' },
+                    ],
+                })
+                globals = createGlobals()
+            })
+
+            afterEach(async () => {
+                await janitor?.stop()
+            })
+
+            it('heartbeats keep janitor_touch_count at 0 during a slow batch', async () => {
+                // Fetch takes 1.2s — 4x the stallTimeoutMs. The heartbeat
+                // interval firing every 100ms is the only thing preventing
+                // last_heartbeat from going stale.
+                mockFetch.mockImplementation(
+                    () =>
+                        new Promise((resolve) =>
+                            setTimeout(
+                                () =>
+                                    resolve({
+                                        status: 200,
+                                        headers: { 'Content-Type': 'application/json' },
+                                        json: () => Promise.resolve({ ok: true }),
+                                        text: () => Promise.resolve(JSON.stringify({ ok: true })),
+                                        dump: () => Promise.resolve(),
+                                    }),
+                                1200
+                            )
+                        )
+                )
+
+                await triggerWorkflow(globals)
+
+                // Wait long enough for the worker to dequeue and start the fetch,
+                // then check the janitor mid-flight. Without heartbeats,
+                // last_heartbeat would be ~700ms old (> 300ms cutoff) → stalled.
+                await new Promise((r) => setTimeout(r, 700))
+                const midResult = await janitor.runOnce()
+                expect(midResult.stalled).toBe(0)
+                expect(midResult.poisoned).toBe(0)
+
+                // Wait for the workflow to complete
+                await waitForExpect(async () => {
+                    const jobs = await queryCyclotronJobs()
+                    expect(jobs.some((j) => j.status === 'completed')).toBe(true)
+                }, 10000)
+
+                // Final check: no row ever accumulated a touch. This is the
+                // load-bearing assertion — regressions to the setInterval or
+                // its cleanup would flip this to >= 1.
+                const jobs = await queryCyclotronJobs()
+                for (const row of jobs) {
+                    expect(row.janitor_touch_count).toBe(0)
+                }
+            })
+        })
+    }
 })
 
 // Email queue routing is postgres-v2 only — the email worker reschedules jobs
@@ -1729,11 +1825,6 @@ describe('Workflows E2E (email queue)', () => {
 
         hub = await createHub()
         hub.CDP_CYCLOTRON_BATCH_DELAY_MS = 50
-
-        // Enforce mode for the whole block: existing tests prove deliverable recipients
-        // pass validation untouched; the skip test proves dead domains never reach the queue.
-        hub.CDP_EMAIL_MX_VALIDATION_ENABLED = true
-        hub.CDP_EMAIL_MX_VALIDATION_ENFORCE_TEAMS = '*'
 
         // `.invalid` domains are NXDOMAIN, everything else resolves as deliverable.
         const nxdomain = () => Promise.reject(Object.assign(new Error('queryMx ENOTFOUND'), { code: 'ENOTFOUND' }))

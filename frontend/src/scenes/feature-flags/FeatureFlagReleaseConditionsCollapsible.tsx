@@ -85,6 +85,7 @@ import {
     featureFlagReleaseConditionsLogic,
     isDistinctIdFilter,
 } from './featureFlagReleaseConditionsLogic'
+import { getPropertySelectErrorMessages, PropertySelectError } from './propertySelectErrorMessages'
 
 interface FeatureFlagReleaseConditionsCollapsibleProps extends FeatureFlagReleaseConditionsLogicProps {
     flagId?: FeatureFlagLogicProps['id']
@@ -349,6 +350,7 @@ interface ConditionProps {
     filtersTaxonomicOptions: TaxonomicFilterProps['optionsFromProp']
     releaseFilters: FeatureFlagFilters
     variants?: MultivariateFlagVariant[]
+    propertySelectErrors: PropertySelectError[] | null | undefined
     openConditions: string[]
     handleOpenConditionsChange: (newKeys: string[]) => void
     flagId?: FeatureFlagLogicProps['id']
@@ -412,6 +414,7 @@ const ConditionContent = ({
     filtersTaxonomicOptions,
     releaseFilters,
     variants,
+    propertySelectErrors,
     openConditions,
     handleOpenConditionsChange,
     flagId,
@@ -615,6 +618,7 @@ const ConditionContent = ({
                                             )}
                                             taxonomicFilterOptionsFromProp={filtersTaxonomicOptions}
                                             hasRowOperator={false}
+                                            errorMessages={getPropertySelectErrorMessages(propertySelectErrors, index)}
                                             hideBehavioralCohorts={!realtimeCohortFlagTargeting}
                                         />
                                     </div>
@@ -836,6 +840,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
         groupTypes,
         openConditions,
         properties,
+        propertySelectErrors,
         isAnyItemDragging,
         draggedGroup,
     } = useValues(releaseConditionsLogic)
@@ -1239,6 +1244,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                 filtersTaxonomicOptions={filtersTaxonomicOptions}
                                                 releaseFilters={releaseFilters}
                                                 variants={variants}
+                                                propertySelectErrors={propertySelectErrors}
                                                 openConditions={openConditions}
                                                 handleOpenConditionsChange={handleOpenConditionsChange}
                                                 flagId={flagId}
@@ -1314,6 +1320,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                         filtersTaxonomicOptions={filtersTaxonomicOptions}
                                         releaseFilters={releaseFilters}
                                         variants={variants}
+                                        propertySelectErrors={propertySelectErrors}
                                         openConditions={openConditions}
                                         handleOpenConditionsChange={handleOpenConditionsChange}
                                         flagId={flagId}
@@ -1364,6 +1371,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                         filtersTaxonomicOptions={filtersTaxonomicOptions}
                                         releaseFilters={releaseFilters}
                                         variants={variants}
+                                        propertySelectErrors={propertySelectErrors}
                                         openConditions={openConditions}
                                         handleOpenConditionsChange={handleOpenConditionsChange}
                                         flagId={flagId}
@@ -1396,6 +1404,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                 filtersTaxonomicOptions={filtersTaxonomicOptions}
                                 releaseFilters={releaseFilters}
                                 variants={variants}
+                                propertySelectErrors={propertySelectErrors}
                                 openConditions={openConditions}
                                 handleOpenConditionsChange={handleOpenConditionsChange}
                                 flagId={flagId}

@@ -31,6 +31,13 @@ export const DISMISSAL_REASON_OPTIONS = [
 /** Persisted dismissal / suppress reason (values match {@link DISMISSAL_REASON_OPTIONS}). */
 export type DismissalReasonValue = (typeof DISMISSAL_REASON_OPTIONS)[number]['value']
 
+// Reason codes persisted by flows outside the dismiss dialog (never user-selectable there), so the
+// dismissal chip still renders a label instead of the raw code. `refunded` is written by the PR
+// refund action, which archives the report as part of the refund.
+const EXTRA_DISMISSAL_REASON_LABELS: Record<string, string> = {
+    refunded: 'Refunded',
+}
+
 /** Whether the given reason snoozes the report (temporarily) instead of permanently dismissing it. */
 export function isDismissalReasonSnooze(value: DismissalReasonValue): boolean {
     const option = DISMISSAL_REASON_OPTIONS.find((o) => o.value === value)
@@ -42,5 +49,7 @@ export function dismissalReasonLabel(value: string | null | undefined): string |
     if (!value) {
         return null
     }
-    return DISMISSAL_REASON_OPTIONS.find((o) => o.value === value)?.label ?? value
+    return (
+        DISMISSAL_REASON_OPTIONS.find((o) => o.value === value)?.label ?? EXTRA_DISMISSAL_REASON_LABELS[value] ?? value
+    )
 }

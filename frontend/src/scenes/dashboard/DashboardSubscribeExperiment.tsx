@@ -7,8 +7,6 @@ import posthog from 'posthog-js'
 import { IconBell, IconEllipsis } from '@posthog/icons'
 import { useFeatureFlagVariantKey } from '@posthog/react'
 
-import { subscriptionsLogic } from 'lib/components/Subscriptions/subscriptionsLogic'
-import { urlForSubscriptions } from 'lib/components/Subscriptions/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconWithCount } from 'lib/lemon-ui/icons/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -16,6 +14,9 @@ import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature } from '~/types'
+
+import { subscriptionsLogic } from 'products/subscriptions/frontend/components/Subscriptions/subscriptionsLogic'
+import { urlForSubscriptions } from 'products/subscriptions/frontend/components/Subscriptions/utils'
 
 import { dashboardLogic } from './dashboardLogic'
 
