@@ -361,6 +361,42 @@ class TestRollupSources(SimpleTestCase):
 
         assert summary["last_synced_at"] == newer
 
+    def test_a_paused_schema_outranks_up_to_date_but_not_a_real_problem(self) -> None:
+        # A source where some schemas aren't being kept current at all shouldn't read as fully
+        # healthy, but an active problem elsewhere in the same source still has to win.
+        source_id = str(uuid4())
+        mostly_healthy = [
+            _table(source_id=source_id, source_name="Stripe", table_name="charges", readiness_state="up_to_date"),
+            _table(source_id=source_id, source_name="Stripe", table_name="invoices", readiness_state="sync_paused"),
+        ]
+        with_a_real_problem = [
+            *mostly_healthy,
+            _table(source_id=source_id, source_name="Stripe", table_name="refunds", readiness_state="needs_attention"),
+        ]
+
+        [healthy_summary] = _rollup_sources(mostly_healthy)
+        [problem_summary] = _rollup_sources(with_a_real_problem)
+
+        assert healthy_summary["readiness_state"] == "sync_paused"
+        assert problem_summary["readiness_state"] == "needs_attention"
+
+    def test_a_paused_schema_still_counts_toward_backfilled(self) -> None:
+        # Pausing future syncs doesn't undo a historical backfill that already completed.
+        source_id = str(uuid4())
+        tables = [
+            _table(
+                source_id=source_id,
+                source_name="Stripe",
+                table_name="charges",
+                readiness_state="sync_paused",
+                backfilled=True,
+            ),
+        ]
+
+        [summary] = _rollup_sources(tables)
+
+        assert summary["backfilled_schemas"] == 1
+
 
 class TestGetSourceSchemaStatuses(TestCase):
     # The queue-tail lookup reads SourceBatch, which lives in its own database.
@@ -388,3 +424,34 @@ class TestGetSourceSchemaStatuses(TestCase):
         result = get_source_schema_statuses(team.id, str(source_a.id))
 
         assert [row["schema_id"] for row in result] == [str(schema_a.id)]
+
+    def test_a_paused_schema_is_visible_as_sync_paused_not_hidden(self) -> None:
+        # A team that pauses a table's sync still has real data in the warehouse for it - it
+        # should show up as paused, not vanish as if nothing were ever configured.
+        team = Team.objects.create(organization=Organization.objects.create(name="org"), name="t")
+        source = ExternalDataSource.objects.create(
+            team=team, source_id="a", connection_id="ca", source_type="Stripe", status="Running"
+        )
+        paused_schema = ExternalDataSchema.objects.create(team=team, name="charges", source=source, should_sync=False)
+        DuckgresSinkSchemaState.objects.create(
+            team=team, schema_id=paused_schema.id, state=DuckgresSinkSchemaState.State.PRIMED
+        )
+
+        [result] = get_source_schema_statuses(team.id, str(source.id))
+
+        assert result["readiness_state"] == "sync_paused"
+        assert result["backfilled"] is True
+
+    def test_a_deleted_schema_stays_excluded_even_though_should_sync_no_longer_filters(self) -> None:
+        team = Team.objects.create(organization=Organization.objects.create(name="org"), name="t")
+        source = ExternalDataSource.objects.create(
+            team=team, source_id="a", connection_id="ca", source_type="Stripe", status="Running"
+        )
+        deleted_schema = ExternalDataSchema.objects.create(team=team, name="charges", source=source, deleted=True)
+        DuckgresSinkSchemaState.objects.create(
+            team=team, schema_id=deleted_schema.id, state=DuckgresSinkSchemaState.State.PRIMED
+        )
+
+        result = get_source_schema_statuses(team.id, str(source.id))
+
+        assert result == []
