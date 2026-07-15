@@ -351,7 +351,7 @@ describe('ci-alerts-devex', () => {
                     : { 'ci-backend.yml': 'success', 'ci-frontend.yml': 'failure' }
             )
         )
-        const { slack, outputs } = await run(createGithubMock(runsByWorkflow, { commits }))
+        const { slack, remediation, outputs } = await run(createGithubMock(runsByWorkflow, { commits }))
 
         assert.equal(outputs.action, 'create')
         assert.equal(outputs.commit_streak, '10')
@@ -361,6 +361,9 @@ describe('ci-alerts-devex', () => {
         // No workflow crossed its own threshold → no per-workflow bullet lines.
         assert.doesNotMatch(body, /failed runs? in a row/)
         assert.equal(anchor.metadata.event_payload.commitActive, true)
+        assert.deepEqual(remediation.trigger.calls[0][0].failing_workflows, [
+            { name: 'Backend CI', run_url: 'https://github.com/runs/ci-backend.yml/0' },
+        ])
     })
 
     it('merges both signals into one anchor', async () => {

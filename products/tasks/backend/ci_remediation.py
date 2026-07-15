@@ -7,7 +7,6 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 
-from products.tasks.backend.automation_service import run_task_automation
 from products.tasks.backend.models import Task, TaskAutomation
 
 ALLOWED_CI_REMEDIATION_REPOSITORIES = {"posthog/posthog"}
@@ -117,6 +116,11 @@ def _configured_slack_integration(team_id: int) -> Integration:
 
 
 def trigger_ci_remediation(incident: CiRemediationIncident) -> CiRemediationRun:
+    from products.tasks.backend.automation_service import (  # noqa: PLC0415 — keeps Temporal off the API import path
+        TaskAutomationDispatchError,
+        run_task_automation,
+    )
+
     automation = _configured_automation()
     task = automation.task
     slack_integration = _configured_slack_integration(task.team_id)
@@ -153,8 +157,9 @@ def trigger_ci_remediation(incident: CiRemediationIncident) -> CiRemediationRun:
             branch=CI_REMEDIATION_BASE_BRANCH,
             slack_thread_context=slack_thread_context,
             posthog_mcp_scopes="read_only",
+            retry_unaccepted_dispatch=True,
         )
-    except (PermissionDenied, TaskAutomation.DoesNotExist) as error:
+    except (PermissionDenied, TaskAutomation.DoesNotExist, TaskAutomationDispatchError) as error:
         raise CiRemediationConfigurationError("CI remediation automation could not start") from error
 
     task_url = f"{settings.SITE_URL.rstrip('/')}/project/{task.team_id}/tasks/{task.id}?runId={task_run.id}"

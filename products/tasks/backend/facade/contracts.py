@@ -685,6 +685,15 @@ class SignalReportPrUrlDTO:
 
 
 @dataclass(frozen=True)
+class CiRemediationRunDTO:
+    """The idempotent PostHog Code run assigned to a master CI incident."""
+
+    task_id: UUID
+    run_id: UUID
+    task_url: str
+
+
+@dataclass(frozen=True)
 class WarmTaskDTO:
     """The draft Task + warm Run birthed by a Code-app warm request."""
 

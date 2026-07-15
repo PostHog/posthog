@@ -10,13 +10,7 @@ from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from products.tasks.backend.ci_remediation import (
-    ALLOWED_CI_REMEDIATION_REPOSITORIES,
-    CiRemediationConfigurationError,
-    CiRemediationIncident,
-    FailingWorkflow,
-    trigger_ci_remediation,
-)
+from products.tasks.backend.facade import api as tasks_facade
 
 logger = logging.getLogger(__name__)
 
@@ -49,8 +43,8 @@ class CiRemediationTriggerRequestSerializer(StrictSerializer):
         help_text="Latest master commit SHA observed by the CI health detector.",
     )
     incident_started_at = serializers.DateTimeField(help_text="Timestamp when sustained master breakage began.")
-    failing_workflows = CiRemediationFailingWorkflowSerializer(
-        many=True,
+    failing_workflows = serializers.ListField(
+        child=CiRemediationFailingWorkflowSerializer(),
         allow_empty=True,
         max_length=50,
         help_text="Workflows currently sustaining the incident, including their latest failing run URLs.",
@@ -134,25 +128,19 @@ class CiRemediationTriggerViewSet(viewsets.ViewSet):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         repository: str = data["repository"]
-        if repository.lower() not in ALLOWED_CI_REMEDIATION_REPOSITORIES:
+        if not tasks_facade.is_ci_remediation_repository_allowed(repository):
             return Response({"error": "Repository is not allowed"}, status=status.HTTP_403_FORBIDDEN)
 
-        incident = CiRemediationIncident(
+        remediation_run = tasks_facade.trigger_ci_remediation(
             incident_id=data["incident_id"],
             repository=repository,
             latest_master_sha=data["latest_master_sha"].lower(),
             incident_started_at=data["incident_started_at"],
-            failing_workflows=tuple(
-                FailingWorkflow(name=workflow["name"], run_url=workflow["run_url"])
-                for workflow in data["failing_workflows"]
-            ),
+            failing_workflows=tuple((workflow["name"], workflow["run_url"]) for workflow in data["failing_workflows"]),
             slack_channel_id=data["slack_channel_id"],
             slack_thread_ts=data["slack_thread_ts"],
         )
-
-        try:
-            remediation_run = trigger_ci_remediation(incident)
-        except CiRemediationConfigurationError:
+        if remediation_run is None:
             logger.warning("ci_remediation_trigger_configuration_error")
             return Response(
                 {"error": "CI remediation is not configured"},

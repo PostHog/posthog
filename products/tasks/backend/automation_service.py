@@ -22,6 +22,11 @@ from .access import has_tasks_access
 from .models import Task, TaskAutomation, TaskRun
 
 logger = logging.getLogger(__name__)
+AUTOMATION_DISPATCH_ACCEPTED_STATE_KEY = "automation_dispatch_accepted"
+
+
+class TaskAutomationDispatchError(Exception):
+    pass
 
 
 def build_automation_schedule(automation: TaskAutomation) -> Schedule:
@@ -71,6 +76,7 @@ def run_task_automation(
     branch: str | None = None,
     slack_thread_context: dict[str, Any] | None = None,
     posthog_mcp_scopes: PosthogMcpScopes = "read_only",
+    retry_unaccepted_dispatch: bool = False,
 ) -> tuple[Task, TaskRun]:
     automation_id = str(automation_id)
     with transaction.atomic():
@@ -127,7 +133,13 @@ def run_task_automation(
             ]
         )
 
-        if task_run_created:
+        dispatch_accepted = bool((task_run.state or {}).get(AUTOMATION_DISPATCH_ACCEPTED_STATE_KEY))
+        should_dispatch = task_run_created or (
+            retry_unaccepted_dispatch
+            and task_run.status in (TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED)
+            and not dispatch_accepted
+        )
+        if should_dispatch:
             transaction.on_commit(
                 lambda: execute_task_processing_workflow_for_automation(
                     team_id=team_id,
@@ -136,11 +148,12 @@ def run_task_automation(
                     run_id=str(task_run.id),
                     slack_thread_context=slack_thread_context,
                     posthog_mcp_scopes=posthog_mcp_scopes,
+                    raise_on_start_failure=retry_unaccepted_dispatch,
                 )
             )
 
     logger.info(
-        "task_automation_run_started" if task_run_created else "task_automation_run_reused",
+        "task_automation_run_started" if should_dispatch else "task_automation_run_reused",
         extra={
             "automation_id": automation_id,
             "task_id": str(task.id),
@@ -160,19 +173,27 @@ def execute_task_processing_workflow_for_automation(
     run_id: str,
     slack_thread_context: dict[str, Any] | None = None,
     posthog_mcp_scopes: PosthogMcpScopes = "read_only",
+    raise_on_start_failure: bool = False,
 ) -> None:
-    from .temporal.client import execute_task_processing_workflow
+    from .temporal.client import TaskWorkflowDispatchError, execute_task_processing_workflow
 
-    execute_task_processing_workflow(
-        task_id=task_id,
-        run_id=run_id,
-        team_id=team_id,
-        user_id=user_id,
-        create_pr=True,
-        slack_thread_context=slack_thread_context,
-        skip_user_check=True,
-        posthog_mcp_scopes=posthog_mcp_scopes,
-    )
+    try:
+        execute_task_processing_workflow(
+            task_id=task_id,
+            run_id=run_id,
+            team_id=team_id,
+            user_id=user_id,
+            create_pr=True,
+            slack_thread_context=slack_thread_context,
+            skip_user_check=True,
+            posthog_mcp_scopes=posthog_mcp_scopes,
+            raise_on_start_failure=raise_on_start_failure,
+        )
+    except TaskWorkflowDispatchError as error:
+        raise TaskAutomationDispatchError("Task automation workflow could not start") from error
+
+    if raise_on_start_failure:
+        TaskRun.update_state_atomic(run_id, updates={AUTOMATION_DISPATCH_ACCEPTED_STATE_KEY: True})
 
 
 def update_automation_run_result(task_run: TaskRun) -> None:

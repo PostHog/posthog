@@ -427,7 +427,7 @@ async function reconcileRemediation({
     owner,
     repo,
     latestCommit,
-    blocking,
+    failingWorkflows,
 }) {
     let nextPayload = eventPayload
     if (!nextPayload.remediation) {
@@ -443,7 +443,7 @@ async function reconcileRemediation({
                 repository: `${owner}/${repo}`,
                 latest_master_sha: latestCommit.sha,
                 incident_started_at: nextPayload.since,
-                failing_workflows: blocking.map((workflow) => ({
+                failing_workflows: failingWorkflows.map((workflow) => ({
                     name: workflow.name,
                     run_url: workflow.run_url,
                 })),
@@ -672,7 +672,7 @@ module.exports = async (
             owner,
             repo,
             latestCommit,
-            blocking,
+            failingWorkflows: Object.values(failing),
         })
     } else if (active) {
         const since = active.payload?.since

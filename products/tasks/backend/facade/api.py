@@ -167,6 +167,7 @@ __all__ = [
     "get_task_run_stream_info",
     "get_task_summaries",
     "is_internal_debug_team",
+    "is_ci_remediation_repository_allowed",
     "is_task_controllable_by_user",
     "is_valid_sandbox_env_var_key",
     "latest_task_run_pr_url_subquery",
@@ -211,6 +212,7 @@ __all__ = [
     "task_ids_with_pr_url_subquery",
     "task_run_has_slack_mapping",
     "task_run_is_terminal",
+    "trigger_ci_remediation",
     "task_visible",
     "update_sandbox_environment",
     "update_task",
@@ -222,6 +224,52 @@ __all__ = [
     "validate_task_run_artifact_ids",
     "warm_task_sandbox",
 ]
+
+
+def is_ci_remediation_repository_allowed(repository: str) -> bool:
+    from products.tasks.backend.ci_remediation import (  # noqa: PLC0415 — keeps task automation's Temporal imports off the API path
+        ALLOWED_CI_REMEDIATION_REPOSITORIES,
+    )
+
+    return repository.lower() in ALLOWED_CI_REMEDIATION_REPOSITORIES
+
+
+def trigger_ci_remediation(
+    *,
+    incident_id: str,
+    repository: str,
+    latest_master_sha: str,
+    incident_started_at: datetime,
+    failing_workflows: Sequence[tuple[str, str]],
+    slack_channel_id: str,
+    slack_thread_ts: str,
+) -> contracts.CiRemediationRunDTO | None:
+    from products.tasks.backend.ci_remediation import (  # noqa: PLC0415 — keeps task automation's Temporal imports off the API path
+        CiRemediationConfigurationError,
+        CiRemediationIncident,
+        FailingWorkflow,
+        trigger_ci_remediation as trigger,
+    )
+
+    incident = CiRemediationIncident(
+        incident_id=incident_id,
+        repository=repository,
+        latest_master_sha=latest_master_sha,
+        incident_started_at=incident_started_at,
+        failing_workflows=tuple(FailingWorkflow(name=name, run_url=run_url) for name, run_url in failing_workflows),
+        slack_channel_id=slack_channel_id,
+        slack_thread_ts=slack_thread_ts,
+    )
+    try:
+        remediation_run = trigger(incident)
+    except CiRemediationConfigurationError:
+        return None
+
+    return contracts.CiRemediationRunDTO(
+        task_id=UUID(remediation_run.task_id),
+        run_id=UUID(remediation_run.run_id),
+        task_url=remediation_run.task_url,
+    )
 
 
 # --- Mappers ---

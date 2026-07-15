@@ -1,7 +1,8 @@
 import uuid
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any, Optional
+from collections.abc import Mapping
+from typing import Any, Optional, Protocol
 
 from django.conf import settings
 from django.db import transaction
@@ -10,6 +11,7 @@ from django.utils import timezone as django_timezone
 import posthoganalytics
 from asgiref.sync import sync_to_async
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.models.team.team import Team
 from posthog.temporal.common.client import async_connect, sync_connect
@@ -23,21 +25,29 @@ from products.tasks.backend.temporal.build_image.workflow import BuildSandboxIma
 from products.tasks.backend.temporal.process_task.workflow import ProcessTaskInput
 from products.tasks.backend.temporal.slack_relay.activities import RelaySlackMessageInput
 
-if TYPE_CHECKING:
-    from products.slack_app.backend.slack_thread import SlackThreadContext
-
 logger = logging.getLogger(__name__)
 
 _PRE_START_STATUSES: tuple[str, ...] = (TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED)
 
 
-def _normalize_slack_context(slack_thread_context: Optional[Any]) -> Optional[dict[str, Any]]:
+class SlackThreadContextLike(Protocol):
+    def to_dict(self) -> dict[str, Any]: ...
+
+
+SlackThreadContextInput = SlackThreadContextLike | Mapping[str, Any]
+
+
+class TaskWorkflowDispatchError(Exception):
+    pass
+
+
+def _normalize_slack_context(slack_thread_context: SlackThreadContextInput | None) -> dict[str, Any] | None:
     """Convert slack_thread_context to dict if needed."""
     if slack_thread_context is None:
         return None
-    if hasattr(slack_thread_context, "to_dict"):
-        return slack_thread_context.to_dict()
-    return slack_thread_context
+    if isinstance(slack_thread_context, Mapping):
+        return dict(slack_thread_context)
+    return slack_thread_context.to_dict()
 
 
 def _record_prefixed_workflow_id(run_id: str, workflow_id: str) -> None:
@@ -154,7 +164,7 @@ async def execute_task_processing_workflow_async(
     team_id: int,
     user_id: Optional[int] = None,
     create_pr: bool = True,
-    slack_thread_context: Optional[Any] = None,
+    slack_thread_context: SlackThreadContextInput | None = None,
     skip_user_check: bool = False,
     posthog_mcp_scopes: PosthogMcpScopes = "read_only",
     prewarmed: bool = False,
@@ -238,11 +248,12 @@ def execute_task_processing_workflow(
     team_id: int,
     user_id: Optional[int] = None,
     create_pr: bool = True,
-    slack_thread_context: Optional["SlackThreadContext"] = None,
+    slack_thread_context: SlackThreadContextInput | None = None,
     skip_user_check: bool = False,
     posthog_mcp_scopes: PosthogMcpScopes = "read_only",
     prewarmed: bool = False,
     workflow_id_prefix: Optional[str] = None,
+    raise_on_start_failure: bool = False,
 ) -> None:
     """
     Start the task processing workflow synchronously. Fire-and-forget.
@@ -301,12 +312,17 @@ def execute_task_processing_workflow(
         logger.info("task_processing_workflow_started", extra={"task_id": task_id, "run_id": run_id})
         observe_task_run_workflow_start(task_run_for_metrics, outcome="started", reason="accepted")
 
+    except WorkflowAlreadyStartedError:
+        observe_task_run_workflow_start(task_run_for_metrics, outcome="blocked", reason="already_running")
+        logger.info("task_processing_workflow_already_running", extra={"task_id": task_id, "run_id": run_id})
     except Team.DoesNotExist as e:
         observe_task_run_workflow_start(task_run_for_metrics, outcome="failed", reason="permission_validation")
         logger.exception(
             "task_processing_permission_validation_failed",
             extra={"task_id": task_id, "run_id": run_id, "error": str(e)},
         )
+        if raise_on_start_failure:
+            raise TaskWorkflowDispatchError("Task workflow permission validation failed") from e
         _terminalize_unstarted_task_run(
             run_id,
             f"Failed to start task workflow: permission validation failed: {e}",
@@ -317,6 +333,8 @@ def execute_task_processing_workflow(
             "task_processing_workflow_start_failed",
             extra={"task_id": task_id, "run_id": run_id, "error": str(e)},
         )
+        if raise_on_start_failure:
+            raise TaskWorkflowDispatchError("Task workflow could not start") from e
         _terminalize_unstarted_task_run(
             run_id,
             f"Failed to start task workflow: {e}",

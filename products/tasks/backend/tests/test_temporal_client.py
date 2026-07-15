@@ -12,6 +12,7 @@ from posthog.models.user import User
 
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.client import (
+    TaskWorkflowDispatchError,
     execute_task_processing_workflow,
     execute_task_processing_workflow_async,
     redispatch_orphaned_task_run,
@@ -83,6 +84,50 @@ class TestExecuteTaskProcessingWorkflow(TestCase):
         captured = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "task_run_failed"]
         self.assertEqual(len(captured), 1)
         self.assertEqual(captured[0].kwargs["properties"]["error_type"], "workflow_start_failed")
+
+    def test_retryable_dispatch_failure_leaves_run_queued(self) -> None:
+        run = self._create_run()
+        client = Mock()
+        client.start_workflow = AsyncMock(side_effect=RuntimeError("temporal unavailable"))
+
+        with (
+            patch("products.tasks.backend.temporal.client.sync_connect", return_value=client),
+            patch("products.tasks.backend.temporal.client.posthoganalytics.feature_enabled", return_value=False),
+            self.assertRaises(TaskWorkflowDispatchError),
+        ):
+            execute_task_processing_workflow(
+                task_id=str(self.task.id),
+                run_id=str(run.id),
+                team_id=self.team.id,
+                user_id=self.user.id,
+                raise_on_start_failure=True,
+            )
+
+        run.refresh_from_db()
+        self.assertEqual(run.status, TaskRun.Status.QUEUED)
+        self.assertIsNone(run.error_message)
+        self.assertIsNone(run.completed_at)
+
+    def test_retryable_dispatch_accepts_an_existing_workflow(self) -> None:
+        run = self._create_run()
+        client = Mock()
+        client.start_workflow = AsyncMock(side_effect=WorkflowAlreadyStartedError(run.workflow_id, "process-task"))
+
+        with (
+            patch("products.tasks.backend.temporal.client.sync_connect", return_value=client),
+            patch("products.tasks.backend.temporal.client.posthoganalytics.feature_enabled", return_value=False),
+        ):
+            execute_task_processing_workflow(
+                task_id=str(self.task.id),
+                run_id=str(run.id),
+                team_id=self.team.id,
+                user_id=self.user.id,
+                raise_on_start_failure=True,
+            )
+
+        run.refresh_from_db()
+        self.assertEqual(run.status, TaskRun.Status.QUEUED)
+        self.assertIsNone(run.error_message)
 
     @parameterized.expand([("sync",), ("async",)])
     def test_does_not_overwrite_run_that_already_started(self, executor: str) -> None:

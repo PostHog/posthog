@@ -5,8 +5,14 @@ from django.test import TestCase
 
 from posthog.models import Organization, Team, User
 
-from products.tasks.backend.automation_service import run_task_automation, update_automation_run_result
+from products.tasks.backend.automation_service import (
+    AUTOMATION_DISPATCH_ACCEPTED_STATE_KEY,
+    TaskAutomationDispatchError,
+    run_task_automation,
+    update_automation_run_result,
+)
 from products.tasks.backend.models import Task, TaskAutomation, TaskRun
+from products.tasks.backend.temporal.client import TaskWorkflowDispatchError
 
 
 class TestAutomationService(TestCase):
@@ -56,6 +62,35 @@ class TestAutomationService(TestCase):
         self.assertEqual(mock_execute_workflow.call_count, 1)
         self.assertEqual(first_run.state["pending_dispatch"]["create_pr"], True)
         self.assertEqual(first_run.state["pending_dispatch"]["posthog_mcp_scopes"], "read_only")
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_task_automation_retries_an_unaccepted_dispatch(self, mock_execute_workflow):
+        automation = self.create_automation()
+        mock_execute_workflow.side_effect = [TaskWorkflowDispatchError("temporal unavailable"), None]
+
+        with self.assertRaises(TaskAutomationDispatchError):
+            with self.captureOnCommitCallbacks(execute=True):
+                run_task_automation(
+                    str(automation.id),
+                    trigger_workflow_id="incident-123",
+                    retry_unaccepted_dispatch=True,
+                )
+
+        first_run = TaskRun.objects.get(task=automation.task)
+        self.assertNotIn(AUTOMATION_DISPATCH_ACCEPTED_STATE_KEY, first_run.state)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            _, retried_run = run_task_automation(
+                str(automation.id),
+                trigger_workflow_id="incident-123",
+                retry_unaccepted_dispatch=True,
+            )
+
+        first_run.refresh_from_db()
+        self.assertEqual(first_run.id, retried_run.id)
+        self.assertEqual(TaskRun.objects.filter(task=automation.task).count(), 1)
+        self.assertIs(first_run.state[AUTOMATION_DISPATCH_ACCEPTED_STATE_KEY], True)
+        self.assertEqual(mock_execute_workflow.call_count, 2)
 
     @patch("products.tasks.backend.automation_service.execute_task_processing_workflow_for_automation")
     def test_run_task_automation_does_not_reuse_run_from_another_team(self, mock_execute_workflow):

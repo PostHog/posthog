@@ -1,18 +1,18 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.http import HttpResponse
 from django.test import override_settings
 
 from parameterized import parameterized
 from rest_framework import status
-from rest_framework.response import Response
 
 from posthog.models.integration import Integration
 
 from products.tasks.backend.models import Task, TaskAutomation, TaskRun
 
 TRIGGER_URL = "/api/code/ci_remediation/trigger/"
-_EXECUTE = "products.tasks.backend.automation_service.execute_task_processing_workflow_for_automation"
+_EXECUTE = "products.tasks.backend.temporal.client.execute_task_processing_workflow"
 
 
 @override_settings(CI_REMEDIATION_TRIGGER_TOKEN="secret-token")
@@ -70,7 +70,7 @@ class TestCiRemediationTriggerApi(APIBaseTest):
 
     def post_trigger(
         self, payload: dict[str, object] | None = None, authorization: str = "Bearer secret-token"
-    ) -> Response:
+    ) -> HttpResponse:
         with self.settings(
             CI_REMEDIATION_AUTOMATION_ID=str(self.automation.id),
             CI_REMEDIATION_SLACK_INTEGRATION_ID=self.slack_integration.id,
@@ -91,7 +91,7 @@ class TestCiRemediationTriggerApi(APIBaseTest):
 
         self.assertEqual(first_response.status_code, status.HTTP_202_ACCEPTED, first_response.content)
         self.assertEqual(second_response.status_code, status.HTTP_202_ACCEPTED, second_response.content)
-        self.assertEqual(first_response.json(), second_response.json())
+        self.assertEqual(first_response.content, second_response.content)
         self.assertEqual(Task.objects.filter(id=self.task.id).count(), 1)
         self.assertEqual(TaskRun.objects.filter(task=self.task).count(), 1)
         mock_execute.assert_called_once()
@@ -99,6 +99,7 @@ class TestCiRemediationTriggerApi(APIBaseTest):
         task_run = TaskRun.objects.get(task=self.task)
         self.assertEqual(task_run.branch, "master")
         self.assertEqual(task_run.state["automation_trigger_workflow_id"], self.payload["incident_id"])
+        self.assertIs(task_run.state["automation_dispatch_accepted"], True)
         self.assertEqual(task_run.state["pr_base_branch"], "master")
         self.assertEqual(task_run.state["pr_authorship_mode"], "bot")
         self.assertIs(task_run.state["auto_publish"], True)
