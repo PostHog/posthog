@@ -620,6 +620,168 @@ describe('Hogflow Executor', () => {
             })
         })
 
+        describe('live timing edits while a run is parked', () => {
+            // The follow-live contract for timing steps: a parked run woken at ANY time — early
+            // (e.g. by a reschedule sweep or the subscription matcher) or at its natural wake —
+            // re-reads the live config and either advances or re-parks at the recomputed target.
+            // While still waiting it never advances currentAction, so the job row's action_id
+            // keeps naming the wait step. Bulk-rescheduling parked jobs (#66380) is only safe
+            // while every one of these cases holds.
+
+            const editAction = (hogFlow: HogFlow, actionId: string, patch: Record<string, unknown>): void => {
+                const action = hogFlow.actions.find((a) => a.id === actionId)
+                if (!action) {
+                    throw new Error(`Action ${actionId} not found in fixture flow`)
+                }
+                Object.assign(action, patch)
+                // The edit lands after the run parked - the live-edit case
+                hogFlow.updated_at = DateTime.now().toMillis()
+            }
+
+            const delayFlow: SimpleHogFlowRepresentation = {
+                actions: {
+                    delay: { type: 'delay', config: { delay_duration: '7d' } },
+                },
+                edges: [
+                    { from: 'trigger', to: 'delay', type: 'continue' },
+                    { from: 'delay', to: 'exit', type: 'continue' },
+                ],
+            }
+
+            const timeWindowFlow: SimpleHogFlowRepresentation = {
+                actions: {
+                    wait_window: {
+                        type: 'wait_until_time_window',
+                        config: { day: 'any', time: ['10:00', '11:00'], timezone: 'UTC' },
+                    },
+                },
+                edges: [
+                    { from: 'trigger', to: 'wait_window', type: 'continue' },
+                    { from: 'wait_window', to: 'exit', type: 'continue' },
+                ],
+            }
+
+            // Frozen "now" is 2025-01-01T00:00:00Z (see the suite's beforeEach)
+            const cases: {
+                description: string
+                flow: SimpleHogFlowRepresentation
+                parkedActionId: string
+                startedAgo: { days?: number; hours?: number }
+                edit?: (hogFlow: HogFlow) => void
+                expected: { finished: boolean; currentActionId: string; scheduledAt?: DateTime }
+            }[] = [
+                {
+                    description: 'delay shortened past a wake already due: advances immediately',
+                    flow: delayFlow,
+                    parkedActionId: 'delay',
+                    startedAgo: { days: 2 },
+                    edit: (hogFlow) => editAction(hogFlow, 'delay', { config: { delay_duration: '1d' } }),
+                    expected: { finished: true, currentActionId: 'exit', scheduledAt: undefined },
+                },
+                {
+                    description:
+                        'delay shortened with the new target still ahead: re-parks at startedAt + new duration',
+                    flow: delayFlow,
+                    parkedActionId: 'delay',
+                    startedAgo: { days: 2 },
+                    edit: (hogFlow) => editAction(hogFlow, 'delay', { config: { delay_duration: '3d' } }),
+                    expected: {
+                        finished: false,
+                        currentActionId: 'delay',
+                        scheduledAt: DateTime.fromISO('2025-01-02T00:00:00.000Z').toUTC(),
+                    },
+                },
+                {
+                    description: 'delay lengthened, woken at the old wake time: re-parks for the remainder',
+                    flow: delayFlow,
+                    parkedActionId: 'delay',
+                    startedAgo: { days: 7 },
+                    edit: (hogFlow) => editAction(hogFlow, 'delay', { config: { delay_duration: '10d' } }),
+                    expected: {
+                        finished: false,
+                        currentActionId: 'delay',
+                        scheduledAt: DateTime.fromISO('2025-01-04T00:00:00.000Z').toUTC(),
+                    },
+                },
+                {
+                    description: 'delay unchanged, woken early: re-parks at the original target (sweep no-op)',
+                    flow: delayFlow,
+                    parkedActionId: 'delay',
+                    startedAgo: { days: 2 },
+                    expected: {
+                        finished: false,
+                        currentActionId: 'delay',
+                        scheduledAt: DateTime.fromISO('2025-01-06T00:00:00.000Z').toUTC(),
+                    },
+                },
+                {
+                    description: 'time window edited to one currently open: advances immediately',
+                    flow: timeWindowFlow,
+                    parkedActionId: 'wait_window',
+                    startedAgo: { days: 1 },
+                    edit: (hogFlow) =>
+                        editAction(hogFlow, 'wait_window', { config: { day: 'any', time: 'any', timezone: 'UTC' } }),
+                    expected: { finished: true, currentActionId: 'exit', scheduledAt: undefined },
+                },
+                {
+                    description: 'time window moved earlier: re-parks at the new window start',
+                    flow: timeWindowFlow,
+                    parkedActionId: 'wait_window',
+                    startedAgo: { days: 1 },
+                    edit: (hogFlow) =>
+                        editAction(hogFlow, 'wait_window', {
+                            config: { day: 'any', time: ['09:00', '10:00'], timezone: 'UTC' },
+                        }),
+                    expected: {
+                        finished: false,
+                        currentActionId: 'wait_window',
+                        scheduledAt: DateTime.fromISO('2025-01-01T09:00:00.000Z').toUTC(),
+                    },
+                },
+                {
+                    description: 'time window unchanged, woken early: re-parks at the original window start',
+                    flow: timeWindowFlow,
+                    parkedActionId: 'wait_window',
+                    startedAgo: { days: 1 },
+                    expected: {
+                        finished: false,
+                        currentActionId: 'wait_window',
+                        scheduledAt: DateTime.fromISO('2025-01-01T10:00:00.000Z').toUTC(),
+                    },
+                },
+                {
+                    description: 'step type changed while parked: the new handler runs on wake',
+                    flow: delayFlow,
+                    parkedActionId: 'delay',
+                    startedAgo: { days: 2 },
+                    edit: (hogFlow) =>
+                        editAction(hogFlow, 'delay', {
+                            type: 'wait_until_time_window',
+                            config: { day: 'any', time: 'any', timezone: 'UTC' },
+                        }),
+                    expected: { finished: true, currentActionId: 'exit', scheduledAt: undefined },
+                },
+            ]
+
+            it.each(cases)('$description', async ({ flow, parkedActionId, startedAgo, edit, expected }) => {
+                const hogFlow = createHogFlow(flow)
+                const invocation = createExampleHogFlowInvocation(hogFlow)
+                invocation.state.currentAction = {
+                    id: parkedActionId,
+                    startedAtTimestamp: DateTime.utc().minus(startedAgo).toMillis(),
+                }
+                edit?.(hogFlow)
+
+                const result = await executor.execute(invocation)
+
+                expect(result.error).toBeUndefined()
+                expect(result.metrics.map((m) => m.metric_name)).not.toContain('failed')
+                expect(result.finished).toBe(expected.finished)
+                expect(result.invocation.state.currentAction?.id).toBe(expected.currentActionId)
+                expect(result.invocation.queueScheduledAt).toEqual(expected.scheduledAt)
+            })
+        })
+
         describe('early exit conditions', () => {
             let hogFlow: HogFlow
 
