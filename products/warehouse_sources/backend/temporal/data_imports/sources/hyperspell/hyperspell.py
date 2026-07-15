@@ -89,7 +89,9 @@ def validate_credentials(
     """
     url = _build_url(get_base_url(region), HYPERSPELL_ENDPOINTS["integrations"].path, {})
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_key), timeout=REQUEST_TIMEOUT_SECONDS)
+        response = make_tracked_session(redact_values=(api_key,), allow_redirects=False, capture=False).get(
+            url, headers=_get_headers(api_key), timeout=REQUEST_TIMEOUT_SECONDS
+        )
     except Exception:
         return False, "Could not reach the Hyperspell API. Please try again."
 
@@ -153,8 +155,10 @@ def get_rows(
     config = HYPERSPELL_ENDPOINTS[endpoint]
     base_url = get_base_url(region)
     # One session reused across every page (and every user) so urllib3 keeps the connection
-    # alive instead of re-handshaking per request.
-    session = make_tracked_session()
+    # alive instead of re-handshaking per request. capture=False keeps user-authored imported
+    # content (memories, entities, context docs) out of HTTP sample storage — the name-based
+    # scrubbers can't recognise it, and it lives outside the warehouse tables' access controls.
+    session = make_tracked_session(redact_values=(api_key,), allow_redirects=False, capture=False)
 
     # Memories/connections are per-user, so user-scoped endpoints fan out over the configured
     # user IDs via X-As-User. With no user IDs configured (or for app-level endpoints) we make

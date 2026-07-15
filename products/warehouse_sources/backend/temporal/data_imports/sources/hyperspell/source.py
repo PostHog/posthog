@@ -47,7 +47,10 @@ class HyperspellSource(ResumableSource[HyperspellSourceConfig, HyperspellResumeC
     def connection_host_fields(self) -> list[str]:
         # The stored API key is sent to the host derived from `region`, so retargeting the
         # region must re-require the key rather than reusing it against a different host.
-        return ["region"]
+        # `user_ids` is the upstream identity the key acts as (via X-As-User); changing it
+        # must also re-require the key so an editor without the credential can't retarget the
+        # stored key at other users' data.
+        return ["region", "user_ids"]
 
     @property
     def get_source_config(self) -> SourceConfig:

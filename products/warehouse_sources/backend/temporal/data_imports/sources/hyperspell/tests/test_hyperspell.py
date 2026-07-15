@@ -67,6 +67,36 @@ def _run(
         return batches, mock_session.return_value.get
 
 
+class TestSessionPrivacy:
+    def test_validate_credentials_disables_sample_capture(self) -> None:
+        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
+            mock_session.return_value.get.return_value = _response(200)
+
+            validate_credentials("hs_test", "us")
+
+        assert mock_session.call_args.kwargs["capture"] is False
+
+    def test_get_rows_disables_sample_capture(self) -> None:
+        manager = _StubManager()
+        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
+            mock_session.return_value.get.return_value = _response(200, {"items": [], "next_cursor": None})
+
+            list(
+                get_rows(
+                    api_key="hs_test",
+                    region="us",
+                    user_ids=None,
+                    endpoint="memories",
+                    logger=structlog.get_logger(),
+                    resumable_source_manager=manager,  # type: ignore[arg-type]
+                )
+            )
+
+        # Imported memory content is user-authored (Gmail, Slack, Notion, ...) and lives outside
+        # the warehouse tables' access controls, so it must never reach HTTP sample storage.
+        assert mock_session.call_args.kwargs["capture"] is False
+
+
 class TestGetBaseUrl:
     @pytest.mark.parametrize(
         "region, expected",
