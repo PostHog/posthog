@@ -98,11 +98,11 @@ class KernelExecutor:
         self._inject_session()
 
     def _inject_session(self) -> None:
-        status = self._execute(
+        status, error_detail = self._execute(
             f"from nb_kernel.bootstrap import KernelSession\n_ph = KernelSession(data_dir={self._data_dir!r})\n"
         )
         if status != "ok":
-            raise RuntimeError("failed to initialize the kernel session")
+            raise RuntimeError(f"failed to initialize the kernel session ({error_detail or 'no error detail'})")
 
     def _materialize_inputs(
         self, payload: dict[str, Any], fetch_notes: list[str] | None = None
@@ -162,16 +162,19 @@ class KernelExecutor:
             if os.path.exists(envelope_path):
                 os.remove(envelope_path)
 
-            status = self._execute(
+            status, error_detail = self._execute(
                 "import json as __j\n"
                 f"with open({payload_path!r}) as __f:\n    __payload = __j.load(__f)\n"
                 "__envelope = _ph.run_node(__payload)\n"
                 f"with open({envelope_path!r}, 'w') as __f:\n    __j.dump(__envelope, __f)\n"
             )
             if status != "ok" or not os.path.exists(envelope_path):
-                return envelope.from_python_execution(
-                    status="error", error="The kernel did not return a result (it may have crashed — try re-running)."
+                message = (
+                    f"The kernel run failed: {error_detail}"
+                    if error_detail
+                    else "The kernel did not return a result (it may have crashed — try re-running)."
                 )
+                return envelope.from_python_execution(status="error", error=message)
             with open(envelope_path) as handle:
                 return json.load(handle)
         finally:
@@ -179,11 +182,13 @@ class KernelExecutor:
             # paging live under /data/results, so the per-run dir must not accumulate.
             shutil.rmtree(run_dir, ignore_errors=True)
 
-    def _execute(self, code: str) -> str:
-        """Run code in the kernel; return the execute_reply status ('ok'/'error').
+    def _execute(self, code: str) -> tuple[str, str | None]:
+        """Run code in the kernel; return (execute_reply status, error detail when not ok).
 
-        Raises if the kernel dies or the run overruns the time budget (then the cell is
-        interrupted so the kernel is reusable for the next run).
+        The detail is the reply's exception name and value — without it a run-machinery
+        failure surfaces as an unactionable "kernel did not return a result". Raises if
+        the kernel dies or the run overruns the time budget (then the cell is interrupted
+        so the kernel is reusable for the next run).
         """
         msg_id = self._kc.execute(code, store_history=False, silent=True)
         deadline = time.monotonic() + _EXECUTE_TIMEOUT_SECONDS
@@ -196,7 +201,12 @@ class KernelExecutor:
                 continue
             if reply.get("parent_header", {}).get("msg_id") != msg_id:
                 continue  # a stale reply from an earlier run
-            return str(reply.get("content", {}).get("status") or "error")
+            content = reply.get("content", {}) or {}
+            reply_status = str(content.get("status") or "error")
+            if reply_status == "ok":
+                return reply_status, None
+            detail = f"{content.get('ename') or ''}: {content.get('evalue') or ''}".strip(": ")
+            return reply_status, detail or None
         self.interrupt()  # overran the budget — stop the cell so the kernel stays usable
         raise RuntimeError("the kernel run exceeded the time limit")
 

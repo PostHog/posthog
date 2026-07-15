@@ -33,8 +33,10 @@ from temporalio import activity, common, exceptions, workflow
 
 from posthog.schema import QueryStatus
 
+from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.parser import parse_select
 from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.clickhouse.client import sync_execute
@@ -230,8 +232,14 @@ def _materialize_slots(team_id: int, task_id: str) -> Iterator[None]:
                 global_limiter.release(global_key, global_task)
 
 
-def _print_clickhouse_sql(team: Team, user: User | None, query: str) -> tuple[str, dict[str, object]]:
-    """Print the HogQL to guarded ClickHouse SQL with `FORMAT ArrowStream` and the standing caps."""
+def _generate_sql(
+    team: Team,
+    user: User | None,
+    query: "str | ast.SelectQuery | ast.SelectSetQuery",
+    *,
+    output_format: str | None,
+) -> tuple[str, dict[str, object]]:
+    """Print HogQL to guarded ClickHouse SQL with the standing caps applied."""
     executor = HogQLQueryExecutor(
         query=query,
         team=team,
@@ -241,9 +249,77 @@ def _print_clickhouse_sql(team: Team, user: User | None, query: str) -> tuple[st
         settings=HogQLGlobalSettings(max_bytes_to_read=_MAX_BYTES_TO_READ, max_threads=_MAX_THREADS),
         pretty=False,
     )
-    executor.context.output_format = "ArrowStream"
+    if output_format:
+        executor.context.output_format = output_format
     sql, context = executor.generate_clickhouse_sql()
     return sql, context.values
+
+
+def _describe_columns(
+    client: ClickHouseClient, printed_sql: str, values: dict[str, object], ch_query_id: str
+) -> list[tuple[str, str]]:
+    """Return the printed query's output columns as (name, ClickHouse type) pairs."""
+    describe_sql = f"DESCRIBE TABLE ({printed_sql}) FORMAT TabSeparatedRaw"
+    with client.post_query(
+        describe_sql,
+        query_parameters=values,
+        query_id=f"{ch_query_id}_describe",
+        timeout=(_STREAM_CONNECT_TIMEOUT_SECONDS, 30.0),
+    ) as response:
+        text = response.text
+    columns: list[tuple[str, str]] = []
+    for line in text.splitlines():
+        parts = line.split("\t")
+        if len(parts) >= 2 and parts[0]:
+            columns.append((parts[0], parts[1]))
+    return columns
+
+
+def _stringify_function_for(ch_type: str) -> str | None:
+    """The conversion a column needs so ClickHouse's Arrow output stays kernel-friendly.
+
+    CH emits UUID/FixedString/Enum/IP columns as Arrow (fixed-size) binary — pandas then
+    holds raw bytes, which break JSON previews and read as bytes in user code (the inline
+    path always delivered them as strings). Mirrors the data-modeling materializer's
+    conversion table; containers are left native (a stringified array changes its shape).
+    """
+    lowered = ch_type.lower()
+    if lowered.startswith(("array", "map", "tuple")):
+        return None
+    if "nullable(nothing)" in lowered:
+        return "toNullableString"
+    if (
+        any(marker in lowered for marker in ("uuid", "enum", "ipv4", "ipv6", "fixedstring"))
+        or lowered.startswith("json")
+        or "object(" in lowered
+    ):
+        return "toString"
+    return None
+
+
+def _print_clickhouse_sql(
+    client: ClickHouseClient, team: Team, user: User | None, query: str, ch_query_id: str
+) -> tuple[str, dict[str, object]]:
+    """Print the HogQL to guarded ClickHouse SQL with `FORMAT ArrowStream` and the standing caps.
+
+    Two passes when needed (the data-modeling recipe): print once, DESCRIBE the printed
+    query (metadata only — no execution), and if any output column would leave ClickHouse
+    as Arrow binary, wrap the query so those columns are stringified, then print the
+    wrapper. Field names go through the HogQL AST/printer, never string splicing.
+    """
+    plain_sql, plain_values = _generate_sql(team, user, query, output_format=None)
+    described = _describe_columns(client, plain_sql, plain_values, ch_query_id)
+    conversions = [(name, _stringify_function_for(ch_type)) for name, ch_type in described]
+    if not any(function for _name, function in conversions):
+        return _generate_sql(team, user, query, output_format="ArrowStream")
+    select_fields: list[ast.Expr] = [
+        ast.Alias(expr=ast.Call(name=function, args=[ast.Field(chain=[name])]), alias=name)
+        if function
+        else ast.Field(chain=[name])
+        for name, function in conversions
+    ]
+    stringified = ast.SelectQuery(select=select_fields, select_from=ast.JoinExpr(table=parse_select(query)))
+    return _generate_sql(team, user, stringified, output_format="ArrowStream")
 
 
 def _finalize_status(
@@ -358,8 +434,24 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
         user_id=inputs.user_id,
         client_query_id=inputs.query_id,
     ):
+        # Per-attempt CH query id: a retried attempt must not collide with a predecessor
+        # ClickHouse may still be draining, and the failure path looks the id up in
+        # system.query_log to recover the real error.
+        ch_query_id = f"{inputs.query_id}_{attempt}"
+        client = ClickHouseClient(
+            url=settings.CLICKHOUSE_HTTP_URL,
+            user=settings.CLICKHOUSE_USER,
+            password=settings.CLICKHOUSE_PASSWORD,
+            database=settings.CLICKHOUSE_DATABASE,
+            output_format_arrow_string_as_string="true",
+            cancel_http_readonly_queries_on_client_close=1,
+            max_result_bytes=_MAX_RESULT_BYTES,
+            result_overflow_mode="throw",
+        )
         try:
-            printed_sql, context_values = _print_clickhouse_sql(team, user, inputs.query)
+            # Printing needs the client too: it DESCRIBEs the printed query (metadata only,
+            # so it stays outside the concurrency slot) to stringify Arrow-binary columns.
+            printed_sql, context_values = _print_clickhouse_sql(client, team, user, inputs.query, ch_query_id)
         except ExposedHogQLError as exc:
             # User-safe and terminal: surface the message through the poll, don't retry —
             # a bad query cannot succeed on a second attempt.
@@ -367,22 +459,8 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
             FRAME_MATERIALIZATIONS_FINISHED_COUNTER.labels(outcome="failed").inc()
             raise exceptions.ApplicationError(str(exc), non_retryable=True) from exc
 
-        # Per-attempt CH query id: a retried attempt must not collide with a predecessor
-        # ClickHouse may still be draining, and the failure path looks the id up in
-        # system.query_log to recover the real error.
-        ch_query_id = f"{inputs.query_id}_{attempt}"
         try:
             with _materialize_slots(inputs.team_id, inputs.query_id):
-                client = ClickHouseClient(
-                    url=settings.CLICKHOUSE_HTTP_URL,
-                    user=settings.CLICKHOUSE_USER,
-                    password=settings.CLICKHOUSE_PASSWORD,
-                    database=settings.CLICKHOUSE_DATABASE,
-                    output_format_arrow_string_as_string="true",
-                    cancel_http_readonly_queries_on_client_close=1,
-                    max_result_bytes=_MAX_RESULT_BYTES,
-                    result_overflow_mode="throw",
-                )
                 query_started = time.perf_counter()
                 with client.post_query(
                     printed_sql,

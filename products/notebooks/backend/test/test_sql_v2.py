@@ -911,15 +911,23 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
         # The frame-store path end to end: delivery="object" routes to the materialize job,
         # the poll answers 302 with a presigned URL under this team's prefix, the URL serves
         # the frame without credentials, and the frame is NOT clipped at the 50k async
-        # ceiling (the silent-truncation regression that motivated the object path).
+        # ceiling (the silent-truncation regression that motivated the object path). The
+        # UUID column pins the type-normalization pass: ClickHouse's native Arrow output
+        # would deliver it as 16 raw bytes (which broke the kernel's pandas/JSON handling);
+        # the worker must DESCRIBE and stringify it before streaming.
         from posthog.storage import object_storage
 
         from products.notebooks.backend import frame_store
 
+        frame_uuid = "018e0e7a-1111-2222-3333-444444444444"
         with self.settings(NOTEBOOKS_FRAME_STORE_ENABLED=True, OBJECT_STORAGE_ENABLED=True):
             self.addCleanup(self._delete_team_frames)
             response = self._run_to_completion(
-                {"query": "select number from numbers(50001)", "limit": 2_000_000, "delivery": "object"}
+                {
+                    "query": f"select number, toUUID('{frame_uuid}') as uid from numbers(50001)",
+                    "limit": 2_000_000,
+                    "delivery": "object",
+                }
             )
             self.assertEqual(response.status_code, 302, response.content)
             location = response["Location"]
@@ -928,8 +936,10 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
             keys = object_storage.list_objects(frame_store.team_prefix(self.team.id)) or []
             self.assertEqual(len(keys), 1)
             with urllib.request.urlopen(location) as download:  # deliberately credential-free
-                _columns, rows, _types = decode_arrow_stream(download.read())
+                columns, rows, _types = decode_arrow_stream(download.read())
         self.assertEqual(len(rows), 50_001)
+        self.assertEqual(columns, ["number", "uid"])
+        self.assertEqual(rows[0][1], frame_uuid)  # a string, not 16 bytes
 
     def test_object_delivery_falls_back_to_inline_when_frame_store_disabled(self):
         # Degraded mode: object storage off must not hard-fail the cell — the inline
