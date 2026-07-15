@@ -151,108 +151,6 @@ export const ExternalDataSchemasCancelCreateParams = /* @__PURE__ */ zod.object(
         ),
 })
 
-export const externalDataSchemasCancelCreateBodyIncrementalFieldLookbackSecondsMin = 0
-export const externalDataSchemasCancelCreateBodyIncrementalFieldLookbackSecondsMax = 5184000
-
-export const ExternalDataSchemasCancelCreateBody = /* @__PURE__ */ zod.object({
-    should_sync: zod.boolean().optional(),
-    sync_type: zod
-        .union([
-            zod
-                .enum(['full_refresh', 'incremental', 'append', 'webhook', 'cdc', 'xmin'])
-                .describe(
-                    '* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc\n* `xmin` - xmin'
-                ),
-            zod.null(),
-        ])
-        .optional()
-        .describe(
-            'Sync strategy: incremental, full_refresh, append, cdc, or xmin.\n\n* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc\n* `xmin` - xmin'
-        ),
-    incremental_field: zod.string().nullish().describe('Column name used to track sync progress.'),
-    incremental_field_type: zod
-        .union([
-            zod
-                .enum(['integer', 'numeric', 'datetime', 'date', 'timestamp', 'objectid', 'xid'])
-                .describe(
-                    '* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid\n* `xid` - xid'
-                ),
-            zod.null(),
-        ])
-        .optional()
-        .describe(
-            'Data type of the incremental field.\n\n* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid\n* `xid` - xid'
-        ),
-    incremental_field_lookback_seconds: zod
-        .number()
-        .min(externalDataSchemasCancelCreateBodyIncrementalFieldLookbackSecondsMin)
-        .max(externalDataSchemasCancelCreateBodyIncrementalFieldLookbackSecondsMax)
-        .nullish()
-        .describe(
-            'Seconds to subtract from the stored incremental watermark at sync time, so each incremental run re-reads a rolling overlap window and catches late or backdated rows. Applies to timestamp/date incremental fields only. The stored watermark is unchanged. Maximum 5184000 (60 days).'
-        ),
-    sync_frequency: zod
-        .union([
-            zod
-                .enum([
-                    'never',
-                    '1min',
-                    '5min',
-                    '15min',
-                    '30min',
-                    '1hour',
-                    '6hour',
-                    '12hour',
-                    '24hour',
-                    '7day',
-                    '30day',
-                ])
-                .describe(
-                    '* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day'
-                ),
-            zod.null(),
-        ])
-        .optional()
-        .describe(
-            'How often to sync.\n\n* `never` - never\n* `1min` - 1min\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day'
-        ),
-    sync_time_of_day: zod.iso.time({}).nullish().describe('UTC time of day to run the sync (HH:MM:SS).'),
-    primary_key_columns: zod.array(zod.string()).nullish().describe('Column names for primary key deduplication.'),
-    cdc_table_mode: zod
-        .union([
-            zod
-                .enum(['consolidated', 'cdc_only', 'both'])
-                .describe('* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'),
-            zod.null(),
-        ])
-        .optional()
-        .describe(
-            'For CDC syncs: consolidated, cdc_only, or both.\n\n* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'
-        ),
-    enabled_columns: zod
-        .array(zod.string())
-        .nullish()
-        .describe(
-            'Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.'
-        ),
-    row_filters: zod
-        .array(
-            zod.object({
-                column: zod.string(),
-                operator: zod.string().describe('One of: > >= < <= = != IN "NOT IN".'),
-                value: zod
-                    .unknown()
-                    .describe(
-                        "Comparison value; must match the column's type. For `IN` / `NOT IN`, a comma-separated list (e.g. `1, 2, 3` or `'a','b'`)."
-                    ),
-            })
-        )
-        .nullish()
-        .describe(
-            "Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN \"NOT IN\"` and the value must match the column's type (for `IN`/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows."
-        ),
-})
-
 export const ExternalDataSchemasDeleteDataDestroyParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this external data schema.'),
     project_id: zod
@@ -1458,13 +1356,15 @@ export const ExternalDataSourcesPartialUpdateBody = /* @__PURE__ */ zod
         created_via: zod
             .union([
                 zod
-                    .enum(['web', 'api', 'mcp', 'wizard'])
-                    .describe('* `web` - web\n* `api` - api\n* `mcp` - mcp\n* `wizard` - wizard'),
+                    .enum(['web', 'api', 'mcp', 'wizard', 'self_driving'])
+                    .describe(
+                        '* `web` - web\n* `api` - api\n* `mcp` - mcp\n* `wizard` - wizard\n* `self_driving` - self_driving'
+                    ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                "How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard (derived server-side from the wizard's user agent). Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp\n* `wizard` - wizard"
+                "How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Code app (both derived server-side from the caller's user agent). Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp\n* `wizard` - wizard\n* `self_driving` - self_driving"
             ),
         client_secret: zod.string().optional(),
         account_id: zod.string().optional(),
@@ -1513,13 +1413,15 @@ export const ExternalDataSourcesCreateWebhookCreateBody = /* @__PURE__ */ zod
         created_via: zod
             .union([
                 zod
-                    .enum(['web', 'api', 'mcp', 'wizard'])
-                    .describe('* `web` - web\n* `api` - api\n* `mcp` - mcp\n* `wizard` - wizard'),
+                    .enum(['web', 'api', 'mcp', 'wizard', 'self_driving'])
+                    .describe(
+                        '* `web` - web\n* `api` - api\n* `mcp` - mcp\n* `wizard` - wizard\n* `self_driving` - self_driving'
+                    ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                "How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard (derived server-side from the wizard's user agent). Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp\n* `wizard` - wizard"
+                "How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Code app (both derived server-side from the caller's user agent). Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp\n* `wizard` - wizard\n* `self_driving` - self_driving"
             ),
         client_secret: zod.string(),
         account_id: zod.string(),
@@ -1556,13 +1458,15 @@ export const ExternalDataSourcesDeleteWebhookCreateBody = /* @__PURE__ */ zod
         created_via: zod
             .union([
                 zod
-                    .enum(['web', 'api', 'mcp', 'wizard'])
-                    .describe('* `web` - web\n* `api` - api\n* `mcp` - mcp\n* `wizard` - wizard'),
+                    .enum(['web', 'api', 'mcp', 'wizard', 'self_driving'])
+                    .describe(
+                        '* `web` - web\n* `api` - api\n* `mcp` - mcp\n* `wizard` - wizard\n* `self_driving` - self_driving'
+                    ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                "How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard (derived server-side from the wizard's user agent). Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp\n* `wizard` - wizard"
+                "How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Code app (both derived server-side from the caller's user agent). Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp\n* `wizard` - wizard\n* `self_driving` - self_driving"
             ),
         client_secret: zod.string(),
         account_id: zod.string(),
@@ -1595,13 +1499,15 @@ export const ExternalDataSourcesRefreshSchemasCreateBody = /* @__PURE__ */ zod
         created_via: zod
             .union([
                 zod
-                    .enum(['web', 'api', 'mcp', 'wizard'])
-                    .describe('* `web` - web\n* `api` - api\n* `mcp` - mcp\n* `wizard` - wizard'),
+                    .enum(['web', 'api', 'mcp', 'wizard', 'self_driving'])
+                    .describe(
+                        '* `web` - web\n* `api` - api\n* `mcp` - mcp\n* `wizard` - wizard\n* `self_driving` - self_driving'
+                    ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                "How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard (derived server-side from the wizard's user agent). Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp\n* `wizard` - wizard"
+                "How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Code app (both derived server-side from the caller's user agent). Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp\n* `wizard` - wizard\n* `self_driving` - self_driving"
             ),
         direct_query_enabled: zod
             .boolean()
@@ -1629,13 +1535,15 @@ export const ExternalDataSourcesReloadCreateBody = /* @__PURE__ */ zod
         created_via: zod
             .union([
                 zod
-                    .enum(['web', 'api', 'mcp', 'wizard'])
-                    .describe('* `web` - web\n* `api` - api\n* `mcp` - mcp\n* `wizard` - wizard'),
+                    .enum(['web', 'api', 'mcp', 'wizard', 'self_driving'])
+                    .describe(
+                        '* `web` - web\n* `api` - api\n* `mcp` - mcp\n* `wizard` - wizard\n* `self_driving` - self_driving'
+                    ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                "How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard (derived server-side from the wizard's user agent). Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp\n* `wizard` - wizard"
+                "How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Code app (both derived server-side from the caller's user agent). Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp\n* `wizard` - wizard\n* `self_driving` - self_driving"
             ),
         direct_query_enabled: zod
             .boolean()
@@ -1688,13 +1596,15 @@ export const ExternalDataSourcesUpdateWebhookInputsCreateBody = /* @__PURE__ */ 
         created_via: zod
             .union([
                 zod
-                    .enum(['web', 'api', 'mcp', 'wizard'])
-                    .describe('* `web` - web\n* `api` - api\n* `mcp` - mcp\n* `wizard` - wizard'),
+                    .enum(['web', 'api', 'mcp', 'wizard', 'self_driving'])
+                    .describe(
+                        '* `web` - web\n* `api` - api\n* `mcp` - mcp\n* `wizard` - wizard\n* `self_driving` - self_driving'
+                    ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                "How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard (derived server-side from the wizard's user agent). Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp\n* `wizard` - wizard"
+                "How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Code app (both derived server-side from the caller's user agent). Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp\n* `wizard` - wizard\n* `self_driving` - self_driving"
             ),
         client_secret: zod.string(),
         account_id: zod.string(),

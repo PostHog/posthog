@@ -195,6 +195,7 @@ class SignalTeamConfigAdmin(admin.ModelAdmin):
     list_display = (
         "id",
         "team_link",
+        "autostart_enabled",
         "default_autostart_priority",
         "default_slack_notification_channel",
         "updated_at",

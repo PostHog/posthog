@@ -50,7 +50,6 @@ class TestGooglePageSpeedInsightsSource:
         assert config.name.value == "GooglePageSpeedInsights"
         assert config.label == "Google PageSpeed Insights"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/google-pagespeed-insights"
 
     def test_get_source_config_fields(self):
