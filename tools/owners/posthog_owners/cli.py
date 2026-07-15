@@ -83,13 +83,18 @@ def _validate_owners_live(all_owners: set[str]) -> list[str]:
             errors.append(f"unknown team slug: {slug}")
 
     for handle in sorted(handles):
+        # Org membership, not mere account existence: the assigner can only
+        # request reviews from members, so a non-member handle would pass a
+        # users/{handle} check yet silently drop at assignment time via the
+        # 422 fallback. (Repo-collaborator status would be tighter still, but
+        # the app token lacks that scope — same trade-off as get_team_slugs.)
         result = subprocess.run(
-            ["gh", "api", f"users/{handle}", "--jq", ".login"],
+            ["gh", "api", f"orgs/PostHog/members/{handle}"],
             capture_output=True,
             text=True,
         )
         if result.returncode != 0:
-            errors.append(f"unknown GitHub user: @{handle}")
+            errors.append(f"not a PostHog org member (unassignable): @{handle}")
     return errors
 
 
