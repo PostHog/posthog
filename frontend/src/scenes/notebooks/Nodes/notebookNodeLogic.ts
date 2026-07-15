@@ -899,7 +899,6 @@ const parseDataframePreview = (preview?: string | null): NotebookDataframeResult
 export type NotebookNodeLogicProps = {
     nodeType: NotebookNodeType
     notebookLogic: BuiltLogic<notebookLogicType>
-    getPos?: () => number | undefined
     resizeable?: boolean | ((attributes: CustomNotebookNodeAttributes) => boolean)
     Settings?: NotebookNodeSettings
     messageListeners?: NotebookNodeMessagesListeners
@@ -1138,22 +1137,18 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         setActions: (actions: (NotebookNodeAction | undefined)[]) => ({ actions }),
         setMenuItems: (menuItems: LemonMenuItems | null) => ({ menuItems }),
         insertAfter: (content: JSONContent) => ({ content }),
-        insertAfterLastNodeOfType: (nodeType: string, content: JSONContent) => ({ content, nodeType }),
         updateAttributes: (attributes: Partial<NotebookNodeAttributes<any>>) => ({ attributes }),
-        insertOrSelectNextLine: true,
         setPreviousNode: (node: RichContentNode | null) => ({ node }),
         setNextNode: (node: RichContentNode | null) => ({ node }),
         deleteNode: true,
         selectNode: (scroll?: boolean) => ({ scroll }),
         toggleEditing: (visible?: boolean) => ({ visible }),
-        scrollIntoView: true,
         initializeNode: true,
         setMessageListeners: (listeners: NotebookNodeMessagesListeners) => ({ listeners }),
         setTitlePlaceholder: (titlePlaceholder: string) => ({ titlePlaceholder }),
         setRef: (ref: HTMLElement | null) => ({ ref }),
         toggleEditingTitle: (editing?: boolean) => ({ editing }),
         copyToClipboard: true,
-        convertToBacklink: (href: string) => ({ href }),
         navigateToNode: (nodeId: string) => ({ nodeId }),
         runPythonNode: (payload: { code: string }) => payload,
         runPythonNodeWithMode: (payload: { mode: PythonRunMode }) => payload,
@@ -1181,11 +1176,9 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
     }),
 
     connect((props: NotebookNodeLogicProps) => ({
-        actions: [props.notebookLogic, ['onUpdateEditor', 'setTextSelection']],
         values: [
             props.notebookLogic,
             [
-                'editor',
                 'isEditable',
                 'comments',
                 'pythonNodeSummaries',
@@ -1518,90 +1511,15 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
     }),
 
     listeners(({ actions, values, props }) => ({
-        onUpdateEditor: async () => {
-            if (!props.getPos) {
-                return
-            }
-            const editor = values.notebookLogic.values.editor
-            const pos = props.getPos()
-            if (editor && pos) {
-                const { previous, next } = editor.getAdjacentNodes(pos)
-                actions.setPreviousNode(previous)
-                actions.setNextNode(next)
-            }
-        },
-
-        insertAfter: ({ content }) => {
-            const pos = props.getPos?.()
-            if (!pos) {
-                return
-            }
-            const logic = values.notebookLogic
-            logic.values.editor?.insertContentAfterNode(pos, content)
-        },
-
         deleteNode: () => {
-            const pos = props.getPos?.()
-            if (!pos) {
-                // TODO: somehow make this delete from the parent
-                return
-            }
-
-            const logic = values.notebookLogic
-            logic.values.editor?.deleteRange({ from: pos, to: pos + 1 }).run()
             if (values.notebookLogic.values.editingNodeIds[values.nodeId]) {
                 values.notebookLogic.actions.setEditingNodeEditing(values.nodeId, false)
-            }
-        },
-
-        selectNode: ({ scroll }) => {
-            const pos = props.getPos?.()
-            if (!pos) {
-                return
-            }
-            const editor = values.notebookLogic.values.editor
-
-            if (editor) {
-                editor.setSelection(pos)
-                if (scroll ?? true) {
-                    editor.scrollToSelection()
-                }
             }
         },
 
         navigateToNode: ({ nodeId }) => {
             const targetLogic = values.notebookLogic.values.findNodeLogicById(nodeId)
             targetLogic?.actions.selectNode()
-        },
-
-        scrollIntoView: () => {
-            const pos = props.getPos?.()
-            if (!pos) {
-                return
-            }
-            values.editor?.scrollToPosition(pos)
-        },
-
-        insertAfterLastNodeOfType: ({ nodeType, content }) => {
-            const insertionPosition = props.getPos?.()
-            if (!insertionPosition) {
-                return
-            }
-            values.notebookLogic.actions.insertAfterLastNodeOfType(nodeType, content, insertionPosition)
-        },
-        insertOrSelectNextLine: () => {
-            const pos = props.getPos?.()
-            if (!pos || !values.isEditable) {
-                return
-            }
-
-            if (!values.nextNode || !values.nextNode.isTextblock) {
-                actions.insertAfter({
-                    type: 'paragraph',
-                })
-            } else {
-                actions.setTextSelection(pos + 1)
-            }
         },
 
         setExpanded: ({ expanded }) => {
@@ -1719,21 +1637,6 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             const type = 'text/html'
             const blob = new Blob([html], { type })
             await window.navigator.clipboard.write([new ClipboardItem({ [type]: blob })])
-        },
-        convertToBacklink: ({ href }) => {
-            const pos = props.getPos?.()
-            const editor = values.notebookLogic.values.editor
-            if (!pos || !editor) {
-                return
-            }
-
-            editor.insertContentAfterNode(pos, {
-                type: NotebookNodeType.Backlink,
-                attrs: {
-                    href,
-                },
-            })
-            actions.deleteNode()
         },
         runPythonNode: async ({ code }) => {
             if (props.nodeType !== NotebookNodeType.Python) {

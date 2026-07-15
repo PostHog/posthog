@@ -1,7 +1,6 @@
 import { MakeLogicType, actions, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { HTMLProps } from 'react'
 
-import { EditorFocusPosition } from 'lib/components/RichContentEditor/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -71,7 +70,7 @@ export const notebookPanelLogic = kea<notebookPanelLogicType>([
         actions: [sidePanelStateLogic, ['openSidePanel', 'closeSidePanel']],
     })),
     actions({
-        selectNotebook: (id: string, options: { autofocus?: EditorFocusPosition; silent?: boolean } = {}) => ({
+        selectNotebook: (id: string, options: { silent?: boolean } = {}) => ({
             id,
             ...options,
         }),
@@ -87,12 +86,6 @@ export const notebookPanelLogic = kea<notebookPanelLogicType>([
             { persist: true },
             {
                 selectNotebook: (_, { id }) => id,
-            },
-        ],
-        initialAutofocus: [
-            'start' as EditorFocusPosition,
-            {
-                selectNotebook: (_, { autofocus }) => autofocus ?? 'start',
             },
         ],
         dropMode: [

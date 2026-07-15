@@ -30,19 +30,10 @@ export type notebookSettingsLogicType = MakeLogicType<notebookSettingsLogicValue
 export const notebookSettingsLogic = kea<notebookSettingsLogicType>([
     path(['scenes', 'notebooks', 'notebooks', 'notebookSettingsLogic']),
     actions({
-        setIsExpanded: (expanded: boolean) => ({ expanded }),
         setIsMarkdownExpanded: (expanded: boolean) => ({ expanded }),
         setShowKernelInfo: (showKernelInfo: boolean) => ({ showKernelInfo }),
-        setShowTableOfContents: (showTOC: boolean) => ({ showTOC }),
     }),
     reducers(() => ({
-        isExpanded: [
-            false,
-            { persist: true },
-            {
-                setIsExpanded: (_, { expanded }) => expanded,
-            },
-        ],
         isMarkdownExpanded: [
             true,
             { persist: true },
@@ -54,12 +45,6 @@ export const notebookSettingsLogic = kea<notebookSettingsLogicType>([
             false,
             {
                 setShowKernelInfo: (_, { showKernelInfo }) => showKernelInfo,
-            },
-        ],
-        showTableOfContents: [
-            false,
-            {
-                setShowTableOfContents: (_, { showTOC }) => showTOC,
             },
         ],
     })),
