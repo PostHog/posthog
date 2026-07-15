@@ -253,6 +253,38 @@ class TestValidateCredentials:
             assert validate_credentials("bu_test") is False
 
 
+class TestHttpSampleCapture:
+    # Every Browser Use endpoint returns free-form agent content — session titles and
+    # session_messages.data hold whatever a user's agent typed or browsed, which the name-based
+    # scrubbers can't recognise. So both the export path and the credential probe must build their
+    # tracked session with capture=False. A regression that drops the flag (falling back to the
+    # capture=True default) would serialize that tenant content into the HTTP sample bucket.
+    def test_get_rows_disables_capture(self) -> None:
+        session = MagicMock()
+        with (
+            patch.object(browser_use, "make_tracked_session", return_value=session) as mock_session,
+            patch.object(browser_use, "_fetch_page", return_value={"sessions": []}),
+        ):
+            list(
+                get_rows(
+                    api_key="bu_test",
+                    endpoint="sessions",
+                    logger=MagicMock(),
+                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                )
+            )
+        assert mock_session.call_args.kwargs["capture"] is False
+
+    def test_validate_credentials_disables_capture(self) -> None:
+        response = MagicMock()
+        response.status_code = 200
+        session = MagicMock()
+        session.get.return_value = response
+        with patch.object(browser_use, "make_tracked_session", return_value=session) as mock_session:
+            validate_credentials("bu_test")
+        assert mock_session.call_args.kwargs["capture"] is False
+
+
 class TestSourceResponse:
     @parameterized.expand(
         [

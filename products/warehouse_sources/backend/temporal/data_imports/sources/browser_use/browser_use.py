@@ -78,7 +78,11 @@ def validate_credentials(api_key: str) -> bool:
     # The cheapest genuine token probe: list a single session. 200 means the key is accepted.
     url = _build_url("/sessions", {"page_size": 1})
     try:
-        response = make_tracked_session(redact_values=(api_key,)).get(url, headers=_get_headers(api_key), timeout=10)
+        # capture=False: the probe lists a session, whose body carries the same free-form agent
+        # content as the export bodies below — keep it out of HTTP sample capture.
+        response = make_tracked_session(redact_values=(api_key,), capture=False).get(
+            url, headers=_get_headers(api_key), timeout=10
+        )
         return response.status_code == 200
     except Exception:
         return False
@@ -204,7 +208,9 @@ def get_rows(
     # One session reused across every page (and, for fan-out, every child request) so urllib3 keeps
     # the connection alive instead of re-handshaking per request. Register the key for redaction so
     # the shared HTTP observer masks it anywhere it surfaces in captured URLs or samples.
-    session = make_tracked_session(redact_values=(api_key,))
+    # capture=False: session titles and session_messages.data hold arbitrary user/agent content the
+    # name-based scrubbers can't recognise, so exclude the bodies from HTTP sample capture entirely.
+    session = make_tracked_session(redact_values=(api_key,), capture=False)
 
     if config.fan_out_over_sessions:
         yield from _get_session_message_rows(session, headers, logger, resumable_source_manager, config)
