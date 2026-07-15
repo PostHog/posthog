@@ -22,6 +22,8 @@ export interface WizardInstallOptionsProps {
     onQueued?: () => void
     /** Instrumentation hook, fired when the user switches between cloud and local. */
     onModeSelected?: (mode: WizardInstallMode) => void
+    /** Also run the wizard's setup audit and feed the self-driving setup review. Self-driving onboarding only. */
+    setupReview?: boolean
 }
 
 /**
@@ -35,6 +37,7 @@ export function WizardInstallOptions({
     hideHog = false,
     onQueued,
     onModeSelected,
+    setupReview = false,
 }: WizardInstallOptionsProps): JSX.Element {
     const cloudRunEnabled = useFeatureFlag('ONBOARDING_WIZARD_CLOUD_RUN', 'test')
     const { isCloudOrDev } = useWizardCommand()
@@ -71,7 +74,12 @@ export function WizardInstallOptions({
             <div className="flex flex-col gap-4">
                 {badges}
                 {activeCloudRun ? (
-                    <WizardCloudRunBlock hideHog={hideHog} onRetryLocally={runItYourself} onQueued={onQueued} />
+                    <WizardCloudRunBlock
+                        hideHog={hideHog}
+                        onRetryLocally={runItYourself}
+                        onQueued={onQueued}
+                        setupReview={setupReview}
+                    />
                 ) : (
                     localBlock
                 )}
@@ -110,7 +118,12 @@ export function WizardInstallOptions({
                 ]}
             />
             {effectiveMode === 'cloud' ? (
-                <WizardCloudRunBlock hideHog={hideHog} onRetryLocally={runItYourself} onQueued={onQueued} />
+                <WizardCloudRunBlock
+                    hideHog={hideHog}
+                    onRetryLocally={runItYourself}
+                    onQueued={onQueued}
+                    setupReview={setupReview}
+                />
             ) : (
                 localBlock
             )}

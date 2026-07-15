@@ -27,11 +27,14 @@ export function WizardCloudRunBlock({
     onQueued,
     hideHog = false,
     onRetryLocally,
+    setupReview = false,
 }: {
     onQueued?: () => void
     hideHog?: boolean
     /** Forwarded to the install progress view so a failed run can offer "Run it yourself". */
     onRetryLocally?: () => void
+    /** Also run the wizard's setup audit and feed the self-driving setup review. Self-driving onboarding only. */
+    setupReview?: boolean
 }): JSX.Element {
     const { isCloudOrDev } = useWizardCommand()
     const syncEnabled = useFeatureFlag('ONBOARDING_WIZARD_SYNC', 'test')
@@ -143,7 +146,7 @@ export function WizardCloudRunBlock({
                         <LemonButton
                             type="primary"
                             icon={<IconPullRequest />}
-                            onClick={() => startCloudRun()}
+                            onClick={() => startCloudRun(setupReview)}
                             loading={cloudRunStatus === 'submitting'}
                             disabledReason={selectedRepository ? undefined : 'Pick a repository first'}
                             data-attr="wizard-cloud-run-open-pr"

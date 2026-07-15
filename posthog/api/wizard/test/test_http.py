@@ -482,6 +482,21 @@ class SetupWizardCloudRunTests(APIBaseTest):
         assert kwargs["user_id"] == self.user.id
         assert kwargs["branch"] is None
         assert kwargs["team"].id == self.team.id
+        # The default onboarding must not opt into the self-driving setup review.
+        assert kwargs["setup_review"] is False
+
+    @patch("posthog.api.wizard.http.tasks_facade.create_wizard_cloud_run")
+    def test_passes_setup_review_opt_in(self, mock_create):
+        mock_create.return_value = MagicMock(task_id="task-uuid", latest_run=MagicMock(id="run-uuid", status="queued"))
+
+        response = self.client.post(
+            self.CLOUD_RUN_URL,
+            data={"project_id": self.team.id, "repository": "acme/app", "setup_review": True},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert mock_create.call_args.kwargs["setup_review"] is True
 
     @patch("posthog.api.wizard.http.tasks_facade.create_wizard_cloud_run")
     def test_rejects_invalid_repository_format(self, mock_create):

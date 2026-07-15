@@ -495,3 +495,20 @@ class TestFacadeReadsAndMappers(TestCase):
         # overlap-clone-boot launch (before run_wizard) burns the prompt on an untouched repo
         # and the run never opens a PR. Wizard runs must pin the overlap boot off.
         self.assertIs(run.state.get("overlap_clone_boot_enabled"), False)
+        # No setup_review opt-in: the default onboarding must not run the wizard audit, whose
+        # findings become self-driving signals and complimentary PRs.
+        self.assertEqual(run.state.get("wizard_config"), {})
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_wizard_cloud_run_setup_review_marks_config(self, _mock_workflow):
+        Integration.objects.create(team=self.team, kind="github", config={})
+        created = facade.create_wizard_cloud_run(
+            team=self.team,
+            user_id=self.user.id,
+            repository="acme-co/web",
+            setup_review=True,
+        )
+        run = TaskRun.objects.get(task_id=created.task_id)
+        # The process-task workflow gates the wizard audit on this marker; losing it silently
+        # turns off the self-driving setup review for onboarding runs that opted in.
+        self.assertEqual(run.state.get("wizard_config"), {"setup_review": True})

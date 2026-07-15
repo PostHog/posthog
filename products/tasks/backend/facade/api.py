@@ -796,6 +796,7 @@ def create_wizard_cloud_run(
     user_id: int,
     repository: str,
     branch: str | None = None,
+    setup_review: bool = False,
 ) -> contracts.CreatedTaskDTO:
     """Create + run a cloud setup-wizard task.
 
@@ -804,6 +805,10 @@ def create_wizard_cloud_run(
     PostHog itself (see the wizard PR agent prompt). The wizard authenticates with its own scoped
     token (see ``create_wizard_oauth_access_token``), independent of the agent's sandbox token, so
     the agent runs with read-only PostHog scopes.``wizard_config`` marks the run so the workflow runs the wizard pre-agent step.
+
+    ``setup_review`` additionally runs the wizard's setup audit after the integration and feeds its
+    findings to the signals setup review (complimentary follow-up PRs). Only the self-driving
+    onboarding opts in — the default PostHog onboarding must not produce self-driving output.
 
     ``user_id`` is the person going through onboarding; it becomes the task's ``created_by`` so the
     run is explicitly attributed to them.
@@ -824,7 +829,7 @@ def create_wizard_cloud_run(
         create_pr=True,
         mode="background",
         branch=branch,
-        wizard_config={},
+        wizard_config={"setup_review": True} if setup_review else {},
         wizard_head_branch=head_branch,
         posthog_mcp_scopes="read_only",
         # The agent server boots idle; this is the message that actually kicks it off once ready

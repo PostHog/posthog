@@ -103,6 +103,9 @@ function InstallOptions({ onContinue }: { onContinue: () => void }): JSX.Element
                 onQueued={onContinue}
                 onModeSelected={reportContextOnboardingInstallModeSelected}
                 localBlock={<WizardCommandBlock hideHog />}
+                // Self-driving opt-in: the run also audits the finished integration and the findings
+                // become complimentary setup-review PRs in the inbox (cold-start seeding).
+                setupReview
             />
             <p className="text-xs text-muted m-0 text-center">
                 Rather wire it up by hand?{' '}

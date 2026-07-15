@@ -115,6 +115,14 @@ class SetupWizardCloudRunSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Base branch the wizard's pull request should target. Defaults to the repository's default branch.",
     )
+    setup_review = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Also audit the finished integration and feed the findings to the self-driving setup review, "
+            "which opens complimentary follow-up pull requests. Only the self-driving onboarding sets this."
+        ),
+    )
 
     def validate_repository(self, value: str) -> str:
         repository = value.strip()
@@ -464,6 +472,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
         project_id = serializer.validated_data["project_id"]
         repository = serializer.validated_data["repository"]
         branch = serializer.validated_data.get("branch") or None
+        setup_review = serializer.validated_data["setup_review"]
 
         visible_project_ids = UserPermissions(cast(User, request.user)).project_ids_visible_for_user
         try:
@@ -480,6 +489,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
                 user_id=cast(User, request.user).id,
                 repository=repository,
                 branch=branch,
+                setup_review=setup_review,
             )
         except ValueError as e:
             # e.g. the team/user has no GitHub integration with access to the repository.

@@ -1080,8 +1080,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         once it has modified files), rather than handing a half-integrated tree to the agent.
         """
         repository = self.context.repository
+        wizard_config = self.context.wizard_config
         # `is not None` (not truthiness): an empty config dict still means "this is a wizard run".
-        if self.context.wizard_config is None or not repository:
+        if wizard_config is None or not repository:
             return
 
         await self._emit_progress("wizard", "in_progress", "Running PostHog setup wizard", "setup")
@@ -1098,18 +1099,21 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
         # Audit the fresh integration in the same sandbox; the check ledger lands on
-        # TaskRun.output and feeds the signals setup review when the PR merges. The activity
-        # swallows its own errors (best-effort), so this can't fail the run.
-        await workflow.execute_activity(
-            run_wizard_audit,
-            RunWizardAuditInput(
-                context=self.context,
-                sandbox_id=sandbox_output.sandbox_id,
-                repository=repository,
-            ),
-            start_to_close_timeout=timedelta(minutes=25),
-            retry_policy=RetryPolicy(maximum_attempts=1),
-        )
+        # TaskRun.output and feeds the signals setup review when the PR merges. Only runs when
+        # the self-driving onboarding opted in (`setup_review` in wizard_config) — the default
+        # PostHog onboarding must not produce self-driving signals or PRs. The activity swallows
+        # its own errors (best-effort), so this can't fail the run.
+        if wizard_config.get("setup_review"):
+            await workflow.execute_activity(
+                run_wizard_audit,
+                RunWizardAuditInput(
+                    context=self.context,
+                    sandbox_id=sandbox_output.sandbox_id,
+                    repository=repository,
+                ),
+                start_to_close_timeout=timedelta(minutes=25),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
         await self._emit_progress("wizard", "completed", "Ran PostHog setup wizard", "setup")
 
     @staticmethod

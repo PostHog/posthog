@@ -66,7 +66,10 @@ export const wizardCloudRunLogic = kea<wizardCloudRunLogicType>([
     })),
     actions({
         setSelectedRepository: (repository: string | null) => ({ repository }),
-        startCloudRun: true,
+        // setupReview: the self-driving onboarding also runs the wizard's setup audit after the
+        // integration, feeding the signals setup review (complimentary follow-up PRs). The default
+        // onboarding must not set it.
+        startCloudRun: (setupReview?: boolean) => ({ setupReview: setupReview ?? false }),
         startCloudRunSuccess: true,
         startCloudRunFailure: true,
         setCloudRunHandle: (taskId: string, runId: string) => ({ taskId, runId }),
@@ -132,7 +135,7 @@ export const wizardCloudRunLogic = kea<wizardCloudRunLogicType>([
         skillId: [(s) => [s.selectedSDK], (selectedSDK): string | undefined => selectedSDK?.key],
     }),
     listeners(({ values, actions }) => ({
-        startCloudRun: async () => {
+        startCloudRun: async ({ setupReview }) => {
             const { githubIntegration, selectedRepository, currentProjectId } = values
             if (!githubIntegration || !selectedRepository || !currentProjectId) {
                 actions.startCloudRunFailure()
@@ -153,6 +156,7 @@ export const wizardCloudRunLogic = kea<wizardCloudRunLogicType>([
                     {
                         project_id: currentProjectId,
                         repository,
+                        setup_review: setupReview,
                     }
                 )
                 actions.setCloudRunHandle(task_id, run_id)
