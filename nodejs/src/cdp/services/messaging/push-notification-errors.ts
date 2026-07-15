@@ -107,7 +107,10 @@ export function normalizeFcmError(
     const canonical: string | undefined = typeof error?.status === 'string' ? error.status : undefined
     const code = errorCode ?? canonical
 
-    if (errorCode === 'UNREGISTERED' || status === 404) {
+    // Only treat this as a dead token when FCM itself says so (the UNREGISTERED errorCode, or the
+    // NOT_FOUND canonical status). A bare HTTP 404 with no FCM error body can come from a proxy or a
+    // misconfigured endpoint, and pruning on that would permanently drop a still-valid device token.
+    if (errorCode === 'UNREGISTERED' || canonical === 'NOT_FOUND') {
         return build('fcm', 'unregistered', code)
     }
     if (errorCode === 'SENDER_ID_MISMATCH' || errorCode === 'THIRD_PARTY_AUTH_ERROR') {

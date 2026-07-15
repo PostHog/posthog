@@ -44,8 +44,8 @@ const pushNotificationFailedCounter = new Counter({
 
 const pushNotificationSkippedCounter = new Counter({
     name: 'push_notification_skipped_total',
-    help: 'Push sends skipped because the recipient had no registered device token for the app, by platform.',
-    labelNames: ['platform'],
+    help: 'Push sends not delivered without an outright failure, by platform and reason. no_token = the recipient never registered a device; unregistered = the provider reported the token dead and it was removed.',
+    labelNames: ['platform', 'reason'],
 })
 
 const pushNotificationSendDurationMs = new Histogram({
@@ -208,7 +208,7 @@ export class PushNotificationService {
 
         if (!token) {
             addLog('warn', `No active FCM device token found for distinct_id: ${params.distinctId}`)
-            pushNotificationSkippedCounter.labels({ platform: 'fcm' }).inc()
+            pushNotificationSkippedCounter.labels({ platform: 'fcm', reason: 'no_token' }).inc()
             return false
         }
 
@@ -299,7 +299,7 @@ export class PushNotificationService {
 
         if (!token) {
             addLog('warn', `No active APNS device token found for distinct_id: ${params.distinctId}`)
-            pushNotificationSkippedCounter.labels({ platform: 'apns' }).inc()
+            pushNotificationSkippedCounter.labels({ platform: 'apns', reason: 'no_token' }).inc()
             return false
         }
 
@@ -487,6 +487,9 @@ export class PushNotificationService {
             properties: { $unset: [`$device_push_subscription_${appIdentifier}`] },
         })
         pushNotificationTokenPrunedCounter.labels({ platform }).inc()
+        // A dead token is a non-delivery, not a failure to fix. Record it in the reason-labeled skip
+        // series too (not just the token-removal counter) so the skip metric accounts for it.
+        pushNotificationSkippedCounter.labels({ platform, reason: 'unregistered' }).inc()
     }
 
     private buildFcmMessage(token: string, payload: PushNotificationPayloadType): Record<string, unknown> {

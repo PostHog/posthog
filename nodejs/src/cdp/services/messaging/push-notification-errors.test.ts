@@ -5,7 +5,9 @@ describe('push notification error normalization', () => {
         it.each<[string, number | undefined, string | undefined, string | undefined, PushFailureReason, boolean]>([
             // name, httpStatus, error.status, details.errorCode, expected reason, expected unregistered
             ['unregistered token (errorCode)', 200, 'NOT_FOUND', 'UNREGISTERED', 'unregistered', true],
-            ['unregistered token (404)', 404, 'NOT_FOUND', undefined, 'unregistered', true],
+            ['unregistered token (404 + NOT_FOUND)', 404, 'NOT_FOUND', undefined, 'unregistered', true],
+            // A bare 404 with no FCM error body (e.g. a proxy) must NOT prune the token.
+            ['bare 404 without FCM error body', 404, undefined, undefined, 'unknown', false],
             ['sender id mismatch', 403, 'PERMISSION_DENIED', 'SENDER_ID_MISMATCH', 'auth_error', false],
             ['third party auth', 401, 'UNAUTHENTICATED', 'THIRD_PARTY_AUTH_ERROR', 'auth_error', false],
             ['permission denied', 403, 'PERMISSION_DENIED', undefined, 'auth_error', false],
