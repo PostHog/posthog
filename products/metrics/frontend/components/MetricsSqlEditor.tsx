@@ -25,20 +25,20 @@ export const MetricsSqlEditor = (): JSX.Element => {
     const logic = sqlEditorLogic({ tabId: sqlEditorTabId, mode: SQLEditorMode.Embedded })
     const { queryInput } = useValues(logic)
     const { setQueryInput, setSourceQuery, runQuery } = useActions(logic)
-    const metricsViewerDisabledReason = getAccessControlDisabledReason(
-        AccessControlResourceType.Metrics,
+    const warehouseViewerDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.WarehouseObjects,
         AccessControlLevel.Viewer
     )
     useMountedLogic(metricsSqlEditorTrackingLogic({ sqlEditorTabId }))
 
     useEffect(() => {
-        if (!metricsViewerDisabledReason) {
+        if (!warehouseViewerDisabledReason) {
             keepSqlEditorMounted(sqlEditorTabId)
         }
-    }, [sqlEditorTabId, metricsViewerDisabledReason]) // eslint-disable-line react-hooks/exhaustive-deps
+    }, [sqlEditorTabId, warehouseViewerDisabledReason]) // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
-        if (queryInput === null && !metricsViewerDisabledReason) {
+        if (queryInput === null && !warehouseViewerDisabledReason) {
             setQueryInput(DEFAULT_METRICS_QUERY)
             setSourceQuery({
                 kind: NodeKind.DataVisualizationNode,
@@ -52,8 +52,8 @@ export const MetricsSqlEditor = (): JSX.Element => {
         }
     }, [queryInput]) // eslint-disable-line react-hooks/exhaustive-deps
 
-    if (metricsViewerDisabledReason) {
-        return <LemonBanner type="warning">{metricsViewerDisabledReason}</LemonBanner>
+    if (warehouseViewerDisabledReason) {
+        return <LemonBanner type="warning">{warehouseViewerDisabledReason}</LemonBanner>
     }
 
     return (
@@ -62,7 +62,7 @@ export const MetricsSqlEditor = (): JSX.Element => {
                 tabId={sqlEditorTabId}
                 mode={SQLEditorMode.Embedded}
                 defaultShowDatabaseTree={false}
-                runQueryDisabledReason={metricsViewerDisabledReason ?? undefined}
+                runQueryDisabledReason={warehouseViewerDisabledReason ?? undefined}
             />
         </div>
     )

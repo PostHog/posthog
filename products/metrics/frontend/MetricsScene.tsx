@@ -47,6 +47,14 @@ const MetricsSceneContent = (): JSX.Element => {
         AccessControlResourceType.Metrics,
         AccessControlLevel.Viewer
     )
+    const metricsSqlDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.WarehouseObjects,
+        AccessControlLevel.Viewer
+    )
+    const tabDisabledReasons: Record<MetricsSceneActiveTab, string | null> = {
+        viewer: metricsViewerDisabledReason,
+        sql: metricsSqlDisabledReason,
+    }
     // Scene-level so tab switches in both directions are captured; keeps the viewer
     // and samples logics (its connect targets) mounted across tab flips as a side effect.
     useMountedLogic(metricsUsageTrackingLogic)
@@ -76,13 +84,13 @@ const MetricsSceneContent = (): JSX.Element => {
             <LemonTabs<MetricsSceneActiveTab>
                 activeKey={activeTab}
                 onChange={(tab) => {
-                    if (!metricsViewerDisabledReason) {
+                    if (!tabDisabledReasons[tab]) {
                         setActiveTab(tab)
                     }
                 }}
                 tabs={TABS.map((tab) => ({
                     ...tab,
-                    disabledReason: metricsViewerDisabledReason ?? undefined,
+                    disabledReason: tabDisabledReasons[tab.key] ?? undefined,
                 }))}
                 sceneInset
             />
