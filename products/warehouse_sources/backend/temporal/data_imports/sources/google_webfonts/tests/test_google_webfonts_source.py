@@ -29,7 +29,6 @@ class TestGoogleWebfontsSource:
 
         assert config.name.value == "GoogleWebfonts"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/google-webfonts"
 
         field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]

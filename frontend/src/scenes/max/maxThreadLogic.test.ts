@@ -30,7 +30,7 @@ import {
 import { initKeaTests } from '~/test/init'
 import { Conversation, ConversationDetail, ConversationStatus, ConversationType } from '~/types'
 
-import { runStreamLogic } from 'products/posthog_ai/frontend/api/logics'
+import { attachedContextLogic, runStreamLogic } from 'products/posthog_ai/frontend/api/logics'
 
 import { EnhancedToolCall, TOOL_DEFINITIONS } from './max-constants'
 import { maxContextLogic } from './maxContextLogic'
@@ -1349,6 +1349,36 @@ describe('maxThreadLogic', () => {
                         }),
                     ]),
                 })
+        })
+    })
+
+    describe('error tracking capture gating', () => {
+        // 402 (out of AI credits) and 429 (rate limited) are expected business conditions shown
+        // to the user, so they must not be reported to error tracking; genuine failures (500) must.
+        it.each([
+            [402, false],
+            [429, false],
+            [500, true],
+        ])('status %s reports exception: %s', async (status, shouldCapture) => {
+            const captureExceptionSpy = jest
+                .spyOn(posthog, 'captureException')
+                .mockImplementation(() => undefined as any)
+            jest.spyOn(api.conversations, 'stream').mockRejectedValue(new ApiError('error', status, undefined, {}))
+
+            logic.unmount()
+            maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)
+            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, panelId: 'test' })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.askMax('hello')
+            }).toDispatchActions(['askMax', 'addMessage', 'completeThreadGeneration'])
+
+            if (shouldCapture) {
+                expect(captureExceptionSpy).toHaveBeenCalledTimes(1)
+            } else {
+                expect(captureExceptionSpy).not.toHaveBeenCalled()
+            }
         })
     })
 
@@ -3610,6 +3640,29 @@ describe('maxThreadLogic', () => {
 
             expect(openSpy).not.toHaveBeenCalled()
             expect(maxLogicInstance.values.activeStreamingThreads).toEqual(0)
+        })
+
+        it('degrades a keyed non-allowlisted context item to a text attachment instead of dropping it', async () => {
+            const openSpy = jest.spyOn(api.conversations, 'open').mockResolvedValue(sandboxRunResponse)
+            // initKeaTests() in beforeEach resets the kea context, so no explicit unmount is needed
+            attachedContextLogic.mount()
+            attachedContextLogic.actions.registerContext('test-provider', [
+                { type: 'trace', key: '0189-abc', label: 'LLM trace' },
+            ])
+
+            await expectLogic(logic, () => {
+                logic.actions.streamConversation(
+                    { agent_mode: null, is_sandbox: true, content: 'hello', conversation: MOCK_CONVERSATION_ID },
+                    0
+                )
+            }).toDispatchActions(['openSandboxSse'])
+
+            expect(openSpy).toHaveBeenCalledWith(
+                MOCK_CONVERSATION_ID,
+                expect.objectContaining({
+                    attached_context: expect.arrayContaining([{ type: 'text', value: 'trace 0189-abc ("LLM trace")' }]),
+                })
+            )
         })
     })
 

@@ -2,11 +2,11 @@ from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
+from functools import cache
 from time import perf_counter
 from types import UnionType
-from typing import Any, Generic, Optional, Protocol, TypeGuard, TypeVar, Union, cast, get_args, get_origin
+from typing import Any, Generic, NamedTuple, Optional, Protocol, TypeGuard, TypeVar, Union, cast, get_args, get_origin
 
-import structlog
 import posthoganalytics
 from prometheus_client import Counter, Histogram
 from pydantic import BaseModel, ConfigDict
@@ -133,8 +133,6 @@ from posthog.slo.types import SloArea, SloOperation, SloOutcome
 from posthog.synthetic_user import SyntheticUser
 from posthog.utils import generate_cache_key, get_from_dict_or_attr, to_json
 
-logger = structlog.get_logger(__name__)
-
 QUERY_EXECUTION_TOTAL = Counter(
     "posthog_query_execution_total",
     "Query executions by category",
@@ -215,6 +213,33 @@ def get_survey_query_metric_labels(query: Any) -> dict[str, str] | None:
     }
 
 
+def _annotation_mentions_base_model(annotation: Any) -> bool:
+    if annotation is None:
+        return False
+    if isinstance(annotation, type):
+        return issubclass(annotation, BaseModel)
+    return any(_annotation_mentions_base_model(arg) for arg in get_args(annotation))
+
+
+@cache
+def response_results_contain_models(response_class: type[BaseModel]) -> bool:
+    """Whether the class's `results` annotation can hold pydantic models (e.g. list[RetentionResult]).
+
+    Responses are only ever built by validating plain data (a cached JSON blob, or the dict a fresh
+    calculation was dumped to), so model instances can appear in `results` exactly where the
+    annotation declares a model type — `Any`/`dict[str, Any]` positions stay plain data.
+
+    Response classes are split on this roughly down the middle: many type `results` items as models,
+    while others — including the largest payloads (trends, funnels) — type them as plain data.
+    That split is historical, not a pattern to extend; this helper only exists to serve both
+    correctly, and should disappear if the response classes ever converge on one style.
+    """
+    field = response_class.model_fields.get("results")
+    if field is None:
+        return False
+    return _annotation_mentions_base_model(field.annotation)
+
+
 def execution_mode_from_refresh(refresh_requested: bool | str | None) -> ExecutionMode:
     if refresh_requested:
         if execution_mode := _REFRESH_TO_EXECUTION_MODE.get(refresh_requested):
@@ -222,29 +247,21 @@ def execution_mode_from_refresh(refresh_requested: bool | str | None) -> Executi
     return ExecutionMode.CACHE_ONLY_NEVER_CALCULATE
 
 
-# Minimum age before a shared insight may honor `?refresh=force_blocking`.
-# Sourced from the same generated schema as the frontend's auto-refresh interval so the
-# two cannot drift. Best-effort throttle, not a hard rate limit.
-SHARED_FORCE_BLOCKING_MIN_AGE = timedelta(seconds=DashboardAutoRefreshInterval().root)
+# Staleness threshold for `?refresh=force_blocking` on shared insights: the request runs as
+# blocking-if-stale with this cache age, so the cached result's own `last_refresh` is the
+# throttle clock. Sourced from the same generated schema as the frontend's auto-refresh
+# interval so the two cannot drift. Best-effort throttle, not a hard rate limit.
+SHARED_FORCE_BLOCKING_STALENESS_WINDOW = timedelta(seconds=DashboardAutoRefreshInterval().root)
 
 
 _SHARED_MODE_WHITELIST = {
     ExecutionMode.CACHE_ONLY_NEVER_CALCULATE: ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
-    # force_blocking is gated by `shared_insights_execution_mode`; downgrades to IF_STALE
-    # when the throttle clock is younger than `SHARED_FORCE_BLOCKING_MIN_AGE`.
-    ExecutionMode.CALCULATE_BLOCKING_ALWAYS: ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
     ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE: ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
     # Used by the shared-notebook inline query payload builder. Without this entry the
     # request silently falls through to EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE, which causes
     # the frontend to incorrectly render a "unsupported node" placeholder until the async calc finishes and a later reload picks up the warm cache.
     ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE: ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
 }
-
-
-def _is_force_blocking_eligible_for_shared(last_refresh: datetime | None) -> bool:
-    if last_refresh is None:
-        return False
-    return datetime.now(UTC) - last_refresh >= SHARED_FORCE_BLOCKING_MIN_AGE
 
 
 def _classify_error_for_slo(exc: Exception) -> tuple[QueryErrorCategory, SloOutcome]:
@@ -273,21 +290,35 @@ def _classify_error_for_slo(exc: Exception) -> tuple[QueryErrorCategory, SloOutc
     return category, SloOutcome.FAILURE
 
 
-def shared_insights_execution_mode(
-    execution_mode: ExecutionMode,
-    *,
-    last_refresh: datetime | None = None,
-) -> ExecutionMode:
-    if execution_mode == ExecutionMode.CALCULATE_BLOCKING_ALWAYS and not _is_force_blocking_eligible_for_shared(
-        last_refresh
-    ):
-        logger.info(
-            "shared_force_blocking_throttled",
-            last_refresh=last_refresh.isoformat() if last_refresh else None,
-            min_age_seconds=int(SHARED_FORCE_BLOCKING_MIN_AGE.total_seconds()),
+class SharedExecutionSettings(NamedTuple):
+    """Execution mode plus the staleness override that makes it a throttle.
+
+    `cache_age_seconds` is not optional garnish: dropping it when threading the mode into
+    `calculate_for_query_based_insight`/`process_query_dict` silently disables the shared
+    force-refresh throttle. Named so call sites that discard it have to do so visibly.
+    """
+
+    execution_mode: ExecutionMode
+    cache_age_seconds: int | None
+
+
+def shared_insights_execution_mode(execution_mode: ExecutionMode) -> SharedExecutionSettings:
+    """Map a requested execution mode to the one allowed on shared/embedded resources.
+
+    Returns the mode plus an optional `cache_age_seconds` override for the query runner.
+    force_blocking runs as blocking-if-stale with `SHARED_FORCE_BLOCKING_STALENESS_WINDOW` as the
+    staleness threshold: a cached result younger than the window is served as-is, anything
+    older (or missing) recomputes synchronously — throttling forced recomputes without a
+    separate clock.
+    """
+    if execution_mode == ExecutionMode.CALCULATE_BLOCKING_ALWAYS:
+        return SharedExecutionSettings(
+            ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+            int(SHARED_FORCE_BLOCKING_STALENESS_WINDOW.total_seconds()),
         )
-        return ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
-    return _SHARED_MODE_WHITELIST.get(execution_mode, ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE)
+    return SharedExecutionSettings(
+        _SHARED_MODE_WHITELIST.get(execution_mode, ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE), None
+    )
 
 
 RunnableQueryNode = Union[
@@ -1492,7 +1523,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     target_age=cached_response.cache_target_age,
                 )
 
-            if not self._is_stale(last_refresh=last_refresh_from_cached_result(cached_response)):
+            if not self._is_stale_for_request(last_refresh=last_refresh_from_cached_result(cached_response)):
                 count_query_cache_hit(self.team.pk, hit="hit", trigger=cached_response.calculation_trigger or "")
                 # We have a valid result that's fresh enough, let's return it
                 cached_response.query_status = self.get_async_query_status(cache_key=cache_manager.cache_key)
@@ -1516,7 +1547,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             elif execution_mode == ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE:
                 # We're allowed to calculate if the lazy check fails, but we'll do it asynchronously
                 assert isinstance(cached_response, CachedResponse)
-                if self._is_stale(last_refresh=last_refresh_from_cached_result(cached_response), lazy=True):
+                if self._is_stale_for_request(last_refresh=last_refresh_from_cached_result(cached_response), lazy=True):
                     cached_response.query_status = self.enqueue_async_calculation(
                         cache_manager=cache_manager, user=user, analytics_props=analytics_props
                     )
@@ -1652,6 +1683,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 slo_properties["dashboard_id"] = dashboard_id
             if product_key is not None:
                 slo_properties["product_key"] = product_key
+            if cache_age_seconds is not None:
+                # Makes the staleness override observable: override set + execution_path=cache_hit
+                # + is_cache_stale=false means the shared force-refresh throttle (or an endpoint's
+                # data freshness window) served cache instead of recomputing.
+                slo_properties["cache_age_override"] = cache_age_seconds
 
             with slo_operation(
                 spec=SloSpec(
@@ -1734,7 +1770,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
                                 last_refresh = last_refresh_from_cached_result(results)
                                 cache_tracking_props = {
-                                    "is_cache_stale": self._is_stale(last_refresh=last_refresh),
+                                    "is_cache_stale": self._is_stale_for_request(last_refresh=last_refresh),
                                     "calculation_trigger": results.calculation_trigger,
                                     "cache_age_seconds": round((datetime.now(UTC) - last_refresh).total_seconds(), 2)
                                     if last_refresh
@@ -1756,6 +1792,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                                 "query_type": query_type,
                                 "cache_key": cache_key,
                                 "cache_hit": isinstance(results, CachedResponse),
+                                "cache_age_override": cache_age_seconds,
                                 "response_time_ms": round((perf_counter() - start_time) * 1000, 2),
                                 **cache_tracking_props,
                             }
@@ -1931,6 +1968,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 "insight_id": insight_id,
                 "dashboard_id": dashboard_id,
                 "cache_hit": False,
+                "cache_age_override": getattr(self, "_cache_age_override", None),
                 "cache_key": cache_key,
                 "calculation_trigger": trigger,
                 "execution_mode": execution_mode.value,
@@ -2148,31 +2186,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         return cached_response, was_modified
 
-    def _get_cache_age_override(self, last_refresh: Optional[datetime]) -> Optional[datetime]:
-        """
-        Helper method for subclasses that override cache_target_age().
-        Returns the custom cache target age if _cache_age_override is set, otherwise None.
-
-        Subclasses can call this first in their cache_target_age() implementation:
-        ```
-        override = self._get_cache_age_override(last_refresh)
-        if override is not None:
-            return override
-        # ... custom logic
-        ```
-        """
-        if hasattr(self, "_cache_age_override") and self._cache_age_override is not None and last_refresh is not None:
-            return last_refresh + timedelta(seconds=self._cache_age_override)
-        return None
-
     def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
         if last_refresh is None:
             return None
-
-        # Check for custom cache age override (e.g., from Endpoint)
-        override_target_age = self._get_cache_age_override(last_refresh)
-        if override_target_age is not None:
-            return override_target_age
 
         query_date_range = getattr(self, "query_date_range", None)
         interval = query_date_range.interval_name if query_date_range else "minute"
@@ -2224,21 +2240,28 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         """Overridden by subclasses to add validation rules."""
         return ()
 
-    def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
-        # If a custom cache age was provided (e.g., from Endpoint), use our override logic
-        target_age = None
-        if hasattr(self, "_cache_age_override") and self._cache_age_override is not None:
-            target_age = self.cache_target_age(last_refresh, lazy=lazy)
-            if not target_age:
-                return False
+    def _is_stale_for_request(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
+        """Staleness decision for this request, honoring `_cache_age_override` when set.
 
+        The override (shared force refresh, endpoint data freshness) replaces the runner's
+        own staleness policy. It is applied here, at the call site, rather than inside the
+        polymorphic `_is_stale`/`cache_target_age` hooks, so subclasses overriding those
+        cannot silently weaken or tighten the requested window — and it governs this one
+        staleness decision only, never the target age persisted on a cache write.
+        """
+        override = getattr(self, "_cache_age_override", None)
+        if override is None:
+            return self._is_stale(last_refresh, lazy=lazy)
+        if last_refresh is None:
+            return True
+        return datetime.now(UTC) > last_refresh + timedelta(seconds=override)
+
+    def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
         query_date_range = getattr(self, "query_date_range", None)
         date_to = query_date_range.date_to() if query_date_range else None
         interval = query_date_range.interval_name if query_date_range else "minute"
         mode = ThresholdMode.LAZY if lazy else ThresholdMode.DEFAULT
-        return is_stale(
-            self.team, date_to=date_to, interval=interval, last_refresh=last_refresh, mode=mode, target_age=target_age
-        )
+        return is_stale(self.team, date_to=date_to, interval=interval, last_refresh=last_refresh, mode=mode)
 
     def _refresh_frequency(self) -> timedelta:
         return timedelta(minutes=1)

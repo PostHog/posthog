@@ -1,5 +1,6 @@
 import dataclasses
-from typing import ClassVar, Literal, Optional, Union, cast
+from time import sleep
+from typing import Any, ClassVar, Literal, Optional, Union, cast
 
 from opentelemetry import trace
 
@@ -55,7 +56,7 @@ from posthog.hogql.warehouse_warnings import record_warnings
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.query_tagging import tag_queries
-from posthog.errors import ExposedCHQueryError
+from posthog.errors import CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringRead, ExposedCHQueryError
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -63,6 +64,8 @@ from posthog.rbac.user_access_control import UserAccessControl
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 tracer = trace.get_tracer(__name__)
+
+TRANSIENT_S3_ERROR_RETRY_DELAY_SECONDS = 1.0
 
 
 @dataclasses.dataclass
@@ -550,6 +553,7 @@ class HogQLQueryExecutor:
             self.connection_id,
             user=self.user,
             error_factory=ExposedHogQLError,
+            require_pure_direct=True,
         )
         if source is None:
             raise ExposedHogQLError("Sending a raw query requires a valid connection.")
@@ -606,9 +610,18 @@ class HogQLQueryExecutor:
 
     @tracer.start_as_current_span("HogQLQueryExecutor._execute_clickhouse_query")
     def _execute_clickhouse_query(self):
-        assert self.clickhouse_sql
+        # A None prepared AST compiles to empty SQL: nothing to run, so return empty results.
+        # execute() guards this, but direct callers (e.g. web-analytics events prefilter) don't.
+        # A None (vs "") clickhouse_sql means _prepare_execution() never ran — surface that.
+        if self.clickhouse_sql == "":
+            self.results = []
+            self.types = []
+            return
+        if self.clickhouse_sql is None:
+            raise ValueError("Cannot execute ClickHouse query: SQL was not prepared")
         clickhouse_context = self.clickhouse_context
-        assert clickhouse_context is not None
+        if clickhouse_context is None:
+            raise ValueError("Cannot execute ClickHouse query: ClickHouse context was not prepared")
         timings_dict = self.timings.to_dict()
         with self.timings.measure("clickhouse_execute"):
             with self.timings.measure("extract_hogql_features"):
@@ -629,8 +642,8 @@ class HogQLQueryExecutor:
             if workload == Workload.DEFAULT and clickhouse_context.workload is not None:
                 workload = clickhouse_context.workload
 
-            try:
-                self.results, self.types = sync_execute(
+            def run_clickhouse_query() -> Any:
+                return sync_execute(
                     self.clickhouse_sql,
                     clickhouse_context.values,
                     with_column_types=True,
@@ -640,6 +653,14 @@ class HogQLQueryExecutor:
                     ch_user=self.ch_user,
                     external_tables=list(clickhouse_context.external_tables.values()) or None,
                 )
+
+            try:
+                try:
+                    self.results, self.types = run_clickhouse_query()
+                except (CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringRead):
+                    # Files backing a warehouse table can be replaced mid-read; one retry re-lists them
+                    sleep(TRANSIENT_S3_ERROR_RETRY_DELAY_SECONDS)
+                    self.results, self.types = run_clickhouse_query()
             except Exception as e:
                 if self.debug:
                     self.results = []

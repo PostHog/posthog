@@ -35,7 +35,10 @@ from products.data_warehouse.backend.facade.api import (
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, update_should_sync
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import EmitSignalsActivityInputs
+from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
+    EmitSignalsActivityInputs,
+    PersonPropertySyncActivityInputs,
+)
 from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     get_data_import_finished_metric,
     get_v3_lock_skipped_metric,
@@ -116,6 +119,13 @@ Any_Source_Errors: dict[str, str | None] = {
     # misconfigured or wrong host/URL on the customer's side. Match the stable alert name, not the
     # volatile `_ssl.c:NNNN` suffix or per-request host.
     "SSLV3_ALERT_HANDSHAKE_FAILURE": "Could not complete a secure (TLS) connection to the source's server — the handshake was rejected. Please check the configured host/URL is correct and that the server supports a compatible TLS version.",
+    # Raised by `get_incremental_field_value` when the configured incremental field isn't a column
+    # in the extracted rows (e.g. a display label persisted instead of the real field name). The
+    # config is wrong, so every retry replays the same failure — pause and tell the user to fix it.
+    "was not found in the data returned by the source": (
+        "The incremental field configured for this table doesn't exist in the data the source returns. "
+        "Edit the table's sync method, pick a valid incremental field, then re-enable the sync."
+    ),
 }
 
 
@@ -128,6 +138,9 @@ class UpdateExternalDataJobStatusInputs:
     status: str
     internal_error: str | None
     latest_error: str | None
+    # Run id stamped on the job row by the create-job activity, so finalization can resolve this
+    # run's own job when job_id never made it back. Optional for mixed-version workers mid-rollout.
+    workflow_run_id: str | None = None
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
@@ -137,6 +150,7 @@ class UpdateExternalDataJobStatusInputs:
             "schema_id": self.schema_id,
             "source_id": self.source_id,
             "status": self.status,
+            "workflow_run_id": self.workflow_run_id,
         }
 
 
@@ -154,15 +168,34 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
     await finish_row_tracking(inputs.team_id, inputs.schema_id)
 
     if inputs.job_id is None:
-        job: ExternalDataJob | None = await database_sync_to_async_pool(
-            lambda: (
+
+        def _resolve_job() -> ExternalDataJob | None:
+            # Resolve this run's own job by run id; the finally-block update is the only finalizer for
+            # zero-batch runs (e.g. quiet Slack channels) that never send a batch to complete the job.
+            if inputs.workflow_run_id is not None:
+                job = (
+                    ExternalDataJob.objects.filter(team_id=inputs.team_id, workflow_run_id=inputs.workflow_run_id)
+                    .order_by("-created_at")
+                    .first()
+                )
+                if job is not None:
+                    return job
+            # Legacy fallback for runs started before workflow_run_id existed; racy under concurrent runs.
+            return (
                 ExternalDataJob.objects.filter(schema_id=inputs.schema_id, status=ExternalDataJob.Status.RUNNING)
                 .order_by("-created_at")
                 .first()
             )
-        )()
+
+        job: ExternalDataJob | None = await database_sync_to_async_pool(_resolve_job)()
         if job is None:
-            logger.info("No job to update status on")
+            # A FAILED finalization with no resolvable job means an early activity (e.g. create-job)
+            # failed before a row was committed — nothing is stranded and that failure is already
+            # reported on its own, so don't double-alarm. A non-FAILED finalization that can't find
+            # its job is a real anomaly (work we think succeeded has nowhere to record it) — surface it.
+            logger.warning("No job to update status on", workflow_run_id=inputs.workflow_run_id)
+            if inputs.status != ExternalDataJob.Status.FAILED:
+                capture_exception(Exception("Data import finalization could not resolve a job to update"))
             return
 
         job_id = str(job.pk)
@@ -287,6 +320,11 @@ def trigger_schedule_buffer_one_activity(schedule_id: str) -> None:
 
 
 # TODO: update retry policies
+#
+# DETERMINISM: adding, removing, or reordering activities / child-workflow starts in `run` breaks
+# every in-flight execution with a non-deterministic replay error on deploy. Gate new commands with
+# `workflow.patched("...")`, or on a new `create_job_model` output field that defaults to the skip
+# value — see .claude/rules/temporal-workflow-versioning.md.
 @workflow.defn(name="external-data-job")
 class ExternalDataJobWorkflow(PostHogWorkflow):
     @staticmethod
@@ -306,6 +344,8 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             team_id=inputs.team_id,
             schema_id=str(inputs.external_data_schema_id),
             source_id=str(inputs.external_data_source_id),
+            # Deterministic and available immediately, so the finalizer can resolve this run's job.
+            workflow_run_id=workflow.info().run_id,
         )
 
         source_type = None
@@ -385,6 +425,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 schema_name, last_synced_at, emit_signals_enabled = None, None, False
                 enrichment_needed = False
                 statistics_needed = False
+                person_property_sync_enabled = False
             else:
                 job_id = create_job_result.job_id
                 incremental_or_append = create_job_result.incremental_or_append
@@ -394,6 +435,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 emit_signals_enabled = create_job_result.emit_signals_enabled
                 enrichment_needed = create_job_result.enrichment_needed
                 statistics_needed = create_job_result.statistics_needed
+                person_property_sync_enabled = create_job_result.person_property_sync_enabled
             update_inputs.job_id = str(job_id) if job_id is not None else None
 
             # Check billing limits
@@ -535,6 +577,28 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     # Let the child workflow finish even if the parent completes or fails
                     parent_close_policy=ParentClosePolicy.ABANDON,
                     execution_timeout=dt.timedelta(hours=2),
+                )
+
+            # Upsert warehouse columns onto person properties for any enabled person-target source.
+            # Fire-and-forget, started by name because it runs on a different task queue (see
+            # person_property_sync_job.py). Gated up front (like signals) to avoid a no-op child per sync.
+            if source_type is not None and schema_name is not None and person_property_sync_enabled:
+                await workflow.start_child_workflow(
+                    "sync-warehouse-person-properties",
+                    PersonPropertySyncActivityInputs(
+                        team_id=inputs.team_id,
+                        schema_id=inputs.external_data_schema_id,
+                        source_id=inputs.external_data_source_id,
+                        job_id=job_id,
+                        source_type=source_type,
+                        schema_name=schema_name,
+                        last_synced_at=last_synced_at,
+                    ),
+                    id=f"sync-warehouse-person-properties-{job_id}",
+                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                    task_queue=settings.DATA_WAREHOUSE_METADATA_TASK_QUEUE,
+                    parent_close_policy=ParentClosePolicy.ABANDON,
+                    execution_timeout=dt.timedelta(hours=6),
                 )
 
             # Generate semantic descriptions for the synced table. Gated up front on actual need

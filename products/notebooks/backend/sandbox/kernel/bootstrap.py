@@ -1,4 +1,4 @@
-"""The `_ph` kernel session injected into the ipykernel namespace (Journey 4).
+"""The `_ph` kernel session injected into the ipykernel namespace (Journeys 4/5).
 
 (Not to be confused with the legacy stdout "notebook bridge" in kernel_runtime.py that
 this whole path replaces — nothing here smuggles RPCs over stdout. `run_node` reads
@@ -15,6 +15,12 @@ kernel-server hands it a single call, `_ph.run_node(payload)`, per run.
      tracebacks, matplotlib figures captured as PNGs);
   3. returns the result envelope (the kernel-server, not the kernel, POSTs it back);
   4. writes the produced frame to a local Arrow file so `/page` can slice it later.
+
+A DuckDB node (Journey 5 — SQL over local frames, which can't push to ClickHouse) shares
+steps 1/3/4 but runs its SQL on the session's persistent DuckDB connection instead of
+IPython, with local pandas frames registered so the query can join them against the
+mmapped HogQL inputs; the result binds back into the user namespace under `output_name`
+for downstream nodes.
 
 Heavy deps (duckdb/pandas/pyarrow/IPython) are imported at module load — this module only
 ever runs inside the kernel, where they are present, never on the kernel-server startup
@@ -90,14 +96,24 @@ class KernelSession:
 
     def run_node(self, payload: dict[str, Any]) -> dict[str, Any]:
         node = payload.get("node") or {}
+        node_type = str(node.get("type") or "python")
         preview_rows = int(payload.get("page_limit") or _DEFAULT_PREVIEW_ROWS)
         try:
-            self._register_inputs(payload.get("inputs") or [])
+            self._register_inputs(payload.get("inputs") or [], node_type=node_type)
         except Exception as exc:  # noqa: BLE001 — a bad input must still produce an envelope
             return envelope.from_python_execution(status="error", error=f"Input registration failed: {exc}")
 
+        if node_type == "duckdb":
+            return self._run_duckdb_node(node, preview_rows)
+
+        output_name = str(node.get("output_name") or "")
+        # Binding identities before the run, so a missed save can name the frames the run created.
+        ns_ids_before = {name: id(value) for name, value in self.shell.user_ns.items()} if output_name else {}
         self._plt.close("all")  # start from a clean figure state so we only capture this run's plots
-        with capture_output() as captured:
+        # display=False: only stdout/stderr are consumed (figures come from matplotlib
+        # directly). Capturing display would also swap the ZMQ shell's display machinery,
+        # which silently drops run_cell's last-expression result inside an ipykernel.
+        with capture_output(display=False) as captured:
             execution = self.shell.run_cell(node.get("code") or "", store_history=False)
 
         media, omitted_figures = self._collect_media()
@@ -105,16 +121,41 @@ class KernelSession:
         stderr = _truncate_stream(captured.stderr)
         if omitted_figures:
             stderr += f"\n[{omitted_figures} figure(s) omitted: over the media size cap]"
-        if execution.error_in_exec is not None:
+        # error_before_exec covers syntax/compile errors — run_cell reports those without
+        # setting error_in_exec, and they must not masquerade as a successful empty run.
+        error = execution.error_in_exec or execution.error_before_exec
+        if error is not None:
+            # A SIGINT (the /interrupt path) surfaces as KeyboardInterrupt inside run_cell;
+            # it is a user-requested stop, not a failure, and the captured output still ships.
+            if isinstance(error, KeyboardInterrupt):
+                return envelope.from_python_execution(
+                    status="interrupted",
+                    stdout=stdout,
+                    stderr=stderr,
+                    error=envelope.INTERRUPTED_MESSAGE,
+                    media=media,
+                )
             return envelope.from_python_execution(
                 status="error",
                 stdout=stdout,
                 stderr=stderr,
-                error=f"{type(execution.error_in_exec).__name__}: {execution.error_in_exec}",
+                error=f"{type(error).__name__}: {error}",
                 media=media,
             )
 
-        result_df = self._result_frame(node.get("output_name"), execution.result)
+        result_df = self._result_frame(output_name, execution.result)
+        if output_name:
+            if result_df is not None:
+                # Bind for downstream nodes: pandas in the namespace (Python) and a DuckDB
+                # entry (SQL) — the same contract as a DuckDB node's output_name.
+                self.shell.user_ns[output_name] = result_df
+                self._register_duck(output_name, result_df)
+            else:
+                # No frame this run: drop any stale DuckDB registration so SQL can't keep
+                # reading a previous run's rows. The namespace is left to the user's code —
+                # it may hold a deliberate non-frame value under this name.
+                self._unregister_duck(output_name)
+                stderr += self._missed_save_note(output_name, ns_ids_before)
         columns, types, rows, row_count, has_more = self._preview(result_df, preview_rows)
         # result_id keys the on-disk frame for paging — only advertise one that actually exists.
         result_id = self._write_result_frame(result_df) if result_df is not None else None
@@ -131,34 +172,112 @@ class KernelSession:
             result_id=result_id,
         )
 
-    def _register_inputs(self, inputs: list[dict[str, Any]]) -> None:
+    def _register_inputs(self, inputs: list[dict[str, Any]], node_type: str) -> None:
+        bind_pandas = node_type == "python"
         for spec in inputs:
             name = spec["name"]
             kind = spec.get("kind")
             if kind == "hogql":
-                # mmap the server-streamed frame; register zero-copy in DuckDB and bind pandas
-                # for Python code (the one step that materializes in RAM).
-                table = pa.ipc.open_file(spec["path"]).read_all()
-                self.duck.register(name, table)
-                self._registered.add(name)
-                self.shell.user_ns[name] = table.to_pandas()
+                # mmap the server-streamed frame and register it zero-copy in DuckDB (the
+                # buffers keep referencing the map after the handle closes); for a Python
+                # node additionally bind pandas (the one step that materializes in RAM).
+                with pa.memory_map(spec["path"]) as source:
+                    table = pa.ipc.open_file(source).read_all()
+                self._register_duck(name, table)
+                if bind_pandas:
+                    self.shell.user_ns[name] = table.to_pandas()
             elif kind == "local":
-                # Made by an earlier node in this kernel; it must already be present.
-                if name not in self.shell.user_ns and name not in self._registered:
-                    raise KeyError(f"local frame '{name}' is not in the kernel")
+                # Made by an earlier node in this kernel; it must currently be present.
+                if name in self.shell.user_ns:
+                    frame = self.shell.user_ns[name]
+                    if isinstance(frame, pd.DataFrame):
+                        # Re-register every run so SQL sees the frame's current value.
+                        self._register_duck(name, frame)
+                    else:
+                        # Rebound to a non-frame since it was registered: drop the stale DuckDB
+                        # entry so SQL can't silently read old data. Python code can still use
+                        # the object as-is; SQL over it is a clear error instead of wrong rows.
+                        self._unregister_duck(name)
+                        if node_type == "duckdb":
+                            raise TypeError(f"'{name}' is not a dataframe in the kernel (it is {type(frame).__name__})")
+                else:
+                    # Never made — or deleted since it was registered, in which case the stale
+                    # registration must go so SQL can't keep reading the old frame.
+                    self._unregister_duck(name)
+                    raise KeyError(f"local frame '{name}' is not in the kernel — run the node that creates it first")
             else:
                 raise ValueError(f"unknown input kind '{kind}' for '{name}'")
 
-    def _result_frame(self, output_name: str | None, last_expression: Any) -> "pd.DataFrame | None":
-        # Prefer the explicitly named output; fall back to the cell's last-expression value.
+    def _register_duck(self, name: str, frame: Any) -> None:
+        self._unregister_duck(name)  # replace cleanly when a frame was registered before
+        self.duck.register(name, frame)
+        self._registered.add(name)
+
+    def _unregister_duck(self, name: str) -> None:
+        try:
+            self.duck.unregister(name)
+        except Exception:  # noqa: BLE001 — nothing registered under this name yet
+            pass
+        self._registered.discard(name)
+
+    def _run_duckdb_node(self, node: dict[str, Any], preview_rows: int) -> dict[str, Any]:
+        output_name = node.get("output_name") or ""
+        try:
+            relation = self.duck.sql(node.get("code") or "")
+            # Non-SELECT statements (DDL etc.) yield no relation — a valid, frameless run.
+            result_df = relation.df() if relation is not None else None
+        except Exception as exc:  # noqa: BLE001 — any DuckDB failure must still produce an envelope
+            return envelope.from_python_execution(status="error", error=f"{type(exc).__name__}: {exc}")
         if output_name:
-            candidate = self.shell.user_ns.get(output_name)
-            if isinstance(candidate, pd.DataFrame):
-                return candidate
+            if result_df is not None:
+                # Bind for downstream nodes: pandas in the namespace (Python) and a DuckDB entry (SQL).
+                self.shell.user_ns[output_name] = result_df
+                self._register_duck(output_name, result_df)
+            else:
+                # A frameless run (DDL etc.) invalidates any previous binding under this name —
+                # downstream nodes must not silently keep reading the previous run's frame.
+                self.shell.user_ns.pop(output_name, None)
+                self._unregister_duck(output_name)
+        columns, types, rows, row_count, has_more = self._preview(result_df, preview_rows)
+        result_id = self._write_result_frame(result_df) if result_df is not None else None
+        return envelope.from_python_execution(
+            status="ok",
+            columns=columns,
+            types=types,
+            rows=rows,
+            row_count=row_count,
+            has_more=has_more,
+            result_id=result_id,
+        )
+
+    def _missed_save_note(self, output_name: str, ns_ids_before: dict[str, int]) -> str:
+        """A stderr note when the run made dataframes but none reached `output_name`."""
+        created = sorted(
+            name
+            for name, value in self.shell.user_ns.items()
+            if not name.startswith("_") and isinstance(value, pd.DataFrame) and ns_ids_before.get(name) != id(value)
+        )
+        if not created:
+            return ""
+        names = ", ".join(f"'{name}'" for name in created)
+        return (
+            f"\n[nothing was saved as '{output_name}': this run created {names}. "
+            f"Assign the dataframe to '{output_name}' or end the cell with it as the last expression.]"
+        )
+
+    def _result_frame(self, output_name: str | None, last_expression: Any) -> "pd.DataFrame | None":
+        # Prefer this run's last-expression value; the named output in the namespace is only
+        # a fallback (it covers cells whose last line is an assignment, which yields no
+        # expression value). Namespace-first would resurface the frame a previous run bound
+        # under output_name instead of this run's fresh result.
         if isinstance(last_expression, pd.DataFrame):
             return last_expression
         if isinstance(last_expression, pd.Series):
             return last_expression.to_frame()
+        if output_name:
+            candidate = self.shell.user_ns.get(output_name)
+            if isinstance(candidate, pd.DataFrame):
+                return candidate
         return None
 
     def _preview(

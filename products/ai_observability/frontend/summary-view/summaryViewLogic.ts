@@ -147,6 +147,12 @@ export const summaryViewLogic = kea<summaryViewLogicType>([
                 // nosemgrep: prefer-codegen-api
                 const data = await api.create(`api/environments/${teamId}/llm_analytics/summarization/`, payload)
 
+                // The endpoint can resolve to an empty body (e.g. no summary available yet),
+                // so guard before reading fields to avoid a null dereference.
+                if (!data || !data.summary) {
+                    throw new Error('No summary available for this trace yet')
+                }
+
                 return {
                     summary: data.summary,
                     text_repr: data.text_repr,

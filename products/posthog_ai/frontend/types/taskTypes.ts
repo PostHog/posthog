@@ -22,8 +22,11 @@ export enum OriginProduct {
     POSTHOG_AI = 'posthog_ai',
 }
 
-/** TaskTracker list filter: the current user's own tasks vs. team scout tasks. */
-export type TaskAssigneeFilter = 'for_you' | 'team_scouts'
+/**
+ * TaskTracker list filter: the current user's own tasks, team scout tasks, or — staff only —
+ * every task on the team.
+ */
+export type TaskAssigneeFilter = 'for_you' | 'team_scouts' | 'all_team'
 
 export enum TaskRunStatus {
     NOT_STARTED = 'not_started',
@@ -107,6 +110,8 @@ export interface TaskListParams {
     internal?: 'true' | 'false' | 'all'
     search?: string
     status?: TaskRunStatus
+    /** Staff-only. List every task on the team, bypassing the per-user visibility filter. Ignored server-side for non-staff. */
+    all_team_tasks?: boolean
     /** Page size (LimitOffset pagination); the viewset caps it at 100. */
     limit?: number
     offset?: number

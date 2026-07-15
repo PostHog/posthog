@@ -20,6 +20,7 @@ import { CombinedLocation } from 'kea-router/lib/utils'
 import { createElement } from 'react'
 
 import api, { PaginatedResponse } from 'lib/api'
+import { isAccessDeniedError } from 'lib/api-error'
 import { handleApprovalRequired } from 'lib/approvals/utils'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
@@ -659,6 +660,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             onConfirm: () => void
             dependentFlags: DependentFlag[]
             isBeingDisabled?: boolean
+            requireStatusConfirmation?: boolean
         }) => payload,
         saveDescriptionInline: (name: string) => ({ name }),
         saveTagsInline: (tags: string[]) => ({ tags }),
@@ -1178,8 +1180,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             originalFlag: FeatureFlagType | null
             updatedFlag: Partial<FeatureFlagType>
             onConfirm: () => void
+            requireStatusConfirmation?: boolean
         }) => {
-            const { originalFlag, updatedFlag, onConfirm } = payload
+            const { originalFlag, updatedFlag, onConfirm, requireStatusConfirmation = false } = payload
             const isBeingDisabled = !!updatedFlag.id && originalFlag?.active === true && updatedFlag.active === false
 
             let dependentFlagsForConfirmation: DependentFlag[] = []
@@ -1205,6 +1208,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 onConfirm,
                 isBeingDisabled,
                 dependentFlags: dependentFlagsForConfirmation,
+                requireStatusConfirmation,
             })
         },
         showDependentFlagsConfirmation: (payload: {
@@ -1213,8 +1217,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             onConfirm: () => void
             dependentFlags: DependentFlag[]
             isBeingDisabled?: boolean
+            requireStatusConfirmation?: boolean
         }) => {
-            const { originalFlag, updatedFlag, onConfirm, dependentFlags, isBeingDisabled = false } = payload
+            const {
+                originalFlag,
+                updatedFlag,
+                onConfirm,
+                dependentFlags,
+                isBeingDisabled = false,
+                requireStatusConfirmation = false,
+            } = payload
 
             const featureFlagConfirmationEnabled = !!values.currentTeam?.feature_flag_confirmation_enabled
             let customConfirmationMessage: string | undefined
@@ -1232,7 +1244,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 featureFlagConfirmationEnabled,
                 onConfirm,
                 dependentFlags,
-                isBeingDisabled
+                isBeingDisabled,
+                requireStatusConfirmation
             )
 
             // If no confirmation was shown, proceed immediately
@@ -1297,7 +1310,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
 
                         return variantKeyToIndexFeatureFlagPayloads(retrievedFlag)
                     } catch (e: any) {
-                        if (e.status === 403 && e.code === 'permission_denied') {
+                        if (isAccessDeniedError(e)) {
                             actions.setAccessDeniedToFeatureFlag()
                         } else {
                             actions.setFeatureFlagMissing()
@@ -1437,6 +1450,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 } catch (error: any) {
                     if (error.code === 'behavioral_cohort_found' || error.code === 'cohort_does_not_exist') {
                         eventUsageLogic.actions.reportFailedToCreateFeatureFlagWithCohort(error.code, error.detail)
+                    } else if (isAccessDeniedError(error)) {
+                        // Mirror the load path's access-denied handling instead of the generic
+                        // "Save feature flag failed: ..." toast. The global loaders handler
+                        // suppresses its toast for permission_denied, so this is the only message.
+                        lemonToast.error(
+                            error.detail ||
+                                "You don't have permission to edit this feature flag. Contact your administrator to request editing rights."
+                        )
                     }
                     throw error
                 }
@@ -1501,6 +1522,29 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     )
                     savedFlag.id && refreshTreeItem('feature_flag', String(savedFlag.id))
                     return variantKeyToIndexFeatureFlagPayloads(savedFlag)
+                },
+            },
+        ],
+        // Silent background refresh used when the overview paints instantly from the list
+        // cache on mount. Has its own loading key so it never triggers the page skeleton,
+        // while reconciling the flag (notably `active`) with the server — otherwise a stale
+        // cached `active` can make the toggle and its confirmation dialog contradict the
+        // flag's real state.
+        featureFlagRefresh: [
+            null as FeatureFlagType | null,
+            {
+                refreshFeatureFlag: async () => {
+                    if (!props.id || props.id === 'new' || props.id === 'link') {
+                        return null
+                    }
+                    try {
+                        const retrievedFlag: FeatureFlagType = await api.featureFlags.get(props.id)
+                        return variantKeyToIndexFeatureFlagPayloads(retrievedFlag)
+                    } catch {
+                        // Swallow errors — this is a silent background reconciliation, so a
+                        // transient failure shouldn't surface a toast or get reported.
+                        return null
+                    }
                 },
             },
         ],
@@ -1997,6 +2041,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 refreshTreeItem('feature_flag', String(flagId))
             }
         },
+        refreshFeatureFlagSuccess: ({ featureFlagRefresh }) => {
+            // Reconcile the cache-painted flag with the freshly fetched server state, and keep
+            // the list cache in sync so the two views agree.
+            if (featureFlagRefresh) {
+                actions.setFeatureFlag(featureFlagRefresh)
+                actions.updateFlag(featureFlagRefresh)
+            }
+        },
         updateFeatureFlagArchivedSuccess: ({ featureFlagActiveUpdate }) => {
             if (featureFlagActiveUpdate) {
                 lemonToast.success(`Feature flag ${featureFlagActiveUpdate.archived ? 'archived' : 'unarchived'}`)
@@ -2146,9 +2198,24 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 ])
                 warnings.forEach((warning) => lemonToast.warning(warning))
             } else {
-                const errorMessage = JSON.stringify(featureFlagCopy?.failed) || featureFlagCopy
-                lemonToast.error(`Error while saving feature flag: ${errorMessage}`)
-                eventUsageLogic.actions.reportFeatureFlagCopyFailure(errorMessage)
+                // This flow copies to a single target project, so at most one failure entry comes back.
+                const failure = featureFlagCopy?.failed[0]
+                if (failure?.approval_pending) {
+                    const projectName = values.currentOrganization?.teams.find(
+                        (team) => team.id === (failure.project_id ?? values.copyDestinationProject)
+                    )?.name
+                    lemonToast.warning(
+                        `A change request was created for ${
+                            projectName ?? 'the destination project'
+                        }; the copy will apply once approved.`
+                    )
+                    eventUsageLogic.actions.reportFeatureFlagCopyFailure(failure.error_message ?? 'Approval pending')
+                } else {
+                    const errorMessage =
+                        failure?.error_message ?? JSON.stringify(featureFlagCopy?.failed ?? featureFlagCopy)
+                    lemonToast.error(`Error while copying feature flag: ${errorMessage}`)
+                    eventUsageLogic.actions.reportFeatureFlagCopyFailure(errorMessage)
+                }
             }
 
             actions.loadProjectsWithCurrentFlag()
@@ -2416,6 +2483,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     onConfirm: () => {
                         actions.updateFeatureFlagActive(active)
                     },
+                    requireStatusConfirmation: true,
                 },
                 breakpoint,
                 action as any,
@@ -2875,6 +2943,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             actions.loadRelatedInsights()
             actions.loadFeatureFlagStatus()
             actions.loadDependentFlags()
+            // Paint instantly from the list cache above, then silently reconcile with the
+            // server: the cached `active` can be stale (toggled elsewhere since the list
+            // loaded), which otherwise leaves the overview toggle and its confirmation
+            // dialog reflecting the wrong state.
+            actions.refreshFeatureFlag()
         } else if (props.id !== 'new') {
             actions.loadFeatureFlag()
             actions.loadFeatureFlagStatus()

@@ -1,4 +1,4 @@
-import equal from 'fast-deep-equal'
+import { deepEqual as equal } from 'fast-equals'
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
@@ -23,6 +23,7 @@ import { toolbarApi } from '~/toolbar/toolbarApi'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
+import { ToolbarRequestError, isToolbarRequestError } from '~/toolbar/toolbarRequestError'
 import { ElementRect } from '~/toolbar/types'
 import { urls } from '~/toolbar/urls'
 import { TOOLBAR_ID, elementToActionStep, getRectForElement, joinWithUiHost } from '~/toolbar/utils'
@@ -346,15 +347,15 @@ export const productToursLogic = kea<productToursLogicType>([
                 if (!formValues.id) {
                     return
                 }
-                // Re-raise on failure so kea-forms runs submitTourFormFailure (resets the
-                // draft-save status). toolbarApi already logged it, so don't double-report.
+                // Tagged throw so kea-forms runs submitTourFormFailure (resets the
+                // draft-save status) without reporting the failed request as an exception.
                 const result = await toolbarApi.productTours.updateDraft(
                     formValues.id,
                     await buildDraftPayload(formValues, values.tours),
-                    { context: 'save_product_tour_draft', captureOnError: false }
+                    { context: 'save_product_tour_draft' }
                 )
                 if (!result.ok) {
-                    throw new Error('Failed to save draft')
+                    throw new ToolbarRequestError('Failed to save draft', result.status)
                 }
             },
         },
@@ -475,7 +476,11 @@ export const productToursLogic = kea<productToursLogicType>([
             const inferenceData = inferSelector(element)?.selector
             const screenshot = await captureAndUploadElementScreenshot(element).catch((e) => {
                 toolbarLogger.warn('product_tours', 'Failed to capture element screenshot')
-                captureToolbarException(e, 'product_tour_screenshot')
+                // A failed upload request (ToolbarRequestError) is expected; only a bug in
+                // the screenshot capture itself is worth an exception.
+                if (!isToolbarRequestError(e)) {
+                    captureToolbarException(e, 'product_tour_screenshot')
+                }
                 return null
             })
 

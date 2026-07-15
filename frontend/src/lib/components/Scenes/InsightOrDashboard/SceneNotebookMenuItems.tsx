@@ -9,8 +9,8 @@ import { Combobox } from 'lib/ui/Combobox/Combobox'
 import { DropdownMenuGroup, DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { Label } from 'lib/ui/Label/Label'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
-import { notebookNodeLogicType } from 'scenes/notebooks/Nodes/notebookNodeLogicType'
-import { notebookLogicType } from 'scenes/notebooks/Notebook/notebookLogicType'
+import type { notebookNodeLogicType } from 'scenes/notebooks/Nodes/notebookNodeLogic'
+import type { notebookLogicType } from 'scenes/notebooks/Notebook/notebookLogic'
 import {
     NotebookSelectButtonLogicProps,
     notebookSelectButtonLogic,
