@@ -2,15 +2,16 @@ import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
 import { OverflowOutput } from '~/common/outputs'
+import { PipelineResultWithContext } from '~/ingestion/framework/pipeline.interface'
 import { PipelineResult, PipelineResultType, dlq, drop, isOkResult, ok, redirect } from '~/ingestion/framework/results'
 import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
 import { KafkaOffsetManager } from './kafka/offset-manager'
-import { createPostProcessStep } from './session-batch-post-process-step'
+import { createReplayAfterRecordHook } from './session-batch-after-record'
 import { SessionReplayPipelineOutput } from './session-replay-pipeline'
 
-describe('createPostProcessStep', () => {
+describe('createReplayAfterRecordHook', () => {
     let mockOffsetManager: jest.Mocked<Pick<KafkaOffsetManager, 'trackOffset'>>
 
     const makeMessage = (partition: number, offset: number): Message => ({
@@ -45,42 +46,30 @@ describe('createPostProcessStep', () => {
 
     const element = (
         result: PipelineResult<SessionReplayPipelineOutput, OverflowOutput>,
-        messageId: number,
-        message: Message,
-        sideEffects: Promise<unknown>[] = []
-    ) => ({
+        message: Message
+    ): PipelineResultWithContext<SessionReplayPipelineOutput, { message: Message }, OverflowOutput> => ({
         result,
-        context: { message, messageId, sideEffects, warnings: [] },
+        context: { message, sideEffects: [], warnings: [] },
     })
 
-    const createStep = () => createPostProcessStep(mockOffsetManager as unknown as KafkaOffsetManager)
+    const createHook = () => createReplayAfterRecordHook(mockOffsetManager as unknown as KafkaOffsetManager)
 
     beforeEach(() => {
         mockOffsetManager = { trackOffset: jest.fn() }
     })
 
-    it('emits one element per result, trimming OK results and passing non-OK results through', async () => {
+    it('emits one element per result, trimming OK results and passing non-OK results through', () => {
         const dropped = drop<SessionReplayPipelineOutput>('blocked session')
         const dlqd = dlq<SessionReplayPipelineOutput>('invalid headers', new Error('boom'))
         const redirected = redirect<SessionReplayPipelineOutput, OverflowOutput>('over capacity', 'overflow')
-        const input = {
-            elements: [
-                element(ok(recorded), 10, makeMessage(1, 100)),
-                element(dropped, 11, makeMessage(1, 101)),
-                element(dlqd, 12, makeMessage(2, 200)),
-                element(redirected, 13, makeMessage(2, 201)),
-            ],
-            batchContext: {},
-            batchId: 0,
-        }
 
-        const result = await createStep()(input)
+        const elements = createHook()([
+            element(ok(recorded), makeMessage(1, 100)),
+            element(dropped, makeMessage(1, 101)),
+            element(dlqd, makeMessage(2, 200)),
+            element(redirected, makeMessage(2, 201)),
+        ])
 
-        expect(isOkResult(result)).toBe(true)
-        if (!isOkResult(result)) {
-            return
-        }
-        const elements = result.value.elements
         expect(elements.map((e) => e.result.type)).toEqual([
             PipelineResultType.OK,
             PipelineResultType.DROP,
@@ -95,51 +84,21 @@ describe('createPostProcessStep', () => {
             partition: 1,
             timestamp: expect.any(Number),
         })
-        // Each emitted context keeps just the source messageId.
-        expect(elements.map((e) => e.context.messageId)).toEqual([10, 11, 12, 13])
+        // The heavy Kafka message is dropped from every context.
+        expect(elements.every((e) => !('message' in e.context))).toBe(true)
     })
 
-    it('tracks the offset of every fed message, non-OK results included', async () => {
-        const input = {
-            elements: [
-                element(ok(recorded), 0, makeMessage(1, 100)),
-                element(drop<SessionReplayPipelineOutput>('blocked'), 1, makeMessage(1, 101)),
-                element(dlq<SessionReplayPipelineOutput>('invalid', new Error('boom')), 2, makeMessage(2, 200)),
-            ],
-            batchContext: {},
-            batchId: 0,
-        }
-
-        await createStep()(input)
+    it('tracks the offset of every message, non-OK results included', () => {
+        createHook()([
+            element(ok(recorded), makeMessage(1, 100)),
+            element(drop<SessionReplayPipelineOutput>('blocked'), makeMessage(1, 101)),
+            element(dlq<SessionReplayPipelineOutput>('invalid', new Error('boom')), makeMessage(2, 200)),
+        ])
 
         expect(mockOffsetManager.trackOffset.mock.calls.map(([offset]) => offset)).toEqual([
             { partition: 1, offset: 100 },
             { partition: 1, offset: 101 },
             { partition: 2, offset: 200 },
         ])
-    })
-
-    it('surfaces the elements side effects on the step result so they can be made durable before commit', async () => {
-        const produce1 = Promise.resolve('dlq produce')
-        const produce2 = Promise.resolve('overflow produce')
-        const input = {
-            elements: [
-                element(dlq<SessionReplayPipelineOutput>('invalid', new Error('boom')), 0, makeMessage(1, 100), [
-                    produce1,
-                ]),
-                element(
-                    redirect<SessionReplayPipelineOutput, OverflowOutput>('over capacity', 'overflow'),
-                    1,
-                    makeMessage(1, 101),
-                    [produce2]
-                ),
-            ],
-            batchContext: {},
-            batchId: 0,
-        }
-
-        const result = await createStep()(input)
-
-        expect(result.sideEffects).toEqual([produce1, produce2])
     })
 })

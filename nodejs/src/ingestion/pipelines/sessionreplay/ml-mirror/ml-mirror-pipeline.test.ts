@@ -11,7 +11,6 @@ import { TopHogRegistry } from '~/ingestion/framework/extensions/tophog'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { ok } from '~/ingestion/framework/results'
 import { defaultAllowLists } from '~/ingestion/pipelines/sessionreplay/anonymize/default-dict'
-import { KafkaOffsetManager } from '~/ingestion/pipelines/sessionreplay/kafka/offset-manager'
 import { SessionBatchRecorder } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-recorder'
 import { SessionFilter } from '~/ingestion/pipelines/sessionreplay/sessions/session-filter'
 import { SessionTracker } from '~/ingestion/pipelines/sessionreplay/sessions/session-tracker'
@@ -135,7 +134,6 @@ describe('ml-mirror-pipeline', () => {
             eventIngestionRestrictionManager: {} as unknown as EventIngestionRestrictionManager,
             overflowMode: 'disabled',
             promiseScheduler,
-            offsetManager: { trackOffset: jest.fn() } as unknown as KafkaOffsetManager,
             teamService: mockTeamService,
             retentionService,
             sessionTracker,
@@ -153,7 +151,7 @@ describe('ml-mirror-pipeline', () => {
         pipeline: ReturnType<typeof createMlMirrorReplayPipeline>,
         messages: Message[]
     ): Promise<void> {
-        await pipeline.feed(
+        pipeline.feed(
             messages.map((message) =>
                 createOkContext({ message, sessionBatchRecorder: recorder, batchId: 0 }, { message })
             )

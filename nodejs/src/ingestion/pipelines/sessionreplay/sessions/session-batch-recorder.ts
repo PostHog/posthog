@@ -222,8 +222,8 @@ export class SessionBatchRecorder {
     }
 
     /**
-     * Flushes the session recordings to storage. Offsets are tracked in the pipeline's afterBatch
-     * and committed by the consumer after a successful flush.
+     * Flushes the session recordings to storage. Offsets are tracked in the accumulating pipeline's
+     * afterRecord hook and committed by the consumer after a successful flush.
      *
      * @throws If the flush operation fails
      */

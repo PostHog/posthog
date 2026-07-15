@@ -281,7 +281,7 @@ export class SessionRecordingIngester {
 
     /**
      * Drains the session replay pipeline to completion. Offsets are tracked inside the record
-     * pipeline's afterBatch (for every fed message — recorded, dropped, or DLQ'd); the flush
+     * pipeline's afterRecord hook (for every fed message — recorded, dropped, or DLQ'd); the flush
      * pipeline's steps write to storage and record flush metrics. Offset commits stay here, outside
      * the pipeline: after a flushed turn's side effects are durable, the consumer commits the
      * offsets that flush covers.
@@ -335,7 +335,6 @@ export class SessionRecordingIngester {
             eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
             overflowMode: this.config.INGESTION_OVERFLOW_MODE,
             promiseScheduler: this.promiseScheduler,
-            offsetManager: this.offsetManager,
             teamService: this.teamService,
             retentionService: this.retentionService,
             sessionTracker: this.sessionTracker,

@@ -24,7 +24,7 @@ import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 
 import { KafkaOffsetManager } from './kafka/offset-manager'
-import { TrimmedReplayElement } from './session-batch-post-process-step'
+import { TrimmedReplayElement, createReplayAfterRecordHook } from './session-batch-after-record'
 import { SessionReplayInnerPipelineConfig, createSessionReplayInnerPipeline } from './session-replay-pipeline'
 
 jest.mock('~/ingestion/common/steps/event-preprocessing', () => ({
@@ -181,7 +181,6 @@ describe('session-replay-pipeline', () => {
             eventIngestionRestrictionManager: mockRestrictionManager,
             overflowMode: 'redirect',
             promiseScheduler,
-            offsetManager: mockOffsetManager,
             teamService: mockTeamService,
             retentionService,
             sessionTracker,
@@ -194,25 +193,26 @@ describe('session-replay-pipeline', () => {
         })
     }
 
-    // Feeds messages through the inner pipeline with the batch recorder tagged on each element
-    // (as the accumulating pipeline does), drains its batch results, and returns the unwrapped OK
-    // outputs — now the trimmed per-message rows the afterBatch emits (in feed order).
+    // Feeds messages through the inner pipeline with the batch recorder tagged on each element,
+    // drains it, and runs the afterRecord hook on every drained result — exactly what the
+    // accumulating pipeline does. Returns the unwrapped OK outputs: the trimmed per-message rows.
     async function runPipeline(
         pipeline: ReturnType<typeof createSessionReplayInnerPipeline>,
         messages: Message[]
     ): Promise<TrimmedReplayElement[]> {
-        // The accumulating pipeline skips empty feeds (an empty batch never completes); mirror that.
+        // The accumulating pipeline skips empty feeds; mirror that.
         if (messages.length > 0) {
-            await pipeline.feed(
+            pipeline.feed(
                 messages.map((message) =>
                     createOkContext({ message, sessionBatchRecorder: mockBatchRecorder, batchId: 0 }, { message })
                 )
             )
         }
+        const afterRecord = createReplayAfterRecordHook(mockOffsetManager)
         const results: TrimmedReplayElement[] = []
         let batch = await pipeline.next()
         while (batch !== null) {
-            for (const element of batch.elements) {
+            for (const element of afterRecord(batch)) {
                 if (isOkResult(element.result)) {
                     results.push(element.result.value)
                 }
@@ -704,7 +704,7 @@ describe('session-replay-pipeline', () => {
             expect(mockBatch.record).toHaveBeenCalledTimes(3)
         })
 
-        it('tracks the offset of every fed message in the afterBatch, including dropped ones', async () => {
+        it('tracks the offset of every fed message in the afterRecord hook, including dropped ones', async () => {
             // Drop offset 2 at restrictions; offsets 1 and 3 record.
             mockCreateApplyEventRestrictionsStep.mockReturnValue(
                 (input: { message: Message; headers: Record<string, string> }) => {
@@ -729,8 +729,11 @@ describe('session-replay-pipeline', () => {
                 { partition: 0, timestamp: expect.any(Number) },
                 { partition: 0, timestamp: expect.any(Number) },
             ])
-            // Every fed message's offset is tracked (so the dropped one advances too).
-            expect(mockOffsetManager.trackOffset.mock.calls.map((call) => call[0])).toEqual([
+            // Every fed message's offset is tracked (so the dropped one advances too). Results drain
+            // in completion order, not feed order — the offset manager never moves backwards.
+            expect(
+                mockOffsetManager.trackOffset.mock.calls.map((call) => call[0]).sort((a, b) => a.offset - b.offset)
+            ).toEqual([
                 { partition: 0, offset: 1 },
                 { partition: 0, offset: 2 },
                 { partition: 0, offset: 3 },

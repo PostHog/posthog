@@ -2,10 +2,11 @@ import {
     AccumulatedFlushInput,
     AccumulatingPipeline,
     AccumulationContext,
+    AfterRecordHook,
     BeforeAccumulationInput,
     BeforeAccumulationOutput,
-    RecordPipeline,
 } from '~/ingestion/framework/accumulating-pipeline'
+import { BatchPipeline } from '~/ingestion/framework/batch-pipeline.interface'
 import {
     AfterBatchInput,
     AfterBatchOutput,
@@ -98,26 +99,30 @@ export function newAccumulatingPipeline<
     TFlushOut, // element out of the flush pipeline
     CFlushOut = Record<string, never>, // flush-pipeline context out
     R extends string = never, // redirect output names this pipeline can emit
+    TAccOut = TRecordOut, // element shape that accumulates for the flush (afterRecord's output)
+    CAccOut = CRecordOut, // context shape that accumulates for the flush
 >(config: {
     /** Builds the beforeBatch pipeline that mints a fresh batch context (e.g. the recorder) each cycle */
     beforeBatch: (
         builder: StartPipelineBuilder<BeforeAccumulationInput, Record<string, never>>
     ) => PipelineBuilder<BeforeAccumulationInput, BeforeAccumulationOutput<CBatch>, Record<string, never>>
-    /** Pre-built record pipeline (typically a BatchingPipeline) that folds each message into the current batch context */
-    pipeline: RecordPipeline<TRecordIn & CBatch & AccumulationContext, CRecordIn, TRecordOut, CRecordOut, R>
+    /** Pre-built record pipeline (a plain batch pipeline) that folds each message into the current batch context */
+    pipeline: BatchPipeline<TRecordIn & CBatch & AccumulationContext, TRecordOut, CRecordIn, CRecordOut, R>
+    /** Per-message bookkeeping and trimming for every drained result — see {@link AfterRecordHook} */
+    afterRecord: AfterRecordHook<TRecordOut, CRecordOut, TAccOut, CAccOut, R>
     /**
      * Builds the flush pipeline run on the size or age trigger. It receives one
-     * {@link AccumulatedFlushInput}: the batch context plus every accumulated record result in feed
-     * order.
+     * {@link AccumulatedFlushInput}: the batch context plus every accumulated record result in
+     * drain order.
      */
     flush: (
         builder: BatchPipelineBuilder<
-            AccumulatedFlushInput<TRecordOut, CRecordOut, CBatch, R>,
-            AccumulatedFlushInput<TRecordOut, CRecordOut, CBatch, R>,
+            AccumulatedFlushInput<TAccOut, CAccOut, CBatch, R>,
+            AccumulatedFlushInput<TAccOut, CAccOut, CBatch, R>,
             Record<string, never>
         >
     ) => BatchPipelineBuilder<
-        AccumulatedFlushInput<TRecordOut, CRecordOut, CBatch, R>,
+        AccumulatedFlushInput<TAccOut, CAccOut, CBatch, R>,
         TFlushOut,
         Record<string, never>,
         CFlushOut,
@@ -127,23 +132,43 @@ export function newAccumulatingPipeline<
     shouldFlush: (batchContext: CBatch & AccumulationContext) => boolean
     /** Maximum age of a batch in milliseconds before the timer flushes it */
     maxBatchAgeMs: number
-}): AccumulatingPipeline<TRecordIn, TRecordOut, CRecordIn, CRecordOut, CBatch, TFlushOut, CFlushOut, R> {
+}): AccumulatingPipeline<
+    TRecordIn,
+    TRecordOut,
+    CRecordIn,
+    CRecordOut,
+    CBatch,
+    TFlushOut,
+    CFlushOut,
+    R,
+    TAccOut,
+    CAccOut
+> {
     const beforeBatch = config
         .beforeBatch(new StartPipelineBuilder<BeforeAccumulationInput, Record<string, never>>())
         .build()
     const flushPipeline = config
         .flush(
             new BatchPipelineBuilder(
-                new BufferingBatchPipeline<
-                    AccumulatedFlushInput<TRecordOut, CRecordOut, CBatch, R>,
-                    Record<string, never>
-                >()
+                new BufferingBatchPipeline<AccumulatedFlushInput<TAccOut, CAccOut, CBatch, R>, Record<string, never>>()
             )
         )
         .build()
-    return new AccumulatingPipeline<TRecordIn, TRecordOut, CRecordIn, CRecordOut, CBatch, TFlushOut, CFlushOut, R>({
+    return new AccumulatingPipeline<
+        TRecordIn,
+        TRecordOut,
+        CRecordIn,
+        CRecordOut,
+        CBatch,
+        TFlushOut,
+        CFlushOut,
+        R,
+        TAccOut,
+        CAccOut
+    >({
         beforeBatch,
         pipeline: config.pipeline,
+        afterRecord: config.afterRecord,
         shouldFlush: config.shouldFlush,
         maxBatchAgeMs: config.maxBatchAgeMs,
         flushPipeline,

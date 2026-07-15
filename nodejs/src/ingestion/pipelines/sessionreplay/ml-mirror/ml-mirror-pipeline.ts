@@ -4,25 +4,19 @@ import { Message } from 'node-rdkafka'
 import { OverflowOutput } from '~/common/outputs'
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '~/ingestion/common/steps/event-preprocessing'
 import { AccumulationContext } from '~/ingestion/framework/accumulating-pipeline'
-import { BatchPipelineBuilder, newBatchingPipeline } from '~/ingestion/framework/builders'
+import { BatchPipelineBuilder, newBatchPipelineBuilder } from '~/ingestion/framework/builders'
 import { createTopHogWrapper, sum, timer } from '~/ingestion/framework/extensions/tophog'
 import { PipelineConfig, ResultHandlingPipeline } from '~/ingestion/framework/result-handling-pipeline'
 import {
     SessionReplayInnerPipeline,
     SessionReplayInnerPipelineConfig,
     SessionReplayPipelineInput,
-    SessionReplayPipelineOutput,
 } from '~/ingestion/pipelines/sessionreplay'
 import { createAiTrainingOptInFilterStep } from '~/ingestion/pipelines/sessionreplay/ai-training-optin-filter-step'
 import { createParseAndAnonymizeMessageStep } from '~/ingestion/pipelines/sessionreplay/parse-and-anonymize-step'
 import { createRecordSessionEventStep } from '~/ingestion/pipelines/sessionreplay/record-session-event-step'
 import { SessionBatchContext } from '~/ingestion/pipelines/sessionreplay/session-batch-context'
 import { createMarkSeenStep } from '~/ingestion/pipelines/sessionreplay/session-batch-mark-seen-step'
-import {
-    TrimmedReplayElement,
-    createPostProcessStep,
-    createReplayBeforeBatchStep,
-} from '~/ingestion/pipelines/sessionreplay/session-batch-post-process-step'
 import { createResolveRetentionStep } from '~/ingestion/pipelines/sessionreplay/session-batch-resolve-retention-step'
 import { createTrackAndGateStep } from '~/ingestion/pipelines/sessionreplay/session-batch-track-and-gate-step'
 import { createResolveKeyStep } from '~/ingestion/pipelines/sessionreplay/session-resolve-key-step'
@@ -35,7 +29,6 @@ export function createMlMirrorReplayPipeline(config: SessionReplayInnerPipelineC
         eventIngestionRestrictionManager,
         overflowMode,
         promiseScheduler,
-        offsetManager,
         teamService,
         retentionService,
         sessionTracker,
@@ -49,129 +42,110 @@ export function createMlMirrorReplayPipeline(config: SessionReplayInnerPipelineC
     const pipelineConfig: PipelineConfig<OverflowOutput> = { outputs, promiseScheduler }
     const topHogWrapper = createTopHogWrapper(topHog)
 
-    return newBatchingPipeline<
-        SessionReplayPipelineInput & SessionBatchContext & AccumulationContext, // TInput
-        SessionReplayPipelineOutput, // TOutput
-        { message: Message }, // CInput
-        Record<never, object>, // CBatch (empty — beforeBatch is a passthrough)
-        { message: Message }, // COutput
-        OverflowOutput, // R
-        TrimmedReplayElement, // TPostOut
-        { messageId: number } // CPostOut
-    >(
-        (beforeBatch) =>
-            beforeBatch.pipe(
-                createReplayBeforeBatchStep<
-                    SessionReplayPipelineInput & SessionBatchContext & AccumulationContext,
-                    { message: Message }
-                >()
-            ),
-        (batch) => {
-            const processed = batch
-                .sequentially((b) =>
-                    b
-                        // Parse headers and apply restrictions (drop/overflow)
-                        .pipe(createParseHeadersStep())
-                        .pipe(
-                            createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
-                                overflowMode,
-                                preservePartitionLocality: true, // Sessions must stay on the same partition
-                            })
-                        )
-                        // Validate the headers capture guarantees (DLQ if missing) and narrow the type
-                        .pipe(createValidateSessionReplayHeadersStep())
-                        // Validate team ownership and enrich with team context
-                        .pipe(createTeamFilterStep(teamService))
-                        // Mirror only data from orgs that opted into AI training.
-                        .pipe(createAiTrainingOptInFilterStep())
+    const processed = newBatchPipelineBuilder<
+        SessionReplayPipelineInput & SessionBatchContext & AccumulationContext,
+        { message: Message }
+    >()
+        .sequentially((b) =>
+            b
+                // Parse headers and apply restrictions (drop/overflow)
+                .pipe(createParseHeadersStep())
+                .pipe(
+                    createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
+                        overflowMode,
+                        preservePartitionLocality: true, // Sessions must stay on the same partition
+                    })
                 )
-                // Resolve retention up front (before parse), keyed on the (validated) session_id
-                // header; drop unresolvable sessions.
-                .gather()
-                .pipeBatch(createResolveRetentionStep(retentionService), {
-                    retry: { tries: 3, sleepMs: 100 },
-                })
-                // Track sessions and rate-limit new ones for the whole batch, tagging the survivors with
-                // isNewSession and dropping the blocked ones right here, in this step's own retry scope.
-                .pipeBatch(createTrackAndGateStep(sessionTracker, sessionFilter), {
-                    retry: { tries: 3, sleepMs: 100 },
-                })
-                // Resolve each session's encryption key once per session (grouped), concurrently across
-                // sessions with a bounded fan-out and per-session retry. Deleted sessions drop here.
-                .concurrentlyPerGroup(
-                    (element) => `${element.team.teamId}:${element.headers.session_id}`,
-                    (group) =>
-                        group.sequentially((b) =>
-                            b.pipe(createResolveKeyStep(keyStore), {
-                                retry: { name: 'resolve_session_key', tries: 3, sleepMs: 100 },
-                            })
-                        ),
-                    { maxConcurrency: sessionKeyResolutionMaxConcurrency }
-                )
-                // Re-collect the per-session groups into one batch — both to mark the whole batch seen
-                // in a single Redis write and as the barrier that guarantees every key is resolved first.
-                .gather()
-                // Mark the surviving new sessions seen, now that every key is durably resolved.
-                .pipeBatch(createMarkSeenStep(sessionTracker))
-                // Map TeamForReplay.teamId to context.team.id for handleIngestionWarnings
-                .filterMap(
-                    (element) => ({
-                        result: element.result,
-                        context: {
-                            ...element.context,
-                            team: { id: element.result.value.team.teamId },
-                        },
-                    }),
-                    (b) =>
+                // Validate the headers capture guarantees (DLQ if missing) and narrow the type
+                .pipe(createValidateSessionReplayHeadersStep())
+                // Validate team ownership and enrich with team context
+                .pipe(createTeamFilterStep(teamService))
+                // Mirror only data from orgs that opted into AI training.
+                .pipe(createAiTrainingOptInFilterStep())
+        )
+        // Resolve retention up front (before parse), keyed on the (validated) session_id
+        // header; drop unresolvable sessions.
+        .gather()
+        .pipeBatch(createResolveRetentionStep(retentionService), {
+            retry: { tries: 3, sleepMs: 100 },
+        })
+        // Track sessions and rate-limit new ones for the whole batch, tagging the survivors with
+        // isNewSession and dropping the blocked ones right here, in this step's own retry scope.
+        .pipeBatch(createTrackAndGateStep(sessionTracker, sessionFilter), {
+            retry: { tries: 3, sleepMs: 100 },
+        })
+        // Resolve each session's encryption key once per session (grouped), concurrently across
+        // sessions with a bounded fan-out and per-session retry. Deleted sessions drop here.
+        .concurrentlyPerGroup(
+            (element) => `${element.team.teamId}:${element.headers.session_id}`,
+            (group) =>
+                group.sequentially((b) =>
+                    b.pipe(createResolveKeyStep(keyStore), {
+                        retry: { name: 'resolve_session_key', tries: 3, sleepMs: 100 },
+                    })
+                ),
+            { maxConcurrency: sessionKeyResolutionMaxConcurrency }
+        )
+        // Re-collect the per-session groups into one batch — both to mark the whole batch seen
+        // in a single Redis write and as the barrier that guarantees every key is resolved first.
+        .gather()
+        // Mark the surviving new sessions seen, now that every key is durably resolved.
+        .pipeBatch(createMarkSeenStep(sessionTracker))
+        // Map TeamForReplay.teamId to context.team.id for handleIngestionWarnings
+        .filterMap(
+            (element) => ({
+                result: element.result,
+                context: {
+                    ...element.context,
+                    team: { id: element.result.value.team.teamId },
+                },
+            }),
+            (b) =>
+                b
+                    .teamAware((b) =>
                         b
-                            .teamAware((b) =>
+                            .sequentially((b) =>
                                 b
-                                    .sequentially((b) =>
-                                        b
-                                            // The native Rust addon fuses parse+anonymize in one step.
-                                            .pipe(
-                                                topHogWrapper(createParseAndAnonymizeMessageStep(), [
-                                                    timer('parse_time_ms_by_session_id', (input) => ({
-                                                        token: input.headers.token ?? 'unknown',
-                                                        session_id: input.headers.session_id ?? 'unknown',
-                                                    })),
-                                                ])
-                                            )
-                                            // Record to the cycle's recorder (uses the resolved retention and key)
-                                            .pipe(
-                                                topHogWrapper(
-                                                    createRecordSessionEventStep({
-                                                        isDebugLoggingEnabled,
-                                                    }),
-                                                    [
-                                                        sum(
-                                                            'message_size_by_session_id',
-                                                            (input) => ({
-                                                                token: input.parsedMessage.token ?? 'unknown',
-                                                                session_id: input.parsedMessage.session_id,
-                                                            }),
-                                                            (input) => input.parsedMessage.metadata.rawSize
-                                                        ),
-                                                        timer('consume_time_ms_by_session_id', (input) => ({
-                                                            token: input.parsedMessage.token ?? 'unknown',
-                                                            session_id: input.parsedMessage.session_id,
-                                                        })),
-                                                    ]
-                                                )
-                                            )
+                                    // The native Rust addon fuses parse+anonymize in one step.
+                                    .pipe(
+                                        topHogWrapper(createParseAndAnonymizeMessageStep(), [
+                                            timer('parse_time_ms_by_session_id', (input) => ({
+                                                token: input.headers.token ?? 'unknown',
+                                                session_id: input.headers.session_id ?? 'unknown',
+                                            })),
+                                        ])
                                     )
-                                    .gather()
+                                    // Record to the cycle's recorder (uses the resolved retention and key)
+                                    .pipe(
+                                        topHogWrapper(
+                                            createRecordSessionEventStep({
+                                                isDebugLoggingEnabled,
+                                            }),
+                                            [
+                                                sum(
+                                                    'message_size_by_session_id',
+                                                    (input) => ({
+                                                        token: input.parsedMessage.token ?? 'unknown',
+                                                        session_id: input.parsedMessage.session_id,
+                                                    }),
+                                                    (input) => input.parsedMessage.metadata.rawSize
+                                                ),
+                                                timer('consume_time_ms_by_session_id', (input) => ({
+                                                    token: input.parsedMessage.token ?? 'unknown',
+                                                    session_id: input.parsedMessage.session_id,
+                                                })),
+                                            ]
+                                        )
+                                    )
                             )
-                            .handleIngestionWarnings(outputs)
-                )
+                            .gather()
+                    )
+                    .handleIngestionWarnings(outputs)
+        )
 
-            // Route non-OK results (DLQ/overflow/drop) into produce side effects, but do NOT schedule
-            // them — leave them on each result's context so the afterBatch can surface them to the
-            // accumulating pipeline. The builder's handleResults() forces handleSideEffects (which would
-            // consume them), so wrap the result handler directly.
-            return new BatchPipelineBuilder(new ResultHandlingPipeline(processed.build(), pipelineConfig)).gather()
-        },
-        (afterBatch) => afterBatch.pipe(createPostProcessStep(offsetManager)),
-        { concurrentBatches: 1 }
-    )
+    // Route non-OK results (DLQ/overflow/drop) into produce side effects, but do NOT schedule
+    // them — leave them on each result's context so the accumulating pipeline can lift and surface
+    // them. The builder's handleResults() forces handleSideEffects (which would consume them), so
+    // wrap the result handler directly.
+    return new BatchPipelineBuilder(new ResultHandlingPipeline(processed.build(), pipelineConfig)).gather().build()
 }
