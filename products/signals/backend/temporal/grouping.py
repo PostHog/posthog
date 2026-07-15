@@ -29,13 +29,13 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
-from products.signals.backend.enums import SignalSourceProduct
+from products.signals.backend.billing import BILLING_EXEMPT_SOURCE_PRODUCTS
 from products.signals.backend.models import SignalReport
+from products.signals.backend.signal_metadata import EMBEDDING_MODEL
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped
 from products.signals.backend.temporal.llm import MAX_QUERY_TOKENS, call_llm, truncate_query_to_token_limit
 from products.signals.backend.temporal.signal_queries import (
-    EMBEDDING_MODEL,
     FetchSignalsForReportInput,
     FetchSignalsForReportOutput,
     FetchSignalTypeExamplesInput,
@@ -731,12 +731,6 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 if input.updated_title:
                     report.title = input.updated_title
                     update_fields.append("title")
-                # A wizard setup-review signal joining a pre-existing report makes that report
-                # complimentary too: the customer was promised the review's PRs are free, and
-                # the exempt row doubles as the review's once-per-team marker.
-                if input.source_product == SignalSourceProduct.WIZARD and not report.billing_exempt:
-                    report.billing_exempt = True
-                    update_fields.append("billing_exempt")
                 report.save(update_fields=update_fields)
             else:
                 report = SignalReport.objects.create(
@@ -746,9 +740,10 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     signal_count=1,
                     title=match_result.title,
                     summary=match_result.summary,
-                    # Wizard setup-review findings are complimentary: the resulting
-                    # implementation PR must never bill the customer.
-                    billing_exempt=input.source_product == SignalSourceProduct.WIZARD,
+                    # A report born from a PostHog-system signal (e.g. health checks) must never
+                    # bill the customer. Only this founding signal decides: signals that join the
+                    # report later (the branch above) leave the exemption unchanged either way.
+                    billing_exempt_reason=BILLING_EXEMPT_SOURCE_PRODUCTS.get(input.source_product),
                 )
 
             # Promotion rules by status:

@@ -85,7 +85,6 @@ def _build_input(
     match_result: ExistingReportMatch | NewReportMatch,
     weight: float = 0.5,
     source_product: str = "conversations",
-    source_type: str = "ticket",
 ) -> AssignAndEmitSignalInput:
     return AssignAndEmitSignalInput(
         team_id=team_id,
@@ -93,7 +92,7 @@ def _build_input(
         description="A test signal description",
         weight=weight,
         source_product=source_product,
-        source_type=source_type,
+        source_type="ticket",
         source_id=f"src-{uuid.uuid4()}",
         extra={},
         embedding=[0.0] * 1536,
@@ -136,40 +135,50 @@ async def test_new_match_creates_and_immediately_promotes_when_above_threshold(a
     assert report.promoted_at is not None
 
 
+# ---------------------------------------------------------------------------
+# Billing exemption: PostHog-system signal sources
+# ---------------------------------------------------------------------------
+
+
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "source_product,source_type,expected_exempt",
-    [("wizard", "setup_review", True), ("conversations", "ticket", False)],
+    "source_product,expected_reason",
+    [
+        ("health_checks", SignalReport.BillingExemptReason.POSTHOG_HEALTH_CHECK),
+        ("wizard", SignalReport.BillingExemptReason.POSTHOG_ONBOARDING),
+        ("conversations", None),
+    ],
 )
-async def test_new_report_billing_exemption_follows_source(ateam, source_product, source_type, expected_exempt):
-    """Reports born from wizard setup-review signals are complimentary; others stay billable."""
-    input_ = _build_input(
-        ateam.id, _new_match(), weight=WEIGHT_THRESHOLD, source_product=source_product, source_type=source_type
-    )
+async def test_new_report_billing_exemption_follows_source_product(ateam, source_product, expected_reason):
+    """A report formed from a PostHog-system signal (health checks, the onboarding wizard's setup
+    review) is stamped never-billable at creation; reports from customer sources stay billable."""
+    input_ = _build_input(ateam.id, _new_match(), source_product=source_product)
 
     result = await assign_and_emit_signal_activity(input_)
 
     report = await database_sync_to_async(SignalReport.objects.get)(id=result.report_id)
-    assert report.billing_exempt is expected_exempt
+    assert report.billing_exempt_reason == expected_reason
 
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_wizard_signal_joining_existing_report_makes_it_exempt(ateam):
-    """The wizard review's PRs are promised free: a wizard signal matching a pre-existing
-    billable report must flip it exempt (also serves as the review's once-per-team marker)."""
+async def test_exempt_source_signal_joining_existing_report_never_flips_it(ateam):
+    """The exemption is frozen at formation: a health-check signal grouped into a customer-origin
+    report must not make that report free (and would silently exempt paid work if it did)."""
     report = await database_sync_to_async(SignalReport.objects.create)(
-        team=ateam, status=SignalReport.Status.POTENTIAL, total_weight=0.5, signal_count=1
+        team=ateam,
+        status=SignalReport.Status.POTENTIAL,
+        total_weight=0.2,
+        signal_count=1,
     )
-    input_ = _build_input(
-        ateam.id, _existing_match(str(report.id)), source_product="wizard", source_type="setup_review"
-    )
+    input_ = _build_input(ateam.id, _existing_match(str(report.id)), source_product="health_checks")
 
     await assign_and_emit_signal_activity(input_)
 
-    await database_sync_to_async(report.refresh_from_db)()
-    assert report.billing_exempt is True
+    refreshed = await database_sync_to_async(SignalReport.objects.get)(id=report.id)
+    assert refreshed.billing_exempt_reason is None
+    assert refreshed.signal_count == 2
 
 
 # ---------------------------------------------------------------------------

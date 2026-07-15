@@ -6,7 +6,8 @@ the run. When the instrumentation PR merges, this workflow takes the failing che
 strongest few with one LLM call, and emits each through the regular signals pipeline
 (`emit_signal`, weight 1.0) so it promotes immediately and flows through grouping, research,
 repo selection, and auto-start into a real implementation PR in the inbox. Reports born from
-these signals are marked `billing_exempt`: the PRs are free for the customer.
+these signals are stamped `billing_exempt_reason=POSTHOG_ONBOARDING` at formation (via
+billing.BILLING_EXEMPT_SOURCE_PRODUCTS): the PRs are free for the customer.
 """
 
 import json
@@ -125,10 +126,13 @@ async def compose_review_signals_activity(inputs: WizardReviewInputs) -> list[Re
     from products.signals.backend.models import SignalReport
     from products.signals.backend.temporal.llm import call_llm
 
-    # Idempotency backstop (the workflow id also dedupes): billing-exempt reports only come
+    # Idempotency backstop (the workflow id also dedupes): onboarding-exempt reports only come
     # from this review, so their existence means the team was already reviewed.
     already_reviewed = await database_sync_to_async(
-        SignalReport.objects.filter(team_id=inputs.team_id, billing_exempt=True).exists,
+        SignalReport.objects.filter(
+            team_id=inputs.team_id,
+            billing_exempt_reason=SignalReport.BillingExemptReason.POSTHOG_ONBOARDING,
+        ).exists,
         thread_sensitive=False,
     )()
     if already_reviewed:

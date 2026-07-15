@@ -152,6 +152,5 @@ class GainsightPxSource(ResumableSource[GainsightPxSourceConfig, GainsightPxResu
                     ),
                 ],
             ),
-            unreleasedSource=True,
             releaseStatus=ReleaseStatus.ALPHA,
         )

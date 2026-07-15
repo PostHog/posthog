@@ -84,6 +84,7 @@ from products.feature_flags.backend.facade.api import (
     create_flag,
     flag_disable_requires_approval,
     set_flag_active,
+    ship_variant as ship_flag_variant,
     unarchive_flag,
     update_flag,
     user_can_edit_flag,
@@ -2593,27 +2594,28 @@ class ExperimentService:
         if not flag:
             raise ValidationError("Experiment does not have a linked feature flag.")
 
-        # Validate variant_key exists on the flag
-        variants = flag.filters.get("multivariate", {}).get("variants", [])
-        if not any(v["key"] == variant_key for v in variants):
-            raise ValidationError(f"Variant '{variant_key}' not found on feature flag.")
-
         # A frozen experiment's release groups carry a machine-added snapshot-cohort condition.
         # Shipping a winner ends the enrollment freeze by definition, so strip it in the same flag
         # write: preserved, it would lock the shipped variant to the stale snapshot forever in the
         # default mode, and linger as dead weight below the catch-all in release_to_everyone mode.
         base_filters, frozen_cohort_ids = self._strip_frozen_exposure_from_filters(flag.filters)
 
-        new_filters = self._transform_filters_for_winning_variant(
-            base_filters, variant_key, release_to_everyone=release_to_everyone
-        )
-
         # Update the flag through the gated write to preserve the approval
         # workflow. If change-request approval is required, this raises
         # ApprovalRequired which surfaces as a 409 to the caller. The
         # experiment is NOT ended until the change request is approved and
-        # the user retries.
-        update_flag(flag, {"filters": new_filters}, team=self.team, user=self.user, request=request)
+        # the user retries. base_filters folds the freeze-strip above into
+        # this same write: one approval-gate trip, one activity-log entry.
+        ship_flag_variant(
+            flag,
+            variant_key,
+            release_to_everyone=release_to_everyone,
+            release_condition_description="Added automatically when the experiment was ended to keep only one variant.",
+            base_filters=base_filters,
+            team=self.team,
+            user=self.user,
+            request=request,
+        )
 
         # Refresh the flag instance so the experiment's nested flag reflects
         # the updated filters when serialized in the response.
@@ -2642,51 +2644,6 @@ class ExperimentService:
             self._report_experiment_ended(experiment, request=request, open_cleanup_pr=open_cleanup_pr)
 
         return experiment
-
-    @staticmethod
-    def _transform_filters_for_winning_variant(
-        current_filters: dict,
-        variant_key: str,
-        *,
-        release_to_everyone: bool = False,
-    ) -> dict:
-        """Rewrite flag filters so the selected variant gets 100% of the variant distribution.
-
-        When ``release_to_everyone`` is False (default), existing release conditions on
-        the flag are preserved untouched: the variant is served only to users who
-        already match them, and any per-user variant overrides keep applying.
-
-        When ``release_to_everyone`` is True, a catch-all release condition is prepended
-        that rolls the variant out to 100% of users — note that under top-down
-        first-match evaluation this overrides any existing release conditions and
-        per-user variant overrides below it.
-        """
-        groups = list(current_filters.get("groups", []))
-        if release_to_everyone:
-            groups = [
-                {
-                    "properties": [],
-                    "rollout_percentage": 100,
-                    "description": "Added automatically when the experiment was ended to keep only one variant.",
-                },
-                *groups,
-            ]
-
-        return {
-            "aggregation_group_type_index": current_filters.get("aggregation_group_type_index"),
-            "payloads": current_filters.get("payloads", {}),
-            "multivariate": {
-                "variants": [
-                    {
-                        "key": v["key"],
-                        "rollout_percentage": 100 if v["key"] == variant_key else 0,
-                        **({"name": v["name"]} if v.get("name") else {}),
-                    }
-                    for v in current_filters.get("multivariate", {}).get("variants", [])
-                ],
-            },
-            "groups": groups,
-        }
 
     def _report_experiment_variant_shipped(
         self,

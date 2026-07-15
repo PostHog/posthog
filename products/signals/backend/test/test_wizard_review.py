@@ -86,7 +86,9 @@ async def test_compose_empty_when_all_checks_pass(ateam):
 @pytest.mark.django_db
 async def test_compose_skips_already_reviewed_team(ateam):
     await sync_to_async(SignalReport.objects.create)(
-        team=ateam, status=SignalReport.Status.POTENTIAL, billing_exempt=True
+        team=ateam,
+        status=SignalReport.Status.POTENTIAL,
+        billing_exempt_reason=SignalReport.BillingExemptReason.POSTHOG_ONBOARDING,
     )
 
     drafts = await ActivityEnvironment().run(

@@ -1,12 +1,19 @@
 import pytest
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+    IntegrationAccountListingError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
     GithubAuthMethodConfig,
     GithubSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.source import GithubSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+_GITHUB_INTEGRATION_PATH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.github.source.GitHubIntegration"
+)
 
 
 class TestGithubSource:
@@ -16,6 +23,52 @@ class TestGithubSource:
 
     def test_source_type(self):
         assert self.source.source_type == ExternalDataSourceType.GITHUB
+
+    @mock.patch(_GITHUB_INTEGRATION_PATH)
+    @mock.patch.object(GithubSource, "get_oauth_integration")
+    def test_get_oauth_accounts_maps_repositories(self, mock_get_oauth, mock_github_integration):
+        mock_get_oauth.return_value = mock.MagicMock()
+        mock_github_integration.return_value.list_cached_repositories.return_value = (
+            [{"full_name": "PostHog/posthog"}, {"full_name": "PostHog/code"}],
+            False,
+        )
+
+        accounts = self.source.get_oauth_accounts(1, self.team_id)
+
+        assert [a.value for a in accounts] == ["PostHog/posthog", "PostHog/code"]
+        assert [a.display_name for a in accounts] == ["PostHog/posthog", "PostHog/code"]
+        mock_get_oauth.assert_called_once_with(1, self.team_id)
+
+    @mock.patch(_GITHUB_INTEGRATION_PATH)
+    @mock.patch.object(GithubSource, "get_oauth_integration")
+    def test_get_oauth_accounts_pushes_search_down(self, mock_get_oauth, mock_github_integration):
+        mock_get_oauth.return_value = mock.MagicMock()
+        list_repos = mock_github_integration.return_value.list_cached_repositories
+        list_repos.return_value = ([], False)
+
+        self.source.get_oauth_accounts(1, self.team_id, search="posthog")
+
+        list_repos.assert_called_once_with(search="posthog", limit=100, offset=0)
+
+    @mock.patch(_GITHUB_INTEGRATION_PATH)
+    @mock.patch.object(GithubSource, "get_oauth_integration")
+    def test_get_oauth_accounts_skips_repos_without_full_name(self, mock_get_oauth, mock_github_integration):
+        mock_get_oauth.return_value = mock.MagicMock()
+        mock_github_integration.return_value.list_cached_repositories.return_value = (
+            [{"full_name": "PostHog/posthog"}, {"full_name": ""}, {"id": 1}],
+            False,
+        )
+
+        accounts = self.source.get_oauth_accounts(1, self.team_id)
+
+        assert [a.value for a in accounts] == ["PostHog/posthog"]
+
+    @mock.patch.object(GithubSource, "get_oauth_integration")
+    def test_get_oauth_accounts_missing_integration_raises(self, mock_get_oauth):
+        mock_get_oauth.side_effect = ValueError("Integration not found")
+
+        with pytest.raises(IntegrationAccountListingError):
+            self.source.get_oauth_accounts(999, self.team_id)
 
     @pytest.mark.parametrize(
         "expected_key",

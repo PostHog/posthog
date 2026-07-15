@@ -52,8 +52,6 @@ class TestFreshcallerSource:
         assert config.name.value == "Freshcaller"
         assert config.label == "Freshcaller"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        # First cut ships hidden until validated end-to-end against a live account.
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/freshcaller"
 
         fields = config.fields

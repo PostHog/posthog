@@ -40,11 +40,6 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         # Stop merges to prevent row collapsing
         sync_execute("SYSTEM STOP MERGES")
 
-        # Clear existing data
-        sync_execute("TRUNCATE TABLE events")
-        sync_execute("TRUNCATE TABLE person")
-        sync_execute("TRUNCATE TABLE person_distinct_id")
-
     def tearDown(self) -> None:
         sync_execute("SYSTEM START MERGES")
         super().tearDown()

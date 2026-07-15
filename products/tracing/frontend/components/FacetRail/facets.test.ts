@@ -1,6 +1,6 @@
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, UniversalFiltersGroup } from '~/types'
 
-import { FilterGroupFacetSource, facetFilterValues, toggleFacetFilter } from './facets'
+import { FilterGroupFacetSource, facetFilterValues, mergeSelectedIntoOptions, toggleFacetFilter } from './facets'
 
 const STATUS_SOURCE: FilterGroupFacetSource = { type: 'column', column: 'status_code' }
 const POD_SOURCE: FilterGroupFacetSource = { type: 'resourceAttribute', key: 'k8s.pod.name' }
@@ -69,6 +69,41 @@ describe('facets', () => {
                 },
             ])
             expect(facetFilterValues(group, STATUS_SOURCE)).toEqual(['Error'])
+        })
+
+        it('drops empty strings written by external state so they cannot become stuck filters', () => {
+            const group = groupWith([
+                {
+                    key: 'status_code',
+                    type: PropertyFilterType.Span,
+                    operator: PropertyOperator.Exact,
+                    value: ['Error', ''],
+                },
+            ])
+            expect(facetFilterValues(group, STATUS_SOURCE)).toEqual(['Error'])
+        })
+    })
+
+    describe('mergeSelectedIntoOptions', () => {
+        it('prepends a selected value absent from the fetched list with a zero count', () => {
+            const fetched = [{ value: 'api', label: 'api', count: 5 }]
+            expect(mergeSelectedIntoOptions(fetched, ['worker'])).toEqual([
+                { value: 'worker', label: 'worker', count: 0 },
+                { value: 'api', label: 'api', count: 5 },
+            ])
+        })
+
+        it('collapses duplicate selected values into one row so keys never collide', () => {
+            // A URL or saved view can carry the same value twice; two rows sharing a value would
+            // collide on their React key and toggle target.
+            expect(mergeSelectedIntoOptions([], ['worker', 'worker'])).toEqual([
+                { value: 'worker', label: 'worker', count: 0 },
+            ])
+        })
+
+        it('does not re-add a selected value already present in the fetched list', () => {
+            const fetched = [{ value: 'api', label: 'api', count: 5 }]
+            expect(mergeSelectedIntoOptions(fetched, ['api'])).toEqual(fetched)
         })
     })
 })
