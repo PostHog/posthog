@@ -44,6 +44,12 @@ class HyperspellSource(ResumableSource[HyperspellSourceConfig, HyperspellResumeC
         return ExternalDataSourceType.HYPERSPELL
 
     @property
+    def connection_host_fields(self) -> list[str]:
+        # The stored API key is sent to the host derived from `region`, so retargeting the
+        # region must re-require the key rather than reusing it against a different host.
+        return ["region"]
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.HYPERSPELL,

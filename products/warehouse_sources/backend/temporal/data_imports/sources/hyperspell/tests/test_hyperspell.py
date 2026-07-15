@@ -142,7 +142,7 @@ class TestValidateCredentials:
 class TestGetRows:
     def test_paginates_and_yields_each_page(self) -> None:
         manager = _StubManager()
-        pages = [
+        pages: list[dict[str, Any]] = [
             {"items": [{"resource_id": "r1", "source": "slack"}], "next_cursor": "c1"},
             {"items": [{"resource_id": "r2", "source": "slack"}], "next_cursor": None},
         ]
@@ -155,7 +155,7 @@ class TestGetRows:
 
     def test_saves_state_after_yielding_only_when_more_pages(self) -> None:
         manager = _StubManager()
-        pages = [
+        pages: list[dict[str, Any]] = [
             {"items": [{"resource_id": "r1", "source": "slack"}], "next_cursor": "c1"},
             {"items": [{"resource_id": "r2", "source": "slack"}], "next_cursor": None},
         ]
@@ -167,7 +167,7 @@ class TestGetRows:
 
     def test_resumes_from_saved_cursor(self) -> None:
         manager = _StubManager(resume_state=HyperspellResumeConfig(cursor="resume_token", user_id=None))
-        pages = [{"items": [{"resource_id": "r9", "source": "slack"}], "next_cursor": None}]
+        pages: list[dict[str, Any]] = [{"items": [{"resource_id": "r9", "source": "slack"}], "next_cursor": None}]
 
         _, mock_get = _run(manager, pages)
 
@@ -175,7 +175,7 @@ class TestGetRows:
 
     def test_app_scope_stamps_empty_user_id_and_sends_no_header(self) -> None:
         manager = _StubManager()
-        pages = [{"items": [{"resource_id": "r1", "source": "slack"}], "next_cursor": None}]
+        pages: list[dict[str, Any]] = [{"items": [{"resource_id": "r1", "source": "slack"}], "next_cursor": None}]
 
         batches, mock_get = _run(manager, pages)
 
@@ -185,7 +185,7 @@ class TestGetRows:
 
     def test_fans_out_over_users_with_as_user_header(self) -> None:
         manager = _StubManager()
-        pages = [
+        pages: list[dict[str, Any]] = [
             {"items": [{"resource_id": "r1", "source": "slack"}], "next_cursor": None},
             {"items": [{"resource_id": "r1", "source": "slack"}], "next_cursor": None},
         ]
@@ -201,7 +201,7 @@ class TestGetRows:
 
     def test_resumes_into_bookmarked_user_and_skips_prior_users(self) -> None:
         manager = _StubManager(resume_state=HyperspellResumeConfig(cursor="c5", user_id="user-2"))
-        pages = [{"items": [{"resource_id": "r1", "source": "slack"}], "next_cursor": None}]
+        pages: list[dict[str, Any]] = [{"items": [{"resource_id": "r1", "source": "slack"}], "next_cursor": None}]
 
         batches, mock_get = _run(manager, pages, user_ids="user-1, user-2")
 
@@ -212,7 +212,7 @@ class TestGetRows:
 
     def test_bookmarked_user_removed_from_config_restarts_from_first_user(self) -> None:
         manager = _StubManager(resume_state=HyperspellResumeConfig(cursor="c5", user_id="user-gone"))
-        pages = [
+        pages: list[dict[str, Any]] = [
             {"items": [], "next_cursor": None},
             {"items": [], "next_cursor": None},
         ]
@@ -225,7 +225,7 @@ class TestGetRows:
 
     def test_non_paginated_endpoint_makes_single_request_without_page_params(self) -> None:
         manager = _StubManager()
-        pages = [{"connections": [{"id": "conn-1", "integration_id": "int-1"}]}]
+        pages: list[dict[str, Any]] = [{"connections": [{"id": "conn-1", "integration_id": "int-1"}]}]
 
         batches, mock_get = _run(manager, pages, endpoint="connections")
 
@@ -236,7 +236,7 @@ class TestGetRows:
 
     def test_app_level_endpoint_does_not_fan_out_or_stamp_user_id(self) -> None:
         manager = _StubManager()
-        pages = [{"integrations": [{"id": "int-1"}]}]
+        pages: list[dict[str, Any]] = [{"integrations": [{"id": "int-1"}]}]
 
         batches, mock_get = _run(manager, pages, endpoint="integrations", user_ids="user-1, user-2")
 
@@ -246,7 +246,7 @@ class TestGetRows:
 
     def test_vaults_null_collection_becomes_empty_string(self) -> None:
         manager = _StubManager()
-        pages = [{"items": [{"collection": None, "document_count": 3}], "next_cursor": None}]
+        pages: list[dict[str, Any]] = [{"items": [{"collection": None, "document_count": 3}], "next_cursor": None}]
 
         batches, _ = _run(manager, pages, endpoint="vaults")
 
@@ -254,7 +254,7 @@ class TestGetRows:
 
     def test_eu_region_hits_eu_base_url(self) -> None:
         manager = _StubManager()
-        pages = [{"items": [], "next_cursor": None}]
+        pages: list[dict[str, Any]] = [{"items": [], "next_cursor": None}]
 
         _, mock_get = _run(manager, pages, region="eu")
 
@@ -269,7 +269,7 @@ class TestGetRows:
     )
     def test_page_size_param_varies_per_endpoint(self, endpoint, page_size_param) -> None:
         manager = _StubManager()
-        pages = [{"items": [], "next_cursor": None}]
+        pages: list[dict[str, Any]] = [{"items": [], "next_cursor": None}]
 
         _, mock_get = _run(manager, pages, endpoint=endpoint)
 
