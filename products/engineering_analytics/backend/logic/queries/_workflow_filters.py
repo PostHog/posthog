@@ -15,22 +15,22 @@ from products.engineering_analytics.backend.facade.contracts import WorkflowHeal
 # answers "how long until CI stopped", not "how long does CI take to pass".
 DURATION_PERCENTILE_CONDITION = "status = 'completed' AND conclusion = 'success'"
 
-# A completed run that settled in under this many seconds with a benign conclusion did no real CI
-# work — the common shape is a gate job deciding the rest of the workflow should be skipped (path
-# filters, eligibility checks). The run-activity chart query excludes these BEFORE its row cap, so a
-# workflow dominated by no-op runs still fills the window with its real executions instead of
-# returning a capped slice of pure gate runs. Mirrors ``isNoOpRun`` in ``frontend/lib/runHealth.ts``
-# (keep the two in sync): decisive failures and attention-needing conclusions (``action_required``,
-# ``startup_failure``) are kept regardless of speed — failing in seconds is signal, not noise.
+# A run that settled in under this many seconds with a benign conclusion did no real CI work — the
+# common shape is a gate job deciding the rest of the workflow should be skipped (path filters,
+# eligibility checks). The run-activity chart query sorts these AFTER real runs so its row cap fills
+# with real executions first, then drops them when enough real runs remain (see
+# ``workflow_run_activity``) — duration alone can't tell a gate no-op from an intentionally fast
+# workflow, so an all-fast workflow keeps its history instead of an empty chart. Mirrors ``isNoOpRun``
+# in ``frontend/lib/runHealth.ts`` (keep the two in sync): decisive failures and attention-needing
+# conclusions (``action_required``, ``startup_failure``) are never no-ops — failing in seconds is
+# signal, not noise.
 NO_OP_RUN_MAX_SECONDS = 10
-NO_OP_RUN_EXCLUSION_CONDITION = (
-    # NULL-safe on purpose, twice over: an in-flight run has a NULL duration, and a completed row can
-    # carry a NULL conclusion (the column is nullable; conclusions can lag the sync) — either NULL
-    # inside a `NOT (...)` would turn the whole predicate NULL and drop the row. So the keep-conditions
-    # are OR'd, with explicit IS NULL cases keeping undecided rows visible.
-    f"(r.duration_seconds IS NULL OR r.duration_seconds >= {NO_OP_RUN_MAX_SECONDS} "
-    "OR r.conclusion IS NULL "
-    "OR r.conclusion NOT IN ('success', 'skipped', 'neutral', 'completed', 'cancelled'))"
+NO_OP_RUN_FLAG = (
+    # ifNull keeps the flag NULL-free: an in-flight run (NULL duration) and a completed row with a
+    # NULL conclusion (the column is nullable; conclusions can lag the sync) would each turn the AND
+    # into NULL — both must read as real (0), never as no-ops.
+    f"ifNull(r.duration_seconds < {NO_OP_RUN_MAX_SECONDS} "
+    "AND r.conclusion IN ('success', 'skipped', 'neutral', 'completed', 'cancelled'), 0)"
 )
 
 # The one "failing right now" signal, per workflow: did the latest completed run fail?

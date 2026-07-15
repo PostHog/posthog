@@ -11,10 +11,14 @@ The ``run_started_at >= date_from`` filter also excludes runs whose start timest
 (``NULL``), which is intended: a run with no start time can't be placed on the chart's time axis. That
 is why ``WorkflowRunActivityPoint.run_started_at`` is non-null while the shared run-detail shape is not.
 
-No-op gate runs (benign conclusion, settled in seconds — see ``NO_OP_RUN_EXCLUSION_CONDITION``) are
-excluded here, before the cap, rather than client-side: on a workflow where most runs are no-ops the
-newest ``_LIMIT`` rows could be pure gate runs, and a post-cap filter would leave the chart empty even
-though real executions exist in the window. The run-detail table keeps them — only the chart hides them.
+No-op gate runs (benign conclusion, settled in seconds — see ``NO_OP_RUN_FLAG``) are hidden here, not
+client-side: on a workflow where most runs are no-ops the newest ``_LIMIT`` rows could be pure gate
+runs, and a post-cap filter would leave the chart empty even though real executions exist in the
+window. The query sorts real runs ahead of no-ops so the cap fills with real executions first, and the
+no-ops are then dropped in Python — unless fewer than ``_MIN_REAL_RUNS`` real runs remain, in which
+case everything is kept: duration alone can't tell a gate no-op from an intentionally fast workflow
+(a lightweight guard check), so an all-fast workflow keeps its history instead of an empty chart. The
+run-detail table always shows every run — only the chart hides no-ops.
 """
 
 from datetime import datetime
@@ -24,7 +28,7 @@ from posthog.hogql import ast
 from products.engineering_analytics.backend.facade.contracts import WorkflowRunActivity, WorkflowRunActivityPoint
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries._workflow_filters import (
-    NO_OP_RUN_EXCLUSION_CONDITION,
+    NO_OP_RUN_FLAG,
     branch_filter_clause,
     date_to_filter_clause,
 )
@@ -35,14 +39,18 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
 # Revisit this alongside that table cap if it changes materially, so the chart keeps spanning the window.
 _LIMIT = 2000
 
+# Matches the chart's MIN_POINTS: below two real dots the scatter draws nothing anyway, so hiding
+# the no-ops would blank a chart that still has runs to show.
+_MIN_REAL_RUNS = 2
+
 _SELECT = f"""
     SELECT
-        id, conclusion, run_started_at, duration_seconds, head_branch, pr_number, head_sha
+        id, conclusion, run_started_at, duration_seconds, head_branch, pr_number, head_sha,
+        {NO_OP_RUN_FLAG} AS is_noop
     FROM __RUNS_SOURCE__ AS r
     WHERE repo_owner = {{repo_owner}} AND repo_name = {{repo_name}} AND workflow_name = {{workflow_name}}
         AND run_started_at >= {{date_from}} __DATE_TO__ __BRANCH__
-        AND {NO_OP_RUN_EXCLUSION_CONDITION}
-    ORDER BY run_started_at DESC, run_attempt DESC
+    ORDER BY is_noop ASC, run_started_at DESC, run_attempt DESC
     LIMIT {_LIMIT + 1}
 """
 
@@ -74,12 +82,17 @@ def query_workflow_run_activity(
     )
     rows = response.results or []
     truncated = len(rows) > _LIMIT
-    points = [_to_point(row) for row in rows[:_LIMIT]]
+    capped = rows[:_LIMIT]
+    real = [row for row in capped if not row[7]]
+    chosen = real if len(real) >= _MIN_REAL_RUNS else capped
+    # The is_noop sort put real runs first — restore the newest-first order the chart contract promises.
+    chosen = sorted(chosen, key=lambda row: row[2], reverse=True)
+    points = [_to_point(row) for row in chosen]
     return WorkflowRunActivity(points=points, truncated=truncated, limit=_LIMIT)
 
 
 def _to_point(row: tuple) -> WorkflowRunActivityPoint:
-    run_id, conclusion, run_started_at, duration_seconds, head_branch, pr_number, head_sha = row
+    run_id, conclusion, run_started_at, duration_seconds, head_branch, pr_number, head_sha, _is_noop = row
     return WorkflowRunActivityPoint(
         run_id=int(run_id),
         # Empty string means "no conclusion yet" (still running) — normalize to None for the contract.

@@ -88,11 +88,24 @@ describe('runHealth', () => {
             { conclusion: 'success', durationSeconds: 4, startedAt: at(10) },
             { conclusion: 'success', durationSeconds: 4, startedAt: at(11) },
             { conclusion: 'success', durationSeconds: 600, startedAt: at(12) },
+            { conclusion: 'success', durationSeconds: 900, startedAt: at(13) },
         ])
         expect(summary.medianSeconds).toBe(600)
-        expect(summary.totalRuns).toBe(4)
-        expect(summary.completedRuns).toBe(4)
+        expect(summary.p95Seconds).toBe(900)
+        expect(summary.totalRuns).toBe(5)
+        expect(summary.completedRuns).toBe(5)
         expect(summary.passRate).toBe(1)
+    })
+
+    it('falls back to every duration when a workflow is legitimately all-fast', () => {
+        // An intentionally quick workflow (a guard check finishing in seconds) has no "real" runs by
+        // the no-op definition — its median must come from what it has, not read as missing.
+        const summary = computeHealthSummary([
+            { conclusion: 'success', durationSeconds: 3, startedAt: at(9) },
+            { conclusion: 'success', durationSeconds: 4, startedAt: at(10) },
+            { conclusion: 'success', durationSeconds: 5, startedAt: at(11) },
+        ])
+        expect(summary.medianSeconds).toBe(4)
     })
 
     const fleetRow = (

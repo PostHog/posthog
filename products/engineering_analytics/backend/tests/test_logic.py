@@ -1251,8 +1251,9 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
     def test_workflow_run_activity_projects_and_windows(self) -> None:
         # The chart endpoint returns compact per-run points over the window, newest first, with the
         # projection mapped in the right column order and an explicit (untruncated) cap signal.
-        # No-op gate runs (benign conclusion, settled in seconds) are excluded in the query — before
-        # the cap — while fast failures and in-flight runs stay.
+        # No-op gate runs (benign conclusion, settled in seconds) are hidden by the endpoint — real
+        # runs fill the cap first — while fast failures and in-flight runs stay, and an all-fast
+        # workflow falls back to showing everything.
         self._create_table(
             "github_pull_requests",
             _PULL_REQUESTS_COLUMNS,
@@ -1282,8 +1283,12 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
                 # Still running: no duration yet, but it must stay (it feeds the in-flight band).
                 _run_row(8106, "CI", "sha-f", "in_progress", None, _ago(3), _ago(3)),
                 # Completed fast but with a NULL conclusion (conclusions can lag the sync) — undecided,
-                # so it must stay; a non-NULL-safe `NOT IN` would silently drop it.
+                # so it must stay; a non-NULL-safe no-op flag would silently drop it.
                 _run_row(8107, "CI", "sha-g", "completed", None, *_ago_with_duration(4, 4)),
+                # A legitimately fast workflow: every run finishes in seconds. Duration alone can't
+                # tell it from a gate no-op, so with no real runs to show the filter must stand down.
+                _run_row(8110, "Guard", "sha-h", "completed", "success", *_ago_with_duration(2, 3)),
+                _run_row(8111, "Guard", "sha-i", "completed", "success", *_ago_with_duration(1, 4)),
             ],
         )
         activity = api.get_workflow_run_activity(team=self.team, repo="PostHog/posthog", workflow_name="CI")
@@ -1306,6 +1311,11 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
             team=self.team, repo="PostHog/posthog", workflow_name="CI", date_from="-90d"
         )
         assert [p.run_id for p in wide.points] == [8102, 8101, 8106, 8107, 8104]
+
+        # An all-fast workflow keeps its history: with no real runs left to show, hiding the no-ops
+        # would blank the chart, so the filter stands down and both runs come back.
+        guard = api.get_workflow_run_activity(team=self.team, repo="PostHog/posthog", workflow_name="Guard")
+        assert [p.run_id for p in guard.points] == [8111, 8110]
 
     def test_repo_run_activity_collapses_workflows_per_commit(self) -> None:
         # The repo-health chart folds every workflow run of a default-branch commit into ONE point: the
