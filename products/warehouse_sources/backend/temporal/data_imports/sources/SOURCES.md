@@ -422,6 +422,7 @@ the row lists both.
 | unleash                   | HTTP                        | requests                                                        | ✅                          |
 | upstash                   | HTTP                        | requests                                                        | ✅                          |
 | vantage                   | HTTP                        | requests                                                        | ✅                          |
+| vapi                      | HTTP                        | requests                                                        | ✅                          |
 | vellum                    | HTTP                        | requests                                                        | ✅                          |
 | vercel                    | HTTP                        | requests                                                        | ✅                          |
 | vitally                   | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -839,7 +840,6 @@ doesn't conflict with concurrent PRs.
 - uptick
 - us_census
 - uservoice
-- vapi
 - veeqo
 - vespa
 - visma_economic
