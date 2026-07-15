@@ -80,7 +80,6 @@ You can create an API key in [LlamaCloud](https://cloud.llamaindex.ai) under **S
                     ),
                 ],
             ),
-            unreleasedSource=True,
             releaseStatus=ReleaseStatus.ALPHA,
         )
 

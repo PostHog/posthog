@@ -58,7 +58,6 @@ class TestLlamaCloudSource:
         assert config.label == "LlamaCloud"
         assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.iconPath == "/static/services/llama_cloud.svg"
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/llama-cloud"
 
