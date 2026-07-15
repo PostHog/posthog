@@ -30882,7 +30882,27 @@ export namespace Schemas {
          * @items.maxLength 256
          */
       id_jag_allowed_clients?: string[];
+      /** Organization domain IDs using this config for SAML. */
+      readonly saml_domain_ids: readonly string[];
+      /** Organization domain IDs using this config for SCIM. */
+      readonly scim_domain_ids: readonly string[];
+      /** Organization domain IDs using this config for XAA (ID-JAG). */
+      readonly id_jag_domain_ids: readonly string[];
     }
+
+    /**
+     * * `saml` - SAML
+     * * `scim` - SCIM
+     * * `id_jag` - XAA
+     */
+    export type IdentityProviderConfigDomainsKindEnum = typeof IdentityProviderConfigDomainsKindEnum[keyof typeof IdentityProviderConfigDomainsKindEnum];
+
+
+    export const IdentityProviderConfigDomainsKindEnum = {
+      Saml: 'saml',
+      Scim: 'scim',
+      IdJag: 'id_jag',
+    } as const;
 
     /**
      * One skill entry in a bulk-import payload.
@@ -34828,10 +34848,20 @@ export namespace Schemas {
       /** Returns whether ID-JAG (XAA) is configured for this domain. */
       readonly has_id_jag: boolean;
       /**
-         * Linked IdP configuration (SAML/SCIM/XAA) that backs this domain. Must belong to the same organization.
+         * SAML config assigned to this domain.
          * @nullable
          */
-      identity_provider_config?: string | null;
+      readonly saml_identity_provider_config_id: string | null;
+      /**
+         * SCIM config assigned to this domain.
+         * @nullable
+         */
+      readonly scim_identity_provider_config_id: string | null;
+      /**
+         * XAA config assigned to this domain.
+         * @nullable
+         */
+      readonly id_jag_identity_provider_config_id: string | null;
     }
 
     export interface OrganizationFeatureFlagRow {
@@ -37184,6 +37214,29 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: Run[];
+    }
+
+    export interface SCIMRequestLog {
+      readonly id: string;
+      readonly request_method: string;
+      readonly request_path: string;
+      readonly request_headers: unknown;
+      readonly request_body: unknown;
+      readonly response_status: number;
+      readonly response_body: unknown;
+      readonly identity_provider: string;
+      /** @nullable */
+      readonly duration_ms: number | null;
+      readonly created_at: string;
+    }
+
+    export interface PaginatedSCIMRequestLogList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: SCIMRequestLog[];
     }
 
     export type SandboxCustomImageDTOSpec = { [key: string]: unknown };
@@ -42972,6 +43025,23 @@ export namespace Schemas {
          * @items.maxLength 256
          */
       id_jag_allowed_clients?: string[];
+      /** Organization domain IDs using this config for SAML. */
+      readonly saml_domain_ids?: readonly string[];
+      /** Organization domain IDs using this config for SCIM. */
+      readonly scim_domain_ids?: readonly string[];
+      /** Organization domain IDs using this config for XAA (ID-JAG). */
+      readonly id_jag_domain_ids?: readonly string[];
+    }
+
+    export interface PatchedIdentityProviderConfigDomains {
+      /** IdP feature the selected domains use this config for.
+       *
+       * * `saml` - SAML
+       * * `scim` - SCIM
+       * * `id_jag` - XAA */
+      kind?: IdentityProviderConfigDomainsKindEnum;
+      /** Organization domain IDs to assign to this config for the selected feature. */
+      domain_ids?: string[];
     }
 
     /**
@@ -43720,10 +43790,20 @@ export namespace Schemas {
       /** Returns whether ID-JAG (XAA) is configured for this domain. */
       readonly has_id_jag?: boolean;
       /**
-         * Linked IdP configuration (SAML/SCIM/XAA) that backs this domain. Must belong to the same organization.
+         * SAML config assigned to this domain.
          * @nullable
          */
-      identity_provider_config?: string | null;
+      readonly saml_identity_provider_config_id?: string | null;
+      /**
+         * SCIM config assigned to this domain.
+         * @nullable
+         */
+      readonly scim_identity_provider_config_id?: string | null;
+      /**
+         * XAA config assigned to this domain.
+         * @nullable
+         */
+      readonly id_jag_identity_provider_config_id?: string | null;
     }
 
     /**
@@ -67392,6 +67472,45 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type DomainsScimLogsListParams = {
+    /**
+     * Only include requests at or after this time.
+     */
+    after?: string;
+    /**
+     * Only include requests at or before this time.
+     */
+    before?: string;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Page number.
+     */
+    page?: number;
+    /**
+     * Results per page, up to 100.
+     */
+    page_size?: number;
+    /**
+     * Search request paths and masked request bodies.
+     */
+    search?: string;
+    /**
+     * Maximum response status.
+     */
+    status_max?: number;
+    /**
+     * Minimum response status.
+     */
+    status_min?: number;
     };
 
     export type OrgFeatureFlagsKeysParams = {

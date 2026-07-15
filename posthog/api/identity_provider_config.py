@@ -1,4 +1,7 @@
 from typing import Any, cast
+from uuid import UUID
+
+from django.db import transaction
 
 import posthoganalytics
 from drf_spectacular.utils import extend_schema
@@ -10,8 +13,13 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.constants import AvailableFeature
 from posthog.event_usage import groups
-from posthog.models.identity_provider_config import IdentityProviderConfig
+from posthog.models.identity_provider_config import (
+    IdentityProviderConfig,
+    IdentityProviderConfigDomain,
+    IdentityProviderConfigKind,
+)
 from posthog.models.organization import Organization
+from posthog.models.organization_domain import OrganizationDomain
 from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission
 from posthog.security.url_validation import is_url_allowed
 
@@ -47,6 +55,11 @@ class IdentityProviderConfigSerializer(serializers.ModelSerializer):
     has_id_jag = serializers.BooleanField(
         read_only=True, help_text="Whether ID-JAG (XAA) is configured on this config."
     )
+    saml_domain_ids = serializers.SerializerMethodField(help_text="Organization domain IDs using this config for SAML.")
+    scim_domain_ids = serializers.SerializerMethodField(help_text="Organization domain IDs using this config for SCIM.")
+    id_jag_domain_ids = serializers.SerializerMethodField(
+        help_text="Organization domain IDs using this config for XAA (ID-JAG)."
+    )
 
     class Meta:
         model = IdentityProviderConfig
@@ -66,6 +79,9 @@ class IdentityProviderConfigSerializer(serializers.ModelSerializer):
             "id_jag_issuer_url",
             "id_jag_jwks_url",
             "id_jag_allowed_clients",
+            "saml_domain_ids",
+            "scim_domain_ids",
+            "id_jag_domain_ids",
         )
         extra_kwargs = {
             "name": {"help_text": "Display name for this IdP configuration (e.g. 'Okta production')."},
@@ -188,6 +204,21 @@ class IdentityProviderConfigSerializer(serializers.ModelSerializer):
     def get_scim_bearer_token(self, obj: IdentityProviderConfig) -> str | None:
         return self._scim_plain_token
 
+    @staticmethod
+    def _get_domain_ids(obj: IdentityProviderConfig, kind: IdentityProviderConfigKind) -> list[str]:
+        return sorted(
+            str(mapping.organization_domain_id) for mapping in obj.domain_mappings.all() if mapping.kind == kind
+        )
+
+    def get_saml_domain_ids(self, obj: IdentityProviderConfig) -> list[str]:
+        return self._get_domain_ids(obj, IdentityProviderConfigKind.SAML)
+
+    def get_scim_domain_ids(self, obj: IdentityProviderConfig) -> list[str]:
+        return self._get_domain_ids(obj, IdentityProviderConfigKind.SCIM)
+
+    def get_id_jag_domain_ids(self, obj: IdentityProviderConfig) -> list[str]:
+        return self._get_domain_ids(obj, IdentityProviderConfigKind.ID_JAG)
+
 
 class SCIMTokenResponseSerializer(serializers.Serializer):
     scim_enabled = serializers.BooleanField(help_text="Whether SCIM is enabled for this config.")
@@ -196,12 +227,34 @@ class SCIMTokenResponseSerializer(serializers.Serializer):
     )
 
 
+class IdentityProviderConfigDomainsSerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(
+        choices=IdentityProviderConfigKind.choices,
+        help_text="IdP feature the selected domains use this config for.",
+    )
+    domain_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=True,
+        help_text="Organization domain IDs to assign to this config for the selected feature.",
+    )
+
+    def validate_domain_ids(self, domain_ids: list[UUID]) -> list[UUID]:
+        organization: Organization = self.context["view"].organization
+        existing_domain_ids = set(
+            OrganizationDomain.objects.filter(organization=organization, id__in=domain_ids).values_list("id", flat=True)
+        )
+        missing_domain_ids = set(domain_ids) - existing_domain_ids
+        if missing_domain_ids:
+            raise serializers.ValidationError("All domains must belong to this organization.")
+        return list(dict.fromkeys(domain_ids))
+
+
 @extend_schema(extensions={"x-product": "core"})
 class IdentityProviderConfigViewSet(TeamAndOrgViewSetMixin, ModelViewSet):
     scope_object = "organization"
     serializer_class = IdentityProviderConfigSerializer
     permission_classes = [OrganizationAdminWritePermissions, TimeSensitiveActionPermission]
-    queryset = IdentityProviderConfig.objects.order_by("created_at")
+    queryset = IdentityProviderConfig.objects.order_by("created_at").prefetch_related("domain_mappings")
 
     def create(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         serializer = self.get_serializer(data=request.data)
@@ -214,6 +267,52 @@ class IdentityProviderConfigViewSet(TeamAndOrgViewSetMixin, ModelViewSet):
         res = super().update(request, *args, **kwargs)
         _capture_idp_config_event(request, self.get_object(), "updated", {"fields": sorted(request.data.keys())})
         return res
+
+    @extend_schema(request=IdentityProviderConfigDomainsSerializer, responses=IdentityProviderConfigSerializer)
+    @action(methods=["PATCH"], detail=True, url_path="domains")
+    def domains(self, request: Request, **kwargs: Any) -> response.Response:
+        config = cast(IdentityProviderConfig, self.get_object())
+        serializer = IdentityProviderConfigDomainsSerializer(data=request.data, context=self.get_serializer_context())
+        serializer.is_valid(raise_exception=True)
+        kind = serializer.validated_data["kind"]
+        domain_ids = serializer.validated_data["domain_ids"]
+
+        with transaction.atomic():
+            IdentityProviderConfigDomain.objects.filter(
+                organization=config.organization,
+                identity_provider_config=config,
+                kind=kind,
+            ).exclude(organization_domain_id__in=domain_ids).delete()
+            IdentityProviderConfigDomain.objects.filter(
+                organization=config.organization,
+                organization_domain_id__in=domain_ids,
+                kind=kind,
+            ).exclude(identity_provider_config=config).delete()
+
+            existing_domain_ids = set(
+                IdentityProviderConfigDomain.objects.filter(
+                    organization=config.organization,
+                    identity_provider_config=config,
+                    organization_domain_id__in=domain_ids,
+                    kind=kind,
+                ).values_list("organization_domain_id", flat=True)
+            )
+            IdentityProviderConfigDomain.objects.bulk_create(
+                [
+                    IdentityProviderConfigDomain(
+                        organization=config.organization,
+                        identity_provider_config=config,
+                        organization_domain_id=domain_id,
+                        kind=kind,
+                    )
+                    for domain_id in domain_ids
+                    if domain_id not in existing_domain_ids
+                ]
+            )
+
+        config = self.get_queryset().get(pk=config.pk)
+        _capture_idp_config_event(request, config, "domains updated", {"kind": kind})
+        return response.Response(self.get_serializer(config).data)
 
     @extend_schema(request=None, responses=SCIMTokenResponseSerializer)
     @action(methods=["POST"], detail=True, url_path="scim/token")

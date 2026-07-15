@@ -40,6 +40,31 @@ describe('verifiedDomainsLogic', () => {
                         },
                     ],
                 },
+                '/api/organizations/:organization/identity_provider_configs/': {
+                    count: 1,
+                    next: null,
+                    previous: null,
+                    results: [
+                        {
+                            id: 'saml-config-id',
+                            name: 'Shared Okta',
+                            has_saml: true,
+                            has_scim: false,
+                            has_id_jag: false,
+                            saml_entity_id: 'okta-entity',
+                            saml_acs_url: 'https://okta.example.com/sso',
+                            saml_x509_cert: 'certificate',
+                            scim_enabled: false,
+                            scim_bearer_token: null,
+                            id_jag_allowed_clients: [],
+                            saml_domain_ids: ['8db3b0c2-a0ab-490a-9037-14f3358a81bc'],
+                            scim_domain_ids: [],
+                            id_jag_domain_ids: [],
+                            created_at: '2022-01-01T23:59:59',
+                            updated_at: '2022-01-01T23:59:59',
+                        },
+                    ],
+                },
             },
             post: {
                 '/api/organizations/:organization/domains/': {
@@ -106,6 +131,15 @@ describe('verifiedDomainsLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
             const { verifiedDomains } = logic.values
             expect(verifiedDomains.length).toEqual(1)
+        })
+
+        it('initializes the inline SAML form from the loaded configuration', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.samlConfig).toMatchObject({
+                id: 'saml-config-id',
+                name: 'Shared Okta',
+                domain_ids: ['8db3b0c2-a0ab-490a-9037-14f3358a81bc'],
+            })
         })
     })
 })

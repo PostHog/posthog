@@ -12,7 +12,7 @@ import dns.resolver
 from posthog.constants import AvailableFeature
 from posthog.models import Organization
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
-from posthog.models.identity_provider_config import IdentityProviderConfig
+from posthog.models.identity_provider_config import IdentityProviderConfig, IdentityProviderConfigKind
 from posthog.models.utils import UUIDTModel
 from posthog.utils import get_instance_available_sso_providers
 
@@ -26,9 +26,11 @@ def generate_verification_challenge() -> str:
 class OrganizationDomainManager(models.Manager):
     def verified_domains(self):
         # TODO: Verification becomes stale on Cloud if not reverified after a certain period.
-        # `select_related` the IdP config since reads of SAML/SCIM/ID-JAG settings resolve through
-        # it (`OrganizationDomain.idp_config`) in the hot auth paths.
-        return self.exclude(verified_at__isnull=True).select_related("identity_provider_config")
+        return (
+            self.exclude(verified_at__isnull=True)
+            .select_related("identity_provider_config")
+            .prefetch_related("identity_provider_config_mappings__identity_provider_config")
+        )
 
     def get_verified_for_email_address(self, email: str) -> Optional["OrganizationDomain"]:
         """
@@ -62,11 +64,20 @@ class OrganizationDomainManager(models.Manager):
         if not verified_for_domain:
             return None, "ID-JAG sub email domain is not a verified domain for any PostHog organization"
 
-        configured = [d for d in verified_for_domain if (d.idp_config.id_jag_issuer_url or "").rstrip("/")]
+        configured = [
+            domain
+            for domain in verified_for_domain
+            if ((domain.id_jag_config and domain.id_jag_config.id_jag_issuer_url) or "").rstrip("/")
+        ]
         if not configured:
             return None, "ID-JAG is not configured for this domain (id_jag_issuer_url is unset)"
 
-        matching = [d for d in configured if (d.idp_config.id_jag_issuer_url or "").rstrip("/") == normalized_issuer]
+        matching = [
+            domain
+            for domain in configured
+            if ((domain.id_jag_config and domain.id_jag_config.id_jag_issuer_url) or "").rstrip("/")
+            == normalized_issuer
+        ]
         if not matching:
             return None, "ID-JAG iss does not match the IdP configured for this email's domain"
 
@@ -84,31 +95,10 @@ class OrganizationDomainManager(models.Manager):
         Returns whether SAML is available for a specific email address.
         """
         domain = email[email.index("@") + 1 :]
-        # SAML config is read from the linked `IdentityProviderConfig`. A domain with no linked
-        # config produces NULLs across the LEFT JOIN, so the `__isnull=True` excludes drop it.
-        query = (
-            self.verified_domains()
-            .filter(domain__iexact=domain)
-            .exclude(
-                models.Q(identity_provider_config__saml_entity_id="")
-                | models.Q(identity_provider_config__saml_acs_url="")
-                | models.Q(identity_provider_config__saml_x509_cert="")
-                | models.Q(identity_provider_config__isnull=True)
-                | models.Q(
-                    identity_provider_config__saml_entity_id__isnull=True
-                )  # normally we would have just a nil state (i.e. ""), but to avoid migration locks we had to introduce this
-                | models.Q(identity_provider_config__saml_acs_url__isnull=True)
-                | models.Q(identity_provider_config__saml_x509_cert__isnull=True)
-            )
-            .values_list("organization__available_product_features", flat=True)
-            .first()
-        )
-
-        if query is None:
-            return False
-
-        for feature in query:
-            if feature.get("key") == AvailableFeature.SAML:
+        for organization_domain in self.verified_domains().filter(domain__iexact=domain):
+            if organization_domain.has_saml and organization_domain.organization.is_feature_available(
+                AvailableFeature.SAML
+            ):
                 return True
         return False
 
@@ -234,10 +224,9 @@ class OrganizationDomain(ModelActivityMixin, UUIDTModel):
         db_column="id_jag_allowed_clients",
     )  # deprecated, do not use; see `IdentityProviderConfig`
 
-    # ---- IdP config (home for SAML/SCIM/ID-JAG settings) ----
-    # `IdentityProviderConfig` is the source of truth for SAML/SCIM/ID-JAG settings and can be
-    # shared by multiple domains. All reads and writes of those settings go through the linked
-    # config (`self.idp_config`); the FK link itself is still writable via this domain.
+    # ---- Legacy IdP config link ----
+    # New assignments use typed `IdentityProviderConfigDomain` mappings. This field remains as a
+    # rollout fallback for rows written by older application instances and can be removed later.
     identity_provider_config = models.ForeignKey(
         IdentityProviderConfig,
         on_delete=models.SET_NULL,
@@ -291,35 +280,54 @@ class OrganizationDomain(ModelActivityMixin, UUIDTModel):
         # TODO: Verification becomes stale on Cloud if not reverified after a certain period.
         return bool(self.verified_at)
 
+    def get_identity_provider_config(self, kind: IdentityProviderConfigKind) -> IdentityProviderConfig | None:
+        for mapping in self.identity_provider_config_mappings.all():
+            if mapping.kind == kind:
+                return mapping.identity_provider_config
+
+        legacy_config = self.identity_provider_config
+        if legacy_config is None:
+            return None
+        if kind == IdentityProviderConfigKind.SAML and legacy_config.has_saml:
+            return legacy_config
+        if kind == IdentityProviderConfigKind.SCIM and legacy_config.has_scim:
+            return legacy_config
+        if kind == IdentityProviderConfigKind.ID_JAG and legacy_config.has_id_jag:
+            return legacy_config
+        return None
+
     @property
-    def idp_config(self) -> IdentityProviderConfig:
-        """
-        The linked `IdentityProviderConfig` (source of truth for SAML/SCIM/ID-JAG reads), or an
-        empty in-memory config when none is linked yet so reads resolve to safe empty values
-        without null-guards.
-        """
-        return self.identity_provider_config or IdentityProviderConfig()
+    def saml_config(self) -> IdentityProviderConfig | None:
+        return self.get_identity_provider_config(IdentityProviderConfigKind.SAML)
+
+    @property
+    def scim_config(self) -> IdentityProviderConfig | None:
+        return self.get_identity_provider_config(IdentityProviderConfigKind.SCIM)
+
+    @property
+    def id_jag_config(self) -> IdentityProviderConfig | None:
+        return self.get_identity_provider_config(IdentityProviderConfigKind.ID_JAG)
 
     @property
     def has_saml(self) -> bool:
         """
         Returns whether SAML is configured for the instance. Does not validate the user has the required license (that check is performed in other places).
         """
-        return self.idp_config.has_saml
+        return bool(self.saml_config and self.saml_config.has_saml)
 
     @property
     def has_scim(self) -> bool:
         """
         Returns whether SCIM is configured and enabled for this domain.
         """
-        return self.idp_config.has_scim
+        return bool(self.scim_config and self.scim_config.has_scim)
 
     @property
     def has_id_jag(self) -> bool:
         """
         Returns whether ID-JAG (XAA) is configured for this domain.
         """
-        return self.idp_config.has_id_jag
+        return bool(self.id_jag_config and self.id_jag_config.has_id_jag)
 
     def _complete_verification(self) -> tuple["OrganizationDomain", bool]:
         self.last_verification_retry = None

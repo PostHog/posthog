@@ -11,7 +11,7 @@ import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 
-import { SCIMRequestLogType } from '~/types'
+import { SCIMRequestLogApi } from '~/generated/core/api.schemas'
 
 import { verifiedDomainsLogic } from './verifiedDomainsLogic'
 
@@ -28,7 +28,7 @@ function statusTagType(status: number): LemonTagType {
     return 'default'
 }
 
-function LogDetailExpanded({ log }: { log: SCIMRequestLogType }): JSX.Element {
+function LogDetailExpanded({ log }: { log: SCIMRequestLogApi }): JSX.Element {
     return (
         <div className="space-y-4 p-4">
             <div>
@@ -63,7 +63,7 @@ export function ScimLogsModal(): JSX.Element {
     const { setScimLogsModalId, setScimLogsStatusFilter, setScimLogsSearch, setScimLogsPage, reloadScimLogs } =
         useActions(verifiedDomainsLogic)
 
-    const columns: LemonTableColumns<SCIMRequestLogType> = [
+    const columns: LemonTableColumns<SCIMRequestLogApi> = [
         {
             key: 'created_at',
             title: 'Time',

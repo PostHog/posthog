@@ -50,7 +50,11 @@ class SCIMBearerTokenAuthentication(BaseAuthentication):
 
         try:
             # nosemgrep: idor-lookup-without-org (SCIM bearer token auth, domain_id is tenant identifier)
-            domain = OrganizationDomain.objects.select_related("identity_provider_config").get(id=domain_id)
+            domain = (
+                OrganizationDomain.objects.select_related("identity_provider_config")
+                .prefetch_related("identity_provider_config_mappings__identity_provider_config")
+                .get(id=domain_id)
+            )
         except OrganizationDomain.DoesNotExist:
             raise exceptions.AuthenticationFailed("Invalid organization domain")
 
@@ -61,7 +65,7 @@ class SCIMBearerTokenAuthentication(BaseAuthentication):
         # The domain must also be verified: SCIM can be enabled on a config independently of any
         # domain (the config API has no verification gate), so re-check verification here to keep
         # provisioning gated behind a verified domain.
-        config = domain.identity_provider_config
+        config = domain.scim_config
         if not domain.is_verified or config is None or not config.has_scim:
             raise exceptions.AuthenticationFailed("SCIM not configured for this domain")
 

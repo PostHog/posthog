@@ -20,6 +20,7 @@ import type {
     DesktopFileSystemListParams,
     DesktopFileSystemShortcutListParams,
     DomainsListParams,
+    DomainsScimLogsListParams,
     EnterprisePropertyDefinitionApi,
     ExportedAssetApi,
     ExportsListParams,
@@ -54,6 +55,7 @@ import type {
     PaginatedOrganizationOAuthApplicationListApi,
     PaginatedProjectBackwardCompatBasicListApi,
     PaginatedProjectSecretAPIKeyListApi,
+    PaginatedSCIMRequestLogListApi,
     PaginatedUserGitHubIntegrationListResponseListApi,
     PaginatedUserListApi,
     PatchedCanvasPublishApi,
@@ -62,6 +64,7 @@ import type {
     PatchedFileSystemShortcutApi,
     PatchedFolderInstructionsPublishApi,
     PatchedIdentityProviderConfigApi,
+    PatchedIdentityProviderConfigDomainsApi,
     PatchedOrganizationDomainApi,
     PatchedProjectBackwardCompatApi,
     PatchedProjectSecretAPIKeyApi,
@@ -334,16 +337,29 @@ export const domainsDestroy = async (organizationId: string, id: string, options
     })
 }
 
-export const getDomainsScimLogsRetrieveUrl = (organizationId: string, id: string) => {
-    return `/api/organizations/${organizationId}/domains/${id}/scim/logs/`
+export const getDomainsScimLogsListUrl = (organizationId: string, id: string, params?: DomainsScimLogsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/domains/${id}/scim/logs/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/domains/${id}/scim/logs/`
 }
 
-export const domainsScimLogsRetrieve = async (
+export const domainsScimLogsList = async (
     organizationId: string,
     id: string,
+    params?: DomainsScimLogsListParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getDomainsScimLogsRetrieveUrl(organizationId, id), {
+): Promise<PaginatedSCIMRequestLogListApi> => {
+    return apiMutator<PaginatedSCIMRequestLogListApi>(getDomainsScimLogsListUrl(organizationId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -356,14 +372,11 @@ export const getDomainsVerifyCreateUrl = (organizationId: string, id: string) =>
 export const domainsVerifyCreate = async (
     organizationId: string,
     id: string,
-    organizationDomainApi: NonReadonly<OrganizationDomainApi>,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getDomainsVerifyCreateUrl(organizationId, id), {
+): Promise<OrganizationDomainApi> => {
+    return apiMutator<OrganizationDomainApi>(getDomainsVerifyCreateUrl(organizationId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(organizationDomainApi),
     })
 }
 
@@ -481,6 +494,27 @@ export const identityProviderConfigsDestroy = async (
         ...options,
         method: 'DELETE',
     })
+}
+
+export const getIdentityProviderConfigsDomainsPartialUpdateUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/identity_provider_configs/${id}/domains/`
+}
+
+export const identityProviderConfigsDomainsPartialUpdate = async (
+    organizationId: string,
+    id: string,
+    patchedIdentityProviderConfigDomainsApi?: PatchedIdentityProviderConfigDomainsApi,
+    options?: RequestInit
+): Promise<IdentityProviderConfigApi> => {
+    return apiMutator<IdentityProviderConfigApi>(
+        getIdentityProviderConfigsDomainsPartialUpdateUrl(organizationId, id),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedIdentityProviderConfigDomainsApi),
+        }
+    )
 }
 
 export const getIdentityProviderConfigsScimTokenCreateUrl = (organizationId: string, id: string) => {

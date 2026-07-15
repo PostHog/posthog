@@ -3,7 +3,13 @@ from posthog.test.base import BaseTest
 
 from django.core.exceptions import ValidationError
 
-from posthog.models import IdentityProviderConfig, Organization, OrganizationDomain
+from posthog.models import (
+    IdentityProviderConfig,
+    IdentityProviderConfigDomain,
+    IdentityProviderConfigKind,
+    Organization,
+    OrganizationDomain,
+)
 
 # Legacy `OrganizationDomain` columns that mirror fields on `IdentityProviderConfig`. Test-only:
 # used to build underscore-prefixed kwargs and to guard the two models' field shapes against drift.
@@ -148,3 +154,52 @@ class TestIdentityProviderConfig(BaseTest):
         assert not domain.has_saml
         assert not domain.has_scim
         assert not domain.has_id_jag
+
+    def test_typed_mappings_allow_shared_and_feature_specific_configs(self):
+        first_domain = self._create_domain("posthog.com")
+        second_domain = self._create_domain("posthog.dev")
+        saml_config = IdentityProviderConfig.objects.create(
+            organization=self.organization,
+            saml_entity_id="entity-id",
+            saml_acs_url="https://idp.example.com/acs",
+            saml_x509_cert="cert",
+        )
+        xaa_config = IdentityProviderConfig.objects.create(
+            organization=self.organization,
+            id_jag_issuer_url="https://idp.example.com",
+        )
+
+        for domain in (first_domain, second_domain):
+            IdentityProviderConfigDomain.objects.create(
+                organization=self.organization,
+                identity_provider_config=saml_config,
+                organization_domain=domain,
+                kind=IdentityProviderConfigKind.SAML,
+            )
+        IdentityProviderConfigDomain.objects.create(
+            organization=self.organization,
+            identity_provider_config=xaa_config,
+            organization_domain=first_domain,
+            kind=IdentityProviderConfigKind.ID_JAG,
+        )
+
+        first_domain.refresh_from_db()
+        second_domain.refresh_from_db()
+        assert first_domain.saml_config == saml_config
+        assert first_domain.id_jag_config == xaa_config
+        assert second_domain.saml_config == saml_config
+        assert second_domain.id_jag_config is None
+
+    def test_mapping_rejects_cross_organization_domain(self):
+        other_org = Organization.objects.create(name="Other")
+        other_domain = OrganizationDomain.objects.create(organization=other_org, domain="other.example.com")
+        config = IdentityProviderConfig.objects.create(organization=self.organization)
+
+        with pytest.raises(ValidationError) as exc_info:
+            IdentityProviderConfigDomain.objects.create(
+                organization=self.organization,
+                identity_provider_config=config,
+                organization_domain=other_domain,
+                kind=IdentityProviderConfigKind.SAML,
+            )
+        assert "organization_domain" in exc_info.value.message_dict
