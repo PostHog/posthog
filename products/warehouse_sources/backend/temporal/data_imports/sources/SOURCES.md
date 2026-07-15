@@ -424,6 +424,7 @@ the row lists both.
 | typeform                  | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | ubidots                   | HTTP                        | requests                                                        | ✅                          |
 | unleash                   | HTTP                        | requests                                                        | ✅                          |
+| unstructured              | HTTP                        | requests                                                        | ✅                          |
 | upstash                   | HTTP                        | requests                                                        | ✅                          |
 | vantage                   | HTTP                        | requests                                                        | ✅                          |
 | vapi                      | HTTP                        | requests                                                        | ✅                          |
@@ -932,7 +933,6 @@ doesn't conflict with concurrent PRs.
 - twitter
 - twitter_ads
 - tyntec_sms
-- unstructured
 - uppromote
 - uptick
 - uptimerobot
