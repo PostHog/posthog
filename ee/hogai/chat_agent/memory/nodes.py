@@ -30,6 +30,9 @@ from posthog.schema import (
     QueryStatusResponse,
 )
 
+from posthog.hogql.constants import HogQLGlobalSettings
+
+from posthog.clickhouse.client.connection import Workload
 from posthog.event_usage import EventSource, report_user_action
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
@@ -105,7 +108,11 @@ class MemoryInitializerContextMixin(AssistantContextMixin):
     ) -> CacheMissResponse | QueryStatusResponse | CachedEventTaxonomyQueryResponse:
         def run_query() -> CacheMissResponse | QueryStatusResponse | CachedEventTaxonomyQueryResponse:
             runner = EventTaxonomyQueryRunner(
-                team=self._team, query=EventTaxonomyQuery(event=event, properties=[property]), user=self._user
+                team=self._team,
+                query=EventTaxonomyQuery(event=event, properties=[property]),
+                user=self._user,
+                settings=HogQLGlobalSettings(max_execution_time=60 * 5),
+                workload=Workload.OFFLINE,
             )
             return runner.run(
                 ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
