@@ -97,7 +97,7 @@ impl ValueOperator for IssueLinker {
                 resolve_via_id_cache(input_for_load, &ctx_for_load).await
             })
             .await
-            .map_err(|e: Arc<UnhandledError>| UnhandledError::Other(e.to_string()))?;
+            .map_err(|e: Arc<UnhandledError>| UnhandledError::flatten_arc(&e))?;
 
         // The only `Arc` clones were captured by this call's loader closures, which have
         // all completed (or been dropped when moka deduped them), so we uniquely own the
@@ -144,7 +144,7 @@ async fn resolve_via_id_cache(
             Ok::<Uuid, UnhandledError>(id)
         })
         .await
-        .map_err(|e: Arc<UnhandledError>| UnhandledError::Other(e.to_string()))?;
+        .map_err(|e: Arc<UnhandledError>| UnhandledError::flatten_arc(&e))?;
 
     // If we ran the loader, the just-resolved Issue is current — return it directly.
     if let Some(issue) = just_resolved

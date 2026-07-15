@@ -55,6 +55,34 @@ pub enum UnhandledError {
     Other(String),
 }
 
+impl UnhandledError {
+    /// A Postgres pool-acquire timeout means the pool was briefly saturated — in-flight request
+    /// concurrency can outrun the small connection pool during a burst, and the acquire queued
+    /// past `acquire_timeout`. This is a load-shedding signal, not a genuine failure: an HTTP
+    /// handler should answer 429 so the caller backs off, rather than 500-ing and paging as an
+    /// unhandled exception. (This is client backpressure, distinct from internal retry — pool
+    /// exhaustion is systemic, so retrying in-process against the same pool only amplifies load;
+    /// see `common_database::is_transient_error`, which deliberately excludes `PoolTimedOut`.)
+    pub fn is_pool_timeout(&self) -> bool {
+        matches!(self, UnhandledError::SqlxError(sqlx::Error::PoolTimedOut))
+    }
+
+    /// Collapse a shared `Arc<UnhandledError>` (as surfaced by a moka cache loader, where the
+    /// concrete error can't be moved out) into an owned `UnhandledError`. `UnhandledError` isn't
+    /// `Clone` — its inner sqlx/kafka errors aren't — so the general case degrades to
+    /// `Other(String)`. But a pool-acquire timeout must survive the collapse: the /process
+    /// handler keys its 429-vs-500 decision on [`Self::is_pool_timeout`], and the linking stage (a
+    /// heavy Postgres user) is exactly where a burst exhausts the pool, so a flattened timeout
+    /// would otherwise silently downgrade back to a 500.
+    pub fn flatten_arc(error: &Arc<UnhandledError>) -> UnhandledError {
+        if error.is_pool_timeout() {
+            UnhandledError::SqlxError(sqlx::Error::PoolTimedOut)
+        } else {
+            UnhandledError::Other(error.to_string())
+        }
+    }
+}
+
 // These are errors that occur during frame resolution. This excludes e.g. network errors,
 // which are handled by the store - this is the error type that's handed to the frame to see
 // if it can still make something useful out of it.
@@ -402,5 +430,33 @@ impl From<UnhandledError> for PipelineFailure {
             index: 0,
             error: Arc::new(error),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pool_timeout_is_classified_as_backpressure() {
+        // A pool-acquire timeout is the one sqlx failure the /process handler answers with 429
+        // instead of 500; every other error stays a hard failure.
+        assert!(UnhandledError::SqlxError(sqlx::Error::PoolTimedOut).is_pool_timeout());
+        assert!(!UnhandledError::SqlxError(sqlx::Error::PoolClosed).is_pool_timeout());
+        assert!(!UnhandledError::Other("boom".to_string()).is_pool_timeout());
+    }
+
+    #[test]
+    fn flatten_arc_preserves_pool_timeout() {
+        // The linking stage collapses moka's `Arc<UnhandledError>` back to an owned error; a pool
+        // timeout must stay classifiable through that collapse, or it silently 500s again.
+        let timeout = Arc::new(UnhandledError::SqlxError(sqlx::Error::PoolTimedOut));
+        assert!(UnhandledError::flatten_arc(&timeout).is_pool_timeout());
+
+        // Anything else degrades to `Other` (the concrete inner error can't be cloned out).
+        let other = Arc::new(UnhandledError::SqlxError(sqlx::Error::PoolClosed));
+        let flattened = UnhandledError::flatten_arc(&other);
+        assert!(!flattened.is_pool_timeout());
+        assert!(matches!(flattened, UnhandledError::Other(_)));
     }
 }
