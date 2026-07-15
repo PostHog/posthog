@@ -22,7 +22,8 @@ from posthog.hogql.constants import LimitContext
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_concurrency
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud
-from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorTooManySimultaneousQueries
+from posthog.errors import CH_TRANSIENT_ERRORS
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.metrics import pushed_metrics_registry
 from posthog.ph_client import get_regional_ph_client
@@ -346,7 +347,7 @@ def redis_heartbeat() -> None:
     acks_late=True,
     autoretry_for=(
         # Important: Only retry for things that might be okay on the next try
-        CHQueryErrorTooManySimultaneousQueries,
+        ClickHouseAtCapacity,
         ConcurrencyLimitExceeded,
     ),
     retry_backoff=1,

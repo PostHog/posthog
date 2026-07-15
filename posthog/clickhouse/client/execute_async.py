@@ -16,8 +16,10 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from posthog import celery, redis
 from posthog.clickhouse.client.async_task_chain import add_task_to_on_commit
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
-from posthog.errors import CHQueryErrorTooManySimultaneousQueries, ExposedCHQueryError
+from posthog.errors import ExposedCHQueryError
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.renderers import SafeJSONRenderer
 
@@ -240,7 +242,10 @@ def execute_process_query(
             seconds=1
         )
         QUERY_PROCESS_TIME.labels(team=team_id).observe(process_duration)
-    except CHQueryErrorTooManySimultaneousQueries:
+    except (ClickHouseAtCapacity, ConcurrencyLimitExceeded):
+        # Capacity/concurrency errors are transient — let them propagate so the enclosing
+        # Celery task (process_query_task) retries with backoff instead of being swallowed
+        # below as a "user-safe" APIException that never retries.
         raise
     except Exception as err:
         from posthog.rbac.user_access_control import UserAccessControlError

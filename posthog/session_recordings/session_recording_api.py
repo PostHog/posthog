@@ -72,8 +72,9 @@ from posthog.auth import (
 )
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.cloud_utils import is_cloud
-from posthog.errors import CHQueryErrorCannotScheduleTask, CHQueryErrorTooManySimultaneousQueries, ExposedCHQueryError
+from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import report_user_action
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Organization, Team, User
@@ -952,7 +953,7 @@ class SessionRecordingViewSet(
                     )
 
                     return response
-        except CHQueryErrorTooManySimultaneousQueries:
+        except ClickHouseAtCapacity:
             _count_session_recording_throttled(location="too_many_simultaneous_queries", auth_type=auth_type)
             raise Throttled(detail="Too many simultaneous queries. Try again later.")
         except (ExposedHogQLError, ExposedCHQueryError) as e:
@@ -1492,7 +1493,7 @@ class SessionRecordingViewSet(
                     "$exception_fingerprint": f"session_recording_api.snapshots.{e.__class__.__name__}",
                 },
             )
-            is_ch_error = isinstance(e, CHQueryErrorCannotScheduleTask)
+            is_ch_error = isinstance(e, ClickHouseAtCapacity)
 
             message = (
                 "ClickHouse over capacity. Please retry"
@@ -1538,7 +1539,7 @@ class SessionRecordingViewSet(
             )
 
     @retry(
-        retry=retry_if_exception_type(CHQueryErrorCannotScheduleTask),
+        retry=retry_if_exception_type(ClickHouseAtCapacity),
         # if retrying doesn't work, raise the actual error, not a retry error
         reraise=True,
         # try again after 0.2 seconds

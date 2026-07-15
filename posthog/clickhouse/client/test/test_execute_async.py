@@ -22,8 +22,8 @@ from posthog.clickhouse.client import (
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, QueryStatusManager, execute_process_query
 from posthog.clickhouse.query_tagging import tag_queries
-from posthog.errors import CHQueryErrorTooManySimultaneousQueries, ExposedCHQueryError
-from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
+from posthog.errors import ExposedCHQueryError
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded
 from posthog.models import Organization, Team
 from posthog.models.user import User
 from posthog.redis import get_client
@@ -243,11 +243,9 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
     def test_async_query_server_errors(self):
         query = build_query("SELECT * FROM events")
 
-        with patch(
-            "posthog.api.services.query.process_query_dict", side_effect=CHQueryErrorTooManySimultaneousQueries("bla")
-        ):
+        with patch("posthog.api.services.query.process_query_dict", side_effect=ClickHouseAtCapacity()):
             self.assertRaises(
-                CHQueryErrorTooManySimultaneousQueries,
+                ClickHouseAtCapacity,
                 client.enqueue_process_query_task,
                 **{"team": self.team, "user_id": self.user.id, "query_json": query, "_test_only_bypass_celery": True},
             )
