@@ -6,6 +6,6 @@ rules:
           - '/fix_missing_person_overrides.py'
           - '/fix_person_id_overrides.py'
           - '/person_property_reconciliation.py'
-      owners: [team-ingestion]
+      owners: team-ingestion
     - match: '/sessions.py'
-      owners: [team-analytics-platform]
+      owners: team-analytics-platform

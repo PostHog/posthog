@@ -2,7 +2,7 @@ version: 1
 owners: []
 rules:
     - match: Dockerfile.llm-analytics
-      owners: [team-ai-observability]
+      owners: team-ai-observability
     - match:
           - Dockerfile
           - 'docker-compose*.yml'
@@ -14,41 +14,41 @@ rules:
           - AGENTS.md
           - bin/
           - greptile.json
-      owners: [team-devex]
+      owners: team-devex
     - match: '/.agents/skills/manage-dashboard-widgets/'
-      owners: [team-analytics-platform]
+      owners: team-analytics-platform
     - match: '/.claude/'
-      owners: [team-devex]
+      owners: team-devex
     - match: '/.claude/agents/ingestion/'
-      owners: [team-ingestion]
+      owners: team-ingestion
     - match: '/bin/start-llm-gateway'
       owners: [team-devex, team-ai-gateway]
     - match: '/cli/'
-      owners: [team-error-tracking]
+      owners: team-error-tracking
     - match: '/docs/onboarding/ai-observability/'
-      owners: [team-ai-observability]
+      owners: team-ai-observability
     - match: '/docs/published/handbook/engineering/developing-locally.md'
-      owners: [team-devex]
+      owners: team-devex
     - match: '/nodejs/tests/'
-      owners: [team-ingestion]
+      owners: team-ingestion
     - match: '/posthog/helpers/email_utils.py'
-      owners: [team-platform-features]
+      owners: team-platform-features
     - match: '/posthog/management/commands/find_enum_collisions.py'
-      owners: [team-devex]
+      owners: team-devex
     - match: '/posthog/settings/data_warehouse.py'
-      owners: [team-data-stack]
+      owners: team-data-stack
     - match: '/posthog/settings/email.py'
-      owners: [team-platform-features]
+      owners: team-platform-features
     - match: '/posthog/test/test_feature_flag_analytics.py'
-      owners: [team-feature-flags]
+      owners: team-feature-flags
     - match: '/services/llm-gateway/'
-      owners: [team-ai-gateway]
+      owners: team-ai-gateway
     - match:
           - '/tools/hogli-commands/'
           - '/tools/hogli/'
           - '/tools/owners/'
           - '/tools/phrocs/'
           - '/tools/pr-approval-agent/'
-      owners: [team-devex]
+      owners: team-devex
     - match: '/tools/query-performance-ai/'
-      owners: [team-analytics-platform]
+      owners: team-analytics-platform

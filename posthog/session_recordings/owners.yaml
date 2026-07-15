@@ -2,4 +2,4 @@ version: 1
 owners: []
 rules:
     - match: '/**/*.py'
-      owners: [team-replay]
+      owners: team-replay

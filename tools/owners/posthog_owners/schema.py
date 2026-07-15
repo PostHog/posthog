@@ -80,8 +80,10 @@ def normalize_product_owners(owners: list[str]) -> list[str]:
 def _validate_owners_value(value: object, where: str, errors: list[str]) -> list[str] | None | _Unset:
     if value is None:
         return None
+    if isinstance(value, str) and value:
+        value = [value]
     if not isinstance(value, list) or not all(isinstance(x, str) for x in value):
-        errors.append(f"{where}: 'owners' must be a list of strings or null")
+        errors.append(f"{where}: 'owners' must be a string, a list of strings, or null")
         return UNSET
     return normalize_product_owners([str(x) for x in value])
 
@@ -209,7 +211,7 @@ def parse_owners_file(text: str, *, path: Path, directory: str) -> tuple[OwnersF
         errors.append("'version: 1' is required")
 
     if "owners" not in data:
-        errors.append("'owners' is required (a list of strings, or null for unowned-by-design)")
+        errors.append("'owners' is required (a string, a list of strings, or null for unowned-by-design)")
         owners: list[str] | None = []
     else:
         validated = _validate_owners_value(data["owners"], "owners", errors)

@@ -2,4 +2,4 @@ version: 1
 owners: []
 rules:
     - match: '/ingestion-*/'
-      owners: [team-ingestion]
+      owners: team-ingestion

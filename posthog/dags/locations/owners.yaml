@@ -2,4 +2,4 @@ version: 1
 owners: []
 rules:
     - match: '/analytics*platform.py'
-      owners: [team-analytics-platform]
+      owners: team-analytics-platform

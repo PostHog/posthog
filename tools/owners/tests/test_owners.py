@@ -115,6 +115,28 @@ def test_invalid_rule_glob_is_a_schema_error_not_a_crash(tmp_path: Path) -> None
     assert OwnersResolver(repo_root=tmp_path).resolve("a/x.py").owners == ["team-a"]
 
 
+@pytest.mark.parametrize(
+    "owners_yaml,expected",
+    [
+        ("owners: team-a", ["team-a"]),
+        ("owners: '@someone'", ["@someone"]),
+        ("owners: ''", None),  # empty string is a schema error, not a bogus [''] owner
+    ],
+)
+def test_bare_string_owners_normalizes_to_single_element_list(
+    tmp_path: Path, owners_yaml: str, expected: list[str] | None
+) -> None:
+    text = f"version: 1\n{owners_yaml}\nrules:\n  - match: 'sub/'\n    {owners_yaml}\n"
+    parsed, errors = parse_owners_file(text, path=tmp_path / "owners.yaml", directory="")
+    if expected is None:
+        assert any("'owners' must be" in e for e in errors)
+    else:
+        assert errors == []
+        assert parsed is not None
+        assert parsed.owners == expected
+        assert parsed.rules[0].owners == expected
+
+
 def test_multi_match_explodes_to_one_rule_per_pattern(tmp_path: Path) -> None:
     # A list `match:` becomes one OwnersRule per pattern, in order, each carrying the
     # rule's shared owners/status — so resolver/fmt/lint keep seeing single-pattern rules.

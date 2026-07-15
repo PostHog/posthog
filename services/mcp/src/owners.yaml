@@ -6,4 +6,4 @@ rules:
           - '/tools/aiObservability/'
           - '/tools/generated/ai_observability.ts'
           - '/ui-apps/apps/generated/llm-costs.tsx'
-      owners: [team-ai-observability]
+      owners: team-ai-observability

@@ -2,11 +2,11 @@ version: 1
 owners: []
 rules:
     - match: ['/CODEOWNERS', '/actions/']
-      owners: [team-devex]
+      owners: team-devex
     - match: '/auto-assign-labels.json'
-      owners: [team-feature-flags]
+      owners: team-feature-flags
     - match: ['/dependabot.yml', '/pull_request_template.md', '/workflows/']
-      owners: [team-devex]
+      owners: team-devex
     - match: '/workflows/cd-llm-analytics-image.yml'
       owners: [team-devex, team-ai-observability]
     - match:

@@ -2,4 +2,4 @@ version: 1
 owners: [team-ai-observability, team-ai-gateway]
 rules:
     - match: ['/providers/', '/scripts/']
-      owners: [team-ai-gateway]
+      owners: team-ai-gateway

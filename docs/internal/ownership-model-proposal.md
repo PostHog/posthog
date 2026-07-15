@@ -72,6 +72,7 @@ version: 1
 # Ordered, mixed list of GitHub team slugs (minus @PostHog/) and
 # '@handles'; the first entry is the primary owner, used for defaults
 # like the derived Slack channel (see the `teams:` registry below).
+# A single owner can be written bare: `owners: team-error-tracking`.
 # Owners are tagged for review (non-blocking) and are the answer to
 # "who owns this path".
 owners: [team-error-tracking, '@pauldambra']
@@ -103,7 +104,7 @@ The 90% case is two lines:
 ```yaml
 # rust/owners.yaml
 version: 1
-owners: [team-ingestion]
+owners: team-ingestion
 ```
 
 ### `product.yaml` as an accepted alias

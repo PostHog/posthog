@@ -2,4 +2,4 @@ version: 1
 owners: []
 rules:
     - match: '/*'
-      owners: [team-devex]
+      owners: team-devex

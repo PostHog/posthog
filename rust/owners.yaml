@@ -2,15 +2,15 @@ version: 1
 owners: []
 rules:
     - match: ['/behavioral_cohorts_migrations/', '/capture/']
-      owners: [team-ingestion]
+      owners: team-ingestion
     - match: '/common/cookieless/'
-      owners: [team-web-analytics]
+      owners: team-web-analytics
     - match: ['/common/symbol_data/', '/cymbal-proto/', '/cymbal/']
-      owners: [team-error-tracking]
+      owners: team-error-tracking
     - match: ['/feature-flags/', '/flags-consumer/', '/flags_read_store_migrations/']
-      owners: [team-feature-flags]
+      owners: team-feature-flags
     - match: '/hogql/'
-      owners: [team-data-tools]
+      owners: team-data-tools
     - match:
           - '/ingestion-consumer/'
           - '/kafka-assigner-proto/'
@@ -25,6 +25,6 @@ rules:
           - '/personhog-writer/'
           - '/property-defs-rs/'
           - '/property-vals-rs/'
-      owners: [team-ingestion]
+      owners: team-ingestion
     - match: '/replay-anonymizer-node/'
-      owners: [team-ai-research]
+      owners: team-ai-research
