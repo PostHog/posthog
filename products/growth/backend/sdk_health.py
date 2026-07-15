@@ -229,7 +229,7 @@ class _SdkVersionSortKey(NamedTuple):
     patch: int
     is_stable: bool
     extra: str
-    count: int
+    event_count: int
 
 
 def _sdk_version_sort_key(entry: SdkVersionEntry) -> _SdkVersionSortKey:
@@ -243,7 +243,7 @@ def _sdk_version_sort_key(entry: SdkVersionEntry) -> _SdkVersionSortKey:
             patch=0,
             is_stable=False,
             extra="",
-            count=entry["count"],
+            event_count=entry["count"],
         )
 
     return _SdkVersionSortKey(
@@ -253,7 +253,7 @@ def _sdk_version_sort_key(entry: SdkVersionEntry) -> _SdkVersionSortKey:
         patch=version.patch or 0,
         is_stable=version.extra is None,
         extra=version.extra or "",
-        count=entry["count"],
+        event_count=entry["count"],
     )
 
 
