@@ -4,11 +4,30 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import Mock, patch
 
+from django.test import SimpleTestCase
+
 from drf_spectacular.utils import OpenApiResponse
+from pydantic import BaseModel
 from rest_framework import serializers, status
+from rest_framework.exceptions import ParseError
 from rest_framework.response import Response
 
-from posthog.api.mixins import validated_request
+from posthog.api.mixins import PydanticModelMixin, validated_request
+
+
+class RequiredModel(BaseModel):
+    value: str
+
+
+class TestPydanticModelMixin(SimpleTestCase):
+    def test_validation_errors_are_returned_without_being_captured(self) -> None:
+        with (
+            patch("posthog.api.mixins.capture_exception", create=True) as capture_exception,
+            self.assertRaises(ParseError),
+        ):
+            PydanticModelMixin().get_model({}, RequiredModel)
+
+        capture_exception.assert_not_called()
 
 
 class EventCaptureRequestSerializer(serializers.Serializer):

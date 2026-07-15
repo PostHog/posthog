@@ -1068,6 +1068,14 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             return filter_group
         return {"type": "AND", "values": []}
 
+    def _parse_filter_group(self, raw_filter_group: str | None) -> PropertyGroupFilter | None:
+        if not raw_filter_group:
+            return None
+        try:
+            return self.get_model(json.loads(raw_filter_group), PropertyGroupFilter)
+        except (json.JSONDecodeError, ValueError, ParseError):
+            return None
+
     def _filtered_logs_query(self, query_data: dict) -> LogsQuery:
         """The shared date-range + filters subset of LogsQuery used by aggregation actions."""
         date_range_data = query_data.get("dateRange")
@@ -1545,10 +1553,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             serviceNames = json.loads(request.GET.get("serviceNames", "[]"))
         except json.JSONDecodeError:
             serviceNames = []
-        try:
-            filterGroup = self.get_model(json.loads(request.GET.get("filterGroup", "{}")), PropertyGroupFilter)
-        except (json.JSONDecodeError, ValidationError, ValueError, ParseError):
-            filterGroup = None
+        filterGroup = self._parse_filter_group(request.GET.get("filterGroup"))
 
         attributeType = request.GET.get("attribute_type", "log")
         # I don't know why went with 'log' and 'resource' not 'log_attribute' and 'log_resource_attribute'
@@ -1618,10 +1623,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                 serviceNames = json.loads(request.GET.get("serviceNames", "[]"))
             except json.JSONDecodeError:
                 serviceNames = []
-            try:
-                filterGroup = self.get_model(json.loads(request.GET.get("filterGroup", "{}")), PropertyGroupFilter)
-            except (json.JSONDecodeError, ValidationError, ValueError, ParseError):
-                filterGroup = None
+            filterGroup = self._parse_filter_group(request.GET.get("filterGroup"))
 
             attributeType = request.GET.get("attribute_type", "log")
             # I don't know why went with 'log' and 'resource' not 'log_attribute' and 'log_resource_attribute'
