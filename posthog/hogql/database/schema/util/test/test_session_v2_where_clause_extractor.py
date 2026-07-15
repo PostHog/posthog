@@ -787,6 +787,7 @@ class TestDirectSessionIdInPushdownV2(ClickhouseTestMixin, APIBaseTest):
     def test_multi_column_subquery_fails_open_without_neutralizing(self):
         node = parse("SELECT session_id FROM sessions WHERE session_id IN (SELECT $session_id, event FROM events)")
         assert isinstance(node, ast.SelectQuery)
+        assert node.where is not None
         where_before = clone_expr(node.where, clear_types=True, clear_locations=True)
         modifiers = create_default_modifiers_for_team(self.team)
         modifiers.sessionIdPushdown = True
@@ -795,7 +796,9 @@ class TestDirectSessionIdInPushdownV2(ClickhouseTestMixin, APIBaseTest):
         assert build_direct_session_id_in_pushdown(node, context) is None
         # Fail-open must leave the original predicate intact — neutralizing it
         # without returning a replacement would drop the filter entirely.
-        assert clone_expr(node.where, clear_types=True, clear_locations=True) == where_before
+        where_after = node.where
+        assert where_after is not None
+        assert clone_expr(where_after, clear_types=True, clear_locations=True) == where_before
 
     def test_v3_sessions_are_not_rewritten(self):
         with_pushdown = self.print_query(self.ID_SUBQUERY_SHAPE, pushdown=True, version=SessionTableVersion.V3)
