@@ -112,7 +112,7 @@ export interface _BucketBreakdownRowApi {
     event_count: number
     /** Total cost in USD in this bucket (sum of `$ai_total_cost_usd`). Authoritative: the component columns below can sum to less than this when the cost breakdown was unavailable for some events; render any remainder as uncategorized rather than assuming the components reconcile. */
     cost_usd: number
-    /** Cost of uncached (full-price) input tokens in USD (sum of `$ai_input_cost_usd`). */
+    /** Cost of uncached (full-price) input tokens in USD (sum of `$ai_input_cost_usd`). Only a true uncached split when the event carried a gateway-provided cost breakdown; events priced by PostHog's ingestion pipeline fold cache costs into this figure and leave the cache columns at 0. */
     input_cost_usd: number
     /** Cost of output tokens in USD (sum of `$ai_output_cost_usd`). */
     output_cost_usd: number
