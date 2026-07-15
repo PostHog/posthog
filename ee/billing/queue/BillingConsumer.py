@@ -255,6 +255,7 @@ class BillingConsumer(SQSConsumer):
             scope="Billing",
             activity=activity,
             detail=Detail(name=detail_data.get("name"), changes=changes),
+            ip_address=body.get("ip_address"),
         )
 
         # This SQS message exists only to create the audit row. log_activity swallows write

@@ -21,7 +21,7 @@ from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, OrganizationIntegration, Team
 from posthog.models.organization import OrganizationMembership
-from posthog.utils import relative_date_parse
+from posthog.utils import get_ip_address, relative_date_parse
 
 from ee.billing.billing_manager import BillingManager
 from ee.models import License
@@ -103,7 +103,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         user = (
             self.request.user if isinstance(self.request.user, AbstractUser) and self.request.user.distinct_id else None
         )
-        return BillingManager(license, user)
+        return BillingManager(license, user, ip_address=get_ip_address(self.request))
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         license = get_cached_instance_license()

@@ -70,6 +70,7 @@ class TestBillingConsumerBillingActivity(BaseTest):
                 ],
             },
             "event_id": "evt-1",
+            "ip_address": "203.0.113.7",
         }
         message.update(overrides)
         return message
@@ -84,6 +85,7 @@ class TestBillingConsumerBillingActivity(BaseTest):
         assert log.is_system is False
         assert log.item_id == str(self.organization.id)
         assert log.activity == "updated"
+        assert log.ip_address == "203.0.113.7"
         assert log.detail is not None
         assert log.detail["changes"][0]["field"] == "product_analytics"
         assert log.detail["changes"][0]["after"] == 1000
