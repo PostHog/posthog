@@ -2204,17 +2204,45 @@ class MyFlagsQuerySerializer(serializers.Serializer):
     groups = GroupsJSONField()
 
 
+class FlagKeysField(serializers.ListField):
+    """
+    ListField that also accepts a single JSON-array string.
+
+    MCP clients JSON-stringify array query params into one value (e.g. `flag_keys=["a","b"]`),
+    while browsers/curl send repeated params (`flag_keys=a&flag_keys=b`). Support both.
+    """
+
+    def __init__(self, **kwargs):
+        kwargs.setdefault("child", serializers.CharField())
+        kwargs.setdefault("required", False)
+        kwargs.setdefault("allow_empty", True)
+        super().__init__(**kwargs)
+
+    def to_internal_value(self, data):
+        if isinstance(data, list) and len(data) == 1 and isinstance(data[0], str):
+            candidate = data[0].strip()
+            if candidate.startswith("["):
+                try:
+                    parsed = json.loads(candidate)
+                except json.JSONDecodeError:
+                    raise serializers.ValidationError("Invalid JSON in flag_keys parameter")
+                if not isinstance(parsed, list):
+                    raise serializers.ValidationError("flag_keys must be a JSON array")
+                data = parsed
+
+        return super().to_internal_value(data)
+
+
 class EvaluationReasonsQuerySerializer(serializers.Serializer):
     distinct_id = serializers.CharField(required=True, help_text="User distinct ID")
     groups = GroupsJSONField()
-    flag_keys = serializers.ListField(
-        child=serializers.CharField(),
-        required=False,
-        allow_empty=True,
+    flag_keys = FlagKeysField(
         help_text=(
             "Optional list of flag keys to scope the response to. When omitted, evaluation reasons are "
             "returned for every flag in the project, which can be a very large payload on projects with "
-            "many flags. Pass the specific flag(s) you are debugging to keep the response small."
+            "many flags. Pass the specific flag(s) you are debugging to keep the response small. Accepts "
+            "either repeated query params (flag_keys=a&flag_keys=b) or a JSON array string "
+            '(flag_keys=["a","b"]).'
         ),
     )
 
