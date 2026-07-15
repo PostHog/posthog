@@ -429,7 +429,10 @@ class TestExtensiveCalls:
                 )
             )
 
-        assert batches == [[{"id": "c1", "parties": None, "context": None}], [{"id": "c2", "parties": None, "context": None}]]
+        assert batches == [
+            [{"id": "c1", "parties": None, "context": None}],
+            [{"id": "c2", "parties": None, "context": None}],
+        ]
         # The cursor is sent in the second request's body, never as a query param.
         assert session.posted_bodies[1]["cursor"] == "page2"
         assert all("?" not in url for url in session.requested_urls)
