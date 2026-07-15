@@ -22,6 +22,8 @@ import {
 import { initKeaTests } from '~/test/init'
 import { BaseMathType, InsightShortId } from '~/types'
 
+import { attachedContextLogic } from 'products/posthog_ai/frontend/api/logics'
+
 import { EditorFilters } from './EditorFilters'
 
 // MaxTool has AI integration that requires additional setup — render children directly in tests
@@ -90,8 +92,10 @@ function makePathsQuery(): PathsQuery {
 }
 
 function setupAndRender(
-    query: TrendsQuery | LifecycleQuery | StickinessQuery | RetentionQuery | FunnelsQuery | PathsQuery
-): void {
+    query: TrendsQuery | LifecycleQuery | StickinessQuery | RetentionQuery | FunnelsQuery | PathsQuery,
+    showing = true,
+    embedded = false
+): ReturnType<typeof render> {
     insightLogic(insightProps).mount()
     insightDataLogic(insightProps).mount()
     funnelDataLogic(insightProps).mount()
@@ -99,10 +103,10 @@ function setupAndRender(
     vizDataLogic.mount()
     vizDataLogic.actions.updateQuerySource(query)
 
-    render(
+    return render(
         <Provider>
             <BindLogic logic={insightLogic} props={insightProps}>
-                <EditorFilters query={query} showing embedded={false} />
+                <EditorFilters query={query} showing={showing} embedded={embedded} />
             </BindLogic>
         </Provider>
     )
@@ -175,6 +179,32 @@ describe('EditorFilters', () => {
     it('hides formula mode toggle for trends', () => {
         setupAndRender(makeTrendsQuery())
         expect(screen.queryByText('Enable formula mode')).not.toBeInTheDocument()
+    })
+
+    it('only attaches query context while the editor is visible and not embedded', () => {
+        const query = makeTrendsQuery()
+        const { rerender } = setupAndRender(query)
+        const renderEditorFilters = (showing: boolean, embedded: boolean): JSX.Element => (
+            <Provider>
+                <BindLogic logic={insightLogic} props={insightProps}>
+                    <EditorFilters query={query} showing={showing} embedded={embedded} />
+                </BindLogic>
+            </Provider>
+        )
+
+        expect(attachedContextLogic.findMounted()?.values.contextItems).toEqual([
+            {
+                type: 'insight_query',
+                value: JSON.stringify(insightVizDataLogic(insightProps).values.querySource),
+                label: 'Current query',
+            },
+        ])
+
+        rerender(renderEditorFilters(false, false))
+        expect(attachedContextLogic.findMounted()?.values.contextItems).toEqual([])
+
+        rerender(renderEditorFilters(true, true))
+        expect(attachedContextLogic.findMounted()?.values.contextItems).toEqual([])
     })
 
     it('expands advanced options section on click', async () => {

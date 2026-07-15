@@ -218,6 +218,7 @@ export interface CopyFlagsRequestApi {
     from_project: number
     /**
      * List of target project IDs to copy the flag to
+     * @minItems 1
      * @maxItems 50
      */
     target_project_ids: number[]
@@ -225,6 +226,8 @@ export interface CopyFlagsRequestApi {
     copy_schedule?: boolean
     /** Whether to force the copied flag to be disabled in target projects, ignoring the source flag's enabled status */
     disable_copied_flag?: boolean
+    /** Whether to also copy missing feature flags that this flag depends on */
+    copy_dependencies?: boolean
 }
 
 export interface CopyFlagsSuccessItemApi {
@@ -242,8 +245,12 @@ export interface CopyFlagsSuccessItemApi {
     updated_existing: boolean
     /** Warnings for flag dependencies that were dropped because no matching active flag exists in the target project */
     flag_dependency_warnings?: string[]
-    /** Warning emitted when the flag was copied but its scheduled changes failed to copy */
+    /** Warning emitted when schedules failed to copy or existing target schedules may affect the copied flag */
     schedule_copy_warning?: string
+    /** Dependency flag keys that were copied before this flag */
+    copied_dependency_keys?: string[]
+    /** Warnings emitted while copying dependency flags */
+    dependency_copy_warnings?: string[]
 }
 
 export interface CopyFlagsResultApi {
@@ -262,6 +269,39 @@ export interface CopyFlagsResponseApi {
     success: CopyFlagsSuccessItemApi[]
     /** List of failed copy attempts */
     failed: CopyFlagsResultApi[]
+}
+
+export interface ErrorResponseApi {
+    /** Error message */
+    error: string
+}
+
+export interface CopyFlagsDependencyRequirementsRequestApi {
+    /** Key of the feature flag to check */
+    feature_flag_key: string
+    /** Source project ID to copy the flag from */
+    from_project: number
+    /**
+     * List of target project IDs to check dependency copy eligibility for
+     * @minItems 1
+     * @maxItems 50
+     */
+    target_project_ids: number[]
+}
+
+export interface CopyFlagsDependencyRequirementsResponseApi {
+    /** Whether dependencies can be automatically copied */
+    can_copy_dependencies: boolean
+    /** Total number of transitive source dependency flags */
+    dependency_count: number
+    /** Dependency flag keys that would be copied because they are missing from a target project */
+    copied_dependency_keys: string[]
+    /** Dependency flag keys that already have an active same-key flag in every target project */
+    reused_dependency_keys: string[]
+    /** Reasons dependency copying is unavailable or needs user attention */
+    warnings: string[]
+    /** Primary human-readable eligibility result */
+    reason: string
 }
 
 export interface OrganizationFeatureFlagRowApi {
@@ -502,6 +542,8 @@ export interface FeatureFlagApi {
     _should_create_usage_dashboard?: boolean
     /** Check if this feature flag is used in any team's session recording linked flag setting. */
     readonly is_used_in_replay_settings: boolean
+    /** Whether this flag can back an experiment: multivariate with 2 to 20 variants. */
+    readonly is_eligible_for_experiment: boolean
 }
 
 export interface PaginatedFeatureFlagListApi {
@@ -1180,11 +1222,6 @@ export interface FeatureFlagTestEvaluationResponseApi {
     conditions: FeatureFlagConditionAnalysisApi[]
 }
 
-export interface ErrorResponseApi {
-    /** Error message */
-    error: string
-}
-
 export type FeatureFlagVersionResponseApiFilters = { [key: string]: unknown }
 
 /**
@@ -1848,6 +1885,10 @@ export type FeatureFlagsEvaluationReasonsRetrieveParams = {
      * @minLength 1
      */
     distinct_id: string
+    /**
+     * Optional list of flag keys to scope the response to. When omitted, evaluation reasons are returned for every flag in the project, which can be a very large payload on projects with many flags. Pass the specific flag(s) you are debugging to keep the response small. Accepts either repeated query params (flag_keys=a&flag_keys=b) or a JSON array string (flag_keys=["a","b"]).
+     */
+    flag_keys?: string[]
     /**
      * Groups for feature flag evaluation (JSON object string)
      */

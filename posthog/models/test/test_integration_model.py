@@ -596,6 +596,86 @@ class TestOauthIntegrationModel(BaseTest):
 
         mock_reload.assert_not_called()
 
+    def _mock_token_response(self, status_code: int, token: Optional[str]) -> MagicMock:
+        response = MagicMock()
+        response.status_code = status_code
+        response.json.return_value = {"access_token": token, "expires_in": 1000} if token else {}
+        response.text = "error"
+        return response
+
+    @parameterized.expand(
+        [
+            # Primary works: the fallback must not fire, even when configured.
+            ("primary_ok", True, [(200, "primary-token")], "primary-token", "", 1),
+            # A token issued by the previous app only refreshes with the fallback pair.
+            ("fallback_rescues", True, [(401, None), (200, "fallback-token")], "fallback-token", "", 2),
+            # Both credentials failing still marks the integration errored so the reconnect banner shows.
+            ("both_fail", True, [(401, None), (401, None)], None, "TOKEN_REFRESH_FAILED", 2),
+            # Without a fallback configured, behavior is identical to before: a single attempt, no retry.
+            ("no_fallback_no_retry", False, [(401, None)], None, "TOKEN_REFRESH_FAILED", 1),
+        ]
+    )
+    def test_refresh_falls_back_to_previous_credentials(
+        self, _name, has_fallback, responses, expected_token, expected_errors, expected_calls
+    ):
+        fallbacks = {"bing-ads": {"client_id": "old-app-id", "client_secret": "old-app-secret"}} if has_fallback else {}
+        integration = self.create_integration(kind="bing-ads", config={"expires_in": 1000})
+
+        with (
+            self.settings(
+                BING_ADS_CLIENT_ID="new-app-id",
+                BING_ADS_CLIENT_SECRET="new-app-secret",
+                OAUTH_CLIENT_FALLBACKS=fallbacks,
+            ),
+            patch("posthog.models.integration.reload_integrations_on_workers"),
+            patch(
+                "posthog.models.integration.requests.post",
+                side_effect=[self._mock_token_response(status, token) for status, token in responses],
+            ) as mock_post,
+        ):
+            OauthIntegration(integration).refresh_access_token()
+
+        integration.refresh_from_db()
+        assert mock_post.call_count == expected_calls
+        assert integration.errors == expected_errors
+        if expected_token is not None:
+            assert integration.sensitive_config["access_token"] == expected_token
+
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("posthog.models.integration.requests.post")
+    def test_refresh_network_error_marks_failed_without_raising(self, mock_post, mock_reload):
+        # A timeout must not escape refresh_access_token: the Celery sweep would error out before
+        # recording the failure, leaving the integration without a backoff or the reconnect state.
+        mock_post.side_effect = requests.Timeout("timed out")
+        integration = self.create_integration(kind="bing-ads", config={"expires_in": 1000})
+
+        with self.settings(BING_ADS_CLIENT_ID="new-app-id", BING_ADS_CLIENT_SECRET="new-app-secret"):
+            OauthIntegration(integration).refresh_access_token()
+
+        integration.refresh_from_db()
+        assert integration.errors == "TOKEN_REFRESH_FAILED"
+        assert integration.config.get("refresh_failure_count") == 1
+        assert integration.config.get("refresh_next_attempt_at")
+
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("posthog.models.integration.requests.post")
+    def test_refresh_primary_network_error_still_tries_fallback(self, mock_post, mock_reload):
+        # A network error on the primary credentials must not skip the fallback attempt.
+        mock_post.side_effect = [requests.Timeout("timed out"), self._mock_token_response(200, "fallback-token")]
+        integration = self.create_integration(kind="bing-ads", config={"expires_in": 1000})
+
+        with self.settings(
+            BING_ADS_CLIENT_ID="new-app-id",
+            BING_ADS_CLIENT_SECRET="new-app-secret",
+            OAUTH_CLIENT_FALLBACKS={"bing-ads": {"client_id": "old-app-id", "client_secret": "old-app-secret"}},
+        ):
+            OauthIntegration(integration).refresh_access_token()
+
+        integration.refresh_from_db()
+        assert mock_post.call_count == 2
+        assert integration.errors == ""
+        assert integration.sensitive_config["access_token"] == "fallback-token"
+
     @patch("posthog.models.integration.reload_integrations_on_workers")
     @patch("posthog.models.integration.requests.post")
     def test_refresh_access_token_resets_errors(self, mock_post, mock_reload):
@@ -770,15 +850,19 @@ class TestOauthIntegrationModel(BaseTest):
 
     @parameterized.expand(
         [
-            ("invalid_grant", 400, {"error": "invalid_grant"}, "invalid_grant"),
-            ("invalid_client", 401, {"error": "invalid_client"}, "invalid_client"),
-            ("server_error", 502, {}, "http_5xx"),
-            ("other_4xx", 400, {"error": "temporarily_unavailable"}, "other"),
-            ("non_string_error", 400, {"error": {"code": 1}}, "other"),
+            ("invalid_grant", 400, {"error": "invalid_grant"}, None, "invalid_grant"),
+            ("invalid_client", 401, {"error": "invalid_client"}, None, "invalid_client"),
+            ("server_error", 502, {}, None, "http_5xx"),
+            ("other_4xx", 400, {"error": "temporarily_unavailable"}, None, "other"),
+            ("non_string_error", 400, {"error": {"code": 1}}, None, "other"),
+            ("reddit_dead_grant_shape", 400, {"message": "Bad Request", "error": 400}, "reddit-ads", "invalid_grant"),
+            ("reddit_shape_on_other_kind", 400, {"message": "Bad Request", "error": 400}, "hubspot", "other"),
+            ("reddit_5xx", 502, {"message": "Bad Gateway", "error": 502}, "reddit-ads", "http_5xx"),
+            ("reddit_oauth_error_code", 400, {"error": "invalid_grant"}, "reddit-ads", "invalid_grant"),
         ]
     )
-    def test_oauth_refresh_failure_reason(self, _name, status_code, body, expected):
-        assert oauth_refresh_failure_reason(status_code, body) == expected
+    def test_oauth_refresh_failure_reason(self, _name, status_code, body, kind, expected):
+        assert oauth_refresh_failure_reason(status_code, body, kind=kind) == expected
 
     @patch("posthog.models.integration.requests.post")
     def test_reconnect_clears_backoff_state(self, mock_post):

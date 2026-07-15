@@ -40,6 +40,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
+    supported_versions = ("2025-10",)
+    default_version = "2025-10"
+    api_docs_url = "https://shopify.dev/docs/api/release-notes"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

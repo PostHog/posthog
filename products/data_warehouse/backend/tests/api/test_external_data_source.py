@@ -1,7 +1,7 @@
 import json
 import uuid
 import typing as t
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import cast
 
 from freezegun import freeze_time
@@ -63,6 +63,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources import Sou
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery import BigQuerySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     FieldType,
+    VersionDeprecation,
     WebhookCreationResult,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
@@ -101,6 +102,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.settings import (
     ENDPOINTS as STRIPE_ENDPOINTS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import StripeSource
+
+
+def _configure_source_mock_versioning(mock_get_source) -> None:
+    """Tests that patch `SourceRegistry.get_source` with a bare MagicMock must give the versioning
+    attributes real values: the create path persists `default_version` into the `api_version`
+    column, and the serializer renders `get_version_deprecation` into the response."""
+    mock_get_source.return_value.default_version = "v1"
+    mock_get_source.return_value.get_version_deprecation.return_value = None
 
 
 class TestExternalDataSource(APIBaseTest):
@@ -177,6 +187,78 @@ class TestExternalDataSource(APIBaseTest):
             ExternalDataSchema.objects.filter(source_id=payload["id"]).count(),
             len(STRIPE_ENDPOINTS),
         )
+        # new sources are pinned to the source type's default vendor API version at creation,
+        # so a later default flip never changes their sync behavior
+        source = ExternalDataSource.objects.get(id=payload["id"])
+        self.assertEqual(source.api_version, "2024-09-30.acacia")
+
+    def test_api_version_pin_is_read_only_via_api(self):
+        source = self._create_external_data_source()
+        original_pin = source.api_version
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}",
+            data={"api_version": "2099-01-01", "prefix": source.prefix},
+        )
+        assert response.status_code == 200, response.json()
+        source.refresh_from_db()
+        assert source.api_version == original_pin
+
+    def test_api_version_deprecation_surfaces_for_deprecated_pin(self):
+        source = self._create_external_data_source()
+        source.api_version = "2024-09-30.acacia"
+        source.save(update_fields=["api_version"])
+
+        with (
+            patch.object(StripeSource, "supported_versions", ("2024-09-30.acacia", "2026-02-25.clover")),
+            patch.object(StripeSource, "default_version", "2026-02-25.clover"),
+            patch.object(
+                StripeSource,
+                "deprecated_versions",
+                (VersionDeprecation(version="2024-09-30.acacia", sunset_at=date(2026, 12, 31)),),
+            ),
+        ):
+            response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/")
+
+        assert response.status_code == 200
+        assert response.json()["api_version"] == "2024-09-30.acacia"
+        assert response.json()["api_version_deprecation"] == {
+            "version": "2024-09-30.acacia",
+            "sunset_at": "2026-12-31",
+            "default_version": "2026-02-25.clover",
+        }
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_canonicalizes_incremental_field_label_to_declared_field(self, _mock_validate):
+        # Discovery surfaces Stripe's incremental field as label "created_at" / field "created";
+        # callers regularly send the label, which used to be persisted verbatim and then fail
+        # every sync with a missing-column error at cursor extraction.
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "created_via": "web",
+                "payload": {
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
+                    "schemas": [
+                        {
+                            "name": STRIPE_CUSTOMER_RESOURCE_NAME,
+                            "should_sync": True,
+                            "sync_type": "append",
+                            "incremental_field": "created_at",
+                            "incremental_field_type": "datetime",
+                        },
+                    ],
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, 201)
+        schema = ExternalDataSchema.objects.get(source_id=response.json()["id"], name=STRIPE_CUSTOMER_RESOURCE_NAME)
+        self.assertEqual(schema.sync_type_config["incremental_field"], "created")
+        self.assertEqual(schema.sync_type_config["incremental_field_type"], "integer")
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
@@ -239,6 +321,7 @@ class TestExternalDataSource(APIBaseTest):
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.sync_discover_schemas_schedule")
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
     def test_create_direct_query_source_skips_discovery_schedule(self, mock_get_source, mock_sync_discover):
+        _configure_source_mock_versioning(mock_get_source)
         # Direct-query sources resolve schemas at query time and opt out of all
         # background sync — no discovery schedule should be created.
         source_mock = mock_get_source.return_value
@@ -370,6 +453,18 @@ class TestExternalDataSource(APIBaseTest):
             # The MCP tool injects `mcp`; a wizard or PostHog Code user agent upgrades it.
             ("posthog/wizard/1.0.0", ExternalDataSource.CreatedVia.MCP, ExternalDataSource.CreatedVia.WIZARD),
             ("posthog/code 1.2.3", ExternalDataSource.CreatedVia.MCP, ExternalDataSource.CreatedVia.SELF_DRIVING),
+            # The wizard's self-driving program marks its UA distinctly → self_driving, not plain wizard.
+            (
+                "posthog/wizard; version: 1.0.0; program: self-driving",
+                ExternalDataSource.CreatedVia.MCP,
+                ExternalDataSource.CreatedVia.SELF_DRIVING,
+            ),
+            # The self-driving marker only refines the mcp upgrade — it never rewrites explicit values.
+            (
+                "posthog/wizard; version: 1.0.0; program: self-driving",
+                ExternalDataSource.CreatedVia.API,
+                ExternalDataSource.CreatedVia.API,
+            ),
             # The MCP server appends the originating client to its own UA when proxying.
             (
                 "posthog/mcp-server; version: 1.0.0; for posthog/code",
@@ -1150,7 +1245,12 @@ class TestExternalDataSource(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json(), {"message": "Prefix already exists"})
+        self.assertEqual(
+            response.json(),
+            {
+                "message": "Another source of this type already uses the prefix 'test_'. Choose a different prefix so this connection's tables don't clash."
+            },
+        )
 
     def _make_external_data_source(
         self, source_type: str = "Postgres", prefix: t.Optional[str] = None, deleted: bool = False
@@ -1191,7 +1291,7 @@ class TestExternalDataSource(APIBaseTest):
                 [("foo_", False)],
                 "foo_",
                 400,
-                "Prefix already exists",
+                "Another source of this type already uses the prefix 'foo_'. Choose a different prefix so this connection's tables don't clash.",
             ),
             (
                 "no-prefix source (null) blocks another no-prefix",
@@ -2095,6 +2195,8 @@ class TestExternalDataSource(APIBaseTest):
                 "user_access_level",
                 "supports_webhooks",
                 "supports_column_selection",
+                "api_version",
+                "api_version_deprecation",
             ],
         )
         self.assertIsNone(payload["engine"])
@@ -2124,6 +2226,8 @@ class TestExternalDataSource(APIBaseTest):
                     "row_filters": None,
                     "available_columns": [],
                     "source": None,
+                    "api_version": None,
+                    "api_version_deprecation": None,
                 }
             ],
         )
@@ -2896,6 +3000,7 @@ class TestExternalDataSource(APIBaseTest):
 
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
     def test_create_direct_postgres_preserves_numeric_as_decimal(self, mock_get_source):
+        _configure_source_mock_versioning(mock_get_source)
         source_mock = mock_get_source.return_value
         source_mock.validate_config.return_value = (True, [])
         parsed_config = Mock()
@@ -2977,6 +3082,7 @@ class TestExternalDataSource(APIBaseTest):
 
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
     def test_create_direct_postgres_does_not_require_prefix_namespace(self, mock_get_source):
+        _configure_source_mock_versioning(mock_get_source)
         ExternalDataSource.objects.create(
             team_id=self.team.pk,
             source_id=str(uuid.uuid4()),
@@ -3033,6 +3139,7 @@ class TestExternalDataSource(APIBaseTest):
 
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
     def test_create_direct_postgres_creates_only_selected_tables(self, mock_get_source):
+        _configure_source_mock_versioning(mock_get_source)
         source_mock = mock_get_source.return_value
         source_mock.validate_config.return_value = (True, [])
         parsed_config = Mock()
@@ -3110,6 +3217,7 @@ class TestExternalDataSource(APIBaseTest):
 
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
     def test_create_direct_postgres_rejects_row_filters(self, mock_get_source):
+        _configure_source_mock_versioning(mock_get_source)
         source_mock = mock_get_source.return_value
         source_mock.validate_config.return_value = (True, [])
         parsed_config = Mock()
@@ -3167,6 +3275,7 @@ class TestExternalDataSource(APIBaseTest):
     def test_create_direct_postgres_blank_schema_prefixes_table_names_and_preserves_physical_schema(
         self, mock_get_source
     ):
+        _configure_source_mock_versioning(mock_get_source)
         source_mock = mock_get_source.return_value
         source_mock.validate_config.return_value = (True, [])
         parsed_config = Mock()
@@ -3266,6 +3375,7 @@ class TestExternalDataSource(APIBaseTest):
         mock_add_table,
         _mock_is_cdc_enabled_for_team,
     ):
+        _configure_source_mock_versioning(mock_get_source)
         source_mock = mock_get_source.return_value
         source_mock.validate_config.return_value = (True, [])
         parsed_config = Mock()
@@ -3365,6 +3475,7 @@ class TestExternalDataSource(APIBaseTest):
         mock_add_table,
         _mock_is_cdc_enabled_for_team,
     ):
+        _configure_source_mock_versioning(mock_get_source)
         # A CDC source discovers every table, but the user only enables a few. Tables the user
         # didn't enable haven't had a sync method set up, so they must be created with a blank
         # sync_type (the schemas UI keys off this to prompt setup). Only the enabled table gets
@@ -3485,6 +3596,7 @@ class TestExternalDataSource(APIBaseTest):
         mock_add_table,
         _mock_is_cdc_enabled_for_team,
     ):
+        _configure_source_mock_versioning(mock_get_source)
         # CDC (logical replication) cannot identify rows on UPDATE/DELETE without a primary key.
         # Frontend gates on `supports_cdc`, but the backend must enforce too — direct API/MCP
         # callers, or a UI that lost track of `supports_cdc`, would otherwise create a schema
@@ -3571,6 +3683,7 @@ class TestExternalDataSource(APIBaseTest):
         _mock_is_cdc_enabled_for_team,
         mock_capture_exception,
     ):
+        _configure_source_mock_versioning(mock_get_source)
         # Credential validation connects with sslmode=prefer (falls back to unencrypted), but the
         # CDC primary-key detection connection requires SSL. A database that doesn't support SSL
         # raises SSLRequiredError here — a user/upstream connection problem, not a bug. It must
@@ -3650,6 +3763,7 @@ class TestExternalDataSource(APIBaseTest):
         mock_setup_cdc_resources,
         _mock_is_cdc_enabled_for_team,
     ):
+        _configure_source_mock_versioning(mock_get_source)
         # If the user never toggled CDC on at the source-setup step, `payload.cdc_enabled` is
         # False and `_setup_cdc_resources` never runs — so no replication slot/publication exists
         # on the source. Accepting per-schema `sync_type=cdc` in that state would persist
@@ -3730,6 +3844,7 @@ class TestExternalDataSource(APIBaseTest):
         expected_persisted: list[str] | None,
         mock_get_source,
     ):
+        _configure_source_mock_versioning(mock_get_source)
         source_mock = mock_get_source.return_value
         source_mock.validate_config.return_value = (True, [])
         parsed_config = Mock()
@@ -3818,6 +3933,7 @@ class TestExternalDataSource(APIBaseTest):
         expected_persisted: list[str] | None,
         mock_get_source,
     ):
+        _configure_source_mock_versioning(mock_get_source)
         source_mock = mock_get_source.return_value
         source_mock.validate_config.return_value = (True, [])
         parsed_config = Mock()
@@ -6116,6 +6232,7 @@ class TestExternalDataSource(APIBaseTest):
 
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
     def test_update_direct_postgres_schema_filter_refreshes_existing_schemas(self, mock_get_source):
+        _configure_source_mock_versioning(mock_get_source)
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
             source_id=str(uuid.uuid4()),
@@ -6198,6 +6315,7 @@ class TestExternalDataSource(APIBaseTest):
     def test_update_direct_postgres_schema_filter_preserves_selected_table_for_same_physical_schema(
         self, mock_get_source
     ):
+        _configure_source_mock_versioning(mock_get_source)
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
             source_id=str(uuid.uuid4()),
@@ -10750,6 +10868,61 @@ class TestExternalDataSourceSetup(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "is for 'Stripe'" in response.json()["message"]
+
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.ensure_person_join")
+    @patch("products.data_modeling.backend.models.datawarehouse_managed_viewset.DataWarehouseManagedViewSet.sync_views")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_with_stored_credential_targets_only_requested_schemas_and_consumes_it(
+        self, mock_validate, _mock_sync_views, _mock_person_join
+    ):
+        credential = self._store_stripe_credential()
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "payload": {
+                    "credential_id": str(credential.pk),
+                    "schemas": [
+                        {"name": STRIPE_CUSTOMER_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                    ],
+                },
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        source = ExternalDataSource.objects.get(pk=response.json()["id"])
+        # The stored secret was merged in server-side and used for validation.
+        assert mock_validate.call_args.args[0].auth_method.stripe_secret_key == "sk_test_stored"
+        # Unlike setup, create honors the caller's schemas: only the requested table syncs.
+        should_sync = {s.name: s.should_sync for s in ExternalDataSchema.objects.filter(source_id=source.pk)}
+        assert should_sync.get(STRIPE_CUSTOMER_RESOURCE_NAME) is True
+        assert should_sync.get(STRIPE_SUBSCRIPTION_RESOURCE_NAME) in (False, None)
+        # Stored credentials are single-use — consumed on successful create.
+        assert not PendingSourceCredential.objects.for_team(self.team.pk).exists()
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(False, "Invalid Stripe API key"),
+    )
+    def test_create_with_stored_credential_failure_keeps_it(self, _mock_validate):
+        credential = self._store_stripe_credential()
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "payload": {
+                    "credential_id": str(credential.pk),
+                    "schemas": [
+                        {"name": STRIPE_CUSTOMER_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                    ],
+                },
+            },
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert PendingSourceCredential.objects.for_team(self.team.pk).filter(pk=credential.pk).exists()
 
 
 class TestExternalDataSourceStoreCredentials(APIBaseTest):

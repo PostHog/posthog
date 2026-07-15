@@ -130,6 +130,7 @@ CREATE TABLE posthog.distributed_system_processes (
   client_version_major UInt64,
   client_version_minor UInt64,
   client_version_patch UInt64,
+  client_agent LowCardinality(String),
   http_method UInt8,
   http_user_agent String,
   http_referer String,

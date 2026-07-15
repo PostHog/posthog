@@ -57,6 +57,24 @@ if TYPE_CHECKING:
 REVENUECAT_API_KEYS_URL = "https://app.revenuecat.com/projects/_/api-keys"
 
 
+# Event-payload fields RevenueCat documents as doubles. JSON drops the decimal point on
+# whole values (`0`, `20`), so they parse as Python ints, and events like TRANSFER carry
+# them as nulls. If the batch that creates the Delta table holds only whole values, the
+# column gets locked to int64 and the first fractional price (e.g. 19.99) fails every
+# subsequent sync with an Arrow truncation error; if it holds only nulls, the column is
+# stored as string (Delta has no null type) and later prices are silently stringified.
+# Force these columns to double so neither can happen.
+_EVENT_DOUBLE_FIELDS = (
+    "price",
+    "price_in_purchased_currency",
+    "takehome_percentage",
+    "tax_percentage",
+    "commission_percentage",
+    "discount_percentage",
+    "discount_amount",
+)
+
+
 def _webhook_table_transformer(table: pa.Table) -> pa.Table:
     """Unwrap RevenueCat's ``{"event": {...}, "api_version": "1.0"}`` envelope.
 
@@ -68,7 +86,10 @@ def _webhook_table_transformer(table: pa.Table) -> pa.Table:
     We also derive a ``created_at`` field (Unix seconds) from RevenueCat's
     ``event_timestamp_ms`` so this table can share the same datetime partition
     convention as the API endpoints. The original ``event_timestamp_ms`` is
-    preserved unchanged for callers that need sub-second precision.
+    preserved unchanged for callers that need sub-second precision. Columns
+    documented as doubles are forced to float64 so whole-valued or all-null
+    batches can't pin them to an integer or string type (see
+    ``_EVENT_DOUBLE_FIELDS``).
     """
     if "event" not in table.column_names:
         return table_from_py_list([])
@@ -92,7 +113,23 @@ def _webhook_table_transformer(table: pa.Table) -> pa.Table:
             row["created_at"] = event_ts_ms // 1000
         rows.append(row)
 
-    return table_from_py_list(rows)
+    result = table_from_py_list(rows)
+
+    # Cast at the table level rather than per value: an all-null column carries no values
+    # to coerce, yet still needs the float64 type or it infers `null` (stored as string).
+    for field_name in _EVENT_DOUBLE_FIELDS:
+        if field_name not in result.column_names:
+            continue
+        field_index = result.schema.get_field_index(field_name)
+        column_type = result.schema.field(field_index).type
+        if pa.types.is_null(column_type) or pa.types.is_integer(column_type):
+            result = result.set_column(
+                field_index,
+                pa.field(field_name, pa.float64()),
+                result.column(field_name).cast(pa.float64()),
+            )
+
+    return result
 
 
 @SourceRegistry.register
@@ -101,6 +138,9 @@ class RevenueCatSource(
     WebhookSource[RevenueCatSourceConfig],
 ):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://www.revenuecat.com/docs/api-v2"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -214,6 +254,12 @@ class RevenueCatSource(
             ),
             "404 Client Error: Not Found": (
                 "RevenueCat could not find the project. Double-check the project id and that the API key belongs to it."
+            ),
+            "Source column type changed": (
+                "A column in this table started receiving values that don't fit the type stored from "
+                "earlier syncs (for example a price column created from whole-number values now "
+                "receiving a decimal price). We can't widen an existing column in place — reset and "
+                "fully re-sync this table to adopt the new type."
             ),
         }
 

@@ -1,4 +1,4 @@
-import equal from 'fast-deep-equal'
+import { deepEqual as equal } from 'fast-equals'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { SelectedQuickFilter, quickFiltersSectionLogic } from 'lib/components/QuickFilters'

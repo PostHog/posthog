@@ -2,6 +2,7 @@ from datetime import timedelta
 
 from posthog.test.base import BaseTest
 
+from django.conf import settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -78,8 +79,8 @@ class TestVisionActionAlerts(BaseTest):
 
     def test_count_alert_fires_and_persists_deterministic_message(self) -> None:
         scanner = self._scanner()
-        self._observation(scanner, {"verdict": "yes", "reasoning": "user hit the bug"})
-        self._observation(scanner, {"verdict": "yes", "reasoning": "again"}, session_id="s2")
+        older = self._observation(scanner, {"verdict": "yes", "reasoning": "user hit the bug"}, age_days=0.01)
+        newest = self._observation(scanner, {"verdict": "yes", "reasoning": "again"}, session_id="s2")
         action = self._alert(scanner, {"metric": "count", "threshold": 2})
 
         result, run = self._evaluate(action)
@@ -88,12 +89,36 @@ class TestVisionActionAlerts(BaseTest):
         self.assertEqual(result.observation_count, 2)
         self.assertEqual(result.metric_value, 2.0)
         run.refresh_from_db()
-        self.assertIn("Alert: watcher", run.synthesized_markdown)
+        run_url = f"{settings.SITE_URL}/project/{self.team.id}/replay-vision/actions/{action.id}/runs/{run.pk}"
+        self.assertIn(f"Alert: [watcher]({run_url})", run.synthesized_markdown)
         self.assertIn("over the last 24 hours", run.synthesized_markdown)
         self.assertIn("at or above the threshold of 2", run.synthesized_markdown)
         self.assertIn("2 observations matched", run.synthesized_markdown)
-        self.assertTrue(run.output["slack"])
-        self.assertEqual(len(run.observation_ids), 2)
+        # Example lines cite observations by their position in observation_ids (newest first), so the
+        # in-app view and the Slack pass both resolve each citation to the right observation.
+        self.assertEqual(run.observation_ids, [str(newest.id), str(older.id)])
+        self.assertIn("[obs 1]", run.synthesized_markdown)
+        self.assertIn("[obs 2]", run.synthesized_markdown)
+        self.assertIn(f"<{run_url}|watcher>", run.output["slack"])
+        self.assertIn(f"/observations/{newest.id}|[1]>", run.output["slack"])
+        self.assertIn(f"/observations/{older.id}|[2]>", run.output["slack"])
+        # Every match is already listed, so there's no "see all" overflow link to add noise.
+        self.assertNotIn("See all", run.synthesized_markdown)
+
+    def test_many_matches_list_only_examples_and_link_to_the_run(self) -> None:
+        scanner = self._scanner()
+        for i in range(7):
+            self._observation(scanner, {"verdict": "yes"}, session_id=f"s{i}")
+        action = self._alert(scanner, {"metric": "count", "threshold": 7})
+
+        result, run = self._evaluate(action)
+
+        self.assertEqual(result.status, AlertStatus.FIRED)
+        run.refresh_from_db()
+        self.assertEqual(run.synthesized_markdown.count("- ("), 5)
+        run_url = f"{settings.SITE_URL}/project/{self.team.id}/replay-vision/actions/{action.id}/runs/{run.pk}"
+        self.assertIn(f"[See all 7 matches]({run_url})", run.synthesized_markdown)
+        self.assertIn(f"<{run_url}|See all 7 matches>", run.output["slack"])
 
     @parameterized.expand(
         [

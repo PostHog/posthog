@@ -911,6 +911,10 @@ class FeatureFlagSerializer(
         queryset=Dashboard.objects.all(),
     )
     is_used_in_replay_settings = serializers.SerializerMethodField()
+    is_eligible_for_experiment = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether this flag can back an experiment: multivariate with 2 to 20 variants.",
+    )
 
     name = serializers.CharField(
         required=False,
@@ -968,6 +972,7 @@ class FeatureFlagSerializer(
             "_create_in_folder",
             "_should_create_usage_dashboard",
             "is_used_in_replay_settings",
+            "is_eligible_for_experiment",
         ]
 
     def get_can_edit(self, feature_flag: FeatureFlag) -> bool:
@@ -2236,9 +2241,47 @@ class MyFlagsQuerySerializer(serializers.Serializer):
     groups = GroupsJSONField()
 
 
+class FlagKeysField(serializers.ListField):
+    """
+    ListField that also accepts a single JSON-array string.
+
+    MCP clients JSON-stringify array query params into one value (e.g. `flag_keys=["a","b"]`),
+    while browsers/curl send repeated params (`flag_keys=a&flag_keys=b`). Support both.
+    """
+
+    def __init__(self, **kwargs):
+        kwargs.setdefault("child", serializers.CharField())
+        kwargs.setdefault("required", False)
+        kwargs.setdefault("allow_empty", True)
+        super().__init__(**kwargs)
+
+    def to_internal_value(self, data):
+        if isinstance(data, list) and len(data) == 1 and isinstance(data[0], str):
+            candidate = data[0].strip()
+            if candidate.startswith("["):
+                try:
+                    parsed = json.loads(candidate)
+                except json.JSONDecodeError:
+                    raise serializers.ValidationError("Invalid JSON in flag_keys parameter")
+                if not isinstance(parsed, list):
+                    raise serializers.ValidationError("flag_keys must be a JSON array")
+                data = parsed
+
+        return super().to_internal_value(data)
+
+
 class EvaluationReasonsQuerySerializer(serializers.Serializer):
     distinct_id = serializers.CharField(required=True, help_text="User distinct ID")
     groups = GroupsJSONField()
+    flag_keys = FlagKeysField(
+        help_text=(
+            "Optional list of flag keys to scope the response to. When omitted, evaluation reasons are "
+            "returned for every flag in the project, which can be a very large payload on projects with "
+            "many flags. Pass the specific flag(s) you are debugging to keep the response small. Accepts "
+            "either repeated query params (flag_keys=a&flag_keys=b) or a JSON array string "
+            '(flag_keys=["a","b"]).'
+        ),
+    )
 
 
 class ActivityQuerySerializer(serializers.Serializer):
@@ -3683,12 +3726,15 @@ class FeatureFlagViewSet(
         if isinstance(groups, str):
             groups = json.loads(groups) if groups else {}
 
+        flag_keys = request.validated_query_data.get("flag_keys") or None
+
         # PostHog UI debug endpoint, not customer SDK traffic. Pass the internal
         # token so the call bypasses per-team billing.
         result = get_flags_from_service(
             token=self.team.api_token,
             distinct_id=distinct_id,
             groups=groups,
+            flag_keys=flag_keys,
             evaluation_runtime="all",
             internal_request_token=settings.INTERNAL_REQUEST_TOKEN,
         )
@@ -3711,9 +3757,10 @@ class FeatureFlagViewSet(
                 },
             }
 
-        disabled_flags = FeatureFlag.objects.filter(team__project_id=self.project_id, active=False).values_list(
-            "key", flat=True
-        )
+        disabled_flags_qs = FeatureFlag.objects.filter(team__project_id=self.project_id, active=False)
+        if flag_keys:
+            disabled_flags_qs = disabled_flags_qs.filter(key__in=flag_keys)
+        disabled_flags = disabled_flags_qs.values_list("key", flat=True)
 
         for flag_key in disabled_flags:
             flags_with_evaluation_reasons[flag_key] = {
