@@ -143,9 +143,9 @@ tools:
             ci-failure-logs, for when you have a run id rather than a PR (default-branch failures, the broken-tests
             panel's latest_run_id, the run page). Each failed job returns its failure region (error lines plus
             surrounding context, with "... N lines omitted ..." markers) as ordered lines, every line carrying its
-            original 1-based line number in the full pre-thinning log. logs_available is false when the run didn't
-            fail or its logs aged out of the short Logs retention. Use ci-failure-logs instead when you have a PR
-            number and want all its runs' failures.
+            original 1-based line number in the full pre-thinning log. logs_available is false when the run didn't fail
+            or its logs aged out of the short Logs retention. Use ci-failure-logs instead when you have a PR number and
+            want all its runs' failures.
         feature_flag: engineering-analytics
     engineering-analytics-sources:
         operation: engineering_analytics_sources

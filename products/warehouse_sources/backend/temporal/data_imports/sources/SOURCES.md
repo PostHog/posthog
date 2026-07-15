@@ -217,6 +217,7 @@ the row lists both.
 | hubspot                   | HTTP                        | requests                                                        | ✅                          |
 | hugging_face              | HTTP                        | requests                                                        | ✅                          |
 | huntr                     | HTTP                        | requests                                                        | ✅                          |
+| hyperspell                | HTTP                        | requests                                                        | ✅                          |
 | imagga                    | HTTP                        | requests                                                        | ✅                          |
 | incident_io               | HTTP                        | requests                                                        | ✅                          |
 | inflowinventory           | HTTP                        | requests                                                        | ✅                          |
@@ -610,7 +611,6 @@ doesn't conflict with concurrent PRs.
 - hoorayhr
 - hubplanner
 - humanitix
-- hyperspell
 - ikas
 - illumina_basespace
 - impact

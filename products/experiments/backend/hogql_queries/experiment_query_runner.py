@@ -42,7 +42,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     ensure_precomputed,
     parse_ttl_schedule,
 )
-from products.experiments.backend.hogql_queries import CONTROL_VARIANT_KEY, MULTIPLE_VARIANT_KEY
+from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY, get_baseline_variant_key
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window, experiment_window_end
 from products.experiments.backend.hogql_queries.cuped_config import get_cuped_config
 from products.experiments.backend.hogql_queries.error_handling import experiment_error_handler
@@ -199,7 +199,7 @@ class ExperimentQueryRunner(QueryRunner):
         ]
 
         stats_config = self.experiment.stats_config or {}
-        self.baseline_variant_key = stats_config.get("baseline_variant_key", CONTROL_VARIANT_KEY)
+        self.baseline_variant_key = get_baseline_variant_key(stats_config, self.variants)
 
         self.date_range = experiment_window(self.experiment, self.team, self.as_of)
         self.date_range_query = QueryDateRange(

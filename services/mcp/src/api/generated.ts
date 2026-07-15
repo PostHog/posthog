@@ -24018,7 +24018,7 @@ export namespace Schemas {
      * A single multivariate variant. Extra per-variant keys are dropped.
      */
     export interface ExperimentFlagVariant {
-      /** Unique variant key. Exactly one variant must use the key 'control' (the baseline). */
+      /** Unique variant key. The baseline defaults to the variant keyed 'control' when present, else the first variant. */
       key: string;
       /** Human-readable variant name. */
       name?: string;
@@ -24034,7 +24034,7 @@ export namespace Schemas {
      * Multivariate config for the experiment's feature flag.
      */
     export interface ExperimentFlagMultivariate {
-      /** Variant definitions. Exactly one variant key must be the literal string 'control'. */
+      /** Variant definitions (2 to 20). The baseline defaults to the variant keyed 'control' when present, else the first variant. */
       variants: ExperimentFlagVariant[];
     }
 
@@ -24065,7 +24065,7 @@ export namespace Schemas {
      * reach this validation.
      */
     export interface ExperimentFeatureFlagInput {
-      /** Flag config to apply: `multivariate.variants` (exactly one variant key must be the literal string 'control'), `groups` (a single group with `rollout_percentage` only; release conditions are not supported here, edit the feature flag directly), `aggregation_group_type_index`, and `payloads` (JSON-encoded strings keyed by variant key). On update, config this object omits is preserved from the linked flag's current state. */
+      /** Flag config to apply: `multivariate.variants` (2 to 20 variants; the baseline defaults to the variant keyed 'control' when present, else the first variant), `groups` (a single group with `rollout_percentage` only; release conditions are not supported here, edit the feature flag directly), `aggregation_group_type_index`, and `payloads` (JSON-encoded strings keyed by variant key). On update, config this object omits is preserved from the linked flag's current state. */
       filters?: ExperimentFeatureFlagFilters;
       /**
          * Whether the flag persists variant assignment across authentication steps.
@@ -26698,6 +26698,8 @@ export namespace Schemas {
       _should_create_usage_dashboard?: boolean;
       /** Check if this feature flag is used in any team's session recording linked flag setting. */
       readonly is_used_in_replay_settings: boolean;
+      /** Whether this flag can back an experiment: multivariate with 2 to 20 variants. */
+      readonly is_eligible_for_experiment: boolean;
     }
 
     export interface FeatureFlagConditionPropertyAnalysis {
@@ -32909,6 +32911,53 @@ export namespace Schemas {
      */
     export type LogsViewFilters = { [key: string]: unknown };
 
+    /**
+     * * `timestamp` - timestamp
+     * * `level` - level
+     * * `source` - source
+     * * `trace_id` - trace_id
+     * * `span_id` - span_id
+     * * `message` - message
+     * * `custom` - custom
+     */
+    export type LogsViewColumnTypeEnum = typeof LogsViewColumnTypeEnum[keyof typeof LogsViewColumnTypeEnum];
+
+
+    export const LogsViewColumnTypeEnum = {
+      Timestamp: 'timestamp',
+      Level: 'level',
+      Source: 'source',
+      TraceId: 'trace_id',
+      SpanId: 'span_id',
+      Message: 'message',
+      Custom: 'custom',
+    } as const;
+
+    export interface LogsViewColumn {
+      /** Client-generated stable identity for list operations (React keys, reorder). Never interpreted by the server. */
+      id: string;
+      /** Column type. Built-in types resolve client-side from log row fields; `custom` columns are computed server-side from `expression`.
+       *
+       * * `timestamp` - timestamp
+       * * `level` - level
+       * * `source` - source
+       * * `trace_id` - trace_id
+       * * `span_id` - span_id
+       * * `message` - message
+       * * `custom` - custom */
+      type: LogsViewColumnTypeEnum;
+      /** Header label override. Defaults to the built-in type's label, or to the expression for custom columns. */
+      name?: string;
+      /** Only meaningful for `type: custom`: a source-prefixed shorthand (`attributes.<key>`, `resource_attributes.<key>`, `body.<json.path>`) or a scalar HogQL expression, sent verbatim in the logs query's `customColumns`. */
+      expression?: string;
+      /**
+         * Column width in pixels (1–2000). Omitted for the default width; ignored for the flex message column.
+         * @minimum 1
+         * @maximum 2000
+         */
+      width?: number;
+    }
+
     export interface LogsView {
       readonly id: string;
       readonly short_id: string;
@@ -32916,6 +32965,11 @@ export namespace Schemas {
       name: string;
       /** Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys. */
       filters?: LogsViewFilters;
+      /**
+         * Ordered column configuration for the logs table (LogsColumnConfig[]). Order is array index. Null means the view has no column preference and the client renders its default column set. Omitting the field on update leaves the saved configuration unchanged; send null to clear it.
+         * @nullable
+         */
+      columns?: LogsViewColumn[] | null;
       pinned?: boolean;
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -43493,6 +43547,11 @@ export namespace Schemas {
       name?: string;
       /** Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys. */
       filters?: PatchedLogsViewFilters;
+      /**
+         * Ordered column configuration for the logs table (LogsColumnConfig[]). Order is array index. Null means the view has no column preference and the client renders its default column set. Omitting the field on update leaves the saved configuration unchanged; send null to clear it.
+         * @nullable
+         */
+      columns?: LogsViewColumn[] | null;
       pinned?: boolean;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
@@ -47646,6 +47705,40 @@ export namespace Schemas {
       truncated: boolean;
     }
 
+    export interface _BucketBreakdownRow {
+      /** UTC start of the time bucket the events fall in (`toStartOfInterval(timestamp, ...)`). */
+      bucket_start: string;
+      /** Number of $ai_generation + $ai_embedding events in this bucket for the scoped product. */
+      event_count: number;
+      /** Total cost in USD in this bucket (sum of `$ai_total_cost_usd`). Authoritative: the component columns below can sum to less than this when the cost breakdown was unavailable for some events; render any remainder as uncategorized rather than assuming the components reconcile. */
+      cost_usd: number;
+      /** Cost of uncached (full-price) input tokens in USD, derived per event as `$ai_input_cost_usd` minus the cache read/write costs (the stored input cost includes them), clamped at zero. The four component columns are disjoint: they sum to `cost_usd` when the full breakdown is present, so they can be stacked without double counting cache costs. */
+      input_cost_usd: number;
+      /** Cost of output tokens in USD (sum of `$ai_output_cost_usd`). */
+      output_cost_usd: number;
+      /** Cost of prompt-cache reads in USD (sum of `$ai_cache_read_cost_usd`). */
+      cache_read_cost_usd: number;
+      /** Cost of prompt-cache writes in USD (sum of `$ai_cache_creation_cost_usd`). A spike here with near-zero cache reads is the signature of a cold session being revived: the full conversation context is re-written to the cache at the cache-write rate instead of being read back cheaply. */
+      cache_creation_cost_usd: number;
+      /** Sum of `$ai_input_tokens` in this bucket. Whether cached tokens are included follows the provider's reporting (`$ai_cache_reporting_exclusive`): Anthropic-style events exclude them, OpenAI-style events include them, so don't stack this with the cache token sums. */
+      input_tokens: number;
+      /** Sum of `$ai_output_tokens` in this bucket. */
+      output_tokens: number;
+      /** Sum of `$ai_cache_read_input_tokens` (prompt tokens served from cache) in this bucket. */
+      cache_read_input_tokens: number;
+      /** Sum of `$ai_cache_creation_input_tokens` (prompt tokens written to cache) in this bucket. */
+      cache_creation_input_tokens: number;
+    }
+
+    export interface _BucketBreakdown {
+      /** One row per UTC time bucket that has events, ordered by bucket start ascending. Buckets with no events are omitted; zero-fill client-side when rendering a continuous series. */
+      items: _BucketBreakdownRow[];
+      /** Bucket size in minutes the series was computed at; echoes the request `bucket_minutes`. */
+      bucket_minutes: number;
+      /** Effectively always false: `by_bucket` ignores `limit` because truncating a time series by cost would be meaningless, and the 600-bucket window cap already bounds the series length. */
+      truncated: boolean;
+    }
+
     export interface _TopTraceRow {
       /**
          * `$ai_trace_id` of the session — opaque string scoped to the originating product. Format is not stable: most are UUIDs but some SDK wrappers emit JSON-shaped strings like `{"device_id":"...","session_id":"..."}`. Callers should treat this as an opaque identifier (URL-encode before linking to a trace view).
@@ -47684,6 +47777,8 @@ export namespace Schemas {
       by_model: _ModelBreakdown;
       /** Spend grouped by UTC day, ordered ascending. Scoped to `product`. Not subject to `limit`. */
       by_day: _DayBreakdown;
+      /** Spend grouped by UTC time bucket with per-bucket cost/token components, ordered ascending. Scoped to `product`. Only present when the request set `bucket_minutes`. */
+      by_bucket?: _BucketBreakdown;
       /** Deprecated — always returns `{items: [], truncated: false}`. Trace IDs are opaque strings that aren't actionable in the UI. Kept in the response shape so existing consumers don't crash; remove your rendering of this field and we'll drop it from the response entirely in a follow-up. */
       top_traces: _TopTraces;
     }
@@ -63641,6 +63736,10 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type EnvironmentsExternalDataSchemasCancelCreate400 = {
+      detail?: string;
+    };
+
     export type EnvironmentsExternalDataSchemasLogsRetrieveParams = {
     /**
      * Only return entries after this ISO 8601 timestamp.
@@ -67287,6 +67386,15 @@ export namespace Schemas {
 
     export type LlmAnalyticsPersonalSpendListParams = {
     /**
+     * When set, additionally return a `by_bucket` breakdown: a time-ascending UTC cost series for the scoped product at this bucket size in minutes, with per-bucket cost split into uncached input / output / cache read / cache creation components plus the matching token sums. Supported bucket sizes: 5, 15, 30, 60. The window may span at most 600 buckets of the chosen size (e.g. 50 hours at 5-minute buckets).
+     *
+     * * `5` - 5
+     * * `15` - 15
+     * * `30` - 30
+     * * `60` - 60
+     */
+    bucket_minutes?: LlmAnalyticsPersonalSpendListBucketMinutes;
+    /**
      * Start of the spend window. Accepts absolute dates (`2026-04-23`) or relative strings (`-7d`, `-1m`, etc.) — same parser used elsewhere in PostHog. Defaults to `-30d`. The window between `date_from` and `date_to` cannot exceed 90 days.
      * @minLength 1
      * @maxLength 32
@@ -67315,6 +67423,16 @@ export namespace Schemas {
      */
     refresh?: boolean;
     };
+
+    export type LlmAnalyticsPersonalSpendListBucketMinutes = typeof LlmAnalyticsPersonalSpendListBucketMinutes[keyof typeof LlmAnalyticsPersonalSpendListBucketMinutes];
+
+
+    export const LlmAnalyticsPersonalSpendListBucketMinutes = {
+      Number5: 5,
+      Number15: 15,
+      Number30: 30,
+      Number60: 60,
+    } as const;
 
     export type ListParams = {
     /**
@@ -70750,6 +70868,10 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    };
+
+    export type ExternalDataSchemasCancelCreate400 = {
+      detail?: string;
     };
 
     export type ExternalDataSchemasLogsRetrieveParams = {
