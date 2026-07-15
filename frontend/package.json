@@ -210,7 +210,7 @@
         "elkjs": "^0.10.0",
         "emoji-regex": "^10.4.0",
         "eventsource-parser": "^3.0.0",
-        "fast-deep-equal": "catalog:",
+        "fast-equals": "catalog:",
         "fastpriorityqueue": "^0.7.5",
         "fflate": "^0.8.2",
         "frimousse": "^0.3.0",
