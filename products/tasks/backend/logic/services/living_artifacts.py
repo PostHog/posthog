@@ -101,6 +101,7 @@ def create_living_artifact(
     source_storage_path: str | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> TaskArtifact:
+    _require_living_artifacts_enabled(run)
     content_payload = resolve_artifact_content(
         run=run,
         name=name,
@@ -162,6 +163,7 @@ def edit_living_artifact(
     # must resolve Slack mappings (repointed to the latest run) and storage paths as itself,
     # not as the run that originally created the artifact.
     run = run or artifact.task_run
+    _require_living_artifacts_enabled(run)
     selected_adapter = _adapter_for_existing_artifact(artifact)
     next_version = int(artifact.current_version or 0) + 1
     next_name = name or artifact.name
@@ -770,6 +772,9 @@ class SlackFileArtifactAdapter(LivingArtifactAdapter):
 # file artifact leaves the pending version on that artifact, and this run's end-of-turn
 # delivery must pick it up.
 def has_pending_slack_file_artifacts(run: TaskRun) -> bool:
+    if not _living_artifacts_enabled_for_run(run):
+        return False
+
     artifacts = TaskArtifact.objects.for_team(run.team_id).filter(
         task_id=run.task_id,
         adapter=TaskArtifact.Adapter.SLACK_FILE,
@@ -781,6 +786,10 @@ def has_pending_slack_file_artifacts(run: TaskRun) -> bool:
 def deliver_pending_slack_file_artifacts(run: TaskRun, *, initial_comment: str) -> int:
     mapping = _get_slack_mapping(run, raise_if_missing=False)
     if mapping is None:
+        return 0
+
+    if not _living_artifacts_enabled_for_mapping(mapping):
+        logger.warning("task_artifact.slack_living_artifacts_disabled", task_run_id=str(run.id))
         return 0
 
     if not _canvas_file_artifacts_enabled(mapping):
@@ -988,6 +997,22 @@ def _get_slack_mapping(run: TaskRun, *, raise_if_missing: bool = True):
             return None
         raise ValueError("Task run is not mapped to a Slack thread")
     return mapping
+
+
+def _living_artifacts_enabled_for_run(run: TaskRun) -> bool:
+    mapping = _get_slack_mapping(run, raise_if_missing=False)
+    return mapping is None or _living_artifacts_enabled_for_mapping(mapping)
+
+
+def _living_artifacts_enabled_for_mapping(mapping: Any) -> bool:
+    from products.slack_app.backend.feature_flags import is_slack_app_living_artifacts_enabled  # noqa: PLC0415
+
+    return is_slack_app_living_artifacts_enabled(mapping.integration)
+
+
+def _require_living_artifacts_enabled(run: TaskRun) -> None:
+    if not _living_artifacts_enabled_for_run(run):
+        raise ValueError("Living artifacts are not enabled for this Slack workspace")
 
 
 def _canvas_file_artifacts_enabled(mapping: Any) -> bool:

@@ -68,6 +68,7 @@ rules:
                               |AgentSession
                               |AgentSessionCredential
                               |AgentToolApprovalRequest
+                              |AgentTransportBinding
                               |AgentUser
                               |Alert
                               |AlertConfiguration
@@ -86,6 +87,9 @@ rules:
                               |CodeWorkflowConfig
                               |CodeWorkstream
                               |Cohort
+                              |CohortBackfillChunk
+                              |CohortBackfillRun
+                              |CohortBackfillRunCohort
                               |Comment
                               |Conversation
                               |ConversationRestoreToken
@@ -364,6 +368,7 @@ rules:
                         |AgentSession
                         |AgentSessionCredential
                         |AgentToolApprovalRequest
+                        |AgentTransportBinding
                         |AgentUser
                         |Alert
                         |AlertConfiguration
@@ -382,6 +387,9 @@ rules:
                         |CodeWorkflowConfig
                         |CodeWorkstream
                         |Cohort
+                        |CohortBackfillChunk
+                        |CohortBackfillRun
+                        |CohortBackfillRunCohort
                         |Comment
                         |Conversation
                         |ConversationRestoreToken
