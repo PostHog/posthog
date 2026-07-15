@@ -35,7 +35,7 @@ def _property_identity(prop: dict) -> tuple[str, Any]:
     return (prop.get("type") or "event", prop.get("key"))
 
 
-def merge_dashboard_and_tile_filters(dashboard_filters: dict | None, tile_filters: dict | None) -> dict | None:
+def merge_dashboard_and_tile_filters(dashboard_filters: dict | None, tile_filters: dict | None) -> dict:
     """Merge a tile's filter overrides on top of the dashboard-level filters.
 
     The tile wins per field. Scalars (breakdown, interval, test-account filtering) are replaced outright
@@ -52,9 +52,9 @@ def merge_dashboard_and_tile_filters(dashboard_filters: dict | None, tile_filter
     to attribute each shown filter to its source; keep the two in step when changing the tie-break here.
     """
     if not tile_filters:
-        return dashboard_filters or None
+        return dashboard_filters or {}
     if not dashboard_filters:
-        return tile_filters or None
+        return tile_filters or {}
 
     merged = {**dashboard_filters}
 

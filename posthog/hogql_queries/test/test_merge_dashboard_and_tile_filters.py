@@ -11,7 +11,7 @@ from posthog.hogql_queries.apply_dashboard_filters import (
 class TestMergeDashboardAndTileFilters(SimpleTestCase):
     @parameterized.expand(
         [
-            ("both empty", None, None, None),
+            ("both empty", None, None, {}),
             ("only dashboard", {"date_from": "-30d"}, None, {"date_from": "-30d"}),
             ("only tile", None, {"date_from": "-7d"}, {"date_from": "-7d"}),
             ("empty tile keeps dashboard", {"date_from": "-30d"}, {}, {"date_from": "-30d"}),

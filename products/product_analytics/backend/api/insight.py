@@ -1014,7 +1014,7 @@ class InsightSerializer(InsightBasicSerializer):
                     else {}
                 )
                 if tile_filters_override and tile_filter_merge_enabled(instance.team):
-                    effective_filters = merge_dashboard_and_tile_filters(base_filters, tile_filters_override) or {}
+                    effective_filters = merge_dashboard_and_tile_filters(base_filters, tile_filters_override)
                     # A tile property filter replaces the insight's own filter on the same key (not just
                     # the dashboard's), so the returned query matches what the compute path computed.
                     query = remove_query_properties_overridden_by_tile(query, tile_filters_override)
