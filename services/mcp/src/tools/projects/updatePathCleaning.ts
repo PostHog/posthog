@@ -32,22 +32,24 @@ export function normalizePathCleaningFilters(raw: unknown): StoredPathCleaningRu
     if (!Array.isArray(raw)) {
         return []
     }
-    return raw
-        .map((entry, index) => {
-            const rule = (entry ?? {}) as Record<string, unknown>
-            const alias = typeof rule.alias === 'string' ? rule.alias : ''
-            const regex = typeof rule.regex === 'string' ? rule.regex : ''
-            const order = typeof rule.order === 'number' ? rule.order : index
-            return { alias, regex, order, _index: index }
-        })
-        .filter((rule) => rule.alias !== '' && rule.regex !== '')
-        .sort((a, b) => a.order - b.order || a._index - b._index)
-        .map(({ alias, regex, order }) => ({ alias, regex, order }))
+    return (
+        raw
+            .map((entry, index) => {
+                const rule = (entry ?? {}) as Record<string, unknown>
+                const alias = typeof rule.alias === 'string' ? rule.alias : ''
+                const regex = typeof rule.regex === 'string' ? rule.regex : ''
+                const order = typeof rule.order === 'number' ? rule.order : index
+                return { alias, regex, order }
+            })
+            .filter((rule) => rule.alias !== '' && rule.regex !== '')
+            // Stable sort keeps input order for equal `order`, preserving the index fallback above.
+            .sort((a, b) => a.order - b.order)
+    )
 }
 
 /** Reassign contiguous `order` values 0..n-1 so the caller never has to manage them. */
 export function renumber(rules: PathCleaningRule[]): StoredPathCleaningRule[] {
-    return rules.map((rule, index) => ({ alias: rule.alias, regex: rule.regex, order: index }))
+    return rules.map((rule, index) => ({ ...rule, order: index }))
 }
 
 function assertValidRegex(regex: string): void {
@@ -119,11 +121,10 @@ export function applyOperations(
                 break
             }
             case 'reorder': {
-                const currentAliases = rules.map((rule) => rule.alias).sort()
-                const requestedAliases = [...op.ordered_aliases].sort()
+                const byAlias = new Map(rules.map((rule) => [rule.alias, rule]))
                 const isPermutation =
-                    currentAliases.length === requestedAliases.length &&
-                    currentAliases.every((alias, i) => alias === requestedAliases[i])
+                    op.ordered_aliases.length === byAlias.size &&
+                    op.ordered_aliases.every((alias) => byAlias.has(alias))
                 if (!isPermutation) {
                     throw new Error(
                         `Cannot reorder: ordered_aliases must be exactly the current aliases, once each. Current: ${rules
@@ -131,7 +132,6 @@ export function applyOperations(
                             .join(', ')}`
                     )
                 }
-                const byAlias = new Map(rules.map((rule) => [rule.alias, rule]))
                 const reordered = op.ordered_aliases.map((alias) => byAlias.get(alias)!)
                 rules.splice(0, rules.length, ...reordered)
                 changes.push(`Reordered to: ${op.ordered_aliases.join(' → ')}`)
