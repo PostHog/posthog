@@ -189,6 +189,21 @@ def test_author_permission_skip_retracts_stale_approvals_on_head_change(team, re
         assert ReviewRun.objects.count() == 1  # no second run was queued
 
 
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_untrusted_author_skip_retracts_stale_approvals_on_head_change(team, repo_config):
+    # An author who loses their trusted association (left the org, collaborator removed) can still
+    # push to an approved PR; the payload-only skip must retract the standing approval, not just
+    # drop the event — otherwise the old approval keeps satisfying required reviews.
+    _run_task(_pr_payload(), "delivery-assoc-approved", team.id)
+
+    with patch("products.stamphog.backend.tasks.tasks.dismiss_stale_approvals_for_head", return_value=1) as dismiss:
+        _run_task(_pr_payload(action="synchronize", author_association="NONE"), "delivery-assoc-revoked", team.id)
+
+    dismiss.assert_called_once()
+    with team_scope(team.id):
+        assert ReviewRun.objects.count() == 1  # no second run was queued
+
+
 @pytest.mark.parametrize(
     "review_mode,payload_kwargs,expect_run",
     [

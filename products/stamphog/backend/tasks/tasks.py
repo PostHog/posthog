@@ -54,6 +54,11 @@ _AUTHOR_SKIP_DISMISS_MESSAGE = (
     "The PR author no longer has write access to this repository, so stamphog will not re-review."
 )
 
+_UNTRUSTED_SKIP_DISMISS_MESSAGE = (
+    "New commits were pushed — dismissing the stamphog approval from an earlier head. "
+    "This PR no longer qualifies for automatic review."
+)
+
 # Per-PR cooldown for label-triggered re-reviews, so removing/re-adding the trigger label can't spam
 # sandbox + LLM runs. Set only when a `labeled` event actually queues a run in LABEL mode.
 STAMPHOG_LABEL_REREVIEW_COOLDOWN_SECONDS = 10 * 60
@@ -571,6 +576,21 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
     # sandbox. Only affects the review path — the merged/closed digest capture returned above already.
     skip_reason = _review_skip_reason(pr)
     if skip_reason is not None:
+        # A head-changing event skipped here still invalidates any standing approval — the author may
+        # have lost their trusted association, or the PR flipped to draft, since the approval was
+        # granted. Same hazard as the mode/permission skips below: without retraction the old approval
+        # keeps satisfying required reviews over the newly pushed commits. Retry (don't drop) on
+        # failure so a transient blip can't leave the stale approval live.
+        if action in _HEAD_CHANGING_ACTIONS:
+            skip_repo_config = _resolve_repo_config(installation_id, repo)
+            if skip_repo_config is not None and skip_repo_config.enabled:
+                try:
+                    _retract_stale_approvals_on_skip(skip_repo_config, pr, _UNTRUSTED_SKIP_DISMISS_MESSAGE)
+                except Exception as e:
+                    logger.exception(
+                        "stamphog_pr_event_untrusted_skip_dismiss_failed", delivery_id=delivery_id, error=str(e)
+                    )
+                    raise cast(Any, process_pull_request_event).retry(exc=e)
         logger.info("stamphog_pr_event_skipped", repo=repo, pr_number=pr_number, reason=skip_reason)
         if delivery_id:
             _mark_pr_event_processed(delivery_id)

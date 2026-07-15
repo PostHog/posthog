@@ -43,19 +43,21 @@ class StamphogReviewWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, input: StamphogReviewInput) -> dict:
         try:
-            await workflow.execute_activity(
-                fetch_review_context,
-                input,
-                start_to_close_timeout=FETCH_CONTEXT_TIMEOUT,
-                retry_policy=ACTIVITY_RETRY_POLICY,
-            )
-
-            # Dismiss any approval from an earlier head before re-reviewing, so a crashed re-review
-            # can't leave a stale stamphog approval satisfying required reviews (fail-closed ordering).
+            # Dismiss any approval from an earlier head FIRST — before context fetch, not just before
+            # the re-review. Fail-closed ordering: if any later step exhausts retries and the run is
+            # marked failed, the stale approval is already gone rather than left satisfying required
+            # reviews over unreviewed commits. The activity needs only the run row, nothing fetched.
             await workflow.execute_activity(
                 dismiss_stale_approvals,
                 input,
                 start_to_close_timeout=POST_VERDICT_TIMEOUT,
+                retry_policy=ACTIVITY_RETRY_POLICY,
+            )
+
+            await workflow.execute_activity(
+                fetch_review_context,
+                input,
+                start_to_close_timeout=FETCH_CONTEXT_TIMEOUT,
                 retry_policy=ACTIVITY_RETRY_POLICY,
             )
 

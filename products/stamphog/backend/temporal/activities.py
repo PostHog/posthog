@@ -242,9 +242,10 @@ def dismiss_stale_approvals(input: StamphogReviewInput) -> dict:
     """Retract stamphog approvals posted at an earlier head so a push can't leave one standing.
 
     GitHub never auto-dismisses an APPROVE review when new commits land, so a prior run's approval at
-    an old head keeps satisfying required reviews after a push. This runs BEFORE run_review_in_sandbox
-    on purpose: dismiss first, then re-review. That ordering is fail-closed — if the re-review later
-    crashes, the stale approval is already gone rather than left standing over unreviewed commits.
+    an old head keeps satisfying required reviews after a push. This runs FIRST in the workflow — before
+    context fetch, before the sandbox — on purpose: dismiss, then re-review. That ordering is fail-closed —
+    if any later step crashes (even the context fetch), the stale approval is already gone rather than
+    left standing over unreviewed commits. It needs only the run row, so nothing has to be fetched first.
     """
     run = _load_run(input)
     if run.status == ReviewRunStatus.SUPERSEDED:

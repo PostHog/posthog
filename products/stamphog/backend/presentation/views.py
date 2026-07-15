@@ -459,7 +459,13 @@ class DigestChannelViewSet(_StamphogTeamScopedViewSet, viewsets.ModelViewSet):
         return queryset.filter(team_id=self.canonical_team_id).order_by("audience_key")
 
     def perform_create(self, serializer: BaseSerializer[DigestChannel]) -> None:
-        serializer.save(team_id=self.team_id)
+        # team_id is injected here (not a serializer field), so DRF can't pre-validate the
+        # unique (team, audience_key) constraint — without this catch a duplicate audience
+        # surfaces as a 500 instead of a plain validation error.
+        try:
+            serializer.save(team_id=self.team_id)
+        except IntegrityError:
+            raise ValidationError({"audience_key": "A digest channel for this audience already exists."})
 
     def perform_destroy(self, instance: DigestChannel) -> None:
         # Soft-disable rather than removing the row. The (team_id, audience_key) row is the tombstone

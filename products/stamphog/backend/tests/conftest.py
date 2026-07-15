@@ -19,6 +19,7 @@ from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, ARRAY_APP_CLIENT_ID_
 from products.stamphog.backend.temporal.activities import (
     MarkReviewFailedInput,
     StamphogReviewInput,
+    dismiss_stale_approvals,
     fetch_review_context,
     mark_review_failed,
     post_verdict,
@@ -104,11 +105,13 @@ def _run_activity(activity_fn: Any, arg: Any) -> Any:
 def _inline_review_workflow(review_run_id: str, team_id: int) -> None:
     """Stand in for the Temporal client by driving the real activities in order.
 
-    Mirrors StamphogReviewWorkflow: fetch context, run in the (faked) sandbox, post the verdict;
-    on any error mark the run failed, exactly like the workflow's failure path.
+    Mirrors StamphogReviewWorkflow: dismiss stale approvals FIRST (fail-closed — even a context-fetch
+    failure must not leave an earlier head's approval standing), then fetch context, run in the (faked)
+    sandbox, post the verdict; on any error mark the run failed, exactly like the workflow's failure path.
     """
     inp = StamphogReviewInput(review_run_id=review_run_id, team_id=team_id)
     try:
+        _run_activity(dismiss_stale_approvals, inp)
         _run_activity(fetch_review_context, inp)
         _run_activity(run_review_in_sandbox, inp)
         _run_activity(post_verdict, inp)

@@ -6,6 +6,7 @@ from django.core import signing
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models.integration import Integration
 from posthog.models.team import Team
 
 from products.stamphog.backend.models import DigestChannel, PullRequest, ReviewRun, StamphogRepoConfig
@@ -350,3 +351,24 @@ class TestDigestChannelAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         channel.refresh_from_db()
         assert channel.enabled is False
         assert DigestChannel.objects.unscoped().filter(id=channel.id).exists()
+
+    def test_duplicate_audience_is_a_400_not_a_500(self) -> None:
+        # team_id is injected in perform_create, so DRF can't pre-validate the unique
+        # (team, audience_key) constraint — the IntegrityError must surface as a validation error.
+        integration = Integration.objects.create(
+            team_id=self.team.id, kind="slack", config={}, sensitive_config={"access_token": "x"}
+        )
+        DigestChannel.objects.unscoped().create(
+            team_id=self.team.id,
+            audience_key="team-x",
+            slack_integration_id=integration.id,
+            slack_channel_id="C1",
+            enabled=True,
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/stamphog/digest_channels/",
+            {"audience_key": "team-x", "slack_integration_id": integration.id, "slack_channel_id": "C2"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "already exists" in response.json()["detail"]

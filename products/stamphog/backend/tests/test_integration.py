@@ -85,6 +85,21 @@ def _opened_event(number: int, author: str, head_sha: str) -> dict:
     )
 
 
+def _synchronize_event(number: int, author: str, head_sha: str) -> dict:
+    return fakes.build_pull_request_event(
+        action="synchronize",
+        installation_id=INSTALLATION_ID,
+        repo=REPO,
+        number=number,
+        title=f"PR {number}",
+        body="Adds a small helper and a test.",
+        author_login=author,
+        head_sha=head_sha,
+        head_ref=f"feat/pr-{number}",
+        base_sha=BASE_SHA,
+    )
+
+
 def _merged_event(number: int, author: str, head_sha: str) -> dict:
     return fakes.build_pull_request_event(
         action="closed",
@@ -226,6 +241,39 @@ def test_hosted_review_fails_closed_without_connecting_user(team, stamphog_chain
     run = ReviewRun.objects.for_team(team.id).latest("created_at")
     assert run.status == ReviewRunStatus.FAILED
     assert "connecting user" in (run.error or "")
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_failed_run_still_dismisses_the_stale_approval_first(team, stamphog_chain: StamphogChain) -> None:
+    # Dismissal runs first in the workflow, so even a run that fails before reaching the sandbox
+    # (here: no connecting user to mint credentials) must have already retracted the earlier head's
+    # approval — a failure window must never leave a stale approval satisfying required reviews.
+    repo_config = _repo_config(team.id)
+    repo_config.connected_by_user_id = None
+    repo_config.save(update_fields=["connected_by_user_id"])
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=113, author_login="devex-dev"
+    )
+    prior = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id,
+        pull_request=pull_request,
+        head_sha="sha-old",
+        status=ReviewRunStatus.COMPLETED,
+        verdict=ReviewVerdict.APPROVED,
+        posted_review_id=777,
+    )
+    recorder = stamphog_chain.recorder
+    recorder.register_pr(REPO, 113, _pr_object(113, "devex-dev", "sha113b"), _pr_files())
+    recorder.policy_files[".stamphog/policy.yml"] = "version: 1\n"
+
+    stamphog_chain.post_webhook(_synchronize_event(113, "devex-dev", "sha113b"), delivery_id=str(uuid.uuid4()))
+
+    current = ReviewRun.objects.for_team(team.id).filter(pull_request=pull_request).latest("created_at")
+    assert current.status == ReviewRunStatus.FAILED
+    prior.refresh_from_db()
+    assert prior.approval_dismissed_at is not None
+    dismissals = [w for w in recorder.github_writes if w["kind"] == "dismiss_review"]
+    assert [w["review_id"] for w in dismissals] == [777]
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
