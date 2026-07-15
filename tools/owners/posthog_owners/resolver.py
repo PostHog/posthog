@@ -138,17 +138,15 @@ class OwnersResolver:
         return dirs
 
     def _collect_files(self, path: str) -> list[OwnersFile]:
-        """Ownership files on the walk to ``path``, outermost first, after applying
-        ``inherit: false`` cuts."""
+        """Ownership files on the walk to ``path``, outermost first. ``inherit``
+        cuts are NOT applied here: a matched rule may override the file-level
+        flag either way, so the cut must happen per contribution in ``resolve``,
+        after rule overrides are folded in."""
         collected: list[OwnersFile] = []
         for directory in self._ancestor_dirs(path):
             f = self._load_dir_file(directory)
-            if f is None:
-                continue
-            if not f.inherit:
-                # `set noparent`: discard everything collected above this file.
-                collected = []
-            collected.append(f)
+            if f is not None:
+                collected.append(f)
         return collected
 
     def _file_contribution(self, f: OwnersFile, path: str) -> OwnersFile | None:
@@ -187,9 +185,10 @@ class OwnersResolver:
             contrib = self._file_contribution(f, norm)
             assert contrib is not None
 
-            # A matched rule's `inherit: false` cuts everything merged from
-            # ancestors for this path — the per-path form of a file-level
-            # `set noparent` (which `_collect_files` already applies structurally).
+            # The single `set noparent` site: contrib.inherit is the file-level
+            # flag with any matched rule's override folded in, so a file-level
+            # `inherit: false` cuts here, and a rule-level `inherit: true` can
+            # restore ancestors for its paths.
             if not contrib.inherit:
                 merged = _Merged()
 

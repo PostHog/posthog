@@ -100,6 +100,21 @@ def test_rule_level_inherit_false_cuts_ancestors_for_matching_paths_only(tmp_pat
     assert other.owners == ["team-a"]  # non-matching path still inherits the ancestor
 
 
+def test_rule_level_inherit_true_restores_ancestors_under_file_level_cut(tmp_path: Path) -> None:
+    # The inverse direction: the file cuts inheritance, a rule opts its paths
+    # back in. The cut must apply after rule overrides — applying it while
+    # collecting files made this documented override a silent no-op.
+    _write(tmp_path, "owners.yaml", "version: 1\nowners: [team-root]\n")
+    _write(
+        tmp_path,
+        "a/owners.yaml",
+        "version: 1\nowners: []\ninherit: false\nrules:\n  - match: '/keep/'\n    inherit: true\n",
+    )
+    resolver = OwnersResolver(repo_root=tmp_path)
+    assert resolver.resolve("a/x.py").owners is None  # file-level cut holds
+    assert resolver.resolve("a/keep/x.py").owners == ["team-root"]  # rule restores
+
+
 def test_invalid_rule_glob_is_a_schema_error_not_a_crash(tmp_path: Path) -> None:
     _write(
         tmp_path,
