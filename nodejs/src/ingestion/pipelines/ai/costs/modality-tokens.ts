@@ -35,14 +35,19 @@ const modalityOf = (detail: Record<string, unknown>): string | null => {
     return typeof modality === 'string' ? modality.toLowerCase() : null
 }
 
-type ExtractionSource = 'gemini_input' | 'gemini_output' | 'gemini_cache' | 'openai_input' | 'openai_cache'
+type ExtractionSource =
+    | 'anthropic_cache'
+    | 'gemini_input'
+    | 'gemini_output'
+    | 'gemini_cache'
+    | 'openai_input'
+    | 'openai_cache'
 
 /**
- * Extract modality-specific token counts from raw provider usage metadata.
- * Supports Gemini's promptTokensDetails (input modality), candidatesTokensDetails
- * (output modality), and cacheTokensDetails (cache modality), plus the OpenAI
- * equivalents under prompt_tokens_details. Removes $ai_usage from properties
- * after extraction so it does not get persisted to ClickHouse.
+ * Extract token details used by cost calculation from raw provider usage metadata.
+ * Supports Anthropic's cache-creation TTL breakdown, Gemini's input/output/cache
+ * modality details, and OpenAI's prompt_tokens_details. Removes $ai_usage from
+ * properties after extraction so it does not get persisted to ClickHouse.
  */
 export const extractModalityTokens = (event: EventWithProperties): EventWithProperties => {
     const usage = event.properties['$ai_usage']
@@ -202,6 +207,24 @@ export const extractModalityTokens = (event: EventWithProperties): EventWithProp
             }
         }
 
+        const extractAnthropicCacheCreation = (metadata: Record<string, unknown>): void => {
+            const cacheCreation = metadata['cache_creation']
+            if (!isObject(cacheCreation)) {
+                return
+            }
+
+            const fiveMinuteTokens = cacheCreation['ephemeral_5m_input_tokens']
+            const oneHourTokens = cacheCreation['ephemeral_1h_input_tokens']
+            if (typeof fiveMinuteTokens === 'number' && fiveMinuteTokens >= 0) {
+                event.properties['$ai_cache_creation_5m_input_tokens'] = fiveMinuteTokens
+                extractedSources.add('anthropic_cache')
+            }
+            if (typeof oneHourTokens === 'number' && oneHourTokens >= 0) {
+                event.properties['$ai_cache_creation_1h_input_tokens'] = oneHourTokens
+                extractedSources.add('anthropic_cache')
+            }
+        }
+
         // Walk each `usage`-shaped metadata object encountered across the SDK
         // wrapper variants and pull every modality breakdown it exposes.
         // Gemini metadata arrives camelCased through the Vercel AI SDK and
@@ -210,6 +233,7 @@ export const extractModalityTokens = (event: EventWithProperties): EventWithProp
             if (!isObject(metadata)) {
                 return
             }
+            extractAnthropicCacheCreation(metadata)
             extractInputModality(pick(metadata, 'promptTokensDetails', 'prompt_tokens_details'))
             extractOutputModality(
                 pick(metadata, 'candidatesTokensDetails', 'candidates_tokens_details', 'outputTokenDetails')

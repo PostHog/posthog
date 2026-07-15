@@ -213,6 +213,84 @@ describe('calculateInputCost()', () => {
             expectCostToBeCloseTo(result, 0.004275)
         })
 
+        it.each([
+            {
+                name: '5-minute',
+                cacheCreationTokens: 100,
+                ttlProperties: {
+                    $ai_cache_creation_5m_input_tokens: 100,
+                    $ai_cache_creation_1h_input_tokens: 0,
+                },
+                expectedCost: '0.003375',
+            },
+            {
+                name: '1-hour',
+                cacheCreationTokens: 100,
+                ttlProperties: {
+                    $ai_cache_creation_5m_input_tokens: 0,
+                    $ai_cache_creation_1h_input_tokens: 100,
+                },
+                expectedCost: '0.0036',
+            },
+            {
+                name: 'mixed-TTL',
+                cacheCreationTokens: 300,
+                ttlProperties: {
+                    $ai_cache_creation_5m_input_tokens: 100,
+                    $ai_cache_creation_1h_input_tokens: 200,
+                },
+                expectedCost: '0.004575',
+            },
+            {
+                name: 'legacy aggregate-only',
+                cacheCreationTokens: 300,
+                ttlProperties: {},
+                expectedCost: '0.004125',
+            },
+        ])('prices $name cache creation tokens', ({ cacheCreationTokens, ttlProperties, expectedCost }) => {
+            const event = createAnthropicTestEvent(1000, undefined, cacheCreationTokens, ttlProperties)
+
+            const result = calculateInputCost(event, ANTHROPIC_MODEL)
+
+            expect(result).toBe(expectedCost)
+        })
+
+        it.each([
+            {
+                name: '5-minute count only',
+                ttlProperties: { $ai_cache_creation_5m_input_tokens: 100 },
+            },
+            {
+                name: '1-hour count only',
+                ttlProperties: { $ai_cache_creation_1h_input_tokens: 200 },
+            },
+        ])('uses the aggregate when the TTL breakdown has $name', ({ ttlProperties }) => {
+            const event = createAnthropicTestEvent(1000, undefined, 300, ttlProperties)
+
+            const result = calculateInputCost(event, ANTHROPIC_MODEL)
+
+            expect(result).toBe('0.004125')
+        })
+
+        it('uses the generic custom cache-write rate for both TTLs when no 1-hour rate is set', () => {
+            const customModel = createTestModel({
+                provider: 'custom',
+                cost: {
+                    prompt_token: 0.000003,
+                    completion_token: 0.000015,
+                    cache_write_token: 0.000004,
+                },
+            })
+            const event = createAnthropicTestEvent(1000, undefined, 300, {
+                $ai_cache_creation_5m_input_tokens: 100,
+                $ai_cache_creation_1h_input_tokens: 200,
+            })
+
+            const result = calculateInputCost(event, customModel)
+
+            expect(result).toBe('0.0042')
+        })
+
         it('uses 1.25x multiplier fallback for cache write when not defined', () => {
             const modelWithoutCacheWrite = createTestModel({
                 model: 'claude-2',

@@ -432,6 +432,25 @@ describe('extractModalityTokens()', () => {
     })
 
     describe('cache modality extraction', () => {
+        it('extracts Anthropic cache creation tokens by TTL', () => {
+            const event = createAIEvent({
+                $ai_usage: {
+                    input_tokens: 2048,
+                    cache_creation_input_tokens: 248,
+                    cache_creation: {
+                        ephemeral_5m_input_tokens: 148,
+                        ephemeral_1h_input_tokens: 100,
+                    },
+                },
+            })
+
+            const result = extractModalityTokens(event)
+
+            expect(result.properties['$ai_cache_creation_5m_input_tokens']).toBe(148)
+            expect(result.properties['$ai_cache_creation_1h_input_tokens']).toBe(100)
+            expect(result.properties['$ai_usage']).toBeUndefined()
+        })
+
         it('extracts cached audio tokens from Gemini cacheTokensDetails array format', () => {
             const event = createAIEvent({
                 $ai_usage: {
