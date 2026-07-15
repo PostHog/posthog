@@ -169,8 +169,11 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     config = KOYEB_ENDPOINTS[endpoint]
     headers = _get_headers(api_token)
-    # One session reused across every page so urllib3 keeps the connection alive.
-    session = make_tracked_session()
+    # One session reused across every page so urllib3 keeps the connection alive. Endpoints whose
+    # rows get secret-scrubbed also opt out of HTTP sample capture: capture stores the raw response
+    # body before _scrub_definition_secrets runs, and the capture path's name-based scrubbers can't
+    # recognise plaintext env values or config-file content.
+    session = make_tracked_session(capture=not config.scrub_definition_secrets)
 
     cutoff = (
         db_incremental_field_last_value

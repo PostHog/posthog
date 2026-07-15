@@ -257,6 +257,29 @@ class TestGetRows:
 
         assert rows[0] == {"id": "s1", "value": "keep-me"}
 
+    def test_sample_capture_disabled_only_for_secret_scrubbed_endpoints(self, monkeypatch: Any) -> None:
+        # HTTP sample capture stores the raw response body before the definition scrub runs, so
+        # secret-scrubbed endpoints must opt their session out of capture while the rest stay in.
+        session_kwargs: list[dict] = []
+
+        def fake_session(**kwargs: Any) -> Any:
+            session_kwargs.append(kwargs)
+            return MagicMock()
+
+        monkeypatch.setattr(koyeb, "make_tracked_session", fake_session)
+        _patch_fetch(monkeypatch, [{"deployments": [], "has_next": False}, {"apps": [], "has_next": False}])
+        for endpoint in ("deployments", "apps"):
+            list(
+                get_rows(
+                    api_token="t",
+                    endpoint=endpoint,
+                    logger=MagicMock(),
+                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                )
+            )
+
+        assert session_kwargs == [{"capture": False}, {"capture": True}]
+
     def test_uses_response_data_key_per_endpoint(self, monkeypatch: Any) -> None:
         # Event streams all return their rows under "events", not the endpoint name.
         responses = [{"events": [{"id": "e1"}], "has_next": False}]
