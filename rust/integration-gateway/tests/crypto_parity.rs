@@ -102,6 +102,19 @@ fn decrypts_django_produced_ciphertext() {
 }
 
 #[test]
+fn encrypt_leaf_round_trips_under_primary_key() {
+    // The write path (token refresh) re-encrypts rotated tokens with `encrypt_leaf`. Together with
+    // `decrypts_django_produced_ciphertext` above — which proves this salt key is byte-identical to
+    // Django's — a value encrypted here is, by the Fernet spec, decryptable by Django too.
+    let d = IntegrationDecryptor::build(&[SALT_KEY_32.to_string()], &[], &[]).unwrap();
+    let token = d.encrypt_leaf("rotated-access-token");
+
+    // A decryptor built with ONLY the salt key recovers it => it was encrypted under the primary key.
+    let salt_only = IntegrationDecryptor::build(&[SALT_KEY_32.to_string()], &[], &[]).unwrap();
+    assert_eq!(salt_only.decrypt_leaf(&token).unwrap(), "rotated-access-token");
+}
+
+#[test]
 fn walks_django_produced_sensitive_config() {
     let d = IntegrationDecryptor::build(&[SALT_KEY_32.to_string()], &[], &[]).unwrap();
     let encrypted = json!({

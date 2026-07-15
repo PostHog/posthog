@@ -7,12 +7,16 @@ use super::model::DecryptedIntegration;
 use super::repository;
 use crate::cache::CredentialCache;
 use crate::crypto::{decrypt_sensitive_config, IntegrationDecryptor};
+use crate::refresh::RefreshManager;
 
-/// Loads, decrypts, caches, and team-scopes integrations. Read-only.
+/// Loads, decrypts, caches, and team-scopes integrations. When a `RefreshManager` is present and
+/// owns a row's kind, an expired token is refreshed just-in-time on the DB-load path before it's
+/// decrypted and cached (so the cache never holds a stale pre-refresh token).
 pub struct IntegrationService {
     pool: PgPool,
     decryptor: IntegrationDecryptor,
     cache: CredentialCache,
+    refresh: Option<Arc<RefreshManager>>,
 }
 
 /// Outcome of a batch fetch, so the handler can emit an accurate audit line.
@@ -23,11 +27,17 @@ pub struct FetchOutcome {
 }
 
 impl IntegrationService {
-    pub fn new(pool: PgPool, decryptor: IntegrationDecryptor, cache: CredentialCache) -> Self {
+    pub fn new(
+        pool: PgPool,
+        decryptor: IntegrationDecryptor,
+        cache: CredentialCache,
+        refresh: Option<Arc<RefreshManager>>,
+    ) -> Self {
         Self {
             pool,
             decryptor,
             cache,
+            refresh,
         }
     }
 
@@ -61,6 +71,13 @@ impl IntegrationService {
             let rows = repository::fetch_by_ids(&self.pool, &misses).await?;
             db_loaded = rows.len();
             for row in rows {
+                // Just-in-time refresh for owned kinds before decrypt/cache, so a stale token is
+                // never cached. No-op (returns the row unchanged) when refresh is disabled, the kind
+                // isn't owned, the token is still fresh, or the refresh fails (fail-open).
+                let row = match &self.refresh {
+                    Some(manager) if manager.owns(&row.kind) => manager.refresh(row).await,
+                    _ => row,
+                };
                 let decrypted = Arc::new(DecryptedIntegration {
                     id: row.id,
                     team_id: row.team_id,

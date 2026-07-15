@@ -50,7 +50,8 @@ async fn pool() -> PgPool {
 async fn spawn_app(pool: PgPool) -> String {
     let decryptor = IntegrationDecryptor::build(&[SALT_KEY_32.to_string()], &[], &[]).unwrap();
     let cache = cache::build(30, 1000);
-    let service = Arc::new(IntegrationService::new(pool, decryptor, cache));
+    // No RefreshManager: these tests exercise the read path (pass-through).
+    let service = Arc::new(IntegrationService::new(pool, decryptor, cache, None));
     let state = AppState {
         service,
         jwt_secrets: Arc::new(vec![JWT_SECRET.to_string()]),
