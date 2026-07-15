@@ -119,32 +119,42 @@ export function DashboardsTable({
                     AccessControlLevel.Editor
                 )
                 return (
-                    <LemonTableLink
-                        to={urls.dashboard(id)}
-                        title={
-                            <>
-                                <span data-attr="dashboard-name">{name || 'Untitled'}</span>
-                                {is_shared && (
-                                    <Tooltip title="This dashboard is shared publicly.">
-                                        <IconShare className="ml-1 text-base text-link" />
+                    // Guarantee the name stays legible on narrow/medium screens: the auto-layout table treats
+                    // the column `width` as a hint only, so a min-width on the cell content is what actually holds.
+                    <div className="min-w-[16rem]">
+                        <LemonTableLink
+                            to={urls.dashboard(id)}
+                            title={
+                                <>
+                                    <span data-attr="dashboard-name">{name || 'Untitled'}</span>
+                                    {is_shared && (
+                                        <Tooltip title="This dashboard is shared publicly.">
+                                            <IconShare className="ml-1 text-base text-link" />
+                                        </Tooltip>
+                                    )}
+                                    {!canEditDashboard && (
+                                        <Tooltip title={DASHBOARD_CANNOT_EDIT_MESSAGE}>
+                                            <IconLock className="ml-1 text-base text-secondary" />
+                                        </Tooltip>
+                                    )}
+                                    {isPrimary && (
+                                        <Tooltip title="The primary dashboard is shown on the project home page.">
+                                            <span>
+                                                <IconHome className="ml-1 text-base text-warning" />
+                                            </span>
+                                        </Tooltip>
+                                    )}
+                                </>
+                            }
+                            description={
+                                description ? (
+                                    <Tooltip title={description}>
+                                        <span className="block truncate max-w-[30rem]">{description}</span>
                                     </Tooltip>
-                                )}
-                                {!canEditDashboard && (
-                                    <Tooltip title={DASHBOARD_CANNOT_EDIT_MESSAGE}>
-                                        <IconLock className="ml-1 text-base text-secondary" />
-                                    </Tooltip>
-                                )}
-                                {isPrimary && (
-                                    <Tooltip title="The primary dashboard is shown on the project home page.">
-                                        <span>
-                                            <IconHome className="ml-1 text-base text-warning" />
-                                        </span>
-                                    </Tooltip>
-                                )}
-                            </>
-                        }
-                        description={description}
-                    />
+                                ) : undefined
+                            }
+                        />
+                    </div>
                 )
             },
             sorter: nameCompareFunction,
@@ -168,7 +178,10 @@ export function DashboardsTable({
                 const label = folder || 'Project root'
                 return (
                     <Tooltip title={`Filter to dashboards in ${label}`}>
-                        <Link className="flex items-center gap-1 text-secondary" onClick={() => setFilters({ folder })}>
+                        <Link
+                            className="flex items-center gap-1 text-secondary max-w-[10rem]"
+                            onClick={() => setFilters({ folder })}
+                        >
                             <IconFolder className="shrink-0" />
                             <span className="truncate">{label}</span>
                         </Link>
