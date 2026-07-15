@@ -160,6 +160,9 @@ class TestPersonalSpendValidation(APIBaseTest):
             # touches 601 bucket starts; a duration-only check would let 601 rows through.
             ("unaligned_at_cap", "2026-06-01T00:30:00", "2026-06-26T00:30:00", status.HTTP_400_BAD_REQUEST),
             ("aligned_under_cap", "2026-06-01T00:00:00", "2026-06-25T23:30:00", status.HTTP_200_OK),
+            # date_to is exclusive, so an end aligned exactly on a bucket boundary never
+            # reaches its own bucket: the full advertised 600-bucket window must pass.
+            ("aligned_at_cap_exclusive_end", "2026-06-01T00:00:00", "2026-06-26T00:00:00", status.HTTP_200_OK),
         ]
     )
     def test_bucket_cap_counts_partial_edge_buckets(

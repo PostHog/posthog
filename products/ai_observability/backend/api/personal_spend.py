@@ -265,7 +265,11 @@ class _BucketBreakdownRowSerializer(serializers.Serializer):
         )
     )
     input_cost_usd = serializers.FloatField(
-        help_text="Cost of uncached (full-price) input tokens in USD (sum of `$ai_input_cost_usd`)."
+        help_text=(
+            "Cost of uncached (full-price) input tokens in USD (sum of `$ai_input_cost_usd`). Only a true "
+            "uncached split when the event carried a gateway-provided cost breakdown; events priced by "
+            "PostHog's ingestion pipeline fold cache costs into this figure and leave the cache columns at 0."
+        )
     )
     output_cost_usd = serializers.FloatField(help_text="Cost of output tokens in USD (sum of `$ai_output_cost_usd`).")
     cache_read_cost_usd = serializers.FloatField(
@@ -801,9 +805,16 @@ def _compute_spend_analysis(
     from_dt, to_dt = _resolve_window(date_from, date_to)
     if bucket_minutes is not None:
         bucket_seconds = bucket_minutes * 60
-        # Count the bucket starts the window touches (unaligned edges add partial
-        # buckets), so `by_bucket` can never return more than MAX_TIME_BUCKETS rows.
-        n_buckets = int(to_dt.timestamp() // bucket_seconds) - int(from_dt.timestamp() // bucket_seconds) + 1
+        # Count the bucket starts the window can actually produce rows for (unaligned
+        # edges add partial buckets), so `by_bucket` never exceeds MAX_TIME_BUCKETS rows.
+        from_bucket = int(from_dt.timestamp() // bucket_seconds)
+        to_ts = to_dt.timestamp()
+        last_bucket = int(to_ts // bucket_seconds)
+        if to_ts % bucket_seconds == 0:
+            # `date_to` is exclusive (`timestamp < date_to`), so an end aligned exactly
+            # on a bucket boundary can never produce a row in its own bucket.
+            last_bucket -= 1
+        n_buckets = last_bucket - from_bucket + 1
         if n_buckets > MAX_TIME_BUCKETS:
             max_hours = bucket_minutes * MAX_TIME_BUCKETS // 60
             raise exceptions.ValidationError(
