@@ -381,6 +381,52 @@ class TestRevenueCatWebhookTableTransformer:
         assert rows[0]["event_timestamp_ms"] == 1658726374000
         assert rows[0]["created_at"] == 1658726374
 
+    def test_coerces_whole_valued_double_fields_to_float(self):
+        # RevenueCat documents these fields as doubles, but whole values arrive as JSON
+        # ints. If every row in the batch that creates the Delta table is whole (e.g. $0
+        # trials), the column would be locked to int64 and the first fractional price
+        # (19.99) would fail every later sync with an Arrow truncation error.
+        table = table_from_py_list(
+            [
+                {
+                    "api_version": "1.0",
+                    "event": {
+                        "id": "evt-1",
+                        "type": "INITIAL_PURCHASE",
+                        "price": 0,
+                        "price_in_purchased_currency": 0,
+                        "takehome_percentage": 1,
+                        "tax_percentage": 0,
+                        "commission_percentage": 0,
+                        "renewal_number": 1,
+                        "event_timestamp_ms": 1658726374000,
+                    },
+                },
+                {
+                    "api_version": "1.0",
+                    "event": {"id": "evt-2", "type": "TRANSFER", "price": None},
+                },
+            ]
+        )
+
+        result = _webhook_table_transformer(table)
+
+        for field in (
+            "price",
+            "price_in_purchased_currency",
+            "takehome_percentage",
+            "tax_percentage",
+            "commission_percentage",
+        ):
+            assert result.schema.field(field).type == pa.float64(), field
+        # Only the documented double fields are coerced — integer fields stay integers.
+        assert result.schema.field("renewal_number").type == pa.int64()
+        assert result.schema.field("event_timestamp_ms").type == pa.int64()
+
+        rows = result.to_pylist()
+        assert rows[0]["price"] == 0.0
+        assert rows[1]["price"] is None
+
     def test_skips_created_at_derivation_when_event_timestamp_ms_missing(self):
         # Older RevenueCat events or test deliveries may omit the timestamp
         # entirely. Don't synthesize a fake `created_at` value — the partition

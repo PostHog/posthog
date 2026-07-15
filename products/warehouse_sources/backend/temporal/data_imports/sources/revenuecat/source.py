@@ -57,6 +57,21 @@ if TYPE_CHECKING:
 REVENUECAT_API_KEYS_URL = "https://app.revenuecat.com/projects/_/api-keys"
 
 
+# Event-payload fields RevenueCat documents as doubles. JSON drops the decimal point on
+# whole values (`0`, `20`), so they parse as Python ints — and if every value in the
+# batch that creates the Delta table is whole (common: $0 trials and cancellations), the
+# column gets locked to int64 and the first fractional price (e.g. 19.99) fails every
+# subsequent sync with an Arrow truncation error. Coerce up front so these columns are
+# always inferred as double.
+_EVENT_DOUBLE_FIELDS = (
+    "price",
+    "price_in_purchased_currency",
+    "takehome_percentage",
+    "tax_percentage",
+    "commission_percentage",
+)
+
+
 def _webhook_table_transformer(table: pa.Table) -> pa.Table:
     """Unwrap RevenueCat's ``{"event": {...}, "api_version": "1.0"}`` envelope.
 
@@ -68,7 +83,9 @@ def _webhook_table_transformer(table: pa.Table) -> pa.Table:
     We also derive a ``created_at`` field (Unix seconds) from RevenueCat's
     ``event_timestamp_ms`` so this table can share the same datetime partition
     convention as the API endpoints. The original ``event_timestamp_ms`` is
-    preserved unchanged for callers that need sub-second precision.
+    preserved unchanged for callers that need sub-second precision. Fields
+    documented as doubles are coerced to float so whole-valued rows can't pin
+    their columns to an integer type (see ``_EVENT_DOUBLE_FIELDS``).
     """
     if "event" not in table.column_names:
         return table_from_py_list([])
@@ -87,6 +104,10 @@ def _webhook_table_transformer(table: pa.Table) -> pa.Table:
         # buffering layer flattens nested structures.
         row = orjson.loads(event) if isinstance(event, (str, bytes)) else dict(event)
         row["api_version"] = api_version
+        for double_field in _EVENT_DOUBLE_FIELDS:
+            value = row.get(double_field)
+            if isinstance(value, int) and not isinstance(value, bool):
+                row[double_field] = float(value)
         event_ts_ms = row.get("event_timestamp_ms")
         if isinstance(event_ts_ms, int) and not isinstance(event_ts_ms, bool):
             row["created_at"] = event_ts_ms // 1000
@@ -214,6 +235,12 @@ class RevenueCatSource(
             ),
             "404 Client Error: Not Found": (
                 "RevenueCat could not find the project. Double-check the project id and that the API key belongs to it."
+            ),
+            "Source column type changed": (
+                "A column in this table started receiving values that don't fit the type stored from "
+                "earlier syncs (for example a price column created from whole-number values now "
+                "receiving a decimal price). We can't widen an existing column in place — reset and "
+                "fully re-sync this table to adopt the new type."
             ),
         }
 
