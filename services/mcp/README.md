@@ -356,7 +356,7 @@ This repository is organized to support multiple language implementations:
 
 - `pnpm run dev` - Start the MCP development server
 - `pnpm run dev:proxy` - Start the edge-proxy worker (wrangler)
-- `pnpm run format` - Format and lint code
+- `pnpm run fix` - Auto-fix lint issues and format code
 
 ### Adding New Tools
 

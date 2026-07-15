@@ -55,7 +55,7 @@ These are slow; run them at the right moment, not after every edit.
 
 ## Lint & format
 
-Run `pnpm --filter=@posthog/frontend format` (oxlint `--fix` + oxfmt) before finishing. Config: root `.oxlintrc.json`. CSS, spelling, and copy-casing rules live in the root `AGENTS.md` (Code Style).
+Run `pnpm --filter=@posthog/frontend fix` (oxlint `--fix` + oxfmt) before finishing; `format` runs oxfmt only. Config: root `.oxlintrc.json`. CSS, spelling, and copy-casing rules live in the root `AGENTS.md` (Code Style).
 
 ## Adding actions to a scene
 

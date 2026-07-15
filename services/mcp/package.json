@@ -40,6 +40,7 @@
         "scaffold-yaml": "tsx scripts/scaffold-yaml.ts",
         "lint-tool-names": "tsx scripts/lint-tool-names.ts",
         "lint:fix": "oxlint --fix --fix-suggestions --quiet",
+        "fix": "oxlint --fix --fix-suggestions --quiet; oxfmt \"./**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
         "format": "oxfmt \"./**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\""
     },
     "dependencies": {

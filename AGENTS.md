@@ -20,7 +20,7 @@
 - Lint:
   - Python:
     - `ruff check . --fix` and `ruff format .`
-  - Frontend: `pnpm --filter=@posthog/frontend format`
+  - Frontend: `pnpm --filter=@posthog/frontend fix` (oxlint `--fix` + oxfmt; `format` runs oxfmt only)
   - TypeScript check: `pnpm --filter=@posthog/frontend typescript:check`
 - Build:
   - Frontend: `pnpm --filter=@posthog/frontend build`

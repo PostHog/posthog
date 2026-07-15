@@ -11,6 +11,7 @@
         "test": "vitest",
         "typecheck": "tsc --noEmit",
         "lint:fix": "oxlint --fix --fix-suggestions --quiet",
+        "fix": "oxlint --fix --fix-suggestions --quiet; oxfmt \"./**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
         "format": "oxfmt \"./**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\""
     },
     "dependencies": {
