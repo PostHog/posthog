@@ -211,6 +211,21 @@ class TestFacadeReexports:
         (backend_dir / "presentation" / "views.py").write_text("class V:\n    def certify(self):\n        pass\n")
         assert get_facade_reexports(backend_dir) == [("certify", "function", "backend/logic/matrix.py")]
 
+    def test_same_name_advertised_by_two_facade_modules_keeps_both(self, tmp_path: Path) -> None:
+        backend_dir = _make_facade(
+            tmp_path,
+            api_source='from ..logic.matrix import NodeType\n\n__all__ = ["NodeType"]\n',
+            logic_source="class NodeType:\n    def run(self):\n        pass\n",
+        )
+        (backend_dir / "logic" / "other.py").write_text("class NodeType:\n    def go(self):\n        pass\n")
+        (backend_dir / "facade" / "modeling.py").write_text(
+            'from ..logic.other import NodeType\n\n__all__ = ["NodeType"]\n'
+        )
+        assert get_facade_reexports(backend_dir) == [
+            ("NodeType", "class", "backend/logic/matrix.py"),
+            ("NodeType", "class", "backend/logic/other.py"),
+        ]
+
     def test_locally_defined_export_is_not_a_reexport(self, tmp_path: Path) -> None:
         backend_dir = _make_facade(
             tmp_path,

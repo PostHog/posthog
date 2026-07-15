@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import ast
 import warnings
+from collections.abc import Sequence
 from pathlib import Path
 
 # Common suffixes/prefixes that contract dataclasses may use instead of mirroring the model name exactly.
@@ -221,30 +222,35 @@ def _top_level_kind(tree: ast.Module, name: str) -> str | None:
     return None
 
 
-def _definitions(backend_dir: Path, wanted: dict[str, Path | None]) -> dict[str, tuple[str, str]]:
-    """Locate each wanted name, as name -> (kind, product-relative path).
+def _definitions(
+    backend_dir: Path, wanted: Sequence[tuple[str, Path | None]]
+) -> dict[tuple[str, Path | None], tuple[str, str]]:
+    """Locate each (name, source module) pair, as the pair -> (kind, product-relative path).
 
-    `wanted` maps the name to the module the facade imported it from. That module is consulted
-    first, because a bare name search across the backend is ambiguous: data_modeling defines a
-    distinct `NodeType` in both models/node.py and models/modeling.py and deliberately exposes
-    one from each facade module, so first-match-wins would resolve half of them to the wrong
-    implementation and read its coverage off the wrong file.
+    Keyed by the pair rather than the name because one name can have several definitions:
+    data_modeling defines a distinct `NodeType` in both models/node.py and models/modeling.py
+    and deliberately exposes one from each facade module. Keying by name would drop all but one
+    and read coverage off a file the other export never came from.
 
-    The fallback scan exists for re-export chains — facade/models.py re-exporting the ORM class
-    means the immediate source defines nothing, and the real definition is elsewhere. A name
-    found by neither is a module-level assignment, which this can't see; the caller reads it as
-    a constant.
+    The source module is consulted first for the same reason — a bare name search across the
+    backend is ambiguous. The fallback scan exists for re-export chains, where the immediate
+    source (facade/models.py re-exporting an ORM class) defines nothing itself. A name found by
+    neither is a module-level assignment, which this can't see; the caller reads it as a
+    constant.
     """
-    found: dict[str, tuple[str, str]] = {}
-    remaining: set[str] = set()
-    for name, source in wanted.items():
+    found: dict[tuple[str, Path | None], tuple[str, str]] = {}
+    unresolved: list[tuple[str, Path | None]] = []
+    for key in wanted:
+        name, source = key
         tree = ast_parse_safe(source) if source else None
         kind = _top_level_kind(tree, name) if tree else None
         if kind and source and "facade" not in source.parts:
-            found[name] = (kind, str(source.relative_to(backend_dir.parent)))
+            found[key] = (kind, str(source.relative_to(backend_dir.parent)))
         else:
-            remaining.add(name)
+            unresolved.append(key)
 
+    remaining = {name for name, _source in unresolved}
+    fallback: dict[str, tuple[str, str]] = {}
     for py in sorted(backend_dir.rglob("*.py")):
         if not remaining:
             break
@@ -256,8 +262,12 @@ def _definitions(backend_dir: Path, wanted: dict[str, Path | None]) -> dict[str,
         for name in sorted(remaining):
             kind = _top_level_kind(tree, name)
             if kind:
-                found[name] = (kind, str(py.relative_to(backend_dir.parent)))
+                fallback[name] = (kind, str(py.relative_to(backend_dir.parent)))
                 remaining.discard(name)
+
+    for key in unresolved:
+        if key[0] in fallback:
+            found[key] = fallback[key[0]]
     return found
 
 
@@ -366,16 +376,22 @@ def get_facade_reexports(backend_dir: Path) -> list[tuple[str, str, str]]:
     if not facade_dir.is_dir():
         return []
 
-    # advertised name -> (name to look for, module it came from)
-    candidates: dict[str, tuple[str, Path | None]] = {}
+    # (advertised name, name to look for, module it came from) — a list, because two facade
+    # modules can advertise the same name from different modules (data_modeling's NodeType),
+    # and keying by name would check only one of them.
+    candidates: list[tuple[str, str, Path | None]] = []
     for module in sorted(facade_dir.glob("*.py")):
         if module.stem in {"__init__", "contracts", "enums"}:
             continue
-        candidates.update(_module_reexports(module, backend_dir))
+        for advertised, (original, source) in _module_reexports(module, backend_dir).items():
+            candidates.append((advertised, original, source))
 
-    definitions = _definitions(backend_dir, dict(candidates.values()))
+    definitions = _definitions(backend_dir, [(original, source) for _a, original, source in candidates])
     return sorted(
-        (advertised, *definitions.get(original, ("constant", ""))) for advertised, (original, _p) in candidates.items()
+        {
+            (advertised, *definitions.get((original, source), ("constant", "")))
+            for advertised, original, source in candidates
+        }
     )
 
 
