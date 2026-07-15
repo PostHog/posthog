@@ -886,7 +886,7 @@ jobs:
                       echo 'matrix={"include":[]}' >> "$GITHUB_OUTPUT"
                       echo "should_run=false" >> "$GITHUB_OUTPUT"
                       echo "affected_files_json=[]" >> "$GITHUB_OUTPUT"
-                      emit_metrics false no_affected_stories
+                      emit_metrics true no_affected_stories
                       echo "Selective mode: 0 affected stories, skipping draft visual regression"
                       exit 0
                   fi
