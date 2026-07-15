@@ -37,7 +37,7 @@ function DatasetCard({
     const progress = hasProgress ? Math.round((status.completed_partitions / status.total_partitions!) * 100) : null
 
     return (
-        <LemonCard className="p-4 space-y-4">
+        <LemonCard className="p-4 space-y-4" hoverEffect={false}>
             <div className="flex items-start justify-between gap-3">
                 <div className="flex items-start gap-3">
                     <div className="text-xl text-muted mt-0.5">{icon}</div>
@@ -202,7 +202,7 @@ export function OverviewTab(): JSX.Element {
                 />
             </div>
 
-            <LemonCard className="p-0 overflow-hidden">
+            <LemonCard className="p-0 overflow-hidden" hoverEffect={false}>
                 <div className="p-4 flex items-start justify-between gap-3 border-b">
                     <div>
                         <h3 className="mb-1">Imported source tables</h3>

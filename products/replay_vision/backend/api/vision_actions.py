@@ -27,6 +27,7 @@ from products.replay_vision.backend.models.replay_observation import ReplayObser
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.models.vision_action import (
     ActionMode,
+    AlertDirection,
     AlertFrequency,
     AlertMetric,
     TriggerType,
@@ -118,8 +119,18 @@ class AlertConfigSerializer(serializers.Serializer):
     threshold = serializers.FloatField(
         required=False,
         help_text=(
-            "The alert fires when the metric is at or above this value. Required for on_breach; "
-            "ignored for every_match."
+            "The alert fires when the metric is at or above ('above') or at or below ('below') this "
+            "value, per 'direction'. Required for on_breach; ignored for every_match."
+        ),
+    )
+    direction = serializers.ChoiceField(
+        choices=AlertDirection.choices,
+        required=False,
+        default=AlertDirection.ABOVE,
+        help_text=(
+            "Which side of the threshold breaches: 'above' fires when the metric is at or above it, "
+            "'below' when at or below (e.g. an average score dropping under a floor). Both inclusive. "
+            "Defaults to 'above'; ignored for every_match."
         ),
     )
     window_days = serializers.ChoiceField(

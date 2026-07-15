@@ -2084,6 +2084,9 @@ export interface CredentialApi {
  * * `KongKonnect` - KongKonnect
  * * `Kandji` - Kandji
  * * `Automox` - Automox
+ * * `Autumn` - Autumn
+ * * `GetStream` - GetStream
+ * * `Octolens` - Octolens
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -2939,6 +2942,9 @@ export const ExternalDataSourceTypeEnumApi = {
     KongKonnect: 'KongKonnect',
     Kandji: 'Kandji',
     Automox: 'Automox',
+    Autumn: 'Autumn',
+    GetStream: 'GetStream',
+    Octolens: 'Octolens',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
