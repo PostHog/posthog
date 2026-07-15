@@ -348,6 +348,53 @@ class TestBatchQueueFailRun:
         assert len(batches) == 0
 
 
+@pytest.mark.django_db(transaction=True)
+class TestFailStrandedBatchesInFailedRuns:
+    @pytest.mark.asyncio
+    async def test_straggler_stays_gated_after_failed_evidence_is_dropped(self, conn, sync_conn):
+        # A pending straggler (batch 0) sits in a run whose sibling (batch 1) already failed. Today
+        # it is unclaimable only because that failed row exists; retention drops the failed
+        # partition at its 7-day cliff while the newer straggler survives to its own later cliff, so
+        # without the sweep the straggler would pass every gate and load week-old data. The sweep
+        # must terminalize the straggler so dropping the failed evidence can't re-open the run.
+        straggler = await _insert_batch(conn, batch_index=0, run_uuid="run-fail")
+        failed = await _insert_batch(conn, batch_index=1, run_uuid="run-fail")
+        await BatchQueue.update_status(conn, batch_id=failed, job_state="failed", attempt=1)
+
+        swept = BatchQueue.fail_stranded_batches_in_failed_runs_sync(sync_conn, reason="pre-drop sweep")
+
+        assert swept == 1
+
+        # Retention drops the failed sibling's partition (its row and, via cascade, its status).
+        await conn.execute(f"DELETE FROM {BATCH_TABLE} WHERE id = %s", [failed])
+
+        assert await _claim(conn) == []
+        state = await (
+            await conn.execute(f"SELECT latest_state FROM {BATCH_TABLE} WHERE id = %s", [straggler])
+        ).fetchone()
+        assert state[0] == "failed"
+
+    @pytest.mark.asyncio
+    async def test_leaves_run_without_a_failed_batch_untouched(self, conn, sync_conn):
+        # A genuinely in-flight run (no failed sibling) must survive the sweep intact — failing it
+        # would destroy loadable work and stall the sync.
+        pending = await _insert_batch(conn, batch_index=0, run_uuid="run-ok")
+        executing = await _insert_batch(conn, batch_index=1, run_uuid="run-ok")
+        await BatchQueue.update_status(conn, batch_id=executing, job_state="executing", attempt=1)
+
+        swept = BatchQueue.fail_stranded_batches_in_failed_runs_sync(sync_conn, reason="pre-drop sweep")
+
+        assert swept == 0
+        states = {
+            str(row[0]): row[1]
+            for row in await (
+                await conn.execute(f"SELECT id, latest_state FROM {BATCH_TABLE} WHERE run_uuid = %s", ["run-ok"])
+            ).fetchall()
+        }
+        assert states[pending] == "pending"
+        assert states[executing] == "executing"
+
+
 async def _insert_lease(
     conn: psycopg.AsyncConnection[Any],
     *,

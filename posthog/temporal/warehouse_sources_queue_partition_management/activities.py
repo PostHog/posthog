@@ -46,6 +46,11 @@ class PartitionResult:
 
 @temporalio.activity.defn
 async def manage_warehouse_sources_queue_partitions() -> dict:
+    # Deferred like get_s3_client below, and routed through the product facade (BatchQueue is a
+    # warehouse_sources internal): keeps this heavy import chain off the activity module's load
+    # path, which the worker imports eagerly at startup.
+    from products.warehouse_sources.backend.facade.pipelines import BatchQueue
+
     database_url: str = settings.WAREHOUSE_SOURCES_DATABASE_URL
     ensured: list[str] = []
     dropped: list[str] = []
@@ -70,6 +75,25 @@ async def manage_warehouse_sources_queue_partitions() -> dict:
                     logger.exception("Failed to create partition", partition=partition_name)
 
         cutoff = today - timedelta(days=RETENTION_DAYS)
+
+        # Terminalize batches stranded in an already-failed run before dropping anything. Their run
+        # can never load (the claim gate excludes a run the moment any sibling is 'failed'), but
+        # while they stay non-terminal the guard below preserves their partitions forever, and
+        # dropping the failed sibling's own partition would briefly re-open the run to a stale load.
+        # Sweeping here — while that sibling still exists — is the last checkpoint before its
+        # evidence is deleted; the loader's 24h-lookback reconcile no longer sees failures this old.
+        # Must run before blocked_dates so the swept (now terminal) batches stop being protected.
+        # Fail-safe: on error they stay non-terminal and the guard just over-retains their partitions.
+        try:
+            swept = BatchQueue.fail_stranded_batches_in_failed_runs_sync(
+                conn, reason="stranded in a failed run (retention pre-drop sweep)"
+            )
+            if swept:
+                logger.warning("retention_swept_stranded_batches", count=swept)
+        except Exception as e:
+            errors.append(f"Failed to sweep stranded batches before retention: {e}")
+            logger.exception("Failed to sweep stranded batches before retention")
+
         # A live batch's newest status can't sit in a partition older than the batch
         # itself, so blocking the batch's date across all three tables (and the S3
         # prefixes) preserves everything retention would otherwise destroy.

@@ -37,9 +37,11 @@ LEASE_TABLE = "sourcegrouplease"
 LEASE_TTL_SECONDS = 300
 
 # Partition pruning hint: only scan partitions within this window.
-# Set to 2x the retention period so the planner can skip dropped
-# partitions. Not a correctness filter — older partitions are already
-# gone by the time this matters.
+# Set to 2x the retention period so the planner can skip dropped partitions.
+# Mostly a planner hint — rows older than this are already dropped — but the
+# failed-run claim gate reads the failed sibling through this window, so it stays
+# load-bearing there: the retention sweep terminalizes stranded batches before
+# their failed evidence is dropped, keeping the gate correct within the window.
 PARTITION_PRUNING_INTERVAL = "14 days"
 
 # Quiet time (no batch inserts or status writes) before lock takeover treats a run as
@@ -805,6 +807,38 @@ class BatchQueue:
                 "current_run_uuid": current_run_uuid,
                 "error_response": json.dumps({"error": "superseded by newer attempt", "superseded": True}),
             },
+        )
+        return cursor.rowcount or 0
+
+    @staticmethod
+    def fail_stranded_batches_in_failed_runs_sync(
+        conn: psycopg.Connection[Any],
+        *,
+        reason: str,
+    ) -> int:
+        """Fail non-terminal batches whose run already contains a failed batch. Returns the count failed.
+
+        The claim gate excludes every batch in a run once any sibling is 'failed', so these
+        stragglers can never load — yet they stay non-terminal, which means retention's guard
+        preserves their partitions indefinitely, and once the failed sibling's own partition is
+        dropped the gate can no longer see it, briefly re-opening the run to a stale load (a
+        batch enqueued into an already-failed run stays 'pending' forever — seen in production).
+        Marking them terminal while the failed sibling still exists both frees their partitions
+        for normal retention and removes the gate's dependence on a row about to be deleted.
+
+        Meant to run inside the retention activity right before the drop, catching stragglers the
+        24h-lookback reconcile sweep no longer sees. Idempotent: a no-op once nothing is stranded.
+        """
+        cursor = conn.execute(
+            _bulk_fail_dual_write_sql(
+                f"""EXISTS (
+                    SELECT 1 FROM {BATCH_TABLE} f
+                    WHERE f.run_uuid = b.run_uuid
+                        AND f.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                        AND f.latest_state = 'failed'
+                )"""
+            ),
+            {"error_response": json.dumps({"error": reason})},
         )
         return cursor.rowcount or 0
 
