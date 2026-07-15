@@ -179,7 +179,7 @@ export const dashboardSubscribeNudgeLogic = kea<dashboardSubscribeNudgeLogicType
                 dashboard_id: props.dashboardId,
                 view_count_7d: values.viewCount7d,
             })
-            showDashboardSubscribeNudgeToast(props.dashboardId, values.dashboard?.name)
+            showDashboardSubscribeNudgeToast(props.dashboardId, values.dashboard?.name, values.viewCount7d)
         },
         sendNudgeNotificationFailure: ({ error, errorObject }) => {
             // Not marked notified: the next qualifying visit retries.
