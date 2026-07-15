@@ -6,7 +6,13 @@ from pydantic import BaseModel
 
 from llm_gateway.auth.service import get_auth_service
 from llm_gateway.config import get_settings
-from llm_gateway.products.config import CreditBucket, filter_to_free_tier_models, validate_product
+from llm_gateway.products.config import (
+    FREE_TIER_RESTRICTION_REASON,
+    CreditBucket,
+    filter_to_free_tier_models,
+    free_tier_restriction_message,
+    validate_product,
+)
 from llm_gateway.rate_limiting.throttles import is_usage_unlimited
 from llm_gateway.services.model_registry import get_available_models
 from llm_gateway.services.quota_resolver import resolve_quota_status
@@ -47,6 +53,12 @@ class ModelObject(BaseModel):
     truncation_policy: TruncationPolicyConfig = TruncationPolicyConfig()
     supports_parallel_tool_calls: bool = True
     experimental_supported_tools: list[str] = []
+    # Free-tier gate annotations (posthog_code only): the listing returns the
+    # full catalog and marks models the caller can't use instead of omitting
+    # them, so clients can render them disabled with an upgrade prompt.
+    allowed: bool = True
+    restriction_reason: str | None = None
+    restriction_message: str | None = None
 
 
 class ModelsResponse(BaseModel):
@@ -76,23 +88,16 @@ async def _caller_confirmed_free_tier(request: Request) -> bool:
     """Whether the caller is positively identified as free-tier (authenticated,
     non-staff, org not billed for Code usage).
 
-    The listing is advisory — enforcement happens per-request, with auth — and
-    shipped desktop builds fetch it with no credentials. Anonymous callers and
-    auth failures (the except below) get the FULL list: an unidentifiable
-    caller may well be a billed org, and filtering it would collapse the model
-    picker to the free list for every caller the moment the gate flips,
-    silently downgrading billed orgs' sessions (clients fall back to their
-    default model when the configured one disappears from the listing). A
-    free-tier caller who sees premium ids just gets the enforcement 403 with
-    the upgrade message when they try one.
-
-    Quota-fetch failures deliberately do NOT fall open: resolve_quota_status
+    Only such callers get restriction annotations; the listing always returns
+    the full catalog, so a wrong answer here at worst mismarks a model —
+    enforcement stays the gate. Anonymous callers and auth failures (the
+    except below) get no annotations: shipped desktop builds fetch the listing
+    with no credentials, and an unidentifiable caller may well be a billed
+    org. Quota-fetch failures annotate as restricted: resolve_quota_status
     never raises — on upstream failure it reports the team's last-known
-    billing bit, False when there is none (a billed team first seen
-    mid-outage) — and enforcement 403s premium models off that same bit in
-    that same state. Filtering here keeps the picker consistent with what
-    requests will actually do; falling open would advertise models every
-    attempt rejects.
+    billing bit, False when there is none — and enforcement 403s premium
+    models off that same bit in that same state, so the marks match what
+    requests will actually do.
     """
     try:
         user = await get_auth_service().authenticate_request(request, request.app.state.db_pool)
@@ -127,5 +132,16 @@ async def list_models_for_product(product: str, request: Request) -> ModelsRespo
         return response
 
     free_ids = set(filter_to_free_tier_models([m.id for m in response.data]))
-    filtered = [m for m in response.data if m.id in free_ids]
-    return ModelsResponse(data=filtered, models=filtered)
+    annotated = [
+        m
+        if m.id in free_ids
+        else m.model_copy(
+            update={
+                "allowed": False,
+                "restriction_reason": FREE_TIER_RESTRICTION_REASON,
+                "restriction_message": free_tier_restriction_message(m.id),
+            }
+        )
+        for m in response.data
+    ]
+    return ModelsResponse(data=annotated, models=annotated)

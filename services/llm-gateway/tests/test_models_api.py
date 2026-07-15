@@ -271,17 +271,17 @@ class TestFreeTierModelListing:
         yield
         get_settings.cache_clear()
 
-    def test_anonymous_caller_gets_full_list(self, client: TestClient):
-        # Shipped desktop builds fetch the listing with no credentials, so an
-        # anonymous caller must get the full catalog - filtering it would
-        # collapse every picker (billed orgs included) to the free list the
-        # moment the gate flips. Enforcement, which requires auth, is the gate.
+    def test_anonymous_caller_gets_full_unrestricted_list(self, client: TestClient):
+        # Shipped desktop builds fetch the listing with no credentials; an
+        # unidentifiable caller may be a billed org, so nothing is marked.
+        # Enforcement, which requires auth, is the gate.
         response = client.get("/posthog_code/v1/models")
         assert response.status_code == 200
-        ids = {m["id"] for m in response.json()["data"]}
-        assert "claude-opus-4-5" in ids
+        models = response.json()["data"]
+        assert "claude-opus-4-5" in {m["id"] for m in models}
+        assert all(m["allowed"] for m in models)
 
-    def test_unbilled_org_gets_exactly_the_free_tier_models(self, app, mock_db_pool):
+    def test_unbilled_org_gets_full_list_with_premium_models_marked(self, app, mock_db_pool):
         from unittest.mock import AsyncMock
 
         from llm_gateway.services.quota_resolver import QuotaResourceStatus
@@ -295,11 +295,20 @@ class TestFreeTierModelListing:
             response = c.get("/posthog_code/v1/models", headers={"Authorization": "Bearer phx_unbilled_org_models"})
 
         assert response.status_code == 200
-        ids = {m["id"] for m in response.json()["data"]}
+        body = response.json()
+        by_id = {m["id"]: m for m in body["data"]}
+        # Restricted models stay visible - marked, not omitted - so clients can
+        # render them disabled with an upgrade prompt.
+        premium = by_id["claude-opus-4-5"]
+        assert premium["allowed"] is False
+        assert premium["restriction_reason"] == "paid_plan_required"
+        assert "claude-opus-4-5" in premium["restriction_message"]
         # Exact, not subset: the default free model must survive both the
-        # product allowlist and the listing filter, or free-tier callers are
-        # left with an empty picker and no usable model.
-        assert ids == {"@cf/zai-org/glm-5.2"}
+        # product allowlist and the annotation, or free-tier callers are left
+        # with no usable model.
+        assert {m["id"] for m in body["data"] if m["allowed"]} == {"@cf/zai-org/glm-5.2"}
+        # codex reads the `models` mirror; the annotations must be there too.
+        assert body["models"] == body["data"]
 
     def test_billed_org_sees_full_list(self, app, mock_db_pool):
         from unittest.mock import AsyncMock
@@ -315,19 +324,21 @@ class TestFreeTierModelListing:
             response = c.get("/posthog_code/v1/models", headers={"Authorization": "Bearer phx_billed_org_models"})
 
         assert response.status_code == 200
-        ids = {m["id"] for m in response.json()["data"]}
-        assert "claude-opus-4-5" in ids
+        models = response.json()["data"]
+        assert "claude-opus-4-5" in {m["id"] for m in models}
+        assert all(m["allowed"] for m in models)
 
-    def test_auth_resolution_failure_serves_full_list(self, app, mock_db_pool):
+    def test_auth_resolution_failure_serves_full_unrestricted_list(self, app, mock_db_pool):
         from unittest.mock import AsyncMock
 
-        # A transient auth outage must not downgrade a possibly-billed caller's
-        # picker to the free list; enforcement still gates actual usage.
+        # A transient auth outage must not mark a possibly-billed caller's
+        # models as restricted; enforcement still gates actual usage.
         mock_db_pool.acquire = AsyncMock(side_effect=RuntimeError("db down"))
 
         with TestClient(app) as c:
             response = c.get("/posthog_code/v1/models", headers={"Authorization": "Bearer phx_auth_outage_models"})
 
         assert response.status_code == 200
-        ids = {m["id"] for m in response.json()["data"]}
-        assert "claude-opus-4-5" in ids
+        models = response.json()["data"]
+        assert "claude-opus-4-5" in {m["id"] for m in models}
+        assert all(m["allowed"] for m in models)
