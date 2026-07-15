@@ -499,6 +499,12 @@ def approval_gate(action_refs: Union[type, str, list]):
                 request = args[0] if args else kwargs.get("request")
                 _, team, organization = _extract_context(self, request)
 
+            # System writes (no acting user, e.g. facade calls from tasks or service code)
+            # bypass the gate: approval policies target human-driven changes, and a
+            # ChangeRequest cannot exist without a requester to attribute it to.
+            if getattr(request, "user", None) is None:
+                return method(self, *args, **kwargs)
+
             if not team or not organization:
                 logger.warning(
                     f"No team/org context in {'serializer' if is_serializer else 'viewset'}, skipping approval gate"

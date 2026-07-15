@@ -28,6 +28,7 @@ from posthog.exceptions import (
     ClickHouseQueryTimeOut,
 )
 from posthog.models import OrganizationMembership, Team, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.actions.backend.models.action import Action
@@ -4242,6 +4243,26 @@ class TestExperimentService(APIBaseTest):
         assert reset.feature_flag.filters["groups"] == original_groups
         cohort.refresh_from_db()
         assert cohort.deleted is True
+
+    def test_reset_experiment_clears_freeze_without_request(self):
+        experiment = self._create_running_experiment(name="Reset No Request", feature_flag_key="reset-no-request-flag")
+        original_groups = deepcopy(experiment.feature_flag.filters["groups"])
+        with self._stub_freeze_population():
+            frozen = self._service().freeze_exposure(experiment, request=self._make_request())
+
+        # Non-HTTP callers (no request/user) still route the freeze-strip through the
+        # gated facade write, attributed as a system change in the activity log.
+        with self.captureOnCommitCallbacks(execute=True):
+            reset = self._service().reset_experiment(frozen)
+
+        assert reset.is_draft
+        reset.feature_flag.refresh_from_db()
+        assert reset.feature_flag.filters["groups"] == original_groups
+        log = ActivityLog.objects.filter(
+            scope="FeatureFlag", item_id=str(reset.feature_flag_id), activity="updated"
+        ).latest("created_at")
+        assert log.is_system is True
+        assert log.user is None
 
     @parameterized.expand(
         [
