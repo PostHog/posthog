@@ -241,7 +241,7 @@ class WizardSetupReviewWorkflow:
     @staticmethod
     def workflow_id_for(team_id: int) -> str:
         # One review per team, ever: the facade starts this id with REJECT_DUPLICATE, and the
-        # billing-exempt-report check in compose covers reruns after workflow retention.
+        # onboarding-exempt-report check in compose covers reruns after workflow retention.
         return f"signals-wizard-setup-review-{team_id}"
 
     @workflow.run
