@@ -22,6 +22,9 @@ export function createMainWindow(store: JsonStore<DesktopSettings>): BrowserWind
         minHeight: 600,
         title: 'PostHog',
         backgroundColor: '#1d1f27',
+        // On macOS the frontend renders edge to edge and reserves space for the
+        // traffic lights itself (see the frontend's isDesktopAppMac() usages)
+        ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' as const } : {}),
         webPreferences: {
             preload: path.join(__dirname, 'preload.cjs'),
             contextIsolation: true,

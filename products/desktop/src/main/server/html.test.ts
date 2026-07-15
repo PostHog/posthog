@@ -27,6 +27,11 @@ describe('buildIndexHtml', () => {
         assert.match(html, /<div id="root"><\/div>/)
     })
 
+    test('exposes the desktop version and platform to the frontend', () => {
+        const html = buildIndexHtml(manifest, { desktopVersion: '1.2.3', desktopPlatform: 'darwin' })
+        assert.match(html, /window\.__POSTHOG_DESKTOP__ = \{ version: "1\.2\.3", platform: "darwin" \}/)
+    })
+
     test('falls back to hashless entrypoints when the manifest is sparse', () => {
         const html = buildIndexHtml({ css: '', font: '', js: [], authenticatedJs: [] })
         assert.match(html, /ESBUILD_LOAD_SCRIPT\("index\.js"\)/)

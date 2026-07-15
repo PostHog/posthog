@@ -13,6 +13,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
+import { isDesktopAppMac } from 'lib/utils/isDesktopApp'
 import { urls } from 'scenes/urls'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -29,7 +30,10 @@ export function SceneTabs(): JSX.Element {
     const { newTab, reorderTabs, clearFrozenWidths } = useActions(sceneTabsLogic)
     const { mobileLayout } = useValues(navigationLogic)
     const { showLayoutNavBar } = useActions(panelLayoutLogic)
-    const { isLayoutNavbarVisibleForMobile } = useValues(panelLayoutLogic)
+    const { isLayoutNavbarVisibleForMobile, isLayoutNavCollapsed } = useValues(panelLayoutLogic)
+    // macOS desktop app: when the navbar is collapsed (45px) or hidden, the traffic lights
+    // extend past it into the tab strip, so the tabs shift right to clear them
+    const trafficLightsPadding = isDesktopAppMac() && (mobileLayout ? 'pl-[72px]' : isLayoutNavCollapsed ? 'pl-7' : '')
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
     const handleDragEnd = ({ active, over }: DragEndEvent): void => {
         if (!over || over.id === 'new' || active.id === over.id) {
@@ -57,7 +61,12 @@ export function SceneTabs(): JSX.Element {
     }
 
     return (
-        <div className="h-[var(--scene-layout-header-height)] flex items-center w-full min-w-0 bg-surface-tertiary z-[var(--z-top-navigation)] relative">
+        <div
+            className={cn(
+                'h-[var(--scene-layout-header-height)] flex items-center w-full min-w-0 bg-surface-tertiary z-[var(--z-top-navigation)] relative',
+                trafficLightsPadding
+            )}
+        >
             {/* Mobile button to show/hide the layout navbar */}
             {mobileLayout && (
                 <ButtonPrimitive

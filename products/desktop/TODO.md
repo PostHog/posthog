@@ -21,6 +21,10 @@ The long-term goal is to merge PostHog Code (github.com/posthog/code) into this 
 - [x] Scene tabs, desktop-only (rebuild of the tabs removed from the web app in #59764): tab strip above the scene (`frontend/src/layout/scenes/SceneTabs.tsx` + self-contained `sceneTabsLogic`), new-tab button, close/middle-click close, drag-to-reorder, rename, pin/unpin, close-left/right, duplicate; titles/icons sync from scene breadcrumbs; tabs persist to localStorage and restore on launch; jest coverage in `sceneTabsLogic.test.ts`
 - [x] Open in new tab: cmd/ctrl+click on internal links and the project-tree "open in new tab" open background scene tabs via `newInternalTab`
 - [x] Open in new window: tab context menu item, File → New window (Cmd/Ctrl+Shift+N), and any `window.open`/`target=_blank` on the local origin opens another PostHog window; sign-out collapses back to one window
+- [x] Fresh additional windows: windows opened via "open in new window" / File → New window start with just the opened location plus pinned tabs (`__posthogDesktopFreshWindow` param → sessionStorage flag) instead of cloning the saved tab set, and don't overwrite the primary window's persisted tabs
+- [x] Frameless window on macOS (`titleBarStyle: hiddenInset`): the frontend reserves space for the traffic lights (`isDesktopAppMac()` via `window.__POSTHOG_DESKTOP__.platform`) — beside the org/project picker when the navbar is wide, above it when collapsed/narrow, plus left padding on the tab strip in collapsed/mobile modes; the top chrome doubles as the window drag region
+- [x] Link context menus: right-click on any link without its own context menu offers open in new tab / new window (or browser / email app for external links), copy URL, and copy link text (`DesktopLinkContextMenu`, mounted app-wide in desktop mode)
+- [x] Tab-aware notebooks: `sceneTabsLogic` keeps a `notebookLogic` mounted per open notebook tab, so notebook state survives tab switches; `notebookSceneLogic` skips refetching an already-loaded notebook
 - [x] `POSTHOG_DESKTOP_SCREENSHOT` capture hook for headless verification under Xvfb
 
 ## Next steps
@@ -33,7 +37,8 @@ The long-term goal is to merge PostHog Code (github.com/posthog/code) into this 
 
 ### Frontend integration
 
-- [ ] Tabs polish: global keyboard shortcuts (new tab / close tab / next tab), per-scene state preservation when switching tabs (the old implementation kept per-tab mounted scene logics), corner join between the active first tab and the scene container, pinned-tabs backend sync
+- [ ] Tabs polish: global keyboard shortcuts (new tab / close tab / next tab), per-scene state preservation when switching tabs for scenes beyond notebooks (the old implementation kept per-tab mounted scene logics), corner join between the active first tab and the scene container, pinned-tabs backend sync
+- [ ] Hide the traffic-light spacers while the window is in native macOS fullscreen (needs a main-process fullscreen event over IPC)
 - [ ] Handle endpoints that need session auth rather than a personal API key (e.g. some billing routes) gracefully
 - [ ] Per-scene chunk preload map (the Django index.html embeds one; the desktop server could read it from the build metafile)
 - [ ] Websocket/livestream proxying if `livestream_host` requests need auth headers

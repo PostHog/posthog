@@ -89,6 +89,70 @@ describe('sceneTabsLogic', () => {
         expect(router.values.location.pathname).toEqual(prefixed('/activity/explore'))
     })
 
+    describe('fresh desktop windows ("open in new window")', () => {
+        // prefixed() needs the team context from initKeaTests, so build the fixture per-test
+        const persistedTabs = (): Record<string, any>[] => [
+            {
+                id: 'pin1',
+                pathname: prefixed('/dashboard/1'),
+                search: '',
+                hash: '',
+                title: 'Pinned dashboard',
+                iconType: 'dashboard',
+                active: false,
+                pinned: true,
+            },
+            {
+                id: 'tab2',
+                pathname: prefixed('/insights'),
+                search: '',
+                hash: '',
+                title: 'Insights',
+                iconType: 'insight',
+                active: true,
+                pinned: false,
+            },
+        ]
+
+        const mountFreshWindowAt = (location: string): void => {
+            initKeaTests()
+            router.actions.push(location)
+            logic = sceneTabsLogic.build()
+            logic.mount()
+        }
+
+        beforeEach(() => {
+            window.__POSTHOG_DESKTOP__ = { version: 'test' }
+            localStorage.setItem('posthog-desktop-scene-tabs', JSON.stringify(persistedTabs()))
+            sessionStorage.setItem('posthog-desktop-fresh-window', '1')
+        })
+
+        afterEach(() => {
+            delete window.__POSTHOG_DESKTOP__
+            sessionStorage.clear()
+        })
+
+        it('restores only pinned tabs plus the opened location', () => {
+            mountFreshWindowAt('/activity/explore')
+            expect(logic.values.tabs).toHaveLength(2)
+            expect(logic.values.tabs[0]).toMatchObject({ id: 'pin1', pinned: true, active: false })
+            expect(logic.values.tabs[1]).toMatchObject({ pathname: prefixed('/activity/explore'), active: true })
+        })
+
+        it('activates a matching pinned tab instead of duplicating it', () => {
+            mountFreshWindowAt('/dashboard/1')
+            expect(logic.values.tabs).toHaveLength(1)
+            expect(logic.values.tabs[0]).toMatchObject({ id: 'pin1', pinned: true, active: true })
+        })
+
+        it('does not overwrite the primary window persisted tab set', async () => {
+            mountFreshWindowAt('/activity/explore')
+            logic.actions.newTab('/persons')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(JSON.parse(localStorage.getItem('posthog-desktop-scene-tabs')!)).toHaveLength(2)
+        })
+    })
+
     it('pinned tabs sort first and reordering respects the pinned group', async () => {
         logic.actions.newTab('/insights')
         logic.actions.newTab('/dashboard/1')

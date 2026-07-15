@@ -39,6 +39,22 @@ function resolveFrontendDistDir(): string {
 }
 
 /**
+ * Additional app windows should open with a single tab (plus pinned tabs) instead of
+ * cloning the whole restored tab set. The frontend strips this param at boot
+ * (consumeDesktopFreshWindowParam in frontend/src/lib/utils/isDesktopApp.ts) and
+ * sceneTabsLogic seeds the window's tabs accordingly.
+ */
+function markAsFreshWindow(url: string): string {
+    try {
+        const parsed = new URL(url)
+        parsed.searchParams.set('__posthogDesktopFreshWindow', '1')
+        return parsed.toString()
+    } catch {
+        return url
+    }
+}
+
+/**
  * Headless capture hook for docs and visual checks: with
  * POSTHOG_DESKTOP_SCREENSHOT=/path/out.png the app captures the window after
  * it settles and quits. Delay is tunable via POSTHOG_DESKTOP_SCREENSHOT_DELAY_MS.
@@ -87,6 +103,7 @@ async function main(): Promise<void> {
                 },
                 upstreamHeaders: { 'user-agent': `PostHog-Desktop/${app.getVersion()}` },
                 desktopVersion: app.getVersion(),
+                desktopPlatform: process.platform,
             },
             store.get('port')
         )
@@ -110,7 +127,7 @@ async function main(): Promise<void> {
     const openAppWindow = (url: string): void => {
         const win = createMainWindow(store)
         scheduleScreenshot(win)
-        void win.loadURL(url)
+        void win.loadURL(markAsFreshWindow(url))
     }
     const showApp = (): void => {
         void getWindow().loadURL(`${backend.origin}/`)

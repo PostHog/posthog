@@ -41,6 +41,8 @@ function escapeForScript(value: string): string {
 export interface BuildIndexHtmlOptions {
     /** Desktop app version, exposed to the frontend as window.__POSTHOG_DESKTOP__ */
     desktopVersion?: string
+    /** Node process.platform of the main process, e.g. "darwin" — the frontend uses it to reserve space for macOS traffic lights */
+    desktopPlatform?: string
 }
 
 export function buildIndexHtml(manifest: PreloadManifest, options: BuildIndexHtmlOptions = {}): string {
@@ -63,7 +65,7 @@ export function buildIndexHtml(manifest: PreloadManifest, options: BuildIndexHtm
     // sceneLogic calls ESBUILD_LOAD_CHUNKS optionally, so an empty map just means scenes
     // fall back to cascading dynamic imports - correct, marginally slower on first visit.
     const loaderScript = `
-window.__POSTHOG_DESKTOP__ = { version: ${escapeForScript(options.desktopVersion || '0.0.0')} }
+window.__POSTHOG_DESKTOP__ = { version: ${escapeForScript(options.desktopVersion || '0.0.0')}, platform: ${escapeForScript(options.desktopPlatform || '')} }
 window.JS_URL = ''
 window.ESBUILD_LOADED_CHUNKS = new Set()
 window.ESBUILD_LOAD_CHUNKS = function (name) {}

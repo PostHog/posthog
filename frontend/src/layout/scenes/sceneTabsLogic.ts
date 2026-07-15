@@ -1,10 +1,10 @@
 import { arrayMove } from '@dnd-kit/sortable'
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
-import { isDesktopApp } from 'lib/utils/isDesktopApp'
+import { isDesktopApp, isDesktopFreshWindow } from 'lib/utils/isDesktopApp'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { NEW_INTERNAL_TAB } from 'lib/utils/newInternalTab'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -109,6 +109,49 @@ const getPersistedTabs = (): DesktopSceneTab[] | null => {
         console.error('Failed to parse saved desktop tabs:', e)
     }
     return null
+}
+
+const NOTEBOOK_TAB_PATHNAME = /\/notebooks\/([^/?#]+)/
+
+/**
+ * Tab-aware notebooks: keep a notebookLogic mounted for every open notebook tab, so notebook
+ * state (loaded content, local edits, editor sync state) survives switching to another tab and
+ * back — the scene itself remounts, but re-attaches to the still-mounted logic. Lazy-imports the
+ * notebooks chunk only when a notebook tab actually exists.
+ */
+const syncNotebookKeepAlive = (cache: Record<string, any>, tabs: DesktopSceneTab[]): void => {
+    const keepAlive: Map<string, () => void> = (cache.notebookKeepAlive ??= new Map())
+    const openShortIds = new Set<string>()
+    for (const tab of tabs) {
+        const shortId = tab.pathname.match(NOTEBOOK_TAB_PATHNAME)?.[1]
+        if (shortId && shortId !== 'new') {
+            openShortIds.add(shortId)
+        }
+    }
+    for (const [shortId, unmount] of keepAlive) {
+        if (!openShortIds.has(shortId)) {
+            keepAlive.delete(shortId)
+            unmount()
+        }
+    }
+    for (const shortId of openShortIds) {
+        if (!keepAlive.has(shortId)) {
+            const placeholder = (): void => {}
+            keepAlive.set(shortId, placeholder)
+            void Promise.all([import('scenes/notebooks/Notebook/notebookLogic'), import('scenes/notebooks/types')])
+                .then(([{ notebookLogic }, { NotebookTarget }]) => {
+                    // Only mount if the tab is still open and no newer sync raced us here
+                    if (keepAlive.get(shortId) === placeholder) {
+                        keepAlive.set(shortId, notebookLogic({ shortId, target: NotebookTarget.Scene }).mount())
+                    }
+                })
+                .catch(() => {
+                    if (keepAlive.get(shortId) === placeholder) {
+                        keepAlive.delete(shortId)
+                    }
+                })
+        }
+    }
 }
 
 export const sceneTabsLogic = kea<sceneTabsLogicType>([
@@ -336,7 +379,7 @@ export const sceneTabsLogic = kea<sceneTabsLogicType>([
             actions.setFrozenWidths(widths)
         },
     })),
-    subscriptions(({ actions, values }) => ({
+    subscriptions(({ actions, values, cache }) => ({
         sceneTitleAndIcon: ({ title, iconType }: { title: string; iconType: DesktopSceneTab['iconType'] }) => {
             if (!title || title === '...' || title === 'Loading...') {
                 // While the scene is loading, don't flicker between the old title and a placeholder
@@ -348,11 +391,24 @@ export const sceneTabsLogic = kea<sceneTabsLogicType>([
             }
         },
         tabs: (tabs: DesktopSceneTab[]) => {
-            if (isDesktopApp() && tabs.length > 0) {
+            // Additional ("fresh") windows don't persist: the primary window owns the saved tab set
+            if (isDesktopApp() && !isDesktopFreshWindow() && tabs.length > 0) {
                 persistTabs(tabs)
+            }
+            if (isDesktopApp()) {
+                syncNotebookKeepAlive(cache, tabs)
             }
         },
     })),
+    beforeUnmount(({ cache }) => {
+        const keepAlive: Map<string, () => void> | undefined = cache.notebookKeepAlive
+        if (keepAlive) {
+            for (const unmount of keepAlive.values()) {
+                unmount()
+            }
+            keepAlive.clear()
+        }
+    }),
     afterMount(({ actions, values }) => {
         const { currentLocation } = router.values
         const currentTab = freshTab({
@@ -373,6 +429,28 @@ export const sceneTabsLogic = kea<sceneTabsLogicType>([
         }
 
         const persisted = isDesktopApp() ? getPersistedTabs() : null
+
+        // Windows opened via "open in new window" / File → New window start with just the
+        // opened location plus the pinned tabs, instead of cloning the whole saved tab set
+        if (isDesktopFreshWindow()) {
+            const pinned = (persisted ?? [])
+                .filter((tab) => tab.pinned)
+                .map((tab) => ({ ...tab, sceneParams: undefined, active: false }))
+            const matchIndex = pinned.findIndex(
+                (tab) =>
+                    tab.pathname === currentTab.pathname &&
+                    (tab.search ?? '') === currentTab.search &&
+                    (tab.hash ?? '') === currentTab.hash
+            )
+            if (matchIndex !== -1) {
+                actions.setTabs(pinned.map((tab, i) => ({ ...tab, active: i === matchIndex })))
+            } else {
+                actions.setTabs([...pinned, currentTab])
+            }
+            seedTitle()
+            return
+        }
+
         if (!persisted) {
             actions.setTabs([currentTab])
             seedTitle()

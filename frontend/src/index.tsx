@@ -5,9 +5,13 @@ import './buffer-polyfill'
 import { Suspense, lazy } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 
+import { consumeDesktopFreshWindowParam } from 'lib/utils/isDesktopApp'
 import { retryBootImport } from 'lib/utils/retryImport'
 
 import { RootErrorBoundary } from './RootErrorBoundary'
+
+// Must run before kea-router boots so the desktop app's window-management param never reaches scenes
+consumeDesktopFreshWindowParam()
 import { ChunkLoadErrorBoundary } from './scenes/ChunkLoadErrorBoundary'
 
 // Lazy-load App so the entry chunk stays minimal: the entire transitive dependency

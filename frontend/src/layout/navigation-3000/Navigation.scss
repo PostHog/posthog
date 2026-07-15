@@ -750,6 +750,26 @@
                 'content' 1fr / minmax(0, 1fr);
         }
     }
+
+    /* Desktop app on macOS: the window has no title bar, so the top chrome doubles as
+       the window drag region. Interactive elements opt back out. */
+    &.app-layout--desktop-mac {
+        .top-nav {
+            -webkit-app-region: drag;
+
+            a,
+            button,
+            input,
+            [data-tab-id] {
+                -webkit-app-region: no-drag;
+            }
+        }
+    }
+}
+
+/* Empty area reserved for the macOS traffic lights in the frameless desktop window */
+.desktop-traffic-lights-spacer {
+    -webkit-app-region: drag;
 }
 
 .top-nav {

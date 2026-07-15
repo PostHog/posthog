@@ -43,6 +43,8 @@ export interface LocalBackendOptions {
     upstreamHeaders?: Record<string, string>
     /** Desktop app version, exposed to the frontend as window.__POSTHOG_DESKTOP__ */
     desktopVersion?: string
+    /** Node process.platform of the main process, exposed as window.__POSTHOG_DESKTOP__.platform */
+    desktopPlatform?: string
 }
 
 export interface LocalBackend {
@@ -306,7 +308,9 @@ const SIGNED_OUT_HTML = `<!doctype html>
 
 export async function startLocalBackend(options: LocalBackendOptions, preferredPort: number): Promise<LocalBackend> {
     const manifest = readPreloadManifest(options.distDir)
-    const indexHtml = manifest ? buildIndexHtml(manifest, { desktopVersion: options.desktopVersion }) : null
+    const indexHtml = manifest
+        ? buildIndexHtml(manifest, { desktopVersion: options.desktopVersion, desktopPlatform: options.desktopPlatform })
+        : null
 
     const server = http.createServer((req, res) => {
         const pathname = new URL(req.url || '/', 'http://localhost').pathname

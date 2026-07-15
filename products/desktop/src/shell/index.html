@@ -20,6 +20,16 @@
             * {
                 box-sizing: border-box;
             }
+            /* The window has no title bar (macOS hiddenInset), so the top strip doubles as the drag region */
+            body::before {
+                content: '';
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                height: 40px;
+                -webkit-app-region: drag;
+            }
             html,
             body {
                 height: 100%;

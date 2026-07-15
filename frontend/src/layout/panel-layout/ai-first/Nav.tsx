@@ -21,6 +21,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from 'lib/ui/D
 import { Label } from 'lib/ui/Label/Label'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
+import { isDesktopAppMac } from 'lib/utils/isDesktopApp'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { urls } from 'scenes/urls'
@@ -152,6 +153,11 @@ export function Nav(): JSX.Element {
         }
     }, [openWidth, isLayoutNavCollapsed, isMobileLayout, setNavbarWidth])
 
+    // macOS desktop app traffic lights: with enough navbar width the picker shifts right,
+    // otherwise (collapsed or narrow) the reserved space goes above it
+    const trafficLightsSpace = isDesktopAppMac()
+    const trafficLightsBesidePicker = trafficLightsSpace && !isLayoutNavCollapsed && openWidth >= 200
+
     useShortcut({
         name: 'ToggleLeftNav',
         keybind: [keyBinds.toggleLeftNav],
@@ -182,6 +188,12 @@ export function Nav(): JSX.Element {
                 )}
                 ref={containerRef}
             >
+                {/* macOS desktop app: the title bar is hidden, so reserve room for the traffic
+                    lights — above the org/project picker when the navbar is narrow, or to its
+                    left when there's enough width (see trafficLightsBesidePicker below) */}
+                {trafficLightsSpace && !trafficLightsBesidePicker && (
+                    <div className="desktop-traffic-lights-spacer h-7 w-full shrink-0" />
+                )}
                 <div
                     className={cn(
                         'flex justify-between items-center',
@@ -193,6 +205,9 @@ export function Nav(): JSX.Element {
                             'flex-col items-center pt-2 pb-0': isLayoutNavCollapsed,
                         })}
                     >
+                        {trafficLightsBesidePicker && (
+                            <div className="desktop-traffic-lights-spacer w-16 shrink-0 self-stretch" />
+                        )}
                         <NewAccountMenu isLayoutNavCollapsed={isLayoutNavCollapsed} />
 
                         <NavSearchButton isLayoutNavCollapsed={isLayoutNavCollapsed} toggleCommand={toggleCommand} />

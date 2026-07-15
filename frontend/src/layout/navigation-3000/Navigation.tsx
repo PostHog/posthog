@@ -7,7 +7,7 @@ import { mcpHintLogic } from 'lib/components/MCPHint/mcpHintLogic'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
-import { isDesktopApp } from 'lib/utils/isDesktopApp'
+import { isDesktopApp, isDesktopAppMac } from 'lib/utils/isDesktopApp'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -140,6 +140,7 @@ export function Navigation({
                 className={cn('app-layout bg-surface-tertiary', {
                     'app-layout--mobile': mobileLayout,
                     'app-layout--desktop-tabs': isDesktopApp(),
+                    'app-layout--desktop-mac': isDesktopAppMac(),
                 })}
                 style={
                     {
