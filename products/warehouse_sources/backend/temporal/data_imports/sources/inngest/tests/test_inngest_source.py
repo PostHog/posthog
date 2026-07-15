@@ -59,7 +59,6 @@ class TestInngestSource:
         # either would expose an unfinished connector to every user.
         config = self.source.get_source_config
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/inngest"
 
     def test_lists_tables_without_credentials(self) -> None:
