@@ -2036,6 +2036,9 @@ class ExternalDataSourceType(StrEnum):
     AUTUMN = "Autumn"
     GET_STREAM = "GetStream"
     OCTOLENS = "Octolens"
+    KAJABI = "Kajabi"
+    SHOPWARE = "Shopware"
+    DUBSADO = "Dubsado"
 
 
 class ExternalQueryErrorCode(StrEnum):

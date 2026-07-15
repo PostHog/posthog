@@ -218,6 +218,7 @@ from .drip.source import DripSource
 from .dropbox.source import DropboxSource
 from .dropbox_sign.source import DropboxSignSource
 from .dub.source import DubSource
+from .dubsado.source import DubsadoSource
 from .dwolla.source import DwollaSource
 from .dynamics365.source import Dynamics365Source
 from .dynamodb.source import DynamoDBSource
@@ -387,6 +388,7 @@ from .justcall.source import JustCallSource
 from .justsift.source import JustSiftSource
 from .k6_cloud.source import K6CloudSource
 from .kafka.source import KafkaSource
+from .kajabi.source import KajabiSource
 from .kandji.source import KandjiSource
 from .kapa_ai.source import KapaAISource
 from .katana.source import KatanaSource
@@ -680,6 +682,7 @@ from .sharetribe.source import SharetribeSource
 from .shippo.source import ShippoSource
 from .shipstation.source import ShipStationSource
 from .shopify.source import ShopifySource
+from .shopware.source import ShopwareSource
 from .shopwired.source import ShopWiredSource
 from .shortcut.source import ShortcutSource
 from .shortio.source import ShortioSource
