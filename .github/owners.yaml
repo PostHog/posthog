@@ -9,5 +9,8 @@ rules:
       owners: [team-devex]
     - match: '/workflows/cd-llm-analytics-image.yml'
       owners: [team-devex, team-ai-observability]
-    - match: ['/workflows/ci-llm-gateway.yml', '/workflows/llm-gateway-cd.yml', '/workflows/update-ai-costs.yml']
+    - match:
+          - '/workflows/ci-llm-gateway.yml'
+          - '/workflows/llm-gateway-cd.yml'
+          - '/workflows/update-ai-costs.yml'
       owners: [team-devex, team-ai-gateway]

@@ -4,18 +4,16 @@ rules:
     - match: Dockerfile.llm-analytics
       owners: [team-ai-observability]
     - match:
-          [
-              Dockerfile,
-              'docker-compose*.yml',
-              '.prettierrc',
-              '.test_quarantine.json',
-              hogli.yaml,
-              tach.toml,
-              CLAUDE.md,
-              AGENTS.md,
-              bin/,
-              greptile.json,
-          ]
+          - Dockerfile
+          - 'docker-compose*.yml'
+          - '.prettierrc'
+          - '.test_quarantine.json'
+          - hogli.yaml
+          - tach.toml
+          - CLAUDE.md
+          - AGENTS.md
+          - bin/
+          - greptile.json
       owners: [team-devex]
     - match: '/.agents/skills/manage-dashboard-widgets/'
       owners: [team-analytics-platform]
@@ -46,7 +44,11 @@ rules:
     - match: '/services/llm-gateway/'
       owners: [team-ai-gateway]
     - match:
-          ['/tools/hogli-commands/', '/tools/hogli/', '/tools/owners/', '/tools/phrocs/', '/tools/pr-approval-agent/']
+          - '/tools/hogli-commands/'
+          - '/tools/hogli/'
+          - '/tools/owners/'
+          - '/tools/phrocs/'
+          - '/tools/pr-approval-agent/'
       owners: [team-devex]
     - match: '/tools/query-performance-ai/'
       owners: [team-analytics-platform]

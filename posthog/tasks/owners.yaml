@@ -18,13 +18,11 @@ rules:
     - match: '/test/test_ai_observability_usage_report.py'
       owners: [team-ai-observability]
     - match:
-          [
-              '/test/test_stop_surveys_reached_target.py',
-              '/test/test_update_survey_adaptive_sampling.py',
-              '/test/test_update_survey_iteration.py',
-              '/update_survey_adaptive_sampling.py',
-              '/update_survey_iteration.py',
-          ]
+          - '/test/test_stop_surveys_reached_target.py'
+          - '/test/test_update_survey_adaptive_sampling.py'
+          - '/test/test_update_survey_iteration.py'
+          - '/update_survey_adaptive_sampling.py'
+          - '/update_survey_iteration.py'
       owners: [team-surveys]
     - match: '/usage_report.py'
       owners: [team-billing]

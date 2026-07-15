@@ -11,7 +11,20 @@ rules:
       owners: [team-feature-flags]
     - match: '/hogql/'
       owners: [team-data-tools]
-    - match: ['/ingestion-consumer/', '/kafka-assigner-proto/', '/kafka-assigner/', '/kafka-deduplicator/', '/personhog-common/', '/personhog-coordination/', '/personhog-leader/', '/personhog-proto/', '/personhog-replica/', '/personhog-router/', '/personhog-writer/', '/property-defs-rs/', '/property-vals-rs/']
+    - match:
+          - '/ingestion-consumer/'
+          - '/kafka-assigner-proto/'
+          - '/kafka-assigner/'
+          - '/kafka-deduplicator/'
+          - '/personhog-common/'
+          - '/personhog-coordination/'
+          - '/personhog-leader/'
+          - '/personhog-proto/'
+          - '/personhog-replica/'
+          - '/personhog-router/'
+          - '/personhog-writer/'
+          - '/property-defs-rs/'
+          - '/property-vals-rs/'
       owners: [team-ingestion]
     - match: '/replay-anonymizer-node/'
       owners: [team-ai-research]
