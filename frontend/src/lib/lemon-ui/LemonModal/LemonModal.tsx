@@ -1,7 +1,7 @@
 import './LemonModal.scss'
 
 import clsx from 'clsx'
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Modal from 'react-modal'
 
 import { IconX } from '@posthog/icons'
@@ -69,87 +69,6 @@ export const LemonModalContent = ({ children, className, embedded = false }: Lem
         <section className={clsx('LemonModal__content', embedded && 'LemonModal__content--embedded', className)}>
             {children}
         </section>
-    )
-}
-
-function getTooltipTitle(titleElement: HTMLHeadingElement | null): string {
-    if (!titleElement) {
-        return ''
-    }
-
-    const getText = (node: Node): string => {
-        if (node.nodeType === Node.TEXT_NODE) {
-            return node.textContent ?? ''
-        }
-
-        if (!(node instanceof Element)) {
-            return ''
-        }
-
-        if (node !== titleElement && node.getAttribute('aria-hidden') === 'true') {
-            return ''
-        }
-
-        if (node instanceof HTMLBRElement) {
-            return '\n'
-        }
-
-        return Array.from(node.childNodes)
-            .map((childNode) => getText(childNode))
-            .join('')
-    }
-
-    return getText(titleElement).replace(/\s+/g, ' ').trim()
-}
-
-function LemonModalTitle({ children }: { children: React.ReactNode }): JSX.Element {
-    const titleRef = useRef<HTMLHeadingElement | null>(null)
-    const resizeObserverRef = useRef<ResizeObserver | null>(null)
-    const updateIsTruncatedRef = useRef<(() => void) | null>(null)
-    const [isTruncated, setIsTruncated] = useState(false)
-
-    const setTitleRef = useCallback((titleElement: HTMLHeadingElement | null): void => {
-        if (titleRef.current === titleElement) {
-            return
-        }
-
-        resizeObserverRef.current?.disconnect()
-        resizeObserverRef.current = null
-        titleRef.current = titleElement
-
-        if (!titleElement) {
-            setIsTruncated(false)
-            return
-        }
-
-        const updateIsTruncated = (): void => {
-            setIsTruncated(
-                titleElement.scrollWidth > titleElement.clientWidth ||
-                    titleElement.scrollHeight > titleElement.clientHeight
-            )
-        }
-
-        updateIsTruncatedRef.current = updateIsTruncated
-        updateIsTruncated()
-
-        if (typeof ResizeObserver !== 'undefined') {
-            resizeObserverRef.current = new ResizeObserver(updateIsTruncated)
-            resizeObserverRef.current.observe(titleElement)
-        }
-    }, [])
-
-    useLayoutEffect(() => {
-        updateIsTruncatedRef.current?.()
-    }, [children])
-
-    useEffect(() => () => resizeObserverRef.current?.disconnect(), [])
-
-    return (
-        <Tooltip title={isTruncated ? () => getTooltipTitle(titleRef.current) : undefined} placement="bottom-start">
-            <h3 ref={setTitleRef} className="LemonModal__title" tabIndex={isTruncated ? 0 : undefined}>
-                {children}
-            </h3>
-        </Tooltip>
     )
 }
 
@@ -229,7 +148,7 @@ export function LemonModal({
                     <>
                         {title ? (
                             <LemonModalHeader>
-                                <LemonModalTitle>{title}</LemonModalTitle>
+                                <h3 className="LemonModal__title">{title}</h3>
                                 {description ? (
                                     typeof description === 'string' ? (
                                         <p>{description}</p>
