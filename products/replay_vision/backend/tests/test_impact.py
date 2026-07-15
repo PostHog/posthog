@@ -276,7 +276,8 @@ class TestImpactEndpoints(_ImpactTestCase):
         self._make_observation(scanner, session_id="s2", distinct_id="u2", result={"model_output": {"tags": ["ux"]}})
 
         resp = self.client.get(
-            f"/api/environments/{self.team.id}/vision/scanners/{scanner.id}/impact/", {"tag": "bug", "window_days": 7}
+            f"/api/environments/{self.team.id}/vision/scanners/{scanner.id}/impact/",
+            {"tag": "bug", "window_days": "7"},
         )
 
         assert resp.status_code == 200, resp.json()
