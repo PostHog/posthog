@@ -1,6 +1,7 @@
 import { ArtifactSource } from '~/queries/schema/schema-assistant-messages'
 
-import type { ToolCallMessage } from '../../maxTypes'
+import type { ToolCallMessage } from 'products/posthog_ai/frontend/types/toolTypes'
+
 import {
     extractDashboard,
     extractErrorTrackingResponse,

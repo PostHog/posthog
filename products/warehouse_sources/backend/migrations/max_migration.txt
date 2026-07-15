@@ -1,1 +1,1 @@
-0072_externaldataschema_api_version
+0073_externaldataschema_api_version

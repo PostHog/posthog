@@ -1,11 +1,11 @@
-// Importing the module runs its side effect: registering Max's product-specific tool renderers into the
-// shared toolRegistry. We assert the stable key → displayName metadata it contributes (the lazy
+// Importing the module runs its side effect: registering the surface's product-specific tool renderers
+// into the shared toolRegistry. We assert the stable key → displayName metadata it contributes (the lazy
 // Renderer itself is an opaque chunk).
-import './registerMaxToolRenderers'
+import './registerDataToolRenderers'
 
 import { toolRegistry } from 'products/posthog_ai/frontend/api/tools'
 
-describe('registerMaxToolRenderers', () => {
+describe('registerDataToolRenderers', () => {
     it.each([
         ['insight-create', 'Insight'],
         ['insight-update', 'Insight'],
