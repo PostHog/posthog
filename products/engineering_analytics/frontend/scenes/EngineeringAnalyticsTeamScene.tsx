@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPeople } from '@posthog/icons'
-import { LemonSegmentedButton, LemonTable, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonTable, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { TimeSeriesLineChart, useChartTheme } from '@posthog/quill-charts'
 
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -14,23 +15,20 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { EntityHeader } from '../components/EntityHeader'
-import { DeltaBadge, percentChange } from '../components/MetricTile'
+import { CountWithDelta } from '../components/MetricTile'
 import { Section } from '../components/Section'
 import { compactHoursLabel } from '../lib/format'
 import { TeamDetailLogicProps, TeamTestSignalRow, teamDetailLogic } from './teamDetailLogic'
-import { TeamsWindow, UNOWNED_TEAM } from './teamsLogic'
+import { TEAMS_WINDOW_DATE_OPTIONS, TEAMS_WINDOW_LABELS, UNOWNED_TEAM, isTeamsWindow } from './teamsLogic'
 
 export const scene: SceneExport<TeamDetailLogicProps> = {
     component: EngineeringAnalyticsTeamScene,
     logic: teamDetailLogic,
-    paramsToProps: ({ params: { ownerTeam } }) => ({ ownerTeam: decodeURIComponent(ownerTeam ?? '') }),
-}
-
-const WINDOW_LABELS: Record<TeamsWindow, { prior: string; current: string }> = {
-    '-24h': { prior: 'Previous 24 hours', current: 'Last 24 hours' },
-    '-7d': { prior: 'Previous 7 days', current: 'Last 7 days' },
-    '-14d': { prior: 'Previous 14 days', current: 'Last 14 days' },
-    '-30d': { prior: 'Previous 30 days', current: 'Last 30 days' },
+    paramsToProps: ({ params: { ownerTeam }, searchParams: { source, window } }) => ({
+        ownerTeam: decodeURIComponent(ownerTeam ?? ''),
+        sourceId: source ?? null,
+        window: isTeamsWindow(window) ? window : null,
+    }),
 }
 
 export function EngineeringAnalyticsTeamScene(): JSX.Element {
@@ -40,7 +38,7 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
     const { timezone } = useValues(teamLogic)
     const chartTheme = useChartTheme()
 
-    const labels = WINDOW_LABELS[window]
+    const labels = TEAMS_WINDOW_LABELS[window]
     const isUnowned = ownerTeam === UNOWNED_TEAM
 
     const testColumns: LemonTableColumns<TeamTestSignalRow> = [
@@ -67,12 +65,7 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
             width: 140,
             align: 'right',
             sorter: (a, b) => a.signalCount - b.signalCount,
-            render: (_, row) => (
-                <div className="flex items-baseline justify-end gap-1.5">
-                    <span className="font-semibold tabular-nums">{humanFriendlyNumber(row.signalCount)}</span>
-                    <DeltaBadge value={percentChange(row.signalCount, row.signalCountPrior)} goodWhenDown />
-                </div>
-            ),
+            render: (_, row) => <CountWithDelta current={row.signalCount} prior={row.signalCountPrior} />,
         },
         {
             title: 'Last seen',
@@ -108,16 +101,11 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
                         </>
                     }
                 />
-                <LemonSegmentedButton
+                <DateFilter
+                    dateFrom={window}
+                    onChange={(from) => isTeamsWindow(from) && setWindow(from)}
+                    dateOptions={TEAMS_WINDOW_DATE_OPTIONS}
                     size="small"
-                    value={window}
-                    onChange={(value) => setWindow(value as TeamsWindow)}
-                    options={[
-                        { value: '-24h', label: '1d' },
-                        { value: '-7d', label: '7d' },
-                        { value: '-14d', label: '14d' },
-                        { value: '-30d', label: '30d' },
-                    ]}
                 />
             </div>
 

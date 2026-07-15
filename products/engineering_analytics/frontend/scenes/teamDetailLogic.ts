@@ -2,16 +2,18 @@ import { actions, afterMount, kea, key, listeners, path, props, reducers, select
 import { loaders } from 'kea-loaders'
 
 import { ApiConfig } from 'lib/api'
-import { dayjs } from 'lib/dayjs'
+import { Dayjs, dayjs } from 'lib/dayjs'
 
 import { engineeringAnalyticsTeamCiActivity, engineeringAnalyticsTeamMergeTrend } from '../generated/api'
 import type { teamDetailLogicType } from './teamDetailLogicType'
-import { TeamsWindow, UNOWNED_TEAM } from './teamsLogic'
+import { DEFAULT_TEAMS_WINDOW, TeamsWindow, UNOWNED_TEAM } from './teamsLogic'
 
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
 export interface TeamDetailLogicProps {
     ownerTeam: string
+    sourceId: string | null
+    window: TeamsWindow | null
 }
 
 export interface TeamTestSignalRow {
@@ -31,7 +33,6 @@ export interface TeamMergePoint {
     day: string
     medianSeconds: number | null
     averageSeconds: number | null
-    mergedCount: number
 }
 
 export interface TeamMergeTrendData {
@@ -39,18 +40,16 @@ export interface TeamMergeTrendData {
     points: TeamMergePoint[]
 }
 
-const WINDOW_DAYS: Record<TeamsWindow, number> = { '-24h': 1, '-7d': 7, '-14d': 14, '-30d': 30 }
-
 export const teamDetailLogic = kea<teamDetailLogicType>([
     path(['products', 'engineering_analytics', 'frontend', 'scenes', 'teamDetailLogic']),
     props({} as TeamDetailLogicProps),
-    key((props) => props.ownerTeam),
+    key((props) => `${props.ownerTeam}@${props.sourceId ?? ''}`),
     actions({
         setWindow: (window: TeamsWindow) => ({ window }),
     }),
-    reducers({
-        window: ['-14d' as TeamsWindow, { setWindow: (_, { window }) => window }],
-    }),
+    reducers(({ props }) => ({
+        window: [(props.window ?? DEFAULT_TEAMS_WINDOW) as TeamsWindow, { setWindow: (_, { window }) => window }],
+    })),
     loaders(({ props, values }) => ({
         activity: [
             null as TeamActivityData | null,
@@ -59,6 +58,7 @@ export const teamDetailLogic = kea<teamDetailLogicType>([
                     const data = await engineeringAnalyticsTeamCiActivity(projectId(), {
                         owner_team: props.ownerTeam,
                         date_from: values.window,
+                        source_id: props.sourceId ?? undefined,
                     })
                     return {
                         tests: data.tests.map((t) => ({
@@ -77,13 +77,14 @@ export const teamDetailLogic = kea<teamDetailLogicType>([
             null as TeamMergeTrendData | null,
             {
                 loadMergeTrend: async (): Promise<TeamMergeTrendData | null> => {
-                    // 'unowned' is an ownership gap, not an org team — a membership join has no meaning there.
+                    // 'unowned' is an ownership gap, not an org team; a membership join has no meaning there.
                     if (props.ownerTeam === UNOWNED_TEAM) {
                         return null
                     }
                     const data = await engineeringAnalyticsTeamMergeTrend(projectId(), {
                         owner_team: props.ownerTeam,
                         date_from: values.window,
+                        source_id: props.sourceId ?? undefined,
                     })
                     return {
                         hasMembershipData: data.has_membership_data,
@@ -91,7 +92,6 @@ export const teamDetailLogic = kea<teamDetailLogicType>([
                             day: p.day,
                             medianSeconds: p.median_seconds ?? null,
                             averageSeconds: p.average_seconds ?? null,
-                            mergedCount: p.merged_count,
                         })),
                     }
                 },
@@ -100,37 +100,43 @@ export const teamDetailLogic = kea<teamDetailLogicType>([
     })),
     selectors({
         ownerTeam: [(_, p) => [p.ownerTeam], (ownerTeam: string) => ownerTeam],
-        /** Quill-ready daily series in seconds. Same carry-forward + leading trim as the repo
-         *  overview's open-to-merge trend: a day without merges means "nothing merged", not
-         *  instant merges, so zero-filling would draw a false dip. Null when nothing merged
-         *  in the whole window. */
+        /** Quill-ready daily series on the backend's own day buckets. Gaps carry the last values
+         *  forward: a day without merges means "nothing merged", not instant merges, so
+         *  zero-filling would draw a false dip. Null when nothing merged in the window. */
         mergeTrendSeries: [
-            (s) => [s.mergeTrend, s.window],
+            (s) => [s.mergeTrend],
             (
-                mergeTrend: TeamMergeTrendData | null,
-                window: TeamsWindow
+                mergeTrend: TeamMergeTrendData | null
             ): { labels: string[]; median: number[]; average: number[] } | null => {
-                if (!mergeTrend?.hasMembershipData || !mergeTrend.points.length) {
+                if (!mergeTrend?.hasMembershipData) {
                     return null
                 }
-                const byDay = new Map(mergeTrend.points.map((p) => [dayjs(p.day).format('YYYY-MM-DD'), p]))
-                const start = dayjs().subtract(WINDOW_DAYS[window] - 1, 'day')
                 const labels: string[] = []
                 const median: number[] = []
                 const average: number[] = []
-                let lastMedian: number | null = null
-                let lastAverage: number | null = null
-                for (let i = 0; i < WINDOW_DAYS[window]; i++) {
-                    const day = start.add(i, 'day')
-                    const point = byDay.get(day.format('YYYY-MM-DD'))
-                    lastMedian = point?.medianSeconds ?? lastMedian
-                    lastAverage = point?.averageSeconds ?? lastAverage
-                    if (lastMedian === null || lastAverage === null) {
+                let lastDay: Dayjs | null = null
+                let lastMedian = 0
+                let lastAverage = 0
+                for (const point of mergeTrend.points) {
+                    const day = dayjs(point.day)
+                    if (lastDay) {
+                        for (let gap: Dayjs = lastDay.add(1, 'day'); gap.isBefore(day); gap = gap.add(1, 'day')) {
+                            labels.push(gap.toISOString())
+                            median.push(lastMedian)
+                            average.push(lastAverage)
+                        }
+                    }
+                    const medianValue: number | null = point.medianSeconds ?? (lastDay ? lastMedian : null)
+                    const averageValue: number | null = point.averageSeconds ?? (lastDay ? lastAverage : null)
+                    if (medianValue === null || averageValue === null) {
                         continue // Leading trim: no data yet to carry forward.
                     }
-                    labels.push(day.startOf('day').toISOString())
-                    median.push(lastMedian)
-                    average.push(lastAverage)
+                    labels.push(day.toISOString())
+                    median.push(medianValue)
+                    average.push(averageValue)
+                    lastDay = day
+                    lastMedian = medianValue
+                    lastAverage = averageValue
                 }
                 return labels.length ? { labels, median, average } : null
             },

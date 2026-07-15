@@ -204,7 +204,7 @@ export const EngineeringAnalyticsTeamCiHealthQueryParams = /* @__PURE__ */ zod.o
         .string()
         .optional()
         .describe(
-            "Window start: relative ('-14d', '-7d') or ISO8601. Defaults to -14d; the window may span at most 30 days. An equal-length prior window is scanned for the *_prior twins."
+            "Window start: relative ('-14d', '-7d') or ISO8601. Defaults to -14d; the window may span at most 30 days. An equal-length prior window is scanned for the *_prior twins; near the 30-day ceiling that prior window can reach past Traces retention, deflating *_prior counts and overstating deltas."
         ),
     date_to: zod.string().optional().describe('Window end: relative or ISO8601. Defaults to now.'),
     limit: zod.number().optional().describe('Maximum number of teams to return (1-200). Defaults to 100.'),

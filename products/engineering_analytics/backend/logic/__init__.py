@@ -114,7 +114,8 @@ _DEFAULT_FLAKY_LIMIT = 50
 _MAX_FLAKY_LIMIT = 200
 
 # Team CI health rollups scan the current window plus an equal-length prior twin, so the
-# default sits below the flaky ceiling to keep both windows inside Traces retention.
+# default sits below the flaky ceiling to keep both windows inside Traces retention. At the
+# 30d cap the prior twin reaches past retention and *_prior counts read low.
 _DEFAULT_TEAM_WINDOW = "-14d"
 _DEFAULT_TEAM_LIMIT = 100
 _MAX_TEAM_LIMIT = 200

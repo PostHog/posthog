@@ -674,7 +674,7 @@ export const getEngineeringAnalyticsTeamCiActivityUrl = (
 }
 
 /**
- * One owning team's CI test activity: the daily signal series over the window plus per-test current-vs-prior signal pairs (the before/after comparison behind a slope chart). Signal = failed + error + pass-on-retry spans on the team's owned tests. All figures are absolute counts, never rates: fast passing runs are not emitted, so denominators are biased. Pass-on-retry counts only flow from CI lanes running with reruns enabled; in other lanes a flake surfaces as a plain failure, which the distinct-PR count catches.
+ * One owning team's CI test activity: per-test current-vs-prior signal pairs (the before/after comparison) over the window and its equal-length prior twin. Signal = failed + error + pass-on-retry spans on the team's owned tests. All figures are absolute counts, never rates: fast passing runs are not emitted, so denominators are biased. Pass-on-retry counts only flow from CI lanes running with reruns enabled; in other lanes a flake surfaces as a plain failure, which the distinct-PR count catches.
  */
 export const engineeringAnalyticsTeamCiActivity = async (
     projectId: string,
@@ -740,7 +740,7 @@ export const getEngineeringAnalyticsTeamMergeTrendUrl = (
 }
 
 /**
- * One team's daily time-to-merge trend: the median and average open→merge seconds over the PRs the team's members merged each day (PR author login → GitHub org team membership). Team-level aggregates only — never per-member figures or cross-team rankings. Timing is the coarse open→merge (draft + review time combined); bots are excluded. Requires the GitHub source's team_members snapshot; has_membership_data is false without it.
+ * One team's daily time-to-merge trend: the median and average open→merge seconds over the PRs the team's members merged each day (PR author login → GitHub org team membership). Team-level aggregates only, never per-member figures or cross-team rankings. Timing is the coarse open→merge (draft + review time combined); bots are excluded. Requires the GitHub source's team_members snapshot; has_membership_data is false without it.
  */
 export const engineeringAnalyticsTeamMergeTrend = async (
     projectId: string,

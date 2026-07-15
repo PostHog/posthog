@@ -904,17 +904,6 @@ export interface GitHubSourceApi {
     prefix: string
 }
 
-export interface TeamCIDailyCountApi {
-    /** Start of the day bucket (team timezone). */
-    day: string
-    /** Failed/error spans on the team's owned tests that day. */
-    failed_count: number
-    /** Pass-on-retry spans on the team's owned tests that day. */
-    rerun_passed_count: number
-    /** Quarantined-but-failing (xfail) spans that day. */
-    xfailed_count: number
-}
-
 export interface TeamTestSignalApi {
     /** Reconstructed pytest nodeid (the CI span name), a stable grouping key. */
     nodeid: string
@@ -929,8 +918,6 @@ export interface TeamTestSignalApi {
 }
 
 export interface TeamCIActivityApi {
-    /** Daily signal counts on the team's owned tests over the current window, ascending. */
-    days: TeamCIDailyCountApi[]
     /** The team's owned tests with signal in either window, ranked by the stronger window's count (the current-vs-prior pairs behind a before/after comparison). */
     tests: TeamTestSignalApi[]
     /** The team slug this activity is scoped to, or 'unowned'. */
@@ -993,7 +980,7 @@ export interface TeamMergeTrendApi {
     points: TeamMergeTrendPointApi[]
     /** The team slug this trend is scoped to. */
     owner_team: string
-    /** False when the GitHub source has no team_members snapshot synced — the trend then has no honest team attribution and `points` is empty. */
+    /** False when the GitHub source has no team_members snapshot synced: the trend then has no honest team attribution and `points` is empty. */
     has_membership_data: boolean
 }
 
@@ -1391,7 +1378,7 @@ export type EngineeringAnalyticsRunFailureLogsParams = {
 
 export type EngineeringAnalyticsTeamCiActivityParams = {
     /**
-     * Window start: relative ('-14d', '-7d') or ISO8601. Defaults to -14d; the window may span at most 30 days. An equal-length prior window feeds the *_prior twins.
+     * Window start: relative ('-14d', '-7d') or ISO8601. Defaults to -14d; the window may span at most 30 days. An equal-length prior window feeds the *_prior twins; near the 30-day ceiling that prior window can reach past Traces retention, deflating *_prior counts.
      */
     date_from?: string
     /**
@@ -1414,7 +1401,7 @@ export type EngineeringAnalyticsTeamCiActivityParams = {
 
 export type EngineeringAnalyticsTeamCiHealthParams = {
     /**
-     * Window start: relative ('-14d', '-7d') or ISO8601. Defaults to -14d; the window may span at most 30 days. An equal-length prior window is scanned for the *_prior twins.
+     * Window start: relative ('-14d', '-7d') or ISO8601. Defaults to -14d; the window may span at most 30 days. An equal-length prior window is scanned for the *_prior twins; near the 30-day ceiling that prior window can reach past Traces retention, deflating *_prior counts and overstating deltas.
      */
     date_from?: string
     /**
@@ -1449,7 +1436,7 @@ export type EngineeringAnalyticsTeamMergeTrendParams = {
      */
     date_to?: string
     /**
-     * Team slug to scope to (as returned by team_ci_health), matched against the GitHub org team slug of the source's team_members snapshot.
+     * Team slug to scope to (as returned by team_ci_health), matched against the GitHub org team slug of the source's team_members snapshot. The literal 'unowned' names an ownership gap, not an org team, and has no merge trend.
      */
     owner_team: string
     /**

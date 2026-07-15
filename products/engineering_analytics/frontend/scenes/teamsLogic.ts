@@ -2,6 +2,7 @@ import { actions, afterMount, connect, kea, listeners, path, reducers } from 'ke
 import { loaders } from 'kea-loaders'
 
 import { ApiConfig } from 'lib/api'
+import { dateMapping } from 'lib/utils/dateFilters'
 
 import { engineeringAnalyticsTeamCiHealth } from '../generated/api'
 import { engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
@@ -10,6 +11,22 @@ import type { teamsLogicType } from './teamsLogicType'
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
 export type TeamsWindow = '-24h' | '-7d' | '-14d' | '-30d'
+
+export const DEFAULT_TEAMS_WINDOW: TeamsWindow = '-14d'
+
+export const TEAMS_WINDOW_LABELS: Record<TeamsWindow, { prior: string; current: string }> = {
+    '-24h': { prior: 'Previous 24 hours', current: 'Last 24 hours' },
+    '-7d': { prior: 'Previous 7 days', current: 'Last 7 days' },
+    '-14d': { prior: 'Previous 14 days', current: 'Last 14 days' },
+    '-30d': { prior: 'Previous 30 days', current: 'Last 30 days' },
+}
+
+export function isTeamsWindow(value: unknown): value is TeamsWindow {
+    return typeof value === 'string' && value in TEAMS_WINDOW_LABELS
+}
+
+// date_from presets the team endpoints accept (max 30d; an equal-length prior twin is scanned).
+export const TEAMS_WINDOW_DATE_OPTIONS = dateMapping.filter(({ values }) => isTeamsWindow(values[0]))
 
 export const UNOWNED_TEAM = 'unowned'
 
@@ -21,9 +38,6 @@ export interface TeamCIHealthRow {
     failedCountPrior: number
     rerunPassedCount: number
     rerunPassedCountPrior: number
-    xfailedCount: number
-    xfailedCountPrior: number
-    lastSeenAt: string
 }
 
 export interface TeamsData {
@@ -42,7 +56,7 @@ export const teamsLogic = kea<teamsLogicType>([
         setTeamsWindow: (window: TeamsWindow) => ({ window }),
     }),
     reducers({
-        teamsWindow: ['-14d' as TeamsWindow, { setTeamsWindow: (_, { window }) => window }],
+        teamsWindow: [DEFAULT_TEAMS_WINDOW as TeamsWindow, { setTeamsWindow: (_, { window }) => window }],
     }),
     loaders(({ values }) => ({
         teams: [
@@ -63,9 +77,6 @@ export const teamsLogic = kea<teamsLogicType>([
                                 failedCountPrior: it.failed_count_prior,
                                 rerunPassedCount: it.rerun_passed_count,
                                 rerunPassedCountPrior: it.rerun_passed_count_prior,
-                                xfailedCount: it.xfailed_count,
-                                xfailedCountPrior: it.xfailed_count_prior,
-                                lastSeenAt: it.last_seen_at,
                             })
                         ),
                         truncated: data.truncated,

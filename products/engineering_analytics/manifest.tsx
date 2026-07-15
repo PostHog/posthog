@@ -54,7 +54,7 @@ export const manifest: ProductManifest = {
             projectBased: true,
             name: 'Team CI health',
             layout: 'app-container',
-            description: "One owning team's CI test surfaces: flaky signal trend and before/after comparison.",
+            description: "One owning team's merge timing and the before/after signal on its owned tests.",
             iconType: 'health',
         },
     },

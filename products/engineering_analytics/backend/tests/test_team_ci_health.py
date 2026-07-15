@@ -139,13 +139,7 @@ class TestTeamCIHealthAPI(ClickhouseTestMixin, APIBaseTest):
         data = self._get("team_ci_activity", owner_team="team-replay")
 
         assert data["owner_team"] == "team-replay"
-        # Daily series covers the current window only: prior spans contribute nothing.
-        assert sum(day["failed_count"] for day in data["days"]) == 3
-        assert sum(day["rerun_passed_count"] for day in data["days"]) == 1
-        assert sum(day["xfailed_count"] for day in data["days"]) == 1
-        assert [day["day"][:10] for day in data["days"]] == sorted(day["day"][:10] for day in data["days"])
-
-        # Slope pairs: ranked by the stronger window, xfail excluded from signal.
+        # Before/after pairs: ranked by the stronger window, xfail excluded from signal.
         assert [(t["nodeid"], t["signal_count"], t["signal_count_prior"]) for t in data["tests"]] == [
             (T_REPLAY_PRS, 3, 1),
             (T_REPLAY_RERUN, 1, 2),
@@ -154,7 +148,6 @@ class TestTeamCIHealthAPI(ClickhouseTestMixin, APIBaseTest):
 
     def test_activity_for_unknown_team_is_empty(self):
         data = self._get("team_ci_activity", owner_team="team-nonexistent")
-        assert data["days"] == []
         assert data["tests"] == []
 
     def test_activity_requires_owner_team(self):

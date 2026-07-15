@@ -204,7 +204,7 @@ class TestListGithubSourcesAccessControl(BaseTest):
 
 
 def create_github_warehouse_table(test: BaseTest, base_name: str, columns: dict, rows: list[dict[str, Any]]) -> str:
-    # Returns the real table name (prefixed), which the builder is then told to read —
+    # Returns the real table name (prefixed), which the builder is then told to read,
     # proving build_query honors the resolved name instead of a hardcoded one. Skips the
     # calling test when object storage is unreachable so the suite runs without the dev stack.
     df = pd.DataFrame(rows, columns=list(columns.keys()))

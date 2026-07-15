@@ -60,15 +60,15 @@ class TestTeamMergeTrendQuery(ClickhouseTestMixin, BaseTest):
         curated = self._curated(
             self.team,
             pr_rows=[
-                # 2026-01-12, alice (team-replay): 2h + 4h + 30h merges — a skew that separates
+                # 2026-01-12, alice (team-replay): 2h + 4h + 30h merges, a skew that separates
                 # the median (4h) from the average (12h).
                 _pr_row(1, "alice", "closed", 0, "2026-01-12 08:00:00", merged_at="2026-01-12 10:00:00"),
                 _pr_row(2, "alice", "closed", 0, "2026-01-12 08:00:00", merged_at="2026-01-12 12:00:00"),
                 _pr_row(3, "alice", "closed", 0, "2026-01-11 08:00:00", merged_at="2026-01-12 14:00:00"),
-                # Same day: a non-member and a bot merge too — neither may move the team's numbers.
+                # Same day: a non-member and a bot merge too; neither may move the team's numbers.
                 _pr_row(4, "bob", "closed", 0, "2026-01-11 10:00:00", merged_at="2026-01-12 10:00:00"),
                 _pr_row(5, "dependabot[bot]", "closed", 0, "2026-01-12 09:00:00", merged_at="2026-01-12 10:00:00"),
-                # 2026-01-14: only the non-member merges — no team row for the day.
+                # 2026-01-14: only the non-member merges, so no team row for the day.
                 _pr_row(6, "bob", "closed", 0, "2026-01-14 00:00:00", merged_at="2026-01-14 10:00:00"),
                 # Outside the window / never merged: excluded entirely.
                 _pr_row(7, "alice", "closed", 0, "2026-01-30 10:00:00", merged_at="2026-02-01 10:00:00"),

@@ -7,7 +7,8 @@ place membership columns are mapped; the table name is resolved per-team and pas
 (see ``logic.sources``), never hardcoded.
 
 The snapshot lands every column ``Nullable`` (see ``source_schema.py``), so each read
-is ``ifNull``-guarded to keep the curated columns non-null strings.
+is ``ifNull``-guarded to keep the curated columns non-null strings. Rows without a login
+are dropped: an empty ``member_handle`` would match deleted-account PR authors.
 """
 
 
@@ -18,4 +19,5 @@ def build_query(table_name: str) -> str:
             ifNull(team_slug, '') AS team_slug,
             ifNull(team_name, '') AS team_name
         FROM {table_name}
+        WHERE ifNull(login, '') != ''
     """

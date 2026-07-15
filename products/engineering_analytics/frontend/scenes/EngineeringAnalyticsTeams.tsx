@@ -1,43 +1,32 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
+import { combineUrl } from 'kea-router'
 
 import { IconPeople } from '@posthog/icons'
-import { LemonSegmentedButton, LemonTable, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonTable, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
-import { newInternalTab } from 'lib/utils/newInternalTab'
-import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { urls } from 'scenes/urls'
 
-import { DeltaBadge, percentChange } from '../components/MetricTile'
+import { CountWithDelta } from '../components/MetricTile'
 import { ScopeBar, SourceScopeChip } from '../components/ScopeBar'
-import { TeamCIHealthRow, TeamsWindow, UNOWNED_TEAM, teamsLogic } from './teamsLogic'
+import { rowNavigationProps } from '../lib/rowNavigation'
+import {
+    TEAMS_WINDOW_DATE_OPTIONS,
+    TeamCIHealthRow,
+    TeamsWindow,
+    UNOWNED_TEAM,
+    isTeamsWindow,
+    teamsLogic,
+} from './teamsLogic'
 
-/** Current count + delta vs the prior window, the roster's core comparison cell. */
-function CountWithDelta({
-    current,
-    prior,
-    goodWhenDown = true,
-}: {
-    current: number
-    prior: number
-    goodWhenDown?: boolean
-}): JSX.Element {
-    return (
-        <div className="flex items-baseline justify-end gap-1.5">
-            <span className="text-sm font-semibold tabular-nums">{humanFriendlyNumber(current)}</span>
-            {prior > 0 ? (
-                <DeltaBadge value={percentChange(current, prior)} goodWhenDown={goodWhenDown} />
-            ) : current > 0 ? (
-                <Tooltip title="No signal in the previous window. This is new.">
-                    <span className="text-xs font-semibold whitespace-nowrap text-danger">new</span>
-                </Tooltip>
-            ) : null}
-        </div>
-    )
+/** The team's detail page, carrying the roster's window and active source so it opens scoped the same. */
+function detailUrlOf(ownerTeam: string, window: TeamsWindow, sourceId: string | null): string {
+    return combineUrl(urls.engineeringAnalyticsTeam(ownerTeam), { window, ...(sourceId ? { source: sourceId } : {}) })
+        .url
 }
 
 export function EngineeringAnalyticsTeams(): JSX.Element {
-    const { teams, teamsLoading, teamsWindow } = useValues(teamsLogic)
+    const { teams, teamsLoading, teamsWindow, sourceId } = useValues(teamsLogic)
     const { setTeamsWindow } = useActions(teamsLogic)
 
     const columns: LemonTableColumns<TeamCIHealthRow> = [
@@ -50,7 +39,7 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
                 row.ownerTeam === UNOWNED_TEAM ? (
                     <div className="flex items-center gap-2">
                         <Link
-                            to={urls.engineeringAnalyticsTeam(row.ownerTeam)}
+                            to={detailUrlOf(row.ownerTeam, teamsWindow, sourceId)}
                             className="font-semibold"
                             data-attr="eng-analytics-team-link"
                         >
@@ -64,7 +53,7 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
                     </div>
                 ) : (
                     <Link
-                        to={urls.engineeringAnalyticsTeam(row.ownerTeam)}
+                        to={detailUrlOf(row.ownerTeam, teamsWindow, sourceId)}
                         className="font-mono text-xs font-semibold"
                         data-attr="eng-analytics-team-link"
                     >
@@ -117,16 +106,11 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
                         window. Ownership comes from the repo's ownership map, never from authorship.
                     </p>
                 </div>
-                <LemonSegmentedButton
+                <DateFilter
+                    dateFrom={teamsWindow}
+                    onChange={(from) => isTeamsWindow(from) && setTeamsWindow(from)}
+                    dateOptions={TEAMS_WINDOW_DATE_OPTIONS}
                     size="small"
-                    value={teamsWindow}
-                    onChange={(value) => setTeamsWindow(value as TeamsWindow)}
-                    options={[
-                        { value: '-24h', label: '1d' },
-                        { value: '-7d', label: '7d' },
-                        { value: '-14d', label: '14d' },
-                        { value: '-30d', label: '30d' },
-                    ]}
                 />
             </div>
             <LemonTable
@@ -136,29 +120,7 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
                 dataSource={teams?.rows ?? []}
                 rowKey={(row) => row.ownerTeam}
                 rowClassName="cursor-pointer"
-                onRow={(row) => {
-                    const url = urls.engineeringAnalyticsTeam(row.ownerTeam)
-                    return {
-                        // Inner links (the team name) keep their own behavior.
-                        onClick: (e: React.MouseEvent) => {
-                            if ((e.target as HTMLElement).closest('a, button')) {
-                                return
-                            }
-                            if (e.metaKey || e.ctrlKey) {
-                                e.preventDefault()
-                                newInternalTab(url)
-                            } else {
-                                router.actions.push(url)
-                            }
-                        },
-                        onAuxClick: (e: React.MouseEvent) => {
-                            if (e.button === 1 && !(e.target as HTMLElement).closest('a, button')) {
-                                e.preventDefault()
-                                newInternalTab(url)
-                            }
-                        },
-                    }
-                }}
+                onRow={(row) => rowNavigationProps(detailUrlOf(row.ownerTeam, teamsWindow, sourceId))}
                 loading={teamsLoading}
                 pagination={{ pageSize: 25 }}
                 useURLForSorting={false}

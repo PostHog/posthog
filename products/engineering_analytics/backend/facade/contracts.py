@@ -587,16 +587,6 @@ class TeamCIHealthList:
 
 
 @dataclass(frozen=True)
-class TeamCIDailyCount:
-    """One day of signal-span counts on a team's owned tests, for the detail trend chart."""
-
-    day: datetime
-    failed_count: int
-    rerun_passed_count: int
-    xfailed_count: int
-
-
-@dataclass(frozen=True)
 class TeamTestSignal:
     """One owned test's flaky signal across the current window and its equal-length prior
     window, the pair behind a before-vs-after slope reading. Signal = failed + error +
@@ -612,12 +602,11 @@ class TeamTestSignal:
 
 @dataclass(frozen=True)
 class TeamCIActivity:
-    """One team's detail assembly: the daily signal series over the window plus the
-    per-test current-vs-prior signal pairs, capped at the test limit.
+    """One team's detail assembly: the per-test current-vs-prior signal pairs over the
+    window and its equal-length prior twin, capped at the test limit.
     """
 
     owner_team: str
-    days: list[TeamCIDailyCount]
     tests: list[TeamTestSignal]
     truncated_tests: bool
 
@@ -639,11 +628,11 @@ class TeamMergeTrendPoint:
 class TeamMergeTrend:
     """A team's time-to-merge trend over the window. Attribution is PR author login →
     GitHub org team membership (the ``team_members`` snapshot); only team-level medians
-    are surfaced — never per-member figures or cross-team rankings (SPEC §2/§7).
+    are surfaced, never per-member figures or cross-team rankings (SPEC §2/§7).
     """
 
     owner_team: str
-    # False when the source has no team_members snapshot synced — the chart has no honest
+    # False when the source has no team_members snapshot synced: the chart has no honest
     # team attribution, as opposed to "synced but this team merged nothing".
     has_membership_data: bool
     points: list[TeamMergeTrendPoint]

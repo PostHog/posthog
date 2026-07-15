@@ -44,7 +44,6 @@ from products.engineering_analytics.backend.facade.contracts import (
     RunCost,
     RunFailureLogs,
     TeamCIActivity,
-    TeamCIDailyCount,
     TeamCIHealthItem,
     TeamCIHealthList,
     TeamMergeTrend,
@@ -511,17 +510,6 @@ class TeamCIHealthListSerializer(DataclassSerializer):
         }
 
 
-class TeamCIDailyCountSerializer(DataclassSerializer):
-    class Meta:
-        dataclass = TeamCIDailyCount
-        extra_kwargs = {
-            "day": {"help_text": "Start of the day bucket (team timezone)."},
-            "failed_count": {"help_text": "Failed/error spans on the team's owned tests that day."},
-            "rerun_passed_count": {"help_text": "Pass-on-retry spans on the team's owned tests that day."},
-            "xfailed_count": {"help_text": "Quarantined-but-failing (xfail) spans that day."},
-        }
-
-
 class TeamTestSignalSerializer(DataclassSerializer):
     class Meta:
         dataclass = TeamTestSignal
@@ -537,9 +525,6 @@ class TeamTestSignalSerializer(DataclassSerializer):
 
 
 class TeamCIActivitySerializer(DataclassSerializer):
-    days = TeamCIDailyCountSerializer(
-        many=True, help_text="Daily signal counts on the team's owned tests over the current window, ascending."
-    )
     tests = TeamTestSignalSerializer(
         many=True,
         help_text="The team's owned tests with signal in either window, ranked by the stronger window's count "
@@ -583,7 +568,7 @@ class TeamMergeTrendSerializer(DataclassSerializer):
         extra_kwargs = {
             "owner_team": {"help_text": "The team slug this trend is scoped to."},
             "has_membership_data": {
-                "help_text": "False when the GitHub source has no team_members snapshot synced — the trend "
+                "help_text": "False when the GitHub source has no team_members snapshot synced: the trend "
                 "then has no honest team attribution and `points` is empty.",
             },
         }

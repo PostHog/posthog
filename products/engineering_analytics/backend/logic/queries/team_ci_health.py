@@ -21,14 +21,13 @@ from posthog.clickhouse.workload import Workload
 
 from products.engineering_analytics.backend.facade.contracts import (
     TeamCIActivity,
-    TeamCIDailyCount,
     TeamCIHealthItem,
     TeamCIHealthList,
     TeamTestSignal,
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries._test_spans import (
-    UNOWNED_TEAM as UNOWNED_TEAM,
+    flaky_bar,
     scan_placeholders,
     selector_from_nodeid,
     span_scan,
@@ -41,8 +40,8 @@ _SPAN_SCAN = span_scan(bounded=True)
 _ROSTER_SELECT = f"""
     SELECT
         owner_team,
-        countIf(rerun_current >= {{min_rerun_passes}} OR failed_prs_current >= {{min_failed_prs}}) AS flaky_test_count,
-        countIf(rerun_prior >= {{min_rerun_passes}} OR failed_prs_prior >= {{min_failed_prs}}) AS flaky_test_count_prior,
+        countIf({flaky_bar("rerun_current", "failed_prs_current")}) AS flaky_test_count,
+        countIf({flaky_bar("rerun_prior", "failed_prs_prior")}) AS flaky_test_count_prior,
         sum(failed_current) AS failed_count,
         sum(failed_prior) AS failed_count_prior,
         sum(rerun_current) AS rerun_passed_count,
@@ -69,18 +68,6 @@ _ROSTER_SELECT = f"""
     GROUP BY owner_team
     ORDER BY (flaky_test_count + failed_count) DESC, (flaky_test_count_prior + failed_count_prior) DESC, owner_team ASC
     LIMIT {{limit_plus_one}}
-"""
-
-_DAILY_SELECT = f"""
-    SELECT
-        toStartOfDay(span_timestamp) AS day,
-        countIf(outcome IN ('failed', 'error')) AS failed_count,
-        countIf(outcome = 'rerun_passed') AS rerun_passed_count,
-        countIf(outcome = 'xfailed') AS xfailed_count
-    FROM ({_SPAN_SCAN})
-    WHERE owner_team = {{owner_team}} AND is_current
-    GROUP BY day
-    ORDER BY day ASC
 """
 
 _TEST_SIGNAL_SELECT = f"""
@@ -177,17 +164,11 @@ def query_team_ci_activity(
     test_limit: int,
 ) -> TeamCIActivity:
     if not curated.repository:
-        return TeamCIActivity(owner_team=owner_team, days=[], tests=[], truncated_tests=False)
+        return TeamCIActivity(owner_team=owner_team, tests=[], truncated_tests=False)
 
     placeholders = _window_placeholders(curated=curated, date_from=date_from, date_to=date_to)
     placeholders["owner_team"] = ast.Constant(value=owner_team)
 
-    daily_response = curated.run(
-        _DAILY_SELECT,
-        query_type="engineering_analytics.team_ci_activity_daily",
-        placeholders=placeholders,
-        workload=Workload.LOGS,
-    )
     tests_response = curated.run(
         _TEST_SIGNAL_SELECT,
         query_type="engineering_analytics.team_ci_activity_tests",
@@ -197,12 +178,6 @@ def query_team_ci_activity(
     test_rows = tests_response.results or []
     return TeamCIActivity(
         owner_team=owner_team,
-        days=[
-            TeamCIDailyCount(
-                day=day, failed_count=failed_count, rerun_passed_count=rerun_passed_count, xfailed_count=xfailed_count
-            )
-            for day, failed_count, rerun_passed_count, xfailed_count in (daily_response.results or [])
-        ],
         tests=[
             TeamTestSignal(
                 nodeid=nodeid,

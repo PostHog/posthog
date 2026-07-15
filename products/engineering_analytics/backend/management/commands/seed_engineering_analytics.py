@@ -42,12 +42,14 @@ from posthog.models import Team
 from posthog.models.scoping import team_scope
 from posthog.storage import object_storage
 
+from products.engineering_analytics.backend.logic.queries._test_spans import CI_SERVICE_NAME
 from products.engineering_analytics.backend.logic.sources import (
     PULL_REQUESTS_SCHEMA,
     TEAM_MEMBERS_SCHEMA,
     WORKFLOW_JOBS_SCHEMA,
     WORKFLOW_RUNS_SCHEMA,
 )
+from products.engineering_analytics.backend.logic.views.pull_requests import KNOWN_BOT_HANDLES
 from products.engineering_analytics.backend.logic.views.source_schema import (
     PULL_REQUESTS_COLUMNS,
     TEAM_MEMBERS_COLUMNS,
@@ -200,11 +202,16 @@ def _fixture_anchor(prs: list[dict[str, Any]], runs: list[dict[str, Any]]) -> da
     return newest + timedelta(hours=1)
 
 
+# Merged PRs re-spread across two weeks so the 14d merge-trend and cost-per-merge charts have a
+# point in every bucket.
+_MERGE_SPREAD_DAYS = 14
+
 # Synthetic default-branch commit stream: the captured snapshot holds only ~a dozen master SHAs, which
 # draws the master-health scatter as a near-empty chart. Deterministic (index arithmetic, no random),
 # local-seed only; SHAs are prefixed "aa57e2" so they read as seeded in the UI.
 _MASTER_WORKFLOWS = ("Backend CI", "Frontend CI", "Rust CI", "E2E Tests", "Lint", "Storybook")
-_MASTER_DAYS = 7
+# Co-windowed with the merge spread: a day with merges but no seeded job cost would chart as $0/merge.
+_MASTER_DAYS = _MERGE_SPREAD_DAYS
 _MASTER_COMMITS_PER_DAY = 18
 
 
@@ -254,16 +261,11 @@ def _demo_master_commits(anchor: datetime) -> list[dict[str, Any]]:
     return demo_runs
 
 
-# Merged PRs re-spread across two weeks so the 14d merge-trend and cost-per-merge charts have a
-# point in every bucket (the synthetic master stream keeps its own shorter _MASTER_DAYS window).
-_MERGE_SPREAD_DAYS = 14
-
-
 def _spread_merges(prs: list[dict[str, Any]], anchor: datetime) -> None:
-    # The snapshot captured recently-updated PRs, so their merge times all cluster on the capture day —
-    # the cost-per-merge and time-to-merge trends then collapse into a single bucket. Re-spread merged
+    # The snapshot captured recently-updated PRs, so their merge times all cluster on the capture day
+    # and the cost-per-merge and time-to-merge trends collapse into a single bucket. Re-spread merged
     # PRs evenly across the seeded window and derive created_at backwards from a realistic duration mix
-    # (mostly hours-to-two-days, an occasional week-long tail) — clamping merged_at forward against the
+    # (mostly hours-to-two-days, an occasional week-long tail); clamping merged_at forward against the
     # snapshot's created_at instead would pile every merge on the capture day at a constant duration.
     span_hours = _MERGE_SPREAD_DAYS * 24
     merged = [pr for pr in prs if pr.get("merged_at")]
@@ -337,7 +339,6 @@ def _demo_multi_push(
 # re-seeding can delete exactly its own rows.
 _SPAN_TRACE_PREFIX = "engseed"
 _SPAN_DAYS = 28  # 14-day current window + its equal-length prior twin
-_SPAN_SERVICE = "ci-backend"
 
 # (owner_team, module_dir, [(TestClass, test_name, prior_daily, current_daily)]).
 # prior/current_daily are signal spans per day in each half of the window; 0 = quiet.
@@ -584,19 +585,18 @@ _SPAN_TEAMS: list[tuple[str, str, list[tuple[str, str, int, int]]]] = [
 
 
 # Synthetic merged-PR stream: the captured snapshot holds only ~115 merges, which spreads to
-# well under one merge per team-day across the 30-team roster — too thin for the per-team
+# well under one merge per team-day across the 30-team roster, too thin for the per-team
 # merge-timing chart (a day with fewer than 3 merges has median == average by definition, so
 # the two lines would always coincide). Real PostHog/posthog merges ~40 PRs a day, so the
 # stream also makes repo-wide merge volume honest. Deterministic; numbered from 90000 and
 # titled "seeded:" so rows read as seeded in the UI. Timing/durations come from _spread_merges,
 # which rewrites every merged PR's merged_at/created_at anyway.
 _DEMO_MERGES_PER_DAY = 40
-_SEED_BOT_HANDLES = {"posthog-bot", "dependabot", "renovate", "github-actions"}
 
 
 def _demo_merged_prs(prs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     logins = sorted({(pr.get("user") or {}).get("login") or "" for pr in prs} - {""})
-    authors = [login for login in logins if not login.endswith("[bot]") and login not in _SEED_BOT_HANDLES]
+    authors = [login for login in logins if not login.endswith("[bot]") and login not in KNOWN_BOT_HANDLES]
     template_ts = next(pr["created_at"] for pr in prs if pr.get("created_at"))
     rows: list[dict[str, Any]] = []
     for index in range(_DEMO_MERGES_PER_DAY * _MERGE_SPREAD_DAYS):
@@ -625,7 +625,7 @@ def _demo_merged_prs(prs: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 # GitHub org team membership for the merge-trend join (PR author login → team slug). Fixture
 # authors are assigned deterministically across the roster teams (no random, stable between
-# runs); local-seed only, so the mapping is synthetic — it exists to light up the per-team
+# runs); local-seed only, so the mapping is synthetic: it exists to light up the per-team
 # time-to-merge chart against real PR merge data.
 _GITHUB_TEAM_SLUGS = [slug for slug, _, _ in _SPAN_TEAMS if slug]
 
@@ -639,7 +639,7 @@ def _team_membership_rows(prs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     # Deal authors across teams round-robin in merge-volume order, so every team gets a share of
     # active mergers instead of hash luck leaving some team lines empty. Scattered extra
     # memberships mirror how org teams really overlap and thicken each team's series enough that
-    # days see 3+ merges — below that, a day's median and average are mathematically identical
+    # days see 3+ merges; below that, a day's median and average are mathematically identical
     # and the trend's two lines would always coincide.
     logins = sorted(merged_counts, key=lambda login: (-merged_counts[login], login))
     team_count = len(_GITHUB_TEAM_SLUGS)
@@ -669,7 +669,7 @@ def _seed_trace_spans(team: Team) -> int:
     span_index = 0
     for owner_team, module_dir, tests in _SPAN_TEAMS:
         for test_index, (test_class, test_name, prior_daily, current_daily) in enumerate(tests):
-            module = f"test_{test_name.removeprefix('test_')}"
+            module = test_name
             nodeid = f"{module_dir}/{module}/{test_class}::{test_name}"
             selector = f"{module_dir}/{module}.py::{test_class}::{test_name}"
             for day in range(_SPAN_DAYS):
@@ -701,7 +701,7 @@ def _seed_trace_spans(team: Team) -> int:
                     rows.append(
                         f"('{_SPAN_TRACE_PREFIX}-{span_index:06d}', {team.pk}, "
                         f"'{_SPAN_TRACE_PREFIX}-trace-{span_index}', 'span-{span_index}', 'parent', "
-                        f"'{nodeid}', 1, '{ts}', '{ts}', '{ts}', 0, '{_SPAN_SERVICE}', "
+                        f"'{nodeid}', 1, '{ts}', '{ts}', '{ts}', 0, '{CI_SERVICE_NAME}', "
                         f"map({', '.join(attr_pairs)}), map({', '.join(resource_pairs)}))"
                     )
 

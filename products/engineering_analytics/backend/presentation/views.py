@@ -943,7 +943,9 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 location=OpenApiParameter.QUERY,
                 required=False,
                 description="Window start: relative ('-14d', '-7d') or ISO8601. Defaults to -14d; the window "
-                "may span at most 30 days. An equal-length prior window is scanned for the *_prior twins.",
+                "may span at most 30 days. An equal-length prior window is scanned for the *_prior twins; "
+                "near the 30-day ceiling that prior window can reach past Traces retention, deflating "
+                "*_prior counts and overstating deltas.",
             ),
             _DATE_TO,
             OpenApiParameter(
@@ -1019,7 +1021,8 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 location=OpenApiParameter.QUERY,
                 required=False,
                 description="Window start: relative ('-14d', '-7d') or ISO8601. Defaults to -14d; the window "
-                "may span at most 30 days. An equal-length prior window feeds the *_prior twins.",
+                "may span at most 30 days. An equal-length prior window feeds the *_prior twins; near the "
+                "30-day ceiling that prior window can reach past Traces retention, deflating *_prior counts.",
             ),
             _DATE_TO,
             OpenApiParameter(
@@ -1039,9 +1042,9 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             ),
         },
         description=(
-            "One owning team's CI test activity: the daily signal series over the window plus per-test "
-            "current-vs-prior signal pairs (the before/after comparison behind a slope chart). Signal = "
-            "failed + error + pass-on-retry spans on the team's owned tests. " + FLAKY_TEST_SIGNAL_CAVEAT
+            "One owning team's CI test activity: per-test current-vs-prior signal pairs (the before/after "
+            "comparison) over the window and its equal-length prior twin. Signal = failed + error + "
+            "pass-on-retry spans on the team's owned tests. " + FLAKY_TEST_SIGNAL_CAVEAT
         ),
     )
     @action(detail=False, methods=["get"], pagination_class=None)
@@ -1069,7 +1072,8 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 location=OpenApiParameter.QUERY,
                 required=True,
                 description="Team slug to scope to (as returned by team_ci_health), matched against the "
-                "GitHub org team slug of the source's team_members snapshot.",
+                "GitHub org team slug of the source's team_members snapshot. The literal 'unowned' names "
+                "an ownership gap, not an org team, and has no merge trend.",
             ),
             OpenApiParameter(
                 name="date_from",
@@ -1091,7 +1095,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         description=(
             "One team's daily time-to-merge trend: the median and average open→merge seconds over the PRs "
             "the team's members merged each day (PR author login → GitHub org team membership). Team-level "
-            "aggregates only — never per-member figures or cross-team rankings. Timing is the coarse "
+            "aggregates only, never per-member figures or cross-team rankings. Timing is the coarse "
             "open→merge (draft + review time combined); bots are excluded. Requires the GitHub source's "
             "team_members snapshot; has_membership_data is false without it."
         ),

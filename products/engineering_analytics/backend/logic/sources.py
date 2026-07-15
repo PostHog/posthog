@@ -111,7 +111,7 @@ def resolve_github_tables(
         # backfilling) instead of degrading to PRs-without-CI. Relaxing this to a graceful
         # PR-only mode (null CI columns) is a deliberate future change, not handled here.
         if pull_requests and workflow_runs:
-            # workflow_jobs / team_members are optional — included when synced, None otherwise
+            # workflow_jobs / team_members are optional: included when synced, None otherwise
             # (jobs degrade to empty, membership-keyed reads degrade to "no membership data").
             return GitHubTables(
                 pull_requests=pull_requests,

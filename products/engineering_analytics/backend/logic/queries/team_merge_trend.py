@@ -1,14 +1,14 @@
 """Curated query: a team's daily time-to-merge trend via GitHub org team membership.
 
 Attributes merged PRs to a team through the ``team_members`` warehouse snapshot (PR author
-login → GitHub team slug) — the one sanctioned place member data feeds a team surface. Only
+login → GitHub team slug), the one sanctioned place member data feeds a team surface. Only
 team-level aggregates leave this module (the daily median and average of the team's own
 merges): no per-member figures, no cross-team rankings (SPEC §2/§7). Bots are excluded per
 the default bot rule.
 
 The GitHub team slug and the ownership-map slug (``test.owner_team``) are two namespaces
 matched by exact slug. A team whose GitHub slug differs from its ownership slug gets no
-membership rows (an empty series) — never another team's data. Time-to-merge is the coarse
+membership rows (an empty series), never another team's data. Time-to-merge is the coarse
 ``open_to_merge_seconds`` (SPEC §7).
 """
 
@@ -45,7 +45,7 @@ def query_team_merge_trend(
 ) -> TeamMergeTrend:
     members_source = curated.members_source()
     if members_source is None:
-        # The membership snapshot isn't synced — there is no honest team attribution, so return
+        # The membership snapshot isn't synced, so there is no honest team attribution: return
         # the flag instead of an empty series that implies the team merged nothing.
         return TeamMergeTrend(owner_team=owner_team, has_membership_data=False, points=[])
 
