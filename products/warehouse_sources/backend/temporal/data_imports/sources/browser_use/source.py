@@ -48,7 +48,6 @@ class BrowserUseSource(ResumableSource[BrowserUseSourceConfig, BrowserUseResumeC
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Browser Use",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Browser Use API key to automatically pull your Browser Use Cloud data into the PostHog Data warehouse.
 
 You can create a non-expiring API key at [cloud.browser-use.com/settings](https://cloud.browser-use.com/settings).""",
