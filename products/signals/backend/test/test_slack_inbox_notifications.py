@@ -1173,6 +1173,38 @@ def test_reviewer_added_notifies_added_reviewer_on_own_channel(org_and_team):
 
 
 @pytest.mark.django_db
+def test_reviewer_added_still_sends_when_pr_url_lookup_fails(org_and_team):
+    # The PR URL only drives the optional "Review PR" button — a transient lookup failure must
+    # not abort the ping.
+    org, team = org_and_team
+    user = _make_reviewer_user(org, "added-pr@example.com", "added-pr-bot")
+    integration = _make_slack_integration(team, user)
+    SignalUserAutonomyConfig.objects.create(
+        user=user,
+        slack_notification_integration=integration,
+        slack_notification_channel="C321|#inbox",
+    )
+    report = _make_ready_report(team, priority=AutonomyPriority.P1)
+
+    fake_client = MagicMock()
+    with (
+        patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls,
+        patch(
+            "products.signals.backend.slack_inbox_notifications.lookup_slack_user_id_by_email",
+            return_value="U_ADDED",
+        ),
+        patch(
+            "products.signals.backend.slack_inbox_notifications.fetch_implementation_pr_urls_for_reports",
+            side_effect=Exception("github unavailable"),
+        ),
+    ):
+        slack_cls.return_value.client = fake_client
+        sent = dispatch_reviewer_added_notifications(str(report.id), team.id, ["added-pr-bot"])
+
+    assert sent == 1
+
+
+@pytest.mark.django_db
 def test_reviewer_added_skips_when_report_not_ready(org_and_team):
     # The add-time ping mirrors the initial notification's gate: a report that isn't READY
     # (still being generated) must not notify.

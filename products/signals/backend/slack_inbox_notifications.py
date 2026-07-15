@@ -879,7 +879,16 @@ def dispatch_reviewer_added_notifications(
 
     sources = source_products or []
     repository = _report_repository(report)
-    implementation_pr_url = fetch_implementation_pr_urls_for_reports([str(report.id)]).get(str(report.id))
+    # The PR URL only drives the optional "Review PR" button — a transient lookup failure must not
+    # abort the ping, so treat it as best-effort like the other cosmetic enrichment.
+    try:
+        implementation_pr_url = fetch_implementation_pr_urls_for_reports([str(report.id)]).get(str(report.id))
+    except Exception:
+        logger.exception(
+            "dispatch_reviewer_added_notifications: implementation PR lookup failed",
+            extra={"report_id": report_id, "team_id": team_id},
+        )
+        implementation_pr_url = None
 
     sent = 0
     for route in routes.values():
