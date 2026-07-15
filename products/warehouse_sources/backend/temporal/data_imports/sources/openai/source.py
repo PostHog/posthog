@@ -68,7 +68,6 @@ Create an Admin API key (prefixed `sk-admin...`) in your [OpenAI organization se
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
