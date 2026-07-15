@@ -42,6 +42,7 @@
         "lint": "cd .. && oxlint --quiet",
         "lint:fix": "cd .. && oxlint --fix --fix-suggestions --quiet",
         "format": "cd .. && oxfmt \"./{products,frontend/src,docs}/**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
+        "format:check": "cd .. && oxfmt --check \"./{products,frontend/src,docs}/**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
         "fix": "cd .. && oxlint --fix --fix-suggestions --quiet; oxfmt \"./{products,frontend/src,docs}/**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
         "visualize-toolbar-bundle": "pnpm exec esbuild-visualizer --metadata ./toolbar-esbuild-meta.json --filename=toolbar-esbuild-bundle-visualization.html",
         "check-toolbar-csp-eval": "node ./bin/check-toolbar-csp-eval.mjs",

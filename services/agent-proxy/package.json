@@ -10,9 +10,11 @@
         "dev": "tsx scripts/dev-agent-proxy.ts | pino-pretty --colorize --ignore pid,hostname --messageKey event --translateTime SYS:HH:MM:ss.l",
         "test": "vitest",
         "typecheck": "tsc --noEmit",
+        "lint": "oxlint --quiet",
         "lint:fix": "oxlint --fix --fix-suggestions --quiet",
-        "fix": "oxlint --fix --fix-suggestions --quiet; oxfmt \"./**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
-        "format": "oxfmt \"./**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\""
+        "format": "oxfmt \"./**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
+        "format:check": "oxfmt --check \"./**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
+        "fix": "oxlint --fix --fix-suggestions --quiet; oxfmt \"./**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\""
     },
     "dependencies": {
         "@hono/node-server": "^2.0.2",

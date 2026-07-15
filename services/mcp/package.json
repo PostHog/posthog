@@ -39,9 +39,11 @@
         "generate-cli-agent-scopes": "tsx scripts/build-cli-agent-scopes.ts",
         "scaffold-yaml": "tsx scripts/scaffold-yaml.ts",
         "lint-tool-names": "tsx scripts/lint-tool-names.ts",
+        "lint": "oxlint --quiet",
         "lint:fix": "oxlint --fix --fix-suggestions --quiet",
-        "fix": "oxlint --fix --fix-suggestions --quiet; oxfmt \"./**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
-        "format": "oxfmt \"./**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\""
+        "format": "oxfmt \"./**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
+        "format:check": "oxfmt --check \"./**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
+        "fix": "oxlint --fix --fix-suggestions --quiet; oxfmt \"./**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\""
     },
     "dependencies": {
         "@hono/node-server": "^2.0.2",
