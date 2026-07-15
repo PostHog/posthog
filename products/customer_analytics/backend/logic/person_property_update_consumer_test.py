@@ -11,45 +11,8 @@ from products.customer_analytics.backend.logic.person_property_update_consumer i
     SENT,
     InvalidPersonPropertyMessage,
     PersonPropertyUpdateConsumer,
-    TokenBucket,
     build_capture_kwargs,
 )
-
-
-class TestTokenBucket:
-    def test_blocks_until_a_token_is_available_then_proceeds(self):
-        # A fake clock that doesn't advance on its own; sleep advances it. At 10/sec one token
-        # takes 0.1s, so the first acquire on an empty bucket sleeps ~0.1s once.
-        clock = {"t": 0.0}
-        sleeps: list[float] = []
-
-        def now():
-            return clock["t"]
-
-        def sleep(seconds):
-            sleeps.append(seconds)
-            clock["t"] += seconds
-
-        bucket = TokenBucket(lambda: 10.0, now=now, sleep=sleep)
-        bucket.acquire()
-
-        assert sleeps  # it had to wait
-        assert abs(sum(sleeps) - 0.1) < 1e-6
-
-    def test_accumulated_tokens_allow_a_burst_without_sleeping(self):
-        clock = {"t": 0.0}
-
-        def now():
-            return clock["t"]
-
-        def sleep(seconds):
-            clock["t"] += seconds
-
-        bucket = TokenBucket(lambda: 100.0, now=now, sleep=sleep)
-        clock["t"] = 1.0  # 1s elapsed -> ~100 tokens accrued (capped at rate)
-        for _ in range(50):
-            bucket.acquire()  # should not need to sleep
-        assert clock["t"] == 1.0
 
 
 class TestBuildCaptureKwargs:
@@ -88,9 +51,10 @@ def _capture_result(*, succeeded: bool, dropped: list[str] | None = None) -> Mag
 
 class TestProcessRecord:
     def _consumer(self, capture_fn, dlq=None):
-        # No-op token bucket so tests don't sleep.
-        bucket = MagicMock()
-        return PersonPropertyUpdateConsumer(capture_fn=capture_fn, bucket=bucket, dlq_producer=dlq or MagicMock())
+        # Limiter always admits, so tests never wait on a real budget.
+        return PersonPropertyUpdateConsumer(
+            capture_fn=capture_fn, grant_fn=lambda: True, dlq_producer=dlq or MagicMock()
+        )
 
     def test_successful_send_commits(self):
         capture = MagicMock(return_value=_capture_result(succeeded=True))
@@ -139,7 +103,7 @@ class TestProcessRecord:
     def test_poison_messages_go_to_dlq(self, _name, value):
         capture = MagicMock()
         dlq = MagicMock()
-        c = PersonPropertyUpdateConsumer(capture_fn=capture, bucket=MagicMock(), dlq_producer=dlq)
+        c = PersonPropertyUpdateConsumer(capture_fn=capture, grant_fn=lambda: True, dlq_producer=dlq)
 
         assert c.process_record(value) == DLQ
         dlq.produce.assert_called_once()
@@ -151,7 +115,7 @@ class TestProcessRecord:
         capture = MagicMock()
         dlq = MagicMock()
         dlq.produce.return_value.get.side_effect = RuntimeError("delivery failed")
-        c = PersonPropertyUpdateConsumer(capture_fn=capture, bucket=MagicMock(), dlq_producer=dlq)
+        c = PersonPropertyUpdateConsumer(capture_fn=capture, grant_fn=lambda: True, dlq_producer=dlq)
 
         assert c.process_record(b"not json") == RETRY
 
@@ -161,7 +125,7 @@ class TestProcessRecord:
         with patch(
             "products.customer_analytics.backend.logic.person_property_update_consumer.get_producer"
         ) as get_producer:
-            c = PersonPropertyUpdateConsumer(capture_fn=MagicMock(), bucket=MagicMock())
+            c = PersonPropertyUpdateConsumer(capture_fn=MagicMock(), grant_fn=lambda: True)
             c.process_record(b"not json")
             c.process_record(b"still not json")
 
@@ -182,7 +146,7 @@ class TestProcessWithRetries:
         )
         sleeps: list[float] = []
         c = PersonPropertyUpdateConsumer(
-            capture_fn=capture, bucket=MagicMock(), dlq_producer=MagicMock(), sleep=lambda s: sleeps.append(s)
+            capture_fn=capture, grant_fn=lambda: True, dlq_producer=MagicMock(), sleep=lambda s: sleeps.append(s)
         )
         value = json.dumps({"token": "t", "distinct_id": "a", "properties": {"p": 1}}).encode()
 
@@ -194,7 +158,7 @@ class TestProcessWithRetries:
         # On shutdown we stop retrying and return RETRY so the offset is left uncommitted and the
         # message is redelivered on the next start rather than blocking shutdown forever.
         capture = MagicMock(return_value=_capture_result(succeeded=False))
-        c = PersonPropertyUpdateConsumer(capture_fn=capture, bucket=MagicMock(), dlq_producer=MagicMock())
+        c = PersonPropertyUpdateConsumer(capture_fn=capture, grant_fn=lambda: True, dlq_producer=MagicMock())
 
         def stop_after_first(_seconds: float) -> None:
             c._shutdown = True
@@ -203,3 +167,49 @@ class TestProcessWithRetries:
         value = json.dumps({"token": "t", "distinct_id": "a", "properties": {"p": 1}}).encode()
 
         assert c._process_with_retries(value) == RETRY
+
+
+class TestRateGate:
+    _VALUE = json.dumps({"token": "t", "distinct_id": "a", "properties": {"p": 1}}).encode()
+
+    def test_send_waits_for_the_budget_then_fires(self):
+        # Denied twice, then admitted: the send waits (polling the shared budget) and only calls
+        # capture once a slot frees. No message is dropped while throttled.
+        grants = iter([False, False, True])
+        capture = MagicMock(return_value=_capture_result(succeeded=True))
+        sleeps: list[float] = []
+        c = PersonPropertyUpdateConsumer(
+            capture_fn=capture,
+            grant_fn=lambda: next(grants),
+            dlq_producer=MagicMock(),
+            sleep=lambda s: sleeps.append(s),
+        )
+
+        assert c.process_record(self._VALUE) == SENT
+        assert capture.call_count == 1
+        assert len(sleeps) == 2  # waited once per denial before the grant
+
+    def test_shutdown_while_throttled_leaves_message_uncommitted(self):
+        # If the budget never frees and shutdown arrives, we neither send nor drop: return RETRY so
+        # the offset stays uncommitted and the message is redelivered on the next start.
+        capture = MagicMock()
+        c = PersonPropertyUpdateConsumer(capture_fn=capture, grant_fn=lambda: False, dlq_producer=MagicMock())
+
+        def stop_after_first(_seconds: float) -> None:
+            c._shutdown = True
+
+        c._sleep = stop_after_first
+
+        assert c.process_record(self._VALUE) == RETRY
+        capture.assert_not_called()
+
+    def test_admitted_immediately_does_not_wait(self):
+        # The happy path: budget available on the first check, so the send fires with no sleep.
+        capture = MagicMock(return_value=_capture_result(succeeded=True))
+        sleeps: list[float] = []
+        c = PersonPropertyUpdateConsumer(
+            capture_fn=capture, grant_fn=lambda: True, dlq_producer=MagicMock(), sleep=lambda s: sleeps.append(s)
+        )
+
+        assert c.process_record(self._VALUE) == SENT
+        assert sleeps == []

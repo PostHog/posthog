@@ -1,13 +1,15 @@
 """Throttling consumer for warehouse -> person-property $set intents.
 
 Drains ``KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES`` and sends each as a ``$set`` through
-capture-internal, at a global rate (a constance setting ops can retune live). The topic is keyed
-by ``team_id`` so a big team's backlog only delays itself; there's no per-team rate limiting in v1.
-Kafka lag is the backpressure. Offsets commit only after a successful send; permanently-rejected
-(poison) messages go to a DLQ so they can't wedge a partition.
+capture-internal, at a global rate (a constance setting ops can retune live). The rate is enforced
+by the shared, Redis-backed outbound egress limiter, so the budget holds across every replica at
+once — the consumer can run many pods without multiplying the send rate. Kafka lag is the
+backpressure: when the budget is spent the send blocks (the message stays on the topic) until a
+slot frees. Offsets commit only after a successful send; permanently-rejected (poison) messages go
+to a DLQ so they can't wedge a partition.
 
-The rate limiter and the message->capture mapping are pure and unit-tested; the Kafka loop and
-capture call are the boundaries.
+The rate gate and the message->capture mapping are the tested seams; the Kafka loop, the capture
+call, and the distributed limiter are the boundaries.
 """
 
 import json
@@ -19,6 +21,8 @@ from typing import Any
 import structlog
 from prometheus_client import Counter
 
+from posthog.egress.limiter.outbound import OutboundRateLimiter
+from posthog.egress.limiter.policies import RatePolicy, register_policy
 from posthog.kafka_client.client import _KafkaSecurityProtocol
 from posthog.kafka_client.routing import get_producer, get_profile_settings
 from posthog.kafka_client.topics import (
@@ -33,12 +37,24 @@ CONSUMER_GROUP = "warehouse-person-property-updates"
 _RATE_SETTING = "WAREHOUSE_PERSON_PROPERTY_SET_RATE_PER_SEC"
 EVENT_SOURCE = "customer_analytics_person_property_sync"
 
+# The shared limiter budget is keyed by domain; ``:global`` is the single scope we throttle on, so
+# every replica draws from one per-second bucket in Redis.
+_RATE_DOMAIN = "warehouse_person_property"
+_RATE_KEY = f"{_RATE_DOMAIN}:global"
+# Divides the per-process fallback budget when Redis is unreachable. Matched to the consumer's max
+# replica count so the sum across pods still ~equals the global rate during a Redis outage (fewer
+# pods just run slower, never faster). Keep in sync with charts ``autoscaling.maxPods``.
+_IN_MEMORY_DIVIDER = 6
+
 SENT_TOTAL = Counter("warehouse_person_property_sent_total", "person-property $set events sent to capture")
 DLQ_TOTAL = Counter("warehouse_person_property_dlq_total", "person-property update messages routed to DLQ")
 DLQ_FAILED_TOTAL = Counter(
     "warehouse_person_property_dlq_failed_total", "person-property DLQ writes that failed to deliver"
 )
 RETRY_TOTAL = Counter("warehouse_person_property_retry_total", "person-property update messages left for redelivery")
+THROTTLED_TOTAL = Counter(
+    "warehouse_person_property_throttled_total", "person-property sends that had to wait on the rate limiter"
+)
 
 # How long to wait for a DLQ produce to be acknowledged before treating it as failed.
 _DLQ_DELIVERY_TIMEOUT_SECONDS = 30.0
@@ -46,43 +62,26 @@ _DLQ_DELIVERY_TIMEOUT_SECONDS = 30.0
 # Pause between in-place retries of a transiently-failing message (capture down / timeout).
 _RETRY_BACKOFF_SECONDS = 1.0
 
+# Pause between polls of the shared budget while a send is throttled. Small so the send fires
+# promptly once a slot frees; Kafka lag, not this sleep, is the real buffer.
+_THROTTLE_BACKOFF_SECONDS = 0.05
+
 
 class InvalidPersonPropertyMessage(Exception):
     """A message that can never succeed (bad shape) -> DLQ, not retry."""
 
 
-class TokenBucket:
-    """Global token-bucket rate limiter. ``rate`` is re-read each acquire so a live constance change
-    takes effect without a restart. ``sleep``/``now`` are injectable for tests."""
+def _current_rate() -> float:
+    return float(get_instance_setting(_RATE_SETTING))
 
-    def __init__(
-        self,
-        rate_fn: Callable[[], float],
-        *,
-        now: Callable[[], float] = time.monotonic,
-        sleep: Callable[[float], None] = time.sleep,
-    ) -> None:
-        self._rate_fn = rate_fn
-        self._now = now
-        self._sleep = sleep
-        self._tokens = 0.0
-        self._last = now()
 
-    def _refill(self) -> float:
-        rate = max(1.0, float(self._rate_fn()))
-        current = self._now()
-        elapsed = max(0.0, current - self._last)
-        self._last = current
-        self._tokens = min(rate, self._tokens + elapsed * rate)
-        return rate
+def _rate_policy(_key: str) -> RatePolicy:
+    """Resolve the live global budget. Registered as a provider so a constance change to the rate
+    takes effect without a restart (read on each acquire, not frozen at import)."""
+    return RatePolicy(limits=((max(1, int(_current_rate())), 1.0),), in_memory_divider=_IN_MEMORY_DIVIDER)
 
-    def acquire(self) -> None:
-        """Block until one token is available."""
-        rate = self._refill()
-        while self._tokens < 1.0:
-            self._sleep((1.0 - self._tokens) / rate)
-            rate = self._refill()
-        self._tokens -= 1.0
+
+register_policy(_RATE_DOMAIN, _rate_policy)
 
 
 def build_capture_kwargs(payload: dict[str, Any]) -> dict[str, Any]:
@@ -112,10 +111,6 @@ def build_capture_kwargs(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _current_rate() -> float:
-    return float(get_instance_setting(_RATE_SETTING))
-
-
 # Outcomes of handling one message. "sent" and "dlq" are terminal (commit the offset); "retry"
 # leaves the offset uncommitted so the message is redelivered.
 SENT = "sent"
@@ -128,7 +123,7 @@ class PersonPropertyUpdateConsumer:
         self,
         *,
         capture_fn: Callable[..., Any] | None = None,
-        bucket: TokenBucket | None = None,
+        grant_fn: Callable[[], bool] | None = None,
         dlq_producer: Any | None = None,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
@@ -138,7 +133,12 @@ class PersonPropertyUpdateConsumer:
 
             capture_fn = capture_internal
         self._capture = capture_fn
-        self._bucket = bucket or TokenBucket(_current_rate)
+        # The distributed limiter's non-blocking check: True if this send fits the shared budget.
+        # Built per process (lazy Redis backend), reused for every message.
+        if grant_fn is None:
+            limiter = OutboundRateLimiter()
+            grant_fn = lambda: limiter.consume_sync(_RATE_KEY, source=EVENT_SOURCE)  # noqa: E731
+        self._grant = grant_fn
         self._dlq_producer = dlq_producer
         self._sleep = sleep
         self._shutdown = False
@@ -172,6 +172,23 @@ class PersonPropertyUpdateConsumer:
         DLQ_TOTAL.inc()
         return DLQ
 
+    def _acquire_slot(self) -> bool:
+        """Block until the shared per-second budget admits this send, or shutdown is requested.
+        Returns True if a slot was granted; False if interrupted by shutdown (caller must leave the
+        message uncommitted). The budget lives in Redis, so the limit holds across every replica at
+        once — this is what lets the consumer scale out without multiplying the send rate."""
+        throttled = False
+        while not self._grant():
+            if not throttled:
+                # Count the message once (not each poll) so the metric reads as "messages that were
+                # throttled", not raw spin iterations.
+                THROTTLED_TOTAL.inc()
+                throttled = True
+            if self._shutdown:
+                return False
+            self._sleep(_THROTTLE_BACKOFF_SECONDS)
+        return True
+
     def process_record(self, value: bytes) -> str:
         """Handle one message. Terminal outcomes (sent/dlq) commit; retry does not."""
         try:
@@ -187,9 +204,11 @@ class PersonPropertyUpdateConsumer:
         except InvalidPersonPropertyMessage as exc:
             return self._dlq(value, str(exc))
 
-        # Pace the send. Blocks (via the bucket's sleep) until a token frees up; Kafka lag absorbs
-        # the wait so we never drop a message.
-        self._bucket.acquire()
+        # Pace the send against the shared budget. Blocks until a slot frees (Kafka lag absorbs the
+        # wait) or shutdown is requested; on shutdown mid-wait we leave the message uncommitted for
+        # redelivery rather than sending or dropping it.
+        if not self._acquire_slot():
+            return RETRY
         try:
             result = self._capture(**kwargs)
         except Exception:
