@@ -2,11 +2,26 @@ import os
 import json
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
+
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.clickhouse.client import sync_execute
+
+from products.logs.backend.presentation.views.api import LogsViewSet
+
+
+class TestOptionalLogFilterParsing(SimpleTestCase):
+    @parameterized.expand([(None,), ("",), ("{}",), ("not-json",)])
+    def test_invalid_optional_filter_groups_are_ignored_without_capture(self, raw_filter_group: str | None) -> None:
+        with patch("posthog.api.mixins.capture_exception") as capture_exception:
+            filter_group = LogsViewSet._parse_filter_group(raw_filter_group)
+
+        self.assertIsNone(filter_group)
+        capture_exception.assert_not_called()
 
 
 class TestLogValuesAttributesTimezones(ClickhouseTestMixin, APIBaseTest):
