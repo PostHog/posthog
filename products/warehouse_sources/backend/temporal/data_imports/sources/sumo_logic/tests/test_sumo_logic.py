@@ -167,6 +167,28 @@ class TestValidateCredentials:
         assert error is not None
 
 
+class TestSessionPrivacy:
+    def test_session_excludes_bodies_from_sample_capture(self) -> None:
+        # Raw `_raw` log bodies are free-form customer data; re-enabling sample capture would copy
+        # them into HTTP sample storage where the name-based scrubbers can't redact embedded secrets.
+        manager, _saved = _make_manager()
+        with mock.patch.object(sl, "make_tracked_session") as mock_session_factory:
+            mock_session_factory.return_value.request.return_value = _response({"data": [], "next": None})
+            list(
+                sl.get_rows(
+                    deployment="us1",
+                    access_id="id",
+                    access_key="key",
+                    endpoint="users",
+                    search_query=None,
+                    logger=mock.MagicMock(),
+                    resumable_source_manager=manager,
+                )
+            )
+        assert mock_session_factory.call_args.kwargs["capture"] is False
+        assert "key" in mock_session_factory.call_args.kwargs["redact_values"]
+
+
 class TestTokenPagination:
     def test_yields_pages_saves_token_after_yield_and_sends_it(self) -> None:
         manager, saved = _make_manager()

@@ -66,7 +66,10 @@ def base_url(deployment: Optional[str]) -> str:
 def _make_session(access_id: str, access_key: str) -> requests.Session:
     # One session for the whole run: Sumo Logic issues a session cookie on search-job creation that
     # must accompany the poll/fetch/delete calls, and `requests.Session` persists it automatically.
-    session = make_tracked_session(redact_values=(access_key,))
+    # `capture=False`: raw log bodies (`_raw`) are free-form customer data that can embed credentials
+    # the name-based sample scrubbers can't recognise, so keep response bodies out of HTTP sample
+    # storage entirely. Requests are still metered and logged (status + url).
+    session = make_tracked_session(redact_values=(access_key,), capture=False)
     session.auth = (access_id, access_key)
     session.headers.update({"Accept": "application/json", "Content-Type": "application/json"})
     return session
