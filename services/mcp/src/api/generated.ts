@@ -2030,6 +2030,26 @@ export namespace Schemas {
       value?: string | string[] | null;
     }
 
+    export type ActivityEventsPropertyFilterType = typeof ActivityEventsPropertyFilterType[keyof typeof ActivityEventsPropertyFilterType];
+
+
+    export const ActivityEventsPropertyFilterType = {
+      Event: 'event',
+      Person: 'person',
+    } as const;
+
+    export interface ActivityEventsPropertyFilter {
+      /**
+         * @minLength 1
+         * @maxLength 400
+         */
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type: ActivityEventsPropertyFilterType;
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
     export type ActivityEventsListWidgetConfigWidgetFilters = {[key: string]: WidgetFilterEntry} | null;
 
     export interface ActivityEventsListWidgetConfig {
@@ -2044,6 +2064,8 @@ export namespace Schemas {
       limit?: number;
       /** Limit the feed to a single event name. Omit or null for all events. */
       eventName?: string | null;
+      /** Event and person property filters, matching Activity > Explore events. */
+      properties?: ActivityEventsPropertyFilter[] | null;
     }
 
     export interface ActivityEventsListWidgetAddRequestOpenApi {

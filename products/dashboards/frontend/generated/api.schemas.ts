@@ -503,6 +503,26 @@ export interface WidgetFilterEntryApi {
     value?: string | string[] | null
 }
 
+export type ActivityEventsPropertyFilterApiType =
+    (typeof ActivityEventsPropertyFilterApiType)[keyof typeof ActivityEventsPropertyFilterApiType]
+
+export const ActivityEventsPropertyFilterApiType = {
+    Event: 'event',
+    Person: 'person',
+} as const
+
+export interface ActivityEventsPropertyFilterApi {
+    /**
+     * @minLength 1
+     * @maxLength 400
+     */
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type: ActivityEventsPropertyFilterApiType
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
 export type ActivityEventsListWidgetConfigApiWidgetFilters = { [key: string]: WidgetFilterEntryApi } | null
 
 export interface ActivityEventsListWidgetConfigApi {
@@ -517,6 +537,8 @@ export interface ActivityEventsListWidgetConfigApi {
     limit?: number
     /** Limit the feed to a single event name. Omit or null for all events. */
     eventName?: string | null
+    /** Event and person property filters, matching Activity > Explore events. */
+    properties?: ActivityEventsPropertyFilterApi[] | null
 }
 
 /**
