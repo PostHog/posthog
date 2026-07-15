@@ -2,6 +2,7 @@
 
 import json
 import datetime as dt
+from typing import NotRequired, TypedDict
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
@@ -50,9 +51,17 @@ _sample_trace_details_fn = sample_trace_details.func  # type: ignore[attr-define
 _get_trace_detail_fn = get_trace_detail.func  # type: ignore[attr-defined]
 
 
-def _state_with_empty_report() -> dict:
+class _ReportToolState(TypedDict):
+    report: EvalReportContent
+    evaluation_target: NotRequired[str]
+
+
+def _state_with_empty_report(*, evaluation_target: str | None = None) -> _ReportToolState:
     """Build a minimal state dict with an empty EvalReportContent (matches runtime)."""
-    return {"report": EvalReportContent()}
+    state: _ReportToolState = {"report": EvalReportContent()}
+    if evaluation_target is not None:
+        state["evaluation_target"] = evaluation_target
+    return state
 
 
 class TestChTs(SimpleTestCase):
@@ -402,7 +411,7 @@ class TestAddCitation(SimpleTestCase):
         self.assertEqual(state["report"].citations[0].trace_id, "also-not-a-uuid")
 
     def test_trace_target_allows_empty_generation_id(self):
-        state = {"report": EvalReportContent(), "evaluation_target": "trace"}
+        state = _state_with_empty_report(evaluation_target="trace")
         result = _add_citation_fn(
             state=state,
             generation_id="",
@@ -417,7 +426,7 @@ class TestAddCitation(SimpleTestCase):
         )
 
     def test_trace_target_rejects_generation_id(self):
-        state = {"report": EvalReportContent(), "evaluation_target": "trace"}
+        state = _state_with_empty_report(evaluation_target="trace")
 
         result = _add_citation_fn(
             state=state,
@@ -430,7 +439,7 @@ class TestAddCitation(SimpleTestCase):
         self.assertEqual(state["report"].citations, [])
 
     def test_rejects_trace_id_with_control_characters(self):
-        state = {"report": EvalReportContent(), "evaluation_target": "trace"}
+        state = _state_with_empty_report(evaluation_target="trace")
         result = _add_citation_fn(state=state, generation_id="", trace_id="trace\nother", reason="r")
 
         self.assertIn("Error", result)

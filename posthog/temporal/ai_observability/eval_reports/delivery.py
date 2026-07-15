@@ -84,7 +84,9 @@ def _make_trace_link(project_id: int, trace_id: str, generation_id: str | None) 
     """Build a trace URL, optionally focused on a cited generation."""
     from posthog.utils import absolute_uri
 
-    path = f"/project/{project_id}/ai-observability/traces/{quote(trace_id, safe='')}"
+    # kea-router decodes the pathname once before matching, so preserve an encoded layer for the scene.
+    encoded_trace_id = quote(quote(trace_id, safe=""), safe="")
+    path = f"/project/{project_id}/ai-observability/traces/{encoded_trace_id}"
     if generation_id:
         path = f"{path}?{urlencode({'event': generation_id})}"
     return absolute_uri(path)

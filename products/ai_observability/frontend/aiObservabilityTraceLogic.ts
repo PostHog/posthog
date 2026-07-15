@@ -11,6 +11,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProductIntent } from 'lib/utils/product-intents'
+import { tryDecodeURIComponent } from 'lib/utils/url'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
@@ -575,7 +576,7 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
 
     urlToAction(({ actions, cache }) => ({
         [urls.aiObservabilityTrace(':id')]: ({ id }, { event, timestamp, exception_ts, search, line, tab, msg }) => {
-            actions.setTraceId(id ?? '')
+            actions.setTraceId(tryDecodeURIComponent(id ?? ''))
             void addProductIntent({
                 product_type: ProductKey.AI_OBSERVABILITY,
                 intent_context: ProductIntentContext.LLM_ANALYTICS_TRACE_VIEWED,

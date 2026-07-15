@@ -95,14 +95,14 @@ class TestLinkifyCitations(SimpleTestCase):
                 "generation",
                 Citation(generation_id="generation/id ?#", trace_id="trace/id ?#", reason="example"),
                 "generation/id ?#",
-                "/traces/trace%2Fid%20%3F%23?event=generation%2Fid+%3F%23",
+                "/traces/trace%252Fid%2520%253F%2523?event=generation%2Fid+%3F%23",
                 True,
             ),
             (
                 "trace",
                 Citation(generation_id="", trace_id="trace/id ?#", reason="example"),
                 "trace/id ?#",
-                "/traces/trace%2Fid%20%3F%23",
+                "/traces/trace%252Fid%2520%253F%2523",
                 False,
             ),
         ]
@@ -146,7 +146,7 @@ class TestLinkifyCitations(SimpleTestCase):
         )
 
         self.assertIn("[trace](", result)
-        self.assertIn("/traces/trace%5D%28id", result)
+        self.assertIn("/traces/trace%255D%2528id", result)
 
 
 class TestRenderSectionHtml(SimpleTestCase):

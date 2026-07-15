@@ -41,13 +41,14 @@ describe('aiObservabilityTraceLogic', () => {
         expect(logic.values.traceId).toBe(traceIdWithColon)
     })
 
-    it('properly loads trace scene when trace ID contains multiple colons', async () => {
-        const traceIdWithMultipleColons = 'namespace:trace:12345:abcdef:xyz'
-        const traceUrl = combineUrl(urls.aiObservabilityTrace(traceIdWithMultipleColons))
+    it('decodes an opaque trace ID from a citation URL', async () => {
+        const traceId = 'trace](id'
+        const encodedTraceId = encodeURIComponent(encodeURIComponent(traceId))
+        const traceUrl = combineUrl(urls.aiObservabilityTrace(encodedTraceId))
 
         router.actions.push(addProjectIdIfMissing(traceUrl.url, MOCK_TEAM_ID))
         await expectLogic(logic).toMatchValues({
-            traceId: traceIdWithMultipleColons,
+            traceId,
         })
     })
 

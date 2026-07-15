@@ -124,7 +124,7 @@ describe('EvaluationReportViewer', () => {
             name: 'generation citation',
             citedId: 'generation/id ?',
             citation: { generation_id: 'generation/id ?', trace_id: 'trace/id ?', reason: 'example' },
-            expectedUrl: '/ai-observability/traces/trace%2Fid%20%3F?event=generation%2Fid+%3F',
+            expectedUrl: '/ai-observability/traces/trace%252Fid%2520%253F?event=generation%2Fid+%3F',
             expectedLabel: 'generati...',
         },
         {
@@ -140,7 +140,7 @@ describe('EvaluationReportViewer', () => {
             name: 'opaque trace citation with Markdown delimiters',
             citedId: 'trace](id',
             citation: { trace_id: 'trace](id', reason: 'example' },
-            expectedUrl: '/ai-observability/traces/trace%5D%28id',
+            expectedUrl: '/ai-observability/traces/trace%255D%2528id',
             expectedLabel: 'trace',
         },
     ])(

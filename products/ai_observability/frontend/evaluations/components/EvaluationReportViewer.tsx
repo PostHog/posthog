@@ -27,7 +27,12 @@ import type {
 const SAFE_CITATION_LABEL_RE = /^[A-Za-z0-9._~-]{1,8}$/
 
 function encodePathSegment(value: string): string {
-    return encodeURIComponent(value).replace(
+    // kea-router decodes the pathname once before matching, so preserve an encoded layer for the scene.
+    const encodedValue = encodeURIComponent(value).replace(
+        /[!'()*]/g,
+        (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`
+    )
+    return encodeURIComponent(encodedValue).replace(
         /[!'()*]/g,
         (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`
     )
