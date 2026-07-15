@@ -1,4 +1,3 @@
-{% load static %}
 <!DOCTYPE html>
 <html lang="{{ display_language|default:'en' }}"{% if embed_mode %} class="embed-mode"{% endif %}>
 
@@ -10,7 +9,8 @@
     <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/favicon-16x16.png?v=2023-07-07">
     <link rel="mask-icon" href="/static/icons/safari-pinned-tab.svg?v=2023-07-07" color="#FF053C">
     <link rel="manifest" href="/static/site.webmanifest?v=2023-07-07">
-    <link rel="stylesheet" href="{% static 'surveys/hosted-survey.css' %}">
+    {# Raw path, not the static tag: frontend/public/ ships unhashed, so a manifest-hashed URL 404s. #}
+    <link rel="stylesheet" href="/static/surveys/hosted-survey.css?v=1">
     <meta name="apple-mobile-web-app-title" content="{{ name }}">
     <meta name="application-name" content="{{ name }}">
     <title>{{ name }}</title>
