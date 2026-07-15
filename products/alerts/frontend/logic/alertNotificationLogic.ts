@@ -131,13 +131,9 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
             }
         },
         deleteExistingHogFunction: async ({ hogFunction }) => {
-            // Emit before the undo-able delete so the destination type is captured even if the
-            // HogFunction row is gone by the time the toast resolves. Mirrors the create event so
-            // adoption of each destination type (Slack/Discord/Teams/webhook) is measurable.
-            posthog.capture('insight alert destination deleted', {
-                alert_id: props.alertId,
-                type: notificationTypeFromTemplateId(hogFunction.template_id),
-            })
+            // Resolve the type from the closure up front — after the delete the HogFunction is
+            // removed from state, so we can't derive it later.
+            const type = notificationTypeFromTemplateId(hogFunction.template_id)
             await deleteWithUndo({
                 endpoint: `projects/${values.currentProjectId}/hog_functions`,
                 object: {
@@ -147,7 +143,16 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
                 callback: (undo) => {
                     if (undo) {
                         actions.loadExistingHogFunctions()
+                        return
                     }
+                    // Capture only a delete that actually landed: the callback runs after the API
+                    // call resolves and not at all on failure, and we skip it on undo. Mirrors the
+                    // create event so adoption of each destination type stays measurable. A
+                    // delete-then-undo still counts once — acceptable for optimistic-undo analytics.
+                    posthog.capture('insight alert destination deleted', {
+                        alert_id: props.alertId,
+                        type,
+                    })
                 },
             })
         },
