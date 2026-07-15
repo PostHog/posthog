@@ -11,18 +11,20 @@ import { Skeleton } from '@posthog/quill-primitives'
 
 import { useChartConfig } from 'lib/charts/hooks'
 
-import { type ToolDailySeries } from '../mcpDashboardOverviewLogic'
+import { type ToolDailySeries, type TileErrorKind } from '../mcpDashboardOverviewLogic'
 import { Card, CardState } from './Card'
 
 export function ToolUsageChart({
     data,
     loading,
+    error,
     theme,
     timezone,
     interval,
 }: {
     data: ToolDailySeries
     loading: boolean
+    error?: TileErrorKind | null
     theme: ChartTheme
     timezone: string
     interval: TimeInterval
@@ -55,6 +57,7 @@ export function ToolUsageChart({
         <Card title="Tool call breakdown">
             <CardState
                 loading={loading}
+                error={error}
                 isEmpty={data.tools.length === 0}
                 skeleton={<Skeleton className="h-[260px] w-full" />}
                 empty={<div className="py-6 text-center text-[12px] text-secondary">No tool calls yet.</div>}

@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, isBreakpoint, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
@@ -463,6 +463,60 @@ export function buildKPIs(rows: BucketRow[], currentStartBucket: string): KPIDat
     }
 }
 
+// The overview fires seven independent query loaders on load. Each can fail three ways, and none
+// of them should escape as an uncaught frontend exception:
+//   - access denied  → the caller lacks `viewer` access; expected, so we stop reloading and stay quiet
+//   - memory          → the range scanned too much data; the tile asks for a shorter range
+//   - generic         → a transient backend/ClickHouse error; the tile asks the user to retry
+export type TileKey = 'kpis' | 'users' | 'toolRows' | 'sessionRows' | 'harnessRows' | 'activityRows' | 'toolDailyRows'
+export type TileErrorKind = 'memory' | 'generic'
+
+// The backend maps a UserAccessControlError to a 400 whose detail leads with this phrase
+// (posthog/rbac/user_access_control.py, pinned by the runner access tests). Keying on it keeps the
+// access-denied path — an expected "you can't view this" outcome — out of error tracking.
+const ACCESS_DENIED_DETAIL = 'Access control failure'
+// ClickHouse out-of-memory failures carry this stable code (posthog/exceptions.py); statuses 512
+// (query estimated too slow) and 513 (out of memory) are the sibling "scope is too big" failures.
+// All three point the user at a shorter range.
+const MEMORY_LIMIT_ERROR_CODE = 'clickhouse_memory_limit_exceeded'
+
+function isAccessDeniedError(error: any): boolean {
+    return typeof error?.detail === 'string' && error.detail.includes(ACCESS_DENIED_DETAIL)
+}
+
+function tileErrorKind(error: any): TileErrorKind {
+    if (error?.code === MEMORY_LIMIT_ERROR_CODE || error?.status === 512 || error?.status === 513) {
+        return 'memory'
+    }
+    return 'generic'
+}
+
+interface TileErrorActions {
+    clearTileError: (tile: TileKey) => void
+    setTileError: (tile: TileKey, kind: TileErrorKind) => void
+    setAccessDenied: () => void
+}
+
+// Run one tile's query, translating any failure into per-tile state instead of a rejected promise —
+// a rejection here would surface as a captured exception via the global kea-loaders onFailure hook.
+// Breakpoint throws (superseded/unmounted loads) are re-raised so cooperative cancellation still works.
+async function loadTile<T>(tile: TileKey, empty: T, actions: TileErrorActions, run: () => Promise<T>): Promise<T> {
+    actions.clearTileError(tile)
+    try {
+        return await run()
+    } catch (error: any) {
+        if (isBreakpoint(error)) {
+            throw error
+        }
+        if (isAccessDeniedError(error)) {
+            actions.setAccessDenied()
+            return empty
+        }
+        actions.setTileError(tile, tileErrorKind(error))
+        return empty
+    }
+}
+
 export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
     path(['products', 'mcp_analytics', 'frontend', 'mcpDashboardOverviewLogic']),
     connect(() => ({
@@ -472,6 +526,9 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
         setDateFilter: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setFilterTestAccounts: (filterTestAccounts: boolean | null) => ({ filterTestAccounts }),
         setPropertyFilters: (properties: AnyPropertyFilter[]) => ({ properties }),
+        setTileError: (tile: TileKey, kind: TileErrorKind) => ({ tile, kind }),
+        clearTileError: (tile: TileKey) => ({ tile }),
+        setAccessDenied: true,
         reloadAll: true,
     }),
     reducers({
@@ -495,162 +552,196 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                 setPropertyFilters: (_, { properties }): AnyPropertyFilter[] => properties,
             },
         ],
+        // Per-tile failure state so a tile can render a friendly error instead of the loader
+        // rejecting and the error being captured. Cleared when a tile's load starts again.
+        tileErrors: [
+            {} as Partial<Record<TileKey, TileErrorKind>>,
+            {
+                setTileError: (state, { tile, kind }): Partial<Record<TileKey, TileErrorKind>> => ({
+                    ...state,
+                    [tile]: kind,
+                }),
+                clearTileError: (state, { tile }): Partial<Record<TileKey, TileErrorKind>> => {
+                    if (!(tile in state)) {
+                        return state
+                    }
+                    const next = { ...state }
+                    delete next[tile]
+                    return next
+                },
+            },
+        ],
+        // Latches once any loader hits the access gate, so reloadAll stops re-firing queries that
+        // would only fail again (and generate more noise).
+        accessDenied: [
+            false,
+            {
+                setAccessDenied: () => true,
+            },
+        ],
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         kpis: [
             EMPTY_KPIS,
             {
-                loadKPIs: async (_: void, breakpoint) => {
-                    const { interval } = values
-                    const kpiWindow = buildKpiWindow(values.dateFilter, values.timezone, interval)
-                    const response = (await api.query({
-                        kind: NodeKind.HogQLQuery,
-                        query: KPI_QUERY.replace('__BUCKET__', `dateTrunc('${interval}', timestamp)`),
-                        filters: kpiWindowFilters(values.queryFilters, kpiWindow),
-                    })) as HogQLQueryResponse
-                    breakpoint()
-                    const rows = parseRows((response?.results as unknown[][]) ?? [])
-                    return buildKPIs(rows, kpiWindow.currentStartBucket)
-                },
+                loadKPIs: async (_: void, breakpoint) =>
+                    loadTile('kpis', EMPTY_KPIS, actions, async () => {
+                        const { interval } = values
+                        const kpiWindow = buildKpiWindow(values.dateFilter, values.timezone, interval)
+                        const response = (await api.query({
+                            kind: NodeKind.HogQLQuery,
+                            query: KPI_QUERY.replace('__BUCKET__', `dateTrunc('${interval}', timestamp)`),
+                            filters: kpiWindowFilters(values.queryFilters, kpiWindow),
+                        })) as HogQLQueryResponse
+                        breakpoint()
+                        const rows = parseRows((response?.results as unknown[][]) ?? [])
+                        return buildKPIs(rows, kpiWindow.currentStartBucket)
+                    }),
             },
         ],
         users: [
             EMPTY_METRIC,
             {
-                loadUsers: async (_: void, breakpoint): Promise<KPIMetric> => {
-                    const { interval, timezone } = values
-                    const kpiWindow = buildKpiWindow(values.dateFilter, timezone, interval)
-                    // Split the doubled window at the selected period's start. currentStartBucket is
-                    // interval-aligned (buildKpiWindow → start.startOf(interval)), so comparing the raw
-                    // `timestamp` against toDateTime(bucket, tz) lands on the same instant as the KPI
-                    // tiles' dateTrunc bucket-string split — keeping this count consistent with them.
-                    // (For rolling sub-day ranges the two halves can differ by up to one interval, the
-                    // same bounded skew the KPI tiles already carry; splitting on the raw start instead
-                    // would equalize the halves but desync Users from the other tiles, so don't.)
-                    const curStart = `toDateTime('${kpiWindow.currentStartBucket}', '${timezone}')`
-                    const response = (await api.query({
-                        kind: NodeKind.HogQLQuery,
-                        query: USERS_QUERY.replace(/__CUR_START__/g, curStart),
-                        filters: kpiWindowFilters(values.queryFilters, kpiWindow),
-                    })) as HogQLQueryResponse
-                    breakpoint()
-                    const row = (response?.results as unknown[][])?.[0] ?? []
-                    const value = Number(row[0] ?? 0)
-                    const previousValue = Number(row[1] ?? 0)
-                    return {
-                        value,
-                        previousValue,
-                        deltaPct: deltaPct(value, previousValue),
-                        // No sparkline: the headline is a window-level distinct count, not a per-bucket series.
-                        sparkline: [],
-                        sparklineLabels: [],
-                        goodDirection: 'up',
-                    }
-                },
+                loadUsers: async (_: void, breakpoint): Promise<KPIMetric> =>
+                    loadTile('users', EMPTY_METRIC, actions, async () => {
+                        const { interval, timezone } = values
+                        const kpiWindow = buildKpiWindow(values.dateFilter, timezone, interval)
+                        // Split the doubled window at the selected period's start. currentStartBucket is
+                        // interval-aligned (buildKpiWindow → start.startOf(interval)), so comparing the raw
+                        // `timestamp` against toDateTime(bucket, tz) lands on the same instant as the KPI
+                        // tiles' dateTrunc bucket-string split — keeping this count consistent with them.
+                        // (For rolling sub-day ranges the two halves can differ by up to one interval, the
+                        // same bounded skew the KPI tiles already carry; splitting on the raw start instead
+                        // would equalize the halves but desync Users from the other tiles, so don't.)
+                        const curStart = `toDateTime('${kpiWindow.currentStartBucket}', '${timezone}')`
+                        const response = (await api.query({
+                            kind: NodeKind.HogQLQuery,
+                            query: USERS_QUERY.replace(/__CUR_START__/g, curStart),
+                            filters: kpiWindowFilters(values.queryFilters, kpiWindow),
+                        })) as HogQLQueryResponse
+                        breakpoint()
+                        const row = (response?.results as unknown[][])?.[0] ?? []
+                        const value = Number(row[0] ?? 0)
+                        const previousValue = Number(row[1] ?? 0)
+                        return {
+                            value,
+                            previousValue,
+                            deltaPct: deltaPct(value, previousValue),
+                            // No sparkline: the headline is a window-level distinct count, not a per-bucket series.
+                            sparkline: [],
+                            sparklineLabels: [],
+                            goodDirection: 'up',
+                        }
+                    }),
             },
         ],
         toolRows: [
             [] as ToolRow[],
             {
-                loadToolRows: async (_: void, breakpoint) => {
-                    const response = (await api.query({
-                        kind: NodeKind.HogQLQuery,
-                        query: TOOL_ROWS_QUERY,
-                        filters: values.queryFilters,
-                    })) as HogQLQueryResponse
-                    breakpoint()
-                    const raw = (response?.results as unknown[][]) ?? []
-                    return raw.map((r) => ({
-                        tool: String(r[0] ?? ''),
-                        total_calls: Number(r[1] ?? 0),
-                        errors: Number(r[2] ?? 0),
-                        error_rate_pct: Number(r[3] ?? 0),
-                        p95_duration_ms: Number(r[4] ?? 0),
-                    }))
-                },
+                loadToolRows: async (_: void, breakpoint) =>
+                    loadTile('toolRows', [] as ToolRow[], actions, async () => {
+                        const response = (await api.query({
+                            kind: NodeKind.HogQLQuery,
+                            query: TOOL_ROWS_QUERY,
+                            filters: values.queryFilters,
+                        })) as HogQLQueryResponse
+                        breakpoint()
+                        const raw = (response?.results as unknown[][]) ?? []
+                        return raw.map((r) => ({
+                            tool: String(r[0] ?? ''),
+                            total_calls: Number(r[1] ?? 0),
+                            errors: Number(r[2] ?? 0),
+                            error_rate_pct: Number(r[3] ?? 0),
+                            p95_duration_ms: Number(r[4] ?? 0),
+                        }))
+                    }),
             },
         ],
         sessionRows: [
             [] as SessionRow[],
             {
-                loadSessionRows: async (_: void, breakpoint) => {
-                    const response = (await api.query({
-                        kind: NodeKind.HogQLQuery,
-                        query: SESSION_ROWS_QUERY,
-                        filters: values.queryFilters,
-                    })) as HogQLQueryResponse
-                    breakpoint()
-                    const raw = (response?.results as unknown[][]) ?? []
-                    return raw.map((r) => ({
-                        session_id: String(r[0] ?? ''),
-                        tool_calls: Number(r[1] ?? 0),
-                        errors: Number(r[2] ?? 0),
-                        error_rate_pct: Number(r[3] ?? 0),
-                        duration_seconds: Number(r[4] ?? 0),
-                        distinct_tools: Number(r[5] ?? 0),
-                        last_seen: String(r[6] ?? ''),
-                    }))
-                },
+                loadSessionRows: async (_: void, breakpoint) =>
+                    loadTile('sessionRows', [] as SessionRow[], actions, async () => {
+                        const response = (await api.query({
+                            kind: NodeKind.HogQLQuery,
+                            query: SESSION_ROWS_QUERY,
+                            filters: values.queryFilters,
+                        })) as HogQLQueryResponse
+                        breakpoint()
+                        const raw = (response?.results as unknown[][]) ?? []
+                        return raw.map((r) => ({
+                            session_id: String(r[0] ?? ''),
+                            tool_calls: Number(r[1] ?? 0),
+                            errors: Number(r[2] ?? 0),
+                            error_rate_pct: Number(r[3] ?? 0),
+                            duration_seconds: Number(r[4] ?? 0),
+                            distinct_tools: Number(r[5] ?? 0),
+                            last_seen: String(r[6] ?? ''),
+                        }))
+                    }),
             },
         ],
         harnessRows: [
             [] as HarnessRow[],
             {
-                loadHarnessRows: async (_: void, breakpoint) => {
-                    const { dateRange, properties, filterTestAccounts } = values.queryFilters
-                    const response = (await api.query({
-                        kind: NodeKind.MCPHarnessBreakdownQuery,
-                        dateRange,
-                        properties,
-                        filterTestAccounts,
-                    })) as { results?: MCPHarnessBreakdownItem[] }
-                    breakpoint()
-                    return (response?.results ?? []).map((r) => ({
-                        category: r.harness,
-                        total_calls: r.total_calls,
-                        errors: r.errors,
-                        error_rate_pct: r.error_rate_pct,
-                        sessions: r.sessions,
-                    }))
-                },
+                loadHarnessRows: async (_: void, breakpoint) =>
+                    loadTile('harnessRows', [] as HarnessRow[], actions, async () => {
+                        const { dateRange, properties, filterTestAccounts } = values.queryFilters
+                        const response = (await api.query({
+                            kind: NodeKind.MCPHarnessBreakdownQuery,
+                            dateRange,
+                            properties,
+                            filterTestAccounts,
+                        })) as { results?: MCPHarnessBreakdownItem[] }
+                        breakpoint()
+                        return (response?.results ?? []).map((r) => ({
+                            category: r.harness,
+                            total_calls: r.total_calls,
+                            errors: r.errors,
+                            error_rate_pct: r.error_rate_pct,
+                            sessions: r.sessions,
+                        }))
+                    }),
             },
         ],
         activityRows: [
             [] as ActivityRow[],
             {
-                loadActivityRows: async (_: void, breakpoint): Promise<ActivityRow[]> => {
-                    const response = (await api.query({
-                        kind: NodeKind.HogQLQuery,
-                        query: ACTIVITY_QUERY.replace('__BUCKET__', `dateTrunc('${values.interval}', timestamp)`),
-                        filters: values.queryFilters,
-                    })) as HogQLQueryResponse
-                    breakpoint()
-                    const raw = (response?.results as unknown[][]) ?? []
-                    return raw.map((r) => ({
-                        day: normalizeBucket(r[0], values.timezone),
-                        successes: Number(r[1] ?? 0),
-                        errors: Number(r[2] ?? 0),
-                    }))
-                },
+                loadActivityRows: async (_: void, breakpoint): Promise<ActivityRow[]> =>
+                    loadTile('activityRows', [] as ActivityRow[], actions, async () => {
+                        const response = (await api.query({
+                            kind: NodeKind.HogQLQuery,
+                            query: ACTIVITY_QUERY.replace('__BUCKET__', `dateTrunc('${values.interval}', timestamp)`),
+                            filters: values.queryFilters,
+                        })) as HogQLQueryResponse
+                        breakpoint()
+                        const raw = (response?.results as unknown[][]) ?? []
+                        return raw.map((r) => ({
+                            day: normalizeBucket(r[0], values.timezone),
+                            successes: Number(r[1] ?? 0),
+                            errors: Number(r[2] ?? 0),
+                        }))
+                    }),
             },
         ],
         toolDailyRows: [
             [] as ToolDailyRow[],
             {
-                loadToolDailyRows: async (_: void, breakpoint): Promise<ToolDailyRow[]> => {
-                    const response = (await api.query({
-                        kind: NodeKind.HogQLQuery,
-                        query: TOOL_DAILY_QUERY.replace('__BUCKET__', `dateTrunc('${values.interval}', timestamp)`),
-                        filters: values.queryFilters,
-                    })) as HogQLQueryResponse
-                    breakpoint()
-                    const raw = (response?.results as unknown[][]) ?? []
-                    return raw.map((r) => ({
-                        day: normalizeBucket(r[0], values.timezone),
-                        tool: String(r[1] ?? ''),
-                        calls: Number(r[2] ?? 0),
-                    }))
-                },
+                loadToolDailyRows: async (_: void, breakpoint): Promise<ToolDailyRow[]> =>
+                    loadTile('toolDailyRows', [] as ToolDailyRow[], actions, async () => {
+                        const response = (await api.query({
+                            kind: NodeKind.HogQLQuery,
+                            query: TOOL_DAILY_QUERY.replace('__BUCKET__', `dateTrunc('${values.interval}', timestamp)`),
+                            filters: values.queryFilters,
+                        })) as HogQLQueryResponse
+                        breakpoint()
+                        const raw = (response?.results as unknown[][]) ?? []
+                        return raw.map((r) => ({
+                            day: normalizeBucket(r[0], values.timezone),
+                            tool: String(r[1] ?? ''),
+                            calls: Number(r[2] ?? 0),
+                        }))
+                    }),
             },
         ],
     })),
@@ -714,7 +805,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             }),
         ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         setDateFilter: () => {
             actions.reloadAll()
         },
@@ -725,6 +816,11 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             actions.reloadAll()
         },
         reloadAll: () => {
+            // The caller can't view MCP analytics — every loader would just fail the access gate
+            // again, so don't fire them (and don't generate more error events).
+            if (values.accessDenied) {
+                return
+            }
             actions.loadKPIs()
             actions.loadUsers()
             actions.loadToolRows()

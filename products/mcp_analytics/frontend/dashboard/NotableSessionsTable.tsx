@@ -21,7 +21,8 @@ import {
 import { formatPercentage } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
-import { type NotableSession } from '../mcpDashboardOverviewLogic'
+import { type NotableSession, type TileErrorKind } from '../mcpDashboardOverviewLogic'
+import { tileErrorMessage } from './Card'
 import { formatDuration, truncateSessionId } from './formatters'
 
 // Link to the Sessions tab, keeping the dashboard's date range so a linked session resolves in the
@@ -57,12 +58,17 @@ function StatusPill({ errorRatePct }: { errorRatePct: number }): JSX.Element {
 function SessionRows({
     sessions,
     loading,
+    error,
     searchParams,
 }: {
     sessions: NotableSession[]
     loading: boolean
+    error?: TileErrorKind | null
     searchParams: Record<string, any>
 }): JSX.Element {
+    if (error) {
+        return <TableEmpty className="py-6 text-secondary">{tileErrorMessage(error)}</TableEmpty>
+    }
     if (loading && sessions.length === 0) {
         return (
             <TableBody>
@@ -111,9 +117,11 @@ function SessionRows({
 export function NotableSessionsTable({
     sessions,
     loading,
+    error,
 }: {
     sessions: NotableSession[]
     loading: boolean
+    error?: TileErrorKind | null
 }): JSX.Element {
     const { searchParams } = useValues(router)
     return (
@@ -131,7 +139,7 @@ export function NotableSessionsTable({
                         <TableHead expand>Why notable</TableHead>
                     </TableRow>
                 </TableHeader>
-                <SessionRows sessions={sessions} loading={loading} searchParams={searchParams} />
+                <SessionRows sessions={sessions} loading={loading} error={error} searchParams={searchParams} />
             </Table>
             {sessions.length > 0 && (
                 <CardFooter className="justify-end">

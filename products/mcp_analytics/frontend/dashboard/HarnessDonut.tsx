@@ -12,8 +12,8 @@ import { Skeleton } from '@posthog/quill-primitives'
 
 import { formatPercentage } from 'lib/utils/numbers'
 
-import { type HarnessRow } from '../mcpDashboardOverviewLogic'
-import { Card } from './Card'
+import { type HarnessRow, type TileErrorKind } from '../mcpDashboardOverviewLogic'
+import { Card, TileError } from './Card'
 import { ChartTooltip } from './ChartTooltip'
 import { formatNumber } from './formatters'
 import { HarnessPill } from './harness'
@@ -70,10 +70,12 @@ function HarnessSliceLabels(): JSX.Element | null {
 export function HarnessDonut({
     rows,
     loading,
+    error,
     theme,
 }: {
     rows: HarnessRow[]
     loading: boolean
+    error?: TileErrorKind | null
     theme: ChartTheme
 }): JSX.Element {
     const totalCalls = rows.reduce((acc, r) => acc + r.total_calls, 0)
@@ -108,6 +110,15 @@ export function HarnessDonut({
         )
     }, [])
 
+    if (error) {
+        return (
+            <Card className="flex flex-1 flex-col" title="Share of calls by harness">
+                <div className="flex min-h-[300px] flex-1 items-center justify-center">
+                    <TileError kind={error} />
+                </div>
+            </Card>
+        )
+    }
     if (loading && rows.length === 0) {
         return (
             <Card className="flex flex-1 flex-col" title="Share of calls by harness">

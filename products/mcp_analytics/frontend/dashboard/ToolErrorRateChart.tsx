@@ -13,7 +13,7 @@ import { Skeleton } from '@posthog/quill-primitives'
 import { useChartConfig } from 'lib/charts/hooks'
 import { formatPercentage } from 'lib/utils/numbers'
 
-import { type ToolRow } from '../mcpDashboardOverviewLogic'
+import { type ToolRow, type TileErrorKind } from '../mcpDashboardOverviewLogic'
 import { Card, CardState } from './Card'
 import { ChartTooltip } from './ChartTooltip'
 
@@ -28,10 +28,12 @@ function niceErrorAxisMax(maxRate: number): number {
 export function ToolErrorRateChart({
     rows,
     loading,
+    error,
     theme,
 }: {
     rows: ToolRow[]
     loading: boolean
+    error?: TileErrorKind | null
     theme: ChartTheme
 }): JSX.Element {
     const sorted = useMemo(
@@ -91,6 +93,7 @@ export function ToolErrorRateChart({
         <Card title="Tools with the highest error rate">
             <CardState
                 loading={loading}
+                error={error}
                 isEmpty={rows.length === 0}
                 skeleton={
                     <div className="space-y-2 py-3">
