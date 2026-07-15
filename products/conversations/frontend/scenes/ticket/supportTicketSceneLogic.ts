@@ -7,6 +7,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { isUUIDLike } from 'lib/utils/guards'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -16,7 +17,7 @@ import { PERSON_DISPLAY_NAME_COLUMN_NAME } from '~/lib/constants'
 import { CLOUD_HOSTNAMES } from '~/lib/constants'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
-import type { CommentType, PersonType } from '~/types'
+import type { Breadcrumb, CommentType, PersonType } from '~/types'
 import { PropertyFilterType, PropertyOperator, Region } from '~/types'
 
 import {
@@ -405,6 +406,21 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         ],
     }),
     selectors({
+        breadcrumbs: [
+            (_, p) => [p.id],
+            (id): Breadcrumb[] => {
+                let name: string
+                if (id === 'new') {
+                    name = 'New ticket'
+                } else if (typeof id === 'string' && isUUIDLike(id)) {
+                    // Legacy UUID URLs: show the first segment without a # (which implies a number)
+                    name = `Ticket ${id.split('-')[0]}`
+                } else {
+                    name = `Ticket #${id}`
+                }
+                return [{ key: ['SupportTicketDetail', id], name }]
+            },
+        ],
         emailReplyBlockedReason: [
             (s) => [s.ticket, s.currentTeam],
             (ticket, currentTeam): EmailReplyBlockedReason | null =>

@@ -77,7 +77,10 @@ concurrency:
 jobs:
     changes:
         runs-on: ubuntu-latest
-        timeout-minutes: 5
+        # 7 not 5: the debounce step below sleeps up to 60s, so widen the budget to
+        # keep ample headroom. A timeout here skips Playwright, which the aggregator
+        # would count as a pass.
+        timeout-minutes: 7
         # Run on master push, manual dispatch, and on ready internal-repo PRs.
         # Drafts skip E2E (see the trigger comment); the `Playwright tests pass`
         # aggregator treats skipped as success, and drafts can't merge anyway.
@@ -89,7 +92,8 @@ jobs:
              github.event.pull_request.draft != true))
         name: Determine need to run E2E checks
         outputs:
-            shouldRun: ${{ steps.decide.outputs.shouldRun }}
+            # Debounce can veto a PR run whose SHA has already been superseded (see below).
+            shouldRun: ${{ steps.decide.outputs.shouldRun == 'true' && steps.debounce.outputs.superseded != 'true' }}
             oldest_supported: ${{ steps.read-versions.outputs.oldest_supported }}
             schema_cache_key: ${{ steps.schema-key.outputs.key }}
             schema_migrations_key: ${{ steps.schema-key.outputs.migrations_key }}
@@ -144,6 +148,11 @@ jobs:
                         - .github/clickhouse-versions.json
                         - docker-compose.dev.yml
                         - Dockerfile
+                        # Docs-only changes match the broad globs above but exercise no
+                        # code the E2E suite runs — exclude them so a docs-only PR doesn't
+                        # boot the whole stack.
+                        - '!**/*.md'
+                        - '!**/*.mdx'
 
             # Visual Review auto-commits a snapshot baseline after human review and CI
             # approval. Re-running the ~25-min E2E stack for that bot push is pure waste;
@@ -195,6 +204,31 @@ jobs:
                       echo "shouldRun=false" >> "$GITHUB_OUTPUT"
                   fi
 
+            - name: Debounce rapid PR pushes
+              # A burst of pushes to one branch each dispatches a run; cancel-in-progress
+              # kills the superseded ones, but only after they've begun booting the 8-core
+              # stack. Hold here on the cheap 1x runner through the likely-supersession
+              # window — if a newer push cancels this run mid-wait, the expensive job never
+              # launches. After the wait, if the PR head has already moved past this run's
+              # SHA, skip: the newer run is the real gate (and always runs, since the tip
+              # is never stale against itself). Single pushes just pay the short wait.
+              id: debounce
+              if: steps.decide.outputs.shouldRun == 'true' && github.event_name == 'pull_request'
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+                  REPO: ${{ github.repository }}
+                  PR: ${{ github.event.pull_request.number }}
+                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+              run: |
+                  sleep 60
+                  tip=$(gh api "repos/${REPO}/pulls/${PR}" --jq '.head.sha' 2>/dev/null || echo "")
+                  if [ -n "$tip" ] && [ "$tip" != "$HEAD_SHA" ]; then
+                      echo "::notice::PR head moved ($HEAD_SHA -> $tip); skipping — the newer run is the gate"
+                      echo "superseded=true" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "superseded=false" >> "$GITHUB_OUTPUT"
+                  fi
+
             - name: Read ClickHouse versions from JSON
               id: read-versions
               if: steps.decide.outputs.shouldRun == 'true'
@@ -217,35 +251,49 @@ jobs:
 
             - name: Compute schema cache keys
               id: schema-key
-              # PRs only: master pushes deliberately skip the schema cache and run the
-              # full migration history, so the canonical run never relies on this
-              # optimization.
-              if: steps.decide.outputs.shouldRun == 'true' && github.event_name == 'pull_request'
+              # Both PRs and master pushes restore the schema dump ci-backend saves on
+              # master push, skipping the ~10-min replay of the full migration history —
+              # the migrate step in the heavy job still layers on anything newer. On a PR
+              # the migration-set key is the merge-base's; on a master push it's HEAD's.
+              # ci-backend already validates the full history on every master push (it's
+              # what saves the cache), so replaying it here too bought nothing. A cache
+              # miss falls through to a full migrate, so an absent/wrong key is never a
+              # correctness risk.
+              if: steps.decide.outputs.shouldRun == 'true' && (github.event_name == 'pull_request' || github.event_name == 'push')
               env:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
+                  IS_PUSH: ${{ github.event_name == 'push' }}
                   # Manual cache-bust knob — keep in sync with SCHEMA_CACHE_EPOCH in
                   # ci-backend.yml, which saves these caches on master pushes.
                   SCHEMA_CACHE_EPOCH: v1
               run: |
-                  # HEAD is the synthetic merge commit; HEAD^2 is the PR branch tip.
-                  MERGE_BASE=$(git merge-base HEAD^2 "origin/${BASE_REF}" 2>/dev/null || echo "")
-                  if [ -z "$MERGE_BASE" ]; then
-                      echo "key=" >> $GITHUB_OUTPUT
-                      echo "migrations_key=" >> $GITHUB_OUTPUT
-                      echo "::notice::merge-base not found (branch too stale?) — schema cache will be skipped"
-                      exit 0
+                  if [ "$IS_PUSH" = "true" ]; then
+                      # Pushed commit is checked out directly — no merge commit, no base ref.
+                      # The per-SHA key points at this same push's cache (saved concurrently
+                      # by ci-backend, so racy); rely on the stable migration-set key below.
+                      REF=HEAD
+                  else
+                      # HEAD is the synthetic merge commit; HEAD^2 is the PR branch tip.
+                      MERGE_BASE=$(git merge-base HEAD^2 "origin/${BASE_REF}" 2>/dev/null || echo "")
+                      if [ -z "$MERGE_BASE" ]; then
+                          echo "key=" >> $GITHUB_OUTPUT
+                          echo "migrations_key=" >> $GITHUB_OUTPUT
+                          echo "::notice::merge-base not found (branch too stale?) — schema cache will be skipped"
+                          exit 0
+                      fi
+                      echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
+                      REF="$MERGE_BASE"
                   fi
-                  echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
                   # Shared migration-set key: mirrors the save-side computation in
                   # ci-backend.yml (same inputs, hash, and prefix) so it hits whenever
-                  # the merge-base's migration files match a saved master schema — far
-                  # more stable than the per-SHA key, which needs the exact merge-base
-                  # commit's cache to still be alive.
-                  MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" \
+                  # the ref's migration files match a saved master schema — far more
+                  # stable than the per-SHA key, which needs that exact commit's cache
+                  # to still be alive.
+                  MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' "$REF" \
                       | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
                       | grep -vE '/(clickhouse|async_migrations)/migrations/' \
                       | LC_ALL=C sort) || true
-                  PG_IMAGE=$(git show "${MERGE_BASE}:docker-compose.base.yml" 2>/dev/null \
+                  PG_IMAGE=$(git show "${REF}:docker-compose.base.yml" 2>/dev/null \
                       | grep -m1 -E '^[[:space:]]*image:[[:space:]]*postgres:' | tr -d '[:space:]')
                   if [ -z "$MIG_FILES" ]; then
                       echo "migrations_key=" >> $GITHUB_OUTPUT
@@ -487,12 +535,11 @@ jobs:
               uses: ./.github/actions/setup-sqlx-cli
 
             - name: Restore schema cache from master
-              # PRs only — master pushes run the full migration history on purpose.
-              # Both keys are produced by ci-backend on master push. Prefer the shared
-              # migration-set key (stable while master's migration files are unchanged);
-              # fall back to the exact merge-base SHA key. Cache miss falls through to
-              # a full migrate below.
-              if: github.event_name == 'pull_request' && (needs.changes.outputs.schema_migrations_key != '' || needs.changes.outputs.schema_cache_key != '')
+              # PRs and master pushes alike. Both keys are produced by ci-backend on
+              # master push. Prefer the shared migration-set key (stable while master's
+              # migration files are unchanged); fall back to the exact merge-base SHA key
+              # (PRs only). Cache miss falls through to a full migrate below.
+              if: (github.event_name == 'pull_request' || github.event_name == 'push') && (needs.changes.outputs.schema_migrations_key != '' || needs.changes.outputs.schema_cache_key != '')
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               id: schema-cache
               with:
@@ -510,7 +557,7 @@ jobs:
               # the historical migration work. Treat cache/restore problems as misses:
               # restore-schema-fresh leaves a fresh empty db on failure, so the migrate
               # step below runs the full history.
-              if: github.event_name == 'pull_request'
+              if: github.event_name == 'pull_request' || github.event_name == 'push'
               env:
                   TARGET_DB: posthog_e2e_test
               run: |
