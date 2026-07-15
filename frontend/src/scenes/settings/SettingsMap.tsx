@@ -147,6 +147,7 @@ import { OrganizationPersonalAPIKeys } from './organization/OrganizationPersonal
 import { OrganizationSecuritySettings } from './organization/OrganizationSecuritySettings'
 import { OrganizationDisplayName } from './organization/OrgDisplayName'
 import { OrgIPAnonymizationDefault } from './organization/OrgIPAnonymizationDefault'
+import { OrganizationVariables } from './organization/OrgVariables'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
 import { ProjectDangerZone } from './project/ProjectDangerZone'
 import { ProjectMove } from './project/ProjectMove'
@@ -1601,6 +1602,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                     "Your organization's name and logo are shown across the PostHog interface. Click the avatar to upload a custom logo.",
                 component: <OrganizationDisplayName />,
                 keywords: ['name', 'rename', 'label', 'organization', 'logo', 'image', 'brand', 'icon', 'avatar'],
+            },
+            {
+                id: 'organization-id',
+                title: 'Organization ID',
+                description: "Your organization's unique identifier, used in the PostHog API.",
+                component: <OrganizationVariables />,
+                keywords: ['organization', 'id', 'uuid', 'identifier', 'copy'],
             },
             {
                 id: 'organization-ai-consent',

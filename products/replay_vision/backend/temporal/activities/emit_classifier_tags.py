@@ -32,7 +32,7 @@ def _load_session_identity(observation_id: UUID) -> tuple[str | None, datetime |
 
 
 @activity.defn
-@track_activity()
+@track_activity(side_effect="tags")
 async def emit_classifier_tags_activity(inputs: EmitClassifierTagsInputs) -> None:
     """Merge classifier tags into the session row via Kafka. Raises on failure."""
     # distinct_id + start_time were persisted by `fetch_session_events`, so reuse them instead of re-querying CH.

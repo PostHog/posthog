@@ -90,19 +90,23 @@ It must stay **free of the Max scene and conversation orchestration**. Do not im
 
 - `runStreamLogic` keys on a generic `streamKey` (conversation id for Max, run/task id for a task
   viewer). Keep it generic — no Max-specific branching.
-- **Product-specific tool renderers live in the consuming product, not here — via the generic seam.**
+- **The PostHog product data-tool renderers live in this surface and self-register — via the generic seam.**
   `api/tools` exposes `toolRegistry` and the convenience wrapper **`registerToolRenderers(entries)`**: the
-  generic per-product mechanism for a product to plug in cards that display its own entities. A product
-  registers from its own scene's entrypoint; the shared registry stays free of product imports. **Max is
-  the first consumer of this pattern, not a special case** — its renderers (insights, dashboards,
-  recordings, error-tracking issues, notebooks, query results) live in `scenes/max/messages/adapters` and
-  call `registerToolRenderers` via `registerMaxToolRenderers` (imported once by the Max scene). The shared
-  registry only knows the built-ins, the exec verbs, the question card, the generic MCP card, and the
-  generic `EditDiffRenderer`. Surfaces without an adapter for a key (tasks, signals inbox) fall through to
-  the generic card — by design.
+  generic per-product mechanism for plugging in cards that display PostHog entities. The data-tool widgets
+  (insights, dashboards, recordings, error-tracking issues, notebooks, query results) live in
+  `components/tool/widgets/` and register themselves via `widgets/registerDataToolRenderers`, which
+  `components/tool/ToolCallCard` side-effect-imports. Because that import sits at the render chokepoint,
+  **every consumer that renders a tool card — the `/tasks` runner, the signals inbox, and Max's sandbox
+  path — gets the widgets**, without the consumer having to opt in. The base `toolRegistry` module itself
+  stays product-free (built-ins, exec verbs, question card, generic MCP card, generic `EditDiffRenderer`);
+  the widgets carry no `scenes/max` import, so the grep gate below stays green. Max's frozen LangGraph path
+  is a _consumer_: it composes `VisualizationWidget` / `RecordingsWidget` / `ErrorTrackingFiltersWidget`
+  through `api/primitives`.
 - If Max needs something the surface doesn't express generically, **lift it to a generic prop/selector here
-  and have Max adapt** — never special-case Max in this directory. Enforced by a grep gate:
-  `grep -rE "scenes/max|maxThreadLogic|MaxUIContext" products/posthog_ai/frontend` must be empty.
+  and have Max adapt** — never special-case Max in this directory. (The recordings "accept these filters"
+  bar is one such lift: `RecordingsWidget` takes an optional `onAcceptFilters` prop; Max's LangGraph path
+  passes its `onAcceptSessionFilters` selector, the sandbox path passes nothing.) Enforced by a grep gate:
+  `grep -rE "scenes/max|maxThreadLogic|MaxUIContext" products/posthog_ai/frontend` must be empty of imports.
 
 ## 3. Streaming architecture (`logics/runStreamLogic.ts`)
 
@@ -167,6 +171,7 @@ components/         # RunSurfaceImpl (the RunSurface compound, heavy chunk); Rea
                     #   RunLogSkeleton (shared loader), Thread, Composer, perm/question/resource surfaces, activity, tool/
   composer/         #   the Composer compound
   tool/             #   tool registry + renderers (built-ins, generic MCP, EditDiffRenderer, diff/exec utils)
+    widgets/        #     PostHog product data-tool widgets (insight/dashboard/recordings/error-tracking/notebook/query) + registerDataToolRenderers
 logics/             # runStreamLogic, runInteractionLogic; tasksLogic/taskLogic data logics (+ *LogicType.ts)
 policy/             # tool policy + permission/question utils
 types/              # streamTypes (folded thread), wireTypes (ACP), toolTypes, taskTypes (task/run domain)

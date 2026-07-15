@@ -976,7 +976,14 @@ export const IdentityProviderConfigSchema = z.discriminatedUnion('kind', [
 ])
 export type IdentityProviderConfig = z.infer<typeof IdentityProviderConfigSchema>
 
-export const AgentSpecSchema = z.object({
+/**
+ * Base object shape, before the cross-field superRefine. Exported so the
+ * author-facing `TypedSpecSchema` (storage/typed-bundle.ts) can guard its key
+ * set against this single source of truth — a top-level field added here that
+ * the author slice doesn't pass through would be strict-rejected by the
+ * authoring API. The parity test in typed-bundle.test.ts enforces that.
+ */
+export const AgentSpecObjectSchema = z.object({
     /** Model selection: auto level (default) or manual priority list. Resolve via `modelPolicyToList`. */
     models: ModelPolicySchema.default({ mode: 'auto', level: 'medium', optimize_for: 'cost' }),
     triggers: z
@@ -1009,6 +1016,23 @@ export const AgentSpecSchema = z.object({
             'Identity providers users can link against so the agent can act AS the user (the credential axis). kind posthog = managed (provisioned on promote), oauth2 = bring-your-own third-party app.'
         )
         .default([]),
+    /**
+     * The ONE provider that gates admission and is the source-of-truth identity.
+     * Must reference an `identity_providers[]` entry that establishes identity.
+     * When set, every inbound request (regardless of transport) must resolve a
+     * verified identity from this provider before a session runs — the ingress
+     * either finds a durable transport→identity binding, verifies a per-request
+     * credential, or returns an auth block. When unset, the transport claim is
+     * the identity (passthrough / public agents). All OTHER identity_providers
+     * link as secondary credentials to the authoritative (canonical) identity.
+     */
+    authoritative_provider: z
+        .string()
+        .min(1)
+        .describe(
+            'The ONE identity_providers[] id that gates admission and is the canonical identity. When set, every inbound request must resolve a verified identity from it before a session runs (transport-independent). Unset = transport claim is the identity (passthrough/public).'
+        )
+        .optional(),
     secrets: z
         .array(SecretRefSchema)
         .describe(
@@ -1032,6 +1056,54 @@ export const AgentSpecSchema = z.object({
     resume: ResumeConfigSchema.describe(
         'Per-agent resumability — keep completed sessions reachable longer than the platform default (e.g. a Slack thread watched across a whole sprint).'
     ).optional(),
+})
+
+/**
+ * Trigger types whose ingress path calls `buildAdmission()` before enqueueing.
+ * Add a type here only once its handler resolves the authoritative identity —
+ * otherwise a spec with `authoritative_provider` set would silently admit the
+ * transport claim as the identity, defeating the gate.
+ */
+const ADMISSION_WIRED_TRIGGER_TYPES: readonly Trigger['type'][] = ['slack']
+
+export const AgentSpecSchema = AgentSpecObjectSchema.superRefine((spec, ctx) => {
+    // authoritative_provider must reference an identity_providers[] entry that can
+    // prove a subject (posthog, or oauth2 with userinfo_url) — else admission
+    // either 500s (unknown) or soft-locks (no subject) at runtime.
+    if (!spec.authoritative_provider) {
+        return
+    }
+    const provider = spec.identity_providers.find((p) => p.id === spec.authoritative_provider)
+    if (!provider) {
+        ctx.addIssue({
+            code: 'custom',
+            path: ['authoritative_provider'],
+            message: `authoritative_provider "${spec.authoritative_provider}" must reference an identity_providers[] id`,
+        })
+        return
+    }
+    const establishesIdentity = provider.kind === 'posthog' || (provider.kind === 'oauth2' && !!provider.userinfo_url)
+    if (!establishesIdentity) {
+        ctx.addIssue({
+            code: 'custom',
+            path: ['authoritative_provider'],
+            message: `authoritative_provider "${spec.authoritative_provider}" must establish identity (kind posthog, or oauth2 with userinfo_url)`,
+        })
+    }
+    // Fail-closed: refuse specs that combine an authoritative provider with a
+    // trigger whose ingress path does not yet call admission. Otherwise those
+    // triggers would enqueue sessions using the transport claim as the identity
+    // and bypass the gate. Loosen this as each trigger's ingress wires
+    // `buildAdmission()`.
+    const unsupported = spec.triggers.filter((t) => !ADMISSION_WIRED_TRIGGER_TYPES.includes(t.type))
+    if (unsupported.length > 0) {
+        const types = [...new Set(unsupported.map((t) => t.type))].sort().join(', ')
+        ctx.addIssue({
+            code: 'custom',
+            path: ['authoritative_provider'],
+            message: `authoritative_provider is not yet enforced on trigger types: ${types}. Supported: ${ADMISSION_WIRED_TRIGGER_TYPES.join(', ')}.`,
+        })
+    }
 })
 
 export type AgentSpec = z.infer<typeof AgentSpecSchema>
@@ -1147,11 +1219,24 @@ export function principalsMatch(stored: SessionPrincipal | null, incoming: Sessi
         case 'jwt':
             return incoming.kind === 'jwt' && stored.sub === incoming.sub
         case 'slack':
-            return (
-                incoming.kind === 'slack' &&
-                stored.workspace_id === incoming.workspace_id &&
-                stored.slack_user_id === incoming.slack_user_id
-            )
+            if (
+                incoming.kind !== 'slack' ||
+                stored.workspace_id !== incoming.workspace_id ||
+                stored.slack_user_id !== incoming.slack_user_id
+            ) {
+                return false
+            }
+            // If either side went through authoritative admission, both must
+            // resolve to the SAME canonical identity. A rebound canonical
+            // (unlink + re-link as a different subject; or an admission trust
+            // model that flipped on/off between the stored session and this
+            // request) is a new principal, not a resume of the old thread —
+            // otherwise the new identity would drive a session that still
+            // references the previous identity's stored credentials.
+            if (stored.canonical_agent_user_id || incoming.canonical_agent_user_id) {
+                return stored.canonical_agent_user_id === incoming.canonical_agent_user_id
+            }
+            return true
         case 'posthog_internal':
             return incoming.kind === 'posthog_internal' && stored.team_id === incoming.team_id
         case 'shared_secret':
@@ -1259,6 +1344,9 @@ export type SessionPrincipal =
           workspace_id: string
           slack_user_id: string
           agent_user_id?: string
+          /** Canonical identity (authoritative provider) set by edge admission;
+           *  keys secondary links when present. Absent on passthrough. */
+          canonical_agent_user_id?: string
       }
     /** Internal / service-to-service caller (PostHog backend → ingress). */
     | { kind: 'posthog_internal'; team_id?: number }

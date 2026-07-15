@@ -158,6 +158,9 @@ tools:
     conversations-views-list:
         operation: conversations_views_list
         enabled: false
+    conversations-views-partial-update:
+        operation: conversations_views_partial_update
+        enabled: false
     conversations-views-retrieve:
         operation: conversations_views_retrieve
         enabled: false

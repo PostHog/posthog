@@ -244,6 +244,7 @@ QUERIES: list[QuerySpec] = [
             "web_events": "teams_with_web_events_count_in_period",
             "web_lite_events": "teams_with_web_lite_events_count_in_period",
             "node_events": "teams_with_node_events_count_in_period",
+            "mcp_tool_call_events": "teams_with_mcp_tool_call_events_count_in_period",
             "openclaw_events": "teams_with_openclaw_events_count_in_period",
             "posthog_pi_events": "teams_with_posthog_pi_events_count_in_period",
             "posthog_ai_events": "teams_with_posthog_ai_events_count_in_period",

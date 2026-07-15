@@ -5,3 +5,6 @@ class ErrorTrackingConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
     name = "products.error_tracking.backend"
     label = "error_tracking"
+
+    def ready(self) -> None:
+        from . import signals  # noqa: F401 — register post_save receiver

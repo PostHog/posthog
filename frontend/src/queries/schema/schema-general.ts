@@ -1,8 +1,8 @@
 import { DataColorToken } from 'lib/colors'
 // eslint-disable-next-line import/no-cycle
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { ConversionGoalSchema } from 'scenes/web-analytics/tabs/marketing-analytics/utils'
 
+import { ConversionGoalSchema } from '~/taxonomy/marketingAnalytics'
 import {
     AnyFilterLike,
     AnyGroupScopeFilter,
@@ -2723,12 +2723,13 @@ export interface MCPToolTopUsersQuery extends DataNode<MCPToolTopUsersQueryRespo
 
 export type CachedMCPToolTopUsersQueryResponse = CachedQueryResponse<MCPToolTopUsersQueryResponse>
 
-/** One row of the per-tool "Failures" table: an exception message paired with a tool. */
+/** One row of the per-tool "Failures" table: a failure bucket (error type/status) for a tool. */
 export interface MCPToolFailureItem {
+    /** Failure label composed from $mcp_error_type and, when present, $mcp_error_status (e.g. "api_5xx (HTTP 500)"). */
     message: string
     occurrences: integer
     last_seen: string
-    /** Resolved harness labels seen for this exception, deduped and sorted. */
+    /** Resolved harness labels seen for this failure, deduped and sorted. */
     harnesses: string[]
 }
 
@@ -2736,10 +2737,10 @@ export interface MCPToolFailuresQueryResponse extends AnalyticsQueryResponseBase
     results: MCPToolFailureItem[]
 }
 
-/** Top exception messages paired with a single MCP tool, with server-resolved harness labels. */
+/** Errored calls of a single MCP tool grouped by error type/status, with server-resolved harness labels. */
 export interface MCPToolFailuresQuery extends DataNode<MCPToolFailuresQueryResponse> {
     kind: NodeKind.MCPToolFailuresQuery
-    /** The raw $mcp_tool_name to scope $exception events to. */
+    /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
     toolName: string
     dateRange?: DateRange
 }
@@ -3868,6 +3869,11 @@ export interface TraceSpansAttributeBreakdownQuery extends DataNode<TraceSpansAt
      * breakdown) so a facet's value list stays complete while one of its values is selected.
      */
     excludeBreakdownFilter?: boolean
+    /**
+     * Type-ahead filter over the breakdown field's own values (case-insensitive substring match).
+     * Lets a facet's value search reach past the row limit.
+     */
+    facetSearch?: string
 }
 
 export interface TraceSpansAttributeBreakdownQueryResponse extends AnalyticsQueryResponseBase {
@@ -7583,6 +7589,8 @@ export const externalDataSources = [
     'Kickscale',
     'Zellify',
     'RudderStack',
+    'DodoPayments',
+    'Salestrics',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

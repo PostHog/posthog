@@ -576,7 +576,8 @@ class Pipeline:
     def _summarize_ownership(self) -> str:
         """Build ownership context for the LLM (not a hard gate)."""
         ownership = self.classification["ownership"]
-        if ownership["team_count"] == 0:
+        individuals = ownership.get("individuals", [])
+        if ownership["team_count"] == 0 and not individuals:
             self.classification["ownership_summary"] = "no owned paths touched"
             return self.classification["ownership_summary"]
 
@@ -588,10 +589,17 @@ class Pipeline:
             if check_team_membership(author, team_slug):
                 author_teams.append(team_raw)
 
-        parts = [f"touches {', '.join(teams)}"]
+        parts = []
+        if teams:
+            parts.append(f"touches {', '.join(teams)}")
+        if individuals:
+            # Individuals never enter the membership check — the author simply
+            # is or isn't one of them.
+            suffix = f" (author {author} is one of them)" if f"@{author}" in individuals else ""
+            parts.append(f"individually owned by {', '.join(individuals)}{suffix}")
         if author_teams:
             parts.append(f"author {author} is on {', '.join(author_teams)}")
-        else:
+        elif teams:
             parts.append(f"author {author} is not on any owning team")
         if ownership["cross_team"]:
             parts.append("cross-team change")

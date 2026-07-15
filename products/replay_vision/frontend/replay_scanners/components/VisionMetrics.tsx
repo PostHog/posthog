@@ -114,6 +114,10 @@ export function VisionMetrics(): JSX.Element {
                     </div>
                     {quota ? (
                         <>
+                            {/* TODO(replay-vision): remove when Vision billing goes live with open beta. */}
+                            <div className="text-xs text-accent mb-1">
+                                Estimated spend. You won't be billed during the closed beta.
+                            </div>
                             <div className="text-3xl font-semibold tabular-nums">
                                 {formatCredits(quota.credits_used)}
                                 {hasCap && (

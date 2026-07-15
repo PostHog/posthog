@@ -2,7 +2,6 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -17,20 +16,21 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.elevenlabs
 )
 
 ELEVENLABS_BASE_URL = "https://api.elevenlabs.io"
+
 REQUEST_TIMEOUT_SECONDS = 60
-MAX_RETRIES = 5
 
 
 class ElevenLabsRetryableError(Exception):
+    """Raised for 429 / 5xx responses so tenacity retries them; credential/4xx errors are not wrapped."""
+
     pass
 
 
 @dataclasses.dataclass
 class ElevenLabsResumeConfig:
-    # Opaque pagination cursor of the next page to fetch. Only the cursor is persisted — the
-    # request URL is rebuilt locally from the endpoint catalog, so tampered resume state can't
-    # redirect the credential-bearing request to another host.
-    cursor: str
+    # Next-page cursor for whichever endpoint this job syncs. Only one endpoint runs per job, so a
+    # single opaque cursor slot is enough; each endpoint sends it under its own cursor param.
+    cursor: str | None = None
 
 
 def _get_headers(api_key: str) -> dict[str, str]:
@@ -40,87 +40,111 @@ def _get_headers(api_key: str) -> dict[str, str]:
     }
 
 
-def _to_epoch(value: Any) -> Optional[int]:
-    """Coerce an incremental cursor value to a UNIX timestamp for ElevenLabs' time filters.
+def _to_unix_seconds(value: Any) -> int:
+    """Coerce an incremental watermark to Unix seconds for the API's `*_after_unix` filters.
 
-    ElevenLabs stores and filters timestamps as epoch seconds, so the persisted watermark is
-    already an int in the common case; datetimes are accepted defensively.
+    The incremental field is declared as an integer (Unix seconds), so the pipeline normally hands
+    back an int; datetime/date are handled defensively in case a stored value was coerced upstream.
     """
-    if value is None:
-        return None
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float):
-        return int(value)
     if isinstance(value, datetime):
-        dt = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
-        return int(dt.timestamp())
+        # A naive datetime's timestamp() would assume the server's local timezone, so pin it to UTC
+        # to keep incremental boundaries identical across environments.
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=UTC)
+        return int(value.timestamp())
     if isinstance(value, date):
-        return int(datetime.combine(value, datetime.min.time(), tzinfo=UTC).timestamp())
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
+        return int(datetime(value.year, value.month, value.day, tzinfo=UTC).timestamp())
+    return int(value)
 
 
-def _build_params(config: ElevenLabsEndpointConfig, watermark: Optional[int], cursor: Optional[str]) -> dict[str, Any]:
-    params: dict[str, Any] = {}
-    if config.page_size is not None:
-        params["page_size"] = config.page_size
+def _build_params(
+    config: ElevenLabsEndpointConfig,
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+    incremental_field: str | None,
+) -> dict[str, Any]:
+    """Build the constant per-request query params (page size, sort, server-side incremental filter).
+
+    The cursor is added per page by the caller. The incremental filter is applied on every page (the
+    API keeps the time-window filter alongside the cursor), so pagination terminates at `has_more`
+    rather than re-walking full history each incremental run.
+    """
+    params: dict[str, Any] = {"page_size": config.page_size}
     params.update(config.extra_params)
-    if watermark is not None and config.incremental_param is not None:
-        params[config.incremental_param] = watermark
-    if cursor and config.cursor_param is not None:
-        params[config.cursor_param] = cursor
+
+    if (
+        should_use_incremental_field
+        and config.incremental_param
+        and db_incremental_field_last_value is not None
+        # `incremental_field` is the user's chosen cursor column; each endpoint exposes exactly one, so
+        # only apply the server filter when it matches (or the caller didn't pin one).
+        and (incremental_field is None or incremental_field == config.incremental_field)
+    ):
+        params[config.incremental_param] = _to_unix_seconds(db_incremental_field_last_value)
+
     return params
 
 
-def _build_url(config: ElevenLabsEndpointConfig, params: dict[str, Any]) -> str:
-    if not params:
-        return f"{ELEVENLABS_BASE_URL}{config.path}"
-    return f"{ELEVENLABS_BASE_URL}{config.path}?{urlencode(params)}"
+def validate_credentials(api_key: str, schema_name: Optional[str] = None) -> tuple[bool, str | None]:
+    """Probe the API key. 200 => valid. 401 => invalid key. 403 => valid key missing a scope.
 
+    At source-create (`schema_name=None`) a 403 is accepted: users may grant only the scopes for the
+    endpoints they want, so a missing scope must not block connecting. When probing a specific schema
+    a 403 is a genuine per-table scope error and is surfaced. Sync-time 403s are handled separately by
+    `get_non_retryable_errors`.
 
-def validate_credentials(api_key: str) -> bool:
-    """Confirm the API key is genuine with one cheap probe against /v1/user.
-
-    ElevenLabs keys carry granular endpoint permissions and return 401 both for a fake key
-    (detail.status == "invalid_api_key") and for a real key missing the probed endpoint's
-    permission (detail.status == "missing_permissions"). A scoped-but-genuine key must pass
-    source-create — users may only grant the endpoints they intend to sync — so only an
-    invalid/unparseable 401 rejects.
+    Any other status (429, 5xx, or an unexpected code) means the key was never actually verified, so
+    validation fails rather than saving an unverified key as valid — the user can retry a transient blip.
     """
+    config = ELEVENLABS_ENDPOINTS.get(schema_name) if schema_name else None
+    probe_path = config.path if config else "/v1/user"
+    url = f"{ELEVENLABS_BASE_URL}{probe_path}"
+    params: dict[str, Any] = {"page_size": 1} if config else {}
+
     try:
-        response = make_tracked_session(redact_values=(api_key,)).get(
-            f"{ELEVENLABS_BASE_URL}/v1/user", headers=_get_headers(api_key), timeout=10
+        response = make_tracked_session(redact_values=(api_key,), allow_redirects=False).get(
+            url, headers=_get_headers(api_key), params=params, timeout=10
         )
-        if response.status_code == 200:
-            return True
-        if response.status_code == 401:
-            try:
-                detail = response.json().get("detail", {})
-            except ValueError:
-                return False
-            status_text = detail.get("status") if isinstance(detail, dict) else None
-            return status_text == "missing_permissions"
-        return False
     except Exception:
-        return False
+        return False, "Could not reach the ElevenLabs API. Please try again."
+
+    if response.status_code == 200:
+        return True, None
+    if response.status_code == 401:
+        return False, "Invalid ElevenLabs API key"
+    if response.status_code == 403:
+        if schema_name is None:
+            return True, None
+        return False, f"Your ElevenLabs API key is missing the permission required to sync `{schema_name}`."
+    # A 429/5xx/unexpected status leaves the key unverified. Don't accept it — surface it so the user
+    # can retry, rather than saving a source that only fails on its first sync.
+    return False, f"Could not verify the ElevenLabs API key (status {response.status_code}). Please try again."
 
 
 @retry(
-    retry=retry_if_exception_type((ElevenLabsRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(MAX_RETRIES),
+    retry=retry_if_exception_type(
+        (
+            ElevenLabsRetryableError,
+            requests.ReadTimeout,
+            requests.ConnectionError,
+            requests.exceptions.ChunkedEncodingError,
+        )
+    ),
+    stop=stop_after_attempt(5),
     wait=wait_exponential_jitter(initial=1, max=30),
     reraise=True,
 )
-def _fetch(session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger) -> Any:
-    response = session.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
+def _fetch_page(
+    session: requests.Session,
+    url: str,
+    params: dict[str, Any],
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+) -> dict:
+    response = session.get(url, params=params, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
 
-    # ElevenLabs rate limiting is concurrency-based per plan tier; a 429 clears as soon as
-    # in-flight requests drain, so exponential backoff is sufficient.
+    # ElevenLabs rate limiting is concurrency-based per plan; a 429 clears once in-flight requests
+    # drain, so back off and retry. 5xx are transient server faults.
     if response.status_code == 429 or response.status_code >= 500:
         raise ElevenLabsRetryableError(f"ElevenLabs API error (retryable): status={response.status_code}, url={url}")
 
@@ -142,53 +166,42 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     config = ELEVENLABS_ENDPOINTS[endpoint]
     headers = _get_headers(api_key)
-    # One session reused across every page so urllib3 keeps the connection alive instead of
-    # re-handshaking per request.
-    session = make_tracked_session(redact_values=(api_key,))
+    # One session reused across pages so urllib3 keeps the connection alive instead of re-handshaking.
+    # Redact the key so it can't leak into captured HTTP samples or logged URLs. Don't follow redirects:
+    # requests preserves the custom `xi-api-key` header across a cross-origin 3xx, so a redirect off the
+    # fixed API host could replay the key to another origin — fail the request instead.
+    session = make_tracked_session(redact_values=(api_key,), allow_redirects=False)
+    url = f"{ELEVENLABS_BASE_URL}{config.path}"
 
-    watermark = _to_epoch(db_incremental_field_last_value) if should_use_incremental_field else None
-    guard_field = incremental_field or (config.incremental_fields[0]["field"] if config.incremental_fields else None)
+    params = _build_params(config, should_use_incremental_field, db_incremental_field_last_value, incremental_field)
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    cursor: str | None = resume.cursor if resume is not None else None
+    cursor = resume.cursor if resume is not None else None
     if cursor:
-        logger.debug(f"ElevenLabs: resuming {endpoint} from cursor: {cursor}")
+        logger.debug(f"ElevenLabs: resuming {endpoint} from cursor")
 
     while True:
-        url = _build_url(config, _build_params(config, watermark, cursor))
-        data = _fetch(session, url, headers, logger)
+        page_params = dict(params)
+        if cursor:
+            page_params[config.cursor_param] = cursor
 
-        items = data if config.data_key is None else (data.get(config.data_key) or [])
-        if not items:
-            break
+        data = _fetch_page(session, url, page_params, headers, logger)
 
-        yield items
-
-        if config.data_key is None or config.cursor_param is None:
-            # The whole collection arrives in one response (models) — nothing to paginate.
-            break
+        items = data.get(config.items_key) or []
+        if items:
+            # Yield the rows in the shape the API returns them; the pipeline batches and merges on the
+            # endpoint's primary key.
+            yield items
 
         next_cursor = data.get(config.cursor_response_key)
-        if not data.get("has_more") or not next_cursor:
+        has_more = bool(data.get("has_more"))
+        if not has_more or not next_cursor:
             break
 
-        # Belt-and-braces stop for descending incremental endpoints: the server-side time
-        # filter is documented but couldn't be smoke-tested without credentials. If it were
-        # silently ignored, cursor pagination would otherwise walk the full history on every
-        # incremental sync — so stop once an entire page predates the watermark. (Never applied
-        # to ascending endpoints, where old rows arrive first by design.)
-        if watermark is not None and config.sort_mode == "desc" and guard_field is not None:
-            page_max = max(
-                (ts for ts in (_to_epoch(item.get(guard_field)) for item in items) if ts is not None),
-                default=None,
-            )
-            if page_max is not None and page_max < watermark:
-                break
-
-        # Save AFTER yielding the page so a crash re-yields the just-finished page rather than
-        # skipping it — merge dedupes on the primary key. Resume picks up at the next page.
-        cursor = next_cursor
+        # Save state AFTER yielding so a crash re-yields the last page rather than skipping it; merge
+        # dedupes the re-pulled rows on the primary key.
         resumable_source_manager.save_state(ElevenLabsResumeConfig(cursor=next_cursor))
+        cursor = next_cursor
 
 
 def elevenlabs_source(
@@ -213,11 +226,11 @@ def elevenlabs_source(
             db_incremental_field_last_value=db_incremental_field_last_value,
             incremental_field=incremental_field,
         ),
-        primary_keys=[config.primary_key],
+        primary_keys=config.primary_keys,
+        sort_mode=config.sort_mode,  # type: ignore[arg-type]
         partition_count=1,
         partition_size=1,
-        partition_mode="datetime" if config.partition_key else None,
-        partition_format="week" if config.partition_key else None,
-        partition_keys=[config.partition_key] if config.partition_key else None,
-        sort_mode=config.sort_mode,
+        partition_mode="datetime",
+        partition_format="month",
+        partition_keys=[config.partition_key],
     )

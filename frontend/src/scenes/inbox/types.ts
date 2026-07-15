@@ -1,6 +1,7 @@
 import type { UserBasicType } from '~/types'
 
 import {
+    type SignalReportRefundApi,
     SignalSourceProductApi as SignalSourceProduct,
     SignalSourceTypeApi as SignalSourceType,
 } from 'products/signals/frontend/generated/api.schemas'
@@ -75,6 +76,12 @@ export interface SignalReport {
     dismissal_reason?: string | null
     /** Free-form note from the latest dismissal artefact (when archived). */
     dismissal_note?: string | null
+    /** The report's PR refund, when one exists (one refund per report, ever). */
+    refund?: SignalReportRefundApi | null
+    /** Non-null when the report is system-marked never-billable (PostHog-system origin) — its PR is free. */
+    billing_exempt_reason?: string | null
+    /** Backend-owned refund eligibility: why a refund would be rejected right now, null when it would be accepted. */
+    refund_ineligibility_reason?: string | null
 }
 
 export enum SignalReportStatus {
@@ -203,14 +210,18 @@ export const INBOX_SCOPE_ENTIRE_PROJECT: InboxScope = 'entire-project'
 
 // ── SignalReport ↔ Task linkage ─────────────────────────────────────────────
 // The task↔report association is the `task_run` artefact log (see artefactTypes.ts). The
-// relationship vocabulary below is retained only for the task-creation kickoff path, where the
-// backend still accepts `signal_report_task_relationship` (implementation) when starting a PR run.
+// relationship vocabulary below is what a client may assert on the task-creation kickoff path via
+// `signal_report_task_relationship`: `implementation` starts a PR run (and opens the auto-start
+// spend gate), `discussion` links a discuss-the-report task. `research` is reserved for the
+// server-side research pipeline and is rejected by the tasks API.
 
-export const SIGNAL_REPORT_TASK_RELATIONSHIPS = ['repo_selection', 'research', 'implementation'] as const
+export const SIGNAL_REPORT_TASK_RELATIONSHIPS = ['implementation', 'discussion'] as const
 
 export type SignalReportTaskRelationship = (typeof SIGNAL_REPORT_TASK_RELATIONSHIPS)[number]
 
 export const SIGNAL_REPORT_TASK_IMPLEMENTATION_RELATIONSHIP: SignalReportTaskRelationship = 'implementation'
+
+export const SIGNAL_REPORT_TASK_DISCUSSION_RELATIONSHIP: SignalReportTaskRelationship = 'discussion'
 
 // ── Autonomy config (per-user override; backend SignalUserAutonomyConfigView) ─
 

@@ -304,7 +304,7 @@ function progressLabel(review: ReviewRecentReviewApi): string {
         case 'selecting':
             return 'Step 2/6 · Picking perspectives'
         case 'reviewing':
-            return `Step 3/6 · Reviewing chunks${percent}`
+            return `Step 3/6 · Running review passes${percent}`
         case 'deduplicating':
             return 'Step 4/6 · Merging overlapping findings'
         case 'validating':
