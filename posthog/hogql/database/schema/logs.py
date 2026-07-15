@@ -124,6 +124,11 @@ class LogAttributesTable(Table):
         "service_name": StringDatabaseField(
             name="service_name", nullable=False, description="Service the attribute counts are scoped to."
         ),
+        "severity_text": StringDatabaseField(
+            name="severity_text",
+            nullable=False,
+            description="OpenTelemetry severity text (e.g. 'info', 'error') the attribute counts are scoped to.",
+        ),
     }
 
     def to_printed_clickhouse(self, context):
