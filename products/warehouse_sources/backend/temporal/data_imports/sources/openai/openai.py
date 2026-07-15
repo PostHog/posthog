@@ -359,6 +359,11 @@ def _iter_project_fan_out_rows(
                     if last_id:
                         resumable_source_manager.save_state(OpenAIResumeConfig(cursor=last_id, project_id=project_id))
 
+        # Flush any incomplete batch before checkpointing to the next project, otherwise a crash
+        # between the state save and the final flush would drop this project's buffered rows.
+        while batcher.should_yield(include_incomplete_chunk=True):
+            yield batcher.get_table()
+
         if index + 1 < len(remaining):
             resumable_source_manager.save_state(OpenAIResumeConfig(cursor=None, project_id=remaining[index + 1]))
 

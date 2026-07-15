@@ -329,6 +329,42 @@ class TestProjectFanOut:
         rows = _collect(_FakeResumableManager(), monkeypatch, responses, "project_users")
         assert [(r["project_id"], r["id"]) for r in rows] == [("proj_1", "user_1"), ("proj_2", "user_1")]
 
+    def test_flushes_each_projects_rows_before_checkpointing_next(self, monkeypatch: Any) -> None:
+        # A project's buffered rows must be yielded before the resume cursor advances to the next
+        # project; otherwise a crash before the final flush would lose them (they'd never be re-read
+        # on resume, which starts at the checkpointed next project).
+        responses = [
+            {"data": [{"id": "proj_1"}, {"id": "proj_2"}], "has_more": False, "last_id": "proj_2"},
+            {"data": [{"id": "user_a"}], "has_more": False, "last_id": "user_a"},
+            {"data": [{"id": "user_b"}], "has_more": False, "last_id": "user_b"},
+        ]
+        calls: list[str] = []
+
+        def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> dict:
+            calls.append(url)
+            return responses[len(calls) - 1]
+
+        monkeypatch.setattr(openai, "_fetch_page", fake_fetch)
+
+        events: list[tuple[str, Any]] = []
+
+        class _RecordingManager(_FakeResumableManager):
+            def save_state(self, data: OpenAIResumeConfig) -> None:
+                super().save_state(data)
+                events.append(("save", data.project_id))
+
+        manager = _RecordingManager()
+        for table in get_rows(
+            api_key="sk-admin-test",
+            endpoint="project_users",
+            logger=MagicMock(),
+            resumable_source_manager=manager,  # type: ignore[arg-type]
+        ):
+            for row in table.to_pylist():
+                events.append(("yield", row["project_id"]))
+
+        assert events.index(("yield", "proj_1")) < events.index(("save", "proj_2"))
+
 
 class TestValidateCredentials:
     @parameterized.expand([("ok", 200, True), ("forbidden_scope", 403, True), ("unauthorized", 401, False)])
