@@ -5,6 +5,7 @@ from social_django.models import UserSocialAuth
 
 from products.review_hog.backend.models import ReviewReport, ReviewUserSettings
 from products.review_hog.backend.temporal.activities import _resolve_acting_user
+from products.review_hog.backend.temporal.types import TRIGGER_LABEL, TRIGGER_MANUAL
 
 _SELF = "SELF"
 
@@ -55,6 +56,29 @@ class TestResolveActingUser(BaseTest):
         assert result.review_labeled_prs is False
         assert result.review_inbox_prs is True
         assert result.urgency_threshold == "must_fix"
+
+    def test_label_trigger_falls_back_to_the_default_user(self) -> None:
+        # Unmapped author on a labeled PR → the default user the sandboxes run as (oldest active
+        # org member here, absent a GitHub integration row).
+        result = _resolve_acting_user(self.team.id, "ghost", None, trigger_source=TRIGGER_LABEL)
+        assert (result.acting_user_id, result.resolved_from) == (self.user.id, "default")
+
+    def test_non_label_triggers_keep_the_author_only_contract(self) -> None:
+        result = _resolve_acting_user(self.team.id, "ghost", None, trigger_source=TRIGGER_MANUAL)
+        assert result.acting_user_id is None
+
+    def test_labeled_opt_out_protects_authors_but_never_travels_with_a_borrowed_user(self) -> None:
+        # self.user is both the mapped author (octocat) and the default fallback (oldest org member).
+        ReviewUserSettings.objects.for_team(self.team.id).create(
+            team_id=self.team.id, user_id=self.user.id, review_labeled_prs=False
+        )
+        # Acting as the author: their own opt-out applies and the workflow will skip.
+        as_author = _resolve_acting_user(self.team.id, "octocat", None, trigger_source=TRIGGER_LABEL)
+        assert (as_author.resolved_from, as_author.review_labeled_prs) == ("author", False)
+        # Acting as the borrowed default on someone else's PR: the same row must NOT kill the review.
+        as_default = _resolve_acting_user(self.team.id, "ghost", None, trigger_source=TRIGGER_LABEL)
+        assert (as_default.acting_user_id, as_default.resolved_from) == (self.user.id, "default")
+        assert as_default.review_labeled_prs is True
 
     def test_resolve_stamps_the_acting_user_onto_the_report(self) -> None:
         # "Your recent reviews" filters on this stamp — if resolve stops writing it, the list goes empty.
