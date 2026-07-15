@@ -286,15 +286,17 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     def save(self, *args: Any, **kwargs: Any) -> None:
         """Keep `condition_type` derived from `filters` on every save, so any creation path
         (the cohorts API, management commands, or a direct `Cohort.objects.create(...)`)
-        ends up with a consistent classification, not just the API serializer's flow."""
+        ends up with a consistent classification, not just the API serializer's flow.
+
+        `cohort_type` isn't derived here — it's computed by the API serializer
+        (`validate_filters_and_compute_realtime_support`) — so a direct `Cohort.objects.create(...)`
+        gets a fresh `condition_type` but a stale/absent `cohort_type`."""
         # update_fields can arrive positionally (4th positional, after force_insert/force_update/using)
         # or as a keyword. Intercept it so _maintain_behavioral_shape can extend the frozen set.
         update_fields = args[3] if len(args) > 3 else kwargs.get("update_fields")
-        if update_fields is None:
+        if update_fields is None or "filters" in update_fields:
             self.condition_type = Cohort.compute_condition_type(self.filters)
-        elif "filters" in update_fields:
-            self.condition_type = Cohort.compute_condition_type(self.filters)
-            if "condition_type" not in update_fields:
+            if update_fields is not None and "condition_type" not in update_fields:
                 update_fields = [*update_fields, "condition_type"]
 
         maintained_update_fields = self._maintain_behavioral_shape(update_fields)
