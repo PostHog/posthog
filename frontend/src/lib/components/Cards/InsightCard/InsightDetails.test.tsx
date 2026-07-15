@@ -1,4 +1,4 @@
-import { dropDuplicatesOfOverrides, getDateRangeOverrideDisplay } from './InsightDetails'
+import { dropDuplicatesOfOverrides, getDateRangeOverrideDisplay, getEffectiveFilterOverrides } from './InsightDetails'
 
 const browserChrome = { key: '$browser', value: 'Chrome', type: 'event', operator: 'exact' }
 const browserSafari = { key: '$browser', value: 'Safari', type: 'event', operator: 'exact' }
@@ -126,6 +126,37 @@ describe('InsightDetails', () => {
 
             // The lone-duplicate subgroup is pruned; the mixed subgroup keeps its non-duplicate leaf.
             expect(result.values).toEqual([{ type: 'AND', values: [countryUS] }])
+        })
+    })
+
+    describe('getEffectiveFilterOverrides', () => {
+        it('captures a dashboard filter the tile shadows as overriddenByTile, out of the dashboard group', () => {
+            const result = getEffectiveFilterOverrides(
+                { properties: [browserSafari, countryUS] } as any,
+                { properties: [browserChrome] } as any,
+                true
+            )
+
+            // The dashboard's $browser lost to the tile's $browser — surfaced separately, not in the group.
+            expect(result.overriddenByTile).toEqual([browserSafari])
+            expect(result.propertyGroups).toEqual([
+                { properties: [countryUS], source: 'dashboard' },
+                { properties: [browserChrome], source: 'tile' },
+            ])
+        })
+
+        it('keeps non-overlapping dashboard filters in the group with nothing overridden', () => {
+            const result = getEffectiveFilterOverrides(
+                { properties: [countryUS] } as any,
+                { properties: [browserChrome] } as any,
+                true
+            )
+
+            expect(result.overriddenByTile).toEqual([])
+            expect(result.propertyGroups).toEqual([
+                { properties: [countryUS], source: 'dashboard' },
+                { properties: [browserChrome], source: 'tile' },
+            ])
         })
     })
 })

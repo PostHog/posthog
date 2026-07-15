@@ -104,6 +104,9 @@ type OverrideSource = 'dashboard' | 'tile'
 interface EffectiveFilterOverrides {
     // Non-overlapping keys from both layers contribute; dashboard first to match backend order.
     propertyGroups: { properties: AnyPropertyFilter[]; source: OverrideSource }[]
+    // Dashboard property filters the tile shadows on the same key — they don't apply, but we surface them
+    // struck-through so the precedence is visible rather than silently dropped.
+    overriddenByTile: AnyPropertyFilter[]
     // Breakdown is a single value: tile wins when set, otherwise the dashboard's.
     breakdown: { breakdownFilter: NonNullable<DashboardFilter['breakdown_filter']>; source: OverrideSource } | null
 }
@@ -125,7 +128,7 @@ function propertyIdentity(property: AnyPropertyFilter): string {
 // Property filters merge per key: a tile filter replaces the dashboard's on the same key.
 // `mergeEnabled` mirrors the `DASHBOARD_TILE_FILTER_MERGE` flag gating the backend behavior — off, a
 // tile override replaces the dashboard's wholesale (pre-merge behavior), matching what was computed.
-function getEffectiveFilterOverrides(
+export function getEffectiveFilterOverrides(
     filtersOverride: DashboardFilter | undefined,
     tileFiltersOverride: TileFilters | null | undefined,
     mergeEnabled: boolean
@@ -142,6 +145,7 @@ function getEffectiveFilterOverrides(
                 override && override.override.properties && override.override.properties.length > 0
                     ? [{ properties: override.override.properties, source: override.source }]
                     : [],
+            overriddenByTile: [],
             breakdown: override?.override.breakdown_filter
                 ? { breakdownFilter: override.override.breakdown_filter, source: override.source }
                 : null,
@@ -150,7 +154,11 @@ function getEffectiveFilterOverrides(
 
     const tileProperties = tileFiltersOverride?.properties ?? []
     const tileKeys = new Set(tileProperties.map(propertyIdentity))
-    const dashboardProperties = (filtersOverride?.properties ?? []).filter((p) => !tileKeys.has(propertyIdentity(p)))
+    const dashboardProperties: AnyPropertyFilter[] = []
+    const overriddenByTile: AnyPropertyFilter[] = []
+    for (const property of filtersOverride?.properties ?? []) {
+        ;(tileKeys.has(propertyIdentity(property)) ? overriddenByTile : dashboardProperties).push(property)
+    }
     const propertyGroups: EffectiveFilterOverrides['propertyGroups'] = []
     if (dashboardProperties.length > 0) {
         propertyGroups.push({ properties: dashboardProperties, source: 'dashboard' })
@@ -165,7 +173,7 @@ function getEffectiveFilterOverrides(
           ? { breakdownFilter: filtersOverride.breakdown_filter, source: 'dashboard' as const }
           : null
 
-    return { propertyGroups, breakdown }
+    return { propertyGroups, overriddenByTile, breakdown }
 }
 
 interface DateRangeSource {
@@ -238,6 +246,23 @@ const LAYER_LABELS: Record<OverrideSource | 'insight', string> = {
     tile: 'Tile',
 }
 
+// Distinct colors per layer so the precedence stack reads at a glance: insight (base, grey) →
+// dashboard (purple) → tile (accent, highest priority). Not primary/highlight for two of them — those
+// share --color-accent and would look identical.
+const LAYER_TAG_TYPE: Record<OverrideSource | 'insight', 'muted' | 'completion' | 'primary'> = {
+    insight: 'muted',
+    dashboard: 'completion',
+    tile: 'primary',
+}
+
+function LayerTag({ source }: { source: OverrideSource | 'insight' }): JSX.Element {
+    return (
+        <LemonTag type={LAYER_TAG_TYPE[source]} size="small">
+            {LAYER_LABELS[source]}
+        </LemonTag>
+    )
+}
+
 function OverrideNote({
     source,
     children,
@@ -247,9 +272,7 @@ function OverrideNote({
 }): JSX.Element {
     return (
         <div className="mt-1.5 flex items-center gap-1">
-            <LemonTag type="highlight" size="small">
-                {LAYER_LABELS[source]}
-            </LemonTag>
+            <LayerTag source={source} />
             <span className="text-muted-alt">{children}</span>
         </div>
     )
@@ -604,18 +627,24 @@ export function FormulaSummary({ query }: { query: TrendsQuery }): JSX.Element |
 export function PropertiesSummary({
     properties,
     overrides,
+    overriddenByTile,
 }: {
     properties: PropertiesInput
     overrides?: { properties: AnyPropertyFilter[]; source: OverrideSource }[] | null
+    overriddenByTile?: AnyPropertyFilter[] | null
 }): JSX.Element {
     const overrideGroups = overrides ?? []
+    const overriddenProperties = overriddenByTile ?? []
     const allOverrideProperties = overrideGroups.flatMap((group) => group.properties)
     const { base, overrideFound } = splitOutOverrideProperties(properties, allOverrideProperties)
     // A filter the insight and an override both set would otherwise show twice — collapse the base copy so
     // it appears once, on the layer that took priority.
     const dedupedBase = overrideFound ? dropDuplicatesOfOverrides(base, allOverrideProperties) : base
+    // "Active filters" when overrides stack on top, so it's clear these are what actually applies vs the
+    // replaced ones shown below; plain "Filters" otherwise.
+    const label = overrideFound ? 'Active filters' : 'Filters'
     return (
-        <InsightDetailSectionDisplay icon={<IconFilter />} label="Filters">
+        <InsightDetailSectionDisplay icon={<IconFilter />} label={label}>
             {/* Label the base as the insight's own only when overrides stack on top, so the layers read
                 as a clear insight → dashboard → tile stack. Plain insights stay unlabeled. */}
             {overrideFound && <OverrideNote source="insight">base filters:</OverrideNote>}
@@ -630,6 +659,25 @@ export function PropertiesSummary({
                         />
                     </React.Fragment>
                 ))}
+            {/* Dashboard filters the tile shadowed — labelled with the same layer badges as the applied
+                rows ([Dashboard] replaced by [Tile]) and struck/dimmed so it reads as no longer applied. */}
+            {overrideFound && overriddenProperties.length > 0 && (
+                <>
+                    <LemonDivider className="my-2" />
+                    <div className="text-muted-alt">
+                        <div className="mt-1.5 flex items-center gap-1">
+                            <LayerTag source="dashboard" />
+                            <span>filter replaced by</span>
+                            <LayerTag source="tile" />
+                        </div>
+                        <div className="line-through opacity-60">
+                            <CompactUniversalFiltersDisplay
+                                groupFilter={convertPropertiesToPropertyGroup(overriddenProperties)}
+                            />
+                        </div>
+                    </div>
+                </>
+            )}
         </InsightDetailSectionDisplay>
     )
 }
@@ -764,15 +812,14 @@ export function DateRangeSummary({
             {/* Tag the value with its source layer rather than repeating "date range" in a note. */}
             <div className="flex items-center gap-1">
                 <span className="font-medium">{dateFilterText}</span>
-                {override && (
-                    <LemonTag type="highlight" size="small">
-                        {LAYER_LABELS[override.source]}
-                    </LemonTag>
-                )}
+                {override && <LayerTag source={override.source} />}
             </div>
             {replaced && replacedText && (
-                <div className="text-muted-alt text-xs mt-0.5">
-                    was <span className="line-through">{replacedText}</span> (from {replaced.source})
+                <div className="text-muted-alt text-xs mt-0.5 flex items-center gap-1">
+                    <span>
+                        was <span className="line-through">{replacedText}</span> from
+                    </span>
+                    <LayerTag source={replaced.source} />
                 </div>
             )}
         </InsightDetailSectionDisplay>
@@ -800,11 +847,11 @@ export const InsightDetails = React.memo(
         ref
     ): JSX.Element {
         const mergeEnabled = useFeatureFlag('DASHBOARD_TILE_FILTER_MERGE')
-        const { propertyGroups, breakdown: overrideBreakdown } = getEffectiveFilterOverrides(
-            filtersOverride,
-            tileFiltersOverride,
-            mergeEnabled
-        )
+        const {
+            propertyGroups,
+            overriddenByTile,
+            breakdown: overrideBreakdown,
+        } = getEffectiveFilterOverrides(filtersOverride, tileFiltersOverride, mergeEnabled)
         const insightDateRange = isInsightVizNode(query) ? query.source.dateRange : undefined
         const dateOverride = getDateRangeOverrideDisplay(
             insightDateRange,
@@ -849,6 +896,7 @@ export const InsightDetails = React.memo(
                                         : query.source.properties
                                 }
                                 overrides={hasPropertyOverrides ? propertyGroups : null}
+                                overriddenByTile={hasPropertyOverrides ? overriddenByTile : null}
                             />
                         )}
                         {hasDataWarehouseSeries && hasIgnoredBreakdownOverrides ? (

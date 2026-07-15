@@ -202,3 +202,34 @@ export const TileDateOverridesDashboard: Story = {
         },
     },
 }
+
+// Tile and dashboard both filter the same property — the tile wins and the dashboard's shadowed filter
+// is shown de-emphasized (struck-through, no layer tag) as no longer applied.
+export const TilePropertyOverridesDashboard: Story = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.DASHBOARD_TILE_FILTER_MERGE],
+    },
+    args: {
+        insight: __trendsLine as any,
+        filtersOverride: {
+            properties: [
+                {
+                    type: PropertyFilterType.Event,
+                    key: '$browser',
+                    operator: PropertyOperator.Exact,
+                    value: ['Safari'],
+                },
+            ],
+        },
+        tileFiltersOverride: {
+            properties: [
+                {
+                    type: PropertyFilterType.Event,
+                    key: '$browser',
+                    operator: PropertyOperator.Exact,
+                    value: ['Firefox'],
+                },
+            ],
+        },
+    },
+}

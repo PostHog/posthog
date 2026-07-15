@@ -13,6 +13,7 @@ import {
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Link } from 'lib/lemon-ui/Link'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { allOperatorsMapping } from 'lib/utils/operators'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
@@ -158,14 +159,20 @@ export function CompactUniversalFiltersDisplay({
                                         (Array.isArray(propertyFilter.value) ? (
                                             propertyFilter.value.map((subValue, index) => (
                                                 <React.Fragment key={index}>
-                                                    <code className="SeriesDisplay__value">{String(subValue)}</code>
+                                                    <Tooltip title={String(subValue)}>
+                                                        <code className="SeriesDisplay__value">{String(subValue)}</code>
+                                                    </Tooltip>
                                                     {index <
                                                         (propertyFilter.value as PropertyFilterBaseValue[]).length -
                                                             1 && ' or '}
                                                 </React.Fragment>
                                             ))
                                         ) : propertyFilter.value != undefined ? (
-                                            <code className="SeriesDisplay__value">{String(propertyFilter.value)}</code>
+                                            <Tooltip title={String(propertyFilter.value)}>
+                                                <code className="SeriesDisplay__value">
+                                                    {String(propertyFilter.value)}
+                                                </code>
+                                            </Tooltip>
                                         ) : null)}
                                 </>
                             )}
