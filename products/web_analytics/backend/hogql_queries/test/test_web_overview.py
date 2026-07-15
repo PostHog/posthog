@@ -1230,6 +1230,45 @@ class TestWebOverviewTwoPhaseFastPath(ClickhouseTestMixin, APIBaseTest):
             runner = self._make_runner(**query_kwargs)
             assert runner.should_use_two_phase == expected
 
+    @parameterized.expand(
+        [
+            (
+                "event_test_filter",
+                [{"key": "$host", "type": "event", "operator": "exact", "value": "example.com"}],
+                True,
+            ),
+            (
+                "person_test_filter",
+                [{"key": "email", "type": "person", "operator": "not_icontains", "value": "@posthog.com"}],
+                True,
+            ),
+            ("cohort_test_filter", [{"key": "id", "type": "cohort", "value": 1}], False),
+        ]
+    )
+    def test_two_phase_supports_event_and_person_test_account_filters(self, _name, filters, expected):
+        self.team.test_account_filters = filters
+        self.team.save()
+        with override_settings(WEB_ANALYTICS_TWO_PHASE_TEAM_IDS=[self.team.pk]):
+            runner = self._make_runner(filterTestAccounts=True)
+            assert runner.should_use_two_phase == expected
+
+    def test_two_phase_with_test_filters_matches_join_path(self):
+        self._create_pageviews()
+        self.team.test_account_filters = [
+            {"key": "$pathname", "type": "event", "operator": "not_icontains", "value": "/docs"}
+        ]
+        self.team.save()
+
+        with freeze_time(self.QUERY_TIMESTAMP):
+            with override_settings(WEB_ANALYTICS_TWO_PHASE_TEAM_IDS=[self.team.pk]):
+                fast_runner = self._make_runner(filterTestAccounts=True)
+                assert fast_runner.should_use_two_phase
+                fast_results = fast_runner.calculate().results
+            join_results = self._make_runner(filterTestAccounts=True).calculate().results
+
+        for fast, join in zip(fast_results, join_results):
+            assert fast.value == join.value, f"{fast.key}: {fast.value} != {join.value}"
+
     def test_two_phase_requires_team_allowlist(self):
         runner = self._make_runner()
         assert not runner.should_use_two_phase

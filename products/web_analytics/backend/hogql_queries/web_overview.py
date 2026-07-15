@@ -91,7 +91,7 @@ WHERE and(
             placeholders={
                 "event_type_expr": self.event_type_expr,
                 "inside_timestamp_period": self._periods_expression("timestamp"),
-                "filters": property_to_expr(list(self.query.properties), team=self.team),
+                "filters": property_to_expr(list(self.query.properties) + self._test_account_filters, team=self.team),
             },
         )
         try:
@@ -128,11 +128,15 @@ WHERE and(
             return False
         if self.query.conversionGoal:
             return False
-        if not self.query.properties:
+        if not self.query.properties and not self._test_account_filters:
             return False
         if not all(isinstance(p, EventPropertyFilter) for p in self.query.properties):
             return False
-        if self._test_account_filters:
+        # Test-account filters are raw dicts off the team model; event- and
+        # person-property ones are evaluable on the events side of the id
+        # collection (person props via person-on-events), so they ride the
+        # two-phase shape. Cohort test filters can't, and keep the join.
+        if not all(f.get("type") in ("event", "person") for f in self._test_account_filters):
             return False
         if self.query.samplingFactor and self.query.samplingFactor != 1:
             return False
@@ -142,7 +146,7 @@ WHERE and(
 
     @cached_property
     def two_phase_select(self) -> ast.SelectQuery:
-        filters = property_to_expr(list(self.query.properties), team=self.team)
+        filters = property_to_expr(list(self.query.properties) + self._test_account_filters, team=self.team)
         # The id set flows as the nullable-UUID materialized column: malformed
         # `$session_id` strings become NULL and drop out of the set (the join path
         # left such events unmatched; a string set would hit toUUID() and abort the
