@@ -5494,6 +5494,7 @@ export namespace Schemas {
       Postgresql: 'postgresql',
       AwsS3: 'aws-s3',
       S3Compatible: 's3-compatible',
+      Snowflake: 'snowflake',
     } as const;
 
     export interface ErrorTrackingExternalReferenceIntegration {
@@ -17663,6 +17664,8 @@ export namespace Schemas {
      * * `Kickscale` - Kickscale
      * * `Zellify` - Zellify
      * * `RudderStack` - RudderStack
+     * * `DodoPayments` - DodoPayments
+     * * `Salestrics` - Salestrics
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -18429,6 +18432,8 @@ export namespace Schemas {
       Kickscale: 'Kickscale',
       Zellify: 'Zellify',
       RudderStack: 'RudderStack',
+      DodoPayments: 'DodoPayments',
+      Salestrics: 'Salestrics',
     } as const;
 
     /**
@@ -19208,7 +19213,9 @@ export namespace Schemas {
        * * `GoogleChat` - GoogleChat
        * * `Kickscale` - Kickscale
        * * `Zellify` - Zellify
-       * * `RudderStack` - RudderStack */
+       * * `RudderStack` - RudderStack
+       * * `DodoPayments` - DodoPayments
+       * * `Salestrics` - Salestrics */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -22789,28 +22796,118 @@ export namespace Schemas {
       readonly created_at: string;
     }
 
+    export interface EvaluationReportCitation {
+      /** Generation UUID referenced by this citation. */
+      generation_id?: string;
+      /** Trace identifier containing the referenced generation. */
+      trace_id?: string;
+      /** Short explanation of why the generation is cited. */
+      reason?: string;
+    }
+
+    /**
+     * Count by output-specific result label, such as pass/fail/N/A or positive/neutral/negative.
+     */
+    export type EvaluationReportMetricsResultCounts = {[key: string]: number};
+
+    /**
+     * Percentage by output-specific result label, from 0 to 100.
+     */
+    export type EvaluationReportMetricsResultRates = {[key: string]: number};
+
+    /**
+     * Count by result label for the previous period, or null when unavailable.
+     * @nullable
+     */
+    export type EvaluationReportMetricsPreviousResultCounts = {[key: string]: number} | null;
+
+    /**
+     * Percentage by result label for the previous period, or null when unavailable.
+     * @nullable
+     */
+    export type EvaluationReportMetricsPreviousResultRates = {[key: string]: number} | null;
+
+    export interface EvaluationReportMetrics {
+      /** Evaluation result type. Stored metrics without this field represent boolean evaluations.
+       *
+       * * `boolean` - Boolean (Pass/Fail)
+       * * `sentiment` - Sentiment */
+      output_type?: OutputTypeEnum;
+      /** Number of evaluation results in the report period. */
+      total_runs?: number;
+      /** Count by output-specific result label, such as pass/fail/N/A or positive/neutral/negative. */
+      result_counts?: EvaluationReportMetricsResultCounts;
+      /** Percentage by output-specific result label, from 0 to 100. */
+      result_rates?: EvaluationReportMetricsResultRates;
+      /** ISO 8601 start of the evaluation window represented by these metrics. */
+      period_start?: string;
+      /** ISO 8601 end of the evaluation window represented by these metrics. */
+      period_end?: string;
+      /**
+         * Number of evaluation results in the previous comparison period, or null when unavailable.
+         * @nullable
+         */
+      previous_total_runs?: number | null;
+      /**
+         * Count by result label for the previous period, or null when unavailable.
+         * @nullable
+         */
+      previous_result_counts?: EvaluationReportMetricsPreviousResultCounts;
+      /**
+         * Percentage by result label for the previous period, or null when unavailable.
+         * @nullable
+         */
+      previous_result_rates?: EvaluationReportMetricsPreviousResultRates;
+      /** Boolean pass percentage, excluding results marked not applicable. */
+      pass_rate?: number;
+      /**
+         * Boolean pass percentage for the previous period, or null when unavailable.
+         * @nullable
+         */
+      previous_pass_rate?: number | null;
+    }
+
+    export interface EvaluationReportSection {
+      /** Agent-generated section heading. */
+      title?: string;
+      /** Markdown narrative for this section. */
+      content?: string;
+    }
+
+    export interface EvaluationReportRunContent {
+      /** Agent-generated report headline. */
+      title?: string;
+      /** Ordered narrative sections in the report. */
+      sections?: EvaluationReportSection[];
+      /** Trace references grounding findings in the report. */
+      citations?: EvaluationReportCitation[];
+      /** Structured metrics computed for the report period. */
+      metrics?: EvaluationReportMetrics | null;
+    }
+
     export interface EvaluationReportRun {
       /** UUID of this report run. */
       readonly id: string;
       /** UUID of the report config that generated this run. */
       readonly report: string;
-      /** Generated report content (markdown or structured text). */
-      readonly content: unknown;
-      /** Run metadata including model used, token counts, and generation stats. */
-      readonly metadata: unknown;
+      /** Structured report narrative, citations, and metrics. Legacy runs may contain only some fields. */
+      readonly content: EvaluationReportRunContent;
+      /** Legacy mirror of content.metrics. May contain partial boolean metrics on older runs. */
+      readonly metadata: EvaluationReportMetrics | null;
       /** Start of the evaluation window covered by this report. */
       readonly period_start: string;
       /** End of the evaluation window covered by this report. */
       readonly period_end: string;
-      /** 'pending', 'delivered', or 'failed'.
+      /** Delivery result: 'pending', 'delivered', 'partial_failure', or 'failed'.
        *
        * * `pending` - Pending
        * * `delivered` - Delivered
        * * `partial_failure` - Partial Failure
        * * `failed` - Failed */
       readonly delivery_status: DeliveryStatusEnum;
-      /** List of delivery error messages if delivery failed. */
-      readonly delivery_errors: unknown;
+      /** Delivery error messages. Empty when all configured deliveries succeeded. */
+      readonly delivery_errors: readonly string[];
+      /** When this report run was created. */
       readonly created_at: string;
     }
 
@@ -25679,7 +25776,9 @@ export namespace Schemas {
        * * `GoogleChat` - GoogleChat
        * * `Kickscale` - Kickscale
        * * `Zellify` - Zellify
-       * * `RudderStack` - RudderStack */
+       * * `RudderStack` - RudderStack
+       * * `DodoPayments` - DodoPayments
+       * * `Salestrics` - Salestrics */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -26472,7 +26571,9 @@ export namespace Schemas {
        * * `GoogleChat` - GoogleChat
        * * `Kickscale` - Kickscale
        * * `Zellify` - Zellify
-       * * `RudderStack` - RudderStack */
+       * * `RudderStack` - RudderStack
+       * * `DodoPayments` - DodoPayments
+       * * `Salestrics` - Salestrics */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -28527,6 +28628,13 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
+      /** Staged content changes awaiting publish — a full snapshot of the workflow's actions, edges and settings. Null when there's nothing staged. Test it with a use_draft test run, then promote it with the publish endpoint or throw it away with discard_draft. */
+      readonly draft: unknown;
+      /**
+         * When the draft was last written; null when there's no staged draft. Pass this to publish (and as base_updated_at on further draft edits) so a concurrent editor's changes aren't clobbered — a mismatch returns 409.
+         * @nullable
+         */
+      readonly draft_updated_at: string | null;
     }
 
     /**
@@ -28627,6 +28735,8 @@ export namespace Schemas {
       mock_async_functions?: boolean;
       /** Start execution from this action ID instead of the trigger. Each test run executes a single node and returns the next action id. */
       current_action_id?: string;
+      /** Test the workflow's staged draft instead of its live config. Requires an open draft; can't be combined with an explicit configuration override. */
+      use_draft?: boolean;
     }
 
     /**
@@ -28657,6 +28767,30 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
+    }
+
+    export interface HogFlowPublishRequest {
+      /** False (default) previews the publish: returns how many runs are in flight without changing anything. True applies the staged draft to the live workflow. */
+      confirm?: boolean;
+      /** The draft_updated_at you loaded — required when confirm=true. A mismatch returns 409, so you never publish a draft someone else has changed since you read it. */
+      draft_updated_at?: string;
+    }
+
+    export interface HogFlowPublishResponse {
+      /** Whether the draft was applied to the live workflow. */
+      published: boolean;
+      /**
+         * Runs currently in flight (parked on waits/delays or executing) that will follow the new config once published. Null when the count is unavailable.
+         * @nullable
+         */
+      in_flight_runs: number | null;
+      /**
+         * Echo of the staged draft's timestamp — pass it back with confirm=true to publish exactly this draft.
+         * @nullable
+         */
+      draft_updated_at: string | null;
+      /** The workflow after publishing (only set when published=true). */
+      workflow?: HogFlow | null;
     }
 
     /**
@@ -32670,7 +32804,7 @@ export namespace Schemas {
     }
 
     export interface LogsAlertCreateDestination {
-      /** Destination type — slack, webhook, or teams.
+      /** Notification destination type.
        *
        * * `slack` - slack
        * * `webhook` - webhook
@@ -32682,7 +32816,7 @@ export namespace Schemas {
       slack_channel_id?: string;
       /** Human-readable channel name for display. */
       slack_channel_name?: string;
-      /** HTTPS endpoint to POST to. Required when type=webhook, or the Teams webhook URL when type=teams. */
+      /** HTTPS endpoint to post to. Required for webhook and teams. */
       webhook_url?: string;
     }
 
@@ -32690,6 +32824,7 @@ export namespace Schemas {
       /**
          * HogFunction IDs to delete as one atomic destination group.
          * @minItems 1
+         * @maxItems 4
          */
       hog_function_ids: string[];
     }
@@ -42943,6 +43078,13 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level?: string | null;
+      /** Staged content changes awaiting publish — a full snapshot of the workflow's actions, edges and settings. Null when there's nothing staged. Test it with a use_draft test run, then promote it with the publish endpoint or throw it away with discard_draft. */
+      readonly draft?: unknown;
+      /**
+         * When the draft was last written; null when there's no staged draft. Pass this to publish (and as base_updated_at on further draft edits) so a concurrent editor's changes aren't clobbered — a mismatch returns 409.
+         * @nullable
+         */
+      readonly draft_updated_at?: string | null;
     }
 
     export interface PatchedHogFlowGraphUpdate {
@@ -46634,16 +46776,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `implementation` - Implementation
-     */
-    export type SignalReportTaskRelationshipEnum = typeof SignalReportTaskRelationshipEnum[keyof typeof SignalReportTaskRelationshipEnum];
-
-
-    export const SignalReportTaskRelationshipEnum = {
-      Implementation: 'implementation',
-    } as const;
-
-    /**
      * Request body for creating or updating a task.
      *
      * Field required/default semantics match the ``Task`` model. The view passes
@@ -46700,7 +46832,11 @@ export namespace Schemas {
          * @nullable
          */
       signal_report?: string | null;
-      signal_report_task_relationship?: SignalReportTaskRelationshipEnum;
+      /**
+         * How the created task relates to the signal report (e.g. 'implementation', 'discussion', 'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted.
+         * @maxLength 200
+         */
+      signal_report_task_relationship?: string;
       /** JSON schema used to validate the output of the task. */
       json_schema?: unknown;
       /** If true, this task is for internal use and should not be exposed to end users. */
@@ -52305,13 +52441,15 @@ export namespace Schemas {
     }
 
     /**
-     * Per-resource limit state keyed by `QuotaResource` value. Currently only `ai_credits` is reported; additional resources may be added.
+     * Per-resource limit state for every `QuotaResource` value, e.g. `ai_credits`, `posthog_code_credits`.
      */
     export type QuotaLimitsResponseLimited = {[key: string]: QuotaResourceLimit};
 
     export interface QuotaLimitsResponse {
-      /** Per-resource limit state keyed by `QuotaResource` value. Currently only `ai_credits` is reported; additional resources may be added. */
+      /** Per-resource limit state for every `QuotaResource` value, e.g. `ai_credits`, `posthog_code_credits`. */
       limited: QuotaLimitsResponseLimited;
+      /** Whether the team's organization pays for PostHog Code usage: billing grants the `posthog_code_usage` product feature only on the Code usage product's paid plan, synced into the organization's available features. Consumers gate paid-tier Code behavior on this; an org unknown to billing reads as not paying. */
+      code_usage_billing_active: boolean;
     }
 
     export interface RawUnmatchedSample {
@@ -55772,7 +55910,9 @@ export namespace Schemas {
        * * `GoogleChat` - GoogleChat
        * * `Kickscale` - Kickscale
        * * `Zellify` - Zellify
-       * * `RudderStack` - RudderStack */
+       * * `RudderStack` - RudderStack
+       * * `DodoPayments` - DodoPayments
+       * * `Salestrics` - Salestrics */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -56578,7 +56718,9 @@ export namespace Schemas {
        * * `GoogleChat` - GoogleChat
        * * `Kickscale` - Kickscale
        * * `Zellify` - Zellify
-       * * `RudderStack` - RudderStack */
+       * * `RudderStack` - RudderStack
+       * * `DodoPayments` - DodoPayments
+       * * `Salestrics` - Salestrics */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -57376,7 +57518,9 @@ export namespace Schemas {
        * * `GoogleChat` - GoogleChat
        * * `Kickscale` - Kickscale
        * * `Zellify` - Zellify
-       * * `RudderStack` - RudderStack */
+       * * `RudderStack` - RudderStack
+       * * `DodoPayments` - DodoPayments
+       * * `Salestrics` - Salestrics */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -59415,7 +59559,11 @@ export namespace Schemas {
          * @nullable
          */
       signal_report?: string | null;
-      signal_report_task_relationship?: SignalReportTaskRelationshipEnum;
+      /**
+         * How the created task relates to the signal report (e.g. 'implementation', 'discussion', 'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted.
+         * @maxLength 200
+         */
+      signal_report_task_relationship?: string;
       /** JSON schema used to validate the output of the task. */
       json_schema?: unknown;
       /** If true, this task is for internal use and should not be exposed to end users. */
