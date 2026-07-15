@@ -68,21 +68,26 @@ class TestMergeDashboardAndTileFilters(SimpleTestCase):
         assert merged["date_from"] == "-7d"
         assert merged["date_to"] is None
 
-    def test_dashboard_explicit_date_dropped_when_tile_supplies_a_range_without_it(self):
-        # The dashboard's explicitDate must not ride along with the tile's dates.
-        merged = merge_dashboard_and_tile_filters(
-            {"date_from": "2026-01-01", "date_to": "2026-01-31", "explicitDate": True},
-            {"date_from": "-7d"},
-        )
+    @parameterized.expand(
+        [
+            (
+                "dashboard explicitDate dropped when tile range omits it",
+                {"date_from": "2026-01-01", "date_to": "2026-01-31", "explicitDate": True},
+                {"date_from": "-7d"},
+                None,
+            ),
+            (
+                "tile explicitDate applied with tile range",
+                {"date_from": "-30d"},
+                {"date_from": "-7d", "explicitDate": True},
+                True,
+            ),
+        ]
+    )
+    def test_explicit_date_follows_the_tile_range_not_the_dashboards(self, _name, dashboard, tile, expected):
+        merged = merge_dashboard_and_tile_filters(dashboard, tile)
         assert merged["date_from"] == "-7d"
-        assert merged.get("explicitDate") is None
-
-    def test_tile_explicit_date_applied_with_tile_range(self):
-        merged = merge_dashboard_and_tile_filters(
-            {"date_from": "-30d"},
-            {"date_from": "-7d", "explicitDate": True},
-        )
-        assert merged["explicitDate"] is True
+        assert merged.get("explicitDate") is expected
 
     def test_dashboard_date_range_kept_when_tile_has_no_dates(self):
         merged = merge_dashboard_and_tile_filters(
