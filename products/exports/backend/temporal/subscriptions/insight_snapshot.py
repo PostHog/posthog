@@ -28,32 +28,19 @@ from posthog.models import Team, User
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.subscription import Subscription
+from products.exports.backend.temporal.subscriptions.delivery_common import strip_null_bytes
 from products.product_analytics.backend.models.insight import Insight
 
 logger = structlog.get_logger(__name__)
+
+# strip_null_bytes now lives in delivery_common (a general-purpose sanitizer shared across delivery
+# paths); imported here for the query-result scrub below and so existing
+# `insight_snapshot.strip_null_bytes` importers keep resolving.
 
 
 def _json_safe_value(val: Any) -> Any:
     """Coerce to JSONField-safe Python (dict/list/scalars); unknown types use fallback, not pass-through."""
     return to_jsonable_python(val, fallback=lambda x: str(x))
-
-
-def strip_null_bytes(value: Any) -> Any:
-    """Recursively remove NUL (\\x00) from strings — Postgres text/jsonb columns cannot store it.
-
-    Anything written to ``SubscriptionDelivery.content_snapshot`` that originates outside a Postgres
-    text column (ClickHouse query results, LLM output, user-supplied prompts) must pass through this
-    first, or the NUL surfaces as a unicode escape that fails the whole delivery write with a DataError.
-    """
-    if isinstance(value, str):
-        return value.replace("\x00", "")
-    if isinstance(value, list):
-        return [strip_null_bytes(v) for v in value]
-    if isinstance(value, dict):
-        # Strip keys too: a Map(String, …) column can produce data-derived keys carrying NUL,
-        # and Postgres rejects it in a jsonb key just as it does in a value.
-        return {strip_null_bytes(k): strip_null_bytes(v) for k, v in value.items()}
-    return value
 
 
 def build_initial_content_snapshot(subscription: Subscription) -> dict[str, Any]:

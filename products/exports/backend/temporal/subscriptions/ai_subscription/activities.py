@@ -28,8 +28,8 @@ from products.exports.backend.temporal.subscriptions.delivery_common import (
     auto_disable_and_return,
     deliver_email,
     deliver_slack,
+    strip_null_bytes,
 )
-from products.exports.backend.temporal.subscriptions.insight_snapshot import strip_null_bytes
 from products.exports.backend.temporal.subscriptions.types import (
     AI_REPORT_DIAGNOSTICS_KEY,
     AI_REPORT_PROMPT_SNAPSHOT_KEY,
