@@ -2,9 +2,13 @@
 //!
 //! Written chunk statuses bind [`ChunkStatus::as_str`] as a parameter; the two multi-status `IN`
 //! predicates are hoisted into [`ACTIVE_STATUSES_SQL`]/[`RETRYABLE_STATUSES_SQL`], scanned by a unit
-//! test through [`ChunkStatus::from_str`] so the SQL vocabulary can never drift from the enum. The
-//! claim/lease/epoch-fence/skip-locked logic is byte-equivalent to before the store split. Depends on
-//! `domain` (the pure chunk states it mints and the typed ids) and nothing above.
+//! test through [`ChunkStatus::from_str`] so the SQL vocabulary can never drift from the enum.
+//! Every claim charges an attempt (saturating at the cap) and bumps the fencing `claim_epoch`;
+//! expired `produced` leases are reclaimable without an attempt cap (their tiles are already in
+//! Kafka and must reach `confirmed`), while expired `scanning` leases are capped and dead-lettered
+//! by [`PgChunkStore::reap_poisoned_chunks`] so a chunk that hard-crashes its worker cannot
+//! re-scan forever. Depends on `domain` (the pure chunk states it mints and the typed ids) and
+//! nothing above.
 
 use chrono::NaiveDate;
 use cohort_core::filters::TeamId;
@@ -23,7 +27,7 @@ use crate::domain::{
 use super::lease::LeaseHandle;
 use super::{Claimant, LeaseDuration, MaxAttempts, RenderedError, PERSISTED_ERROR_LIMIT};
 
-/// Chunk statuses eligible for reclaim once their lease expires (produced-but-unconfirmed included).
+/// Chunk statuses holding a live lease — the targets of the fenced heartbeat/fail/confirm writes.
 const ACTIVE_STATUSES_SQL: &str = "('scanning', 'produced')";
 /// Chunk statuses eligible for a fresh claim while under the attempt cap.
 const RETRYABLE_STATUSES_SQL: &str = "('pending', 'failed')";
@@ -115,7 +119,8 @@ impl PgChunkStore {
                 JOIN cohort_backfill_runs r ON r.id = c.run_id
                 WHERE c.run_id = ANY($1) AND r.status = 'seeding'
                   AND ((c.status IN {retryable} AND c.attempts < $4)
-                       OR (c.status IN {active} AND c.lease_expires_at < now()))
+                       OR (c.status = $6 AND c.lease_expires_at < now())
+                       OR (c.status = $5 AND c.lease_expires_at < now() AND c.attempts < $4))
                 ORDER BY c.day, c.band
                 LIMIT 1
                 FOR UPDATE OF c SKIP LOCKED
@@ -143,11 +148,46 @@ impl PgChunkStore {
             .bind(lease.as_secs())
             .bind(max_attempts.get())
             .bind(ChunkStatus::Scanning.as_str())
+            .bind(ChunkStatus::Produced.as_str())
             .fetch_optional(&self.pool)
             .await?;
 
         row.map(|row| self.assemble_claim(row, claimant, lease))
             .transpose()
+    }
+
+    /// Dead-letter `scanning` chunks whose lease expired at the attempt cap. A clean failure caps
+    /// out through `fail` plus the claim gate, but a worker that dies without reaching `fail`
+    /// (panic, OOM, SIGKILL) leaves its chunk `scanning`; once its attempts saturate, the claim
+    /// predicate no longer reclaims it, and this sweep moves it to the same terminal `failed`
+    /// state a clean cap-out reaches, so it surfaces to operators instead of stalling invisibly.
+    /// Returns the number of chunks dead-lettered.
+    pub async fn reap_poisoned_chunks(
+        &self,
+        run_ids: &[RunId],
+        max_attempts: MaxAttempts,
+    ) -> Result<u64, ChunkStoreError> {
+        if run_ids.is_empty() {
+            return Ok(0);
+        }
+        let run_ids = run_ids.iter().map(|run_id| run_id.0).collect::<Vec<_>>();
+        let result = sqlx::query(
+            r#"
+            UPDATE cohort_backfill_chunks
+            SET status = $3, last_error = left($4, $5), updated_at = now()
+            WHERE run_id = ANY($1) AND status = $2
+              AND lease_expires_at < now() AND attempts >= $6
+            "#,
+        )
+        .bind(run_ids)
+        .bind(ChunkStatus::Scanning.as_str())
+        .bind(ChunkStatus::Failed.as_str())
+        .bind("lease expired at the attempt cap without a clean failure; worker crash suspected")
+        .bind(PERSISTED_ERROR_LIMIT)
+        .bind(max_attempts.get())
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected())
     }
 
     pub async fn mark_produced(

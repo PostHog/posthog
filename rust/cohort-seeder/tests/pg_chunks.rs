@@ -454,8 +454,9 @@ async fn unclaim_returns_chunk_to_pending_and_refunds_one_attempt() -> Result<()
 }
 
 /// The attempt cap is terminal for a `failed` chunk (no further claim), but an expired `produced`
-/// chunk sitting AT the cap is still reclaimed with a bumped epoch — the `attempts < $4` gate only
-/// governs `pending`/`failed`, not the active statuses awaiting confirmation.
+/// chunk sitting AT the cap is still reclaimed with a bumped epoch — its tiles are already in
+/// Kafka, so it must keep retrying until it reaches `confirmed`. Only `scanning` reclaims are
+/// capped (see `expired_scanning_chunk_at_the_cap_is_reaped_not_reclaimed`).
 #[tokio::test]
 async fn attempt_cap_is_terminal_for_failed_but_reclaims_expired_produced() -> Result<()> {
     with_db(|pool| async move {
@@ -521,6 +522,65 @@ async fn attempt_cap_is_terminal_for_failed_but_reclaims_expired_produced() -> R
                 .fetch_one(&pool)
                 .await?;
         ensure!(active_reclaim_attempts == 5);
+        Ok(())
+    })
+    .await
+}
+
+/// A `scanning` chunk whose lease expires below the attempt cap is left for reclaim, but once its
+/// attempts saturate it is neither reclaimed (no hard-crash loop) nor left invisible: the reaper
+/// dead-letters it to `failed` — the same terminal state a clean cap-out reaches — exactly once.
+#[tokio::test]
+async fn expired_scanning_chunk_at_the_cap_is_reaped_not_reclaimed() -> Result<()> {
+    with_db(|pool| async move {
+        let seeding_run =
+            insert_run(&pool, 2, "team_enablement", "seeding", true, empty_pinned()).await?;
+        let store = PgChunkStore::new(pool.clone());
+        ensure!(planned_count(store.plan_chunks(seeding_run, [100]).await?)? == 1);
+
+        let lease60 = LeaseDuration::new(Duration::from_secs(60))?;
+        let attempts5 = MaxAttempts::new(5)?;
+        let run_ids = [seeding_run];
+        let claimed = store
+            .claim_next(&run_ids, &Claimant::new("worker-a")?, lease60, attempts5)
+            .await?
+            .context("claimant found no chunk")?;
+        let chunk_id = claimed.chunk.spec().lease.chunk_id();
+        drop(claimed);
+
+        // Expired below the cap: not reaped — the ordinary reclaim path still owns it.
+        sqlx::query(
+            "UPDATE cohort_backfill_chunks SET lease_expires_at = now() - interval '1 second' WHERE id = $1",
+        )
+        .bind(chunk_id)
+        .execute(&pool)
+        .await?;
+        ensure!(store.reap_poisoned_chunks(&run_ids, attempts5).await? == 0);
+
+        // A hard-crashed worker's residue: still `scanning`, attempts saturated, lease expired.
+        sqlx::query("UPDATE cohort_backfill_chunks SET attempts = 5 WHERE id = $1")
+            .bind(chunk_id)
+            .execute(&pool)
+            .await?;
+        ensure!(store
+            .claim_next(&run_ids, &Claimant::new("worker-b")?, lease60, attempts5)
+            .await?
+            .is_none());
+
+        ensure!(store.reap_poisoned_chunks(&run_ids, attempts5).await? == 1);
+        let (status, last_error): (String, String) =
+            sqlx::query_as("SELECT status, last_error FROM cohort_backfill_chunks WHERE id = $1")
+                .bind(chunk_id)
+                .fetch_one(&pool)
+                .await?;
+        ensure!(status == "failed");
+        ensure!(last_error.contains("attempt cap"));
+        // Terminal: not claimable, and a second sweep is a no-op.
+        ensure!(store
+            .claim_next(&run_ids, &Claimant::new("worker-c")?, lease60, attempts5)
+            .await?
+            .is_none());
+        ensure!(store.reap_poisoned_chunks(&run_ids, attempts5).await? == 0);
         Ok(())
     })
     .await

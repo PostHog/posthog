@@ -18,7 +18,7 @@ use crate::clickhouse::scanner::ChunkScanner;
 use crate::domain::{ClaimKind, PinnedRun, RunId};
 use crate::kafka::pacing::TilePacer;
 use crate::kafka::producer::SeedTileProducer;
-use crate::observability::metrics::{CHUNKS_CLAIMED, CHUNKS_RECLAIMED};
+use crate::observability::metrics::{CHUNKS_CLAIMED, CHUNKS_POISONED, CHUNKS_RECLAIMED};
 use crate::store::chunks::{Claim, PgChunkStore};
 use crate::store::Claimant;
 
@@ -97,6 +97,7 @@ impl SeederOrchestrator {
                         &mut reported_runs,
                     )
                     .await;
+                    self.reap_poisoned_chunks(&eligible_runs).await;
                     self.fill_claim_slots(&eligible_runs, &mut tasks, &shutdown).await;
                     self.handle.report_healthy();
                 }
@@ -118,6 +119,30 @@ impl SeederOrchestrator {
             Err(error) => warn!(error = %error, "producer flush task failed during shutdown"),
         }
         info!("cohort seeder orchestrator stopped");
+    }
+
+    /// Dead-letter `scanning` chunks whose lease expired at the attempt cap — the chunks a
+    /// hard-crashed worker left behind, which the claim predicate no longer reclaims.
+    async fn reap_poisoned_chunks(&self, eligible_runs: &HashMap<RunId, Arc<PinnedRun>>) {
+        if eligible_runs.is_empty() {
+            return;
+        }
+        let run_ids = eligible_runs.keys().copied().collect::<Vec<_>>();
+        match self
+            .store
+            .reap_poisoned_chunks(&run_ids, self.settings.max_chunk_attempts)
+            .await
+        {
+            Ok(0) => {}
+            Ok(reaped) => {
+                counter!(CHUNKS_POISONED).increment(reaped);
+                warn!(
+                    reaped,
+                    "dead-lettered scanning chunks whose lease expired at the attempt cap"
+                );
+            }
+            Err(error) => warn!(error = %error, "reaping poisoned chunks failed"),
+        }
     }
 
     async fn fill_claim_slots(

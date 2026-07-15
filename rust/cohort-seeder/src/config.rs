@@ -80,6 +80,13 @@ pub struct Config {
     #[envconfig(default = "murmur2_random")]
     pub kafka_producer_partitioner: KafkaProducerPartitioner,
 
+    /// The partition count every co-partitioned cohort topic must have — the consumer owns a
+    /// person by `partition_for(key, COHORT_PARTITION_COUNT)`, so a seed topic provisioned with a
+    /// different count would route a person's seed tiles to a worker that does not own them.
+    /// Mirrors the processor's `COHORT_PARTITION_COUNT`; startup verifies the seed topic against it.
+    #[envconfig(from = "COHORT_PARTITION_COUNT", default = "64")]
+    pub cohort_partition_count: u32,
+
     #[envconfig(default = "none")]
     pub kafka_compression_codec: String,
 
@@ -255,6 +262,21 @@ mod tests {
                 "accepted unsafe partitioner {value:?}"
             );
         }
+    }
+
+    #[test]
+    fn partition_count_defaults_to_the_shared_cohort_contract() {
+        assert_eq!(
+            default_config().cohort_partition_count,
+            cohort_core::partitioner::COHORT_PARTITION_COUNT,
+        );
+        let env = HashMap::from([("COHORT_PARTITION_COUNT".to_string(), "8".to_string())]);
+        assert_eq!(
+            Config::init_from_hashmap(&env)
+                .unwrap()
+                .cohort_partition_count,
+            8
+        );
     }
 
     #[test]

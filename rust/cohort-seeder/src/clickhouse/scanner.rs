@@ -12,6 +12,7 @@ use cohort_core::events::CohortStreamEvent;
 use cohort_core::hogvm::VmErrorClass;
 use metrics::{counter, histogram};
 use tokio_util::sync::CancellationToken;
+use tracing::info;
 
 use super::row::{row_to_event, EventRow};
 use super::sql::{plan_scan, scan_sql, ScanPlan};
@@ -82,11 +83,20 @@ impl ChunkScanner {
         let spec = chunk.spec();
         let domain = run.domain_for(&spec).map_err(ScanError::from)?;
         let active = active_conditions_at(spec.day, run.tz, now_ms, &run.conditions);
+        if active.is_empty() {
+            info!(
+                day = spec.day,
+                boundary_day = run.boundary.day(),
+                "chunk skipped: every referencing window has slid past this day"
+            );
+            counter!(CHUNKS_VACUOUS, "reason" => "window_expired").increment(1);
+            return Ok(Vec::new());
+        }
         let event_names = active_event_names(run, &active);
         let scan_spec = match plan_scan(spec.team_id, &domain, &event_names, spec.band) {
-            ScanPlan::Scan(scan_spec) if !active.is_empty() => scan_spec,
-            ScanPlan::Scan(_) | ScanPlan::Vacuous => {
-                counter!(CHUNKS_VACUOUS).increment(1);
+            ScanPlan::Scan(scan_spec) => scan_spec,
+            ScanPlan::Vacuous => {
+                counter!(CHUNKS_VACUOUS, "reason" => "empty_scan").increment(1);
                 return Ok(Vec::new());
             }
         };
@@ -122,7 +132,7 @@ impl ChunkScanner {
             }
         }
         if !saw_row {
-            counter!(CHUNKS_VACUOUS).increment(1);
+            counter!(CHUNKS_VACUOUS, "reason" => "no_rows").increment(1);
         }
 
         histogram!(AGGREGATE_ENTRIES).record(accumulator.entry_count() as f64);
@@ -144,6 +154,18 @@ impl From<ScanError> for ScanHalt {
     }
 }
 
+/// The conditions still referencing `day` at scan time, gated at wall-clock now — deliberately NOT
+/// at the run's boundary day. Planning anchors at the boundary pessimistically; by the time a chunk
+/// is scanned, a sliding window may have moved past its day, and the consumer's apply rule slides
+/// each record's window to at least the wall-clock day before evaluating, dropping below-window
+/// tiles unevaluated. Scanning such a day would only produce tiles the consumer must discard.
+///
+/// This holds for disaster-recovery runs, whose boundary is a past instant: the boundary is the
+/// timestamp the wiped processor resumes live consumption from, so every post-boundary day is
+/// covered by live replay, and any pre-boundary day still inside a window anchored at the scan day
+/// or later stays admitted here (window anchors only move forward, so the gate at scan time admits
+/// a superset of every later evaluation's reachable days). The only skipped days are those that can
+/// no longer affect membership at any evaluation from scan time on.
 fn active_conditions_at(
     day: DayIdx,
     tz: Tz,
@@ -261,8 +283,12 @@ mod tests {
     use serde_json::json;
     use uuid::Uuid;
 
+    use std::collections::BTreeSet;
+
     use super::*;
-    use crate::domain::{Boundary, ClaimEpoch, ConditionHash, Lookback, RunId, SChunkMs};
+    use crate::domain::{
+        plan_days, Boundary, ClaimEpoch, ConditionHash, Lookback, PlanCaps, RunId, SChunkMs,
+    };
 
     const HASH: &str = "aaaaaaaaaaaaaaaa";
 
@@ -377,5 +403,42 @@ mod tests {
         }];
         assert!(active_conditions_at(1, UTC, 2 * 86_400_000, &conditions).contains(&hash));
         assert!(!active_conditions_at(1, UTC, 3 * 86_400_000, &conditions).contains(&hash));
+    }
+
+    /// Disaster-recovery shape: the boundary is a past instant, so the scan runs days after the
+    /// plan was anchored. Every pre-boundary day still inside the wall-clock window must stay
+    /// admitted (those days feed membership the live replay cannot reconstruct); days that slid
+    /// out of every window are skipped, matching the consumer's drop-below-window apply rule.
+    #[test]
+    fn dr_scan_admits_every_pre_boundary_day_still_inside_the_window() {
+        let hash = ConditionHash::parse(HASH).unwrap();
+        let conditions = [PinnedCondition {
+            cohort_id: CohortId(1),
+            hash,
+            event_name: "purchase".to_string(),
+            lookback: Lookback::SlidingDays(7),
+        }];
+        let boundary = Boundary::new(UtcMillis::new(100 * 86_400_000), UTC);
+        let planned = plan_days(&conditions, boundary, &PlanCaps::default());
+        assert_eq!(planned, BTreeSet::from_iter(93..=99));
+
+        let admitted_at = |now_day: i64| {
+            planned
+                .iter()
+                .copied()
+                .filter(|day| {
+                    active_conditions_at(*day, UTC, now_day * 86_400_000, &conditions)
+                        .contains(&hash)
+                })
+                .collect::<Vec<_>>()
+        };
+        // Scanned the boundary day (enablement shape): every planned day is admitted.
+        assert_eq!(admitted_at(100), (93..=99).collect::<Vec<_>>());
+        // Scanned three days later (DR shape): the window is [96, 103]; days 93-95 can no longer
+        // affect any evaluation and are skipped, days 96-99 are still scanned.
+        assert_eq!(admitted_at(103), (96..=99).collect::<Vec<_>>());
+        // Boundary older than the window: live replay from the boundary covers the whole window,
+        // so the seed correctly has nothing left to contribute.
+        assert_eq!(admitted_at(107), Vec::<DayIdx>::new());
     }
 }

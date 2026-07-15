@@ -17,6 +17,7 @@ pub const CHUNKS_RECLAIMED: &str = "seeder_chunks_reclaimed_total";
 pub const CHUNKS_CONFIRMED: &str = "seeder_chunks_confirmed_total";
 pub const CHUNKS_VACUOUS: &str = "seeder_chunks_vacuous_total";
 pub const CHUNKS_FAILED: &str = "seeder_chunks_failed_total";
+pub const CHUNKS_POISONED: &str = "seeder_chunks_poisoned_total";
 pub const CHUNK_SCAN_DURATION_SECONDS: &str = "seeder_chunk_scan_duration_seconds";
 pub const ROWS_SCANNED: &str = "seeder_rows_scanned_total";
 pub const EVENTS_SKIPPED: &str = "seeder_events_skipped_total";

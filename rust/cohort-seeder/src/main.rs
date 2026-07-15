@@ -27,6 +27,7 @@ use cohort_seeder::observability;
 common_alloc::used!();
 
 const SERVICE_NAME: &str = "cohort-seeder";
+const PARTITION_VERIFY_TIMEOUT: Duration = Duration::from_secs(10);
 
 fn main() -> Result<()> {
     let config = Config::init_from_env().context("loading cohort-seeder configuration")?;
@@ -70,6 +71,14 @@ async fn async_main(config: Config) -> Result<()> {
     )
     .await
     .context("creating seed tile producer")?;
+    let verify_producer = producer.clone();
+    let expected_partitions = config.cohort_partition_count;
+    tokio::task::spawn_blocking(move || {
+        verify_producer.verify_partition_count(expected_partitions, PARTITION_VERIFY_TIMEOUT)
+    })
+    .await
+    .context("joining seed topic verification task")?
+    .context("verifying seed topic partition count")?;
     let pacer = TilePacer::new(
         config
             .tiles_per_second()
@@ -114,6 +123,7 @@ fn log_startup(config: &Config) {
         service = SERVICE_NAME,
         seed_topic = %config.seed_events_topic,
         partitioner = %config.kafka_producer_partitioner,
+        partition_count = config.cohort_partition_count,
         team_allowlist = ?config.team_allowlist,
         run_poll_secs = config.seeder_run_poll_secs,
         max_concurrent_chunks = config.seeder_max_concurrent_chunks,
