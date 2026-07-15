@@ -35,7 +35,7 @@ class TestStrictAndFixContracts:
     @patch("hogli_commands.ci_preflight._emit_telemetry")
     @patch("hogli_commands.ci_preflight._staleness", return_value=("pass", "even with master", {}))
     @patch("hogli_commands.ci_preflight._fetch_master")
-    @patch("hogli_commands.ci_preflight.changed_files", return_value=["posthog/api/does_not_exist.py"])
+    @patch("hogli_commands.ci_preflight.changed_files", return_value=["products/example/mcp/tools.yaml"])
     def test_strict_never_blocks_on_advisory(
         self, mock_changed: MagicMock, mock_fetch: MagicMock, mock_stale: MagicMock, mock_emit: MagicMock
     ) -> None:
@@ -66,7 +66,7 @@ class TestStrictAndFixContracts:
     @patch("hogli_commands.ci_preflight._capability_met", return_value=False)
     @patch("hogli_commands.ci_preflight._staleness", return_value=("pass", "even with master", {}))
     @patch("hogli_commands.ci_preflight._fetch_master")
-    @patch("hogli_commands.ci_preflight.changed_files", return_value=["posthog/api/does_not_exist.py"])
+    @patch("hogli_commands.ci_preflight.changed_files", return_value=["products/example/mcp/tools.yaml"])
     def test_fix_without_stack_still_advises_openapi(
         self,
         mock_changed: MagicMock,
@@ -78,6 +78,32 @@ class TestStrictAndFixContracts:
         result = runner.invoke(cli, ["ci:preflight", "--fix"])
         assert result.exit_code == 0
         assert "run `hogli build:openapi` and commit before pushing" in result.output
+
+    @patch("hogli_commands.ci_preflight._emit_telemetry")
+    @patch("hogli_commands.ci_preflight._staleness", return_value=("pass", "even with master", {}))
+    @patch("hogli_commands.ci_preflight._fetch_master")
+    @patch("hogli_commands.ci_preflight.shutil.which", return_value="/usr/bin/tool")
+    @patch("hogli_commands.ci_preflight.subprocess.run")
+    @patch(
+        "hogli_commands.ci_preflight.changed_files",
+        return_value=["tools/hogli-commands/hogli_commands/ci_preflight.py"],
+    )
+    def test_python_changes_run_fast_type_check(
+        self,
+        mock_changed: MagicMock,
+        mock_run: MagicMock,
+        mock_which: MagicMock,
+        mock_fetch: MagicMock,
+        mock_stale: MagicMock,
+        mock_emit: MagicMock,
+    ) -> None:
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+        result = runner.invoke(cli, ["ci:preflight", "--strict"])
+
+        assert result.exit_code == 0
+        assert "Python type checking (ty)" in result.output
+        assert any(call.args[0] == ["uv", "run", "--no-sync", "ty", "check"] for call in mock_run.call_args_list)
 
 
 class TestStalenessRisks:

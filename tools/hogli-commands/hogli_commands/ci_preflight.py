@@ -65,8 +65,8 @@ class DiffCheck:
 
 
 # Ordered cheapest-first. Grounded in failure classes seen in `hogli ci:insights`:
-# broken lockfile blocking all CI, OpenAPI drift, formatting/lint, flag sort,
-# workflow-convention failures, migration conflicts.
+# broken lockfile blocking all CI, OpenAPI drift, formatting/lint/type checking,
+# flag sort, workflow-convention failures, migration conflicts.
 DIFF_CHECKS: list[DiffCheck] = [
     DiffCheck(
         key="lockfile",
@@ -101,6 +101,13 @@ DIFF_CHECKS: list[DiffCheck] = [
         verify=["ruff", "format", "--check"],
         fix=["ruff", "format"],
         takes_files=True,
+    ),
+    DiffCheck(
+        key="type-check",
+        label="Python type checking (ty)",
+        triggers=["*.py", "*.pyi", "pyproject.toml", "uv.lock"],
+        # ty is the fast local signal; authoritative repo-wide mypy remains in CI.
+        verify=["uv", "run", "--no-sync", "ty", "check"],
     ),
     DiffCheck(
         key="markdown-format",

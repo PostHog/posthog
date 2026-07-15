@@ -11,6 +11,7 @@ ty runs in CI as an informational check to evaluate its usefulness vs mypy. If y
 ```bash
 uv run ty check path/to/file.py    # Check specific files
 uv run ty check posthog ee         # Check directories
+hogli ci:preflight                 # Run repo-wide ty when the diff touches Python
 ```
 
 ## Ty vs mypy: Fast trial vs authoritative checking
@@ -20,6 +21,7 @@ uv run ty check posthog ee         # Check directories
 - Extremely fast (~10-100x faster than mypy)
 - Alpha software — expect edge cases
 - Runs in CI (informational, non-blocking) and as a lint-staged pre-commit check to gather feedback
+- Runs repo-wide in `hogli ci:preflight` for Python diffs so local checks catch type errors before mypy runs in CI
 - Uses GitHub problem matcher to show warnings inline
 
 **mypy** remains the **authoritative type checker**:
