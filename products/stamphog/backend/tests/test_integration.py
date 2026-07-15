@@ -1,3 +1,4 @@
+import os
 import json
 import uuid
 from pathlib import Path
@@ -7,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
+from posthog.models import OAuthAccessToken, Team
 from posthog.models.integration import Integration
 
 from products.stamphog.backend.facade.enums import (
@@ -38,12 +40,16 @@ POLICY_DEFAULTS_DIR = Path(__file__).resolve().parents[1] / "logic" / "policy_de
 
 
 def _repo_config(team_id: int, *, digest_enabled: bool = True) -> StamphogRepoConfig:
+    # Reviews mint the sandbox gateway token under the connecting user, so wire the team's own
+    # member in — exactly what sync_installation records in production.
+    connected_by = Team.objects.get(id=team_id).organization.members.values_list("id", flat=True).first()
     return StamphogRepoConfig.objects.for_team(team_id).create(
         team_id=team_id,
         repository=REPO,
         installation_id=INSTALLATION_ID,
         enabled=True,
         digest_enabled=digest_enabled,
+        connected_by_user_id=connected_by,
     )
 
 
@@ -148,6 +154,100 @@ def test_signed_webhook_drives_review_and_posts_approval(team, stamphog_chain: S
     assert len(approvals) == 1
     assert approvals[0]["body"]["event"] == "APPROVE"
     assert approvals[0]["body"]["commit_id"] == head_sha
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_sandbox_destroy_failure_does_not_mask_a_completed_review(team, stamphog_chain: StamphogChain) -> None:
+    # Teardown runs in a finally block after a successful review; if its exception propagated it
+    # would replace the success, drop the verdict, and mark the run FAILED.
+    _repo_config(team.id)
+    recorder = stamphog_chain.recorder
+    author, head_sha = "devex-dev", "sha109a"
+    recorder.register_pr(REPO, 109, _pr_object(109, author, head_sha), _pr_files())
+    recorder.policy_files[".stamphog/policy.yml"] = "version: 1\n"
+    stamphog_chain.sandbox_class.destroy_error = RuntimeError("sandbox teardown blew up")
+
+    status = stamphog_chain.post_webhook(_opened_event(109, author, head_sha), delivery_id=str(uuid.uuid4()))
+    assert status == 202
+
+    run = ReviewRun.objects.for_team(team.id).latest("created_at")
+    assert run.status == ReviewRunStatus.COMPLETED
+    assert run.verdict == ReviewVerdict.APPROVED
+    assert any(w["kind"] == "approve_review" for w in recorder.github_writes)
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_sandbox_gets_minted_short_lived_credential_and_closed_egress(
+    team, user, stamphog_chain: StamphogChain
+) -> None:
+    # The sandbox runs an LLM over untrusted PR content, so it must never hold a long-lived
+    # credential: no raw Anthropic key, not the worker's own gateway key — only a per-run OAuth
+    # token minted under the connecting user — and its egress must be fenced to the hosts a
+    # review needs, so a prompt-injected reviewer has nowhere to exfiltrate to.
+    _repo_config(team.id)
+    recorder = stamphog_chain.recorder
+    head_sha = "sha110a"
+    recorder.register_pr(REPO, 110, _pr_object(110, "devex-dev", head_sha), _pr_files())
+    recorder.policy_files[".stamphog/policy.yml"] = "version: 1\n"
+
+    worker_env = {"ANTHROPIC_API_KEY": "sk-ant-worker-secret", "AI_GATEWAY_API_KEY": "phs_worker_shared_key"}
+    with patch.dict(os.environ, worker_env):
+        stamphog_chain.post_webhook(_opened_event(110, "devex-dev", head_sha), delivery_id=str(uuid.uuid4()))
+
+    config = stamphog_chain.sandbox_class.created_configs[0]
+    env = config.environment_variables
+    assert "ANTHROPIC_API_KEY" not in env
+    assert env["AI_GATEWAY_API_KEY"] != "phs_worker_shared_key"
+
+    minted = OAuthAccessToken.objects.get(token=env["AI_GATEWAY_API_KEY"])
+    assert minted.user_id == user.id
+    assert minted.scope == "llm_gateway:read"
+    assert minted.scoped_teams == [team.id]
+    assert minted.expires is not None and minted.expires > timezone.now()
+
+    assert "github.com" in config.outbound_domain_allowlist
+    assert "llm-gateway.test" in config.outbound_domain_allowlist
+    assert "sha110a" not in config.outbound_domain_allowlist  # sanity: it's a domain list, not env spill
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_hosted_review_fails_closed_without_connecting_user(team, stamphog_chain: StamphogChain) -> None:
+    # A repo whose installation was never synced has no identity to mint sandbox credentials
+    # under — the run must fail, not fall back to a shared long-lived key.
+    config = _repo_config(team.id)
+    config.connected_by_user_id = None
+    config.save(update_fields=["connected_by_user_id"])
+    recorder = stamphog_chain.recorder
+    recorder.register_pr(REPO, 111, _pr_object(111, "devex-dev", "sha111a"), _pr_files())
+    recorder.policy_files[".stamphog/policy.yml"] = "version: 1\n"
+
+    stamphog_chain.post_webhook(_opened_event(111, "devex-dev", "sha111a"), delivery_id=str(uuid.uuid4()))
+
+    run = ReviewRun.objects.for_team(team.id).latest("created_at")
+    assert run.status == ReviewRunStatus.FAILED
+    assert "connecting user" in (run.error or "")
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_hosted_review_fails_closed_without_gateway_instead_of_anthropic_fallback(
+    team, stamphog_chain: StamphogChain
+) -> None:
+    # With no gateway configured the run must fail — never ship the org-wide Anthropic key from
+    # the worker env into the sandbox as a fallback.
+    _repo_config(team.id)
+    recorder = stamphog_chain.recorder
+    recorder.register_pr(REPO, 112, _pr_object(112, "devex-dev", "sha112a"), _pr_files())
+    recorder.policy_files[".stamphog/policy.yml"] = "version: 1\n"
+
+    env_without_gateway = {k: v for k, v in os.environ.items() if k != "AI_GATEWAY_URL"}
+    env_without_gateway["ANTHROPIC_API_KEY"] = "sk-ant-worker-secret"
+    with patch.dict(os.environ, env_without_gateway, clear=True):
+        stamphog_chain.post_webhook(_opened_event(112, "devex-dev", "sha112a"), delivery_id=str(uuid.uuid4()))
+
+    run = ReviewRun.objects.for_team(team.id).latest("created_at")
+    assert run.status == ReviewRunStatus.FAILED
+    assert "gateway" in (run.error or "").lower()
+    assert not stamphog_chain.sandbox_class.created_configs  # no sandbox was ever provisioned
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

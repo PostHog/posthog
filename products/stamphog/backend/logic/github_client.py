@@ -361,6 +361,24 @@ class StamphogGitHubClient:
             )
         return self._json(response, path)
 
+    def get_collaborator_permission(self, repo: str, username: str) -> str:
+        """The user's effective permission on the repo: ``admin``, ``write``, ``read``, or ``none``.
+
+        GitHub's legacy ``permission`` field collapses ``maintain`` into ``write`` and ``triage`` into
+        ``read``, which is exactly the granularity the reviewer's author gate needs. A 404 means the
+        user has no access at all and maps to ``none``.
+        """
+        path = f"/repos/{repo}/collaborators/{quote(username)}/permission"
+        response = self._request("GET", path, endpoint="/repos/{owner}/{repo}/collaborators/{username}/permission")
+        if response.status_code == 404:
+            return "none"
+        if response.status_code != 200:
+            raise StamphogGitHubError(
+                f"Failed to fetch collaborator permission for {username} on {repo}: {response.text[:300]}",
+                status_code=response.status_code,
+            )
+        return self._json(response, path).get("permission") or "none"
+
     def get_pr_files(self, repo: str, number: int) -> list[dict]:
         """Fetch the PR's changed files, paginating through GitHub's list endpoint.
 

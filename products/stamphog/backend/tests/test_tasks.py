@@ -4,6 +4,7 @@ from typing import Any
 import pytest
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.utils.dateparse import parse_datetime
 
 from posthog.models import Project, Team
@@ -56,14 +57,17 @@ def _pr_payload(
     return payload
 
 
-def _run_task(payload: dict[str, Any], delivery_id: str, team_id: int):
+def _run_task(payload: dict[str, Any], delivery_id: str, team_id: int, author_permission: str = "write"):
     # transaction.on_commit never fires on its own outside a real commit, so run it
-    # inline; execute_stamphog_review_workflow is a Temporal network call and gets mocked.
+    # inline; execute_stamphog_review_workflow is a Temporal network call and gets mocked, as is
+    # the author write-permission lookup (a GitHub API call).
     with (
         team_scope(team_id),
         patch("products.stamphog.backend.tasks.tasks.transaction.on_commit", side_effect=lambda fn, using=None: fn()),
         patch("products.stamphog.backend.tasks.tasks.execute_stamphog_review_workflow") as mock_execute,
+        patch("products.stamphog.backend.tasks.tasks.StamphogGitHubClient") as mock_client,
     ):
+        mock_client.return_value.get_collaborator_permission.return_value = author_permission
         process_pull_request_event(payload, delivery_id)
     return mock_execute
 
@@ -147,6 +151,42 @@ def test_review_path_skips_untrusted_bot_or_draft_prs(team, repo_config, pr_kwar
     else:
         assert count == 0
         mock_execute.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "author_permission,expect_run",
+    [("admin", True), ("write", True), ("read", False), ("none", False)],
+    ids=["admin", "write", "read_only", "no_access"],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_review_path_requires_author_write_permission(team, repo_config, author_permission, expect_run):
+    # author_association alone can't prove push access (org MEMBERs and triage/read COLLABORATORs pass
+    # it), so a trusted-association author below write must still be dropped before a run is queued.
+    mock_execute = _run_task(_pr_payload(), f"delivery-perm-{author_permission}", team.id, author_permission)
+
+    with team_scope(team.id):
+        count = ReviewRun.objects.count()
+    if expect_run:
+        assert count == 1
+        mock_execute.assert_called_once()
+    else:
+        assert count == 0
+        mock_execute.assert_not_called()
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_author_permission_skip_retracts_stale_approvals_on_head_change(team, repo_config):
+    # A synchronize skipped for lost write access must not leave a standing approval from an earlier
+    # head satisfying required reviews — same hazard as the LABEL-mode skip.
+    _run_task(_pr_payload(), "delivery-perm-approved", team.id)
+
+    cache.clear()  # the first run cached the author's "write" permission; the revocation must be seen
+    with patch("products.stamphog.backend.tasks.tasks.dismiss_stale_approvals_for_head", return_value=1) as dismiss:
+        _run_task(_pr_payload(action="synchronize"), "delivery-perm-revoked", team.id, author_permission="read")
+
+    dismiss.assert_called_once()
+    with team_scope(team.id):
+        assert ReviewRun.objects.count() == 1  # no second run was queued
 
 
 @pytest.mark.parametrize(
@@ -408,6 +448,10 @@ def test_installation_repos_added_creates_disabled_rows_and_skips_existing(team,
     # A repo added to the installation after the initial sync must appear in the toggle list without a
     # manual re-sync — as a disabled row, since enabling reviews stays a human decision. An already
     # registered repo is left untouched (no duplicate, no settings reset).
+    with team_scope(team.id):
+        # Webhooks carry no PostHog identity, so the new row must inherit the connecting user
+        # (the review-credential principal) from its synced sibling.
+        StamphogRepoConfig.objects.filter(id=repo_config.id).update(connected_by_user_id=4242)
     payload = _installation_payload(action="added", added=["acme/new-repo", REPO])
     process_installation_event(payload, "delivery-inst-added")
 
@@ -416,6 +460,7 @@ def test_installation_repos_added_creates_disabled_rows_and_skips_existing(team,
         assert new_row.enabled is False
         assert new_row.digest_enabled is False
         assert new_row.installation_id == INSTALLATION_ID
+        assert new_row.connected_by_user_id == 4242
         repo_config.refresh_from_db()
         assert repo_config.enabled is True  # existing row untouched
         assert StamphogRepoConfig.objects.count() == 2

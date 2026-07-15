@@ -242,6 +242,8 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert bound.count() == 2
         # Bind disabled: an install can surface hundreds of repos, so none starts reviewing until toggled.
         assert all(not config.enabled for config in bound)
+        # The caller becomes the connecting user — the identity review-sandbox credentials are minted under.
+        assert all(config.connected_by_user_id == self.user.id for config in bound)
 
     @patch(f"{_VIEWS}.list_user_accessible_repositories", return_value=["PostHog/posthog"])
     @patch(f"{_VIEWS}.user_can_access_installation", return_value=True)
@@ -262,6 +264,7 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert response.json()["skipped"] == []
         manual.refresh_from_db()
         assert manual.installation_id == "42"
+        assert manual.connected_by_user_id == self.user.id
 
     @patch(f"{_VIEWS}.list_user_accessible_repositories")
     @patch(f"{_VIEWS}.user_can_access_installation", return_value=False)

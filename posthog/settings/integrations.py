@@ -1,4 +1,4 @@
-from posthog.settings.utils import get_from_env, str_to_bool
+from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
 HUBSPOT_APP_CLIENT_ID = get_from_env("HUBSPOT_APP_CLIENT_ID", "")
 HUBSPOT_APP_CLIENT_SECRET = get_from_env("HUBSPOT_APP_CLIENT_SECRET", "")
@@ -55,6 +55,10 @@ STAMPHOG_GITHUB_APP_CLIENT_SECRET = get_from_env("STAMPHOG_GITHUB_APP_CLIENT_SEC
 # URL-friendly App name in github.com/apps/<slug>; the install URL is built from it. Empty until
 # the App is provisioned, in which case the install-info endpoint returns a blank install URL.
 STAMPHOG_GITHUB_APP_SLUG = get_from_env("STAMPHOG_GITHUB_APP_SLUG", "")
+# Extra outbound domains the review sandbox may reach, on top of the built-in allowlist (GitHub,
+# PyPI, the LLM gateway host, the PostHog capture host). Comma-separated; an ops escape hatch for
+# when a legitimate dependency host is missing — never a way to open the sandbox wide.
+STAMPHOG_SANDBOX_EXTRA_EGRESS_DOMAINS = get_list(get_from_env("STAMPHOG_SANDBOX_EXTRA_EGRESS_DOMAINS", ""))
 
 ZENDESK_ADMIN_EMAIL = get_from_env("ZENDESK_ADMIN_EMAIL", "")
 ZENDESK_API_TOKEN = get_from_env("ZENDESK_API_TOKEN", "")

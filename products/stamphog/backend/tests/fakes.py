@@ -99,6 +99,7 @@ _DISMISS_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/pulls/(?P<number>\d+)/r
 _LABEL_DELETE_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/issues/(?P<number>\d+)/labels/(?P<label>[^/]+)$")
 _CONTENTS_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/contents/(?P<path>.+)$")
 _CHECK_RUNS_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/commits/(?P<sha>[^/]+)/check-runs$")
+_COLLABORATOR_PERMISSION_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/collaborators/(?P<username>[^/]+)/permission$")
 
 _API_PREFIX = "https://api.github.com"
 
@@ -131,6 +132,9 @@ class GitHubRecorder:
         # bot-identity filter in upsert_sticky_comment). Empty by default — most tests post fresh.
         self.issue_comments: dict[tuple[str, int], list[dict]] = {}
         self.author_merged: dict[tuple[str, str], list[int]] = {}
+        # (repo, login) -> permission for the author write gate; unscripted authors default to "write"
+        # so tests that aren't about the gate flow through it.
+        self.collaborator_permissions: dict[tuple[str, str], str] = {}
         self.teams_by_login: dict[str, list[str]] = {}
         self.policy_files: dict[str, str] = {}
         self.github_writes: list[dict[str, Any]] = []
@@ -160,6 +164,9 @@ class GitHubRecorder:
             return self._search_issues(params)
         if method == "GET" and _CHECK_RUNS_RE.match(path):
             return FakeResponse(200, json_data={"check_runs": []})
+        if method == "GET" and (m := _COLLABORATOR_PERMISSION_RE.match(path)):
+            permission = self.collaborator_permissions.get((m.group("repo"), m.group("username")), "write")
+            return FakeResponse(200, json_data={"permission": permission})
         if method == "GET" and (m := _CONTENTS_RE.match(path)):
             return self._get_contents(m.group("path"))
         if method == "POST" and path == "/graphql":
@@ -331,8 +338,15 @@ def make_fake_sandbox_class(engine_output: str, write_sink: list[tuple[str, byte
     """
 
     class _FakeSandbox:
+        # A test can set this on the class to make teardown blow up (destroy-must-not-mask coverage).
+        destroy_error: Exception | None = None
+        # Every SandboxConfig passed to create(), so a test can assert what the sandbox was given
+        # (environment variables, egress allowlist).
+        created_configs: list[Any] = []
+
         @classmethod
         def create(cls, config: Any) -> _FakeSandbox:
+            cls.created_configs.append(config)
             return cls()
 
         def execute(self, command: str, timeout_seconds: int | None = None) -> FakeExecResult:
@@ -345,6 +359,7 @@ def make_fake_sandbox_class(engine_output: str, write_sink: list[tuple[str, byte
             return FakeExecResult(stdout="", stderr="", exit_code=0)
 
         def destroy(self) -> None:
-            return None
+            if self.destroy_error is not None:
+                raise self.destroy_error
 
     return _FakeSandbox

@@ -55,7 +55,8 @@ class ReviewerInvocation:
     ``context_json`` is written to ``context_path`` in the checkout; ``command``
     (``uv run <engine>/review_local.py --context <context_path>``) runs it. The
     engine source files and the trusted policy files are placed separately by the
-    activity. ANTHROPIC_API_KEY is expected in the sandbox environment.
+    activity. The LLM credentials (AI_GATEWAY_URL plus a per-run minted
+    AI_GATEWAY_API_KEY) are expected in the sandbox environment.
     """
 
     command: list[str]

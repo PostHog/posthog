@@ -19,6 +19,7 @@ from celery import shared_task
 from products.stamphog.backend.facade.enums import ReviewMode, ReviewRunStatus, ReviewVerdict
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
 from products.stamphog.backend.logic.audiences import resolve_audience_key
+from products.stamphog.backend.logic.github_client import StamphogGitHubClient
 from products.stamphog.backend.models import PullRequest, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.temporal.client import execute_stamphog_review_workflow
 
@@ -48,6 +49,11 @@ _LABEL_SKIP_DISMISS_MESSAGE = (
     "Re-add the trigger label to request a fresh review."
 )
 
+_AUTHOR_SKIP_DISMISS_MESSAGE = (
+    "New commits were pushed — dismissing the stamphog approval from an earlier head. "
+    "The PR author no longer has write access to this repository, so stamphog will not re-review."
+)
+
 # Per-PR cooldown for label-triggered re-reviews, so removing/re-adding the trigger label can't spam
 # sandbox + LLM runs. Set only when a `labeled` event actually queues a run in LABEL mode.
 STAMPHOG_LABEL_REREVIEW_COOLDOWN_SECONDS = 10 * 60
@@ -68,6 +74,13 @@ PR_BODY_EXCERPT_MAX_CHARS = 2000
 # PRs to burn sandbox + LLM credits. (GitHub's association vocabulary; the trusted subset.)
 TRUSTED_AUTHOR_ASSOCIATIONS = frozenset({"OWNER", "MEMBER", "COLLABORATOR"})
 
+# The association gate above is necessary but not sufficient: MEMBER says nothing about repo-level
+# access, and COLLABORATOR covers read/triage-only invites. Auto-approval must also require that the
+# author can push — otherwise an under-privileged user gets an approval that satisfies branch
+# protection. GitHub's legacy permission field folds maintain into write and triage into read.
+WRITE_PERMISSIONS = frozenset({"admin", "write"})
+_AUTHOR_PERMISSION_CACHE_SECONDS = 10 * 60
+
 
 def _review_skip_reason(pr: dict[str, Any]) -> str | None:
     """Why this PR must not enter the sandbox review path, or None to proceed.
@@ -87,6 +100,24 @@ def _review_skip_reason(pr: dict[str, Any]) -> str | None:
     if pr.get("author_association") not in TRUSTED_AUTHOR_ASSOCIATIONS:
         return "untrusted_author_association"
     return None
+
+
+def _author_lacks_write_permission(repo_config: StamphogRepoConfig, repo: str, pr: dict[str, Any]) -> bool:
+    """Whether the PR author's effective repo permission is below write.
+
+    Unlike the payload-only pre-filters this costs a GitHub API call, so it runs last of the gates
+    and the result is cached briefly per (repo config, login) to absorb synchronize bursts. Lookup
+    errors propagate — the caller retries the delivery rather than failing open or dropping it.
+    """
+    login = (pr.get("user") or {}).get("login") or ""
+    if not login:
+        return True
+    cache_key = f"stamphog:author_permission:{repo_config.id}:{login}"
+    permission = cache.get(cache_key)
+    if permission is None:
+        permission = StamphogGitHubClient(repo_config.installation_id).get_collaborator_permission(repo, login)
+        cache.set(cache_key, permission, _AUTHOR_PERMISSION_CACHE_SECONDS)
+    return permission not in WRITE_PERMISSIONS
 
 
 def _label_cooldown_key(repo_config: StamphogRepoConfig, pr_number: int) -> str:
@@ -236,15 +267,16 @@ def _supersede_prior_runs(pr_obj: PullRequest) -> None:
         )
 
 
-def _retract_stale_approvals_on_label_skip(repo_config: StamphogRepoConfig, pr: dict[str, Any]) -> None:
-    """Retract a standing stamphog approval when a LABEL-mode head change is skipped for a missing label.
+def _retract_stale_approvals_on_skip(repo_config: StamphogRepoConfig, pr: dict[str, Any], message: str) -> None:
+    """Retract a standing stamphog approval when a head-changing event is skipped before the workflow.
 
-    In LABEL mode a `synchronize`/`reopened` without the trigger label never enters the review workflow,
-    so its dismiss_stale_approvals step never runs and a prior approval keeps satisfying required reviews
-    over the newly pushed, unreviewed commits. Retract it here with the payload's head sha. No PR row yet
-    means no prior run, so nothing to do. Raises on failure so the caller can retry — a dropped dismissal
-    would leave the stale approval standing. No explicit transaction: the helper's per-run saves route to
-    the model's DB on their own, and wrapping the GitHub dismissal in an atomic block is what we avoid.
+    A skipped `synchronize`/`reopened` (missing trigger label, author lost write access) never reaches
+    the workflow's dismiss_stale_approvals step, so a prior approval would keep satisfying required
+    reviews over the newly pushed, unreviewed commits. Retract it here with the payload's head sha. No
+    PR row yet means no prior run, so nothing to do. Raises on failure so the caller can retry — a
+    dropped dismissal would leave the stale approval standing. No explicit transaction: the helper's
+    per-run saves route to the model's DB on their own, and wrapping the GitHub dismissal in an atomic
+    block is what we avoid.
     """
     team_id = repo_config.team_id
     pr_number = pr.get("number")
@@ -252,12 +284,10 @@ def _retract_stale_approvals_on_label_skip(repo_config: StamphogRepoConfig, pr: 
     pull_request = PullRequest.objects.for_team(team_id).filter(repo_config=repo_config, pr_number=pr_number).first()
     if pull_request is None:
         return
-    dismissed = dismiss_stale_approvals_for_head(
-        team_id, pull_request, repo_config, head_sha, message=_LABEL_SKIP_DISMISS_MESSAGE
-    )
+    dismissed = dismiss_stale_approvals_for_head(team_id, pull_request, repo_config, head_sha, message=message)
     if dismissed:
         logger.info(
-            "stamphog_pr_event_label_skip_dismissed_stale_approvals",
+            "stamphog_pr_event_skip_dismissed_stale_approvals",
             repo=repo_config.repository,
             pr_number=pr_number,
             dismissed=dismissed,
@@ -371,6 +401,15 @@ def _add_installation_repos(team_id: int, installation_id: str, repos: list[dict
     # configured, else default) — a bare atomic() would open on the default connection and leave
     # the create running outside any transaction on the product DB.
     write_db = router.db_for_write(StamphogRepoConfig)
+    # New rows inherit the connecting user from a sibling of the same installation — webhooks carry
+    # no PostHog identity, and the sandbox token for reviews is minted under this user. No sibling
+    # with one set means the installation was never synced; the row stays null and reviews fail closed.
+    connected_by_user_id = (
+        StamphogRepoConfig.objects.for_team(team_id)
+        .filter(provider="github", installation_id=installation_id, connected_by_user_id__isnull=False)
+        .values_list("connected_by_user_id", flat=True)
+        .first()
+    )
     for repo in repos:
         full_name = (repo or {}).get("full_name") or ""
         if not full_name:
@@ -391,6 +430,7 @@ def _add_installation_repos(team_id: int, installation_id: str, repos: list[dict
                     installation_id=installation_id,
                     enabled=False,
                     digest_enabled=False,
+                    connected_by_user_id=connected_by_user_id,
                 )
         except IntegrityError:
             logger.info("stamphog_installation_repo_add_conflict", repository=full_name, team_id=team_id)
@@ -550,11 +590,34 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
         # and retry (don't drop) on failure so a transient blip can't leave the stale approval live.
         if action in _HEAD_CHANGING_ACTIONS and repo_config.review_mode == ReviewMode.LABEL:
             try:
-                _retract_stale_approvals_on_label_skip(repo_config, pr)
+                _retract_stale_approvals_on_skip(repo_config, pr, _LABEL_SKIP_DISMISS_MESSAGE)
             except Exception as e:
                 logger.exception("stamphog_pr_event_label_skip_dismiss_failed", delivery_id=delivery_id, error=str(e))
                 raise cast(Any, process_pull_request_event).retry(exc=e)
         logger.info("stamphog_pr_event_skipped", repo=repo, pr_number=pr_number, reason=mode_skip_reason)
+        if delivery_id:
+            _mark_pr_event_processed(delivery_id)
+        return
+
+    # author_association alone can't prove push access (see WRITE_PERMISSIONS), so the last gate before
+    # spending a run verifies it against the repo. Retry (don't drop) on lookup failure: fail-open would
+    # let a transient GitHub blip mint approvals for under-privileged authors, and dropping would lose
+    # legitimate reviews to the same blip.
+    try:
+        author_below_write = _author_lacks_write_permission(repo_config, repo, pr)
+    except Exception as e:
+        logger.exception("stamphog_pr_event_author_permission_failed", delivery_id=delivery_id, error=str(e))
+        raise cast(Any, process_pull_request_event).retry(exc=e)
+    if author_below_write:
+        # Same stale-approval hazard as the label skip: a head change that never reaches the workflow
+        # must not leave an approval from an earlier head satisfying required reviews.
+        if action in _HEAD_CHANGING_ACTIONS:
+            try:
+                _retract_stale_approvals_on_skip(repo_config, pr, _AUTHOR_SKIP_DISMISS_MESSAGE)
+            except Exception as e:
+                logger.exception("stamphog_pr_event_author_skip_dismiss_failed", delivery_id=delivery_id, error=str(e))
+                raise cast(Any, process_pull_request_event).retry(exc=e)
+        logger.info("stamphog_pr_event_skipped", repo=repo, pr_number=pr_number, reason="author_below_write")
         if delivery_id:
             _mark_pr_event_processed(delivery_id)
         return

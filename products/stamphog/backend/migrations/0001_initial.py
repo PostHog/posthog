@@ -138,6 +138,7 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 ("trigger_label", models.CharField(default="stamphog", max_length=100)),
+                ("connected_by_user_id", models.BigIntegerField(blank=True, null=True)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
             ],

@@ -1,3 +1,4 @@
+import os
 from collections.abc import Iterator
 from contextlib import AbstractContextManager, ExitStack
 from dataclasses import dataclass
@@ -11,7 +12,9 @@ from django.test import Client, override_settings
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
+from posthog.models import OAuthApplication
 from posthog.models.scoping import team_scope
+from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, ARRAY_APP_CLIENT_ID_EU, ARRAY_APP_CLIENT_ID_US
 
 from products.stamphog.backend.temporal.activities import (
     MarkReviewFailedInput,
@@ -122,6 +125,8 @@ class StamphogChain:
     # Every file the fake sandbox had written into the checkout, as (path, payload) — lets a test
     # assert what was injected (e.g. default policy files when the repo carries none).
     sandbox_writes: list[tuple[str, bytes]]
+    # The fake sandbox class itself, so a test can script failure modes (e.g. destroy_error).
+    sandbox_class: type
 
     def post_webhook(self, payload: dict[str, Any], *, delivery_id: str) -> int:
         body = fakes.encode(payload)
@@ -147,6 +152,20 @@ def stamphog_chain() -> Iterator[StamphogChain]:
     # review-guidance.md is a required trusted policy file — run_review_in_sandbox fails closed without
     # it — so seed it for the whole chain; individual tests still set/override policy.yml as they need.
     recorder.policy_files[".stamphog/review-guidance.md"] = "Review PostHog PRs against the repo's norms.\n"
+    # The review activity mints a real sandbox OAuth token under the Array app, which resolves by
+    # region client id — seed every region so get_instance_region()'s value doesn't matter here.
+    for client_id in (ARRAY_APP_CLIENT_ID_DEV, ARRAY_APP_CLIENT_ID_US, ARRAY_APP_CLIENT_ID_EU):
+        OAuthApplication.objects.get_or_create(
+            client_id=client_id,
+            defaults={
+                "name": "Array Test App",
+                "client_type": OAuthApplication.CLIENT_PUBLIC,
+                "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                "redirect_uris": "https://app.posthog.com/callback",
+                # RS256 is enforced by the `enforce_rs256_algorithm` DB constraint.
+                "algorithm": "RS256",
+            },
+        )
     fake_slack = fakes.FakeSlackIntegration
     fake_slack.reset(channels=[])
     sandbox_writes: list[tuple[str, bytes]] = []
@@ -160,6 +179,12 @@ def stamphog_chain() -> Iterator[StamphogChain]:
                 STAMPHOG_GITHUB_APP_PRIVATE_KEY=_generate_app_private_key(),
             )
         )
+        # Hosted reviews hard-require the gateway (no raw-Anthropic fallback); point it at the
+        # stamphog product route like production would.
+        stack.enter_context(patch.dict(os.environ, {"AI_GATEWAY_URL": "https://llm-gateway.test/stamphog/v1"}))
+        # mark_review_failed emits a failure event through the real analytics client — a network
+        # boundary, faked like the rest. Tests asserting on the event re-patch this locally.
+        stack.enter_context(patch("products.stamphog.backend.temporal.activities.ph_scoped_capture"))
         stack.enter_context(
             patch("products.stamphog.backend.logic.github_client.github_request", recorder.github_request)
         )
@@ -197,4 +222,6 @@ def stamphog_chain() -> Iterator[StamphogChain]:
                 side_effect=RuntimeError("no gateway in tests"),
             )
         )
-        yield StamphogChain(recorder=recorder, client=Client(), sandbox_writes=sandbox_writes)
+        yield StamphogChain(
+            recorder=recorder, client=Client(), sandbox_writes=sandbox_writes, sandbox_class=fake_sandbox
+        )

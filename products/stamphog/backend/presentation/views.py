@@ -14,6 +14,7 @@ from django.conf import settings
 from django.core import signing
 from django.db import IntegrityError, router, transaction
 from django.db.models import QuerySet
+from django.utils import timezone
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
@@ -187,7 +188,7 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.ModelViewSe
             raise already_claimed_error
 
     @extend_schema(responses={200: StamphogInstallInfoSerializer})
-    @action(detail=False, methods=["GET"], url_path="install_info")
+    @action(detail=False, methods=["GET"], url_path="install_info", required_scopes=["stamphog:read"])
     def install_info(self, request: Request, **kwargs) -> Response:
         # Deep link into GitHub's install page for the "Connect a repository" button. The state token
         # binds the eventual callback to THIS team and user: GitHub round-trips ?state=... back to the
@@ -206,8 +207,11 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.ModelViewSe
         request=StamphogSyncInstallationRequestSerializer,
         responses={200: StamphogSyncInstallationResponseSerializer},
     )
-    @action(detail=False, methods=["POST"], url_path="sync_installation")
+    @action(detail=False, methods=["POST"], url_path="sync_installation", required_scopes=["stamphog:write"])
     def sync_installation(self, request: Request, **kwargs) -> Response:
+        # Custom action names fall outside the default read/write action classification, so without
+        # explicit required_scopes this write would be reachable with no scope check at all.
+        #
         # Post-install binding: GitHub redirects the browser back with an installation_id AND a
         # user-to-server OAuth code. We verify the code proves the caller owns the installation before
         # registering a StamphogRepoConfig for every repo it covers under the CURRENT team. Without the
@@ -314,6 +318,16 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.ModelViewSe
                     synced.append(adopted)
                 continue
             synced.append(config)
+
+        # Every synced row records the caller as its connecting user — the identity the review
+        # sandbox's short-lived gateway token is minted under. Re-syncs re-stamp on purpose: the
+        # latest human to prove installation ownership is the right principal (the original
+        # installer may be long gone). .update() bypasses auto_now, so updated_at is set by hand.
+        restamp_ids = [config.id for config in synced if config.connected_by_user_id != request.user.pk]
+        if restamp_ids:
+            StamphogRepoConfig.objects.for_team(self.team_id).filter(id__in=restamp_ids).update(
+                connected_by_user_id=request.user.pk, updated_at=timezone.now()
+            )
 
         response = StamphogSyncInstallationResponseSerializer({"synced": synced, "skipped": skipped})
         return Response(response.data)

@@ -22,6 +22,7 @@ import base64
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlparse
 
 from django.conf import settings
 from django.utils import timezone
@@ -29,8 +30,10 @@ from django.utils import timezone
 import yaml
 from temporalio import activity
 
+from posthog.models import User
 from posthog.ph_client import ph_scoped_capture
 from posthog.temporal.common.utils import asyncify
+from posthog.temporal.oauth import create_oauth_access_token_for_user
 
 from products.stamphog.backend.facade.enums import ReviewMode, ReviewRunStatus, ReviewVerdict
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
@@ -93,15 +96,42 @@ def _load_run(input: StamphogReviewInput) -> ReviewRun:
     )
 
 
-def _reviewer_environment(run: ReviewRun) -> dict[str, str]:
-    """Environment for the in-sandbox reviewer, passed through from the worker env.
+def _mint_reviewer_gateway_token(run: ReviewRun) -> str:
+    """Short-lived OAuth token the sandboxed reviewer presents to the LLM gateway.
 
-    The sandbox holds no GitHub token by design; the only secrets it receives are the LLM credentials
-    the engine needs. Prefer the internal ai-gateway when configured and ship ONLY its key: a gateway
-    credential is scoped to stamphog's own credit bucket, so if an untrusted PR coaxes the reviewer into
-    leaking it, the blast radius is this product's LLM budget rather than an org-wide Anthropic key. The
-    raw ANTHROPIC_API_KEY is forwarded only as the engine's fallback when the gateway isn't configured
-    (tools/pr-approval-agent/gateway.py). Output scrubbing (_scrub_credentials) stays as defense in depth.
+    Minted under the user who connected the repo's installation (the same creator-credential model
+    tasks uses with ``task.created_by``), under the shared sandbox OAuth app, carrying the single
+    ``llm_gateway:read`` scope and this run's team. If an untrusted PR coaxes the reviewer into
+    leaking it, the token buys a few hours of stamphog-route LLM calls and nothing else — the worker's
+    own long-lived credential never enters the sandbox. Fails closed when the repo was never synced
+    or the connecting user is gone; re-syncing the installation stamps a fresh identity.
+    """
+    user_id = run.pull_request.repo_config.connected_by_user_id
+    if user_id is None:
+        raise RuntimeError(
+            "Repo config has no connecting user (installation never synced); cannot mint sandbox LLM credentials"
+        )
+    user = User.objects.filter(pk=user_id, is_active=True).first()
+    if user is None:
+        raise RuntimeError(
+            "The user who connected this installation is missing or deactivated; "
+            "re-sync the installation to mint sandbox LLM credentials"
+        )
+    return create_oauth_access_token_for_user(
+        user, run.team_id, scopes=["llm_gateway:read"], include_internal_scopes=False
+    )
+
+
+def _reviewer_environment(run: ReviewRun) -> dict[str, str]:
+    """Environment for the in-sandbox reviewer.
+
+    The sandbox holds no GitHub token by design, and no long-lived LLM credential either: the only
+    secret it receives is a per-run minted gateway token (see ``_mint_reviewer_gateway_token``). The
+    gateway is mandatory for hosted runs — the engine's raw-Anthropic fallback exists for the GitHub
+    Action runtime, where the env is the repo's own secrets, and an org-wide Anthropic key must never
+    ride into a sandbox that runs an LLM over untrusted PR content. AI_GATEWAY_URL must point at the
+    gateway's stamphog product route (``https://<gateway>/stamphog/v1``): that route allowlists the
+    sandbox OAuth app the token is minted under, so a token presented anywhere else is refused.
 
     POSTHOG_API_KEY/POSTHOG_HOST let the engine emit its stamphog_review_completed event and LLM
     traces from inside the sandbox. The capture key is a public project write token — the same class of
@@ -109,16 +139,14 @@ def _reviewer_environment(run: ReviewRun) -> dict[str, str]:
     added to _llm_env_secrets so persisted output stays tidy. STAMPHOG_EXTRA_PROPERTIES stamps the
     hosted runtime/team/run context onto those events (the Action never sets it).
     """
-    env = {"STAMPHOG_REPO_DIR": STAMPHOG_SANDBOX_REPO_DIR}
     gateway_url = os.environ.get("AI_GATEWAY_URL")
-    gateway_key = os.environ.get("AI_GATEWAY_API_KEY")
-    if gateway_url and gateway_key:
-        env["AI_GATEWAY_URL"] = gateway_url
-        env["AI_GATEWAY_API_KEY"] = gateway_key
-    else:
-        anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
-        if anthropic_key:
-            env["ANTHROPIC_API_KEY"] = anthropic_key
+    if not gateway_url:
+        raise RuntimeError("AI_GATEWAY_URL is not configured; hosted reviews require the LLM gateway")
+    env = {
+        "STAMPHOG_REPO_DIR": STAMPHOG_SANDBOX_REPO_DIR,
+        "AI_GATEWAY_URL": gateway_url,
+        "AI_GATEWAY_API_KEY": _mint_reviewer_gateway_token(run),
+    }
     for key in ("POSTHOG_API_KEY", "POSTHOG_HOST"):
         value = os.environ.get(key)
         if value:
@@ -132,6 +160,26 @@ def _reviewer_environment(run: ReviewRun) -> dict[str, str]:
         separators=(",", ":"),
     )
     return env
+
+
+def _sandbox_egress_allowlist() -> list[str]:
+    """Outbound domains the review sandbox may reach; Modal fences off everything else.
+
+    The sandbox env carries a live (if short-lived, narrowly scoped) credential next to an LLM
+    reading untrusted PR content. Output scrubbing covers what the server persists, but nothing else
+    stops a prompt-injected reviewer from POSTing what it holds to an arbitrary host — closing egress
+    to the hosts a review actually needs removes that channel: github.com for the clone, PyPI for the
+    engine's pinned deps, the gateway for LLM calls, and the PostHog capture host for telemetry.
+    STAMPHOG_SANDBOX_EXTRA_EGRESS_DOMAINS is the ops escape hatch for a missing legitimate host.
+    The docker backend (local dev) ignores the allowlist.
+    """
+    domains = ["github.com", "pypi.org", "files.pythonhosted.org"]
+    for url_env in ("AI_GATEWAY_URL", "POSTHOG_HOST"):
+        host = urlparse(os.environ.get(url_env, "")).hostname
+        if host:
+            domains.append(host)
+    domains.extend(settings.STAMPHOG_SANDBOX_EXTRA_EGRESS_DOMAINS)
+    return list(dict.fromkeys(domains))
 
 
 def _resolve_sandbox_backend() -> str:
@@ -281,11 +329,16 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
     )
 
     sandbox_class = get_sandbox_class_for_backend(_resolve_sandbox_backend())
+    environment = _reviewer_environment(run)
+    # Per-run credential, not in the worker env — scrub it explicitly wherever sandbox output
+    # is persisted or raised (_llm_env_secrets only covers worker-env values).
+    gateway_token = environment["AI_GATEWAY_API_KEY"]
     config = SandboxConfig(
         name=f"stamphog-review-{run.id}",
         template=SandboxTemplate.SLIM_BASE,
         metadata={"review_run_id": str(run.id)},
-        environment_variables=_reviewer_environment(run),
+        environment_variables=environment,
+        outbound_domain_allowlist=_sandbox_egress_allowlist(),
     )
     sandbox = sandbox_class.create(config)
     try:
@@ -297,20 +350,26 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
         command = f"cd {shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)} && {_harden_reviewer_command(invocation.command)}"
         result = sandbox.execute(command, timeout_seconds=25 * 60)
     finally:
-        sandbox.destroy()
+        # A destroy failure must not mask a completed review — the verdict below still has to be
+        # persisted and posted. An orphaned sandbox self-terminates when SandboxConfig.ttl_seconds expires.
+        try:
+            sandbox.destroy()
+        except Exception:
+            activity.logger.exception(f"Failed to destroy sandbox for run {run.id}")
 
     # Scrub stdout before persisting: it can echo the LLM keys the sandbox holds, and it is
     # both stored on run.output and re-read verbatim to render the verdict posted to GitHub.
     run.output = {
         **(run.output or {}),
-        "reviewer_raw": _scrub_credentials(result.stdout, token),
+        "reviewer_raw": _scrub_credentials(result.stdout, token, gateway_token),
         "reviewer_exit_code": result.exit_code,
     }
     run.save(update_fields=["output", "updated_at"])
 
     if result.exit_code != 0:
         raise RuntimeError(
-            f"Reviewer exited with code {result.exit_code}: {_scrub_credentials(result.stderr, token)[:500]}"
+            f"Reviewer exited with code {result.exit_code}: "
+            f"{_scrub_credentials(result.stderr, token, gateway_token)[:500]}"
         )
 
     activity.logger.info(f"Reviewer completed for run {run.id}")

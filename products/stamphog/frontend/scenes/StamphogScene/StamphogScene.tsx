@@ -43,16 +43,24 @@ function ConnectRepositoryButton(): JSX.Element {
 function SyncedBanner(): JSX.Element | null {
     const { syncedRepos, skippedRepos } = useValues(stamphogSceneLogic)
 
-    if (syncedRepos.length === 0) {
+    if (syncedRepos.length === 0 && skippedRepos.length === 0) {
         return null
     }
 
+    // A sync can connect nothing (every repo already owned by another team) — that still needs
+    // an explanation, not a silent no-op.
     return (
-        <LemonBanner type="success">
-            <p className="font-medium">Connected {syncedRepos.length} repositories</p>
-            <p>Stamphog isn't reviewing them yet. Turn on the ones you want reviewed in the table below.</p>
+        <LemonBanner type={syncedRepos.length > 0 ? 'success' : 'warning'}>
+            {syncedRepos.length > 0 ? (
+                <>
+                    <p className="font-medium">Connected {syncedRepos.length} repositories</p>
+                    <p>Stamphog isn't reviewing them yet. Turn on the ones you want reviewed in the table below.</p>
+                </>
+            ) : (
+                <p className="font-medium">No repositories connected</p>
+            )}
             {skippedRepos.length > 0 && (
-                <p className="text-warning mt-2">
+                <p className={syncedRepos.length > 0 ? 'text-warning mt-2' : 'mt-2'}>
                     Skipped {skippedRepos.join(', ')} because another team already owns them under this installation.
                 </p>
             )}
