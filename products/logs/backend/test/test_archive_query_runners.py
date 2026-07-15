@@ -93,6 +93,10 @@ class TestArchivedLogsQueryRunner(APIBaseTest):
         self.assertIn("http.status_code", sql)
         self.assertNotIn("__str", sql)
         self.assertNotIn("__float", sql)
+        # The filter must resolve against the archive's `attributes` map, not the event `properties`
+        # column (property_to_expr keys off the log_attribute type, so scope can't misroute it).
+        self.assertIn("attributes", sql)
+        self.assertNotIn("properties", sql)
 
     @parameterized.expand(
         [
