@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 import pytest
 from unittest.mock import patch
@@ -6,15 +7,15 @@ from unittest.mock import patch
 from django.conf import settings
 
 import posthoganalytics
+from dotenv import load_dotenv
 from posthoganalytics import Posthog
 from posthoganalytics.ai.openai import AsyncOpenAI
 
 from posthog.llm.gateway_client import get_async_anthropic_gateway_client
 from posthog.models import Organization, Team
 
-from products.posthog_ai.eval_harness.harness.env_preflight import load_env_file
-
-load_env_file()
+# This eval runs via bare pytest (no hogli), so the conftest owns loading repo-root .env.
+load_dotenv(Path(__file__).resolve().parents[3] / ".env")
 
 # Initialize posthoganalytics default_client so the LLM wrapper (which requires it) works
 posthoganalytics.default_client = Posthog(  # ty: ignore[invalid-assignment]
