@@ -324,7 +324,7 @@ class TestErrorTracking(APIBaseTest):
         assert response.json()["type"] == "validation_error"
         assert response.json()["code"] == "required"
 
-    def test_fingerprint_resolve_returns_issue_and_first_seen(self):
+    def test_fingerprint_resolve_returns_issue(self):
         fingerprint = "$uper/strange#fingerprint"
         issue = self.create_issue(fingerprints=[fingerprint])
 
@@ -336,7 +336,6 @@ class TestErrorTracking(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert response.json()["issue_id"] == str(issue.id)
         assert response.json()["fingerprint"] == fingerprint
-        assert response.json()["first_seen"] is not None
 
     @parameterized.expand(
         [

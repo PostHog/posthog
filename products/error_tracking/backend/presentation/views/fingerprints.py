@@ -17,11 +17,6 @@ class ErrorTrackingFingerprintSerializer(serializers.Serializer):
     fingerprint = serializers.CharField(read_only=True, help_text="The fingerprint value.")
     issue_id = serializers.UUIDField(read_only=True, help_text="ID of the issue this fingerprint currently belongs to.")
     created_at = serializers.DateTimeField(read_only=True, help_text="When the fingerprint record was created.")
-    first_seen = serializers.DateTimeField(
-        read_only=True,
-        allow_null=True,
-        help_text="Timestamp of the first exception event captured with this fingerprint.",
-    )
 
 
 class ErrorTrackingFingerprintViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.GenericViewSet):

@@ -60,7 +60,6 @@ def _to_fingerprint(fingerprint) -> contracts.ErrorTrackingFingerprint:
         fingerprint=fingerprint.fingerprint,
         issue_id=fingerprint.issue_id,
         created_at=fingerprint.created_at,
-        first_seen=fingerprint.first_seen,
     )
 
 

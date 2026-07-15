@@ -492,11 +492,6 @@ export interface ErrorTrackingFingerprintApi {
     readonly issue_id: string
     /** When the fingerprint record was created. */
     readonly created_at: string
-    /**
-     * Timestamp of the first exception event captured with this fingerprint.
-     * @nullable
-     */
-    readonly first_seen: string | null
 }
 
 export interface PaginatedErrorTrackingFingerprintListApi {

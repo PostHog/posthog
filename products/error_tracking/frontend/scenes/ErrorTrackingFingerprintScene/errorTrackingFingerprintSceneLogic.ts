@@ -65,7 +65,9 @@ export const errorTrackingFingerprintSceneLogic = kea<errorTrackingFingerprintSc
             router.actions.replace(
                 urls.errorTrackingIssue(resolvedFingerprint.issue_id, {
                     fingerprint: props.fingerprint,
-                    timestamp: props.timestamp ?? resolvedFingerprint.first_seen ?? undefined,
+                    // Only forward a timestamp the link actually carried — without one, the issue
+                    // scene defaults to the newest event via its summary query.
+                    timestamp: props.timestamp,
                 })
             )
         },

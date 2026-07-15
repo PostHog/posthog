@@ -17,7 +17,6 @@ describe('errorTrackingFingerprintSceneLogic', () => {
                     fingerprint: 'fp-1',
                     issue_id: 'issue-1',
                     created_at: '2026-01-01T00:00:00Z',
-                    first_seen: '2026-01-01T00:00:00Z',
                 },
             },
         })
@@ -26,17 +25,21 @@ describe('errorTrackingFingerprintSceneLogic', () => {
 
     afterEach(() => logic?.unmount())
 
-    it.each<[string, string | undefined, string]>([
-        ['keeps the timestamp from the alert link', '2026-02-02T00:00:00Z', '2026-02-02T00:00:00Z'],
-        ['falls back to the fingerprint first_seen', undefined, '2026-01-01T00:00:00Z'],
-    ])('redirects to the resolved issue and %s', async (_name, timestamp, expectedTimestamp) => {
+    it.each<[string, string | undefined, Record<string, string>]>([
+        [
+            'keeps the timestamp from the alert link',
+            '2026-02-02T00:00:00Z',
+            { fingerprint: 'fp-1', timestamp: '2026-02-02T00:00:00Z' },
+        ],
+        ['omits the timestamp when the link carried none', undefined, { fingerprint: 'fp-1' }],
+    ])('redirects to the resolved issue and %s', async (_name, timestamp, expectedParams) => {
         logic = errorTrackingFingerprintSceneLogic({ fingerprint: 'fp-1', timestamp })
         logic.mount()
 
         await expectLogic(logic).toDispatchActions(['resolveFingerprintSuccess'])
 
         expect(router.values.location.pathname).toMatch(/\/error_tracking\/issue-1$/)
-        expect(router.values.searchParams).toEqual({ fingerprint: 'fp-1', timestamp: expectedTimestamp })
+        expect(router.values.searchParams).toEqual(expectedParams)
     })
 
     it('extracts the raw, still-encoded fingerprint segment from the pathname', () => {
