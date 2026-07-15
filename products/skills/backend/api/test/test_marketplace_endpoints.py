@@ -351,6 +351,50 @@ class TestMarketplaceVersion(APIBaseTest):
         assert after >= before
 
 
+class TestMarketplaceGlobalSkills(APIBaseTest):
+    def _owner_team(self) -> Team:
+        owner_org = Organization.objects.create(name="Owner Org")
+        return Team.objects.create(organization=owner_org, name="Owner Team")
+
+    def test_global_skill_from_another_team_is_served_to_this_teams_clone(self):
+        owner_team = self._owner_team()
+        LLMSkill.objects.create(
+            team=owner_team,
+            name="global-skill",
+            description="Shared everywhere.",
+            body="b",
+            version=1,
+            is_latest=True,
+            is_global=True,
+        )
+        tree = build_team_marketplace_tree(self.team)
+        assert "plugins/posthog-skill-store/skills/global-skill/SKILL.md" in tree
+
+    def test_local_skill_shadows_a_same_named_global_in_the_clone(self):
+        owner_team = self._owner_team()
+        LLMSkill.objects.create(
+            team=owner_team,
+            name="dup",
+            description="global",
+            body="GLOBAL-BODY",
+            version=1,
+            is_latest=True,
+            is_global=True,
+        )
+        LLMSkill.objects.create(
+            team=self.team,
+            name="dup",
+            description="local",
+            body="LOCAL-BODY",
+            version=1,
+            is_latest=True,
+            created_by=self.user,
+        )
+        skill_md = build_team_marketplace_tree(self.team)["plugins/posthog-skill-store/skills/dup/SKILL.md"]
+        assert "LOCAL-BODY" in skill_md
+        assert "GLOBAL-BODY" not in skill_md
+
+
 class TestMarketplaceInstallCommand(APIBaseTest):
     def _url(self) -> str:
         return f"/api/environments/{self.team.id}/llm_skills/marketplace/install-command"

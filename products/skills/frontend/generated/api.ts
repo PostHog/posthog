@@ -19,6 +19,7 @@ import type {
     LLMSkillMarketplaceCommandApi,
     LLMSkillMarketplaceIssueApi,
     LLMSkillResolveResponseApi,
+    LLMSkillVisibilityApi,
     LlmSkillsListParams,
     LlmSkillsNameExportRetrieveParams,
     LlmSkillsNameFilesDestroyParams,
@@ -367,6 +368,30 @@ export const llmSkillsNameFilesDestroy = async (
     return apiMutator<LLMSkillApi>(getLlmSkillsNameFilesDestroyUrl(projectId, skillName, filePath, params), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getLlmSkillsNameVisibilityCreateUrl = (projectId: string, skillName: string) => {
+    return `/api/projects/${projectId}/llm_skills/name/${skillName}/visibility/`
+}
+
+/**
+ * Staff-only: make a skill visible to every team, or restrict it back to its owning team.
+ *
+ * The "make visible to everyone" analog of a global dashboard template. Operates on the skill
+ * as it exists in the current project, so an un-publish must be issued from the owning project.
+ */
+export const llmSkillsNameVisibilityCreate = async (
+    projectId: string,
+    skillName: string,
+    lLMSkillVisibilityApi: LLMSkillVisibilityApi,
+    options?: RequestInit
+): Promise<LLMSkillApi> => {
+    return apiMutator<LLMSkillApi>(getLlmSkillsNameVisibilityCreateUrl(projectId, skillName), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(lLMSkillVisibilityApi),
     })
 }
 

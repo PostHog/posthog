@@ -246,3 +246,17 @@ export const LlmSkillsNameFilesRenameCreateBody = /* @__PURE__ */ zod.object({
             'Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.'
         ),
 })
+
+/**
+ * Staff-only: make a skill visible to every team, or restrict it back to its owning team.
+ *
+ * The "make visible to everyone" analog of a global dashboard template. Operates on the skill
+ * as it exists in the current project, so an un-publish must be issued from the owning project.
+ */
+export const LlmSkillsNameVisibilityCreateBody = /* @__PURE__ */ zod.object({
+    is_global: zod
+        .boolean()
+        .describe(
+            "Set true to make this skill visible to every team (the 'make visible to everyone' action), or false to restrict it back to its owning team. Applies to all versions of the skill. Staff-only."
+        ),
+})

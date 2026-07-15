@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from django.db import IntegrityError, transaction
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 from django.utils import timezone
 
 from posthog.models import Team, User
@@ -89,14 +89,28 @@ def apply_skill_body_edits(body: str, edits: list[dict[str, str]]) -> str:
     return text
 
 
-def get_active_skill_queryset(team: Team) -> QuerySet[LLMSkill]:
-    return annotate_llm_skill_version_history_metadata(
-        LLMSkill.objects.filter(team=team, deleted=False).select_related("created_by")
-    )
+def _shadow_globals(team: Team, queryset: QuerySet[LLMSkill]) -> QuerySet[LLMSkill]:
+    """A team's own skill shadows a same-named global from another team.
+
+    Drops global rows (owned by a different team) whose name the current team already owns, so
+    reads never surface two skills with the same name and by-name resolution stays deterministic.
+    The team's own skills — including one it made global itself — are never shadowed.
+    """
+    own_names = LLMSkill.objects.filter(team=team, deleted=False).values("name")
+    return queryset.exclude(Q(is_global=True) & ~Q(team=team) & Q(name__in=own_names))
 
 
-def get_latest_skills_queryset(team: Team) -> QuerySet[LLMSkill]:
-    return get_active_skill_queryset(team).filter(is_latest=True)
+def get_active_skill_queryset(team: Team, *, include_global: bool = False) -> QuerySet[LLMSkill]:
+    base = LLMSkill.objects.filter(deleted=False).select_related("created_by")
+    if include_global:
+        base = _shadow_globals(team, base.filter(Q(team=team) | Q(is_global=True)))
+    else:
+        base = base.filter(team=team)
+    return annotate_llm_skill_version_history_metadata(base)
+
+
+def get_latest_skills_queryset(team: Team, *, include_global: bool = False) -> QuerySet[LLMSkill]:
+    return get_active_skill_queryset(team, include_global=include_global).filter(is_latest=True)
 
 
 def get_skill_by_name_from_db(
@@ -106,18 +120,19 @@ def get_skill_by_name_from_db(
     version_id: str | None = None,
     *,
     include_archived: bool = False,
+    include_global: bool = False,
 ) -> LLMSkill | None:
-    queryset = get_active_skill_queryset(team).filter(name=skill_name)
+    queryset = get_active_skill_queryset(team, include_global=include_global).filter(name=skill_name)
 
     if version_id is not None:
         # `include_archived` honours a pin to one immutable version row even after
         # the skill was archived (soft-deleted across all versions) — so a frozen
         # agent's fork can still re-freeze against the exact version it shipped.
-        rows = (
-            LLMSkill.objects.filter(team=team, name=skill_name, id=version_id)
-            if include_archived
-            else queryset.filter(id=version_id)
-        )
+        if include_archived:
+            archived_scope = Q(team=team) | Q(is_global=True) if include_global else Q(team=team)
+            rows = LLMSkill.objects.filter(archived_scope, name=skill_name, id=version_id)
+        else:
+            rows = queryset.filter(id=version_id)
         if version is not None:
             rows = rows.filter(version=version)
         return rows.order_by("created_at", "id").first()
@@ -135,12 +150,14 @@ def resolve_versions_page(
     limit: int,
     offset: int | None = None,
     before_version: int | None = None,
+    include_global: bool = False,
 ) -> tuple[list[LLMSkill], bool]:
-    queryset = (
-        LLMSkill.objects.filter(team=team, name=skill_name, deleted=False)
-        .select_related("created_by")
-        .order_by("-version", "-created_at", "-id")
-    )
+    base = LLMSkill.objects.filter(name=skill_name, deleted=False)
+    if include_global:
+        base = _shadow_globals(team, base.filter(Q(team=team) | Q(is_global=True)))
+    else:
+        base = base.filter(team=team)
+    queryset = base.select_related("created_by").order_by("-version", "-created_at", "-id")
 
     if before_version is not None:
         queryset = queryset.filter(version__lt=before_version)
@@ -248,6 +265,9 @@ def publish_skill_version(
             # Categorization is a property of the skill, not the version — carry it forward so editing
             # a scout (or any categorized skill) doesn't drop it out of its tab.
             category=current_latest.category,
+            # Visibility is likewise a property of the skill, not the version — carry it forward so
+            # publishing a new version of a global skill keeps it visible to everyone.
+            is_global=current_latest.is_global,
             version=current_latest.version + 1,
             is_latest=True,
             created_by=user,
@@ -482,6 +502,7 @@ def _create_next_version_with_files(
         allowed_tools=current_latest.allowed_tools,
         metadata=current_latest.metadata,
         category=current_latest.category,
+        is_global=current_latest.is_global,
         version=current_latest.version + 1,
         is_latest=True,
         created_by=user,
@@ -599,3 +620,29 @@ def archive_skill(team: Team, skill_name: str) -> list[int]:
             updated_at=timezone.now(),
         )
     return skill_versions
+
+
+def set_skill_visibility(team: Team, skill_name: str, *, is_global: bool) -> LLMSkill:
+    """Flip a skill's cross-team visibility. Staff-gated at the view layer.
+
+    Visibility is a property of the skill, not a single version, so it's stamped on every active
+    version of (team, name). `updated_at` is bumped (the `.update()` bypasses auto_now) so consumer
+    marketplace clones — whose plugin version is max(updated_at) over their visible skills — advance
+    and re-pull when a skill becomes (or stops being) global. Returns the refreshed latest version.
+    """
+    with transaction.atomic():
+        rows = list(
+            LLMSkill.objects.select_for_update()
+            .filter(team=team, name=skill_name, deleted=False)
+            .values_list("pk", flat=True)
+        )
+        if not rows:
+            raise LLMSkillNotFoundError()
+        LLMSkill.objects.filter(team=team, name=skill_name, deleted=False).update(
+            is_global=is_global,
+            updated_at=timezone.now(),
+        )
+    latest = get_active_skill_queryset(team).filter(name=skill_name, is_latest=True).first()
+    if latest is None:
+        raise LLMSkillNotFoundError()
+    return latest
