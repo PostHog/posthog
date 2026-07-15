@@ -48,7 +48,7 @@ describeAddon('native rust addon matches the shared fixtures', () => {
     const TS0 = 1_700_000_000_000
 
     // Wrap fixture events in the Kafka payload shape
-    function payloadOf(windowId: string, events: unknown[]): Buffer {
+    function payloadOf(windowId: string, events: unknown[], snapshotHost?: string): Buffer {
         const items = structuredClone(events)
         items.forEach((ev, i) => {
             if (isRecord(ev)) {
@@ -57,7 +57,12 @@ describeAddon('native rust addon matches the shared fixtures', () => {
         })
         const inner = JSON.stringify({
             event: '$snapshot_items',
-            properties: { $snapshot_items: items, $session_id: 's-1', $window_id: windowId },
+            properties: {
+                $snapshot_items: items,
+                $session_id: 's-1',
+                $window_id: windowId,
+                ...(snapshotHost ? { $snapshot_host: snapshotHost } : {}),
+            },
         })
         return Buffer.from(JSON.stringify({ distinct_id: 'd-1', data: inner }))
     }
@@ -110,34 +115,55 @@ describeAddon('native rust addon matches the shared fixtures', () => {
         }
     })
 
-    it('collapses first-party hosts passed per call', async () => {
-        const event = {
+    describe('host classification through the FFI', () => {
+        const linkEvent = (hrefs: string[]) => ({
             type: 2,
             data: {
                 node: {
                     type: 0,
-                    childNodes: [
-                        {
-                            type: 2,
-                            tagName: 'a',
-                            attributes: { href: 'https://app.customer-site.test/settings' },
-                            childNodes: [],
-                        },
-                    ],
+                    childNodes: hrefs.map((href) => ({
+                        type: 2,
+                        tagName: 'a',
+                        attributes: { href },
+                        childNodes: [],
+                    })),
                 },
                 initialOffset: { top: 0, left: 0 },
             },
+        })
+        const hrefsOf = (lines: Buffer): string[] => {
+            const line = parseLines(lines)[0] as [
+                string,
+                { data: { node: { childNodes: { attributes: Record<string, string> }[] } } },
+            ]
+            return line[1].data.node.childNodes.map((n) => n.attributes.href)
         }
-        rustAddon!.initAnonymizer({ text: [], url: [] })
-        const result = await rustAddon!.anonymizeKafkaPayload(payloadOf('w', [event]), undefined, [
-            'customer-site.test',
-        ])
-        expect(result.failed).toBe(false)
-        const line = parseLines(result.lines!)[0] as [
-            string,
-            { data: { node: { childNodes: { attributes: Record<string, string> }[] } } },
-        ]
-        expect(line[1].data.node.childNodes[0].attributes.href).toBe('https://example.com/[redacted]')
+
+        it('collapses every host when the message has no $snapshot_host, ignoring per-call patterns', async () => {
+            rustAddon!.initAnonymizer({ text: [], url: [] })
+            const result = await rustAddon!.anonymizeKafkaPayload(
+                payloadOf('w', [linkEvent(['https://app.customer-site.test/settings', 'https://vendor.test/docs'])]),
+                undefined,
+                ['vendor.test']
+            )
+            expect(result.failed).toBe(false)
+            expect(hrefsOf(result.lines!)).toEqual(['https://example.com/[redacted]', 'https://example.com/[redacted]'])
+        })
+
+        it('classifies hosts when $snapshot_host is stamped: first-party collapses, external survives', async () => {
+            rustAddon!.initAnonymizer({ text: [], url: [] })
+            const result = await rustAddon!.anonymizeKafkaPayload(
+                payloadOf(
+                    'w',
+                    [linkEvent(['https://www.customer-site.test/settings', 'https://vendor.test/docs'])],
+                    'app.customer-site.test'
+                ),
+                undefined,
+                []
+            )
+            expect(result.failed).toBe(false)
+            expect(hrefsOf(result.lines!)).toEqual(['https://example.com/[redacted]', 'https://vendor.test/[redacted]'])
+        })
     })
 
     // fixtures are plain text, convert to gzip bytes for this test

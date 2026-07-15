@@ -72,6 +72,10 @@ export function initAnonymizer(allow: AllowListsInput): void {
  * decompression — runs off the Node event loop.
  *
  * `cv` payloads re-emit as zstd; the reader dispatches on magic bytes.
+ *
+ * `firstPartyHosts` (the team's recording domains + app URLs as registrable-domain patterns) is
+ * only consulted when the message carries an SDK-stamped `$snapshot_host` property; without that
+ * trust anchor every hostname in the recording collapses to a placeholder.
  */
 export function anonymizeKafkaPayload(
     payload: Buffer,

@@ -9,7 +9,7 @@
       ]
     },
     "input": "https://example.com/users/42/profile",
-    "collapseHost": false,
+    "treatHostAsFirstParty": false,
     "expected": "https://example.com/users/$$/profile"
   },
   {
@@ -19,7 +19,7 @@
       "url": []
     },
     "input": "/foo/bar?x=1",
-    "collapseHost": false,
+    "treatHostAsFirstParty": false,
     "expected": "/[redacted]/[redacted]"
   },
   {
@@ -31,7 +31,7 @@
       ]
     },
     "input": "https://example.com/?page=2&secret=abc",
-    "collapseHost": false,
+    "treatHostAsFirstParty": false,
     "expected": "https://example.com/?page=$"
   },
   {
@@ -43,11 +43,11 @@
       ]
     },
     "input": "https://example.com/#section",
-    "collapseHost": false,
+    "treatHostAsFirstParty": false,
     "expected": "https://example.com/#section"
   },
   {
-    "name": "collapseHost drops the port and keeps an allow-listed subdomain",
+    "name": "treatHostAsFirstParty drops the port and keeps an allow-listed subdomain",
     "allow": {
       "text": [],
       "url": [
@@ -56,17 +56,17 @@
       ]
     },
     "input": "https://user:pw@us.example.org:8080/path",
-    "collapseHost": true,
+    "treatHostAsFirstParty": true,
     "expected": "https://us.example.com/path"
   },
   {
-    "name": "collapseHost collapses a two-label host to example.com",
+    "name": "treatHostAsFirstParty collapses a two-label host to example.com",
     "allow": {
       "text": [],
       "url": []
     },
     "input": "https://example.com/u/42",
-    "collapseHost": true,
+    "treatHostAsFirstParty": true,
     "expected": "https://example.com/[redacted]/$$"
   },
   {
@@ -78,7 +78,7 @@
       ]
     },
     "input": "https://example.com/?ok=&x=1",
-    "collapseHost": false,
+    "treatHostAsFirstParty": false,
     "expected": "https://example.com/?ok="
   },
   {
@@ -90,7 +90,7 @@
       ]
     },
     "input": "https://example.com/?ok&drop",
-    "collapseHost": false,
+    "treatHostAsFirstParty": false,
     "expected": "https://example.com/?ok"
   },
   {
@@ -100,7 +100,7 @@
       "url": []
     },
     "input": "https://example.com/#42",
-    "collapseHost": false,
+    "treatHostAsFirstParty": false,
     "expected": "https://example.com/"
   },
   {
@@ -110,7 +110,7 @@
       "url": []
     },
     "input": "/a/../b",
-    "collapseHost": false,
+    "treatHostAsFirstParty": false,
     "expected": "/[redacted]/../[redacted]"
   },
   {
@@ -125,7 +125,7 @@
       ]
     },
     "input": "https://example.com/?a=x&b=y",
-    "collapseHost": false,
+    "treatHostAsFirstParty": false,
     "expected": "https://example.com/?a=x&b=y"
   },
   {
@@ -135,7 +135,7 @@
       "url": []
     },
     "input": "about:blank",
-    "collapseHost": true,
+    "treatHostAsFirstParty": true,
     "expected": "about:blank"
   },
   {
@@ -145,7 +145,7 @@
       "url": []
     },
     "input": "about:srcdoc",
-    "collapseHost": true,
+    "treatHostAsFirstParty": true,
     "expected": "about:srcdoc"
   },
   {
@@ -155,8 +155,10 @@
       "url": []
     },
     "input": "https://user:hunter2@app.example.com/settings",
-    "collapseHost": false,
-    "firstPartyHosts": ["customer-site.test"],
+    "treatHostAsFirstParty": false,
+    "firstPartyHosts": [
+      "customer-site.test"
+    ],
     "expected": "https://app.example.com/[redacted]"
   },
   {
@@ -166,7 +168,7 @@
       "url": []
     },
     "input": "https://app.acme.test/dashboard",
-    "collapseHost": false,
+    "treatHostAsFirstParty": false,
     "expected": "https://example.com/[redacted]"
   },
   {
@@ -176,7 +178,7 @@
       "url": []
     },
     "input": "tel:+15551234567",
-    "collapseHost": false,
+    "treatHostAsFirstParty": false,
     "expected": "tel:[redacted]"
   },
   {
@@ -186,7 +188,7 @@
       "url": []
     },
     "input": "mailto:john.fakename@example.com?subject=hello%20there",
-    "collapseHost": true,
+    "treatHostAsFirstParty": true,
     "expected": "mailto:[redacted]"
   },
   {
@@ -199,7 +201,7 @@
       "customer-site.test"
     ],
     "input": "https://app.customer-site.test:5000/settings/billing",
-    "collapseHost": false,
+    "treatHostAsFirstParty": false,
     "expected": "https://example.com/[redacted]/[redacted]"
   },
   {
@@ -212,7 +214,7 @@
       "customer-site.test"
     ],
     "input": "https://customer-site.test/pricing",
-    "collapseHost": false,
+    "treatHostAsFirstParty": false,
     "expected": "https://example.com/[redacted]"
   },
   {
@@ -225,7 +227,7 @@
       "customer-site.test"
     ],
     "input": "https://js.payment-vendor.test/v3",
-    "collapseHost": false,
+    "treatHostAsFirstParty": false,
     "expected": "https://js.payment-vendor.test/[redacted]"
   },
   {
@@ -238,7 +240,7 @@
       "customer-site.test"
     ],
     "input": "https://d3k9x1abc.cloudfront.net/assets/hero.png",
-    "collapseHost": false,
+    "treatHostAsFirstParty": false,
     "expected": "https://[redacted].cloudfront.net/[redacted]/[redacted]"
   },
   {
@@ -251,8 +253,8 @@
       "customer-site.test"
     ],
     "input": "https://acme-uploads.s3.eu-west-1.amazonaws.com/reports/2024.pdf",
-    "collapseHost": false,
-    "expected": "https://[redacted].amazonaws.com/[redacted]/[redacted]"
+    "treatHostAsFirstParty": false,
+    "expected": "https://[redacted].s3.eu-west-1.amazonaws.com/[redacted]/[redacted]"
   },
   {
     "name": "first-party cdn host still collapses to example.com",
@@ -264,7 +266,7 @@
       "d3k9x1abc.cloudfront.net"
     ],
     "input": "https://d3k9x1abc.cloudfront.net/index.html",
-    "collapseHost": false,
+    "treatHostAsFirstParty": false,
     "expected": "https://example.com/[redacted]"
   },
   {
@@ -277,7 +279,7 @@
       "customer-site.test"
     ],
     "input": "https://evil-customer-site.test/x",
-    "collapseHost": false,
+    "treatHostAsFirstParty": false,
     "expected": "https://evil-customer-site.test/[redacted]"
   },
   {
@@ -287,7 +289,7 @@
       "url": []
     },
     "input": "john.fakename:secret-chat",
-    "collapseHost": false,
+    "treatHostAsFirstParty": false,
     "expected": "[redacted]"
   },
   {
@@ -297,7 +299,7 @@
       "url": []
     },
     "input": "spotify:track:4uLU6hMCjMI75M1A2tKUQC",
-    "collapseHost": false,
+    "treatHostAsFirstParty": false,
     "expected": "spotify:[redacted]"
   },
   {
@@ -307,7 +309,7 @@
       "url": []
     },
     "input": "https://user:pa?ss@acme-corp.test/path",
-    "collapseHost": false,
+    "treatHostAsFirstParty": false,
     "expected": "https://[redacted]"
   },
   {
@@ -317,7 +319,20 @@
       "url": []
     },
     "input": "javascript:mail(\"john.fakename@example.com\",\"https://tracker.test/1\")",
-    "collapseHost": false,
+    "treatHostAsFirstParty": false,
     "expected": "javascript:[redacted]//[redacted]/[redacted]"
+  },
+  {
+    "name": "external psl-private hosting host masks the tenant label",
+    "allow": {
+      "text": [],
+      "url": []
+    },
+    "firstPartyHosts": [
+      "customer-site.test"
+    ],
+    "input": "https://acme-corp.github.io/docs/setup",
+    "treatHostAsFirstParty": false,
+    "expected": "https://[redacted].github.io/[redacted]/[redacted]"
   }
 ]

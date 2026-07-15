@@ -51,7 +51,7 @@ fn url_fixtures() {
         let allow = allow_of(&case);
         let input = case["input"].as_str().unwrap();
         let expected = case["expected"].as_str().unwrap();
-        let collapse_host = case["collapseHost"].as_bool().unwrap_or(false);
+        let treat_host_as_first_party = case["treatHostAsFirstParty"].as_bool().unwrap_or(false);
         let first_party_hosts: Vec<String> = case["firstPartyHosts"]
             .as_array()
             .map(|a| {
@@ -61,8 +61,8 @@ fn url_fixtures() {
             })
             .unwrap_or_default();
         let ctx = Ctx::with_first_party_hosts(&allow, first_party_hosts);
-        let actual =
-            scrub_url_opts(&ctx, input, collapse_host).unwrap_or_else(|| input.to_string());
+        let actual = scrub_url_opts(&ctx, input, treat_host_as_first_party)
+            .unwrap_or_else(|| input.to_string());
         assert_eq!(actual, expected, "url case: {}", case["name"]);
     }
 }

@@ -7,16 +7,19 @@
 //! - Fragment: kept only if it is an allow-listed alphanumeric token.
 //! - Userinfo (`user:pass@`) is always stripped from the authority.
 //! - A scheme without slashes (`mailto:`, `tel:`) is kept; the rest is scrubbed as a path.
-//! - Host policy: the port is dropped and the host collapses to `example.com` (keeping a leading
-//!   allow-listed subdomain label) with `collapse_host` (positions that are the recorded page or
-//!   its assets by construction), when the host matches the context's first-party host patterns
-//!   (the team's recording domains and app URLs), or when no patterns are configured — with
-//!   nothing to classify
-//!   against, the recorded site's own domain must not pass through. A real hostname survives only
-//!   as a classified external domain, keeping first-party and external URLs distinguishable.
-//! - An external host under a multi-tenant CDN/hosting suffix has its identifying labels masked:
-//!   `d3k9x1.cloudfront.net` -> `[redacted].cloudfront.net`. The suffix names the provider (useful
-//!   signal); the labels before it name the customer's bucket/distribution/tenant.
+//! - Host policy, applied uniformly wherever a URL appears (DOM attributes, custom/plugin
+//!   payloads, network names, console frames, media-src originals):
+//!   - First-party (matches the context's first-party host patterns), or the caller passed
+//!     `treat_host_as_first_party` (Meta `href` — the recorded page by definition), or the pattern
+//!     set is empty (nothing vouched for the page's own host, so no host can be proven external):
+//!     the port is dropped and the host collapses to `example.com` (keeping a leading allow-listed
+//!     subdomain label).
+//!   - External under a multi-tenant CDN/hosting suffix (public-suffix-list private section, plus
+//!     a few providers the list lacks): the labels naming the customer's bucket/distribution/
+//!     tenant are masked, the provider suffix kept: `d3k9x1.cloudfront.net` ->
+//!     `[redacted].cloudfront.net`.
+//!   - Any other external host is kept verbatim (its path/query still scrubbed) — which
+//!     third-party services a page uses is signal, not PII.
 
 use crate::allow_lists::AllowLists;
 use crate::context::Ctx;
@@ -50,7 +53,11 @@ pub fn scrub_url(ctx: &Ctx<'_>, input: &str) -> Option<String> {
     scrub_url_opts(ctx, input, false)
 }
 
-pub fn scrub_url_opts(ctx: &Ctx<'_>, input: &str, collapse_host: bool) -> Option<String> {
+pub fn scrub_url_opts(
+    ctx: &Ctx<'_>,
+    input: &str,
+    treat_host_as_first_party: bool,
+) -> Option<String> {
     let allow = ctx.allow;
     if URL_ALLOWLIST.contains(&input) {
         return None;
@@ -78,7 +85,7 @@ pub fn scrub_url_opts(ctx: &Ctx<'_>, input: &str, collapse_host: bool) -> Option
             // parse as the authority) must not pass through as if it were a hostname.
             out.push_str("[redacted]");
             changed = true;
-        } else if collapse_host
+        } else if treat_host_as_first_party
             || ctx.first_party_hosts.is_empty()
             || is_first_party_host(ctx, host_port)
         {
@@ -187,45 +194,20 @@ fn scrub_tail(allow: &AllowLists, tail: &str) -> String {
     out
 }
 
-/// Multi-tenant CDN / cloud-hosting suffixes whose left-hand labels identify a specific customer
-/// (bucket, distribution, or tenant name) rather than the provider. Matching is
-/// case-insensitive on whole labels (`.{suffix}`); the suffix itself is never masked.
-pub const CDN_HOST_SUFFIXES: &[&str] = &[
-    // AWS
-    "cloudfront.net",
-    "amazonaws.com",
-    // Akamai
-    "akamaized.net",
-    "akamaihd.net",
-    "edgekey.net",
-    "edgesuite.net",
-    // Azure
-    "azureedge.net",
-    "azurefd.net",
-    "core.windows.net",
-    // Google Cloud
-    "storage.googleapis.com",
-    "web.app",
-    "firebaseapp.com",
-    // Cloudflare
-    "r2.dev",
-    "pages.dev",
-    "workers.dev",
+/// Multi-tenant CDN/storage suffixes the public suffix list's private section lacks (the PSL is
+/// the primary source — every private-section suffix already masks). Matching is case-insensitive
+/// on whole labels (`.{suffix}`); the suffix itself is never masked.
+pub const EXTRA_CDN_HOST_SUFFIXES: &[&str] = &[
+    "amazonaws.com", // regional S3/ELB shapes are in the PSL; this catches the rest
     "cloudflarestorage.com",
-    // Fastly
     "fastly.net",
-    "fastlylb.net",
-    // App/site hosting
-    "netlify.app",
-    "vercel.app",
-    "herokuapp.com",
-    "digitaloceanspaces.com",
-    // Asset CDNs
     "b-cdn.net",
     "imgix.net",
 ];
 
-// `[redacted].{suffix}` (port preserved) when the host sits under a CDN suffix, else None.
+// `[redacted].{suffix}` (port preserved) when the host sits under a multi-tenant CDN/hosting
+// suffix, else None. The labels before the suffix name the customer's bucket/distribution/tenant —
+// identifying even though the host is not the customer's own domain.
 fn cdn_masked_host(host_port: &str) -> Option<String> {
     let (host, port) = match host_port.rfind(':') {
         Some(ci)
@@ -237,7 +219,15 @@ fn cdn_masked_host(host_port: &str) -> Option<String> {
         _ => (host_port, ""),
     };
     let host = host.to_ascii_lowercase();
-    CDN_HOST_SUFFIXES.iter().find_map(|suffix| {
+    if let Some(suffix) = psl::suffix(host.as_bytes()) {
+        if suffix.typ() == Some(psl::Type::Private) {
+            let suffix = std::str::from_utf8(suffix.as_bytes()).ok()?;
+            if host.len() > suffix.len() + 1 && host.ends_with(suffix) {
+                return Some(format!("[redacted].{suffix}{port}"));
+            }
+        }
+    }
+    EXTRA_CDN_HOST_SUFFIXES.iter().find_map(|suffix| {
         (host.len() > suffix.len() + 1
             && host.ends_with(suffix)
             && host.as_bytes()[host.len() - suffix.len() - 1] == b'.')

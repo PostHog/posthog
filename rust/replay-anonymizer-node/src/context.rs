@@ -20,8 +20,10 @@ const CV_MESSAGE_DECOMPRESSION_BUDGET: usize = 256 * 1024 * 1024;
 
 pub struct Ctx<'a> {
     pub allow: &'a AllowLists,
-    /// Registrable-domain patterns (computed TS-side from the team's recording domains and app
-    /// URLs); matching hosts and their subdomains collapse to example.com in the URL scrub.
+    /// Registrable-domain patterns for hosts that collapse to example.com in the URL scrub
+    /// (matching hosts and their subdomains). Populated per message by
+    /// [`crate::snapshot::message_first_party_hosts`]: empty unless the message carries an
+    /// SDK-stamped `$snapshot_host` — and empty means every host collapses.
     pub first_party_hosts: Vec<String>,
     pub cv_budget: Cell<usize>,
     // key: the original data URI (data-image blur), or `raw:{w}x{h}:{base64}` (raw RGBA pixelate).
