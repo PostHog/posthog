@@ -85,16 +85,8 @@ describe('workflowRunsLogic', () => {
             'loadRunnerCostsSuccess',
         ])
         expect(mockRuns).toHaveBeenLastCalledWith('1', expect.objectContaining({ branch: 'master' }), withSignal)
-        expect(mockRunActivity).toHaveBeenLastCalledWith(
-            '1',
-            expect.objectContaining({ branch: 'master' }),
-            withSignal
-        )
-        expect(mockRunnerCosts).toHaveBeenLastCalledWith(
-            '1',
-            expect.objectContaining({ branch: 'master' }),
-            withSignal
-        )
+        expect(mockRunActivity).toHaveBeenLastCalledWith('1', expect.objectContaining({ branch: 'master' }), withSignal)
+        expect(mockRunnerCosts).toHaveBeenLastCalledWith('1', expect.objectContaining({ branch: 'master' }), withSignal)
     })
 
     it('swallows a transient network failure instead of surfacing it as a load failure', async () => {
