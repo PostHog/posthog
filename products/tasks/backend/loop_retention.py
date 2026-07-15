@@ -1,21 +1,27 @@
-"""Retention sweep for loop-spawned tasks. See products/tasks/docs/LOOPS.md (Run: Cleanup).
+"""Retention sweeps for loop bookkeeping. See products/tasks/docs/LOOPS.md (Run: Cleanup).
 
-Keeps the newest 200 tasks per loop and soft-deletes the rest, skipping any task
-with a non-terminal TaskRun regardless of age.
+Keeps the newest 200 tasks per loop and soft-deletes the rest (skipping any task with a
+non-terminal TaskRun), and prunes old LoopFire dedup rows so that table doesn't grow unbounded.
 """
 
+from datetime import timedelta
 from uuid import UUID
+
+from django.utils import timezone as django_timezone
 
 import structlog
 from celery import shared_task
 
 from posthog.scoping_audit import skip_team_scope_audit
 
-from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.models import LoopFire, Task, TaskRun
 
 logger = structlog.get_logger(__name__)
 
 LOOP_TASK_RETENTION_LIMIT = 200
+# Well beyond the 24h rate-cap window and any realistic fire retry/redelivery window, so pruning
+# never removes a row still needed for dedup or rate-capping.
+LOOP_FIRE_RETENTION_DAYS = 7
 
 _NON_TERMINAL_TASK_RUN_STATUSES = (TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS)
 
@@ -68,8 +74,20 @@ def _stale_loop_task_ids(retention_limit: int) -> list[UUID]:
     return stale_task_ids
 
 
+def prune_loop_fire_records(retention_days: int = LOOP_FIRE_RETENTION_DAYS) -> int:
+    """Hard-delete LoopFire dedup rows older than the retention window. Returns the count deleted.
+
+    Cross-team janitor sweep. LoopFire is a pure dedup/rate-cap ledger, so rows outside every
+    window that reads them (24h rate cap, retry/redelivery) carry no value.
+    """
+    cutoff = django_timezone.now() - timedelta(days=retention_days)
+    deleted, _ = LoopFire.objects.unscoped().filter(created_at__lt=cutoff).delete()
+    return deleted
+
+
 @shared_task(ignore_result=True, soft_time_limit=110, time_limit=170)
 @skip_team_scope_audit
 def sweep_loop_task_retention_task() -> None:
     deleted_count = sweep_loop_task_retention()
-    logger.info("loop_retention.swept", deleted_count=deleted_count)
+    pruned_fires = prune_loop_fire_records()
+    logger.info("loop_retention.swept", deleted_count=deleted_count, pruned_fires=pruned_fires)

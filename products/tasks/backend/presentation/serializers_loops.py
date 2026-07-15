@@ -489,6 +489,7 @@ class LoopSerializer(DataclassSerializer):
             "repositories",
             "sandbox_environment_id",
             "enabled",
+            "disabled_reason",
             "overlap_policy",
             "behaviors",
             "connectors",

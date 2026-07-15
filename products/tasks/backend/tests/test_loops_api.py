@@ -11,6 +11,7 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.models import Organization, PersonalAPIKey, ProjectSecretAPIKey, Team, User
+from posthog.models.integration import Integration
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_personal, generate_random_token_secret
 
@@ -365,6 +366,18 @@ class LoopEnableToggleAPITest(LoopsAPITestCase):
         self.mock_pause_loop_schedules.assert_called_once()
         self.mock_resume_loop_schedules.assert_not_called()
 
+    def test_re_enabling_clears_a_lifecycle_disabled_reason(self):
+        created = self._create_loop(self.owner_client, enabled=True)
+        loop = Loop.objects.unscoped().get(id=created["id"])
+        loop.enabled = False
+        loop.disabled_reason = "owner_deactivated"
+        loop.save(update_fields=["enabled", "disabled_reason"])
+
+        response = self.owner_client.patch(self._loop_url(created["id"]), {"enabled": True}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertIsNone(response.json()["disabled_reason"])
+
 
 class LoopScopeAPITest(LoopsAPITestCase):
     @parameterized.expand(
@@ -501,6 +514,76 @@ class LoopFeatureGateAPITest(LoopsAPITestCase):
             headers={"authorization": f"Bearer {raw_token}"},
         )
 
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+
+
+class LoopInternalFacadeTest(LoopsAPITestCase):
+    def _make_internal_loop(self, **overrides) -> Loop:
+        defaults = {
+            "team": self.team,
+            "created_by": self.owner,
+            "name": "Signals follow-up",
+            "instructions": "Check the fix landed",
+            "runtime_adapter": "claude",
+            "model": "claude-sonnet-5",
+            "internal": True,
+            "origin_product": Task.OriginProduct.ERROR_TRACKING,
+        }
+        defaults.update(overrides)
+        return Loop.objects.unscoped().create(**defaults)
+
+    def test_internal_loops_are_reachable_through_the_internal_facade(self):
+        from products.tasks.backend.facade import loops as loops_facade
+
+        loop = self._make_internal_loop()
+
+        fetched = loops_facade.get_internal_loop(loop.id, self.team.id)
+        assert fetched is not None
+        self.assertEqual(fetched.id, loop.id)
+        listed = loops_facade.list_internal_loops(self.team.id, origin_product=Task.OriginProduct.ERROR_TRACKING)
+        self.assertIn(loop.id, [item.id for item in listed])
+
+        self.assertTrue(loops_facade.delete_internal_loop(loop.id, self.team.id))
+        loop.refresh_from_db()
+        self.assertTrue(loop.deleted)
+        self.assertIsNone(loops_facade.get_internal_loop(loop.id, self.team.id))
+
+    def test_internal_facade_does_not_reach_user_facing_loops(self):
+        from products.tasks.backend.facade import loops as loops_facade
+
+        user_loop_id = self._create_loop(self.owner_client)["id"]
+        self.assertIsNone(loops_facade.get_internal_loop(user_loop_id, self.team.id))
+        self.assertFalse(loops_facade.delete_internal_loop(user_loop_id, self.team.id))
+
+    def test_create_loop_rejects_a_cross_team_github_integration(self):
+        from products.tasks.backend.facade import loops as loops_facade
+        from products.tasks.backend.facade.loops import LoopValidationError
+
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+        foreign_integration = Integration.objects.create(
+            team=other_team, kind="github", integration_id="999", config={}
+        )
+
+        with self.assertRaises(LoopValidationError):
+            loops_facade.create_loop(
+                self.team.id,
+                self.owner,
+                {
+                    "name": "x",
+                    "instructions": "y",
+                    "runtime_adapter": "claude",
+                    "model": "claude-sonnet-5",
+                    "repositories": [{"github_integration_id": foreign_integration.id, "full_name": "acme/repo"}],
+                },
+            )
+
+    def test_malformed_behaviors_row_does_not_break_the_loop_list(self):
+        # A facade-bypass or backfill could leave a malformed behaviors shape; one bad row must not
+        # 500 the whole list read.
+        self._make_internal_loop(internal=False, visibility="team", behaviors={"max_fix_iterations": "not-an-int"})
+
+        response = self.owner_client.get(self._loops_url())
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
 
 

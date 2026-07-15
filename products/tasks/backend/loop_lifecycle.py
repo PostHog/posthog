@@ -25,6 +25,9 @@ logger = logging.getLogger(__name__)
 
 _NON_TERMINAL_TASK_RUN_STATUSES = (TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS)
 
+DISABLED_REASON_OWNER_DEACTIVATED = "owner_deactivated"
+DISABLED_REASON_GITHUB_DISCONNECTED = "github_integration_disconnected"
+
 
 def pause_loops_for_deactivated_user(user_id: int) -> None:
     """Pause every enabled loop owned by a deactivated user and cancel their in-flight runs.
@@ -42,7 +45,8 @@ def pause_loops_for_deactivated_user(user_id: int) -> None:
 
 def _pause_loop_and_cancel_runs(loop: Loop) -> None:
     loop.enabled = False
-    loop.save(update_fields=["enabled", "updated_at"])
+    loop.disabled_reason = DISABLED_REASON_OWNER_DEACTIVATED
+    loop.save(update_fields=["enabled", "disabled_reason", "updated_at"])
     pause_loop_schedules(loop)
 
     now = django_timezone.now()
@@ -53,6 +57,15 @@ def _pause_loop_and_cancel_runs(loop: Loop) -> None:
         team_id=loop.team_id,
         status__in=_NON_TERMINAL_TASK_RUN_STATUSES,
     ).update(status=TaskRun.Status.CANCELLED, completed_at=now, updated_at=now)
+
+    dispatch_loop_event(
+        loop,
+        "needs_attention",
+        {
+            "reason": DISABLED_REASON_OWNER_DEACTIVATED,
+            "body": "This loop's owner was deactivated, so it has been paused.",
+        },
+    )
 
 
 def pause_loops_referencing_integrations(integrations: list[Integration], installation_id: str) -> None:
@@ -91,13 +104,14 @@ def pause_loops_referencing_integrations(integrations: list[Integration], instal
         for loop in loops:
             try:
                 loop.enabled = False
-                loop.save(update_fields=["enabled", "updated_at"])
+                loop.disabled_reason = DISABLED_REASON_GITHUB_DISCONNECTED
+                loop.save(update_fields=["enabled", "disabled_reason", "updated_at"])
                 pause_loop_schedules(loop)
                 dispatch_loop_event(
                     loop,
                     "needs_attention",
                     {
-                        "reason": "github_integration_disconnected",
+                        "reason": DISABLED_REASON_GITHUB_DISCONNECTED,
                         "installation_id": installation_id,
                         "body": (
                             f'The GitHub integration "{integration.display_name}" was disconnected '

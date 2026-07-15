@@ -36,6 +36,7 @@ from posthog.models import User
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
+from posthog.models.scoping import team_scope
 
 from products.mcp_store.backend.facade.api import get_active_installations
 from products.tasks.backend import loop_service
@@ -104,6 +105,13 @@ class LoopPermissionError(Exception):
 
     Callers (the view layer) should catch this and translate to a 403.
     """
+
+
+class LoopValidationError(Exception):
+    """Raised when a facade-level write fails a cross-team or shape check. The DRF serializer
+    catches these cases first for API callers; this is the backstop for in-code facade callers
+    (internal products) that don't re-run serializer validation, so they can't create a loop that
+    references another team's resources or explodes at fire time."""
 
 
 class LoopLimitError(Exception):
@@ -206,6 +214,7 @@ class LoopDTO:
     repositories: list[LoopRepositoryEntryDTO]
     sandbox_environment_id: UUID | None
     enabled: bool
+    disabled_reason: str | None
     overlap_policy: str
     behaviors: LoopBehaviorsDTO
     connectors: LoopConnectorsDTO
@@ -252,28 +261,47 @@ class LoopPreviewDTO:
 # --- Mapping helpers ---
 
 
+# These DTO builders read JSON columns that the DRF serializer validates at the API edge, but a
+# facade-bypass write, a backfill, or a schema evolution could still leave a malformed shape on a
+# row. They must never raise: one bad row would otherwise break every list read of the team's
+# loops. So each guards its input to a dict and coerces defensively.
+
+
+def _as_dict(raw: object) -> dict:
+    return raw if isinstance(raw, dict) else {}
+
+
+def _coerce_int(value: object, default: int) -> int:
+    try:
+        return int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return default
+
+
 def _behaviors_dto(raw: dict | None) -> LoopBehaviorsDTO:
-    raw = raw or {}
+    raw = _as_dict(raw)
     return LoopBehaviorsDTO(
         create_prs=bool(raw.get("create_prs", False)),
         watch_ci=bool(raw.get("watch_ci", False)),
         fix_review_comments=bool(raw.get("fix_review_comments", False)),
-        max_fix_iterations=int(raw.get("max_fix_iterations", DEFAULT_MAX_FIX_ITERATIONS)),
+        max_fix_iterations=_coerce_int(
+            raw.get("max_fix_iterations", DEFAULT_MAX_FIX_ITERATIONS), DEFAULT_MAX_FIX_ITERATIONS
+        ),
     )
 
 
 def _notification_channel_dto(raw: dict | None) -> LoopNotificationChannelDTO:
-    raw = raw or {}
+    raw = _as_dict(raw)
     events = raw.get("events")
     return LoopNotificationChannelDTO(
         enabled=bool(raw.get("enabled", False)),
-        events=list(events) if isinstance(events, list) else [],
-        params=dict(raw.get("params") or {}),
+        events=[event for event in events if isinstance(event, str)] if isinstance(events, list) else [],
+        params=_as_dict(raw.get("params")),
     )
 
 
 def _notifications_dto(raw: dict | None) -> LoopNotificationsDTO:
-    raw = raw or {}
+    raw = _as_dict(raw)
     return LoopNotificationsDTO(
         push=_notification_channel_dto(raw.get("push")),
         email=_notification_channel_dto(raw.get("email")),
@@ -282,10 +310,10 @@ def _notifications_dto(raw: dict | None) -> LoopNotificationsDTO:
 
 
 def _connectors_dto(raw: dict | None) -> LoopConnectorsDTO:
-    raw = raw or {}
+    raw = _as_dict(raw)
     mcp_installation_ids = raw.get("mcp_installation_ids")
     return LoopConnectorsDTO(
-        mcp_installation_ids=list(mcp_installation_ids) if isinstance(mcp_installation_ids, list) else [],
+        mcp_installation_ids=[str(x) for x in mcp_installation_ids] if isinstance(mcp_installation_ids, list) else [],
         posthog_mcp_scopes=raw.get("posthog_mcp_scopes") or DEFAULT_POSTHOG_MCP_SCOPES,
     )
 
@@ -352,6 +380,7 @@ def _loop_to_dto(loop: Loop) -> LoopDTO:
         repositories=_repository_dtos(loop.repositories),
         sandbox_environment_id=loop.sandbox_environment_id,
         enabled=loop.enabled,
+        disabled_reason=loop.disabled_reason,
         overlap_policy=loop.overlap_policy,
         behaviors=_behaviors_dto(loop.behaviors),
         connectors=_connectors_dto(loop.connectors),
@@ -544,8 +573,69 @@ def get_loop(loop_id: str | UUID, team_id: int, user: User | None) -> LoopDTO | 
     return _loop_to_dto(loop) if loop is not None else None
 
 
+# --- Internal loops ---
+# `internal=True` loops are created by a backend flow (e.g. signals scheduling a one-off PR
+# follow-up) and are never reachable through the user-facing CRUD above, which filters
+# `internal=False`. These give the owning product a way to read and tear them down. No user or
+# visibility checks: there is no owning end user, and the caller is trusted server code.
+
+
+def get_internal_loop(loop_id: str | UUID, team_id: int) -> LoopDTO | None:
+    # team_scope: internal callers run outside request scope, and _loop_to_dto reads the
+    # `triggers` related manager (fail-closed), which needs ambient team context.
+    with team_scope(team_id, canonical=True):
+        loop = Loop.objects.filter(deleted=False, internal=True, pk=loop_id).prefetch_related("triggers").first()
+        return _loop_to_dto(loop) if loop is not None else None
+
+
+def list_internal_loops(team_id: int, *, origin_product: str | None = None) -> list[LoopDTO]:
+    with team_scope(team_id, canonical=True):
+        loops = Loop.objects.filter(deleted=False, internal=True).prefetch_related("triggers").order_by("-created_at")
+        if origin_product is not None:
+            loops = loops.filter(origin_product=origin_product)
+        return [_loop_to_dto(loop) for loop in loops]
+
+
+def delete_internal_loop(loop_id: str | UUID, team_id: int) -> bool:
+    """Soft-delete an internal loop and pause its schedules. Returns False if not found."""
+    loop = Loop.objects.for_team(team_id, canonical=True).filter(deleted=False, internal=True, pk=loop_id).first()
+    if loop is None:
+        return False
+    loop.deleted = True
+    loop.save(update_fields=["deleted", "updated_at"])
+    loop_service.pause_loop_schedules(loop)
+    return True
+
+
+def validate_loop_write(team_id: int, data: dict) -> None:
+    """Enforce the cross-team and cardinality checks the write serializer performs, so an in-code
+    facade caller can't reference another team's GitHub integration or SandboxEnvironment or
+    exceed the repository cap. Raises `LoopValidationError`. Model/reasoning validity is left to
+    fire time (a clear, self-contained failure) to keep the model catalog off this import path."""
+    repositories = data.get("repositories")
+    if repositories is not None:
+        if len(repositories) > MAX_LOOP_REPOSITORIES:
+            raise LoopValidationError(f"A loop can operate on at most {MAX_LOOP_REPOSITORIES} repositories.")
+        integration_ids = {
+            int(entry["github_integration_id"])
+            for entry in repositories
+            if isinstance(entry, dict) and entry.get("github_integration_id") is not None
+        }
+        if integration_ids:
+            owned = github_integration_ids_for_team(team_id, integration_ids)
+            missing = integration_ids - owned
+            if missing:
+                raise LoopValidationError(f"GitHub integration(s) not found for this team: {sorted(missing)}.")
+
+    sandbox_environment_id = data.get("sandbox_environment_id")
+    if sandbox_environment_id is not None:
+        if not SandboxEnvironment.objects.filter(team_id=team_id, id=sandbox_environment_id).exists():
+            raise LoopValidationError("Sandbox environment not found for this team.")
+
+
 def create_loop(team_id: int, user: User | None, validated_data: dict) -> LoopDTO:
     data = dict(validated_data)
+    validate_loop_write(team_id, data)
     trigger_payloads = data.pop("triggers", None) or []
 
     if len(trigger_payloads) > MAX_TRIGGERS_PER_LOOP:
@@ -618,6 +708,7 @@ def update_loop(loop_id: str | UUID, team_id: int, user: User | None, validated_
         return None
 
     _authorize_update(loop, user, validated_data)
+    validate_loop_write(team_id, validated_data)
 
     data = dict(validated_data)
     trigger_payloads = data.pop("triggers", None)
@@ -629,6 +720,10 @@ def update_loop(loop_id: str | UUID, team_id: int, user: User | None, validated_
     with transaction.atomic():
         for field_name, value in data.items():
             setattr(loop, field_name, value)
+        # Re-enabling clears the lifecycle pause reason (owner reactivated, integration
+        # reconnected), so the UI stops showing a stale "paused because ..." explanation.
+        if "enabled" in data and loop.enabled and not enabled_before:
+            loop.disabled_reason = None
         loop.save()
 
     # Toggling `enabled` must drive the Temporal Schedules, not just the row. Without this,
@@ -868,6 +963,8 @@ __all__ = [
     "LoopOverlapPolicy",
     "LoopLimitError",
     "LoopPermissionError",
+    "LoopValidationError",
+    "validate_loop_write",
     "MAX_LOOPS_PER_TEAM",
     "MAX_TRIGGERS_PER_LOOP",
     "LoopPreviewDTO",
@@ -880,11 +977,14 @@ __all__ = [
     "LoopVisibility",
     "active_mcp_installation_ids",
     "create_loop",
+    "delete_internal_loop",
     "desktop_canvas_exists",
     "desktop_folder_exists",
     "fire_loop_api",
     "fire_loop_manual",
+    "get_internal_loop",
     "get_loop",
+    "list_internal_loops",
     "github_integration_ids_for_team",
     "list_loop_runs",
     "list_loops",
