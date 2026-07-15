@@ -320,6 +320,7 @@ describe('experimentsLogic', () => {
                 limit: 100,
                 offset: 100,
                 archived: false,
+                deleted: false,
             })
         })
     })
