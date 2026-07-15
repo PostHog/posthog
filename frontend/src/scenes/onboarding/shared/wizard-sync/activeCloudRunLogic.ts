@@ -15,10 +15,27 @@ export interface CloudRunHandle {
     projectId?: number
 }
 
-// The persisted handle, but only when it belongs to the given project. Handles without a projectId
-// predate the stamp and can't be attributed, so they're stale by definition.
-export function scopedCloudRun(handle: CloudRunHandle | null, currentProjectId: number | null): CloudRunHandle | null {
-    return handle?.projectId != null && handle.projectId === currentProjectId ? handle : null
+// A handle older than this is a zombie: a genuine onboarding cloud run finishes in minutes, so a
+// handle this old was left by a tab that never saw its run reach a terminal state. Expiring it stops
+// a stale widget (and its ever-climbing elapsed clock) from following the user around forever.
+export const MAX_CLOUD_RUN_AGE_MS = 6 * 60 * 60 * 1000
+
+// The persisted handle, but only when it belongs to the given project and isn't a stale zombie.
+// Handles without a projectId predate the stamp and can't be attributed, so they're stale by
+// definition; handles older than MAX_CLOUD_RUN_AGE_MS are expired outright.
+export function scopedCloudRun(
+    handle: CloudRunHandle | null,
+    currentProjectId: number | null,
+    now: number = Date.now()
+): CloudRunHandle | null {
+    if (handle?.projectId == null || handle.projectId !== currentProjectId) {
+        return null
+    }
+    const startedMs = handle.startedAt ? new Date(handle.startedAt).getTime() : NaN
+    if (!Number.isNaN(startedMs) && now - startedMs > MAX_CLOUD_RUN_AGE_MS) {
+        return null
+    }
+    return handle
 }
 
 /**

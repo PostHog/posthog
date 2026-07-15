@@ -16,6 +16,12 @@ export type TaskRunConnectionStatus = 'idle' | 'connecting' | 'open' | 'closed' 
 // seconds; minutes of silence means the pipeline isn't running at all.
 export const QUEUED_STALL_MS = 2 * 60 * 1000
 
+// How long we wait for the stream to deliver ANY run state before giving up. A deleted or
+// access-revoked run, a transport that reconnects forever, or a run whose initial state never
+// arrives would otherwise leave surfaces spinning on `idle` indefinitely (a widget that counts up
+// for hours with no escape but a manual dismiss). The first state event disarms it.
+export const NO_STATE_STALL_MS = 2 * 60 * 1000
+
 // Project the REST run snapshot onto the same shape the SSE `task_run_state` events carry, so polling and
 // streaming feed `taskRunStateUpdated` identically and the rest of the logic stays mode-agnostic.
 export function taskRunDetailToStreamState(dto: TaskRunDetailDTOApi): TaskRunStreamState {
@@ -266,9 +272,11 @@ export const taskRunStreamLogic = kea<taskRunStreamLogicType>([
                 connectionErrored: (_, { error }) => error,
             },
         ],
-        // The run has sat in `queued` past the stall window — the backend never picked it up (e.g.
-        // no Temporal worker is running). Surfaces render this as a failure instead of an eternal
-        // spinner. Cleared as soon as the run reports any non-queued state.
+        // The run is stuck: either it sat in `queued` past the stall window (the backend never
+        // picked it up — e.g. no Temporal worker is running) or the stream never delivered any state
+        // at all (deleted/revoked run, a transport that keeps reconnecting). Surfaces render this as
+        // a failure instead of an eternal spinner. Cleared as soon as the run reports any non-queued
+        // state.
         isStalled: [
             false,
             {
@@ -295,6 +303,9 @@ export const taskRunStreamLogic = kea<taskRunStreamLogicType>([
                     ...report,
                 })
             }
+            // State finally arrived — the run is not the "nothing ever came back" case, so disarm
+            // that timer no matter what this status is.
+            cache.disposables.dispose('initial-state-stall')
             // Arm a stall timer while the run reports `queued`; any other status disarms it. The timer
             // rides disposables so unmount (and tab-hide) tears it down with everything else.
             if (state.status !== 'queued') {
@@ -395,12 +406,25 @@ export const taskRunStreamLogic = kea<taskRunStreamLogicType>([
 
                 return () => eventSource.close()
             }, 'task-run-sync')
+
+            // Give up if the stream never delivers any state (see NO_STATE_STALL_MS): the first state
+            // event disarms this, so it only fires for a run that stays silent — surfaces then read it
+            // as a failure with a start-over CTA instead of counting up forever on `idle`.
+            cache.disposables.add(() => {
+                const timer = window.setTimeout(() => {
+                    if (!values.taskRunState) {
+                        actions.runStalled()
+                    }
+                }, NO_STATE_STALL_MS)
+                return () => window.clearTimeout(timer)
+            }, 'initial-state-stall')
         },
         disconnect: () => {
             // Tolerant of an empty/absent runId: local mode builds this logic with runId ''.
             logSyncDebug(`run ${String(props.runId ?? '').slice(0, 8)}`, 'disconnect', 'disconnected')
             cache.disposables.dispose('task-run-sync')
             cache.disposables.dispose('queued-stall')
+            cache.disposables.dispose('initial-state-stall')
         },
     })),
 ])
