@@ -10,6 +10,7 @@ Both checks reject type errors in CI, while local hooks run narrower checks for 
 
 `hogli ci:preflight` applies `[tool.mypy].exclude` before passing explicit paths to mypy, matching the files discovered by the full CI check.
 If mypy is unavailable locally, preflight skips it and leaves CI as the gate.
+ty does not run inside `hogli ci:preflight`; it runs through lint-staged before commit.
 
 ## Manual usage
 
