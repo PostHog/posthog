@@ -39,26 +39,60 @@ DATETIME_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
             ((DateTimeType(), IntervalType(), DateTimeType()), DateTimeType()),
         ],
     ),
-    "toStartOfYear": HogQLFunctionMeta("toStartOfYear", 1, 1),
-    "toStartOfISOYear": HogQLFunctionMeta("toStartOfISOYear", 1, 1),
-    "toStartOfQuarter": HogQLFunctionMeta("toStartOfQuarter", 1, 1),
-    "toStartOfMonth": HogQLFunctionMeta(
-        "toStartOfMonth",
-        1,
-        1,
-        signatures=[
-            ((UnknownType(),), DateType()),
-        ],
-    ),
-    "toLastDayOfMonth": HogQLFunctionMeta("toLastDayOfMonth", 1, 1),
-    "toMonday": HogQLFunctionMeta("toMonday", 1, 1),
-    "toStartOfWeek": HogQLFunctionMeta(
-        "toStartOfWeek",
+    "toStartOfYear": HogQLFunctionMeta(
+        "toStartOfYear",
         1,
         2,
         signatures=[
             ((UnknownType(),), DateType()),
             ((UnknownType(), UnknownType()), DateType()),
+        ],
+    ),
+    "toStartOfISOYear": HogQLFunctionMeta(
+        "toStartOfISOYear",
+        1,
+        2,
+        signatures=[
+            ((UnknownType(),), DateType()),
+            ((UnknownType(), UnknownType()), DateType()),
+        ],
+    ),
+    "toStartOfQuarter": HogQLFunctionMeta(
+        "toStartOfQuarter",
+        1,
+        2,
+        signatures=[
+            ((UnknownType(),), DateType()),
+            ((UnknownType(), UnknownType()), DateType()),
+        ],
+    ),
+    "toStartOfMonth": HogQLFunctionMeta(
+        "toStartOfMonth",
+        1,
+        2,
+        signatures=[
+            ((UnknownType(),), DateType()),
+            ((UnknownType(), UnknownType()), DateType()),
+        ],
+    ),
+    "toLastDayOfMonth": HogQLFunctionMeta(
+        "toLastDayOfMonth",
+        1,
+        2,
+        signatures=[
+            ((UnknownType(),), DateType()),
+            ((UnknownType(), UnknownType()), DateType()),
+        ],
+    ),
+    "toMonday": HogQLFunctionMeta("toMonday", 1, 1),
+    "toStartOfWeek": HogQLFunctionMeta(
+        "toStartOfWeek",
+        1,
+        3,
+        signatures=[
+            ((UnknownType(),), DateType()),
+            ((UnknownType(), UnknownType()), DateType()),
+            ((UnknownType(), UnknownType(), UnknownType()), DateType()),
         ],
     ),
     "toStartOfDay": HogQLFunctionMeta(

@@ -2423,6 +2423,31 @@ class TestPrinter(BaseTest):
             f"toStartOfWeek(toTimeZone(events.timestamp, %(hogql_val_0)s), 3)",
         )
 
+    @parameterized.expand(
+        [
+            ("toStartOfYear",),
+            ("toStartOfISOYear",),
+            ("toStartOfQuarter",),
+            ("toStartOfMonth",),
+            ("toLastDayOfMonth",),
+        ]
+    )
+    def test_to_start_of_functions_accept_optional_timezone(self, func_name: str):
+        # ClickHouse allows an optional timezone argument on these functions; HogQL used to reject it
+        # by capping max_args at 1, breaking valid custom SQL queries.
+        self.assertEqual(
+            self._expr(f"{func_name}(timestamp, 'US/Pacific')"),
+            f"{func_name}(toTimeZone(events.timestamp, %(hogql_val_0)s), %(hogql_val_1)s)",
+        )
+
+    def test_to_start_of_week_accepts_mode_and_timezone(self):
+        # toStartOfWeek(value, mode, timezone) is valid ClickHouse. Both extra args pass through untouched —
+        # the default week-mode injection only kicks in when no mode is given.
+        self.assertEqual(
+            self._expr("toStartOfWeek(timestamp, 0, 'US/Pacific')"),
+            f"toStartOfWeek(toTimeZone(events.timestamp, %(hogql_val_0)s), 0, %(hogql_val_1)s)",
+        )
+
     def test_functions_expecting_datetime_arg(self):
         self.assertEqual(
             self._expr("tumble(toDateTime('2023-06-12'), toIntervalDay('1')) as t"),
