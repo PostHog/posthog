@@ -31,6 +31,27 @@ def _use_dedicated_ai_endpoint(caller_stage: DedicatedAIEndpointRollout) -> bool
     return _DEDICATED_AI_ENDPOINT_STAGES.index(rollout) >= _DEDICATED_AI_ENDPOINT_STAGES.index(caller_stage)
 
 
+def enable_dedicated_ai_endpoint_for_default_client() -> None:
+    """Route the module-level default client's `$ai_*` events to the dedicated AI
+    endpoint at the `all` rollout stage.
+
+    Deliberate workaround: the SDK's lazy `setup()` doesn't accept
+    `_dedicated_ai_endpoint`, and we want to finish testing the endpoint on our own
+    traffic before rethinking the flag as a public option threaded through the
+    SDK's normal construction paths. Mutating the constructed client is safe: it
+    and its consumers read the flag per batch, and the SDK's post-fork consumer
+    rebuild copies it from the old consumers.
+    """
+    if not _use_dedicated_ai_endpoint(DedicatedAIEndpointRollout.ALL):
+        return
+    client = posthoganalytics.default_client
+    if client is None:
+        return
+    client._dedicated_ai_endpoint = True
+    for consumer in client.consumers or []:
+        consumer.dedicated_ai_endpoint = True
+
+
 def feature_enabled_or_false(
     key: str,
     distinct_id: Number | str | UUID | int,

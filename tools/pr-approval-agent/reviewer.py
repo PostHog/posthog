@@ -209,7 +209,7 @@ _REVIEWER_SCAFFOLD_TAIL = "\n" + textwrap.dedent(
     from GitHub. Do NOT read files outside the repository.
     1. Review the diff provided in the prompt
     2. Read source files only if something looks off
-    3. ESCALATE if you'd need deep review to feel confident
+    3. ESCALATE if only deep domain review could rule out a showstopper
 
     Verify before you flag (every tier, including quick T1a reviews):
     - Never claim a symbol "does not exist" or "will throw at runtime" from the
@@ -221,8 +221,8 @@ _REVIEWER_SCAFFOLD_TAIL = "\n" + textwrap.dedent(
     Verdicts:
     - APPROVE: no showstoppers found
     - REFUSE: concrete issue found
-    - ESCALATE: not confident, or needs domain expertise
-    When in doubt, ESCALATE rather than APPROVE.
+    - ESCALATE: risky territory without assurance, or needs domain expertise
+    Borderline calls follow the operating philosophy's when-in-doubt rule.
 
     IMPORTANT: The "reasoning" field is 1-2 sentences — your judgment call, not a
     code review. Do NOT describe what the code does. Do NOT mention internal
@@ -651,7 +651,8 @@ class Reviewer:
     def _format_ownership(self, cl: dict) -> str:
         ownership = cl.get("ownership", {})
         teams = ownership.get("teams", [])
-        if not teams:
+        individuals = ownership.get("individuals", [])
+        if not teams and not individuals:
             return "Ownership: no ownership-source match"
         summary = cl.get("ownership_summary", "")
         on_team = cl.get("author_on_owning_team", True)
@@ -659,7 +660,9 @@ class Reviewer:
         lines = [f"Ownership: {summary}"]
         if per_team:
             lines.append(f"  Files per team: {json.dumps(per_team)}")
-        if not on_team:
+        # The team-membership note only makes sense when teams own the paths;
+        # for individual-only ownership the summary already says who they are.
+        if teams and not on_team:
             lines.append("  NOTE: Author is NOT on the owning team")
         if ownership.get("cross_team"):
             lines.append("  NOTE: Cross-team change")

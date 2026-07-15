@@ -1,21 +1,29 @@
-"""Slack link unfurling for PostHog insight and dashboard URLs (metadata only)."""
+"""Slack link unfurling for PostHog insight, dashboard, and support ticket URLs (metadata only)."""
 
 from __future__ import annotations
 
 from typing import Literal
 from urllib.parse import urlparse
+from uuid import UUID
+
+from django.core.exceptions import ValidationError
 
 import structlog
 
+from posthog.models import Team
+from posthog.models.comment import Comment
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.rbac.user_access_control import UserAccessControl, access_level_satisfied_for_resource
 
+from products.conversations.backend.models.ticket import Ticket
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.product_analytics.backend.models.insight import Insight
 
 logger = structlog.get_logger(__name__)
 
 _MAX_DESCRIPTION_CHARS = 2800
+# Keep title + status + message under Slack's 3000-char section limit; the client shows "Show more".
+_MAX_OPENING_MESSAGE_CHARS = 2000
 
 # Query `source.kind` / top-level `kind` → short name before " insight" (sync with InsightType / query kinds).
 _QUERY_KIND_TO_SHORT_NAME: dict[str, str] = {
@@ -54,11 +62,12 @@ def _truncate(text: str, max_len: int) -> str:
     return text[: max_len - 1] + "…"
 
 
-def parse_posthog_resource_link(url: str) -> tuple[Literal["insight", "dashboard"], str | int] | None:
+def parse_posthog_resource_link(url: str) -> tuple[Literal["insight", "dashboard", "ticket"], str | int] | None:
     """
     Parse a PostHog app URL into (resource kind, reference id).
 
-    Reference is insight short_id (str) or dashboard primary key (int).
+    Reference is insight short_id (str), dashboard primary key (int), or ticket ref (str — ticket
+    number or UUID).
 
     If the path includes `/project/:id`, that segment is ignored — lookup is always scoped to the
     Slack-connected project and the resolved PostHog user, not to any project id in the URL.
@@ -93,6 +102,12 @@ def parse_posthog_resource_link(url: str) -> tuple[Literal["insight", "dashboard
         except ValueError:
             return None
         return ("dashboard", dashboard_id)
+
+    if len(parts) > idx + 2 and parts[idx] == "support" and parts[idx + 1] == "tickets":
+        ref = parts[idx + 2]
+        if ref == "new":
+            return None
+        return ("ticket", ref)
 
     return None
 
@@ -154,6 +169,62 @@ def _insight_resource_label(insight: Insight) -> str:
     return "Insight"
 
 
+def _url_team_id(url: str) -> int | None:
+    """The team id from a `/project/:id/...` URL segment, if present (matches middleware behavior)."""
+    parts = [p for p in urlparse(url).path.split("/") if p]
+    if len(parts) >= 2 and parts[0] == "project" and parts[1].isdigit():
+        return int(parts[1])
+    return None
+
+
+def _find_ticket(team_id: int, ref: str) -> Ticket | None:
+    """Resolve a ticket by its human number or UUID, scoped to the team."""
+    if ref.isdigit():
+        return Ticket.objects.filter(team_id=team_id, ticket_number=int(ref)).first()
+    try:
+        return Ticket.objects.filter(team_id=team_id, pk=ref).first()
+    except (ValueError, ValidationError):
+        return None
+
+
+def _escape_mrkdwn(text: str) -> str:
+    """Escape mrkdwn control chars — ticket subjects/messages are customer-authored."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _ticket_requester(team: Team, ticket: Ticket) -> str:
+    """Display the ticket's requester using the project's person display-name settings.
+
+    The ticket's ``anonymous_traits`` are the customer-provided person properties, so we pick the
+    first configured display property present (default order prefers email), then fall back.
+    """
+    # Deferred to keep the heavy posthog.api.person module off the Django startup import path.
+    from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES  # noqa: PLC0415
+
+    traits = ticket.anonymous_traits or {}
+    for prop in team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES:
+        value = traits.get(prop)
+        if value:
+            return str(value)
+    return ticket.email_from or "Anonymous"
+
+
+def _ticket_opening_message(team_id: int, ticket_id: UUID) -> str | None:
+    """The ticket's opening public message: the earliest non-private, non-deleted conversations_ticket comment.
+
+    Private/internal notes (``item_context.is_private``) and soft-deleted comments are excluded so
+    neither surfaces in Slack.
+    """
+    content = (
+        Comment.objects.filter(team_id=team_id, scope="conversations_ticket", item_id=str(ticket_id), deleted=False)
+        .exclude(item_context__is_private=True)
+        .order_by("created_at")
+        .values_list("content", flat=True)
+        .first()
+    )
+    return _truncate(_escape_mrkdwn((content or "").strip()), _MAX_OPENING_MESSAGE_CHARS) or None
+
+
 def _unfurl_payload(*, resource_label: str, title: str, description: str | None) -> dict:
     title = title or "Untitled"
     body = f"*{title} • {resource_label}*"
@@ -162,12 +233,30 @@ def _unfurl_payload(*, resource_label: str, title: str, description: str | None)
     return {"blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": body}}]}
 
 
+def _ticket_unfurl_payload(*, url: str, ticket: Ticket, requester: str, opening_message: str | None) -> dict:
+    """A linked title, a requester/status context line, and (optionally) the quoted opening message."""
+    blocks: list[dict] = [
+        {"type": "section", "text": {"type": "mrkdwn", "text": f"<{url}|*Support Ticket #{ticket.ticket_number}*>"}},
+        {
+            "type": "context",
+            "elements": [
+                {"type": "mrkdwn", "text": f"*Requested by:* {requester}  •  *Status:* {ticket.get_status_display()}"}
+            ],
+        },
+    ]
+    if opening_message:
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": f">>> {opening_message}"}})
+    return {"blocks": blocks}
+
+
 def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
     """
-    Unfurl PostHog insight/dashboard links with title and description for viewers who may access the resource.
+    Unfurl PostHog insight, dashboard, and support ticket links with title and description.
 
-    Scope is always the Slack workspace's connected PostHog project (`integration.team`) and the
-    PostHog user resolved from Slack email — never the `/project/:id` segment in pasted URLs.
+    Scope is always the Slack-connected project (`integration.team`); `resolve_slack_user` enforces
+    that the sharer can access it. Insights/dashboards add a per-resource access-control check;
+    tickets have no per-object ACL, but a link naming a different project is refused (ticket numbers
+    are per-project, so resolving by number could otherwise surface the wrong ticket).
     """
     slack = SlackIntegration(integration)
     channel = event.get("channel")
@@ -226,7 +315,7 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
             unfurls[raw_url] = _unfurl_payload(
                 resource_label=_insight_resource_label(insight), title=title, description=desc
             )
-        else:
+        elif kind == "dashboard":
             if not isinstance(ref, int):
                 continue
             dashboard = Dashboard.objects.filter(pk=ref, team_id=team.pk).first()
@@ -238,6 +327,26 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
             title = dashboard.name or "Untitled"
             desc = (dashboard.description or "").strip() or None
             unfurls[raw_url] = _unfurl_payload(resource_label="Dashboard", title=title, description=desc)
+        elif kind == "ticket":
+            if not isinstance(ref, str):
+                continue
+            # Ticket numbers are per-project sequential, so the same number exists in every project.
+            # Unlike insights/dashboards (globally-unique ids, safe to resolve within the connected
+            # project), a link that names a different project must not resolve to our project's ticket
+            # of the same number — refuse rather than show the wrong ticket.
+            url_team_id = _url_team_id(raw_url)
+            if url_team_id is not None and url_team_id != team.pk:
+                continue
+            ticket = _find_ticket(team.pk, ref)
+            if not ticket:
+                continue
+            # Tickets have no per-object ACL — any member of the connected team may view them.
+            unfurls[raw_url] = _ticket_unfurl_payload(
+                url=raw_url,
+                ticket=ticket,
+                requester=_escape_mrkdwn(_ticket_requester(team, ticket)),
+                opening_message=_ticket_opening_message(team.pk, ticket.id),
+            )
 
     if not unfurls:
         return

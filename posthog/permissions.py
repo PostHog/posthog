@@ -304,6 +304,20 @@ class TeamMemberStrictManagementPermission(BasePermission):
         return requesting_level >= minimum_level
 
 
+class TeamMemberAdminManagementPermission(BasePermission):
+    """
+    Require at least admin effective project access level for ALL methods, including reads.
+    """
+
+    message = "You don't have sufficient permissions in the project."
+
+    def has_permission(self, request, view) -> bool:
+        requesting_level = view.user_permissions.current_team.effective_membership_level
+        if requesting_level is None:
+            return False
+        return requesting_level >= OrganizationMembership.Level.ADMIN
+
+
 class IsStaffUser(IsAdminUser):
     message = "You are not a staff user, contact your instance admin."
 

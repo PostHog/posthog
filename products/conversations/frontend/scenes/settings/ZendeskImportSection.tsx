@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonCard, LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCard, LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
@@ -141,6 +141,13 @@ function ZendeskImportForm(): JSX.Element {
                     ]}
                 />
             </LemonField.Pure>
+            {defaultEmailChannelId === null && !isImportRunning && (
+                <LemonBanner type="warning">
+                    Without a default inbox, tickets whose Zendesk address doesn't match one of your connected support
+                    addresses are imported without an email channel. Agents won't be able to reply to those customers by
+                    email, and the reply box on those tickets will be disabled.
+                </LemonBanner>
+            )}
             <div>
                 <LemonButton
                     type="primary"

@@ -130,11 +130,26 @@ TASKS_AGENT_PROXY_INGEST_URL: str | None = os.getenv("TASKS_AGENT_PROXY_INGEST_U
 # is set AND the read-via-proxy flag is enabled for the user; unset means clients read from Django.
 TASKS_AGENT_PROXY_PUBLIC_URL: str | None = os.getenv("TASKS_AGENT_PROXY_PUBLIC_URL") or None
 
+# In-cluster base URL of the agent-proxy for backend consumers (e.g. the Temporal worker relaying a
+# run's live stream to Slack) that read the stream leg without going through the ingress/CDN. Points
+# at the ClusterIP service (e.g. http://agent-proxy.agent-proxy.svc.cluster.local:8003). Unset falls
+# back to TASKS_AGENT_PROXY_PUBLIC_URL, then to reading the Django-side Redis stream directly.
+TASKS_AGENT_PROXY_INTERNAL_URL: str | None = os.getenv("TASKS_AGENT_PROXY_INTERNAL_URL") or None
+
 # Shared service-to-service secret proving a call to the agent-proxy side-effect callback came from the
 # agent-proxy and not directly from a sandbox (which also holds the event-ingest JWT). When set, the
 # callback requires a matching X-Agent-Proxy-Secret header. Provision the same value to Django and the
 # agent-proxy in production; unset (local/CI) disables the check.
 AGENT_PROXY_CALLBACK_SECRET: str | None = os.getenv("AGENT_PROXY_CALLBACK_SECRET") or None
+
+# ReviewHog production label trigger. The trigger endpoint (POST /api/review_hog/trigger) authenticates
+# CI by comparing the request's bearer token to REVIEWHOG_TRIGGER_TOKEN (a shared secret provisioned to
+# both Django and the GitHub Action). Unset fails closed outside local dev/test. REVIEWHOG_TEAM_ID is the
+# team the review runs and publishes under; REVIEWHOG_RUN_USER_ID is the user the sandbox tasks run as
+# (falls back to the team's GitHub integration creator when unset).
+REVIEWHOG_TRIGGER_TOKEN: str | None = os.getenv("REVIEWHOG_TRIGGER_TOKEN") or None
+REVIEWHOG_TEAM_ID: int | None = get_from_env("REVIEWHOG_TEAM_ID", optional=True, type_cast=int)
+REVIEWHOG_RUN_USER_ID: int | None = get_from_env("REVIEWHOG_RUN_USER_ID", optional=True, type_cast=int)
 
 # These are legacy values only kept around for backwards compatibility with self hosted versions
 SALT_KEY = get_list(os.getenv("SALT_KEY", "0123456789abcdefghijklmnopqrstuvwxyz"))

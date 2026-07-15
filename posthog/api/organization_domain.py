@@ -1,13 +1,12 @@
 import re
 from typing import Any, cast
 
-from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Q, QuerySet
 
 import django_filters
 import posthoganalytics
 from drf_spectacular.utils import extend_schema
-from rest_framework import exceptions, request, response, serializers, status
+from rest_framework import exceptions, request, response, serializers
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.request import Request
 from rest_framework.viewsets import ModelViewSet
@@ -19,18 +18,11 @@ from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.event_usage import groups
 from posthog.models import OrganizationDomain, User
-from posthog.models.identity_provider_config import IDP_CONFIG_SYNCED_FIELDS, IdentityProviderConfig
+from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission
 
-from ee.api.scim.utils import (
-    disable_scim_for_domain,
-    enable_scim_for_domain,
-    get_scim_base_url,
-    mask_email,
-    mask_string,
-    regenerate_scim_token,
-)
+from ee.api.scim.utils import get_scim_base_url, mask_email, mask_string
 from ee.models.scim_request_log import SCIMRequestLog
 
 DOMAIN_REGEX = r"^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$"
@@ -62,75 +54,18 @@ def _capture_domain_event(request, domain: OrganizationDomain, event_type: str, 
 
 class OrganizationDomainSerializer(serializers.ModelSerializer):
     # Maps each verification-gated attribute's serializer source (the key seen in `validated_data`)
-    # to the public field name used in error responses. The IdP fields are stored on the model as
-    # underscore-prefixed attributes, so their source differs from the public name.
+    # to the public field name used in error responses.
     UPDATE_ONLY_WHEN_VERIFIED = {
         "jit_provisioning_enabled": "jit_provisioning_enabled",
         "sso_enforcement": "sso_enforcement",
-        "_scim_enabled": "scim_enabled",
-        "_id_jag_issuer_url": "id_jag_issuer_url",
-        "_id_jag_jwks_url": "id_jag_jwks_url",
-        "_id_jag_allowed_clients": "id_jag_allowed_clients",
     }
 
     scim_base_url = serializers.SerializerMethodField()
-    scim_bearer_token = serializers.SerializerMethodField()
     identity_provider_config = _OrgScopedIdentityProviderConfigField(
         queryset=IdentityProviderConfig.objects.all(),
         required=False,
         allow_null=True,
         help_text="Linked IdP configuration (SAML/SCIM/XAA) that backs this domain. Must belong to the same organization.",
-    )
-    # The IdP columns live on the model as underscore-prefixed attributes (read through the linked
-    # config); these declarations keep the public API field names while sourcing the stored columns.
-    saml_entity_id = serializers.CharField(
-        source="_saml_entity_id",
-        max_length=512,
-        required=False,
-        allow_null=True,
-        allow_blank=True,
-        help_text="SAML IdP entity ID (issuer).",
-    )
-    saml_acs_url = serializers.CharField(
-        source="_saml_acs_url",
-        max_length=512,
-        required=False,
-        allow_null=True,
-        allow_blank=True,
-        help_text="SAML single sign-on (ACS) URL.",
-    )
-    saml_x509_cert = serializers.CharField(
-        source="_saml_x509_cert",
-        required=False,
-        allow_null=True,
-        allow_blank=True,
-        help_text="SAML IdP X.509 signing certificate (PEM).",
-    )
-    scim_enabled = serializers.BooleanField(
-        source="_scim_enabled", required=False, help_text="Whether SCIM provisioning is enabled for this domain."
-    )
-    id_jag_issuer_url = serializers.CharField(
-        source="_id_jag_issuer_url",
-        max_length=512,
-        required=False,
-        allow_null=True,
-        allow_blank=True,
-        help_text="Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG on this domain.",
-    )
-    id_jag_jwks_url = serializers.CharField(
-        source="_id_jag_jwks_url",
-        max_length=512,
-        required=False,
-        allow_null=True,
-        allow_blank=True,
-        help_text="Override JWKS URL. Defaults to OIDC discovery on the issuer URL.",
-    )
-    id_jag_allowed_clients = serializers.ListField(
-        source="_id_jag_allowed_clients",
-        child=serializers.CharField(max_length=256),
-        required=False,
-        allow_empty=True,
-        help_text="Allowed ID-JAG client IDs. Empty list allows any client_id.",
     )
 
     class Meta:
@@ -144,17 +79,9 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
             "jit_provisioning_enabled",
             "sso_enforcement",
             "has_saml",
-            "saml_entity_id",
-            "saml_acs_url",
-            "saml_x509_cert",
             "has_scim",
-            "scim_enabled",
             "scim_base_url",
-            "scim_bearer_token",
             "has_id_jag",
-            "id_jag_issuer_url",
-            "id_jag_jwks_url",
-            "id_jag_allowed_clients",
             "identity_provider_config",
         )
         extra_kwargs = {
@@ -164,13 +91,8 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
             "has_saml": {"read_only": True},
             "has_scim": {"read_only": True},
             "scim_base_url": {"read_only": True},
-            "scim_bearer_token": {"read_only": True},
             "has_id_jag": {"read_only": True},
         }
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._scim_plain_token: str | None = None
 
     def get_fields(self):
         fields = super().get_fields()
@@ -187,10 +109,6 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
             "jit_provisioning_enabled", None
         )  # can never be set on creation because domain must be verified
         validated_data.pop("sso_enforcement", None)  # can never be set on creation because domain must be verified
-        validated_data.pop("_scim_enabled", None)
-        validated_data.pop("_id_jag_issuer_url", None)
-        validated_data.pop("_id_jag_jwks_url", None)
-        validated_data.pop("_id_jag_allowed_clients", None)
         instance: OrganizationDomain = super().create(validated_data)
 
         return instance
@@ -199,21 +117,6 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
         if not re.match(DOMAIN_REGEX, domain):
             raise serializers.ValidationError("Please enter a valid domain or subdomain name.")
         return domain
-
-    @staticmethod
-    def _normalize_optional_url(value: str | None) -> str | None:
-        if value is None:
-            return None
-        stripped = value.strip()
-        if not stripped:
-            return None
-        return stripped.rstrip("/")
-
-    def validate_id_jag_issuer_url(self, value: str | None) -> str | None:
-        return self._normalize_optional_url(value)
-
-    def validate_id_jag_jwks_url(self, value: str | None) -> str | None:
-        return self._normalize_optional_url(value)
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         instance = cast(OrganizationDomain, self.instance)
@@ -233,70 +136,16 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
                     code="feature_not_available",
                 )
 
-        if instance and attrs.get("_scim_enabled") is not None:
-            if not organization.is_feature_available(AvailableFeature.SCIM):
-                raise serializers.ValidationError(
-                    {"scim_enabled": "SCIM provisioning is not available for this organization."},
-                    code="feature_not_available",
-                )
-
-        if instance and attrs.get("_id_jag_issuer_url"):
-            if not organization.is_feature_available(AvailableFeature.XAA_AUTHENTICATION):
-                raise serializers.ValidationError(
-                    {"id_jag_issuer_url": "XAA (ID-JAG) is not available for this organization."},
-                    code="feature_not_available",
-                )
-
         return attrs
 
     def update(self, instance: OrganizationDomain, validated_data: dict[str, Any]) -> OrganizationDomain:
         validated_data.pop("domain", None)  # domain is immutable after creation
-        scim_enabled = validated_data.pop("_scim_enabled", None)
-
-        # When linking an IdP config (the source of truth), adopt its settings onto the domain's
-        # legacy IdP columns so the forward mirror in `OrganizationDomain.save()` sees no
-        # divergence to clobber. Explicit IdP fields in the same request still win (applied after,
-        # by `super().update`).
-        linked_config = validated_data.get("identity_provider_config")
-        if linked_config is not None:
-            for field in IDP_CONFIG_SYNCED_FIELDS:
-                setattr(instance, f"_{field}", getattr(linked_config, field))
-
-        instance = super().update(instance, validated_data)
-
-        # Enable/disable SCIM only after `super().update()` has applied any newly linked
-        # `identity_provider_config`, so the freshly generated token is mirrored to the
-        # currently-linked config — never to a config the domain was previously linked to.
-        scim_plain_token: str | None = None
-        if scim_enabled is not None:
-            if scim_enabled:
-                if not instance._scim_enabled:
-                    scim_plain_token = enable_scim_for_domain(instance)
-            else:
-                if instance._scim_enabled:
-                    disable_scim_for_domain(instance)
-
-        self._scim_plain_token = scim_plain_token
-
-        id_jag_fields = {"_id_jag_issuer_url", "_id_jag_jwks_url", "_id_jag_allowed_clients"}
-        if id_jag_fields.intersection(validated_data):
-            try:
-                instance.full_clean()
-            except DjangoValidationError as e:
-                # `clean()` keys errors by the model field name (underscore-prefixed); surface them
-                # under the public API field name instead.
-                errors = {(k[1:] if k.startswith("_id_jag_") else k): v for k, v in e.message_dict.items()}
-                raise serializers.ValidationError(errors) from e
-
-        return instance
+        return super().update(instance, validated_data)
 
     def get_scim_base_url(self, obj: OrganizationDomain) -> str | None:
         if not obj.has_scim:
             return None
         return get_scim_base_url(obj, self.context.get("request"))
-
-    def get_scim_bearer_token(self, obj: OrganizationDomain) -> str | None:
-        return getattr(self, "_scim_plain_token", None)
 
 
 class SCIMRequestLogSerializer(serializers.ModelSerializer):
@@ -392,11 +241,7 @@ class OrganizationDomainViewset(TeamAndOrgViewSetMixin, ModelViewSet):
 
     def _capture_domain_setting_event(self, request: Request) -> None:
         data = request.data
-        if any(f.startswith("saml_") for f in data):
-            event_type = "saml configured"
-        elif any(f.startswith("id_jag_") for f in data):
-            event_type = "id-jag configured"
-        elif "sso_enforcement" in data:
+        if "sso_enforcement" in data:
             event_type = "sso enforcement updated"
         elif data.get("jit_provisioning_enabled") is True:
             event_type = "jit provisioning enabled"
@@ -428,31 +273,6 @@ class OrganizationDomainViewset(TeamAndOrgViewSetMixin, ModelViewSet):
 
         instance.delete()
         return response.Response(status=204)
-
-    @action(methods=["POST"], detail=True, url_path="scim/token")
-    def scim_token(self, request: Request, **kwargs) -> response.Response:
-        """
-        Regenerate SCIM bearer token.
-        """
-        domain: OrganizationDomain = self.get_object()
-
-        if not domain.organization.is_feature_available(AvailableFeature.SCIM):
-            raise exceptions.PermissionDenied("SCIM is not available for this organization")
-
-        if not domain.has_scim:
-            return response.Response(
-                {"detail": "SCIM is not enabled for this domain"}, status=status.HTTP_400_BAD_REQUEST
-            )
-
-        plain_token = regenerate_scim_token(domain)
-
-        return response.Response(
-            {
-                "scim_enabled": True,
-                "scim_base_url": get_scim_base_url(domain, request),
-                "scim_bearer_token": plain_token,
-            }
-        )
 
     @action(methods=["GET"], detail=True, url_path="scim/logs")
     def scim_logs(self, request: Request, **kwargs) -> response.Response:

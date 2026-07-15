@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AiFeedbackRequestApi,
     BulkUpdateStatusRequestApi,
     BulkUpdateStatusResponseApi,
     BulkUpdateTagsRequestApi,
@@ -28,6 +29,7 @@ import type {
     PaginatedTicketViewListApi,
     PatchedConversationApi,
     PatchedTicketApi,
+    PatchedTicketViewApi,
     SandboxMessageResponseApi,
     SandboxOpenApi,
     TicketApi,
@@ -408,6 +410,27 @@ export const conversationsTicketsDestroy = async (
     })
 }
 
+export const getConversationsTicketsAiFeedbackCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/conversations/tickets/${id}/ai_feedback/`
+}
+
+/**
+ * Record reviewer feedback on an AI reply, captured to the internal analytics project.
+ */
+export const conversationsTicketsAiFeedbackCreate = async (
+    projectId: string,
+    id: string,
+    aiFeedbackRequestApi: AiFeedbackRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getConversationsTicketsAiFeedbackCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(aiFeedbackRequestApi),
+    })
+}
+
 export const getConversationsTicketsMessagesListUrl = (
     projectId: string,
     id: string,
@@ -623,6 +646,24 @@ export const conversationsViewsRetrieve = async (
     return apiMutator<TicketViewApi>(getConversationsViewsRetrieveUrl(projectId, shortId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getConversationsViewsPartialUpdateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/conversations/views/${shortId}/`
+}
+
+export const conversationsViewsPartialUpdate = async (
+    projectId: string,
+    shortId: string,
+    patchedTicketViewApi?: NonReadonly<PatchedTicketViewApi>,
+    options?: RequestInit
+): Promise<TicketViewApi> => {
+    return apiMutator<TicketViewApi>(getConversationsViewsPartialUpdateUrl(projectId, shortId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedTicketViewApi),
     })
 }
 

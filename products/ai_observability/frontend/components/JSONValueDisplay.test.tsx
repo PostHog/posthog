@@ -60,4 +60,17 @@ describe('JSONValueDisplay', () => {
         expect(container.querySelector('.react-json-view')).not.toBeInTheDocument()
         expect(container.textContent).toContain('[Thinking: not JSON]')
     })
+
+    it('truncates pathologically long string values by default', async () => {
+        // Guards against huge inline values (LLM prompts/completions, base64 blobs) thrashing render.
+        const hugeValue = 'X'.repeat(20000)
+        const { container } = renderValue({ prompt: hugeValue })
+
+        await waitFor(() => {
+            expect(container.querySelector('.react-json-view')).toBeInTheDocument()
+        })
+        // The full string is not rendered, but a truncated prefix still is (expandable on click).
+        expect(container.textContent).not.toContain('X'.repeat(20000))
+        expect(container.textContent).toContain('X'.repeat(10000))
+    })
 })

@@ -406,6 +406,38 @@ describe('logsViewerDataLogic', () => {
             }).toDispatchActions(['handleQueryChange', 'runQuery'])
         })
     })
+
+    describe('custom column aliases', () => {
+        // Aliases must key by expression, not request position: moveColumn reorders columns without
+        // re-fetching, so a positional zip would render each custom column another column's values.
+        it('maps server aliases to the expression that produced them', async () => {
+            useMocks({
+                post: {
+                    // Server echoes one alias per sent expression, in request (config) order.
+                    '/api/environments/:team_id/logs/query/': () => [
+                        200,
+                        { results: [], maxExportableLogs: 5000, columns: ['col_a', 'col_b'] },
+                    ],
+                    '/api/environments/:team_id/logs/sparkline/': () => [200, []],
+                },
+            })
+            logic.actions.setColumns([
+                { id: 'timestamp', type: 'timestamp' },
+                { id: 'c1', type: 'custom', expression: 'upper(level)' },
+                { id: 'c2', type: 'custom', expression: 'lower(body)' },
+                { id: 'message', type: 'message' },
+            ])
+
+            await expectLogic(logic, () => {
+                logic.actions.fetchLogs()
+            }).toFinishAllListeners()
+
+            expect(logic.values.customColumnAliases).toEqual({
+                'upper(level)': 'col_a',
+                'lower(body)': 'col_b',
+            })
+        })
+    })
 })
 
 describe('shouldSkipFilterGroupChange', () => {

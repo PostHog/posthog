@@ -91,6 +91,7 @@ import { posthogAiContextLogic } from './posthogAiContextLogic'
 import { MAX_SLASH_COMMANDS, SlashCommand } from './slash-commands'
 import { getToolCallDescriptionAndWidgetDef } from './toolCallDisplay'
 import {
+    activeSceneLogicHasMaxContext,
     findPendingClientToolCall,
     getAgentModeForScene,
     isAssistantMessage,
@@ -860,8 +861,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 }
 
                 if (!(e instanceof DOMException) || e.name !== 'AbortError') {
-                    posthog.captureException(e)
                     let releaseException = true
+                    // Some statuses are expected business conditions the UI already handles
+                    // gracefully (out of AI credits, rate limited). Don't report those to error
+                    // tracking as exceptions; only genuine failures should be captured.
+                    let reportException = true
                     // Generic message by default
                     const relevantErrorMessage = { ...FAILURE_MESSAGE, id: uuid() }
                     const offlineMessage = 'You appear to be offline. Please check your internet connection.'
@@ -930,11 +934,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                             relevantErrorMessage.content =
                                 e.detail ||
                                 `You've reached PostHog AI's usage limit for the moment. Please try again ${e.formattedRetryAfter}.`
+                            reportException = false
                         }
 
                         if (e.status === 402) {
                             relevantErrorMessage.content =
                                 'Your organization reached its AI credit usage limit. Increase the limits in [Billing](/organization/billing), or ask an org admin to do so.'
+                            reportException = false
                         }
 
                         if (e.status && e.status >= 500) {
@@ -943,6 +949,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         }
                     } else {
                         console.error(e)
+                    }
+
+                    if (reportException) {
+                        posthog.captureException(e)
                     }
 
                     if (releaseException) {
@@ -1292,8 +1302,17 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     return false
                 }
                 const activeSceneLogic = sceneLogic.values.activeSceneLogic
-                if (!activeSceneLogic || !('maxContext' in activeSceneLogic.selectors)) {
+                if (!activeSceneLogic) {
+                    // No dashboard scene logic to wait on — its key hasn't resolved or it can't be
+                    // built. Nothing will land, so don't block: send now rather than stalling for the
+                    // full cap and shipping without context anyway.
                     return false
+                }
+                if (!activeSceneLogicHasMaxContext(activeSceneLogic)) {
+                    // The logic exists but isn't mounted yet — building, or briefly unmounted mid
+                    // dashboard→dashboard navigation. Keep waiting (bounded by the cap) so context
+                    // collection picks up the dashboard once it mounts.
+                    return true
                 }
                 return !(activeSceneLogic.values as { dashboard?: unknown }).dashboard
             }

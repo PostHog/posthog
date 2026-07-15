@@ -7,6 +7,9 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Literal
 
+import psycopg
+import structlog
+
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import cdc_error_info
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.config import PostgresCDCConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.errors import (
@@ -29,7 +32,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.c
     remove_table_from_publication,
     slot_exists,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import source_requires_ssl
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
+    _retry_on_connection_dropped,
+    source_requires_ssl,
+)
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -37,6 +43,28 @@ if TYPE_CHECKING:
     from products.warehouse_sources.backend.temporal.data_imports.cdc.types import CDCStreamReader
 
 logger = logging.getLogger(__name__)
+_retry_logger = structlog.get_logger(__name__)
+
+
+def _slot_setup_error_message(exc: Exception) -> str:
+    """User-facing message for a failed slot/publication setup.
+
+    When the failure is a lack of replication privilege — the most common CDC blocker —
+    point at the simplest fix rather than only echoing the raw error: switch the affected
+    tables to Incremental sync, which needs only SELECT.
+    """
+    message = str(exc).lower()
+    is_permission_error = isinstance(exc, psycopg.errors.InsufficientPrivilege) or (
+        "permission denied" in message or "must be superuser" in message
+    )
+    if is_permission_error:
+        return (
+            f"Failed to create replication slot: {exc} "
+            "The database user lacks permission to create logical replication slots. "
+            "Either grant it replication access, or switch these tables to Incremental sync "
+            "instead of CDC. Incremental needs only SELECT permission."
+        )
+    return f"Failed to create replication slot: {exc}"
 
 
 def _split_qualified_table(qualified: str, default_schema: str) -> tuple[str, str]:
@@ -135,22 +163,31 @@ class PostgresCDCAdapter:
             raise RuntimeError("Cannot recreate CDC replication slot: no slot name configured for this source")
 
         default_schema = self._resolve_schema(source)
-        with cdc_pg_connection(source) as conn:
-            drop_slot(conn, cdc_config.slot_name)
-            if cdc_config.publication_name and not publication_exists(conn, cdc_config.publication_name):
-                if cdc_config.management_mode != "posthog":
-                    raise RuntimeError(
-                        f"Publication '{cdc_config.publication_name}' does not exist on the source database. "
-                        "Recreate it (see the CDC setup instructions), then resync the source."
+
+        def _recreate() -> str:
+            with cdc_pg_connection(source) as conn:
+                drop_slot(conn, cdc_config.slot_name)
+                if cdc_config.publication_name and not publication_exists(conn, cdc_config.publication_name):
+                    if cdc_config.management_mode != "posthog":
+                        raise RuntimeError(
+                            f"Publication '{cdc_config.publication_name}' does not exist on the source database. "
+                            "Recreate it (see the CDC setup instructions), then resync the source."
+                        )
+                    return create_slot_and_publication(
+                        conn,
+                        cdc_config.slot_name,
+                        cdc_config.publication_name,
+                        tables=[_split_qualified_table(t, default_schema) for t in tables],
                     )
-                consistent_point = create_slot_and_publication(
-                    conn,
-                    cdc_config.slot_name,
-                    cdc_config.publication_name,
-                    tables=[_split_qualified_table(t, default_schema) for t in tables],
-                )
-            else:
-                consistent_point = create_slot(conn, cdc_config.slot_name)
+                return create_slot(conn, cdc_config.slot_name)
+
+        # Recovery reconnects and reruns DDL on a source that just dropped our streaming
+        # connection (the slot invalidation that triggered recovery), so a transient drop
+        # mid-recreate — the server terminating our backend on a deploy/failover, an idle cull —
+        # is likely. drop_slot runs first on every attempt, so retrying is idempotent; absorb the
+        # drop in-process instead of failing the whole recovery. Permanent errors (auth, a missing
+        # customer-owned publication) don't match the predicate and re-raise immediately.
+        consistent_point = _retry_on_connection_dropped(_recreate, _retry_logger)
 
         return {"cdc_consistent_point": consistent_point}
 
@@ -218,7 +255,7 @@ class PostgresCDCAdapter:
                             drop_publication(conn, pub_name)
                 except Exception as rollback_error:
                     logger.exception("Failed to roll back partial CDC slot/publication: %s", rollback_error)
-                return {}, f"Failed to create replication slot: {e}"
+                return {}, _slot_setup_error_message(e)
             return resource_fields, None
 
         # self_managed: the publication is customer-owned; PostHog only creates the slot.
@@ -243,7 +280,7 @@ class PostgresCDCAdapter:
                     drop_slot(conn, slot_name)
             except Exception as rollback_error:
                 logger.exception("Failed to roll back partial self-managed CDC slot: %s", rollback_error)
-            return {}, f"Failed to create replication slot: {e}"
+            return {}, _slot_setup_error_message(e)
         return resource_fields, None
 
     def cleanup_resources(self, source: ExternalDataSource) -> None:

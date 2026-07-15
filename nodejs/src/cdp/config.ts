@@ -18,7 +18,6 @@ import {
     WARPSTREAM_CYCLOTRON_PRODUCER,
     WARPSTREAM_INGESTION_PRODUCER,
 } from './outputs/producers'
-import { SelfLoopGuardMode } from './services/self-loop-guard'
 import { CyclotronJobQueueKind, CyclotronJobQueueSource } from './types'
 
 // CdpConfig intersects ClickhouseConfig so any consumer reading
@@ -52,23 +51,12 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: CyclotronJobQueueSource
     CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: string
 
-    // Master switch for pre-send email MX validation, off by default. When true,
-    // every email send is validated (syntax + MX lookup, cached per domain) and
-    // would-skip outcomes are recorded in Prometheus — shadow mode unless the team
-    // is also matched by CDP_EMAIL_MX_VALIDATION_ENFORCE_TEAMS, which controls
-    // actual skipping.
-    CDP_EMAIL_MX_VALIDATION_ENABLED: boolean
-    // Teams whose predicted hard bounces are actually skipped (same string format as
-    // the other team matchers: '' = none, '*' = all, '2,7' = exact set). Teams not
-    // matched here are observe-only: validation runs and metrics are recorded, but
-    // the send always proceeds.
-    CDP_EMAIL_MX_VALIDATION_ENFORCE_TEAMS: string
-
     CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: string
     CDP_LEGACY_EVENT_CONSUMER_TOPIC: string
     CDP_LEGACY_EVENT_CONSUMER_INCLUDE_WEBHOOKS: boolean
 
     CDP_CYCLOTRON_BATCH_DELAY_MS: number
+    CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS: number
     CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: number
     CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: boolean
     CDP_CYCLOTRON_COMPRESS_VM_STATE: boolean
@@ -108,7 +96,6 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_FETCH_RETRIES: number
     CDP_FETCH_BACKOFF_BASE_MS: number
     CDP_FETCH_BACKOFF_MAX_MS: number
-    CDP_SELF_LOOP_GUARD_MODE: SelfLoopGuardMode
     CDP_OVERFLOW_QUEUE_ENABLED: boolean
     HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC: string
     HOG_FUNCTION_MONITORING_APP_METRICS_PRODUCER: CdpProducerName
@@ -189,14 +176,13 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND: 'hog',
         CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'kafka',
         CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '',
-        CDP_EMAIL_MX_VALIDATION_ENABLED: false,
-        CDP_EMAIL_MX_VALIDATION_ENFORCE_TEAMS: '',
 
         CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: 'clickhouse-plugin-server-async-onevent',
         CDP_LEGACY_EVENT_CONSUMER_TOPIC: KAFKA_EVENTS_JSON,
         CDP_LEGACY_EVENT_CONSUMER_INCLUDE_WEBHOOKS: false,
 
         CDP_CYCLOTRON_BATCH_DELAY_MS: 50,
+        CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS: 10000,
         CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 100,
         CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: true,
         CDP_CYCLOTRON_COMPRESS_VM_STATE: isProdEnv() ? false : true,
@@ -230,10 +216,6 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_FETCH_RETRIES: 3,
         CDP_FETCH_BACKOFF_BASE_MS: 1000,
         CDP_FETCH_BACKOFF_MAX_MS: 30000,
-        // Observe-only by default. Values: 'disabled' | 'warn' | 'enforce'. 'warn' detects
-        // and emits cdp_self_loop_guard_total without blocking; 'enforce' bounds true loops
-        // at SELF_LOOP_MAX_DEPTH hops. Roll out warn -> enforce per environment.
-        CDP_SELF_LOOP_GUARD_MODE: 'warn',
         CDP_OVERFLOW_QUEUE_ENABLED: false,
         HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC: KAFKA_APP_METRICS_2,
         HOG_FUNCTION_MONITORING_APP_METRICS_PRODUCER: WARPSTREAM_INGESTION_PRODUCER,

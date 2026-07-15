@@ -14,7 +14,6 @@ export interface CreateDraftExperimentCardProps {
 export function CreateDraftExperimentCard({ featureFlag }: CreateDraftExperimentCardProps): JSX.Element {
     const logic = createDraftExperimentFromFlagLogic({
         featureFlagKey: featureFlag.key,
-        featureFlagVariants: featureFlag.filters.multivariate?.variants || [],
     })
 
     const { experimentName, experimentDescription, isLoading, error } = useValues(logic)

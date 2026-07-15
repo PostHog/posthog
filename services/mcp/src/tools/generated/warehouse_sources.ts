@@ -3,7 +3,6 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
-    ExternalDataSchemasCancelCreateBody,
     ExternalDataSchemasCancelCreateParams,
     ExternalDataSchemasDeleteDataDestroyParams,
     ExternalDataSchemasIncrementalFieldsCreateBody,
@@ -31,6 +30,7 @@ import {
     ExternalDataSourcesRefreshSchemasCreateParams,
     ExternalDataSourcesReloadCreateBody,
     ExternalDataSourcesReloadCreateParams,
+    ExternalDataSourcesRepairCdcCreateParams,
     ExternalDataSourcesRetrieveParams,
     ExternalDataSourcesSetupCreateBody,
     ExternalDataSourcesStoredCredentialsListQueryParams,
@@ -122,53 +122,16 @@ const dataWarehouseStoredCredentialsList = (): ToolBase<
     },
 })
 
-const ExternalDataSchemasCancelSchema = ExternalDataSchemasCancelCreateParams.omit({ project_id: true }).extend(
-    ExternalDataSchemasCancelCreateBody.shape
-)
+const ExternalDataSchemasCancelSchema = ExternalDataSchemasCancelCreateParams.omit({ project_id: true })
 
 const externalDataSchemasCancel = (): ToolBase<typeof ExternalDataSchemasCancelSchema, unknown> => ({
     name: 'external-data-schemas-cancel',
     schema: ExternalDataSchemasCancelSchema,
     handler: async (context: Context, params: z.infer<typeof ExternalDataSchemasCancelSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.should_sync !== undefined) {
-            body['should_sync'] = params.should_sync
-        }
-        if (params.sync_type !== undefined) {
-            body['sync_type'] = params.sync_type
-        }
-        if (params.incremental_field !== undefined) {
-            body['incremental_field'] = params.incremental_field
-        }
-        if (params.incremental_field_type !== undefined) {
-            body['incremental_field_type'] = params.incremental_field_type
-        }
-        if (params.incremental_field_lookback_seconds !== undefined) {
-            body['incremental_field_lookback_seconds'] = params.incremental_field_lookback_seconds
-        }
-        if (params.sync_frequency !== undefined) {
-            body['sync_frequency'] = params.sync_frequency
-        }
-        if (params.sync_time_of_day !== undefined) {
-            body['sync_time_of_day'] = params.sync_time_of_day
-        }
-        if (params.primary_key_columns !== undefined) {
-            body['primary_key_columns'] = params.primary_key_columns
-        }
-        if (params.cdc_table_mode !== undefined) {
-            body['cdc_table_mode'] = params.cdc_table_mode
-        }
-        if (params.enabled_columns !== undefined) {
-            body['enabled_columns'] = params.enabled_columns
-        }
-        if (params.row_filters !== undefined) {
-            body['row_filters'] = params.row_filters
-        }
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_schemas/${encodeURIComponent(String(params.id))}/cancel/`,
-            body,
         })
         return result
     },
@@ -763,6 +726,21 @@ const externalDataSourcesReload = (): ToolBase<typeof ExternalDataSourcesReloadS
     },
 })
 
+const ExternalDataSourcesRepairCdcCreateSchema = ExternalDataSourcesRepairCdcCreateParams.omit({ project_id: true })
+
+const externalDataSourcesRepairCdcCreate = (): ToolBase<typeof ExternalDataSourcesRepairCdcCreateSchema, unknown> => ({
+    name: 'external-data-sources-repair-cdc-create',
+    schema: ExternalDataSourcesRepairCdcCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesRepairCdcCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/repair_cdc/`,
+        })
+        return result
+    },
+})
+
 const ExternalDataSourcesRetrieveSchema = ExternalDataSourcesRetrieveParams.omit({ project_id: true })
 
 const externalDataSourcesRetrieve = (): ToolBase<
@@ -892,6 +870,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'external-data-sources-partial-update': externalDataSourcesPartialUpdate,
     'external-data-sources-refresh-schemas': externalDataSourcesRefreshSchemas,
     'external-data-sources-reload': externalDataSourcesReload,
+    'external-data-sources-repair-cdc-create': externalDataSourcesRepairCdcCreate,
     'external-data-sources-retrieve': externalDataSourcesRetrieve,
     'external-data-sources-update-webhook-inputs-create': externalDataSourcesUpdateWebhookInputsCreate,
     'external-data-sources-webhook-info-retrieve': externalDataSourcesWebhookInfoRetrieve,

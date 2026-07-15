@@ -255,6 +255,31 @@ export const ConversationsTicketsPartialUpdateBody = /* @__PURE__ */ zod
     .describe('Serializer mixin that handles tags for objects.')
 
 /**
+ * Record reviewer feedback on an AI reply, captured to the internal analytics project.
+ */
+export const conversationsTicketsAiFeedbackCreateBodyMessageIdMax = 200
+
+export const conversationsTicketsAiFeedbackCreateBodyFeedbackTextMax = 2000
+
+export const ConversationsTicketsAiFeedbackCreateBody = /* @__PURE__ */ zod
+    .object({
+        message_id: zod
+            .string()
+            .max(conversationsTicketsAiFeedbackCreateBodyMessageIdMax)
+            .describe('ID of the AI message being rated.'),
+        rating: zod
+            .enum(['good', 'bad'])
+            .describe('\* `good` - good\n\* `bad` - bad')
+            .describe('Reviewer rating: good or bad.\n\n\* `good` - good\n\* `bad` - bad'),
+        feedback_text: zod
+            .string()
+            .max(conversationsTicketsAiFeedbackCreateBodyFeedbackTextMax)
+            .optional()
+            .describe('Optional text explaining a bad rating.'),
+    })
+    .describe('Payload for recording reviewer feedback on an AI reply.')
+
+/**
  * Post a reply or internal note to a ticket.
  *
  * With is_private=false, the reply is delivered to the customer via the
@@ -366,6 +391,18 @@ export const conversationsViewsCreateBodyNameMax = 400
 
 export const ConversationsViewsCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(conversationsViewsCreateBodyNameMax),
+    filters: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            'Saved ticket filter criteria. May contain status, priority, channel, sla, assignee, tags, dateFrom, dateTo, and sorting keys.'
+        ),
+})
+
+export const conversationsViewsPartialUpdateBodyNameMax = 400
+
+export const ConversationsViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(conversationsViewsPartialUpdateBodyNameMax).optional(),
     filters: zod
         .record(zod.string(), zod.unknown())
         .optional()

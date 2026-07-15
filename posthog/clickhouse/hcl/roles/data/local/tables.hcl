@@ -557,7 +557,7 @@ database "posthog" {
       type = "UInt64"
     }
     column "inserted_at" {
-      type    = "Nullable(DateTime64(6, 'UTC'))"
+      type    = "DateTime64(6, 'UTC')"
       default = "now64()"
     }
     engine "distributed" {
@@ -759,6 +759,9 @@ database "posthog" {
     }
     column "client_name" {
       type = "String"
+    }
+    column "client_agent" {
+      type = "LowCardinality(String)"
     }
     column "client_revision" {
       type = "UInt64"
@@ -1396,7 +1399,7 @@ database "posthog" {
       type = "UInt64"
     }
     column "inserted_at" {
-      type    = "Nullable(DateTime64(6, 'UTC'))"
+      type    = "DateTime64(6, 'UTC')"
       default = "now64()"
     }
     engine "distributed" {

@@ -33,9 +33,10 @@ from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.errors import FailureKind, ScannerFailureError
 from products.replay_vision.backend.temporal.events_tool import build_events_index, dispatch_events_tool, events_tool
 from products.replay_vision.backend.temporal.gemini import gemini_api_key
-from products.replay_vision.backend.temporal.metrics import REPLAY_VISION_PROVIDER_CALL
+from products.replay_vision.backend.temporal.metrics import record_provider_call
 from products.replay_vision.backend.temporal.scanners import scanner_from_snapshot
 from products.replay_vision.backend.temporal.scanners.base import (
+    TIMESTAMP_CITATION_RE,
     BaseScanner,
     BaseScannerOutput,
     ChipSegment,
@@ -57,8 +58,6 @@ logger = structlog.get_logger(__name__)
 _MAX_LLM_ATTEMPTS = 2  # one initial call + one re-prompt with the validation error appended per step
 # Cache TTL: a scan is a handful of turns and finishes in minutes; well under this.
 _VIDEO_CACHE_TTL = "900s"
-# `(t <seconds>)` with optional leading whitespace, so we eat the space when stripping the paren.
-_TIMESTAMP_CITATION_RE = re.compile(r"\s*\(t (\d+)\)")
 
 _OutputT = TypeVar("_OutputT", bound=BaseModel)
 
@@ -73,11 +72,18 @@ async def call_scanner_provider_activity(inputs: CallScannerProviderInputs) -> S
 
 
 async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCallOutput:
-    snapshot, team_name, llm_inputs = await asyncio.gather(
-        sync_to_async(_load_snapshot)(inputs.observation_id, inputs.team_id),
-        sync_to_async(_load_team_name)(inputs.team_id),
-        _load_llm_inputs(inputs.observation_id),
-    )
+    if inputs.snapshot_override is not None:
+        snapshot = inputs.snapshot_override
+        team_name, llm_inputs = await asyncio.gather(
+            sync_to_async(_load_team_name)(inputs.team_id),
+            _load_llm_inputs(inputs.observation_id),
+        )
+    else:
+        snapshot, team_name, llm_inputs = await asyncio.gather(
+            sync_to_async(_load_snapshot)(inputs.observation_id, inputs.team_id),
+            sync_to_async(_load_team_name)(inputs.team_id),
+            _load_llm_inputs(inputs.observation_id),
+        )
     scanner = scanner_from_snapshot(snapshot)
 
     preamble_text = scanner.preamble(team_name=team_name, session_metadata=llm_inputs.metadata.as_prompt_dict())
@@ -121,16 +127,18 @@ def _extract_segments(text: str, duration_ms: int) -> tuple[str, list[Segment]]:
     plain_parts: list[str] = []
     segments: list[Segment] = []
     last_end = 0
-    for match in _TIMESTAMP_CITATION_RE.finditer(text):
+    for match in TIMESTAMP_CITATION_RE.finditer(text):
         chunk = text[last_end : match.start()]
         plain_parts.append(chunk)
         if chunk:
             segments.append(TextSegment(value=chunk))
-        timestamp_ms = int(match.group(1)) * 1000
-        # Drop citations past the recording end (a misread footer value); 1s slack spares a genuine final-second
-        # citation from a sub-second start-time skew. The marker is stripped either way.
-        if timestamp_ms <= duration_ms + 1000:
-            segments.append(ChipSegment(timestamp_ms=timestamp_ms))
+        # A leaked comma-joined marker like `(t 12, 34)` carries several moments, one chip each.
+        for raw_seconds in re.findall(r"\d+", match.group(1)):
+            timestamp_ms = int(raw_seconds) * 1000
+            # Drop citations past the recording end (a misread footer value). 1s slack spares a genuine
+            # final-second citation from a sub-second start-time skew. The marker is stripped either way.
+            if timestamp_ms <= duration_ms + 1000:
+                segments.append(ChipSegment(timestamp_ms=timestamp_ms))
         last_end = match.end()
     trailing = text[last_end:]
     plain_parts.append(trailing)
@@ -323,8 +331,8 @@ async def _run_step(
             if function_calls(response):
                 # Tool budget spent and the model still wants a lookup. Rather than hard-fail, complete the
                 # round-trip and force one final tool-free turn so it answers from what it has already seen.
-                REPLAY_VISION_PROVIDER_CALL.labels(**metric_labels, outcome="tool_budget_exhausted").observe(
-                    time.monotonic() - started
+                record_provider_call(
+                    **metric_labels, outcome="tool_budget_exhausted", seconds=time.monotonic() - started
                 )
                 logger.warning(
                     "replay_vision.call_scanner_provider.tool_budget_exhausted", step=step.name, attempt=attempt + 1
@@ -334,25 +342,23 @@ async def _run_step(
                     generate=lambda c: _generate(c, forced_config), convo=convo, exhausted=response, dispatch=dispatch
                 )
         except Exception:
-            REPLAY_VISION_PROVIDER_CALL.labels(**metric_labels, outcome="provider_error").observe(
-                time.monotonic() - started
-            )
+            record_provider_call(**metric_labels, outcome="provider_error", seconds=time.monotonic() - started)
             raise
 
         if not response.candidates:
             # No candidate (safety filter / content policy): record a failed attempt and retry without indexing [0].
             last_error = "model returned no candidates"
-            REPLAY_VISION_PROVIDER_CALL.labels(**metric_labels, outcome="validation_failed").observe(
-                time.monotonic() - started
-            )
+            record_provider_call(**metric_labels, outcome="validation_failed", seconds=time.monotonic() - started)
             logger.warning("replay_vision.call_scanner_provider.empty_response", step=step.name, attempt=attempt + 1)
             continue
 
         text = (response.text or "").strip()
         parsed, error = _parse_and_validate(step, text)
-        REPLAY_VISION_PROVIDER_CALL.labels(
-            **metric_labels, outcome="ok" if error is None else "validation_failed"
-        ).observe(time.monotonic() - started)
+        record_provider_call(
+            **metric_labels,
+            outcome="ok" if error is None else "validation_failed",
+            seconds=time.monotonic() - started,
+        )
 
         if error is None:
             convo.append(response.candidates[0].content)  # carry the answer into the next turn

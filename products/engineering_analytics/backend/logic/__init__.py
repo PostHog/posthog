@@ -7,15 +7,20 @@ table names), then returns canonical contract types. The curated query builders
 only in canonical types.
 """
 
+from dataclasses import replace
 from datetime import datetime
 from typing import TYPE_CHECKING
+
+import structlog
 
 from posthog.models.team import Team
 from posthog.utils import relative_date_parse
 
 from products.engineering_analytics.backend.facade.contracts import (
+    BranchPRMatch,
     CICardSummary,
     CIFailureLogs,
+    CurrentBranchHealth,
     FlakyTestList,
     GitHubSource,
     MasterFailureGroup,
@@ -26,6 +31,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     RunFailureLogs,
     WorkflowCost,
     WorkflowHealthItem,
+    WorkflowHealthRunScope,
     WorkflowJob,
     WorkflowJobAggregate,
     WorkflowRunActivity,
@@ -42,8 +48,10 @@ from products.engineering_analytics.backend.logic.queries.ci_failure_logs import
     query_ci_failure_logs,
     query_run_failure_logs,
 )
+from products.engineering_analytics.backend.logic.queries.current_branch_health import query_current_branch_health
 from products.engineering_analytics.backend.logic.queries.flaky_tests import query_flaky_tests
 from products.engineering_analytics.backend.logic.queries.job_aggregates import query_job_aggregates
+from products.engineering_analytics.backend.logic.queries.llm_spend import query_pr_llm_spend
 from products.engineering_analytics.backend.logic.queries.master_failures import query_master_failures
 from products.engineering_analytics.backend.logic.queries.pr_cost import (
     query_author_workflow_costs,
@@ -53,8 +61,14 @@ from products.engineering_analytics.backend.logic.queries.pr_cost import (
 from products.engineering_analytics.backend.logic.queries.pr_lifecycle import query_pr_lifecycle
 from products.engineering_analytics.backend.logic.queries.pr_runs import query_pr_runs
 from products.engineering_analytics.backend.logic.queries.pull_request_list import query_pull_request_list
-from products.engineering_analytics.backend.logic.queries.repo_overview import query_default_branch, query_repo_overview
+from products.engineering_analytics.backend.logic.queries.repo_overview import (
+    empty_repo_series,
+    query_default_branch,
+    query_repo_overview,
+    query_repo_series,
+)
 from products.engineering_analytics.backend.logic.queries.repo_run_activity import query_repo_run_activity
+from products.engineering_analytics.backend.logic.queries.resolve_branch import query_resolve_branch
 from products.engineering_analytics.backend.logic.queries.workflow_health import query_workflow_health
 from products.engineering_analytics.backend.logic.queries.workflow_jobs import query_workflow_jobs
 from products.engineering_analytics.backend.logic.queries.workflow_run import query_workflow_run
@@ -64,6 +78,8 @@ from products.engineering_analytics.backend.logic.sources import list_github_sou
 
 if TYPE_CHECKING:
     from posthog.rbac.user_access_control import UserAccessControl
+
+logger = structlog.get_logger(__name__)
 
 # Default recency window when a caller omits date_from. Relative strings (-30d) and
 # ISO8601 are both accepted and resolved against the team's timezone.
@@ -104,6 +120,20 @@ def build_pr_runs(*, curated: CuratedGitHubSource, pr_number: int, repo: str | N
     return query_pr_runs(curated=curated, pr_number=pr_number, repo_owner=owner, repo_name=name)
 
 
+def build_resolve_branch(
+    *, curated: CuratedGitHubSource, branch: str | None, repo: str | None, timestamp: datetime | None = None
+) -> list[BranchPRMatch]:
+    resolved_branch = (branch or "").strip()
+    if not resolved_branch:
+        raise ValueError("provide a branch to resolve")
+    # repo is an optional narrowing filter: absent -> (None, None); malformed (bare org) -> raises.
+    owner, name = _split_repo(repo)
+    # timestamp (the trace's capture time) only reorders results toward the PR active then; never filters.
+    return query_resolve_branch(
+        curated=curated, branch=resolved_branch, repo_owner=owner, repo_name=name, timestamp=timestamp
+    )
+
+
 def build_ci_failure_logs(*, curated: CuratedGitHubSource, pr_number: int, repo: str | None) -> CIFailureLogs:
     owner, name = _split_repo(repo)
     if not (owner and name):
@@ -115,7 +145,19 @@ def build_pr_cost(*, curated: CuratedGitHubSource, pr_number: int, repo: str | N
     owner, name = _split_repo(repo)
     if not (owner and name):
         raise ValueError("repo must be in 'owner/name' format")
-    return query_pr_cost(curated=curated, pr_number=pr_number, repo_owner=owner, repo_name=name)
+    # LLM token spend is an additive component joined by branch from the events table, merged onto the
+    # CI cost summary. Kept sequential: HogQL table resolution reads warehouse metadata through the
+    # request's DB connection, which worker threads don't share.
+    summary = query_pr_cost(curated=curated, pr_number=pr_number, repo_owner=owner, repo_name=name)
+    # The spend join scans the events table across the PR's whole lifetime, so a long-lived PR on an
+    # AI-heavy team can time out; the enrichment is optional, so it degrades to null instead of
+    # taking the whole cost summary down with it.
+    try:
+        llm_spend = query_pr_llm_spend(curated=curated, pr_number=pr_number, repo_owner=owner, repo_name=name)
+    except Exception:
+        logger.warning("engineering_analytics.pr_llm_spend_failed", pr_number=pr_number, exc_info=True)
+        llm_spend = None
+    return replace(summary, llm_spend=llm_spend)
 
 
 def build_workflow_run(*, curated: CuratedGitHubSource, run_id: int) -> WorkflowRunDetail | None:
@@ -236,9 +278,16 @@ def build_workflow_health(
     date_from: str | None = None,
     date_to: str | None = None,
     branch: str | None = None,
+    run_scope: str | None = None,
 ) -> list[WorkflowHealthItem]:
     parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WORKFLOW_WINDOW)
-    return query_workflow_health(curated=curated, date_from=parsed_from, date_to=parsed_to, branch=branch)
+    return query_workflow_health(
+        curated=curated,
+        date_from=parsed_from,
+        date_to=parsed_to,
+        branch=branch,
+        run_scope=_parse_run_scope(run_scope),
+    )
 
 
 def build_flaky_tests(
@@ -276,6 +325,19 @@ def _parse_date(team: Team, value: str) -> datetime:
     return relative_date_parse(value, team.timezone_info)
 
 
+def _parse_run_scope(value: str | None) -> WorkflowHealthRunScope:
+    """Absent/blank selects 'all'; anything else must be an exact enum value (ValueError → 400)."""
+    normalized = value.strip() if value else ""
+    if not normalized:
+        return WorkflowHealthRunScope.ALL
+    try:
+        return WorkflowHealthRunScope(normalized)
+    except ValueError:
+        raise ValueError(
+            f"run_scope must be one of: {', '.join(scope.value for scope in WorkflowHealthRunScope)}"
+        ) from None
+
+
 def _parse_window(
     team: Team, date_from: str | None, date_to: str | None, *, default: str, max_days: int = _MAX_WINDOW_DAYS
 ) -> tuple[datetime, datetime | None]:
@@ -306,9 +368,23 @@ def build_repo_overview(
     curated: CuratedGitHubSource,
     date_from: str | None = None,
     date_to: str | None = None,
+    include_series: bool = True,
 ) -> RepoOverview:
     parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WINDOW)
-    return query_repo_overview(curated=curated, date_from=parsed_from, date_to=parsed_to)
+    # The one place the endpoint's include_series toggle decides anything: headline-only consumers
+    # (the weekly digest) compose the empty series instead of paying the four chart scans.
+    series = (
+        query_repo_series(curated=curated, date_from=parsed_from, date_to=parsed_to)
+        if include_series
+        else empty_repo_series(date_from=parsed_from, date_to=parsed_to)
+    )
+    return query_repo_overview(curated=curated, date_from=parsed_from, date_to=parsed_to, series=series)
+
+
+def build_current_branch_health(*, curated: CuratedGitHubSource) -> CurrentBranchHealth:
+    date_from, date_to = _parse_window(curated.team, None, None, default=_DEFAULT_WORKFLOW_WINDOW)
+    branch = query_default_branch(curated=curated, date_from=date_from, date_to=date_to)
+    return query_current_branch_health(curated=curated, date_from=date_from, branch=branch)
 
 
 def build_repo_run_activity(

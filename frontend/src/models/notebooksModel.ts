@@ -10,7 +10,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
-import type { notebookLogicType } from 'scenes/notebooks/Notebook/notebookLogicType'
+import type { notebookLogicType } from 'scenes/notebooks/Notebook/notebookLogic'
 import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
 import { LOCAL_NOTEBOOK_TEMPLATES } from 'scenes/notebooks/NotebookTemplates/notebookTemplates'
 import { NotebookListItemType, NotebookNodeType, NotebookTarget } from 'scenes/notebooks/types'
@@ -126,7 +126,11 @@ export const notebooksModel = kea<notebooksModelType>([
                         onCreate?.(logic)
                     })
 
-                    posthog.capture(`notebook created`, {
+                    // Client-scoped name on purpose: the server-side `notebook created` event
+                    // (emitted for every creation path) is the source of truth for counts. This
+                    // one keeps the browser/session context for UI-funnel analysis without
+                    // double-counting UI creations.
+                    posthog.capture(`notebook created (client)`, {
                         short_id: notebook.short_id,
                         is_markdown: useMarkdownNotebook,
                     })
