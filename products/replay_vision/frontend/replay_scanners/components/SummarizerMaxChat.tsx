@@ -7,6 +7,8 @@ import { useMaxTool } from 'scenes/max/useMaxTool'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+
 import { replayScannerLogic } from '../replayScannerLogic'
 
 /** PostHog AI entry point for summarizer scanners — lets the user chat about / digest the per-session summaries. */
@@ -23,6 +25,13 @@ export function SummarizerMaxChat({ scannerId }: { scannerId: string }): JSX.Ele
             : undefined,
         initialMaxPrompt: 'Find the common themes and patterns across these session summaries',
     })
+
+    useAttachedContext(
+        scannerId && scannerId !== 'new'
+            ? [{ type: 'replay_vision_scanner', key: scannerId, label: scanner?.name ?? undefined }]
+            : null,
+        { active: isSummarizer && scannerId !== 'new' }
+    )
 
     if (!openMax) {
         return null

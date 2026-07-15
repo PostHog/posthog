@@ -6,6 +6,7 @@ import { findOffsetsToCommit } from '~/common/kafka/consumer/consumer-v1'
 import { parseBlockMetadataMessages } from './block-metadata-message'
 import { BlockMetadataParquetStore } from './block-metadata-parquet-store'
 import { MlBlockMetadataRow } from './block-metadata-row'
+import { MlParquetSinkMetrics } from './metrics'
 
 /** The subset of the Kafka consumer the batcher needs: storing offsets it has durably written. */
 export interface OffsetStore {
@@ -61,7 +62,8 @@ export class BlockMetadataBatcher {
      */
     public async flush(nowMs: number): Promise<void> {
         this.lastFlushMs = nowMs
-        if (this.buffer.length > 0) {
+        const wroteObject = this.buffer.length > 0
+        if (wroteObject) {
             await this.store.write(this.buffer)
             this.buffer = []
         }
@@ -69,6 +71,9 @@ export class BlockMetadataBatcher {
             // Commit after the write lands so a failed write replays; skipped-only batches still advance here.
             this.offsetStore.offsetsStore([...this.pendingOffsets.values()])
             this.pendingOffsets.clear()
+            // 'empty' means we advanced past messages that produced no rows (all skipped/malformed): healthy
+            // offset progress with zero Parquet output, the one state Kafka lag can't distinguish.
+            MlParquetSinkMetrics.incFlush(wroteObject ? 'written' : 'empty')
         }
     }
 }

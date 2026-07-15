@@ -6159,12 +6159,6 @@ export interface ExternalDataSourceConnectionMetadata {
     available_functions?: string[]
 }
 
-export interface ExternalDataSourceConnectionOption {
-    id: string
-    prefix: string | null
-    engine?: 'duckdb' | 'postgres' | 'mysql' | 'snowflake' | 'redshift' | null
-}
-
 export interface ExternalDataSource {
     id: string
     source_id: string
