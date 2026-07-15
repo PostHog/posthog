@@ -50,6 +50,16 @@ export function FeatureFlagTestingView({ flag }: FeatureFlagTestingViewProps): R
         return String(flag.result)
     }
 
+    const matchedConditionLabel = (): string => {
+        if (flag.reason === 'super_condition_value') {
+            return 'Early access enrollment'
+        }
+        if (flag.reason === 'holdout_condition_value') {
+            return 'Holdout'
+        }
+        return `#${flag.condition_index! + 1}`
+    }
+
     return (
         <div className="p-4">
             <div className="flex flex-col gap-2">
@@ -83,13 +93,7 @@ export function FeatureFlagTestingView({ flag }: FeatureFlagTestingViewProps): R
                         {flag.condition_index !== null && (
                             <div className="text-sm">
                                 <span className="font-medium">Matched condition: </span>
-                                <span className="text-secondary">
-                                    {flag.reason === 'super_condition_value'
-                                        ? 'Early access enrollment'
-                                        : flag.reason === 'holdout_condition_value'
-                                          ? 'Holdout'
-                                          : `#${flag.condition_index + 1}`}
-                                </span>
+                                <span className="text-secondary">{matchedConditionLabel()}</span>
                             </div>
                         )}
                         {flag.payload != null && (

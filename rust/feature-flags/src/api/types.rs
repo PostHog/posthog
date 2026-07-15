@@ -601,10 +601,7 @@ impl FlagDetails {
             if flag_match.matches
                 && matches!(flag_match.reason, FeatureFlagMatchReason::ConditionMatch)
             {
-                condition_matched = match flag_match.condition_index {
-                    Some(condition_index) => index == condition_index,
-                    None => index == 0,
-                };
+                condition_matched = index == flag_match.condition_index.unwrap_or(0);
             }
 
             // Analyze properties within this group
@@ -824,11 +821,9 @@ impl FlagDetails {
     ) -> ConditionAnalysis {
         let enrollment_key = FlagFilters::enrollment_key(&flag.key);
 
-        // Mirror the matcher: "true"/bool-true = opted in, any other present value = opted out,
-        // absent = enrollment doesn't apply.
+        // Mirrors the matcher's opted-in check; absent means enrollment doesn't apply.
         let actual_value = property_values.and_then(|props| props.get(&enrollment_key).cloned());
-        let enrolled = matches!(&actual_value, Some(v) if v == "true" || v == &Value::Bool(true));
-        let opted_out = actual_value.is_some() && !enrolled;
+        let enrolled = actual_value.as_ref().is_some_and(FlagFilters::is_enrolled);
 
         // Winner only when the matcher actually resolved the flag through enrollment.
         let matched = enrolled
@@ -844,7 +839,7 @@ impl FlagDetails {
                 format!("Property '{enrollment_key}' is true (opted in)"),
                 "Enrolled in the early access feature. This overrides all release conditions and enables the flag".to_string(),
             )
-        } else if opted_out {
+        } else if actual_value.is_some() {
             (
                 false,
                 format!("Property '{enrollment_key}' is set but not true (opted out)"),
