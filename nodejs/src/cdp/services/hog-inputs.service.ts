@@ -138,7 +138,7 @@ export class HogInputsService {
             return {}
         }
 
-        const integrations = await this.integrationManager.getMany(Object.values(inputsToLoad))
+        const integrations = await this.integrationManager.getMany(Object.values(inputsToLoad), hogFunction.team_id)
         const returnInputs: Record<string, { value: Record<string, any> | null }> = {}
 
         Object.entries(inputsToLoad).forEach(([key, value]) => {

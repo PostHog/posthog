@@ -146,7 +146,7 @@ export class EmailService {
         const addLog = createAddLogFunction(result.logs)
 
         const params = invocation.queueParameters
-        const integration = await this.integrationManager.get(params.from.integrationId)
+        const integration = await this.integrationManager.get(params.from.integrationId, invocation.teamId)
 
         let success: boolean = false
         let throttled: boolean = false

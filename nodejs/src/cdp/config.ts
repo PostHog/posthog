@@ -92,6 +92,13 @@ export type CdpConfig = ClickhouseConfig & {
 
     CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: boolean
     CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: string
+
+    // Integration gateway (Rust credential service). When URL + secret + a non-empty rollout are set,
+    // matched teams fetch integration credentials from the gateway instead of decrypting in-process,
+    // falling back to Postgres on any error. Rollout is a team-id/percentage string (buildIntegerMatcherWithPercentage).
+    CDP_INTEGRATION_GATEWAY_URL: string
+    CDP_INTEGRATION_GATEWAY_JWT_SECRET: string
+    CDP_INTEGRATION_GATEWAY_ROLLOUT: string
     CDP_FETCH_RETRIES: number
     CDP_FETCH_BACKOFF_BASE_MS: number
     CDP_FETCH_BACKOFF_MAX_MS: number
@@ -211,6 +218,12 @@ export function getDefaultCdpConfig(): CdpConfig {
 
         CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: true,
         CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: '',
+
+        // URL + secret default to the local gateway / Django dev secret so a developer only needs to
+        // flip the rollout to try it; empty rollout means off everywhere by default (opt-in per team).
+        CDP_INTEGRATION_GATEWAY_URL: isDevEnv() ? 'http://localhost:3350' : '',
+        CDP_INTEGRATION_GATEWAY_JWT_SECRET: isDevEnv() || isTestEnv() ? 'integration-gateway-dev-secret' : '',
+        CDP_INTEGRATION_GATEWAY_ROLLOUT: '',
         CDP_FETCH_RETRIES: 3,
         CDP_FETCH_BACKOFF_BASE_MS: 1000,
         CDP_FETCH_BACKOFF_MAX_MS: 30000,

@@ -1,3 +1,4 @@
+import { createIntegrationGatewayService } from '~/cdp/services/managers/integration-gateway.service'
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
 import { initializePrometheusLabels } from '~/common/api/router'
 import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
@@ -180,7 +181,12 @@ export class ErrorTrackingServer implements NodeServer {
         const personRepository = new PersonHogPersonReadRepository(personhogClient, clientLabel)
         const groupRepository = new PersonHogGroupReadRepository(personhogClient, clientLabel)
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
-        const integrationManager = new IntegrationManagerService(this.pubsub, this.postgres, encryptedFields)
+        const integrationManager = new IntegrationManagerService(
+            this.pubsub,
+            this.postgres,
+            encryptedFields,
+            createIntegrationGatewayService(this.config)
+        )
 
         const hogTransformerDeps: HogTransformerServiceDeps = {
             geoipService,
