@@ -3,15 +3,7 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { RefObject, useCallback, useEffect, useRef, useState } from 'react'
 
-import {
-    IconCheckbox,
-    IconChevronRight,
-    IconEllipsis,
-    IconFolderPlus,
-    IconPencil,
-    IconPlusSmall,
-    IconStar,
-} from '@posthog/icons'
+import { IconCheckbox, IconChevronRight, IconEllipsis, IconFolderPlus, IconPlusSmall, IconStar } from '@posthog/icons'
 
 import { itemSelectModalLogic } from 'lib/components/FileSystem/ItemSelectModal/itemSelectModalLogic'
 import { dayjs } from 'lib/dayjs'
@@ -37,7 +29,6 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
-import { customProductsLogic } from '~/layout/panel-layout/ProjectTree/customProductsLogic'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { FileSystemEntry, UserProductListReason } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
@@ -171,9 +162,6 @@ export function ProjectTree({
     const treeRef = useRef<LemonTreeRef>(null)
     const { openItemSelectModal } = useActions(itemSelectModalLogic)
 
-    const { customProductsLoading } = useValues(customProductsLogic)
-    const { seed } = useActions(customProductsLogic)
-
     const [shortcutHelperDismissed, setShortcutHelperDismissed] = useLocalStorage<boolean>(
         SHORTCUT_DISMISSAL_LOCAL_STORAGE_KEY,
         false
@@ -222,28 +210,6 @@ export function ProjectTree({
                                 Dismiss.
                             </span>
                         )}
-                    </div>
-                ),
-            })
-        }
-
-        // Only nudge users to add tools when they have none. Once the list has anything in it, keep it clean.
-        if (root === 'custom-products://' && fullFileSystemFiltered.length === 0) {
-            treeData.push({
-                id: 'products/custom-products-helper-category',
-                name: 'Example custom products',
-                type: 'category',
-                displayName: (
-                    <div className={cn('border border-primary text-xs mb-2 font-normal rounded-xs p-2 -mx-1')}>
-                        You can display your preferred tools here. You can configure what items show up in here by
-                        clicking on the{' '}
-                        <IconPencil className="size-3 border border-[var(--color-neutral-500)] rounded-xs" /> icon
-                        above. We'll automatically suggest new tools to this list as you use them.
-                        <br />
-                        <br />
-                        <span className="cursor-pointer underline" onClick={seed}>
-                            {customProductsLoading ? 'Adding...' : 'Add recommended tools?'}
-                        </span>
                     </div>
                 ),
             })

@@ -78,7 +78,6 @@ You can find your private API token under **Settings → Integrations → Judge.
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

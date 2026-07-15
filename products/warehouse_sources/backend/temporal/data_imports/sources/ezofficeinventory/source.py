@@ -138,7 +138,6 @@ class EZOfficeInventorySource(ResumableSource[EZOfficeInventorySourceConfig, EZO
             docsUrl="https://posthog.com/docs/cdp/sources/ezofficeinventory",
             iconPath="/static/services/ezofficeinventory.svg",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [
