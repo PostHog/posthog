@@ -151,7 +151,10 @@ export const WithCustomContent: Story = {
                 >
                     <div className="rounded">
                         <LemonModal.Header>
-                            <h3>I am a custom header</h3>
+                            <h3>
+                                I am a custom header that can wrap across as many lines as needed without hiding the
+                                full title
+                            </h3>
                         </LemonModal.Header>
                         <LemonModal.Content>
                             In some situations it may be necessary to have greater control over the modal contents. The

@@ -99,11 +99,16 @@ function LemonModalTitle({ children }: { children: React.ReactNode }): JSX.Eleme
         resizeObserver.observe(titleElement)
 
         return () => resizeObserver.disconnect()
-    }, [children])
+    }, [children, isTruncated])
 
     return (
-        <Tooltip title={isTruncated ? children : undefined} placement="bottom-start">
-            <h3 ref={titleRef}>{children}</h3>
+        <Tooltip
+            title={isTruncated ? () => titleRef.current?.textContent ?? '' : undefined}
+            placement="bottom-start"
+        >
+            <h3 ref={titleRef} className="LemonModal__title" tabIndex={isTruncated ? 0 : undefined}>
+                {children}
+            </h3>
         </Tooltip>
     )
 }
