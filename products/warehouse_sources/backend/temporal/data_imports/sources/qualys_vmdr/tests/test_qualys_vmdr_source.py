@@ -53,13 +53,15 @@ class TestQualysVmdrSource:
         schemas = self.source.get_schemas(_config(), team_id=1, names=["scans"])
         assert [s.name for s in schemas] == ["scans"]
 
-    @pytest.mark.parametrize("is_valid,expected_ok", [(True, True), (False, False)])
-    def test_validate_credentials(self, is_valid, expected_ok):
-        with mock.patch(f"{_MODULE}.validate_qualys_vmdr_credentials", return_value=is_valid) as validate:
-            ok, error = self.source.validate_credentials(_config(), team_id=1)
+    @pytest.mark.parametrize(
+        "transport_result",
+        [(True, None), (False, "Invalid Qualys credentials or API server URL")],
+    )
+    def test_validate_credentials(self, transport_result):
+        with mock.patch(f"{_MODULE}.validate_qualys_vmdr_credentials", return_value=transport_result) as validate:
+            result = self.source.validate_credentials(_config(), team_id=1)
 
-        assert ok is expected_ok
-        assert (error is None) is expected_ok
+        assert result == transport_result
         validate.assert_called_once_with("qualysapi.qualys.com", "user", "pass")
 
     def test_get_resumable_source_manager_binds_resume_config(self):

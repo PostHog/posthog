@@ -107,6 +107,7 @@ The `knowledge_base` table additionally requires the KnowledgeBase download opti
             "401 Client Error": "Your Qualys credentials are invalid or the account is locked. Check the username and password and reconnect.",
             "403 Client Error": "Your Qualys user does not have API access to this data. Grant the user API access (or the required module permissions) and reconnect.",
             "Unauthorized for url": "Your Qualys credentials are invalid or the account is locked. Check the username and password and reconnect.",
+            "Qualys API server URL is not allowed": "The configured API server URL points at a blocked or internal address. Set it to your Qualys account's regional API server and reconnect.",
         }
 
     def get_schemas(
@@ -143,10 +144,7 @@ The `knowledge_base` table additionally requires the KnowledgeBase download opti
     def validate_credentials(
         self, config: QualysVmdrSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
-        if validate_qualys_vmdr_credentials(config.api_server, config.username, config.password):
-            return True, None
-
-        return False, "Invalid Qualys credentials or API server URL"
+        return validate_qualys_vmdr_credentials(config.api_server, config.username, config.password)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[QualysVmdrResumeConfig]:
         return ResumableSourceManager[QualysVmdrResumeConfig](inputs, QualysVmdrResumeConfig)

@@ -209,7 +209,10 @@ class TestQualysVmdr:
         session = mock.MagicMock()
         session.get.side_effect = [_response(text=HOST_LIST_PAGE_1), _response(text=HOST_LIST_PAGE_2)]
 
-        with mock.patch(f"{_MODULE}._make_session", return_value=session):
+        with (
+            mock.patch(f"{_MODULE}._make_session", return_value=session),
+            mock.patch(f"{_MODULE}.is_url_allowed", return_value=(True, None)),
+        ):
             generator = get_rows(
                 "qualysapi.qualys.com", "user", "pass", "hosts", mock.MagicMock(), manager.as_manager()
             )
@@ -236,13 +239,30 @@ class TestQualysVmdr:
         session = mock.MagicMock()
         session.get.return_value = _response(text=HOST_LIST_PAGE_2)
 
-        with mock.patch(f"{_MODULE}._make_session", return_value=session):
+        with (
+            mock.patch(f"{_MODULE}._make_session", return_value=session),
+            mock.patch(f"{_MODULE}.is_url_allowed", return_value=(True, None)),
+        ):
             batches = list(
                 get_rows("qualysapi.qualys.com", "user", "pass", "hosts", mock.MagicMock(), manager.as_manager())
             )
 
         assert session.get.call_args[0][0] == resume_url
         assert [row["id"] for row in batches[0]] == ["1002"]
+
+    def test_get_rows_rejects_disallowed_api_server_before_any_request(self):
+        session = mock.MagicMock()
+
+        with (
+            mock.patch(f"{_MODULE}._make_session", return_value=session),
+            mock.patch(f"{_MODULE}.is_url_allowed", return_value=(False, "URL resolves to a private IP")),
+        ):
+            with pytest.raises(ValueError, match="Qualys API server URL is not allowed"):
+                list(
+                    get_rows("169.254.169.254", "user", "pass", "hosts", mock.MagicMock(), _FakeManager().as_manager())
+                )
+
+        session.get.assert_not_called()
 
     def test_fetch_page_rate_limit_carries_server_wait(self):
         session = mock.MagicMock()
@@ -273,12 +293,37 @@ class TestQualysVmdr:
         session = mock.MagicMock()
         session.get.return_value = _response(status_code=status_code, text="<x/>")
 
-        with mock.patch(f"{_MODULE}._make_session", return_value=session):
-            assert validate_credentials("qualysapi.qualys.com", "user", "pass") is expected
+        with (
+            mock.patch(f"{_MODULE}._make_session", return_value=session),
+            mock.patch(f"{_MODULE}.is_url_allowed", return_value=(True, None)),
+        ):
+            ok, error = validate_credentials("qualysapi.qualys.com", "user", "pass")
+
+        assert ok is expected
+        assert (error is None) is expected
 
     def test_validate_credentials_false_on_connection_error(self):
         session = mock.MagicMock()
         session.get.side_effect = ConnectionError("dns failure")
 
-        with mock.patch(f"{_MODULE}._make_session", return_value=session):
-            assert validate_credentials("nonexistent.example.com", "user", "pass") is False
+        with (
+            mock.patch(f"{_MODULE}._make_session", return_value=session),
+            mock.patch(f"{_MODULE}.is_url_allowed", return_value=(True, None)),
+        ):
+            ok, error = validate_credentials("nonexistent.example.com", "user", "pass")
+
+        assert ok is False
+        assert error is not None
+
+    def test_validate_credentials_rejects_disallowed_api_server_before_any_request(self):
+        session = mock.MagicMock()
+
+        with (
+            mock.patch(f"{_MODULE}._make_session", return_value=session),
+            mock.patch(f"{_MODULE}.is_url_allowed", return_value=(False, "URL resolves to a private IP")),
+        ):
+            ok, error = validate_credentials("localhost", "user", "pass")
+
+        assert ok is False
+        assert error is not None and "not allowed" in error
+        session.get.assert_not_called()

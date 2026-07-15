@@ -11,6 +11,8 @@ import defusedxml.ElementTree as DET
 from structlog.types import FilteringBoundLogger
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
+from posthog.security.url_validation import is_url_allowed
+
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -63,9 +65,21 @@ def _format_since_value(value: Any) -> str:
 
 
 def _make_session(username: str, password: str) -> requests.Session:
-    session = make_tracked_session(headers=_BASE_HEADERS, redact_values=(password,))
+    # `allow_redirects=False` as defense-in-depth: the API server is user-supplied and a valid
+    # Qualys platform responds directly, so there is no legitimate redirect to follow — pinning
+    # redirects off keeps the basic-auth credential on the validated host.
+    session = make_tracked_session(headers=_BASE_HEADERS, redact_values=(password,), allow_redirects=False)
     session.auth = (username, password)
     return session
+
+
+def _check_url_allowed(base_url: str) -> None:
+    # Defense-in-depth SSRF check (the Smokescreen egress proxy is the load-bearing control):
+    # the stored api_server is user-supplied, so reject localhost, cloud-metadata hosts,
+    # internal domains, and private IPs before any authenticated request leaves the worker.
+    allowed, reason = is_url_allowed(base_url)
+    if not allowed:
+        raise ValueError(f"Qualys API server URL is not allowed: {reason}")
 
 
 def _rate_limit_wait(retry_state: RetryCallState) -> float:
@@ -220,6 +234,9 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     config = QUALYS_VMDR_ENDPOINTS[endpoint]
     base_url = build_base_url(api_server)
+    # Re-validate on every sync, not just at source creation: the stored api_server can be
+    # edited after the credential was saved.
+    _check_url_allowed(base_url)
     session = _make_session(username, password)
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
@@ -246,7 +263,7 @@ def get_rows(
         url = next_url
 
 
-def validate_credentials(api_server: str, username: str, password: str) -> bool:
+def validate_credentials(api_server: str, username: str, password: str) -> tuple[bool, str | None]:
     """Cheap create-time probe: one host-list request capped at a single record.
 
     403 is accepted — the credential authenticated but lacks the asset-listing scope; per-table
@@ -254,12 +271,19 @@ def validate_credentials(api_server: str, username: str, password: str) -> bool:
     credential is genuine.
     """
     base_url = build_base_url(api_server)
+    allowed, reason = is_url_allowed(base_url)
+    if not allowed:
+        return False, f"Qualys API server URL is not allowed: {reason}"
+
     url = f"{base_url}/api/2.0/fo/asset/host/?{urlencode({'action': 'list', 'truncation_limit': 1})}"
     try:
         response = _make_session(username, password).get(url, timeout=30)
-        return response.status_code in (200, 403, 409)
     except Exception:
-        return False
+        return False, "Could not connect to the Qualys API server"
+
+    if response.status_code in (200, 403, 409):
+        return True, None
+    return False, "Invalid Qualys credentials or API server URL"
 
 
 def qualys_vmdr_source(
