@@ -300,6 +300,39 @@ export function CodeEditor({
         diffEditorRef.current = null
     }
 
+    // Dispose an editor that Monaco created *after* we already unmounted (the
+    // lazy-facade race). Disposing a standalone editor does NOT dispose its
+    // model — models live in Monaco's global registry (see disposeTrackedModels).
+    // Because the mount guard bails before trackEditorModels(), that cleanup
+    // never sees these models, so we dispose them here too, skipping any still
+    // held by another live editor.
+    const disposeOrphanedEditor = (
+        dispose: () => void,
+        models: (editor.ITextModel | null | undefined)[],
+        monacoApi: Monaco
+    ): void => {
+        try {
+            dispose()
+        } catch {
+            // already disposed
+        }
+        const otherEditors = monacoApi.editor.getEditors?.() ?? []
+        for (const model of models) {
+            if (!model || model.isDisposed()) {
+                continue
+            }
+            if (otherEditors.some((e: importedEditor.ICodeEditor) => e.getModel() === model)) {
+                continue
+            }
+            clearLogicReference(model)
+            try {
+                model.dispose()
+            } catch {
+                // already disposed
+            }
+        }
+    }
+
     useOnMountEffect(() => {
         // Re-arm on (re)mount so a prior cleanup — e.g. React Strict Mode's
         // mount/unmount/remount in dev — doesn't leave the live component
@@ -427,13 +460,9 @@ export function CodeEditor({
         // The lazy Suspense facade can resolve after the component has already
         // unmounted (quick tab switch). Monaco still calls onMount, but touching
         // DOM or setting state now throws "can't access dead object" in Firefox.
-        // Dispose the orphaned editor and bail before doing any of that.
+        // Dispose the orphaned editor (and its model) and bail before doing any of that.
         if (!isMountedRef.current) {
-            try {
-                editor.dispose()
-            } catch {
-                // already disposed
-            }
+            disposeOrphanedEditor(() => editor.dispose(), [editor.getModel()], monaco)
             return
         }
 
@@ -561,11 +590,8 @@ export function CodeEditor({
         const diffEditorOnMount = (diff: importedEditor.IStandaloneDiffEditor, monaco: Monaco): void => {
             // Same lazy-facade race as editorOnMount: bail if we already unmounted.
             if (!isMountedRef.current) {
-                try {
-                    diff.dispose()
-                } catch {
-                    // already disposed
-                }
+                const diffModel = diff.getModel()
+                disposeOrphanedEditor(() => diff.dispose(), [diffModel?.original, diffModel?.modified], monaco)
                 return
             }
 
