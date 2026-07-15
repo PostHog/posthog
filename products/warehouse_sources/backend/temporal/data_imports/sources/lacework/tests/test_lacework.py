@@ -396,6 +396,37 @@ class TestAuth:
             assert headers["Authorization"] == "Bearer tok-123"
 
     @freeze_time("2026-06-15T12:00:00Z")
+    def test_token_exchange_is_excluded_from_sample_capture(self) -> None:
+        # The X-LW-UAKS request header and the response's generic `token` field are not caught by
+        # the name-based sample scrubbers, so the auth session must opt out of capture and redact
+        # the secret; without this an operator-enabled capture rule would persist credentials.
+        session = _FakeSession([_FakeResponse(200, {"data": [], "paging": {}})])
+        with patch(f"{_LACEWORK_MODULE}.make_tracked_session", return_value=session) as mock_make:
+            list(
+                get_rows(
+                    account_name="mycompany",
+                    key_id="KEY_ID",
+                    secret_key="secret",
+                    endpoint="alerts",
+                    logger=MagicMock(),
+                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                    should_use_incremental_field=True,
+                    db_incremental_field_last_value=datetime(2026, 6, 15, 6, 0, tzinfo=UTC),
+                )
+            )
+
+        uncaptured = [c for c in mock_make.call_args_list if c.kwargs.get("capture") is False]
+        assert len(uncaptured) == 1
+        assert uncaptured[0].kwargs.get("redact_values") == ("secret",)
+
+        mock_validate_session = MagicMock()
+        mock_validate_session.post.return_value = _FakeResponse(201, {"token": "tok"})
+        with patch(f"{_LACEWORK_MODULE}.make_tracked_session", return_value=mock_validate_session) as mock_make:
+            validate_credentials("mycompany", "KEY_ID", "secret")
+        assert mock_make.call_args.kwargs.get("capture") is False
+        assert mock_make.call_args.kwargs.get("redact_values") == ("secret",)
+
+    @freeze_time("2026-06-15T12:00:00Z")
     def test_retries_on_429_using_retry_after(self) -> None:
         session = _FakeSession(
             [

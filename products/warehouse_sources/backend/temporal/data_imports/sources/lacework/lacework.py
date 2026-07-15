@@ -136,6 +136,10 @@ class LaceworkClient:
         self._logger = logger
         self._token: str | None = None
         self._token_expires_at: datetime | None = None
+        # Token exchanges carry the secret key in the X-LW-UAKS header and return the minted
+        # bearer token in a generic `token` field — neither is recognised by the name-based
+        # sample scrubbers, so keep auth calls out of HTTP sample capture entirely.
+        self._auth_session = make_tracked_session(redact_values=(secret_key,), capture=False)
 
     @retry(
         retry=retry_if_exception_type((LaceworkRetryableError, requests.ReadTimeout, requests.ConnectionError)),
@@ -145,12 +149,13 @@ class LaceworkClient:
     )
     def _request(
         self,
+        session: requests.Session,
         method: str,
         url: str,
         headers: dict[str, str],
         json_body: dict[str, Any] | None = None,
     ) -> requests.Response:
-        response = self._session.request(
+        response = session.request(
             method,
             url,
             headers=headers,
@@ -182,6 +187,7 @@ class LaceworkClient:
             return self._token
 
         response = self._request(
+            self._auth_session,
             "POST",
             f"{self._base_url}/access/tokens",
             headers={"X-LW-UAKS": self._secret_key, "Content-Type": "application/json"},
@@ -200,7 +206,7 @@ class LaceworkClient:
 
     def fetch(self, method: str, url: str, json_body: dict[str, Any] | None = None) -> dict[str, Any]:
         """Fetch one page. A 204 (no data) comes back as an empty payload."""
-        response = self._request(method, url, headers=self._auth_headers(), json_body=json_body)
+        response = self._request(self._session, method, url, headers=self._auth_headers(), json_body=json_body)
         if response.status_code == 204 or not response.content:
             return {}
         parsed = response.json()
@@ -215,7 +221,9 @@ def validate_credentials(account_name: str, key_id: str, secret_key: str) -> tup
         return False, INVALID_ACCOUNT_ERROR
 
     try:
-        response = make_tracked_session().post(
+        # capture=False + redact_values: the request's X-LW-UAKS header and the response's
+        # generic `token` field would otherwise slip past the name-based sample scrubbers.
+        response = make_tracked_session(redact_values=(secret_key,), capture=False).post(
             url,
             headers={"X-LW-UAKS": secret_key, "Content-Type": "application/json"},
             json={"keyId": key_id, "expiryTime": TOKEN_EXPIRY_SECONDS},

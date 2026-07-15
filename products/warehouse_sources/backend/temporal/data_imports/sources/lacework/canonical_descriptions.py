@@ -1,5 +1,6 @@
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
+    CanonicalEndpoint,
 )
 
 _COMPLIANCE_COLUMNS = {
@@ -17,7 +18,7 @@ _COMPLIANCE_COLUMNS = {
 }
 
 
-def _compliance_entry(provider: str) -> dict:
+def _compliance_entry(provider: str) -> CanonicalEndpoint:
     return {
         "description": f"{provider} compliance evaluations: one row per resource per recommendation per report, with the compliance status, reason, and severity.",
         "docs_url": "https://api.lacework.net/api/v2/docs#tag/Configs",

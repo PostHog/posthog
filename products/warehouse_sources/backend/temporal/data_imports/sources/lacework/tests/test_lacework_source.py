@@ -1,5 +1,3 @@
-from typing import Any
-
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
@@ -91,7 +89,7 @@ class TestLaceworkSource:
         with patch(f"{_SOURCE_MODULE}.lacework_source") as mock_source:
             self.source.source_for_pipeline(self.config, manager, inputs)
 
-        kwargs: dict[str, Any] = mock_source.call_args.kwargs
+        kwargs = mock_source.call_args.kwargs
         assert kwargs["account_name"] == "mycompany"
         assert kwargs["key_id"] == "KEY_ID"
         assert kwargs["secret_key"] == "secret"
