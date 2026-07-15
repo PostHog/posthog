@@ -17,7 +17,6 @@ import {
 import { LemonButton, LemonSkeleton, LemonTag, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { liveUserCountLogic } from 'lib/components/LiveUserCount'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -25,6 +24,7 @@ import { dayjs } from 'lib/dayjs'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
+import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -57,6 +57,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey, SDK, SDKInstructionsMap, SDKKey, SDKTagOverrides } from '~/types'
 
@@ -149,7 +150,7 @@ function HeroImageCycler(): JSX.Element {
         <Tooltip title="Click for another hog" delayMs={0}>
             <button
                 type="button"
-                className="w-56 lg:w-72 shrink-0 hidden md:block p-0 border-0 cursor-pointer"
+                className="w-56 lg:w-72 aspect-[4/3] shrink-0 hidden md:block p-0 border-0 cursor-pointer rounded-lg overflow-hidden shadow-sm"
                 onClick={() => {
                     setImageIndex((imageIndex + 1) % HERO_IMAGES.length)
                     captureQuickstartAction('cycle_hero_image')
@@ -172,22 +173,17 @@ function ProjectToken(): JSX.Element | null {
 
     return (
         <div
-            className="ml-auto flex items-center min-w-0 max-w-full rounded border bg-surface-primary overflow-hidden"
+            className="flex flex-col gap-1 w-fit max-w-full"
             onClick={() => captureQuickstartAction('copy_project_token')}
+            data-attr="quickstart-copy-project-token"
         >
-            <span className="px-2 py-1 text-xs font-medium text-secondary bg-fill-tertiary border-r whitespace-nowrap">
-                Project token
-            </span>
-            <CopyToClipboardInline
-                explicitValue={currentTeam.api_token}
-                description="project token"
-                iconSize="xsmall"
-                className="font-mono text-xs px-2 min-w-0"
-                tooltipMessage="Write-only, so it's safe to use in public apps. Click to copy."
-                data-attr="quickstart-copy-project-token"
-            >
+            <LemonLabel>Project token</LemonLabel>
+            <CodeSnippet compact thing="project token">
                 {currentTeam.api_token}
-            </CopyToClipboardInline>
+            </CodeSnippet>
+            <p className="text-muted text-xs mb-0">
+                Every SDK snippet uses it. Write-only, so it's safe in public apps.
+            </p>
         </div>
     )
 }
@@ -788,13 +784,9 @@ export function Quickstart(): JSX.Element {
     }
 
     return (
-        <div className="flex flex-col gap-8 py-4">
-            <LemonCard
-                hoverEffect={false}
-                className="p-0 rounded-lg border-transparent shadow-sm flex items-stretch gap-6 overflow-hidden"
-            >
-                <HeroImageCycler />
-                <div className="flex flex-col justify-center gap-3 min-w-0 flex-1 p-4 md:p-6 md:pl-0">
+        <SceneContent className="gap-y-8 py-4">
+            <section className="flex items-start justify-between gap-8">
+                <div className="flex flex-col gap-4 min-w-0 flex-1">
                     <div>
                         <h1 className="text-3xl font-bold mb-1">
                             Welcome to PostHog{user?.first_name ? `, ${user.first_name}` : ''} 👋
@@ -815,7 +807,6 @@ export function Quickstart(): JSX.Element {
                                     : `${currentOrganization.member_count} teammates`}
                             </HeaderStat>
                         ) : null}
-                        <ProjectToken />
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                         <LemonButton
@@ -854,8 +845,10 @@ export function Quickstart(): JSX.Element {
                         </LemonButton>
                         <LiveUsersRightNow />
                     </div>
+                    <ProjectToken />
                 </div>
-            </LemonCard>
+                <HeroImageCycler />
+            </section>
 
             {!installationComplete && <InstallHeroCard />}
 
@@ -954,7 +947,7 @@ export function Quickstart(): JSX.Element {
             <PublicationsSection />
 
             <ToolSetupModal installationComplete={installationComplete} />
-        </div>
+        </SceneContent>
     )
 }
 
