@@ -202,7 +202,7 @@ const LoopsPreviewCreateSchema = LoopsPreviewCreateParams.omit({ project_id: tru
     LoopsPreviewCreateBody.shape
 )
 
-const loopsPreviewCreate = (): ToolBase<typeof LoopsPreviewCreateSchema, WithPostHogUrl<Schemas.LoopPreviewDTO>> => ({
+const loopsPreviewCreate = (): ToolBase<typeof LoopsPreviewCreateSchema, Schemas.LoopPreviewDTO> => ({
     name: 'loops-preview-create',
     schema: LoopsPreviewCreateSchema,
     handler: async (context: Context, params: z.infer<typeof LoopsPreviewCreateSchema>) => {
@@ -219,7 +219,7 @@ const loopsPreviewCreate = (): ToolBase<typeof LoopsPreviewCreateSchema, WithPos
             path: `/api/projects/${encodeURIComponent(String(projectId))}/loops/${encodeURIComponent(String(params.id))}/preview/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/tasks/${result.id}/preview`)
+        return result
     },
 })
 

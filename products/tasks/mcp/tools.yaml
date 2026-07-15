@@ -7,7 +7,11 @@
 category: Tasks
 feature: tasks
 url_prefix: /tasks
-ui_apps: {}
+ui_apps:
+    loops-review:
+        type: custom
+        app_name: PostHog Loop Review
+        description: Review card for a loop before creation, with a Create loop action.
 tools:
     code-invites-check-access-retrieve:
         operation: code_invites_check_access_retrieve
@@ -86,7 +90,6 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        enrich_url: '{id}/preview'
         title: Preview a loop fire
         description: >
             Dry-run a loop: render the assembled instructions and trigger context for a sample payload (or a
