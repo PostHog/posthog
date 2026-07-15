@@ -8,6 +8,20 @@ Verdict: the happy path is solid, but the primitives are not yet safe to build o
 The recurring root cause is that the Temporal Schedule is a second source of truth that drifts from the DB, and several fire/lifecycle paths mutate a row without driving the workflow that owns the real work.
 There is also a genuine cross-tenant write.
 
+## Resolution
+
+All 7 confirmed blockers and every confirmed major from this audit were fixed on `feat/loops`, each with regression tests:
+
+- Security: cross-tenant `loop_id` write (protected run-state key plus a team-scoped terminal lookup) and the activity-log leak (per-request loop-visibility filter on `Loop`-scoped rows).
+- Schedule/DB integrity: trigger-type-change teardown, `enabled`-toggle resume/pause, a periodic reconciliation sweep for stranded `pending`/`failed` syncs, and a fire-time `trigger.enabled` re-check.
+- Fire correctness: dedup, rate caps and overlap now run in one team-locked transaction, so a failed run rolls back its dedup row; `LoopFire` records the outcome so retries recover the original run; `cancel_previous` signals the workflow and a terminal-status guard stops a late completion from resurrecting a cancelled run; manual runs dedup on `Idempotency-Key`.
+- Safety: `create_prs` defaults to report-only at fire time, matching the read API.
+- Facade contract: internal-loop CRUD, a shared cross-team write validator, DTO parsers that never raise, and a `disabled_reason` with a reactivation hook.
+- DX/MCP: PSAK run-history readback, naive `run_at` treated as UTC (no 500), the missing `team_rate_capped` reason, an explicit ownership-takeover flag, and the `loops-preview`/`loops-runs` MCP tools enabled.
+- Scale: a `(loop, created_at)` index and a `LoopFire` retention sweep.
+
+Deferred (tracked, not blocking): multi-repo execution (`MAX_LOOP_REPOSITORIES = 1`), auto-archival of exhausted one-time loops, and a `create_loop` idempotency key for retried in-code creates.
+
 ## Blockers
 
 ### 1. Cross-tenant loop corruption via forged `TaskRun.state.loop_id`

@@ -79,7 +79,7 @@ The top-level object. Team-scoped, owned by a user, soft-deletable.
 - `notifications`: JSON, validated: per channel (`push`, `email`, `slack`) an `enabled` flag, an event filter (`run_completed`, `run_failed`, `pr_created`, `needs_attention`) and channel params (Slack: `integration_id` + `channel`)
 - bookkeeping: `last_run_at`, `last_run_status`, `last_error`, `consecutive_failures`
 
-All JSON config fields carry a `version` key so their shape can evolve on stored rows.
+JSON config fields are validated at the API edge, and the facade DTO parsers coerce defensively so a malformed stored shape (from a backfill or facade-bypass write) can never crash a read.
 
 ### LoopTrigger
 
@@ -239,7 +239,7 @@ LoopFire        team FK, loop_trigger FK, fire_key,
 ```
 
 Both `Loop` and `LoopTrigger` are team-scoped with the fail-closed manager; `LoopTrigger` carries its own `team` column because the manager filters on a local field.
-JSON config fields are validated by serializers/pydantic, not free-form, and carry a `version` key.
+JSON config fields are validated by serializers/pydantic, not free-form.
 Task changes: `loop` FK (nullable, indexed), `repositories` list (nullable sibling of the legacy single `repository`), a `loop` value on `OriginProduct` and `internal=True` on loop-spawned rows.
 TaskRun changes: `origin_run_id` (nullable self-FK) and `fix_iteration` for the babysitting chain.
 `TaskAutomation` is deleted, not migrated (see Takeover).

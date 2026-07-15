@@ -188,6 +188,40 @@ class TestHandleGithubEventForLoops(TestCase):
         else:
             mock_fire_loop.assert_not_called()
 
+    @parameterized.expand(
+        [
+            # branch filter matches on the PR base ref
+            ("branch_match", {"branches": ["main"]}, "main", ["bug"], True),
+            ("branch_mismatch", {"branches": ["main"]}, "develop", ["bug"], False),
+            # label filter matches on any overlapping PR label
+            ("label_match", {"labels": ["bug"]}, "main", ["bug", "p1"], True),
+            ("label_mismatch", {"labels": ["security"]}, "main", ["bug"], False),
+        ]
+    )
+    @patch(FIRE_LOOP_PATCH_TARGET, autospec=True)
+    def test_pull_request_branch_and_label_filters(
+        self, _name, filters, base_ref, labels, expect_fired, mock_fire_loop
+    ):
+        loop = self._create_loop(self.team)
+        self._create_github_trigger(
+            self.team,
+            loop,
+            github_integration_id=self.integration.id,
+            repository="acme/repo",
+            events=["pull_request"],
+            filters={"actions": ["opened"], **filters},
+        )
+        payload = {
+            "installation": {"id": 998877},
+            "repository": {"full_name": "acme/repo"},
+            "action": "opened",
+            "pull_request": {"base": {"ref": base_ref}, "labels": [{"name": name} for name in labels]},
+        }
+
+        handle_github_event_for_loops("pull_request", payload, delivery_id="del-pr-filter")
+
+        self.assertEqual(mock_fire_loop.called, expect_fired)
+
     @patch(FIRE_LOOP_PATCH_TARGET, autospec=True)
     def test_redelivered_webhook_reuses_the_same_fire_key(self, mock_fire_loop):
         # handle_github_event_for_loops does not dedup deliveries itself: it always
