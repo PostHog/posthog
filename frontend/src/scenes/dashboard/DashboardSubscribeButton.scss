@@ -4,11 +4,11 @@
 
 @media (prefers-reduced-motion: no-preference) {
     .LemonButton:hover .DashboardSubscribeBell {
-        animation: DashboardSubscribeExperiment__ring 0.7s ease-in-out;
+        animation: DashboardSubscribeButton__ring 0.7s ease-in-out;
     }
 }
 
-@keyframes DashboardSubscribeExperiment__ring {
+@keyframes DashboardSubscribeButton__ring {
     0%,
     100% {
         transform: rotate(0);
