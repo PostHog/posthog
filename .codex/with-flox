@@ -44,6 +44,7 @@ if [[ "$prepare" -eq 0 ]]; then
     runtime_env=(env -i)
     [[ -n "${CODEX_SANDBOX:-}" ]] && runtime_env+=("CODEX_SANDBOX=$CODEX_SANDBOX")
     [[ -n "${CODEX_SANDBOX_NETWORK_DISABLED:-}" ]] && runtime_env+=("CODEX_SANDBOX_NETWORK_DISABLED=$CODEX_SANDBOX_NETWORK_DISABLED")
+    runtime_env+=("PYTEST_ADDOPTS=${PYTEST_ADDOPTS:--p no:xdist}")
     [[ -n "${TERM:-}" ]] && runtime_env+=("TERM=$TERM")
 
     # Start from the prepared toolchain environment, then load current local
