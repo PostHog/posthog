@@ -17,8 +17,8 @@ describe('objects utils', () => {
                 true,
             ],
             ['valueOf shadowed by a number', { valueOf: 5, a: 1 }, { valueOf: 5, a: 1 }, true],
-            ['toString callable only on the left', { toString: () => 'x' }, { toString: 'x' }, false],
-            ['valueOf callable only on the right', { valueOf: 5 }, { valueOf: () => 5 }, false],
+            ['toString callable only on the left', { toString: (): string => 'x' }, { toString: 'x' }, false],
+            ['valueOf callable only on the right', { valueOf: 5 }, { valueOf: (): number => 5 }, false],
         ])('compares objects with %s without throwing', (_name, a, b, expected) => {
             expect(objectsEqual(a, b)).toBe(expected)
         })
