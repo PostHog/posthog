@@ -481,7 +481,10 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     184: ErrorCodeMeta("ILLEGAL_AGGREGATION", user_safe=True),
     186: ErrorCodeMeta("UNSUPPORTED_COLLATION_LOCALE"),
     187: ErrorCodeMeta("COLLATION_COMPARISON_FAILED"),
-    190: ErrorCodeMeta("SIZES_OF_ARRAYS_DONT_MATCH"),
+    190: ErrorCodeMeta(
+        "SIZES_OF_ARRAYS_DONT_MATCH",
+        user_safe="Arrays passed to a function like arrayMap must all be the same length.",
+    ),
     191: ErrorCodeMeta("SET_SIZE_LIMIT_EXCEEDED"),
     192: ErrorCodeMeta("UNKNOWN_USER"),
     193: ErrorCodeMeta("WRONG_PASSWORD"),
