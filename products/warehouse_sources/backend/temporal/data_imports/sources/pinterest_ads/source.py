@@ -158,6 +158,14 @@ class PinterestAdsSource(ResumableSource[PinterestAdsSourceConfig, PinterestAdsR
                 ) from e
             # Any other status means we built a bad request, which the user cannot fix.
             raise
+        except requests.RequestException as e:
+            # A connection error or read timeout that outlived the retry policy in `_make_request`
+            # (it retries transport failures but reraises once attempts are exhausted). This is a
+            # transient outage like a 5xx, not a bug, so surface the same actionable message instead
+            # of letting a bare `RequestException` escape as a 500.
+            raise IntegrationAccountListingError(
+                "Pinterest is having trouble responding right now. Please try again in a few minutes."
+            ) from e
 
         return [
             IntegrationAccount(
