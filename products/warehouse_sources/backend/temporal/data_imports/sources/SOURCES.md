@@ -517,7 +517,6 @@ doesn't conflict with concurrent PRs.
 - auth0
 - automox
 - autumn
-- aviator
 - aws_cloudtrail
 - azure_blob
 - azure_table_storage
