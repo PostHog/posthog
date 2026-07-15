@@ -1,3 +1,4 @@
+import io
 from collections.abc import Iterable, Iterator
 from datetime import date
 from typing import Any, cast
@@ -7,6 +8,7 @@ import pytest
 from freezegun import freeze_time
 from unittest import mock
 
+import urllib3
 import requests
 from parameterized import parameterized
 from tenacity import wait_none
@@ -49,6 +51,9 @@ def _response(
     response.text = text
     response.headers = {"Content-Type": content_type}
     response.json.return_value = json_data
+    # The CSV path stream-parses `response.raw`; a real urllib3 response over the body keeps
+    # the `decode_content` + TextIOWrapper plumbing honest.
+    response.raw = urllib3.response.HTTPResponse(body=io.BytesIO(text.encode("utf-8")), preload_content=False)
     typed = cast(requests.Response, response)
     if status_code >= 400:
         response.raise_for_status.side_effect = requests.HTTPError(
@@ -114,7 +119,7 @@ class TestCodyTransport:
         assert normalize_instance_url(raw) == expected
 
     def test_parse_csv_rows_normalizes_headers(self):
-        rows = list(_parse_csv_rows(CSV_BODY))
+        rows = list(_parse_csv_rows(io.StringIO(CSV_BODY)))
 
         assert rows == [
             {"user_email": "a@b.com", "chats": "12", "completion_acceptance_rate_car": "0.5"},
@@ -127,7 +132,7 @@ class TestCodyTransport:
         text = "a,b\n1\n\n2,3\n"
         logger = mock.Mock()
 
-        rows = list(_parse_csv_rows(text, logger))
+        rows = list(_parse_csv_rows(io.StringIO(text), logger))
 
         assert rows == [{"a": "2", "b": "3"}]
         logger.warning.assert_called_once()
@@ -254,11 +259,14 @@ class TestCodyTransport:
         url = session.get.call_args.args[0]
         assert url.startswith(f"{cody.CODY_BASE_URL}/api/credits?")
         assert "granularity" not in url
+        # Reports must stay streamed — buffering the whole body lets a huge report OOM the worker.
+        assert session.get.call_args.kwargs["stream"] is True
 
     def test_windowed_endpoint_walks_months_from_origin_and_checkpoints(self):
         manager = _manager()
         session = mock.Mock()
-        session.get.return_value = _response(200, text=CSV_BODY)
+        # A fresh response per window — each one's raw stream is consumed exactly once.
+        session.get.side_effect = lambda *args, **kwargs: _response(200, text=CSV_BODY)
 
         with (
             freeze_time("2023-03-15"),
@@ -298,7 +306,7 @@ class TestCodyTransport:
     def test_windowed_endpoint_checkpoints_only_after_rows_are_consumed(self):
         manager = _manager()
         session = mock.Mock()
-        session.get.return_value = _response(200, text=CSV_BODY)
+        session.get.side_effect = lambda *args, **kwargs: _response(200, text=CSV_BODY)
 
         with (
             freeze_time("2023-02-10"),

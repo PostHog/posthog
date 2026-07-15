@@ -2,7 +2,7 @@ import io
 import re
 import csv
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 from urllib.parse import urlencode
@@ -99,9 +99,12 @@ def _build_url(
     reraise=True,
 )
 def _fetch(session: requests.Session, url: str, logger: FilteringBoundLogger) -> requests.Response:
-    response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
+    # Streamed so report bodies of any size never get buffered whole — `_parse_csv_rows`
+    # consumes the body incrementally and memory stays bounded by the chunk size.
+    response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS, stream=True)
 
     if response.status_code == 429 or response.status_code >= 500:
+        response.close()
         raise CodyRetryableError(f"Sourcegraph Analytics API error (retryable): status={response.status_code}")
 
     if not response.ok:
@@ -113,8 +116,8 @@ def _fetch(session: requests.Session, url: str, logger: FilteringBoundLogger) ->
     return response
 
 
-def _parse_csv_rows(text: str, logger: FilteringBoundLogger | None = None) -> Iterator[dict[str, Any]]:
-    reader = csv.reader(io.StringIO(text))
+def _parse_csv_rows(lines: Iterable[str], logger: FilteringBoundLogger | None = None) -> Iterator[dict[str, Any]]:
+    reader = csv.reader(lines)
     headers: list[str] | None = None
     for row in reader:
         if headers is None:
@@ -143,6 +146,7 @@ def _rows_from_response(response: requests.Response, logger: FilteringBoundLogge
     """
     content_type = response.headers.get("Content-Type", "")
     if "json" in content_type:
+        # Credit buckets are a small payload; buffering the JSON body is fine.
         payload = response.json()
         if isinstance(payload, list):
             rows = payload
@@ -156,7 +160,11 @@ def _rows_from_response(response: requests.Response, logger: FilteringBoundLogge
                 yield row
         return
 
-    yield from _parse_csv_rows(response.text, logger)
+    # Stream-parse the CSV instead of materializing `response.text`, so an arbitrarily large
+    # report can't exhaust worker memory. `.raw` bypasses requests' content decoding, so turn
+    # it back on for gzipped responses; newline="" lets the csv module handle quoted newlines.
+    response.raw.decode_content = True
+    yield from _parse_csv_rows(io.TextIOWrapper(response.raw, encoding="utf-8", newline=""), logger)
 
 
 def validate_credentials(access_token: str, instance_url: str) -> bool:
