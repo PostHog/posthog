@@ -14,7 +14,7 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/scenes/StamphogScene/StamphogScene'),
             projectBased: true,
             name: 'Stamphog',
-            iconType: 'task',
+            iconType: 'stamphog',
         },
     },
     routes: {

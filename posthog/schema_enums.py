@@ -2029,6 +2029,7 @@ class FileSystemIconType(StrEnum):
     TOOLBAR = "toolbar"
     VISUAL_REVIEW = "visual_review"
     CODE_REVIEW = "code_review"
+    STAMPHOG = "stamphog"
     SETTINGS = "settings"
     HEALTH = "health"
     INBOX = "inbox"

@@ -772,7 +772,7 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'llm_prompts',
     },
     Skill: { projectBased: true, name: 'Skill', layout: 'app-container', iconType: 'llm_prompts' },
-    Stamphog: { projectBased: true, name: 'Stamphog', iconType: 'task' },
+    Stamphog: { projectBased: true, name: 'Stamphog', iconType: 'stamphog' },
     Subscriptions: {
         projectBased: true,
         name: 'Subscriptions',
