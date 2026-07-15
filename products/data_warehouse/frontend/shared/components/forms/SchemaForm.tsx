@@ -532,9 +532,7 @@ export default function SchemaForm(): JSX.Element {
                                 />
                             </div>
                         ) : (
-                            <div className="border rounded px-4 py-8 text-center text-muted-alt">
-                                {noTablesMessage}
-                            </div>
+                            <div className="border rounded px-4 py-8 text-center text-muted-alt">{noTablesMessage}</div>
                         )
                     ) : groupedDatabaseSchema.length > 1 ? (
                         <div className="border rounded bg-bg-light">
