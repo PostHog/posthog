@@ -354,19 +354,6 @@ def open_task_artifact(artifact: TaskArtifact) -> str | None:
     return _adapter_for_existing_artifact(artifact).open(artifact)
 
 
-def _artifact_type_from_manifest(manifest_entry: dict[str, Any]) -> str:
-    raw_type = str(manifest_entry.get("type") or "")
-    content_type = str(manifest_entry.get("content_type") or "").lower()
-    name = str(manifest_entry.get("name") or "").lower()
-    if raw_type in {choice for choice, _label in TaskArtifact.ArtifactType.choices}:
-        return raw_type
-    if _is_spreadsheet_name_or_type(name, content_type):
-        return TaskArtifact.ArtifactType.SPREADSHEET
-    if content_type.startswith("text/") or name.endswith((".md", ".txt", ".html")):
-        return TaskArtifact.ArtifactType.DOCUMENT
-    return TaskArtifact.ArtifactType.FILE
-
-
 def _find_source_artifact(
     run: TaskRun,
     *,
@@ -376,10 +363,19 @@ def _find_source_artifact(
     for candidate_run in reversed(run.get_resume_chain()):
         for artifact in candidate_run.artifacts or []:
             if source_artifact_id and str(artifact.get("id")) == str(source_artifact_id):
-                return artifact
+                return _require_shareable_source_artifact(artifact)
             if source_storage_path and artifact.get("storage_path") == source_storage_path:
-                return artifact
+                return _require_shareable_source_artifact(artifact)
     return None
+
+
+def _require_shareable_source_artifact(artifact: dict[str, Any]) -> dict[str, Any]:
+    # Run manifests also carry internal state (plans, context, tree snapshots, user
+    # uploads). Living artifacts are deliverables that leave PostHog, so only files
+    # the agent explicitly uploaded as run outputs may be used as a content source.
+    if artifact.get("type") != "output" or artifact.get("source") != "agent_output":
+        raise ValueError("Source artifact is not a shareable run output")
+    return artifact
 
 
 def _is_textual_content(source_artifact: dict[str, Any]) -> bool:
@@ -396,16 +392,6 @@ def _is_textual_name_and_type(name: str, content_type: str) -> bool:
         or normalized_content_type in {"application/json", "application/xml", "application/xhtml+xml"}
         or normalized_name.endswith((".md", ".txt", ".csv", ".json", ".html", ".xml"))
     )
-
-
-def _is_spreadsheet_name_or_type(name: str, content_type: str) -> bool:
-    normalized_content_type = str(content_type or "").split(";")[0].strip().lower()
-    normalized_name = name.lower()
-    return normalized_content_type in {
-        "application/vnd.ms-excel",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "text/csv",
-    } or normalized_name.endswith((".csv", ".xls", ".xlsx"))
 
 
 def _guess_content_type(name: str) -> str:
