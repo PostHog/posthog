@@ -1279,24 +1279,24 @@ class TestRateLimitPoisoningPrevention:
 
 class TestPlanAwareThrottling:
     @pytest.mark.asyncio
-    async def test_free_user_gets_limit_of_75(self) -> None:
+    async def test_free_user_gets_limit_of_20(self) -> None:
         from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
 
         throttle = UserCostBurstThrottle(redis=None)
         context = make_context(product="posthog_code", plan_key=None, seat_created_at="2026-01-01T00:00:00+00:00")
 
-        await throttle.record_cost(context, 75.0)
+        await throttle.record_cost(context, 20.0)
         result = await throttle.allow_request(context)
         assert result.allowed is False
 
     @pytest.mark.asyncio
-    async def test_free_user_gets_sustained_limit_of_75(self) -> None:
+    async def test_free_user_gets_sustained_limit_of_20(self) -> None:
         from llm_gateway.rate_limiting.cost_throttles import UserCostSustainedThrottle
 
         throttle = UserCostSustainedThrottle(redis=None)
         context = make_context(product="posthog_code", plan_key=None, seat_created_at="2026-01-01T00:00:00+00:00")
 
-        await throttle.record_cost(context, 75.0)
+        await throttle.record_cost(context, 20.0)
         result = await throttle.allow_request(context)
         assert result.allowed is False
 
@@ -1318,7 +1318,7 @@ class TestPlanAwareThrottling:
         throttle = UserCostSustainedThrottle(redis=None)
         context = make_context(product="posthog_code", plan_key=None, seat_created_at="2025-01-01T00:00:00+00:00")
 
-        await throttle.record_cost(context, 49.0)
+        await throttle.record_cost(context, 19.0)
         result = await throttle.allow_request(context)
         assert result.allowed is True
 
@@ -1385,7 +1385,7 @@ class TestPlanAwareThrottling:
     @pytest.mark.parametrize(
         ("seat_missing", "expected_allowed"),
         [
-            # Confirmed no seat (404) → free cap: $80 spent exceeds the $75 limit.
+            # Confirmed no seat (404) → free cap: $80 spent exceeds the $20 limit.
             (True, False),
             # Plan resolution failed → default limits ($500/day): fail loose so an
             # outage never clamps paying users whose plan couldn't be resolved.
@@ -1414,7 +1414,7 @@ class TestPlanAwareThrottling:
         ("seat_missing", "code_usage_billed", "expected_allowed"),
         [
             # Seatless + org-billed Code usage: bills to the org - no per-user cap.
-            # $600 spent clears both the $75 free cap and the $500/day default.
+            # $600 spent clears both the $20 free cap and the $500/day default.
             (True, True, True),
             # Seatless + not billed: the free cap holds (this pair pins that the
             # bypass never leaks to orgs that would get the usage for free).
