@@ -1731,7 +1731,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             setattr(existing, attr, val)
         # update_fields scopes the UPDATE to only the columns we changed, so concurrent writes
         # to other columns aren't clobbered by our stale read. save() (vs queryset.update())
-        # keeps the post_save signal that sync_dashboard_tile listens to for cache invalidation.
+        # keeps DashboardTile.save() side effects like filters_hash upkeep.
         existing.save(update_fields=list(tile_defaults.keys()))
         return existing, became_deleted
 
@@ -1989,9 +1989,6 @@ class DashboardSerializer(DashboardMetadataSerializer):
         serialized_tiles: list[ReturnDict] = []
 
         tiles = DashboardTile.dashboard_queryset(dashboard.tiles.all()).prefetch_related(
-            # Used by the shared-insight force_blocking gate in `posthog/api/insight.py` to avoid an
-            # N+1 lookup of last_refresh per tile on shared dashboard renders.
-            "caching_states",
             Prefetch(
                 "insight__tagged_items",
                 queryset=TaggedItem.objects.select_related("tag"),
@@ -1999,7 +1996,11 @@ class DashboardSerializer(DashboardMetadataSerializer):
             ),
             Prefetch(
                 "insight__alertconfiguration_set",
-                queryset=AlertConfiguration.objects.select_related("created_by"),
+                # AlertSerializer emits threshold and subscribed_users per alert; without these,
+                # every alert on the dashboard costs two extra queries
+                queryset=AlertConfiguration.objects.select_related("created_by", "threshold").prefetch_related(
+                    "subscribed_users"
+                ),
                 to_attr="_prefetched_alerts",
             ),
         )
@@ -2223,7 +2224,6 @@ class DashboardsViewSet(
         if self.action != "list":
             tiles_prefetch_queryset = DashboardTile.dashboard_queryset(
                 DashboardTile.objects.prefetch_related(
-                    "caching_states",
                     Prefetch(
                         "insight__dashboards",
                         # nosemgrep: idor-lookup-without-team (scoped via prefetch on team-scoped queryset)

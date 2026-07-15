@@ -61,6 +61,90 @@ export const SignalReportStatusEnumApi = {
     Suppressed: 'suppressed',
 } as const
 
+/**
+ * * `pr_incorrect` - PR incorrect
+ * * `pr_not_useful` - PR not useful
+ * * `duplicate` - Duplicate
+ * * `other` - Other
+ */
+export type SignalReportRefundReasonEnumApi =
+    (typeof SignalReportRefundReasonEnumApi)[keyof typeof SignalReportRefundReasonEnumApi]
+
+export const SignalReportRefundReasonEnumApi = {
+    PrIncorrect: 'pr_incorrect',
+    PrNotUseful: 'pr_not_useful',
+    Duplicate: 'duplicate',
+    Other: 'other',
+} as const
+
+/**
+ * * `excluded` - Excluded
+ * * `credited` - Credited
+ */
+export type BillingPathEnumApi = (typeof BillingPathEnumApi)[keyof typeof BillingPathEnumApi]
+
+export const BillingPathEnumApi = {
+    Excluded: 'excluded',
+    Credited: 'credited',
+} as const
+
+export interface SignalReportRefundApi {
+    readonly id: string
+    /** Why the user refunded this PR (feeds the refund review).
+     *
+     * * `pr_incorrect` - PR incorrect
+     * * `pr_not_useful` - PR not useful
+     * * `duplicate` - Duplicate
+     * * `other` - Other */
+    readonly reason: SignalReportRefundReasonEnumApi
+    /** Optional free-form note captured with the refund. */
+    readonly note: string
+    /** How the refund was executed, frozen at refund time: 'excluded' (same UTC day as the billable PR run — the report never reaches billing) or 'credited' (billing issues a Stripe customer-balance credit).
+     *
+     * * `excluded` - Excluded
+     * * `credited` - Credited */
+    readonly billing_path: BillingPathEnumApi
+    /** Signals credits refunded (flat per-PR charge snapshot; 1 credit = $0.01). */
+    readonly credits: number
+    /** The refunded implementation PR's GitHub URL, snapshotted at refund time. */
+    readonly pr_url: string
+    /** When the first billable PR run was created — the charge this reverses. */
+    readonly pr_run_created_at: string
+    /**
+     * USD amount the billing service credited (credited path only). Null until the sync completes; '0.00' is a legitimate outcome (e.g. the PR was inside the free tier).
+     * @nullable
+     * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
+     */
+    readonly credit_amount_usd: string | null
+    /** Whether the billing service has acknowledged this refund. Always relevant for the credited path (the Stripe credit is issued asynchronously); excluded-path refunds need no billing sync and report false. */
+    readonly billing_synced: boolean
+    /** When the refund was created. */
+    readonly created_at: string
+}
+
+export type RefundIneligibilityReasonEnumApi =
+    (typeof RefundIneligibilityReasonEnumApi)[keyof typeof RefundIneligibilityReasonEnumApi]
+
+export const RefundIneligibilityReasonEnumApi = {
+    AlreadyRefunded: 'already_refunded',
+    BillingExempt: 'billing_exempt',
+    NoBillablePr: 'no_billable_pr',
+    OutOfPeriod: 'out_of_period',
+} as const
+
+/**
+ * * `posthog_health_check` - PostHog health check
+ * * `posthog_onboarding` - PostHog onboarding
+ * * `posthog_system` - PostHog system
+ */
+export type BillingExemptReasonEnumApi = (typeof BillingExemptReasonEnumApi)[keyof typeof BillingExemptReasonEnumApi]
+
+export const BillingExemptReasonEnumApi = {
+    PosthogHealthCheck: 'posthog_health_check',
+    PosthogOnboarding: 'posthog_onboarding',
+    PosthogSystem: 'posthog_system',
+} as const
+
 export interface SignalReportApi {
     readonly id: string
     /** @nullable */
@@ -112,6 +196,16 @@ export interface SignalReportApi {
      * @nullable
      */
     readonly implementation_pr_url: string | null
+    /** The report's PR refund, when one exists. One refund per report, ever. */
+    readonly refund: SignalReportRefundApi | null
+    /** Why refunding this report's PR would be rejected right now, or null when a refund would be accepted (see the field's schema for the reason values). */
+    readonly refund_ineligibility_reason: RefundIneligibilityReasonEnumApi | null
+    /** Non-null when this report is system-marked never-billable (PostHog-system origin, e.g. a health-check scout finding) — its implementation PRs are free and cannot be refunded because nothing was charged.
+     *
+     * * `posthog_health_check` - PostHog health check
+     * * `posthog_onboarding` - PostHog onboarding
+     * * `posthog_system` - PostHog system */
+    readonly billing_exempt_reason: BillingExemptReasonEnumApi | null
 }
 
 export interface PaginatedSignalReportListApi {
@@ -143,6 +237,57 @@ export interface PatchedSignalReportContentUpdateApi {
      * @maxLength 10000
      */
     summary?: string
+}
+
+export interface SignalReportRefundRequestApi {
+    /** Why this PR is being refunded. One of: pr_incorrect (the PR doesn't address what the report promised), pr_not_useful (technically fine but not worth paying for), duplicate (covers work already charged elsewhere), other. Required — refund reviews key on it.
+     *
+     * * `pr_incorrect` - PR incorrect
+     * * `pr_not_useful` - PR not useful
+     * * `duplicate` - Duplicate
+     * * `other` - Other */
+    reason: SignalReportRefundReasonEnumApi
+    /**
+     * Optional free-form context for the refund; stored on the refund and echoed in the report's dismissal artefact. Capped at 4000 characters.
+     * @maxLength 4000
+     */
+    note?: string
+}
+
+export interface SignalReportRefundResponseApi {
+    readonly id: string
+    /** Why the user refunded this PR (feeds the refund review).
+     *
+     * * `pr_incorrect` - PR incorrect
+     * * `pr_not_useful` - PR not useful
+     * * `duplicate` - Duplicate
+     * * `other` - Other */
+    readonly reason: SignalReportRefundReasonEnumApi
+    /** Optional free-form note captured with the refund. */
+    readonly note: string
+    /** How the refund was executed, frozen at refund time: 'excluded' (same UTC day as the billable PR run — the report never reaches billing) or 'credited' (billing issues a Stripe customer-balance credit).
+     *
+     * * `excluded` - Excluded
+     * * `credited` - Credited */
+    readonly billing_path: BillingPathEnumApi
+    /** Signals credits refunded (flat per-PR charge snapshot; 1 credit = $0.01). */
+    readonly credits: number
+    /** The refunded implementation PR's GitHub URL, snapshotted at refund time. */
+    readonly pr_url: string
+    /** When the first billable PR run was created — the charge this reverses. */
+    readonly pr_run_created_at: string
+    /**
+     * USD amount the billing service credited (credited path only). Null until the sync completes; '0.00' is a legitimate outcome (e.g. the PR was inside the free tier).
+     * @nullable
+     * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
+     */
+    readonly credit_amount_usd: string | null
+    /** Whether the billing service has acknowledged this refund. Always relevant for the credited path (the Stripe credit is issued asynchronously); excluded-path refunds need no billing sync and report false. */
+    readonly billing_synced: boolean
+    /** When the refund was created. */
+    readonly created_at: string
+    /** True when the report already had a refund and that existing refund is returned unchanged — refunds are one-per-report and repeat calls are idempotent. */
+    readonly already_refunded: boolean
 }
 
 /**
@@ -831,6 +976,15 @@ export interface SignalReportBulkStateResponseApi {
     failed_count: number
     /** Number of requested ids not visible to the caller. */
     not_found_count: number
+}
+
+export interface SignalReportRefundSummaryResponseApi {
+    /** Number of credited-path refunds across the whole organization whose refunded PR run falls in the current billing period. Excluded-path refunds never reach billing usage, so they are deliberately absent. */
+    credited_refund_count: number
+    /** Total signals credits those refunds returned (1 credit = $0.01). Divide by the flat per-PR charge to get the number of PRs to subtract from billing usage. */
+    credited_credits: number
+    /** The organization's live billable signals credits for the current billing period, computed by the same rules as the nightly usage report — including PRs created today that billing hasn't recorded yet, and already excluding refund-excluded and billing-exempt reports. Take the max of this and billing's recorded usage for a live PR count that reacts to new PRs and same-day refunds immediately. */
+    period_billable_credits: number
 }
 
 export type ScoutOriginEnumApi = (typeof ScoutOriginEnumApi)[keyof typeof ScoutOriginEnumApi]
@@ -2346,6 +2500,10 @@ export type SignalsReportsListParams = {
      * Filter reports by whether a shipped implementation pull request exists. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with limit=1 to count PR reports cheaply.
      */
     has_implementation_pr?: boolean
+    /**
+     * When true, the list includes reports in every status with no default exclusions applied — currently that adds suppressed (dismissed) reports, which are otherwise hidden. Use it to see the full inbox state (e.g. deduplicating before creating a report) and read each row's status (plus dismissal_reason/dismissal_note on dismissed rows) before acting. Deleted reports are terminal and never returned. Defaults to false, which keeps the existing default exclusions. Ignored when an explicit 'status' filter is set — that filter alone decides which statuses are returned.
+     */
+    include_all_statuses?: boolean
     /**
      * Number of results to return per page.
      */

@@ -2340,6 +2340,7 @@ class IntegrationKind(StrEnum):
     CUSTOMERIO_APP = "customerio-app"
     CUSTOMERIO_WEBHOOK = "customerio-webhook"
     CUSTOMERIO_TRACK = "customerio-track"
+    APNS = "apns"
     POSTGRESQL = "postgresql"
     AWS_S3 = "aws-s3"
     S3_COMPATIBLE = "s3-compatible"
