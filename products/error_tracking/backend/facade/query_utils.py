@@ -206,8 +206,8 @@ def parse_jsonish(value: object) -> object:
     return parsed
 
 
-def truncate_text(value: object, verbosity: str) -> object:
-    if verbosity == "raw" or not isinstance(value, str) or len(value) <= MAX_NORMALIZED_TEXT_CHARS:
+def truncate_text(value: object) -> object:
+    if not isinstance(value, str) or len(value) <= MAX_NORMALIZED_TEXT_CHARS:
         return value
     suffix = f"… [truncated from {len(value)} chars]"
     return f"{value[: MAX_NORMALIZED_TEXT_CHARS - len(suffix)]}{suffix}"
@@ -222,14 +222,14 @@ def strip_non_raw_fields(record: dict[str, object]) -> dict[str, object]:
 
 
 def normalize_frame(
-    frame: object, verbosity: str, only_app_frames: bool, include_code_variables: bool = True
+    frame: object, only_app_frames: bool, include_code_variables: bool = True
 ) -> dict[str, object] | None:
     frame_record = as_record(parse_jsonish(frame))
     if frame_record is None:
         return None
     if only_app_frames and frame_record.get("in_app") is not True:
         return None
-    base_frame = frame_record if verbosity == "raw" else strip_non_raw_fields(frame_record)
+    base_frame = strip_non_raw_fields(frame_record)
     if not include_code_variables:
         base_frame = {key: value for key, value in base_frame.items() if key != "code_variables"}
     normalized = {
@@ -243,7 +243,7 @@ def normalize_frame(
 
 
 def normalize_stacktrace(
-    stacktrace: object, verbosity: str, only_app_frames: bool, include_code_variables: bool = True
+    stacktrace: object, only_app_frames: bool, include_code_variables: bool = True
 ) -> dict[str, object] | None:
     stacktrace_record = as_record(parse_jsonish(stacktrace))
     if stacktrace_record is None:
@@ -253,17 +253,17 @@ def normalize_stacktrace(
         [
             normalized
             for frame in cast(list[object], raw_frames)
-            if (normalized := normalize_frame(frame, verbosity, only_app_frames, include_code_variables)) is not None
+            if (normalized := normalize_frame(frame, only_app_frames, include_code_variables)) is not None
         ]
         if isinstance(raw_frames, list)
         else None
     )
-    base_stacktrace = stacktrace_record if verbosity == "raw" else strip_non_raw_fields(stacktrace_record)
+    base_stacktrace = strip_non_raw_fields(stacktrace_record)
     return compact_dict({**base_stacktrace, "frames": frames})
 
 
 def normalize_exception(
-    exception: object, verbosity: str, only_app_frames: bool, include_code_variables: bool = True
+    exception: object, include_stacktrace: bool, only_app_frames: bool, include_code_variables: bool = True
 ) -> dict[str, object] | None:
     exception_record = as_record(parse_jsonish(exception))
     if exception_record is None:
@@ -274,25 +274,20 @@ def normalize_exception(
             "value": truncate_text(
                 exception_record.get("value")
                 or exception_record.get("message")
-                or exception_record.get("exception_message"),
-                verbosity,
+                or exception_record.get("exception_message")
             ),
             "module": exception_record.get("module"),
             "mechanism": exception_record.get("mechanism"),
         }
     )
-    if verbosity == "summary":
+    if not include_stacktrace:
         return summary
-    stacktrace = normalize_stacktrace(
-        exception_record.get("stacktrace"), verbosity, only_app_frames, include_code_variables
-    )
-    if verbosity == "raw":
-        return compact_dict({**exception_record, "stacktrace": stacktrace})
+    stacktrace = normalize_stacktrace(exception_record.get("stacktrace"), only_app_frames, include_code_variables)
     return compact_dict({**summary, "stacktrace": stacktrace})
 
 
 def normalize_exception_list(
-    value: object, verbosity: str, only_app_frames: bool, include_code_variables: bool = True
+    value: object, include_stacktrace: bool, only_app_frames: bool, include_code_variables: bool = True
 ) -> object:
     parsed = parse_jsonish(value)
     record = as_record(parsed)
@@ -302,29 +297,29 @@ def normalize_exception_list(
     return [
         normalized
         for exception in exceptions
-        if (normalized := normalize_exception(exception, verbosity, only_app_frames, include_code_variables))
+        if (normalized := normalize_exception(exception, include_stacktrace, only_app_frames, include_code_variables))
         is not None
     ]
 
 
-def normalize_string_array(value: object, verbosity: str = "summary", truncate_items: bool = False) -> object:
+def normalize_string_array(value: object, truncate_items: bool = False) -> object:
     parsed = parse_jsonish(value)
     if not isinstance(parsed, list):
         return parsed
-    return [truncate_text(item, verbosity) for item in parsed] if truncate_items else parsed
+    return [truncate_text(item) for item in parsed] if truncate_items else parsed
 
 
 def normalize_error_property(
-    name: str, value: object, verbosity: str, only_app_frames: bool, include_code_variables: bool = True
+    name: str, value: object, include_stacktrace: bool, only_app_frames: bool, include_code_variables: bool = True
 ) -> object:
     if name == "$exception_list":
-        return normalize_exception_list(value, verbosity, only_app_frames, include_code_variables)
+        return normalize_exception_list(value, include_stacktrace, only_app_frames, include_code_variables)
     if name == "$exception_releases":
         return parse_jsonish(value)
     if name == "$exception_types":
         return normalize_string_array(value)
     if name == "$exception_values":
-        return normalize_string_array(value, verbosity, True)
+        return normalize_string_array(value, True)
     return value
 
 
@@ -337,7 +332,7 @@ def property_name(select: str) -> str | None:
 def map_event_row(
     row: object,
     columns: list[str],
-    verbosity: str,
+    include_stacktrace: bool,
     only_app_frames: bool,
     include_code_variables: bool = True,
 ) -> dict[str, object]:
@@ -354,7 +349,9 @@ def map_event_row(
             continue
         prop = property_name(column)
         if prop:
-            properties[prop] = normalize_error_property(prop, value, verbosity, only_app_frames, include_code_variables)
+            properties[prop] = normalize_error_property(
+                prop, value, include_stacktrace, only_app_frames, include_code_variables
+            )
         else:
             event[column] = value
     return event
@@ -367,7 +364,7 @@ def map_context_event_properties(data: dict[str, object]) -> dict[str, object]:
         return {}
     raw_columns = data.get("columns")
     columns = [str(column) for column in raw_columns] if isinstance(raw_columns, list) else CONTEXT_EVENT_SELECTS
-    return cast(dict[str, object], map_event_row(row, columns, "stack", True)["properties"])
+    return cast(dict[str, object], map_event_row(row, columns, True, True)["properties"])
 
 
 def get_frames(exception_list: object) -> list[dict[str, object]]:

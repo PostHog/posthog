@@ -572,25 +572,11 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
             data={"issueId": self.issue_id, "dateRange": {"date_from": "-1d", "date_to": "2026-04-25T00:00:00Z"}},
             format="json",
         )
-        raw_response = self.client.post(
-            f"/api/environments/{self.team.id}/error_tracking/query/issue_events",
-            data={
-                "issueId": self.issue_id,
-                "dateRange": {"date_from": "-1d", "date_to": "2026-04-25T00:00:00Z"},
-                "verbosity": "raw",
-            },
-            format="json",
-        )
-
         assert summary_response.status_code == 200
-        assert raw_response.status_code == 200
         summary_event = summary_response.json()["results"][0]
-        raw_event = raw_response.json()["results"][0]
         assert summary_event["properties"]["$exception_types"] == ["TypeError"]
         assert "[truncated from 1200 chars]" in summary_event["properties"]["$exception_values"][0]
         assert "[truncated from 1200 chars]" in summary_event["properties"]["$exception_list"][0]["value"]
-        assert raw_event["properties"]["$exception_values"][0] == long_text
-        assert raw_event["properties"]["$exception_list"][0]["value"] == long_text
         assert summary_event["properties"]["$session_id"] == "session-id-1"
 
     @freeze_time("2026-04-24T12:00:00Z")

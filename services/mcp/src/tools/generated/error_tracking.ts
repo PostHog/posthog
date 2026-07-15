@@ -646,9 +646,6 @@ const queryErrorTrackingIssueEvents = (): ToolBase<
             if (params.include !== undefined) {
                 body['include'] = params.include
             }
-            if (params.verbosity !== undefined) {
-                body['verbosity'] = params.verbosity
-            }
             if (params.onlyAppFrames !== undefined) {
                 body['onlyAppFrames'] = params.onlyAppFrames
             }

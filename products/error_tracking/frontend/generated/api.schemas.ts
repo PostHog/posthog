@@ -1051,19 +1051,6 @@ export const IncludeEnumApi = {
     Diagnostics: 'diagnostics',
 } as const
 
-/**
- * * `summary` - summary
- * * `stack` - stack
- * * `raw` - raw
- */
-export type VerbosityEnumApi = (typeof VerbosityEnumApi)[keyof typeof VerbosityEnumApi]
-
-export const VerbosityEnumApi = {
-    Summary: 'summary',
-    Stack: 'stack',
-    Raw: 'raw',
-} as const
-
 export interface ErrorTrackingIssueEventsQueryRequestApi {
     /** Error tracking issue ID. */
     issueId: string
@@ -1096,12 +1083,6 @@ export interface ErrorTrackingIssueEventsQueryRequestApi {
     offset?: number
     /** Context groups to return. Defaults to exception, environment, navigation, and correlation. Request stacktrace for frames, code_variables for captured and SDK-masked frame variables, release for release metadata, or diagnostics for ingestion errors. code_variables implies stacktrace. */
     include?: IncludeEnumApi[]
-    /** Controls exception detail size: summary, stack, or raw. Defaults to summary.
-     *
-     * * `summary` - summary
-     * * `stack` - stack
-     * * `raw` - raw */
-    verbosity?: VerbosityEnumApi
     /** When true, include only stack frames marked in_app. Defaults to true. */
     onlyAppFrames?: boolean
 }

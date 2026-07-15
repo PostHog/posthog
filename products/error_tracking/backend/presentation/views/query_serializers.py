@@ -219,12 +219,6 @@ class ErrorTrackingIssueEventsQueryRequestSerializer(serializers.Serializer):
             "release metadata, or diagnostics for ingestion errors. code_variables implies stacktrace."
         ),
     )
-    verbosity = serializers.ChoiceField(
-        choices=["summary", "stack", "raw"],
-        required=False,
-        default="summary",
-        help_text="Controls exception detail size: summary, stack, or raw. Defaults to summary.",
-    )
     onlyAppFrames = serializers.BooleanField(
         required=False,
         default=True,

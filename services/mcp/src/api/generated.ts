@@ -21606,20 +21606,6 @@ export namespace Schemas {
       Diagnostics: 'diagnostics',
     } as const;
 
-    /**
-     * * `summary` - summary
-     * * `stack` - stack
-     * * `raw` - raw
-     */
-    export type VerbosityEnum = typeof VerbosityEnum[keyof typeof VerbosityEnum];
-
-
-    export const VerbosityEnum = {
-      Summary: 'summary',
-      Stack: 'stack',
-      Raw: 'raw',
-    } as const;
-
     export interface ErrorTrackingIssueEventsQueryRequest {
       /** Error tracking issue ID. */
       issueId: string;
@@ -21652,12 +21638,6 @@ export namespace Schemas {
       offset?: number;
       /** Context groups to return. Defaults to exception, environment, navigation, and correlation. Request stacktrace for frames, code_variables for captured and SDK-masked frame variables, release for release metadata, or diagnostics for ingestion errors. code_variables implies stacktrace. */
       include?: IncludeEnum[];
-      /** Controls exception detail size: summary, stack, or raw. Defaults to summary.
-       *
-       * * `summary` - summary
-       * * `stack` - stack
-       * * `raw` - raw */
-      verbosity?: VerbosityEnum;
       /** When true, include only stack frames marked in_app. Defaults to true. */
       onlyAppFrames?: boolean;
     }

@@ -485,7 +485,6 @@ export const errorTrackingQueryIssueEventsCreateBodyLimitMax = 20
 export const errorTrackingQueryIssueEventsCreateBodyOffsetDefault = 0
 export const errorTrackingQueryIssueEventsCreateBodyOffsetMin = 0
 
-export const errorTrackingQueryIssueEventsCreateBodyVerbosityDefault = `summary`
 export const errorTrackingQueryIssueEventsCreateBodyOnlyAppFramesDefault = true
 
 export const ErrorTrackingQueryIssueEventsCreateBody = /* @__PURE__ */ zod.object({
@@ -637,13 +636,6 @@ export const ErrorTrackingQueryIssueEventsCreateBody = /* @__PURE__ */ zod.objec
         .optional()
         .describe(
             'Context groups to return. Defaults to exception, environment, navigation, and correlation. Request stacktrace for frames, code_variables for captured and SDK-masked frame variables, release for release metadata, or diagnostics for ingestion errors. code_variables implies stacktrace.'
-        ),
-    verbosity: zod
-        .enum(['summary', 'stack', 'raw'])
-        .describe('\* `summary` - summary\n\* `stack` - stack\n\* `raw` - raw')
-        .default(errorTrackingQueryIssueEventsCreateBodyVerbosityDefault)
-        .describe(
-            'Controls exception detail size: summary, stack, or raw. Defaults to summary.\n\n\* `summary` - summary\n\* `stack` - stack\n\* `raw` - raw'
         ),
     onlyAppFrames: zod
         .boolean()

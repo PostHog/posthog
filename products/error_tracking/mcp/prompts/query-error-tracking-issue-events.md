@@ -11,7 +11,6 @@ Returns sampled events with plural exception fields (`$exception_types`, `$excep
 - `searchQuery`: search exception types, values, and current URL.
 - `filterGroup`: advanced flat AND property filters applied to sampled events.
 - `include`: context groups to return. Defaults to compact exception, environment, navigation, and correlation context. Add `stacktrace`, `code_variables`, `release`, or `diagnostics` only when needed. `code_variables` implies stack frames and may contain SDK-masked sensitive values.
-- `verbosity`: `summary` (default), `stack`, or `raw`. Use `raw` only when exact untruncated exception payloads are needed.
 - `onlyAppFrames`: defaults to true to reduce vendor-frame noise.
 - `limit`: defaults to 1 and maxes at 20. Keep low unless the user asks for multiple examples.
 

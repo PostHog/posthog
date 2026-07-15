@@ -261,15 +261,11 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         columns = [str(column) for column in raw_columns] if isinstance(raw_columns, list) else event_selects
         raw_results_value = data.get("results")
         raw_results: list[object] = raw_results_value if isinstance(raw_results_value, list) else []
-        verbosity = cast(str, params.get("verbosity", "summary"))
-        if verbosity == "summary" and ("stacktrace" in includes or "code_variables" in includes):
-            verbosity = "stack"
+        include_stacktrace = "stacktrace" in includes or "code_variables" in includes
         only_app_frames = cast(bool, params.get("onlyAppFrames", True))
-        include_code_variables = (
-            "code_variables" in includes if requested_includes is not None else verbosity in {"stack", "raw"}
-        )
+        include_code_variables = "code_variables" in includes
         results = [
-            map_event_row(row, columns, verbosity, only_app_frames, include_code_variables)
+            map_event_row(row, columns, include_stacktrace, only_app_frames, include_code_variables)
             for row in raw_results[:limit]
         ]
         has_more, next_offset = get_page_info(data, limit, offset)
