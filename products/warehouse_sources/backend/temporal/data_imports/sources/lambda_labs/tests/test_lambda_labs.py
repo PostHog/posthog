@@ -1,6 +1,6 @@
 import json
 from datetime import UTC, date, datetime
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -35,7 +35,7 @@ class _FakeResponse:
 
     def raise_for_status(self) -> None:
         if not self.ok:
-            raise requests.HTTPError(f"{self.status_code} Client Error")
+            raise requests.HTTPError(f"{self.status_code} Client Error", response=cast("requests.Response", self))
 
 
 class _FakeSession:
@@ -73,6 +73,22 @@ class TestExtractRecords:
                 "instances",
                 {"data": [{"id": "i-1"}, {"id": "i-2"}]},
                 [{"id": "i-1"}, {"id": "i-2"}],
+            ),
+            (
+                # A live JupyterLab access token (and the URL embedding it) must be stripped so it
+                # never lands in the warehouse where a project member could retrieve it.
+                "instances",
+                {
+                    "data": [
+                        {
+                            "id": "i-1",
+                            "jupyter_token": "secret-token",
+                            "jupyter_url": "https://jupyter.lambda.ai/?token=secret-token",
+                            "name": "gpu-box",
+                        }
+                    ]
+                },
+                [{"id": "i-1", "name": "gpu-box"}],
             ),
             (
                 # The map endpoint hoists `instance_type` fields to the top level (including `name`,

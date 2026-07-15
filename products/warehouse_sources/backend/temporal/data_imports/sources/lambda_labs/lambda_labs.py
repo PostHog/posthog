@@ -66,18 +66,35 @@ def _flatten_instance_type(value: dict[str, Any]) -> dict[str, Any]:
     catalog entry under `instance_type` alongside `regions_with_capacity_available`. We hoist the
     `instance_type` fields (which include `name`, the primary key) to the top level and keep the
     regional availability alongside them.
+
+    A missing or malformed `instance_type` raises rather than yielding a row without its primary
+    key, which would otherwise surface later as a warehouse load failure or a keyless bad row.
     """
-    row = dict(value.get("instance_type") or {})
+    row = dict(value["instance_type"])
     row["regions_with_capacity_available"] = value.get("regions_with_capacity_available", [])
     return row
+
+
+# `/instances` records carry a live JupyterLab access token (`jupyter_token`) and a URL that
+# embeds the same token (`jupyter_url`). Either grants terminal access to the running instance, so
+# they must never land in the warehouse where any project member with read access could retrieve
+# them. Stripped from every record defensively, regardless of endpoint.
+_SENSITIVE_FIELDS: frozenset[str] = frozenset({"jupyter_token", "jupyter_url"})
+
+
+def _scrub_sensitive(record: dict[str, Any]) -> dict[str, Any]:
+    if _SENSITIVE_FIELDS.isdisjoint(record):
+        return record
+    return {key: value for key, value in record.items() if key not in _SENSITIVE_FIELDS}
 
 
 def _extract_records(data: dict[str, Any], endpoint: LambdaLabsEndpoint) -> list[dict[str, Any]]:
     if endpoint.is_map:
         raw_map = data.get("data") or {}
-        return [_flatten_instance_type(value) for value in raw_map.values()]
-    records = _dig(data, endpoint.records_path)
-    return records or []
+        records = [_flatten_instance_type(value) for value in raw_map.values()]
+    else:
+        records = _dig(data, endpoint.records_path) or []
+    return [_scrub_sensitive(record) for record in records]
 
 
 @retry(
@@ -191,13 +208,18 @@ def lambda_labs_source(
 
 
 def validate_credentials(api_key: str) -> bool:
-    """Confirm the API key is genuine with one cheap, account-wide read (`/ssh-keys`)."""
-    try:
-        response = make_tracked_session().get(
-            f"{LAMBDA_LABS_BASE_URL}/ssh-keys",
-            headers=_get_headers(api_key),
-            timeout=10,
-        )
-        return response.status_code == 200
-    except Exception:
+    """Confirm the API key is accepted with one cheap, account-wide read (`/ssh-keys`).
+
+    Returns False only on a definitive auth rejection (401/403). A network error, timeout, or
+    5xx propagates so the caller can tell an invalid key apart from a temporary Lambda outage
+    rather than reporting the latter as an invalid key.
+    """
+    response = make_tracked_session().get(
+        f"{LAMBDA_LABS_BASE_URL}/ssh-keys",
+        headers=_get_headers(api_key),
+        timeout=10,
+    )
+    if response.status_code in (401, 403):
         return False
+    response.raise_for_status()
+    return True

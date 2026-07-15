@@ -1,5 +1,7 @@
 from typing import Optional, cast
 
+import requests
+
 from posthog.schema import (
     DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -81,10 +83,16 @@ class LambdaLabsSource(ResumableSource[LambdaLabsSourceConfig, LambdaLabsResumeC
     def validate_credentials(
         self, config: LambdaLabsSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
-        if validate_lambda_labs_credentials(config.api_key):
-            return True, None
-
-        return False, "Invalid Lambda API key"
+        try:
+            if validate_lambda_labs_credentials(config.api_key):
+                return True, None
+            return False, "Invalid Lambda API key"
+        except requests.RequestException:
+            # A network blip, timeout, or 5xx isn't a bad key — don't mislabel it as invalid.
+            return (
+                False,
+                "Could not reach Lambda to validate the API key. This may be a temporary network or service issue — please try again.",
+            )
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[LambdaLabsResumeConfig]:
         return ResumableSourceManager[LambdaLabsResumeConfig](inputs, LambdaLabsResumeConfig)
