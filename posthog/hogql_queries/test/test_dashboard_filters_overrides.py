@@ -1,13 +1,18 @@
 from collections.abc import Callable
+from typing import cast
 
 from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
 from posthog.schema import (
+    ActorsQuery,
     DashboardFilter,
+    DateRange,
+    EventPropertyFilter,
     EventsNode,
     FunnelsQuery,
+    InsightActorsQuery,
     IntervalType,
     LifecycleQuery,
     PathsFilter,
@@ -18,7 +23,9 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
+from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.insights.lifecycle.lifecycle_query_runner import LifecycleQueryRunner
 from posthog.hogql_queries.insights.retention.retention_query_runner import RetentionQueryRunner
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
@@ -129,3 +136,29 @@ class TestDashboardFiltersTestAccountsOverride(BaseTest):
         runner.apply_dashboard_filters(DashboardFilter())
 
         assert runner.query.filterTestAccounts is True
+
+
+class TestActorsBackedTileDashboardFilters(BaseTest):
+    """An ActorsQuery tile's InsightActorsQuery keeps its filters under `.source`, so dashboard
+    date/property filters must be forwarded down to the underlying insight query rather than swallowed."""
+
+    def _actors_runner(self) -> ActorsQueryRunner:
+        source = TrendsQuery(series=_TIME_SERIES)
+        insight_actors = InsightActorsQuery(source=source)
+        return ActorsQueryRunner(query=ActorsQuery(source=insight_actors), team=self.team)
+
+    def test_date_and_property_filters_propagate_to_underlying_insight_query(self):
+        runner = self._actors_runner()
+
+        runner.apply_dashboard_filters(
+            DashboardFilter(
+                date_from="-14d",
+                properties=[EventPropertyFilter(key="key", value="value", operator="exact")],
+            )
+        )
+
+        # to_query() reuses this same cached source runner, so its (mutated) query is what executes.
+        source_query_runner = cast(InsightActorsQueryRunner, runner.source_query_runner)
+        underlying = source_query_runner.source_runner.query
+        assert underlying.dateRange == DateRange(date_from="-14d", date_to=None)
+        assert underlying.properties == [EventPropertyFilter(key="key", value="value", operator="exact")]

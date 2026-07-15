@@ -1,6 +1,7 @@
 from typing import Any, Optional, cast
 
 from posthog.schema import (
+    DashboardFilter,
     ExperimentActorsQuery,
     FunnelAggregateByHogQL,
     FunnelCorrelationActorsQuery,
@@ -124,6 +125,11 @@ class InsightActorsQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
 
     def to_actors_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         return self.to_query()
+
+    def apply_dashboard_filters(self, dashboard_filter: DashboardFilter) -> None:
+        # InsightActorsQuery keeps its properties/dateRange under `.source`, so delegate down to the
+        # underlying insight runner (trends/funnels/etc.), which knows how to apply dashboard filters.
+        self.source_runner.apply_dashboard_filters(dashboard_filter)
 
     def to_events_query(self) -> ast.SelectQuery:
         if isinstance(self.source_runner, TrendsQueryRunner):
