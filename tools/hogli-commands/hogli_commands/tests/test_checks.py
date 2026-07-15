@@ -28,6 +28,7 @@ from hogli_commands.product.checks import (
 )
 from hogli_commands.product.isolation import (
     IsolationStatus,
+    _input_covers_path,
     has_narrowed_turbo_inputs,
     permanent_interface_modules,
     routes_in_turbo_inputs,
@@ -181,6 +182,14 @@ class TestFacadeReexports:
             ("go", "function", "backend/logic/matrix.py"),
         ]
 
+    def test_aliased_export_resolves_to_the_original_symbol(self, tmp_path: Path) -> None:
+        backend_dir = _make_facade(
+            tmp_path,
+            api_source='from ..logic.matrix import Thing as PublicThing\n\n__all__ = ["PublicThing"]\n',
+            logic_source="class Thing:\n    def run(self):\n        pass\n",
+        )
+        assert get_facade_reexports(backend_dir) == [("PublicThing", "class", "backend/logic/matrix.py")]
+
     def test_locally_defined_export_is_not_a_reexport(self, tmp_path: Path) -> None:
         backend_dir = _make_facade(
             tmp_path,
@@ -241,6 +250,24 @@ class TestUncoveredFacadeClasses:
         self, tmp_path: Path, inputs: list[str] | None, expected: tuple[str, ...]
     ) -> None:
         assert uncovered_facade_classes(self._product(tmp_path, inputs), self.REEXPORTS) == expected
+
+    @pytest.mark.parametrize(
+        "glob, rel_path, expected",
+        [
+            # `*` stays within one segment, `**` crosses them — Turbo's glob spec
+            ("backend/logic/*.py", "backend/logic/sink.py", True),
+            ("backend/logic/*.py", "backend/logic/deep/sink.py", False),
+            ("backend/logic/**", "backend/logic/deep/sink.py", True),
+            ("backend/logic/**", "backend/logic/sink.py", True),
+            ("backend/sql.py", "backend/sql.py", True),
+            ("backend/sql.py", "backend/sql_helpers.py", False),
+            ("backend/facade", "backend/facade/api.py", True),
+            ("./backend/facade/**", "backend/facade/api.py", True),
+            ("backend/facade/**", "backend/logic/sink.py", False),
+        ],
+    )
+    def test_input_glob_follows_turbo_segment_semantics(self, glob: str, rel_path: str, expected: bool) -> None:
+        assert _input_covers_path(glob, rel_path) is expected
 
 
 class TestParseHelpers:

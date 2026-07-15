@@ -289,12 +289,45 @@ def _input_targets_permanent(glob: str, permanent_modules: frozenset[str]) -> bo
     return any(normalized.startswith(_module_input_prefixes(m)) for m in permanent_modules)
 
 
+@functools.cache
+def _glob_matcher(glob: str) -> re.Pattern[str]:
+    """Compile a Turbo input glob to a regex, following Turbo's glob spec.
+
+    `*` matches within a single path segment and `**` crosses segments
+    (https://turborepo.dev/docs/reference/globs). Treating `*` as recursive would read
+    `backend/logic/*.py` as watching `backend/logic/deep/runner.py`, so the lint would accept a
+    re-exported class as covered while Turbo left contract-check unaffected by a change to it.
+    """
+    parts: list[str] = []
+    i = 0
+    while i < len(glob):
+        if glob.startswith("**", i):
+            parts.append(".*")
+            i += 2
+            if glob.startswith("/", i):  # 'a/**/b' and 'a/**' both mean 'anything under a'
+                i += 1
+        elif glob[i] == "*":
+            parts.append("[^/]*")
+            i += 1
+        else:
+            parts.append(re.escape(glob[i]))
+            i += 1
+    return re.compile("^" + "".join(parts) + "$")
+
+
 def _input_covers_path(glob: str, rel_path: str) -> bool:
-    """True if a contract-check input glob re-runs the suite when `rel_path` changes."""
-    base = glob.removeprefix("./").split("*")[0].rstrip("/")
-    if not base:
+    """True if a contract-check input glob re-runs the suite when `rel_path` changes.
+
+    A directory glob covers everything beneath it, so `backend/facade/**` watches
+    `backend/facade/a/b.py` and a bare `backend/facade` watches the same.
+    """
+    normalized = glob.removeprefix("./")
+    if _glob_matcher(normalized).match(rel_path):
+        return True
+    if "*" in normalized:
         return False
-    return rel_path == base or rel_path.startswith(base + "/")
+    directory = normalized.rstrip("/")
+    return bool(directory) and rel_path.startswith(directory + "/")
 
 
 def _input_targets_reexport(glob: str, reexport_paths: Sequence[str]) -> bool:

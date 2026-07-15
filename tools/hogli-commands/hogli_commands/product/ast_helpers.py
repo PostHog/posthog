@@ -234,41 +234,50 @@ def _definitions(backend_dir: Path, wanted: set[str]) -> dict[str, tuple[str, st
     return found
 
 
-def _module_reexports(module: Path) -> set[str]:
-    """Names one facade module advertises in `__all__` but does not define itself."""
+def _module_reexports(module: Path) -> dict[str, str]:
+    """A facade module's advertised-but-not-defined names, as advertised name -> defined name.
+
+    The two differ under an alias (`from ..logic.runner import Runner as PublicRunner`): the
+    class to find is `Runner`, so carrying only the public name would search for a definition
+    that doesn't exist and silently read the class as an unlocatable constant.
+    """
     tree = ast_parse_safe(module)
     if not tree:
-        return set()
+        return {}
 
     exported, lazy_sources = _facade_exports(tree)
     if not exported:
-        return set()
+        return {}
 
     local = {
         node.name
         for node in ast.iter_child_nodes(tree)
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
     }
+    # advertised name -> (original name, source module)
     sources = {
-        alias.asname or alias.name: ("." * node.level) + (node.module or "")
+        alias.asname or alias.name: (alias.name, ("." * node.level) + (node.module or ""))
         for node in ast.walk(tree)
         if isinstance(node, ast.ImportFrom)
         for alias in node.names
     }
     # A lazy facade resolves against its own backend package, so those entries are owned by
     # construction — mark them relative so they read the same as an eager relative import.
-    sources.update({name: "." + module_path for name, module_path in lazy_sources.items()})
+    sources.update({name: (name, "." + module_path) for name, module_path in lazy_sources.items()})
 
-    names = set()
+    names = {}
     for name in exported:
         if name in local:
             continue
-        source = sources.get(name)
-        if source is None or not _is_product_owned(source):
+        entry = sources.get(name)
+        if entry is None:
+            continue
+        original, source = entry
+        if not _is_product_owned(source):
             continue
         if "contracts" in source or "enums" in source:
             continue
-        names.add(name)
+        names[name] = original
     return names
 
 
@@ -299,14 +308,17 @@ def get_facade_reexports(backend_dir: Path) -> list[tuple[str, str, str]]:
     if not facade_dir.is_dir():
         return []
 
-    candidates: set[str] = set()
+    # advertised name -> name to look for (they differ under an alias)
+    candidates: dict[str, str] = {}
     for module in sorted(facade_dir.glob("*.py")):
         if module.stem in {"__init__", "contracts", "enums"}:
             continue
-        candidates |= _module_reexports(module)
+        candidates.update(_module_reexports(module))
 
-    definitions = _definitions(backend_dir, candidates)
-    return sorted((name, *definitions.get(name, ("constant", ""))) for name in candidates)
+    definitions = _definitions(backend_dir, set(candidates.values()))
+    return sorted(
+        (advertised, *definitions.get(original, ("constant", ""))) for advertised, original in candidates.items()
+    )
 
 
 def imports_any(file_path: Path, prefixes: list[str]) -> bool:
