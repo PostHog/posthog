@@ -4,18 +4,15 @@
 use std::collections::HashMap;
 
 use chrono_tz::{Tz, UTC};
-use common_types::cohort::TeamAllowlist;
 use metrics::counter;
 use serde_json::Value;
 use sqlx::PgPool;
 use tracing::warn;
 
-use crate::filters::manager::FilterCatalog;
+use crate::filters::catalog::FilterCatalog;
 use crate::filters::reverse_index::TeamFiltersBuilder;
 use crate::filters::{CohortId, FilterError, TeamId};
-use crate::observability::metrics::{
-    FILTER_CATALOG_COHORT_PARSE_ERRORS, FILTER_CATALOG_TZ_FALLBACK,
-};
+use crate::metrics::{FILTER_CATALOG_COHORT_PARSE_ERRORS, FILTER_CATALOG_TZ_FALLBACK};
 
 /// Realtime cohorts to load, mirroring the Node filter manager's predicate, joined to
 /// `posthog_team` for the team timezone the bucket variants use for calendar-day computation.
@@ -39,13 +36,6 @@ pub async fn load_realtime_cohorts(pool: &PgPool) -> Result<Vec<CohortRow>, Filt
         .fetch_all(pool)
         .await?;
     Ok(rows)
-}
-
-/// Drop rows for teams outside `allowlist`, in place, before catalog building. Kept separate from
-/// [`build_catalog_from_rows`] (which stays allowlist-agnostic) and DB-free for unit testability.
-/// Keeps the catalog lean and scopes shadow output for events injected directly into the stream.
-pub(crate) fn retain_allowlisted(rows: &mut Vec<CohortRow>, allowlist: &TeamAllowlist) {
-    rows.retain(|row| allowlist.includes(row.team_id));
 }
 
 /// Group rows by team into a catalog. A cohort that fails to parse is counted, warned, and skipped
@@ -99,8 +89,6 @@ fn resolve_team_tz(raw: &str, team_id: TeamId) -> Tz {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
-
     use super::*;
     use serde_json::json;
 
@@ -172,7 +160,7 @@ mod tests {
 
     #[test]
     fn build_catalog_threads_the_cascade_gate_into_freeze() {
-        use crate::stage2::{CohortEligibility, ExcludedReason};
+        use crate::eligibility::{CohortEligibility, ExcludedReason};
 
         let referrer = json!({
             "properties": {
@@ -195,33 +183,5 @@ mod tests {
             CohortEligibility::Stage2ComposableRef,
             "gate on promotes the resolvable ref cohort",
         );
-    }
-
-    #[test]
-    fn retain_allowlisted_keeps_only_in_scope_rows() {
-        let mut rows = vec![
-            row(1, 2, behavioral_cohort()),
-            row(2, 7, behavioral_cohort()),
-        ];
-        retain_allowlisted(&mut rows, &TeamAllowlist::Only(HashSet::from([2])));
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].team_id, 2);
-    }
-
-    #[test]
-    fn retain_allowlisted_all_keeps_everything() {
-        let mut rows = vec![
-            row(1, 2, behavioral_cohort()),
-            row(2, 7, behavioral_cohort()),
-        ];
-        retain_allowlisted(&mut rows, &TeamAllowlist::All);
-        assert_eq!(rows.len(), 2);
-    }
-
-    #[test]
-    fn retain_allowlisted_empty_scope_drops_everything() {
-        let mut rows = vec![row(1, 2, behavioral_cohort())];
-        retain_allowlisted(&mut rows, &TeamAllowlist::Only(HashSet::new()));
-        assert!(rows.is_empty());
     }
 }

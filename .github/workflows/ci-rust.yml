@@ -134,6 +134,7 @@ jobs:
                       "common-metrics": 6,
                       "common-profiler": 51,
                       "common-s3": 31,
+                      "cohort-core": 45,
                       "cyclotron-core": 17,
                       "cyclotron-janitor": 139,
                       "cyclotron-node": 31,

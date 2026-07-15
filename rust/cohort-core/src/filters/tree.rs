@@ -7,8 +7,8 @@ use serde_json::Value;
 
 use crate::filters::leaf_classifier::{classify_leaf, LeafClass, LeafDropReason};
 use crate::filters::{CohortId, FilterError, TeamId};
-use crate::stage1::key::LeafStateKey;
-use crate::stage1::state::StateVariant;
+use crate::leaf_state::key::LeafStateKey;
+use crate::leaf_state::variant::StateVariant;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

@@ -8,8 +8,8 @@ use crate::filters::tree::{
     BehavioralLeafConfig, BehavioralValue, CohortLeaf, CohortRefLeafConfig, PersonLeafConfig,
 };
 use crate::filters::CohortId;
-use crate::stage1::key::LeafStateKey;
-use crate::stage1::pick_state::pick_state_variant;
+use crate::leaf_state::key::LeafStateKey;
+use crate::leaf_state::select::pick_state_variant;
 
 /// HogVM `RETURN` opcode, appended to each program at load. Python-compiled cohort bytecode ends at
 /// its root comparison with no `RETURN`, which the Rust VM would hit as `EndOfProgram`. A program
@@ -244,7 +244,7 @@ mod tests {
         assert_eq!(leaf.bytecode.as_ref(), &bytecode_loaded());
         assert_eq!(
             leaf.state_variant,
-            Some(crate::stage1::state::StateVariant::BehavioralSingle),
+            Some(crate::leaf_state::variant::StateVariant::BehavioralSingle),
         );
     }
 
@@ -269,7 +269,7 @@ mod tests {
         assert_eq!(leaf.operator_value, Some(3));
         assert_eq!(
             leaf.state_variant,
-            Some(crate::stage1::state::StateVariant::BehavioralDailyBuckets),
+            Some(crate::leaf_state::variant::StateVariant::BehavioralDailyBuckets),
         );
     }
 
@@ -323,7 +323,7 @@ mod tests {
             };
             assert_eq!(
                 leaf.state_variant,
-                Some(crate::stage1::state::StateVariant::BehavioralCompressedHistory),
+                Some(crate::leaf_state::variant::StateVariant::BehavioralCompressedHistory),
                 "{why}",
             );
         }
@@ -331,7 +331,7 @@ mod tests {
 
     #[test]
     fn performed_event_multiple_explicit_relative_lower_window_is_kept() {
-        use crate::stage1::state::StateVariant;
+        use crate::leaf_state::variant::StateVariant;
         // The cohort UI stores "in the last N days" as `explicit_datetime: "-Nd"` with no
         // time_interval/time_value; the multiple path must resolve it like the single path does.
         for (explicit_datetime, expected_variant, why) in [

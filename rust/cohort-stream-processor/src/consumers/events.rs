@@ -1,8 +1,9 @@
 //! The `cohort_stream_events` wire envelope and the group consumer that drives it.
 //!
-//! [`CohortStreamEvent`] is the processor's own deserialize struct, deliberately decoupled from
-//! `cohort-event-shuffler`'s producer type: the two services share only the JSON field names, so a
-//! private copy means neither can break the other by adding a one-sided field.
+//! [`CohortStreamEvent`] is defined in `cohort-core` and intentionally shared with the backfill
+//! seeder, which produces the same envelope. It stays decoupled from `cohort-event-shuffler`'s
+//! producer type — they share only the JSON field names, so neither can break the other by adding a
+//! one-sided field.
 //!
 //! The Kafka-free routing core lives in [`EventDispatcher`] so it can be unit-tested with an
 //! in-process router/store/catalog and no broker.
@@ -19,8 +20,9 @@ use metrics::{counter, gauge, histogram};
 use rdkafka::consumer::{CommitMode, Consumer, ConsumerContext, StreamConsumer};
 use rdkafka::message::Message;
 use rdkafka::{Offset, TopicPartitionList};
-use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
+
+pub use cohort_core::events::CohortStreamEvent;
 
 use crate::consumers::merges::{ConsumedCascade, ConsumedMerge, ConsumedTransfer};
 use crate::filters::manager::CatalogHandle;
@@ -62,38 +64,6 @@ const RESTORE_SEEK_TIMEOUT: Duration = Duration::from_secs(10);
 /// typical outbox in a single round; a larger backlog is drained across successive pages, bounding
 /// peak memory per page.
 const EAGER_BOOT_REDRIVE_PAGE_SIZE: usize = 100_000;
-
-/// One re-keyed event as published to `cohort_stream_events`. Field names mirror the shuffler
-/// envelope exactly.
-///
-/// `properties` / `person_properties` are raw JSON strings parsed lazily in globals construction.
-/// `source_partition` / `source_offset` are the upstream coordinates for replay-safe counter
-/// increments.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CohortStreamEvent {
-    pub team_id: i32,
-    pub person_id: String,
-    pub distinct_id: String,
-    pub uuid: String,
-    pub event: String,
-    /// ClickHouse wire format `"YYYY-MM-DD HH:MM:SS.ffffff"`; normalized to ISO 8601 in globals.
-    pub timestamp: String,
-    pub properties: Option<String>,
-    pub person_properties: Option<String>,
-    pub elements_chain: Option<String>,
-    pub source_offset: i64,
-    pub source_partition: i32,
-    /// The merge origin person, set when a post-merge straggler is redirected to the merged-into
-    /// person. `None` for a normal event. Stage 1 routes replay-dedup through
-    /// `redirect_dedup[origin]` when set, preventing double-fold.
-    #[serde(default)]
-    pub redirected_from: Option<String>,
-    /// Cross-partition re-produce hops this straggler has taken through the tombstone redirect.
-    /// `0` for a normal event; incremented on each re-key produce. At the cap
-    /// (`MAX_CROSS_PARTITION_REDIRECT_HOPS`) the worker degrades to an inline fold to break cycles.
-    #[serde(default)]
-    pub redirect_hops: u8,
-}
 
 /// One event consumed from `cohort_stream_events`, paired with its commit coordinates on that topic.
 ///

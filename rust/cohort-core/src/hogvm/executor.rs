@@ -12,7 +12,7 @@ use metrics::counter;
 use serde_json::Value;
 use tracing::info;
 
-use crate::observability::metrics::{STAGE1_HOGVM_ERROR, STAGE1_HOGVM_UNKNOWN_FUNCTION};
+use crate::metrics::{STAGE1_HOGVM_ERROR, STAGE1_HOGVM_UNKNOWN_FUNCTION};
 
 /// Unknown-native function names already logged once. Bounded by the HogQL native surface
 /// (~hundreds max), so it never grows without bound; keeps the per-event unknown-function path
@@ -49,6 +49,53 @@ pub enum EvalOutcome {
     VmError(VmError),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum VmErrorClass {
+    TypeCoercion,
+    Stack,
+    NotImplemented,
+    UnknownReference,
+    Program,
+    Exception,
+    Runtime,
+    UnknownFunction,
+    Other,
+}
+
+impl VmErrorClass {
+    pub const ALL: [Self; 9] = [
+        Self::TypeCoercion,
+        Self::Stack,
+        Self::NotImplemented,
+        Self::UnknownReference,
+        Self::Program,
+        Self::Exception,
+        Self::Runtime,
+        Self::UnknownFunction,
+        Self::Other,
+    ];
+    pub const COUNT: usize = Self::ALL.len();
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::TypeCoercion => "type_coercion",
+            Self::Stack => "stack",
+            Self::NotImplemented => "not_implemented",
+            Self::UnknownReference => "unknown_ref",
+            Self::Program => "program",
+            Self::Exception => "exception",
+            Self::Runtime => "runtime",
+            Self::UnknownFunction => "unknown_function",
+            Self::Other => "other",
+        }
+    }
+
+    pub const fn index(self) -> usize {
+        self as usize
+    }
+}
+
 /// A reusable evaluator owning one [`ExecutionContext`]: set globals once per event, swap the program
 /// per condition, both in place.
 ///
@@ -79,13 +126,16 @@ impl CohortEvaluator {
     }
 
     /// Evaluate one condition's bytecode against the current globals, coercing failures and non-bool
-    /// results to `false` and emitting a per-class metric so a silently-failing cohort stays
-    /// observable. `bytecode` must be `RETURN`-terminated (the loader appends it).
+    /// results to `false`. Self-counting (the processor's hot path): a VM error or unknown-function
+    /// call increments a per-class `STAGE1_HOGVM_*` metric (keeping a genuinely failing cohort
+    /// observable); a non-bool result is coerced to `false` with no metric. `bytecode` must be
+    /// `RETURN`-terminated (the loader appends it).
     pub fn evaluate(&mut self, bytecode: Arc<Vec<Value>>) -> bool {
         outcome_to_bool(self.evaluate_detailed(bytecode))
     }
 
-    /// As [`Self::evaluate`] but returns the detailed [`EvalOutcome`].
+    /// As [`Self::evaluate`] but returns the detailed [`EvalOutcome`] and emits no metric — the
+    /// caller owns classification (the seeder's bring-your-own-metrics path).
     pub fn evaluate_detailed(&mut self, bytecode: Arc<Vec<Value>>) -> EvalOutcome {
         // `from_shared` clones the `Arc`, not the opcode vector, so swapping programs is just a refcount bump.
         let program = match Program::from_shared(bytecode) {
@@ -106,7 +156,8 @@ fn run(context: &ExecutionContext) -> EvalOutcome {
     }
 }
 
-/// One-shot evaluation building a fresh context (used by the parity test). `bytecode` must be
+/// One-shot evaluation building a fresh context (the seeder's path; also the parity test's). Emits
+/// no metric — the caller classifies the returned [`EvalOutcome`]. `bytecode` must be
 /// `RETURN`-terminated, as the catalog loader leaves it.
 pub fn evaluate_detailed(bytecode: &[Value], globals: Value) -> EvalOutcome {
     let program = match Program::new(bytecode.to_vec()) {
@@ -115,10 +166,6 @@ pub fn evaluate_detailed(bytecode: &[Value], globals: Value) -> EvalOutcome {
     };
     let context = cohort_execution_context(program).with_globals(globals);
     run(&context)
-}
-
-pub fn evaluate(bytecode: &[Value], globals: Value) -> bool {
-    outcome_to_bool(evaluate_detailed(bytecode, globals))
 }
 
 /// Collapse an [`EvalOutcome`] to `bool`, emitting a per-class metric on failure.
@@ -140,31 +187,29 @@ fn outcome_to_bool(outcome: EvalOutcome) -> bool {
             false
         }
         EvalOutcome::VmError(error) => {
-            counter!(STAGE1_HOGVM_ERROR, "reason" => vm_error_reason(&error)).increment(1);
+            counter!(STAGE1_HOGVM_ERROR, "reason" => classify_vm_error(&error).as_str())
+                .increment(1);
             false
         }
     }
 }
 
-/// Collapse a [`VmError`] into a bounded `reason` label for [`STAGE1_HOGVM_ERROR`]. The bucket set is
-/// fixed and small so the Prometheus series count stays constant; the `_` arm keeps the match total
-/// over the `#[non_exhaustive]` enum and folds in `VmError::Other`. `UnknownFunction`/`UnknownSymbol`
-/// are normally routed to [`EvalOutcome::UnknownFunction`] (separate counter) — mapped here only for
-/// totality in case [`classify_failure`] ever changes.
-fn vm_error_reason(error: &VmError) -> &'static str {
+/// Collapse a [`VmError`] into a bounded class. `UnknownFunction`/`UnknownSymbol` normally become
+/// [`EvalOutcome::UnknownFunction`], but remain classified here for totality.
+pub fn classify_vm_error(error: &VmError) -> VmErrorClass {
     match error {
         VmError::InvalidValue(..)
         | VmError::CannotCoerce(..)
         | VmError::InvalidNumber(_)
-        | VmError::IntegerOverflow => "type_coercion",
+        | VmError::IntegerOverflow => VmErrorClass::TypeCoercion,
 
         VmError::StackOverflow | VmError::StackUnderflow | VmError::StackIndexOutOfBounds => {
-            "stack"
+            VmErrorClass::Stack
         }
 
-        VmError::NotImplemented(_) => "not_implemented",
+        VmError::NotImplemented(_) => VmErrorClass::NotImplemented,
 
-        VmError::UnknownGlobal(_) | VmError::UnknownProperty(_) => "unknown_ref",
+        VmError::UnknownGlobal(_) | VmError::UnknownProperty(_) => VmErrorClass::UnknownReference,
 
         VmError::NotAnOperation(_)
         | VmError::InvalidOperation(_)
@@ -173,9 +218,9 @@ fn vm_error_reason(error: &VmError) -> &'static str {
         | VmError::InvalidCall(_)
         | VmError::NotEnoughArguments(..)
         | VmError::CaptureOutOfBounds(_)
-        | VmError::NoFrame => "program",
+        | VmError::NoFrame => VmErrorClass::Program,
 
-        VmError::UncaughtException(..) | VmError::InvalidException => "exception",
+        VmError::UncaughtException(..) | VmError::InvalidException => VmErrorClass::Exception,
 
         VmError::DivisionByZero
         | VmError::HeapIndexOutOfBounds
@@ -187,11 +232,11 @@ fn vm_error_reason(error: &VmError) -> &'static str {
         | VmError::IndexOutOfBounds(..)
         | VmError::OutOfResource(_)
         | VmError::NativeCallFailed(_)
-        | VmError::InvalidRegex(..) => "runtime",
+        | VmError::InvalidRegex(..) => VmErrorClass::Runtime,
 
-        VmError::UnknownFunction(_) | VmError::UnknownSymbol(_) => "unknown_function",
+        VmError::UnknownFunction(_) | VmError::UnknownSymbol(_) => VmErrorClass::UnknownFunction,
 
-        _ => "other", // VmError::Other + any future #[non_exhaustive] variant
+        _ => VmErrorClass::Other,
     }
 }
 
@@ -227,6 +272,12 @@ mod tests {
 
     fn header() -> Vec<Value> {
         vec![json!("_H"), json!(1)]
+    }
+
+    /// One-shot `bool` collapse for the fixtures below, matching [`CohortEvaluator::evaluate`] on a
+    /// fresh context. Kept local now that the public free helper is gone.
+    fn evaluate(bytecode: &[Value], globals: Value) -> bool {
+        outcome_to_bool(evaluate_detailed(bytecode, globals))
     }
 
     #[test]
@@ -474,36 +525,63 @@ mod tests {
     }
 
     #[test]
-    fn vm_error_reason_buckets_one_representative_per_class() {
+    fn vm_errors_map_to_one_bounded_class() {
         // One representative `VmError` per bucket. Catches a forgotten or mis-bucketed variant: a
         // new `#[non_exhaustive]` variant left unhandled silently falls into `other`, and moving an
         // existing variant (e.g. `DivisionByZero` out of `runtime`) breaks the label breakdown.
-        let cases: [(VmError, &str); 11] = [
+        let cases: [(VmError, VmErrorClass, &str); 11] = [
             (
                 VmError::InvalidValue("a".into(), "b".into()),
+                VmErrorClass::TypeCoercion,
                 "type_coercion",
             ),
-            (VmError::IntegerOverflow, "type_coercion"),
-            (VmError::StackOverflow, "stack"),
-            (VmError::NotImplemented("x".into()), "not_implemented"),
-            (VmError::UnknownGlobal("g".into()), "unknown_ref"),
-            (VmError::InvalidBytecode("b".into()), "program"),
+            (
+                VmError::IntegerOverflow,
+                VmErrorClass::TypeCoercion,
+                "type_coercion",
+            ),
+            (VmError::StackOverflow, VmErrorClass::Stack, "stack"),
+            (
+                VmError::NotImplemented("x".into()),
+                VmErrorClass::NotImplemented,
+                "not_implemented",
+            ),
+            (
+                VmError::UnknownGlobal("g".into()),
+                VmErrorClass::UnknownReference,
+                "unknown_ref",
+            ),
+            (
+                VmError::InvalidBytecode("b".into()),
+                VmErrorClass::Program,
+                "program",
+            ),
             (
                 VmError::UncaughtException("t".into(), "m".into()),
+                VmErrorClass::Exception,
                 "exception",
             ),
-            (VmError::DivisionByZero, "runtime"),
+            (VmError::DivisionByZero, VmErrorClass::Runtime, "runtime"),
             // The `max_steps` blowup (`vm.rs` synthesizes `OutOfResource`) must stay visible.
-            (VmError::OutOfResource("steps".into()), "runtime"),
-            (VmError::UnknownFunction("f".into()), "unknown_function"),
-            (VmError::Other("o".into()), "other"),
+            (
+                VmError::OutOfResource("steps".into()),
+                VmErrorClass::Runtime,
+                "runtime",
+            ),
+            (
+                VmError::UnknownFunction("f".into()),
+                VmErrorClass::UnknownFunction,
+                "unknown_function",
+            ),
+            (VmError::Other("o".into()), VmErrorClass::Other, "other"),
         ];
-        for (error, expected) in &cases {
-            assert_eq!(
-                vm_error_reason(error),
-                *expected,
-                "wrong bucket for {error:?}"
-            );
+        for (error, expected_class, expected_label) in &cases {
+            let class = classify_vm_error(error);
+            assert_eq!(class, *expected_class, "wrong bucket for {error:?}");
+            assert_eq!(class.as_str(), *expected_label);
+        }
+        for (index, class) in VmErrorClass::ALL.into_iter().enumerate() {
+            assert_eq!(class.index(), index);
         }
     }
 

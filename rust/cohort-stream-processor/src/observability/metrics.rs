@@ -2,22 +2,17 @@
 
 use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
 
+// The `cohort-core`-owned metric names this binary emits: its metric-surface manifest.
+pub use cohort_core::metrics::{
+    COHORT_ELIGIBILITY_TOTAL, COHORT_IN_CYCLE_TOTAL, FILTER_CATALOG_COHORT_PARSE_ERRORS,
+    FILTER_CATALOG_SKIPPED_LEAVES, FILTER_CATALOG_TZ_FALLBACK, STAGE1_GLOBALS_PARSE_ERROR,
+    STAGE1_HOGVM_ERROR, STAGE1_HOGVM_UNKNOWN_FUNCTION,
+};
+
 /// Teams with ≥1 realtime cohort in the current catalog snapshot (gauge).
 pub const FILTER_CATALOG_TEAMS: &str = "filter_catalog_teams";
 /// Distinct `conditionHash`es across all teams in the current snapshot (gauge).
 pub const FILTER_CATALOG_UNIQUE_CONDITIONS: &str = "filter_catalog_unique_conditions";
-/// Leaves dropped during parse, labelled by `reason` (counter).
-pub const FILTER_CATALOG_SKIPPED_LEAVES: &str = "filter_catalog_skipped_leaves_total";
-/// Cohorts skipped because their filter tree failed to parse (counter).
-pub const FILTER_CATALOG_COHORT_PARSE_ERRORS: &str = "filter_catalog_cohort_parse_errors_total";
-/// Teams whose timezone did not parse as an IANA zone and fell back to UTC (counter).
-pub const FILTER_CATALOG_TZ_FALLBACK: &str = "filter_catalog_tz_fallback_total";
-
-/// Cohorts classified by composition eligibility at freeze, labelled by `class` (counter).
-pub const COHORT_ELIGIBILITY_TOTAL: &str = "cohort_eligibility_total";
-/// Cohorts excluded because they sit in a cohort-reference cycle (counter).
-pub const COHORT_IN_CYCLE_TOTAL: &str = "cohort_in_cycle_total";
-
 /// Cascade depths reached, from the `depth` field on cascade messages (histogram). Cohort ids are
 /// logged, not labelled, to keep cardinality bounded.
 pub const CASCADE_DEPTH_OBSERVED: &str = "cascade_depth_observed";
@@ -203,16 +198,6 @@ pub const TOKIO_BLOCKING_THREADS: &str = "tokio_blocking_threads";
 pub const TOKIO_IDLE_BLOCKING_THREADS: &str = "tokio_idle_blocking_threads";
 /// Tasks waiting for a blocking thread (gauge).
 pub const TOKIO_BLOCKING_QUEUE_DEPTH: &str = "tokio_blocking_queue_depth";
-
-/// Cohort bytecode invoked a symbol with no registered native (counter). The function name is
-/// logged, not labelled, to keep cardinality bounded.
-pub const STAGE1_HOGVM_UNKNOWN_FUNCTION: &str = "stage1_hogvm_unknown_function_total";
-/// Any other VM/program failure during cohort evaluation, coerced to `false`, labelled by `reason`
-/// (a bounded semantic bucket: `type_coercion`|`stack`|`program`|`runtime`|… — see
-/// `vm_error_reason`) (counter).
-pub const STAGE1_HOGVM_ERROR: &str = "stage1_hogvm_error_total";
-/// `properties`/`person_properties` JSON parse failure, labelled by `field` (counter).
-pub const STAGE1_GLOBALS_PARSE_ERROR: &str = "stage1_globals_parse_error_total";
 
 /// Partitions with a live worker channel registered on the router (gauge).
 pub const PARTITIONS_ACTIVE: &str = "partitions_active";

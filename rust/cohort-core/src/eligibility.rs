@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use crate::filters::cohort_graph::RefGraphAnalysis;
 use crate::filters::tree::{BoolOp, CohortTree, FilterNode};
 use crate::filters::CohortId;
-use crate::stage1::key::LeafStateKey;
+use crate::leaf_state::key::LeafStateKey;
 
 /// Per-cohort signals accumulated while parsing the cohort's filter tree.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -60,7 +60,7 @@ pub enum CohortEligibility {
     /// ≥2 positive, state-keyed, cohort-ref-free leaves.
     Stage2Composable,
     /// A resolvable, cycle-free ref-bearing cohort promoted to composition when `cohort_cascade_enabled`;
-    /// composes from each referent's stored membership and persists a `cf_stage2` bit.
+    /// a consumer composes it from each referent's stored membership and persists the composed result.
     Stage2ComposableRef,
     /// Not emitted; see [`ExcludedReason`].
     Excluded(ExcludedReason),
@@ -77,8 +77,9 @@ impl CohortEligibility {
         }
     }
 
-    /// Whether this class persists a `cf_stage2` row — both composable classes do; single-leaf
-    /// membership lives in `cf_behavioral` and excluded cohorts persist nothing.
+    /// Whether a consumer stores this class's membership as a separately-composed row — both
+    /// composable classes do; single-leaf membership is the leaf's own state and excluded cohorts
+    /// persist nothing.
     pub fn writes_cf_stage2(self) -> bool {
         matches!(self, Self::Stage2Composable | Self::Stage2ComposableRef)
     }

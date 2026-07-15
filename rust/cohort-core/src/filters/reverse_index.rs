@@ -8,21 +8,21 @@ use metrics::counter;
 use serde_json::Value;
 use tracing::warn;
 
+use crate::eligibility::refine_ref_bearing;
+use crate::eligibility::{classify, CohortEligibility, CohortParseFlags};
 use crate::filters::cohort_graph;
 use crate::filters::leaf_classifier::LeafDropReason;
 use crate::filters::tree::{parse_cohort_tree, CohortLeaf, CohortTree, FilterNode, LeafSink};
 use crate::filters::{CohortId, FilterError, TeamId};
-use crate::observability::metrics::{
-    COHORT_ELIGIBILITY_TOTAL, COHORT_IN_CYCLE_TOTAL, FILTER_CATALOG_SKIPPED_LEAVES,
-};
-use crate::stage1::key::LeafStateKey;
-use crate::stage1::person_record::CatalogFingerprint;
-use crate::stage1::pick_state::{
+use crate::fingerprint::CatalogFingerprint;
+use crate::leaf_state::key::LeafStateKey;
+use crate::leaf_state::select::{
     effective_window_days, pick_state_variant, EvictionWindow, PredicateOp,
 };
-use crate::stage1::state::StateVariant;
-use crate::stage2::eligibility::refine_ref_bearing;
-use crate::stage2::{classify, CohortEligibility, CohortParseFlags};
+use crate::leaf_state::variant::StateVariant;
+use crate::metrics::{
+    COHORT_ELIGIBILITY_TOTAL, COHORT_IN_CYCLE_TOTAL, FILTER_CATALOG_SKIPPED_LEAVES,
+};
 
 #[derive(Debug, Clone, Copy)]
 pub struct LeafStateMeta {
@@ -56,9 +56,8 @@ pub struct TeamFilters {
     /// is computed over.
     pub person_conditions_ordered: Vec<[u8; 16]>,
     /// SHA-256 over `person_conditions_ordered`, computed once at freeze. A content fingerprint of the
-    /// team's person conditions: a stored [`PersonRecord`](crate::stage1::PersonRecord) whose catalog
-    /// fingerprint matches this needs no re-evaluation, and a no-op catalog refresh (same conditions)
-    /// leaves it unchanged, so records are not needlessly invalidated.
+    /// team's person conditions: a stored person record whose catalog fingerprint matches this needs
+    /// no re-evaluation, and a no-op catalog refresh leaves it unchanged.
     pub catalog_fingerprint: CatalogFingerprint,
     /// `LeafStateKey → [CohortId]` for single-leaf cohorts.
     pub by_lsk_to_single_leaf_cohorts: HashMap<LeafStateKey, Vec<CohortId>>,
@@ -398,7 +397,7 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    use crate::stage2::ExcludedReason;
+    use crate::eligibility::ExcludedReason;
 
     const HASH: [u8; 16] = *b"0123456789abcdef";
 
@@ -1662,12 +1661,9 @@ mod tests {
     }
 
     #[test]
-    fn cascade_on_negated_missing_ref_with_own_leaf_is_composable_ref_and_reads_true() {
-        use crate::stage2::evaluator::evaluate_tree;
-
+    fn cascade_on_negated_missing_ref_with_own_leaf_is_composable_ref_and_indexed() {
         let mut builder = TeamFiltersBuilder::default();
-        // 1 = AND(own person leaf, NOT in 99). 99 is never added: an absent negated ref reads
-        // `true`, so the missing target must not exclude 1 (oracle: `false ^ true = true`).
+        // 99 is never added; a negated missing target must not exclude the referrer.
         builder
             .add_cohort(
                 CohortId(1),
@@ -1687,21 +1683,6 @@ mod tests {
             frozen.by_lsk_to_composable_cohorts[&per_lsk],
             vec![CohortId(1)],
             "the cohort's own person leaf indexes it for re-evaluation on the event path",
-        );
-
-        // The composer fills a missing referent as `false`; the negated leaf flips it to `true`,
-        // so the cohort's membership tracks its own leaf alone.
-        let root = &frozen.cohorts[&CohortId(1)].root;
-        let ref_membership = HashMap::from([(CohortId(99), false)]);
-        let off = evaluate_tree(root, &HashMap::from([(per_lsk, false)]), &ref_membership);
-        let on = evaluate_tree(root, &HashMap::from([(per_lsk, true)]), &ref_membership);
-        assert!(
-            !off,
-            "own leaf off ⇒ non-member even though the negated ref reads true"
-        );
-        assert!(
-            on,
-            "own leaf flipping on ⇒ member, the Entered the cascade slice must emit"
         );
     }
 
