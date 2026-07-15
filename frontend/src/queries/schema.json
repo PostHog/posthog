@@ -47111,6 +47111,10 @@
                     "description": "Drop filters targeting the breakdown key itself (including `serviceNames` for a `service_name` breakdown) so a facet's value list stays complete while one of its values is selected.",
                     "type": "boolean"
                 },
+                "facetSearch": {
+                    "description": "Type-ahead filter over the breakdown field's own values (case-insensitive substring match). Lets a facet's value search reach past the row limit.",
+                    "type": "string"
+                },
                 "filterGroup": {
                     "$ref": "#/definitions/PropertyGroupFilter"
                 },

@@ -217,3 +217,17 @@ class TestTraceSpansAttributeBreakdown(_TraceSpansTestBase):
         )
         by_value = {row["value"]: row["count"] for row in rows}
         self.assertEqual(by_value["api2.amplitude.com"], 5)
+
+    @parameterized.expand(
+        [
+            ("case_insensitive_substring", "span_attribute", "server.address", "AMPLITUDE", {"api2.amplitude.com"}),
+            # ILIKE wildcards in the search must match literally: unescaped, "api_" would match
+            # both addresses via the any-one-char wildcard.
+            ("wildcards_match_literally", "span_attribute", "server.address", "api_", set()),
+            ("span_column", "span", "service_name", "cd", {"cdp"}),
+            ("resource_attribute", "span_resource_attribute", "k8s.pod.name", "pod-b", {"pod-b"}),
+        ]
+    )
+    def test_facet_search_filters_values(self, _name, breakdown_type, breakdown_key, search, expected_values):
+        rows = self._breakdown(breakdownKey=breakdown_key, breakdownType=breakdown_type, facetSearch=search)
+        self.assertEqual({row["value"] for row in rows}, expected_values)
