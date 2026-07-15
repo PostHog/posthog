@@ -165,10 +165,23 @@ class Settings(BaseSettings):
     # Combined with the team multiplier by taking the larger of the two.
     staff_rate_limit_multiplier: int = 10
 
+    # When true, PostHog staff (authenticated is_staff) bypass the per-user
+    # burst/sustained cost caps entirely, on every product. Spend is still
+    # recorded for observability — only enforcement and the reported usage
+    # status treat staff as unlimited. Set false to fall back to the
+    # elevated-but-finite `staff_rate_limit_multiplier` cap.
+    staff_unlimited_usage: bool = True
+
     product_cost_limits: dict[str, ProductCostLimit] = DEFAULT_PRODUCT_COST_LIMITS
 
     user_cost_limits: dict[str, UserCostLimit] = DEFAULT_USER_COST_LIMITS
     user_cost_limits_disabled: bool = False
+
+    # Plan-key prefixes that bill usage-based. These plans get the usage-based
+    # PostHog Code user cost limit instead of the subscription-era default.
+    # Placeholder prefix until billing finalizes the plan key; override by env var
+    # without a deploy if the name differs.
+    usage_based_plan_prefixes: list[str] = ["posthog-code-usage"]
 
     default_fallback_cost_usd: float = 0.01
 

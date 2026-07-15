@@ -68,6 +68,29 @@ def _get_write_type(sync_type: SyncTypeLiteral) -> Literal["incremental", "full_
     return "full_refresh"
 
 
+def _read_existing_rows_by_first_pk(
+    existing_delta_table: deltalake.DeltaTable,
+    first_pk: str,
+    first_components: list[Any],
+) -> pa.Table:
+    """Read the existing rows whose `first_pk` value is in `first_components`.
+
+    Prefers Delta filter pushdown (prunes files, cheap). pyarrow >= 21 materializes
+    string columns as `string_view`, whose `equal`/`greater_equal` compute kernels are
+    unimplemented, so pushing an `in` predicate down onto a string primary key raises
+    `ArrowNotImplementedError`. When that happens, read the table and filter in PyArrow
+    after casting the key to `string`, which has working kernels.
+    """
+    try:
+        return existing_delta_table.to_pyarrow_table(filters=[(first_pk, "in", first_components)])
+    except pa.lib.ArrowNotImplementedError:
+        logger.warning("cdc_delete_enrichment_pushdown_fallback", primary_key=first_pk)
+        existing = existing_delta_table.to_pyarrow_table()
+        key = existing.column(first_pk).cast(pa.string())
+        wanted = pa.array(first_components, pa.string())
+        return existing.filter(pc.is_in(key, value_set=wanted))
+
+
 def _apply_partitioning(
     export_signal: ExportSignalMessage,
     pa_table: pa.Table,
@@ -277,9 +300,7 @@ def _release_pipeline_lock_for_job(export_signal: ExportSignalMessage) -> None:
 
 
 def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
-    _promote_staged_cursor(export_signal)
-
-    update_external_job_status(
+    model = update_external_job_status(
         job_id=export_signal.job_id,
         team_id=export_signal.team_id,
         status=ExternalDataJob.Status.COMPLETED,
@@ -287,14 +308,28 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
         latest_error=None,
     )
 
-    async_to_sync(finish_row_tracking)(export_signal.team_id, export_signal.schema_id)
+    if model.status == ExternalDataJob.Status.COMPLETED:
+        # Promote only when the Completed write landed: if the job was cancelled (absorbing
+        # Failed) after the final batch passed should_process_batch, the staged incremental
+        # cursor must not advance past data that was never fully loaded.
+        _promote_staged_cursor(export_signal)
 
-    logger.info(
-        "job_marked_completed",
-        external_data_job_id=export_signal.job_id,
-        team_id=export_signal.team_id,
-        external_data_schema_id=export_signal.schema_id,
-    )
+        async_to_sync(finish_row_tracking)(export_signal.team_id, export_signal.schema_id)
+
+        logger.info(
+            "job_marked_completed",
+            external_data_job_id=export_signal.job_id,
+            team_id=export_signal.team_id,
+            external_data_schema_id=export_signal.schema_id,
+        )
+    else:
+        logger.info(
+            "job_completion_suppressed_terminal_status",
+            external_data_job_id=export_signal.job_id,
+            team_id=export_signal.team_id,
+            external_data_schema_id=export_signal.schema_id,
+            status=model.status,
+        )
 
     _release_pipeline_lock_for_job(export_signal)
 
@@ -500,8 +535,8 @@ def process_message(
                         # For composite PKs that IN is a superset — narrow in PyArrow below.
                         first_pk = present_pks[0]
                         first_components = list({t[0] for t in delete_key_set})
-                        existing_rows = existing_delta_table.to_pyarrow_table(
-                            filters=[(first_pk, "in", first_components)]
+                        existing_rows = _read_existing_rows_by_first_pk(
+                            existing_delta_table, first_pk, first_components
                         )
 
                         # For composite PKs the IN filter is a superset — narrow to exact matches.

@@ -19,12 +19,18 @@ import { notebookNodeLogic } from './notebookNodeLogic'
 import { SQL_V2_DEFAULT_PAGE_SIZE, collectSqlV2Refs, notebookNodeSQLV2Logic } from './notebookNodeSQLV2Logic'
 import { NotebookDataframeResult } from './pythonExecution'
 
+export type NotebookNodeSQLV2Media = { mime_type: string; data: string }
+
 export type NotebookNodeSQLV2Result = {
     columns: string[]
     types?: [string, string][]
     row_count: number
     first_page: (string | number | null)[][]
     has_more?: boolean
+    // Python node output: captured streams and rich media (e.g. matplotlib PNGs).
+    stdout?: string
+    stderr?: string
+    media?: NotebookNodeSQLV2Media[]
 }
 
 export type NotebookNodeSQLV2Attributes = {
@@ -257,8 +263,8 @@ const Settings = ({
         runId: attributes.runId ?? null,
         hasResult: !!attributes.result,
     })
-    const { isRunning, operationBlockReason } = useValues(dataLogic)
-    const { runQuery } = useActions(dataLogic)
+    const { isRunning, isInterrupting, operationBlockReason } = useValues(dataLogic)
+    const { runQuery, interruptRun } = useActions(dataLogic)
 
     return (
         <NotebookCodeSQLEditorSettings
@@ -271,6 +277,8 @@ const Settings = ({
             runQueryLoading={isRunning}
             runQueryDisabledReason={operationBlockReason ?? undefined}
             runQueryTooltip="Run SQL (v2) query"
+            onCancelQuery={interruptRun}
+            cancelQueryLoading={isInterrupting}
         />
     )
 }

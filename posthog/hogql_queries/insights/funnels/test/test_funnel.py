@@ -201,26 +201,27 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
             )
 
         if properties is not None:
-            query = FunnelsQuery(
-                **query.model_dump(exclude_defaults=True, exclude_none=True, mode="json"),
-                properties={
-                    "type": "AND",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "key": key,
-                                    "operator": "exact",
-                                    "type": "event",
-                                    "value": value,
-                                }
-                                for key, value in properties.items()
-                            ],
-                        }
-                    ],
-                },
-            )
+            # exclude_defaults would strip the default-valued `kind` from series items,
+            # which the discriminated series union requires on re-validation
+            query_data = query.model_dump(exclude_none=True, mode="json")
+            query_data["properties"] = {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": key,
+                                "operator": "exact",
+                                "type": "event",
+                                "value": value,
+                            }
+                            for key, value in properties.items()
+                        ],
+                    }
+                ],
+            }
+            query = FunnelsQuery(**query_data)
 
         return FunnelsQueryRunner(query=query, team=self.team)
 

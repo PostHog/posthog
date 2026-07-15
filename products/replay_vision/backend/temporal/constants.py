@@ -89,6 +89,19 @@ MAX_IN_FLIGHT_APPLIES_PER_TEAM = 300
 COUNT_IN_FLIGHT_APPLIES_TIMEOUT = dt.timedelta(seconds=30)
 
 
+def in_flight_headroom(scanner_in_flight: int, team_in_flight: int) -> int:
+    """Dispatch headroom for a sweep tick: the tighter of the per-scanner and per-team caps.
+
+    The sweep workflow throttles on this and the count activity records the throttled
+    metric from it, so the decision and the metric can't drift apart. Pure, so it is safe
+    inside deterministic workflow code.
+    """
+    return min(
+        MAX_IN_FLIGHT_APPLIES_PER_SCANNER - scanner_in_flight,
+        MAX_IN_FLIGHT_APPLIES_PER_TEAM - team_in_flight,
+    )
+
+
 ESTIMATES_WORKFLOW_NAME = "replay-vision-refresh-scanner-estimates"
 ESTIMATES_WORKFLOW_ID = "replay-vision-estimate-refresher"
 ESTIMATES_SCHEDULE_ID = "replay-vision-estimate-refresher-schedule"
@@ -111,6 +124,14 @@ REFRESH_SCANNER_ESTIMATE_TIMEOUT = dt.timedelta(seconds=60)
 def build_apply_scanner_workflow_id(scanner_id: UUID, session_id: str) -> str:
     """Deterministic Temporal workflow id for one (scanner, session) application."""
     return f"{APPLY_SCANNER_WORKFLOW_NAME}-{scanner_id}-{session_id}"
+
+
+EVALUATE_PROMPT_SUGGESTION_WORKFLOW_NAME = "replay-vision-evaluate-prompt-suggestion"
+
+
+def build_evaluate_prompt_suggestion_workflow_id(suggestion_id: UUID) -> str:
+    """Deterministic id: one evaluation per suggestion (WorkflowAlreadyStartedError on a duplicate trigger)."""
+    return f"{EVALUATE_PROMPT_SUGGESTION_WORKFLOW_NAME}-{suggestion_id}"
 
 
 def replay_vision_distinct_id(team_id: int) -> str:

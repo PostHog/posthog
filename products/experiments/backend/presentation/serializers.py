@@ -43,7 +43,7 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.running_time_calculator import METRIC_TYPE_CHOICES
 from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
-from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.models.feature_flag import FeatureFlag, experiment_eligibility_error
 
 from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
@@ -76,8 +76,8 @@ def _normalized_flag_variants(variants: list) -> list:
     """Returns a new list, leaving the caller's input (e.g. request.data) untouched."""
     variants = deepcopy(variants)
     # Normalize a case-insensitive 'control' key (e.g. 'Control', 'CONTROL') down
-    # to lowercase 'control'. The downstream validator and runtime treat 'control'
-    # as a special key, so a typo in casing was the leading cause of the
+    # to lowercase 'control'. 'control' is the conventional baseline key (the default
+    # baseline when present), and a typo in casing was the leading cause of the
     # "Feature flag variants must contain a control variant" error in MCP traces —
     # most often from LLM-generated payloads. Only rewrite when no exact 'control'
     # match already exists, so we never collapse two distinct keys into a duplicate.
@@ -556,28 +556,15 @@ class ExperimentSerializer(ExperimentBaseSerializer):
 
     @staticmethod
     def _assert_flag_variants_valid(config: dict) -> None:
-        """Experiment-specific variant rules on the validated (already normalized) config. Raised as
-        plain top-level errors so the messages surface directly to LLM/API callers."""
+        """Variant rules on the validated (already normalized) config, raised as plain top-level
+        errors so the messages surface directly to LLM/API callers. Absent or empty variants are
+        allowed here — the service fills in the default control/test pair."""
         variants = ((config.get("filters") or {}).get("multivariate") or {}).get("variants")
-        if variants is None:
+        if not variants:
             return
-        if len(variants) >= 21:
-            raise serializers.ValidationError("Feature flag variants must be less than 21")
-        if len(variants) > 0:
-            if len(variants) < 2:
-                raise serializers.ValidationError(
-                    "Feature flag must have at least 2 variants (control and at least one test variant)"
-                )
-            keys = [variant["key"] for variant in variants]
-            if "control" not in keys:
-                # Capitalized 'Control' is auto-normalized (ExperimentFlagMultivariateSerializer), so
-                # anything reaching this branch genuinely lacks a baseline variant. Surface the keys
-                # we did receive so LLM callers can self-correct without a second roundtrip.
-                raise serializers.ValidationError(
-                    "Feature flag variants must contain a variant with key 'control' "
-                    f"(lowercase, exactly). Got keys: {keys}. Rename the baseline variant's "
-                    "'key' to 'control'."
-                )
+        error = experiment_eligibility_error(variants)
+        if error:
+            raise serializers.ValidationError(error)
 
     @staticmethod
     def _is_feature_flag_config_input(feature_flag_input: Any) -> TypeGuard[dict]:
@@ -795,7 +782,7 @@ class ExperimentFlagVariantSerializer(serializers.Serializer):
     """A single multivariate variant. Extra per-variant keys are dropped."""
 
     key = serializers.CharField(
-        help_text="Unique variant key. Exactly one variant must use the key 'control' (the baseline)."
+        help_text="Unique variant key. The baseline defaults to the variant keyed 'control' when present, else the first variant."
     )
     name = serializers.CharField(
         required=False,
@@ -814,7 +801,7 @@ class ExperimentFlagMultivariateSerializer(_StrictFieldsMixin, serializers.Seria
 
     variants = ExperimentFlagVariantSerializer(
         many=True,
-        help_text="Variant definitions. Exactly one variant key must be the literal string 'control'.",
+        help_text="Variant definitions (2 to 20). The baseline defaults to the variant keyed 'control' when present, else the first variant.",
     )
 
     def to_internal_value(self, data: Any) -> Any:
@@ -887,8 +874,9 @@ class ExperimentFeatureFlagInputSerializer(_StrictFieldsMixin, serializers.Seria
     filters = ExperimentFeatureFlagFiltersSerializer(
         required=False,
         help_text=(
-            "Flag config to apply: `multivariate.variants` (exactly one variant key must be the literal "
-            "string 'control'), `groups` (a single group with `rollout_percentage` only; release "
+            "Flag config to apply: `multivariate.variants` (2 to 20 variants; the baseline defaults to "
+            "the variant keyed 'control' when present, else the first variant), "
+            "`groups` (a single group with `rollout_percentage` only; release "
             "conditions are not supported here, edit the feature flag directly), "
             "`aggregation_group_type_index`, and `payloads` (JSON-encoded strings keyed by variant key). "
             "On update, config this object omits is preserved from the linked flag's current state."
@@ -1381,4 +1369,55 @@ class RunningTimeCalculationResultSerializer(serializers.Serializer):
     recommended_running_time_days = serializers.IntegerField(
         allow_null=True,
         help_text="Estimated days to reach the recommended sample size. Null when exposure_rate_per_day is omitted.",
+    )
+
+
+class ExperimentSessionContextItemSerializer(serializers.Serializer):
+    """One experiment whose feature flag a session recording saw."""
+
+    experiment_id = serializers.IntegerField(help_text="ID of the experiment whose feature flag the session saw.")
+    experiment_name = serializers.CharField(help_text="Name of the experiment.")
+    flag_key = serializers.CharField(help_text="Key of the experiment's feature flag.")
+    variant = serializers.CharField(
+        help_text=(
+            "Variant the session saw. Taken from the earliest $feature_flag_called event in the session when one "
+            "exists, otherwise from the $feature/<key> property stamped on the session's events."
+        )
+    )
+    variants_seen = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "All distinct variant values observed for this flag during the session, sorted alphabetically. "
+            "Only the flag's defined variant keys count; non-enrollment responses (false) are ignored. "
+            "More than one value means the session saw multiple variants — a signal of multi-exposure bias."
+        ),
+    )
+    multiple_variants = serializers.BooleanField(
+        help_text="True when the session saw more than one variant of this flag."
+    )
+    first_flag_evaluation_timestamp = serializers.DateTimeField(
+        allow_null=True,
+        help_text=(
+            "Timestamp of the first $feature_flag_called event for this flag in the session — the moment the flag "
+            "was evaluated to the variant. Null when the variant is only known from stamped $feature/<key> "
+            "properties (e.g. the assignment carried over from an earlier session). For experiments with custom "
+            "exposure criteria this is not the experiment's exposure moment."
+        ),
+    )
+    experiment_start_date = serializers.DateTimeField(allow_null=True, help_text="When the experiment was launched.")
+    experiment_end_date = serializers.DateTimeField(
+        allow_null=True, help_text="When the experiment ended. Null while the experiment is still running."
+    )
+
+
+class ExperimentSessionContextResponseSerializer(serializers.Serializer):
+    """Experiment/variant context for a session recording."""
+
+    session_id = serializers.CharField(help_text="ID of the session recording the context was resolved for.")
+    results = ExperimentSessionContextItemSerializer(
+        many=True,
+        help_text=(
+            "Experiments (and variants) the session saw, sorted by experiment name. Empty when no launched "
+            "experiment's run window overlaps the recording or no flag data was observed in the session."
+        ),
     )

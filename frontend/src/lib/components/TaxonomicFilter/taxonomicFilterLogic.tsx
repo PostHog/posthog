@@ -61,7 +61,7 @@ import { IconCohort } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isDefinitionStale } from 'lib/utils/definitions'
-import { getPrimaryPropertyForEvent } from 'lib/utils/events'
+import { distinctPrimaryPropertiesForEvents } from 'lib/utils/events'
 import { isString } from 'lib/utils/guards'
 import { objectsEqual } from 'lib/utils/objects'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
@@ -511,16 +511,12 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 primaryPropertiesForContextEvents: string[]
                 mcpExcludedEventProperties: string[]
             } => {
-                const distinct = new Set<string>()
-                for (const eventName of eventNames) {
-                    const primary = getPrimaryPropertyForEvent(eventName, primaryProperties)
-                    if (primary) {
-                        distinct.add(primary)
-                    }
-                }
                 return {
                     eventNames,
-                    primaryPropertiesForContextEvents: Array.from(distinct),
+                    primaryPropertiesForContextEvents: distinctPrimaryPropertiesForEvents(
+                        eventNames,
+                        primaryProperties
+                    ),
                     mcpExcludedEventProperties: getMCPExcludedEventProperties(eventNames, taxonomicGroupTypes),
                 }
             },
@@ -1789,6 +1785,28 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 },
             ],
             (anyGroupLoading: boolean) => anyGroupLoading,
+        ],
+        // A group is "stale" when its remote results haven't caught up to the current search
+        // query yet (the debounced fetch is pending or in flight). `isLoading` alone is a
+        // transient boolean that briefly reads false in the gap between the query changing and
+        // the next fetch settling, so the aggregated SuggestedFilters tab — which has no remote
+        // fetch of its own and can only gate on its siblings — needs this freshness signal to
+        // avoid flashing "No results" before the groups it aggregates have settled. Mirrors the
+        // per-list `remoteResultsAreFresh` guard that single tabs already rely on.
+        anyGroupStale: [
+            (s) => [
+                (state, props) => {
+                    const logics = s.infiniteListLogics(state, props)
+                    const meta = s.metaGroupTypes(state, props)
+                    return Object.entries(logics).some(
+                        ([type, logic]) =>
+                            !meta.has(type) &&
+                            logic.isMounted() &&
+                            !logic.selectors.remoteResultsAreFresh(state, logic.props)
+                    )
+                },
+            ],
+            (anyGroupStale: boolean) => anyGroupStale,
         ],
         loadingGroupTypes: [
             (s) => [
