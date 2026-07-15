@@ -38,20 +38,6 @@ export interface TrimmedReplayElement {
     timestamp: number
 }
 
-/**
- * Narrows the recorded element down to the pipeline's declared output ({@link SessionReplayPipelineOutput}).
- * The record step passes its rich input straight through; this projection makes the sub-pipeline's
- * output type exact, which the batching pipeline requires (the afterBatch then trims it further).
- */
-export function createProjectReplayOutputStep<T extends SessionReplayPipelineOutput>(): ProcessingStep<
-    T,
-    SessionReplayPipelineOutput
-> {
-    return function projectReplayOutputStep(input) {
-        return Promise.resolve(ok({ team: input.team, parsedMessage: input.parsedMessage }))
-    }
-}
-
 type PostProcessInput = AfterBatchInput<
     SessionReplayPipelineOutput,
     { message: Message } & BatchingContext,

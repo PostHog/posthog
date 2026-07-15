@@ -35,7 +35,6 @@ import { createMarkSeenStep } from './session-batch-mark-seen-step'
 import {
     TrimmedReplayElement,
     createPostProcessStep,
-    createProjectReplayOutputStep,
     createReplayBeforeBatchStep,
 } from './session-batch-post-process-step'
 import { createRecordMetricsStep } from './session-batch-record-metrics-step'
@@ -284,8 +283,6 @@ export function createSessionReplayInnerPipeline(config: SessionReplayInnerPipel
                                                     ]
                                                 )
                                             )
-                                            // Narrow to the declared output; the afterBatch trims further.
-                                            .pipe(createProjectReplayOutputStep())
                                     )
                                     .gather()
                             )

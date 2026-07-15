@@ -21,7 +21,6 @@ import { createMarkSeenStep } from '~/ingestion/pipelines/sessionreplay/session-
 import {
     TrimmedReplayElement,
     createPostProcessStep,
-    createProjectReplayOutputStep,
     createReplayBeforeBatchStep,
 } from '~/ingestion/pipelines/sessionreplay/session-batch-post-process-step'
 import { createResolveRetentionStep } from '~/ingestion/pipelines/sessionreplay/session-batch-resolve-retention-step'
@@ -160,8 +159,6 @@ export function createMlMirrorReplayPipeline(config: SessionReplayInnerPipelineC
                                                     ]
                                                 )
                                             )
-                                            // Narrow to the declared output; the afterBatch trims further.
-                                            .pipe(createProjectReplayOutputStep())
                                     )
                                     .gather()
                             )
