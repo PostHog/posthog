@@ -45,6 +45,7 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
             title: 'Team',
             key: 'ownerTeam',
             width: 260,
+            sorter: (a, b) => a.ownerTeam.localeCompare(b.ownerTeam),
             render: (_, row) =>
                 row.ownerTeam === UNOWNED_TEAM ? (
                     <div className="flex items-center gap-2">
