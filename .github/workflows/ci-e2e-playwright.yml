@@ -147,8 +147,7 @@ jobs:
                         - Dockerfile
                         # Docs-only changes match the broad globs above but exercise no
                         # code the E2E suite runs — exclude them so a docs-only PR doesn't
-                        # boot the whole stack. Load-bearing: an over-broad exclude silently
-                        # skips the suite, so only exclude paths that truly never affect E2E.
+                        # boot the whole stack.
                         - '!**/*.md'
                         - '!**/*.mdx'
 
