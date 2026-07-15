@@ -458,7 +458,14 @@ jobs:
                   if [ "$MODE" = "selective" ]; then
                       # test-storybook is jest-based; positional path args filter the run to
                       # only those story files before Jest distributes them across shards.
-                      mapfile -d '' -t AFFECTED_FILES < <(jq -j '.[] | ., "\u0000"' <<< "$AFFECTED_FILES_JSON")
+                      affected_files_path=$(mktemp)
+                      node -e 'for (const file of JSON.parse(process.env.AFFECTED_FILES_JSON)) process.stdout.write(`${file}\0`)' > "$affected_files_path"
+                      mapfile -d '' -t AFFECTED_FILES < "$affected_files_path"
+                      rm "$affected_files_path"
+                      if [ "${#AFFECTED_FILES[@]}" -eq 0 ]; then
+                          echo "::error::Selective mode did not provide affected story files"
+                          exit 1
+                      fi
                       pnpm --filter=@posthog/storybook test:visual:ci:update --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/${{ matrix.shard_count }} -- "${AFFECTED_FILES[@]}"
                   else
                       pnpm --filter=@posthog/storybook test:visual:ci:update --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/${{ matrix.shard_count }}
