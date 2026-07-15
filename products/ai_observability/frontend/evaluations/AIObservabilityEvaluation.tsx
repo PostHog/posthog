@@ -41,8 +41,10 @@ import { EvaluationTriggers } from './components/EvaluationTriggers'
 import { EVALUATION_SUMMARY_MAX_RUNS } from './constants'
 import {
     evaluationSupportsReports,
+    evaluationSupportsRunSummary,
     evaluationTypeHasEditableCriteria,
     evaluationTypeUsesModelConfiguration,
+    isBooleanEvaluationOutput,
 } from './evaluationCapabilities'
 import { evaluationReportLogic } from './evaluationReportLogic'
 import { DEFAULT_TRACE_WINDOW_SECONDS, LLMEvaluationLogicProps, llmEvaluationLogic } from './llmEvaluationLogic'
@@ -96,10 +98,12 @@ export function AIObservabilityEvaluation(): JSX.Element {
     const isHog = evaluation.evaluation_type === 'hog'
     const isSentiment = evaluation.evaluation_type === 'sentiment'
     const isReportableEvaluation = evaluationSupportsReports(evaluation)
+    const supportsRunSummary = evaluationSupportsRunSummary(evaluation)
+    const isBooleanOutput = isBooleanEvaluationOutput(evaluation.output_type)
     const hasEditableCriteria = evaluationTypeHasEditableCriteria(evaluation.evaluation_type)
 
     const trendInsightUrl =
-        isReportableEvaluation && !isNewEvaluation && evaluation.id
+        supportsRunSummary && !isNewEvaluation && evaluation.id
             ? urls.insightNew({
                   query: {
                       kind: NodeKind.InsightVizNode,
@@ -364,7 +368,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                 <div className="font-semibold text-lg">{runsSummary.total}</div>
                                                 <div className="text-muted">Total runs</div>
                                             </div>
-                                            {isReportableEvaluation && (
+                                            {supportsRunSummary && (
                                                 <div className="text-center">
                                                     <div className="font-semibold text-lg text-success">
                                                         {runsSummary.successRate}%
@@ -372,7 +376,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                     <div className="text-muted">Success rate</div>
                                                 </div>
                                             )}
-                                            {isReportableEvaluation && evaluation.output_config.allows_na && (
+                                            {supportsRunSummary && evaluation.output_config.allows_na && (
                                                 <div className="text-center">
                                                     <div className="font-semibold text-lg">
                                                         {runsSummary.applicabilityRate}%
@@ -531,7 +535,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                 </span>
                                             </div>
 
-                                            {isReportableEvaluation && (
+                                            {isBooleanOutput && (
                                                 <Field
                                                     name="allows_na"
                                                     label={
