@@ -840,6 +840,7 @@ pub async fn insert_cohort_for_team_in_pg(
         cohort_type,
         last_backfill_person_properties_at,
         last_backfill_events_at,
+        condition_type: None,
     };
 
     let mut conn = client.get_connection().await?;
