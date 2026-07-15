@@ -3,7 +3,7 @@ import path from 'path'
 
 import { parseJSON } from '~/common/utils/json-parse'
 
-import { firstPartyHostPatterns } from './first-party-hosts'
+import { MAX_FIRST_PARTY_HOST_PATTERNS, firstPartyHostPatterns } from './first-party-hosts'
 
 // Shared with the Rust `host_pattern` test so the two PSL reductions (tldts vs the psl crate)
 // cannot drift on these cases.
@@ -42,5 +42,22 @@ describe('firstPartyHostPatterns reduces first-party url entries to registrable 
         ],
     ] as [string, string[] | null, string[]][])('%s', (_name, domains, expected) => {
         expect(firstPartyHostPatterns(domains)).toEqual(expected)
+    })
+
+    it('caps at root domains, so subdomain entries do not consume the cap', () => {
+        const subdomainsOfOneRoot = Array.from(
+            { length: MAX_FIRST_PARTY_HOST_PATTERNS + 50 },
+            (_, i) => `https://tenant-${i}.one-root.example`
+        )
+        expect(firstPartyHostPatterns([...subdomainsOfOneRoot, 'https://other-root.example'])).toEqual([
+            'one-root.example',
+            'other-root.example',
+        ])
+
+        const distinctRoots = Array.from(
+            { length: MAX_FIRST_PARTY_HOST_PATTERNS + 50 },
+            (_, i) => `https://root-${i}.example`
+        )
+        expect(firstPartyHostPatterns(distinctRoots)).toHaveLength(MAX_FIRST_PARTY_HOST_PATTERNS)
     })
 })

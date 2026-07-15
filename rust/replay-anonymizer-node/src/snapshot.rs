@@ -416,6 +416,10 @@ pub const SNAPSHOT_HOST_PROPERTY: &str = "$snapshot_host";
 // `"` + SNAPSHOT_HOST_PROPERTY + `"`; a test pins the equality (no const string concat).
 const SNAPSHOT_HOST_NEEDLE: &[u8] = b"\"$snapshot_host\"";
 
+/// Mirrors the TS `MAX_FIRST_PARTY_HOST_PATTERNS`: at most this many configured root-domain
+/// patterns per message, so the per-URL pattern scan stays bounded regardless of caller.
+const MAX_CONFIGURED_FIRST_PARTY_PATTERNS: usize = 100;
+
 /// Which host-classification regime the pre-scan chose for a message. Surfaced through the FFI so
 /// the consumer can count outcomes — every non-`StampedOk` case degrades to collapse-all, which is
 /// also the intended pre-stamp baseline, so without the counter a stamp regression (SDK rename,
@@ -467,6 +471,9 @@ pub fn message_first_party_hosts(
         return (Vec::new(), HostScanOutcome::StampUnusable);
     };
     let mut patterns = configured;
+    // Truncation is safe: the stamp and meta patterns are appended after the cap, so the
+    // recorded page itself always collapses; overflow domains get the external-host treatment.
+    patterns.truncate(MAX_CONFIGURED_FIRST_PARTY_PATTERNS);
     if !patterns.contains(&stamp_pattern) {
         patterns.push(stamp_pattern);
     }
