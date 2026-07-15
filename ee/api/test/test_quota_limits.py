@@ -58,9 +58,9 @@ class TestQuotaLimitsAPI(APIBaseTest):
         self.assertIs(data["code_usage_billing_active"], False)
 
     def test_reports_code_usage_billing_state(self) -> None:
-        """The LLM gateway keys posthog_code per-user cap bypass and model gating
-        on this field - dropping it (or resolving the wrong org) silently re-caps
-        paying users."""
+        # The LLM gateway keys posthog_code per-user cap bypass and model gating
+        # on this field - dropping it (or resolving the wrong org) silently
+        # re-caps paying users.
         self.organization.available_product_features = [
             {"key": AvailableFeature.POSTHOG_CODE_USAGE, "name": "PostHog Code usage billing"}
         ]

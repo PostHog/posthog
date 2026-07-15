@@ -169,6 +169,10 @@ async def resolve_plan_and_quota(
     billing into a credit bucket we overlap them. Unbilled products short-circuit
     the throttle stack regardless of quota state, so we skip the resolver entirely
     rather than paying for the Redis GET (and the HTTP fallback on cache miss).
+
+    Caveat: ``code_usage_billing_active`` rides the quota fetch, so a product
+    without a credit bucket always reads as unbilled — removing or repointing
+    posthog_code's bucket would silently turn off the org-billed cap bypass.
     """
     product_config = get_product_config(product)
     if product_config and product_config.credit_bucket is not None:

@@ -47,13 +47,6 @@ def _is_free_plan_throttled(context: ThrottleContext) -> bool:
 
 
 def _is_org_billed_seatless(context: ThrottleContext) -> bool:
-    """Seatless posthog_code user whose work org pays for Code usage: usage
-    bills to the org at cost, so no PostHog-imposed per-user cap applies -
-    the org's own billing limit is the ceiling. Spend is still recorded; only
-    enforcement is skipped (the staff pattern). Seat holders are excluded on
-    purpose: until the seat retirement deletes their seat, a free seat's cap
-    keeps pre-cutover usage (seat-covered, unbilled) bounded even in
-    org-billed orgs."""
     return context.product == POSTHOG_CODE_PRODUCT and context.seat_missing and context.code_usage_billed
 
 

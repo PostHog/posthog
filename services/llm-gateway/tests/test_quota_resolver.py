@@ -10,9 +10,11 @@ from starlette.datastructures import Headers
 
 from llm_gateway.services.quota_resolver import (
     _FAIL_OPEN_CACHE_TTL_SECONDS,
+    _LAST_KNOWN_BILLING_TTL_SECONDS,
     _RETRY_DELAYS_SECONDS,
     QuotaResolver,
     QuotaResourceStatus,
+    _billing_key,
     _redis_key,
     resolve_quota_status,
 )
@@ -43,6 +45,22 @@ def _make_http_client_sequence(responses: list[httpx.Response | Exception]) -> M
 
     client.get = AsyncMock(side_effect=_next)
     return client
+
+
+class _FakeRedis:
+    """Dict-backed get/set so multi-key round-trips are honest instead of stubbed."""
+
+    def __init__(self) -> None:
+        self.store: dict[str, bytes] = {}
+        self.ttls: dict[str, int] = {}
+
+    async def get(self, key: str) -> bytes | None:
+        return self.store.get(key)
+
+    async def set(self, key: str, value: str | bytes, ex: int | None = None) -> None:
+        self.store[key] = value if isinstance(value, bytes) else value.encode()
+        if ex is not None:
+            self.ttls[key] = ex
 
 
 @pytest.fixture(autouse=True)
@@ -173,6 +191,43 @@ class TestQuotaResolver:
         assert status.code_usage_billing_active is False
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("failure_mode", ["4xx", "retries_exhausted"])
+    async def test_billing_flag_falls_back_to_last_known_value_on_fetch_failure(self, failure_mode: str) -> None:
+        # A Django blip - or one caller's under-scoped token 4xxing the shared
+        # per-team fetch - must not flip a paying org's billing bit to False
+        # and re-cap its users at the free limit for the fail-open window.
+        failures: list[httpx.Response | Exception]
+        if failure_mode == "4xx":
+            failures = [_make_response(403, {"detail": "missing scope"})]
+        else:
+            failures = [httpx.ConnectError("boom")] * len(_RETRY_DELAYS_SECONDS)
+        http_client = _make_http_client_sequence(
+            [
+                _make_response(200, {"limited": {"ai_credits": {"limited": False}}, "code_usage_billing_active": True}),
+                *failures,
+            ]
+        )
+        redis = _FakeRedis()
+        resolver = QuotaResolver(redis=redis, http_client=http_client)  # type: ignore[arg-type]
+
+        first = await resolver.get_resource_status("ai_credits", team_id=42, auth_header="Bearer phx_test")
+        assert first.code_usage_billing_active is True
+        assert redis.ttls[_billing_key(42)] == _LAST_KNOWN_BILLING_TTL_SECONDS
+
+        # The per-team quota entry expires; the refetch fails.
+        del redis.store[_redis_key("ai_credits", 42)]
+        status = await resolver.get_resource_status("ai_credits", team_id=42, auth_header="Bearer phx_test")
+
+        assert status == QuotaResourceStatus(limited=False, code_usage_billing_active=True)
+        # The fail-open entry carries the fallback so the whole team keeps it
+        # for the window instead of re-fetching per request.
+        assert json.loads(redis.store[_redis_key("ai_credits", 42)]) == {
+            "limited": False,
+            "code_usage_billing_active": True,
+        }
+        assert redis.ttls[_redis_key("ai_credits", 42)] == _FAIL_OPEN_CACHE_TTL_SECONDS
+
+    @pytest.mark.asyncio
     async def test_fetches_and_parses_unlimited_response(self) -> None:
         http_client = _make_http_client(
             _make_response(200, {"team_id": 1, "limited": {"ai_credits": {"limited": False}}})
@@ -266,12 +321,15 @@ class TestQuotaResolver:
 
         await resolver.get_resource_status("ai_credits", team_id=42, auth_header="Bearer phx_test")
 
-        redis.set.assert_awaited_once()
-        call = redis.set.await_args
-        assert call.args[0] == _redis_key("ai_credits", 42)
+        # One write per key: the team+resource quota entry and the per-team
+        # last-known billing bit.
+        quota_writes = [c for c in redis.set.await_args_list if c.args[0] == _redis_key("ai_credits", 42)]
+        assert len(quota_writes) == 1
+        call = quota_writes[0]
         assert json.loads(call.args[1]) == {"limited": True, "code_usage_billing_active": False}
         # Successful fetches use the gateway settings default of 5 minutes.
         assert call.kwargs.get("ex") == 300
+        assert redis.set.await_count == 2
 
     @pytest.mark.asyncio
     async def test_caches_fail_open_for_full_window_on_4xx(self) -> None:
