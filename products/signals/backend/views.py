@@ -117,6 +117,7 @@ from products.signals.backend.serializers import (
     SignalUserAutonomyConfigSerializer,
 )
 from products.signals.backend.signal_metadata import fetch_source_products_for_reports
+from products.signals.backend.slack_inbox_notifications import dispatch_reviewer_added_notifications
 from products.signals.backend.task_attribution import (
     TASK_ID_HEADER,
     resolve_request_attribution,
@@ -2205,6 +2206,18 @@ class SignalReportArtefactViewSet(
                     ),
                 )
 
+                # A human added reviewers: ping the newly-added ones on their own Slack channel so
+                # someone added after generation still hears about an actionable report, mirroring
+                # the notification sent when it first went ready. Removals aren't notified.
+                prior_login_set = set(prior_logins)
+                added_logins = [login for login in new_logins if login not in prior_login_set]
+                if added_logins:
+                    self._schedule_reviewer_added_slack_notifications(
+                        report_id=str(artefact.report_id),
+                        added_logins=added_logins,
+                        actor_user_id=attribution.user_id,
+                    )
+
         # Return the read-shape (enriched) so the client sees the canonical result.
         login_map = resolve_org_github_login_to_users(self.team.id, list(seen)) if seen else {}
         read_serializer = SignalReportArtefactSerializer(
@@ -2215,6 +2228,36 @@ class SignalReportArtefactViewSet(
             },
         )
         return Response(read_serializer.data)
+
+    def _schedule_reviewer_added_slack_notifications(
+        self, *, report_id: str, added_logins: list[str], actor_user_id: int | None
+    ) -> None:
+        """After commit, Slack-notify reviewers a human just added to this report.
+
+        Scheduled on commit so nothing is sent if the write rolls back, and so the Slack calls
+        don't run while the report row lock (held for the read-merge-append above) is open.
+        Best-effort — a Slack failure must never break the reviewer edit.
+        """
+        team = self.team
+
+        def _notify() -> None:
+            try:
+                meta = fetch_source_products_for_reports(team, [report_id]).get(report_id)
+                dispatch_reviewer_added_notifications(
+                    report_id=report_id,
+                    team_id=team.id,
+                    added_github_logins=added_logins,
+                    source_products=meta.source_products if meta else None,
+                    exclude_user_id=actor_user_id,
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to dispatch reviewer-added Slack notifications",
+                    report_id=report_id,
+                    team_id=team.id,
+                )
+
+        transaction.on_commit(_notify)
 
     @staticmethod
     def _write_response_data(artefact: SignalReportArtefact) -> dict:

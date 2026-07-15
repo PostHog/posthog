@@ -243,6 +243,57 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert mock_autostart.call_args.kwargs["report_id"] == str(report.id)
         assert mock_autostart.call_args.kwargs["team_id"] == self.team.id
 
+    def test_put_adding_reviewer_notifies_added_reviewer_on_commit(self):
+        # Manually adding a reviewer schedules a Slack ping (after commit) for only the newly-added
+        # login, attributed so the actor is excluded — the point of this feature.
+        report = self._create_report()
+        artefact = self._create_artefact(report, content=[{"github_login": "alice"}])
+
+        with (
+            patch("products.signals.backend.views.fetch_source_products_for_reports", return_value={}),
+            patch("products.signals.backend.views.dispatch_reviewer_added_notifications") as mock_dispatch,
+            patch(
+                "products.signals.backend.auto_start.maybe_autostart_from_report_artefacts",
+                new_callable=AsyncMock,
+            ),
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.put(
+                    self._detail_url(str(report.id), str(artefact.id)),
+                    data=json.dumps({"content": [{"github_login": "alice"}, {"github_login": "bob"}]}),
+                    content_type="application/json",
+                )
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_dispatch.assert_called_once()
+        kwargs = mock_dispatch.call_args.kwargs
+        assert kwargs["added_github_logins"] == ["bob"]
+        assert kwargs["team_id"] == self.team.id
+        assert kwargs["exclude_user_id"] == self.user.id
+
+    def test_put_removing_reviewer_does_not_notify(self):
+        # Removing a reviewer is not an add, so nobody is pinged.
+        report = self._create_report()
+        artefact = self._create_artefact(report, content=[{"github_login": "alice"}, {"github_login": "bob"}])
+
+        with (
+            patch("products.signals.backend.views.fetch_source_products_for_reports", return_value={}),
+            patch("products.signals.backend.views.dispatch_reviewer_added_notifications") as mock_dispatch,
+            patch(
+                "products.signals.backend.auto_start.maybe_autostart_from_report_artefacts",
+                new_callable=AsyncMock,
+            ),
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.put(
+                    self._detail_url(str(report.id), str(artefact.id)),
+                    data=json.dumps({"content": [{"github_login": "alice"}]}),
+                    content_type="application/json",
+                )
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_dispatch.assert_not_called()
+
     def test_put_reviewers_autostart_delegates_when_report_complete(self):
         # With actionability + repo + priority + reviewers all present, the reconstruction reaches
         # the actual autostart decision (delegated to maybe_autostart_implementation_task).
