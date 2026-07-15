@@ -65,7 +65,6 @@ The organization ID (or slug) is optional — it's detected automatically when y
             docsUrl="https://posthog.com/docs/cdp/sources/charthop",
             iconPath="/static/services/charthop.png",
             keywords=["hr", "people analytics", "org chart", "compensation"],
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [

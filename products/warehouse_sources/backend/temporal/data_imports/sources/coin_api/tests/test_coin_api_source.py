@@ -25,8 +25,6 @@ class TestCoinApiSource:
         assert config.name.value == "CoinApi"
         assert config.label == "CoinAPI"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        # Shipped behind the unreleased flag until the alpha has been exercised end to end.
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/coin-api"
         assert [f.name for f in config.fields] == [
             "api_key",

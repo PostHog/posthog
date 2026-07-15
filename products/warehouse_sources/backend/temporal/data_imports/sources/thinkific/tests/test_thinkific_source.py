@@ -43,7 +43,6 @@ class TestThinkificSourceConfig:
         assert cfg.label == "Thinkific"
         assert cfg.category == DataWarehouseSourceCategory.E_COMMERCE
         assert cfg.releaseStatus == ReleaseStatus.ALPHA
-        assert cfg.unreleasedSource is True
 
     def test_source_config_fields(self) -> None:
         cfg = ThinkificSource().get_source_config

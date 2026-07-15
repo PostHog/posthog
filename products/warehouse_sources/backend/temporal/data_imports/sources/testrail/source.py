@@ -89,7 +89,6 @@ Generate an API key under **My Settings → API keys** in TestRail, and make sur
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
