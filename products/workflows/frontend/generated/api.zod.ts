@@ -1918,8 +1918,9 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 ),
             draft_updated_at: zod.iso
                 .datetime({ offset: true })
+                .nullable()
                 .describe(
-                    "When the draft was last written. Pass this to publish (and as base_updated_at on further draft edits) so a concurrent editor's changes aren't clobbered — a mismatch returns 409."
+                    "When the draft was last written; null when there's no staged draft. Pass this to publish (and as base_updated_at on further draft edits) so a concurrent editor's changes aren't clobbered — a mismatch returns 409."
                 ),
         })
         .describe('Mixin for serializers to add user access control fields')
