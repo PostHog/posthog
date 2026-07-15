@@ -1,6 +1,6 @@
-from unittest.mock import patch
-
 import pytest
+from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from django.apps import apps
 from django.test import SimpleTestCase
@@ -12,7 +12,6 @@ from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 from posthog.rbac.user_access_control import ACCESS_CONTROL_RESOURCES, AccessControlLevelResource
-from posthog.test.base import APIBaseTest
 
 try:
     from ee.models.rbac.access_control import AccessControl
