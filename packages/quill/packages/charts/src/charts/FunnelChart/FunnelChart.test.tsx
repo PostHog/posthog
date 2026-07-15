@@ -102,8 +102,6 @@ describe('FunnelChart', () => {
     })
 
     it('floors the chart region height with chartMinHeight so a tall footer cannot collapse the canvas', async () => {
-        // The stepFooter layout puts the footer below the chart in a flex column; without the
-        // floor a tall footer starves the flex-1 chart of height and the canvas renders at 0.
         renderHogChart(
             <FunnelChart
                 steps={STEPS}

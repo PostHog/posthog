@@ -26,13 +26,10 @@ import {
 const BASE_STEP_WIDTH_PX = 240
 const PER_BAR_WIDTH_PX = 20
 
-// Floor the chart's plot region so a tall StepLegend footer can't starve the canvas to zero height
-// in a height-constrained flex column (matches the legacy 150px minimum).
-const CHART_MIN_HEIGHT_PX = 150
-
 const CHART_CONFIG: FunnelChartConfig = {
     animateHover: true,
-    chartMinHeight: CHART_MIN_HEIGHT_PX,
+    // Keep the chart from collapsing under a tall StepLegend footer.
+    chartMinHeight: 150,
     margins: { left: DEFAULT_MARGINS.left },
     tooltip: FUNNEL_STEPS_BAR_TOOLTIP_CONFIG,
 }
@@ -69,9 +66,7 @@ export function FunnelStepsBarChart({
         [steps, getFunnelsColor]
     )
 
-    // Display step labels for the chart's bands. FunnelChart hides its built-in x-axis when a
-    // `stepFooter` is set, so these feed only the tooltip header — the visible labels come from
-    // the StepLegend footer, which the chart pixel-aligns under each step's bars.
+    // Feeds the tooltip header only; the visible labels come from the StepLegend footer.
     const stepLabels = useMemo(() => steps.map((step) => String(step.custom_name ?? step.name ?? '')), [steps])
 
     const groupTypeLabel = aggregationLabel(querySource?.aggregation_group_type_index).plural
