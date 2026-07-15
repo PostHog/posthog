@@ -94,7 +94,9 @@ def get_rows(
     config = RAPID7_INSIGHTVM_ENDPOINTS[endpoint]
     headers = _headers(api_key)
     # One session reused across every page so urllib3 keeps the connection alive.
-    session = make_tracked_session()
+    # `allow_redirects=False` keeps the credentialed `X-Api-Key` from being replayed to a
+    # redirect target; `redact_values` masks the key in logged URLs and captured samples.
+    session = make_tracked_session(redact_values=(api_key,), allow_redirects=False)
     url = _endpoint_url(region, config.path)
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
@@ -130,7 +132,7 @@ def validate_credentials(api_key: str, region: str) -> tuple[bool, Optional[str]
     # an invalid or expired key returns 401/403.
     url = _endpoint_url(region, RAPID7_INSIGHTVM_ENDPOINTS["assets"].path)
     try:
-        response = make_tracked_session().post(
+        response = make_tracked_session(redact_values=(api_key,), allow_redirects=False).post(
             f"{url}?{urlencode({'size': 1})}",
             headers=_headers(api_key),
             json={},

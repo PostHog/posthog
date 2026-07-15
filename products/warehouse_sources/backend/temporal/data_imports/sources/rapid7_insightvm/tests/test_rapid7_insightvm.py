@@ -161,6 +161,33 @@ class TestValidateCredentials:
         assert message is not None
 
 
+class TestCredentialedSessionIsHardened:
+    # A 3xx from the credentialed Rapid7 endpoint would otherwise replay `X-Api-Key` to the
+    # redirect target, so both entry points must pin redirects off and redact the key.
+    def _get_rows(self) -> None:
+        list(
+            get_rows(
+                api_key="secret-key",
+                region="us",
+                endpoint="assets",
+                logger=mock.MagicMock(),
+                resumable_source_manager=cast(ResumableSourceManager[Rapid7InsightvmResumeConfig], FakeManager()),
+            )
+        )
+
+    def _validate(self) -> None:
+        validate_credentials("secret-key", "us")
+
+    @pytest.mark.parametrize("entry_point", ["_get_rows", "_validate"])
+    def test_session_pins_redirects_off_and_redacts_key(self, entry_point):
+        session = mock.MagicMock()
+        session.post.return_value = _response(200, _page([], cursor=None))
+        with mock.patch(f"{TRANSPORT}.make_tracked_session", return_value=session) as factory:
+            getattr(self, entry_point)()
+
+        factory.assert_called_once_with(redact_values=("secret-key",), allow_redirects=False)
+
+
 class TestSourceResponse:
     @pytest.mark.parametrize("endpoint", ["assets", "vulnerabilities"])
     def test_full_refresh_endpoints_have_no_partitioning(self, endpoint):
