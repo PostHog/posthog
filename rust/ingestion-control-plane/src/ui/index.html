@@ -443,11 +443,11 @@
             }
             podsBody.replaceChildren(
               el("table", {},
-                el("thead", {}, el("tr", {}, el("th", {}, "pod"), el("th", {}, "app"), el("th", {}, "ip"), el("th", {}, "phase"), el("th", {}, "restarts"), el("th", {}, "started"))),
+                el("thead", {}, el("tr", {}, el("th", {}, "pod"), el("th", {}, "namespace"), el("th", {}, "ip"), el("th", {}, "phase"), el("th", {}, "restarts"), el("th", {}, "started"))),
                 el("tbody", {}, data.pods.map((pod) =>
                   el("tr", { class: `clickable ${pod.name === this.selectedPod ? "selected" : ""}`, onclick: () => this.selectPod(pod.name) },
                     el("td", { class: "mono" }, pod.name),
-                    el("td", {}, pod.labels.app || "–"),
+                    el("td", {}, pod.namespace || "–"),
                     el("td", { class: "mono" }, pod.ip || "–"),
                     el("td", {}, el("span", { class: `pill ${pod.ready ? "good" : "warn"}` }, pod.phase || "?")),
                     el("td", { class: "mono" }, String(pod.restarts)),

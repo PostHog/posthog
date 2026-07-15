@@ -54,6 +54,7 @@ impl PodDiscovery {
                         .unwrap_or(&static_pod.address);
                     DiscoveredPod {
                         name: static_pod.name.clone(),
+                        namespace: "static".to_string(),
                         ip: Some(host.to_string()),
                         node: None,
                         phase: Some("Static".to_string()),
@@ -82,8 +83,11 @@ impl PodDiscovery {
                     })?;
                     pods.append(&mut found);
                 }
-                pods.sort_by(|a, b| a.name.cmp(&b.name));
-                pods.dedup_by(|a, b| a.name == b.name);
+                pods.sort_by(|a, b| {
+                    (a.namespace.as_str(), a.name.as_str())
+                        .cmp(&(b.namespace.as_str(), b.name.as_str()))
+                });
+                pods.dedup_by(|a, b| a.namespace == b.namespace && a.name == b.name);
                 Ok(pods)
             }
         }
@@ -112,6 +116,10 @@ impl PodDiscovery {
                         namespaces.push(&target.namespace);
                     }
                 }
+                // Collect matches across every configured namespace: routing
+                // by name alone would silently pick one lane's pod when the
+                // same name exists in another, so ambiguity is an error.
+                let mut matches: Vec<(String, String)> = Vec::new();
                 for namespace in namespaces {
                     let pod = k8s_awareness::get_pod(client, namespace, name)
                         .await
@@ -125,10 +133,21 @@ impl PodDiscovery {
                         .filter(|p| matches_any_selector(&p.labels, &selectors))
                         .and_then(|p| p.ip)
                     {
-                        return Ok(Some(format!("{ip}:{}", config.debug_port)));
+                        matches.push((namespace.to_string(), ip));
                     }
                 }
-                Ok(None)
+                match matches.len() {
+                    0 => Ok(None),
+                    1 => Ok(Some(format!("{}:{}", matches[0].1, config.debug_port))),
+                    _ => Err(anyhow!(
+                        "pod name '{name}' is ambiguous across namespaces: {}",
+                        matches
+                            .iter()
+                            .map(|(ns, _)| ns.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )),
+                }
             }
         }
     }

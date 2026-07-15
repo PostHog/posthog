@@ -142,17 +142,33 @@ impl Config {
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .map(|entry| match entry.split_once('/') {
-                Some((namespace, selector)) => PodTarget {
+                // Only treat the prefix as a namespace when it is a valid
+                // namespace name. Label keys may themselves contain `/`
+                // (`app.kubernetes.io/name=x`), but their prefixes are DNS
+                // subdomains with dots, which namespace names cannot contain.
+                // A selector with a prefixed label key must be written
+                // namespace-qualified (`ns/team.example.com/role=x`).
+                Some((namespace, selector)) if is_valid_namespace(namespace.trim()) => PodTarget {
                     namespace: namespace.trim().to_string(),
                     selector: selector.trim().to_string(),
                 },
-                None => PodTarget {
+                _ => PodTarget {
                     namespace: self.k8s_namespace.clone(),
                     selector: entry.to_string(),
                 },
             })
             .collect()
     }
+}
+
+/// RFC 1123 label: lowercase alphanumerics and `-`, no leading/trailing `-`.
+fn is_valid_namespace(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= 63
+        && !s.starts_with('-')
+        && !s.ends_with('-')
+        && s.chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
 }
 
 /// One pod-discovery target: a label selector scoped to a namespace.
@@ -199,6 +215,28 @@ mod tests {
                 PodTarget {
                     namespace: "default-ns".to_string(),
                     selector: "app=bare-selector".to_string(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn prefixed_label_keys_are_not_mistaken_for_namespaces() {
+        let mut config = Config::init_with_defaults().expect("config defaults are valid");
+        config.k8s_namespace = "default-ns".to_string();
+        config.pod_label_selectors =
+            "app.kubernetes.io/name=consumer,my-ns/app.kubernetes.io/name=consumer".to_string();
+
+        assert_eq!(
+            config.pod_targets(),
+            vec![
+                PodTarget {
+                    namespace: "default-ns".to_string(),
+                    selector: "app.kubernetes.io/name=consumer".to_string(),
+                },
+                PodTarget {
+                    namespace: "my-ns".to_string(),
+                    selector: "app.kubernetes.io/name=consumer".to_string(),
                 },
             ]
         );
