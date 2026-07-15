@@ -29,7 +29,11 @@ import { KafkaConsumerV2 } from './consumer-v2'
  *    exactly as the partitions are given up — including from an already-committed baseline
  *    when a flushed cycle precedes the in-flight one — a throwing hook never strands the
  *    rebalance, and a hook outliving the broker-enforced rebalance timeout
- *    (max.poll.interval.ms) gets the member fenced, its late store discarded, and recovers.
+ *    (max.poll.interval.ms) gets the member fenced, its late store discarded, and recovers,
+ *  - the two-phase shutdown (the session replay flush-on-stop contract): stopConsuming
+ *    resolves only after in-flight work drains and halts intake for good, offsets stored
+ *    between stopConsuming and disconnect are committed as the member leaves, and a restart
+ *    resumes exactly after them.
  *
  * Producing uses a raw HighLevelProducer with explicit partitions so every delivery report's
  * assigned offset is kept; all expectations are derived from those reports, never assumed.
@@ -909,6 +913,127 @@ describe('KafkaConsumerV2 rebalance semantics (integration)', () => {
                 const consumedAt = new Map(ledger.map((e) => [`${e.partition}:${e.offset}`, e.value]))
                 const producedAt = new Map(produced.map((r) => [`${r.partition}:${r.offset}`, r.value]))
                 expect(consumedAt).toEqual(producedAt)
+            } finally {
+                await consumerA.disconnect()
+                await consumerB?.disconnect()
+                await deleteTopic(topic)
+            }
+        })
+
+        // The flush-on-stop contract the session replay consumer's shutdown relies on:
+        // stopConsuming() → final flush stores offsets → disconnect() commits them leaving the
+        // group. The batch in flight when stopConsuming is called must settle before it resolves,
+        // and nothing may be consumed after it — otherwise the final flush races live intake.
+        it('shutdown flush: stopConsuming drains in-flight work and halts intake, offsets stored before disconnect commit exactly', async () => {
+            const topic = `v2_int_reb_stop_${randomUUID()}`
+            const groupId = `v2-int-reb-stop-${randomUUID()}`
+            await createTopic(topic, 2)
+
+            const ledger: LedgerEntry[] = []
+            // Replay-style offset manager: track next-to-process per partition; the shutdown
+            // flush stores everything tracked between stopConsuming and disconnect.
+            const tracked = new Map<number, number>()
+            // Once armed, batches don't settle until the test releases them — keeping a batch
+            // in flight across the stopConsuming call.
+            let gateArmed = false
+            let releaseGate: () => void = () => {}
+            const gate = new Promise<void>((resolve) => {
+                releaseGate = resolve
+            })
+
+            const record = (consumerId: string, track: boolean) => (messages: Message[]) => {
+                for (const m of messages) {
+                    ledger.push({
+                        consumerId,
+                        partition: m.partition,
+                        offset: m.offset,
+                        key: m.key?.toString() ?? '',
+                        value: m.value?.toString() ?? '',
+                        seenAt: Date.now(),
+                    })
+                    if (track) {
+                        tracked.set(m.partition, Math.max(tracked.get(m.partition) ?? 0, m.offset + 1))
+                    }
+                }
+            }
+
+            const consumerA = makeConsumer(
+                groupId,
+                topic,
+                (messages) => {
+                    record('A', true)(messages)
+                    return Promise.resolve(gateArmed ? { backgroundTask: gate } : {})
+                },
+                { autoOffsetStore: false }
+            )
+            let consumerB: KafkaConsumerV2 | undefined
+
+            try {
+                await waitFor(() => consumerA.assignments().length === 2, 10_000)
+
+                const wave1 = await produceTracked(producer, topic, [
+                    ...Array.from({ length: 3 }, (_, i) => ({ key: `a${i}`, partition: 0 })),
+                    ...Array.from({ length: 3 }, (_, i) => ({ key: `b${i}`, partition: 1 })),
+                ])
+                await waitFor(() => ledger.length >= wave1.length, 8_000)
+
+                // One gated message: consumed, but its settle chain hangs on the gate, so its
+                // batch is still in flight when stopConsuming is called.
+                gateArmed = true
+                const gated = await produceTracked(producer, topic, [{ key: 'gated-p0', partition: 0 }])
+                await waitFor(() => ledger.some((e) => e.value === gated[0].value), 8_000)
+
+                // stopConsuming must not resolve while the in-flight batch is pending — the
+                // drain guarantee the shutdown flush depends on.
+                let stopSettled = false
+                const stopPromise = consumerA.stopConsuming().then(() => {
+                    stopSettled = true
+                })
+                await delay(1_500)
+                expect(stopSettled).toBe(false)
+                releaseGate()
+                await stopPromise
+
+                // Intake is halted for good: messages produced after stopConsuming are never
+                // consumed by A, even though it is still connected and owns the partitions.
+                const wave2 = await produceTracked(producer, topic, [
+                    ...Array.from({ length: 3 }, (_, i) => ({ key: `a${4 + i}`, partition: 0 })),
+                    ...Array.from({ length: 3 }, (_, i) => ({ key: `b${3 + i}`, partition: 1 })),
+                ])
+                await delay(2_000)
+                expect(ledger.filter((e) => wave2.some((r) => r.value === e.value))).toEqual([])
+
+                // The shutdown flush window: the store must succeed (the partitions are still
+                // owned), and disconnect commits it as the member leaves the group.
+                consumerA.offsetsStore(
+                    [...tracked.entries()].map(([partition, offset]) => ({ topic, partition, offset }))
+                )
+                await consumerA.disconnect()
+
+                const expectedCommit = new Map(tracked)
+                for (const partition of [0, 1]) {
+                    await waitForAsync(
+                        async () =>
+                            (await fetchCommittedOffset(groupId, topic, partition)) === expectedCommit.get(partition),
+                        10_000
+                    )
+                }
+
+                // A restart resumes exactly after the shutdown flush: the new consumer sees
+                // wave2 only — nothing the flush covered is redelivered — each message exactly
+                // once at the offset its delivery report announced.
+                consumerB = makeConsumer(groupId, topic, (msgs) => Promise.resolve(record('B', false)(msgs)), {
+                    autoOffsetStore: false,
+                })
+                await waitFor(
+                    () => wave2.every((r) => ledger.some((e) => e.consumerId === 'B' && e.value === r.value)),
+                    15_000
+                )
+                const bEntries = ledger.filter((e) => e.consumerId === 'B')
+                expect(bEntries).toHaveLength(wave2.length)
+                expect(new Map(bEntries.map((e) => [`${e.partition}:${e.offset}`, e.value]))).toEqual(
+                    new Map(wave2.map((r) => [`${r.partition}:${r.offset}`, r.value]))
+                )
             } finally {
                 await consumerA.disconnect()
                 await consumerB?.disconnect()
