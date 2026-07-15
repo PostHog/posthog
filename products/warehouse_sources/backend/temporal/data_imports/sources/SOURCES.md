@@ -336,6 +336,7 @@ the row lists both.
 | pipeliner                 | HTTP                        | requests                                                        | ✅                          |
 | plain                     | HTTP                        | requests                                                        | ✅                          |
 | planhat                   | HTTP                        | requests                                                        | ✅                          |
+| platform_sh               | HTTP                        | requests                                                        | ✅                          |
 | plausible                 | HTTP                        | requests                                                        | ✅                          |
 | polar                     | HTTP                        | requests                                                        | ✅                          |
 | plaid                     | HTTP                        | requests                                                        | ✅                          |
@@ -797,7 +798,6 @@ doesn't conflict with concurrent PRs.
 - pivotal_tracker
 - piwik
 - planetscale
-- platform_sh
 - plunk
 - pocket
 - podium
