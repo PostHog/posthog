@@ -292,18 +292,17 @@ class TestValidateActionMetadata:
         assert validate_action_metadata(None) is None
         assert validate_action_metadata({}) is None
 
-    @pytest.mark.parametrize(
-        "metadata",
+    @parameterized.expand(
         [
-            pytest.param(["kind"], id="not_a_dict"),
-            pytest.param({f"k{i}": "v" for i in range(21)}, id="too_many_entries"),
-            pytest.param({" ": "v"}, id="empty_key"),
-            pytest.param({1: "v"}, id="non_string_key"),
-            pytest.param({"k" * 101: "v"}, id="overlong_key"),
-            pytest.param({"count": 3}, id="non_string_value"),
-            pytest.param({"k": "v" * 1001}, id="overlong_value"),
-        ],
+            ("not_a_dict", ["kind"]),
+            ("too_many_entries", {f"k{i}": "v" for i in range(21)}),
+            ("empty_key", {" ": "v"}),
+            ("non_string_key", {1: "v"}),
+            ("overlong_key", {"k" * 101: "v"}),
+            ("non_string_value", {"count": 3}),
+            ("overlong_value", {"k": "v" * 1001}),
+        ]
     )
-    def test_rejects_bad_shapes(self, metadata) -> None:
+    def test_rejects_bad_shapes(self, _name: str, metadata) -> None:
         with pytest.raises(InvalidScoutReportError):
             validate_action_metadata(metadata)

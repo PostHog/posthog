@@ -248,6 +248,7 @@ rules:
                               |SignalScoutConfig
                               |SignalScoutRun
                               |SignalScoutEmission
+                              |SignalScoutReportAction
                               |SignalScratchpad
                               |SignalProjectProfile
                               |SingleSessionSummary
@@ -545,6 +546,7 @@ rules:
                         |SignalScoutConfig
                         |SignalScoutRun
                         |SignalScoutEmission
+                        |SignalScoutReportAction
                         |SignalScratchpad
                         |SignalProjectProfile
                         |SingleSessionSummary
