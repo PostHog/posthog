@@ -89,6 +89,10 @@ _SYSTEM_PROMPT = (
 
 _MARKDOWN_HEADING_RE = re.compile(r"^#{1,6}\s*(.+?)\s*#*$", re.MULTILINE)
 _MARKDOWN_BOLD_RE = re.compile(r"\*\*([^*]+)\*\*")
+# Markdown links in the report body (e.g. the alert header's scanner link). Only PostHog-hosted links
+# survive `strip_external_links_markdown`, so anything this matches is safe to hand Slack as a link;
+# left unconverted, Slack would render the raw `[label](url)` syntax as literal text.
+_MARKDOWN_LINK_RE = re.compile(r"\[([^\]]+)\]\((https?://[^\s)]+)\)")
 # `[obs N]` citation markers the model emits (see `_fetch_observations`); the in-app view and the Slack pass
 # both resolve them to observation links. The captured group is the 1-based observation number.
 _OBS_CITATION_RE = re.compile(r"\[obs (\d+)\]")
@@ -450,9 +454,11 @@ def _escape_slack_specials(text: str) -> str:
 
 
 def _markdown_to_slack(markdown: str, *, team_id: int, observation_ids: list[str]) -> str:
-    """Light Markdown→Slack-mrkdwn pass: headings and **bold** become *bold*, and `[obs N]` citations become
-    `[N]` links to each observation. Truncates long reports."""
+    """Light Markdown→Slack-mrkdwn pass: headings and **bold** become *bold*, `[obs N]` citations become
+    `[N]` links to each observation, and (PostHog-only) Markdown links become `<url|label>`. Truncates
+    long reports."""
     text = _citations_to_slack_links(_escape_slack_specials(markdown), team_id, observation_ids)
+    text = _MARKDOWN_LINK_RE.sub(lambda m: f"<{m.group(2)}|{m.group(1)}>", text)
     text = _MARKDOWN_HEADING_RE.sub(lambda m: f"*{m.group(1)}*", text)
     text = _MARKDOWN_BOLD_RE.sub(lambda m: f"*{m.group(1)}*", text)
     if len(text) > SLACK_TEXT_MAX:
