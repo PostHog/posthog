@@ -3503,7 +3503,7 @@ class RipplingSourceConfig(config.Config):
 
 @config.config
 class RoarkSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
