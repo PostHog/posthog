@@ -165,6 +165,9 @@ class TestCodyTransport:
         assert "granularity=by_user" in url
         assert "startDate=2025-06-15" in url and "endDate=2025-06-15" in url
         assert "instanceURL=example.com" in url
+        # Probe must stream and never read the body — a large per-user report can't be buffered.
+        assert session.get.call_args.kwargs["stream"] is True
+        session.get.return_value.close.assert_called_once()
 
     @parameterized.expand([(401,), (403,), (404,), (400,)])
     def test_validate_credentials_raises_user_facing_error(self, status_code):

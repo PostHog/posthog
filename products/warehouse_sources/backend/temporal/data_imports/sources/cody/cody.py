@@ -177,10 +177,14 @@ def validate_credentials(access_token: str, instance_url: str) -> bool:
     """
     today = datetime.now(UTC).date()
     config = CodyEndpointConfig(name="probe", path=REPORTS_PATH, granularity="by_user")
+    # Stream and close without reading the body: validation only inspects the status code, so a
+    # large per-user report never gets buffered into the API worker.
     response = _make_session(access_token).get(
         _build_url(config, instance_url, start=today, end=today),
         timeout=30,
+        stream=True,
     )
+    response.close()
     if response.status_code == 429 or response.status_code >= 500:
         raise CodyRetryableError(f"Sourcegraph Analytics API error (retryable): status={response.status_code}")
     if response.status_code == 200:
