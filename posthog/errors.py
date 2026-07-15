@@ -852,7 +852,11 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     609: ErrorCodeMeta("FUNCTION_ALREADY_EXISTS"),
     610: ErrorCodeMeta("CANNOT_DROP_FUNCTION"),
     611: ErrorCodeMeta("CANNOT_CREATE_RECURSIVE_FUNCTION"),
-    614: ErrorCodeMeta("POSTGRESQL_CONNECTION_FAILURE"),
+    614: ErrorCodeMeta(
+        "POSTGRESQL_CONNECTION_FAILURE",
+        user_safe="Couldn't reach the data source backing this query. This is usually temporary, so please try again.",
+        category=QueryErrorCategory.ERROR,
+    ),
     615: ErrorCodeMeta("CANNOT_ADVISE"),
     616: ErrorCodeMeta("UNKNOWN_READ_METHOD"),
     617: ErrorCodeMeta("LZ4_ENCODER_FAILED"),
