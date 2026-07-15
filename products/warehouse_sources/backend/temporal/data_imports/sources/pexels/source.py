@@ -58,7 +58,6 @@ Generate an API key from your [Pexels API dashboard](https://www.pexels.com/api/
 Attribution to Pexels and to the photographer/videographer is required when you use Pexels content — see the [Pexels API guidelines](https://www.pexels.com/api/documentation/#guidelines).""",
             iconPath="/static/services/pexels.png",
             docsUrl="https://posthog.com/docs/cdp/sources/pexels",
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [

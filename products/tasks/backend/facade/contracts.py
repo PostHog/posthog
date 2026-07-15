@@ -153,11 +153,28 @@ class TaskThreadMessageDTO:
 
     id: UUID
     task: UUID
+    author_kind: str
+    event: str
+    payload: dict
     content: str
     created_at: datetime
     author: "TaskUserBasicInfo | None" = None
     forwarded_to_agent_at: datetime | None = None
     forwarded_by: "TaskUserBasicInfo | None" = None
+
+
+@dataclass(frozen=True)
+class ChannelFeedMessageDTO:
+    """The HTTP representation of one system announcement in a channel's feed."""
+
+    id: UUID
+    channel: UUID
+    author_kind: str
+    event: str
+    payload: dict
+    content: str
+    created_at: datetime
+    author: "TaskUserBasicInfo | None" = None
 
 
 @dataclass(frozen=True)

@@ -1937,6 +1937,13 @@ class ExternalDataSourceType(StrEnum):
     WINDMILL = "Windmill"
     ZEP = "Zep"
     HEX = "Hex"
+    SINGULAR = "Singular"
+    SWONKIE = "Swonkie"
+    SUMSUB = "Sumsub"
+    GOOGLE_CHAT = "GoogleChat"
+    KICKSCALE = "Kickscale"
+    ZELLIFY = "Zellify"
+    RUDDER_STACK = "RudderStack"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -2021,6 +2028,7 @@ class FileSystemIconType(StrEnum):
     CONVERSATIONS = "conversations"
     TOOLBAR = "toolbar"
     VISUAL_REVIEW = "visual_review"
+    CODE_REVIEW = "code_review"
     SETTINGS = "settings"
     HEALTH = "health"
     INBOX = "inbox"
@@ -2032,6 +2040,7 @@ class FileSystemIconType(StrEnum):
     LLM_PLAYGROUND = "llm_playground"
     LLM_PROMPTS = "llm_prompts"
     LLM_CLUSTERS = "llm_clusters"
+    MCP_ANALYTICS = "mcp_analytics"
     EXPORTS = "exports"
 
 
@@ -2330,6 +2339,7 @@ class IntegrationKind(StrEnum):
     CUSTOMERIO_APP = "customerio-app"
     CUSTOMERIO_WEBHOOK = "customerio-webhook"
     CUSTOMERIO_TRACK = "customerio-track"
+    APNS = "apns"
     POSTGRESQL = "postgresql"
     AWS_S3 = "aws-s3"
     S3_COMPATIBLE = "s3-compatible"
@@ -2772,6 +2782,7 @@ class ProductIntentContext(StrEnum):
     EXPERIMENT_ANALYZED = "experiment analyzed"
     FEATURE_FLAG_CREATED = "feature flag created"
     SESSION_REPLAY_SET_FILTERS = "session_replay_set_filters"
+    SESSION_REPLAY_EXPERIMENT_LINK_CLICKED = "session_replay_experiment_link_clicked"
     ERROR_TRACKING_EXCEPTION_AUTOCAPTURE_ENABLED = "error_tracking_exception_autocapture_enabled"
     ERROR_TRACKING_ISSUE_SORTING = "error_tracking_issue_sorting"
     ERROR_TRACKING_DOCS_VIEWED = "error_tracking_docs_viewed"
@@ -2915,6 +2926,7 @@ class ProductKey(StrEnum):
     PRODUCT_ANALYTICS = "product_analytics"
     PRODUCT_TOURS = "product_tours"
     REVENUE_ANALYTICS = "revenue_analytics"
+    REVIEW_HOG = "review_hog"
     SESSION_REPLAY = "session_replay"
     REPLAY_VISION = "replay_vision"
     SITE_APPS = "site_apps"

@@ -53,7 +53,6 @@ class BigMailerSource(ResumableSource[BigMailerSourceConfig, BigMailerResumeConf
             releaseStatus=ReleaseStatus.ALPHA,
             # Kept hidden from the connector catalog while the source is validated end-to-end; flip this
             # off (delete the line) to make it connectable.
-            unreleasedSource=True,
             caption="""Enter your BigMailer API key to sync your BigMailer data into the PostHog Data warehouse.
 
 Create an API key in your BigMailer console under **Account Settings → API Keys**. The key has account-wide access, so no extra scopes need to be granted.""",
