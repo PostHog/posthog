@@ -209,11 +209,12 @@ def _persist_fired(
     markdown = strip_external_links_markdown(_alert_markdown(action, alert_config, metric_value, matched_count, rows))
     # Links are added AFTER the strip pass (like the Slack citation links) so the URLs aren't defanged
     # on instances whose SITE_URL isn't a posthog.com host (self-hosted, dev).
-    markdown = _linkify_header_scanner(markdown, action, team.id)
+    run_url = _run_url(team.id, str(action.id), str(run.pk))
+    markdown = _linkify_header(markdown, action, run_url)
     if matched_count > EXAMPLE_LINES:
         # More matches than the message lists as examples — point at the run page, which shows every
         # match this alert included (capped at MAX_OBSERVATIONS).
-        markdown += f"\n\n[See all {matched_count:,} matches]({_run_url(team.id, str(action.id), str(run.pk))})"
+        markdown += f"\n\n[See all {matched_count:,} matches]({run_url})"
     run.synthesized_markdown = markdown
     run.output = {"slack": _markdown_to_slack(markdown, team_id=team.id, observation_ids=observation_ids)}
     run.observation_count = matched_count
@@ -227,33 +228,29 @@ def _format_number(value: float) -> str:
     return str(int(value)) if float(value).is_integer() else f"{value:.2f}"
 
 
-def _scanner_url(team_id: int, scanner_id: str) -> str:
-    return f"{settings.SITE_URL}/project/{team_id}/replay-vision/{scanner_id}"
-
-
 def _run_url(team_id: int, action_id: str, run_id: str) -> str:
     return f"{settings.SITE_URL}/project/{team_id}/replay-vision/actions/{action_id}/runs/{run_id}"
 
 
 def _scanner_display_name(action: Any) -> str:
     # Scanner name is free text; strip markdown/mrkdwn control chars so it can't garble the bold
-    # header, plus link syntax chars so it can't break out of the scanner link's label.
+    # header, plus link syntax chars so it can't break out of the header link's label.
     raw_name = action.scanner.name if action.scanner_id else ""
     return re.sub(r"\s+", " ", re.sub(r"[*_`#\[\]()]", "", raw_name)).strip() or "your scanner"
 
 
-def _linkify_header_scanner(markdown: str, action: Any, team_id: int) -> str:
-    """Wrap the header's scanner name in a link to the scanner page. A name the strip pass rewrote
-    (e.g. it contained a bare URL, now a code span) won't match the expected header — leave it
-    unlinked rather than guess."""
+def _linkify_header(markdown: str, action: Any, run_url: str) -> str:
+    """Wrap the header's scanner name in a link to this alert's run page — the alert's own message
+    plus every matching observation (and breadcrumbs back to the scanner). A name the strip pass
+    rewrote (e.g. it contained a bare URL, now a code span) won't match the expected header — leave
+    it unlinked rather than guess."""
     if not action.scanner_id:
         return markdown
     name = _scanner_display_name(action)
     prefix = f"**Alert: {name}**"
     if not markdown.startswith(prefix):
         return markdown
-    linked = f"**Alert: [{name}]({_scanner_url(team_id, str(action.scanner_id))})**"
-    return linked + markdown[len(prefix) :]
+    return f"**Alert: [{name}]({run_url})**" + markdown[len(prefix) :]
 
 
 def _alert_markdown(
