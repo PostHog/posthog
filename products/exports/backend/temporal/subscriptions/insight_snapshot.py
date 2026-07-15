@@ -38,6 +38,17 @@ def _json_safe_value(val: Any) -> Any:
     return to_jsonable_python(val, fallback=lambda x: str(x))
 
 
+def _strip_null_bytes(value: Any) -> Any:
+    """Recursively remove NUL (\\x00) from strings — Postgres text/jsonb columns cannot store it."""
+    if isinstance(value, str):
+        return value.replace("\x00", "")
+    if isinstance(value, list):
+        return [_strip_null_bytes(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _strip_null_bytes(v) for k, v in value.items()}
+    return value
+
+
 def build_initial_content_snapshot(subscription: Subscription) -> dict[str, Any]:
     """Skeleton ``content_snapshot`` persisted when a delivery row is created.
 
@@ -71,22 +82,28 @@ def _serialize_insight_result(result: InsightResult) -> dict[str, Any]:
     # json.dumps (Django JSONField's default encoder) emits for non-finite floats.
     # `default=str` covers types orjson doesn't serialize natively (notably Decimal) the way
     # DjangoJSONEncoder would have, so switching encoders is a no-op for non-finite-float payloads.
-    return orjson.loads(
-        orjson.dumps(
-            {
-                "result": result.result,
-                "columns": result.columns,
-                "types": result.types,
-                "resolved_date_range": _json_safe_value(result.resolved_date_range),
-                "last_refresh": result.last_refresh.isoformat() if result.last_refresh else None,
-                "is_cached": result.is_cached,
-                "timezone": result.timezone,
-                "has_more": result.has_more,
-                "query_status": _json_safe_value(result.query_status),
-            },
-            default=str,
-        )
+    dumped = orjson.dumps(
+        {
+            "result": result.result,
+            "columns": result.columns,
+            "types": result.types,
+            "resolved_date_range": _json_safe_value(result.resolved_date_range),
+            "last_refresh": result.last_refresh.isoformat() if result.last_refresh else None,
+            "is_cached": result.is_cached,
+            "timezone": result.timezone,
+            "has_more": result.has_more,
+            "query_status": _json_safe_value(result.query_status),
+        },
+        default=str,
     )
+    parsed = orjson.loads(dumped)
+    # Query results can carry NUL bytes from upstream data. Django's JSONField serializes a NUL to
+    # a unicode escape that Postgres text/jsonb columns reject, which fails the whole delivery write.
+    # orjson emits that same escape sequence for a real NUL, so gate the (rare) recursive strip on
+    # its presence to avoid walking multi-MB payloads on every delivery.
+    if b"\\u0000" in dumped:
+        parsed = _strip_null_bytes(parsed)
+    return parsed
 
 
 def _insight_snapshot_base_metadata(*, insight: Insight, tile: DashboardTile | None) -> dict[str, Any]:
