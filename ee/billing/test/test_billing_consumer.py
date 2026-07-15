@@ -1,6 +1,8 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
+
 from posthog.models import Organization, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 
@@ -109,6 +111,22 @@ class TestBillingConsumerBillingActivity(BaseTest):
         log = ActivityLog.objects.get(scope="Billing")
         assert log.user_id is None
         assert log.is_system is True
+
+    @parameterized.expand(
+        [
+            ("empty_string", ""),
+            ("garbage", "not-an-ip"),
+            ("non_string", 12345),
+            ("missing", None),
+        ]
+    )
+    def test_malformed_ip_is_dropped_instead_of_blocking_the_queue(self, _name, bad_ip):
+        # A malformed IP must not reach the IP column and fail the write; otherwise the message
+        # would loop on redelivery forever. The row is still written, just without an IP.
+        self._build_consumer()._process_billing_activity(self._message(ip_address=bad_ip))
+
+        log = ActivityLog.objects.get(scope="Billing")
+        assert log.ip_address is None
 
     @patch(f"{CONSUMER}.capture_exception")
     def test_missing_organization_id_skips_and_captures(self, mock_capture):
