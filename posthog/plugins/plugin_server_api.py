@@ -1,5 +1,5 @@
 import json
-from typing import Union
+from typing import Optional, Union
 
 import requests
 import structlog
@@ -110,6 +110,26 @@ def create_hog_flow_scheduled_invocation(
 def get_hog_flow_in_flight_count(team_id: int, hog_flow_id: str) -> requests.Response:
     return internal_requests.get(
         CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/in_flight_count",
+        headers=get_internal_api_headers(),
+    )
+
+
+def reschedule_hog_flow_parked_jobs(
+    team_id: int,
+    hog_flow_id: str,
+    action_ids: list[str],
+    sweep_floor: Optional[str] = None,
+    sweep_until: Optional[str] = None,
+) -> requests.Response:
+    """One slice of the timing-edit reschedule sweep. Callers loop, threading the returned
+    sweep_floor/sweep_until into follow-up slices, until the response says done."""
+    payload: dict = {"action_ids": action_ids}
+    if sweep_floor and sweep_until:
+        payload["sweep_floor"] = sweep_floor
+        payload["sweep_until"] = sweep_until
+    return internal_requests.post(
+        CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/reschedule_parked",
+        json=payload,
         headers=get_internal_api_headers(),
     )
 
