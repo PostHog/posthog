@@ -123,6 +123,7 @@ export function TimeSeriesComboChart<Meta = unknown>({
     const comboChartConfig: ComboChartConfig = {
         yScaleType: primaryYAxis?.scale,
         xTickFormatter,
+        xTickLabelRotation: xAxis?.tickLabelRotation,
         yTickFormatter,
         hideXAxis: xAxis?.hide,
         hideYAxis: yAxes ? yAxes.length > 0 && yAxes.every((a) => a.hide) : primaryYAxis?.hide,

@@ -135,6 +135,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
     const lineChartConfig: LineChartConfig = {
         yScaleType: primaryYAxis?.scale,
         xTickFormatter,
+        xTickLabelRotation: xAxis?.tickLabelRotation,
         yTickFormatter,
         hideXAxis: xAxis?.hide,
         // Multi-axis: each axis hides its own gutter; collapse globally only when all are hidden.
