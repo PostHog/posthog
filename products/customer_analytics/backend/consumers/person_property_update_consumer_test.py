@@ -1,7 +1,7 @@
 import json
 
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
@@ -79,14 +79,18 @@ class TestBuildCaptureKwargs:
             build_capture_kwargs(payload)
 
 
+def _capture_result(*, succeeded: bool, dropped: list[str] | None = None) -> MagicMock:
+    return MagicMock(succeeded=MagicMock(return_value=succeeded), dropped=dropped or [])
+
+
 class TestProcessRecord:
-    def _consumer(self, capture_fn):
+    def _consumer(self, capture_fn, dlq=None):
         # No-op token bucket so tests don't sleep.
         bucket = MagicMock()
-        return PersonPropertyUpdateConsumer(capture_fn=capture_fn, bucket=bucket, dlq_producer=MagicMock())
+        return PersonPropertyUpdateConsumer(capture_fn=capture_fn, bucket=bucket, dlq_producer=dlq or MagicMock())
 
     def test_successful_send_commits(self):
-        capture = MagicMock(return_value=MagicMock(succeeded=MagicMock(return_value=True)))
+        capture = MagicMock(return_value=_capture_result(succeeded=True))
         c = self._consumer(capture)
         value = json.dumps({"token": "t", "distinct_id": "a", "properties": {"p": 1}}).encode()
 
@@ -94,8 +98,9 @@ class TestProcessRecord:
         assert capture.call_args.kwargs["event_name"] == "$set"
         assert capture.call_args.kwargs["process_person_profile"] is True
 
-    def test_capture_failure_is_left_for_retry(self):
-        capture = MagicMock(return_value=MagicMock(succeeded=MagicMock(return_value=False)))
+    def test_transient_capture_failure_is_left_for_retry(self):
+        # Not succeeded and nothing dropped -> transient (exhausted retries / unaccounted): redeliver.
+        capture = MagicMock(return_value=_capture_result(succeeded=False))
         c = self._consumer(capture)
         value = json.dumps({"token": "t", "distinct_id": "a", "properties": {"p": 1}}).encode()
 
@@ -108,9 +113,23 @@ class TestProcessRecord:
 
         assert c.process_record(value) == RETRY
 
+    def test_terminal_drop_goes_to_dlq_not_retry(self):
+        # A dropped event is a permanent rejection (bad token, validation): DLQ it so it can't be
+        # redelivered forever and wedge the partition.
+        capture = MagicMock(return_value=_capture_result(succeeded=False, dropped=["uid"]))
+        dlq = MagicMock()
+        c = self._consumer(capture, dlq=dlq)
+        value = json.dumps({"token": "t", "distinct_id": "a", "properties": {"p": 1}}).encode()
+
+        assert c.process_record(value) == DLQ
+        dlq.produce.assert_called_once()
+
     @parameterized.expand(
         [
             ("invalid_json", b"not json"),
+            ("non_object_array", b"[]"),
+            ("non_object_string", b'"foo"'),
+            ("non_object_null", b"null"),
             ("poison_shape", json.dumps({"distinct_id": "a", "properties": {"p": 1}}).encode()),
         ]
     )
@@ -122,3 +141,26 @@ class TestProcessRecord:
         assert c.process_record(value) == DLQ
         dlq.produce.assert_called_once()
         capture.assert_not_called()
+
+    def test_failed_dlq_delivery_is_retried_not_dropped(self):
+        # If the DLQ write itself fails to deliver, we must not commit the source offset: return
+        # RETRY so the poison message is redelivered instead of vanishing from both topics.
+        capture = MagicMock()
+        dlq = MagicMock()
+        dlq.produce.return_value.get.side_effect = RuntimeError("delivery failed")
+        c = PersonPropertyUpdateConsumer(capture_fn=capture, bucket=MagicMock(), dlq_producer=dlq)
+
+        assert c.process_record(b"not json") == RETRY
+
+    def test_dlq_producer_is_created_once_and_reused(self):
+        # A poison-heavy partition must not open a new Kafka producer per message; the producer is
+        # built lazily on first use and cached.
+        with patch(
+            "products.customer_analytics.backend.consumers.person_property_update_consumer._KafkaProducer"
+        ) as producer_cls:
+            c = PersonPropertyUpdateConsumer(capture_fn=MagicMock(), bucket=MagicMock())
+            c.process_record(b"not json")
+            c.process_record(b"still not json")
+
+        producer_cls.assert_called_once()
+        assert producer_cls.return_value.produce.call_count == 2

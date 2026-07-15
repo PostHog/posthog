@@ -34,7 +34,13 @@ EVENT_SOURCE = "customer_analytics_person_property_sync"
 
 SENT_TOTAL = Counter("warehouse_person_property_sent_total", "person-property $set events sent to capture")
 DLQ_TOTAL = Counter("warehouse_person_property_dlq_total", "person-property update messages routed to DLQ")
+DLQ_FAILED_TOTAL = Counter(
+    "warehouse_person_property_dlq_failed_total", "person-property DLQ writes that failed to deliver"
+)
 RETRY_TOTAL = Counter("warehouse_person_property_retry_total", "person-property update messages left for redelivery")
+
+# How long to wait for a DLQ produce to be acknowledged before treating it as failed.
+_DLQ_DELIVERY_TIMEOUT_SECONDS = 30.0
 
 
 class InvalidPersonPropertyMessage(Exception):
@@ -124,15 +130,32 @@ class PersonPropertyUpdateConsumer:
         self._dlq_producer = dlq_producer
         self._shutdown = False
 
+    def _get_dlq_producer(self) -> Any:
+        # Kafka producers are heavyweight (connections, buffers, threads); create once and reuse
+        # rather than per-message. Lazy so a consumer that never hits a poison message never
+        # opens a producer, and so tests inject their own without touching the Kafka stack.
+        if self._dlq_producer is None:
+            self._dlq_producer = _KafkaProducer()
+        return self._dlq_producer
+
     def _dlq(self, value: bytes, reason: str) -> str:
+        """Route a poison message to the DLQ. Returns ``DLQ`` only once the write is confirmed
+        delivered; a failed DLQ write returns ``RETRY`` so the source offset stays uncommitted and
+        the message is redelivered rather than silently dropped from both topics."""
         logger.warning("person_property_update.dlq", reason=reason)
-        DLQ_TOTAL.inc()
-        producer = self._dlq_producer or _KafkaProducer()
-        producer.produce(
+        producer = self._get_dlq_producer()
+        result = producer.produce(
             topic=KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES_DLQ,
             data={"raw": value.decode("utf-8", "replace"), "reason": reason},
         )
         producer.flush()
+        try:
+            result.get(timeout=_DLQ_DELIVERY_TIMEOUT_SECONDS)
+        except Exception:
+            DLQ_FAILED_TOTAL.inc()
+            logger.exception("person_property_update.dlq_delivery_failed", reason=reason)
+            return RETRY
+        DLQ_TOTAL.inc()
         return DLQ
 
     def process_record(self, value: bytes) -> str:
@@ -141,6 +164,10 @@ class PersonPropertyUpdateConsumer:
             payload = json.loads(value)
         except (ValueError, TypeError):
             return self._dlq(value, "invalid_json")
+        # Valid JSON that isn't an object (``[]``, ``"foo"``, ``null``) parses fine but can never map
+        # to a $set; DLQ it instead of letting build_capture_kwargs crash and wedge the partition.
+        if not isinstance(payload, dict):
+            return self._dlq(value, "payload_not_object")
         try:
             kwargs = build_capture_kwargs(payload)
         except InvalidPersonPropertyMessage as exc:
@@ -159,6 +186,11 @@ class PersonPropertyUpdateConsumer:
         if result.succeeded():
             SENT_TOTAL.inc()
             return SENT
+        # A drop is terminal: capture rejected the event permanently (e.g. invalid/stale token,
+        # validation failure), so it's poison. DLQ it rather than redelivering forever. Everything
+        # else (exhausted retries, unaccounted, whole-request error) is transient -> leave for retry.
+        if result.dropped:
+            return self._dlq(value, "capture_dropped")
         RETRY_TOTAL.inc()
         return RETRY
 
