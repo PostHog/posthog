@@ -1981,7 +1981,7 @@ class KekaSourceConfig(config.Config):
 
 @config.config
 class KernelSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2988,7 +2988,7 @@ class PromptingCompanySourceConfig(config.Config):
 
 @config.config
 class PyPISourceConfig(config.Config):
-    pass
+    packages: str
 
 
 @config.config

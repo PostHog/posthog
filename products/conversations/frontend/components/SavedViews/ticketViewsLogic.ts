@@ -3,9 +3,15 @@ import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 
+import {
+    conversationsViewsCreate,
+    conversationsViewsDestroy,
+    conversationsViewsList,
+    conversationsViewsPartialUpdate,
+} from '../../generated/api'
+import type { PatchedTicketViewApi, TicketViewApiFilters } from '../../generated/api.schemas'
 import { supportTicketsSceneLogic } from '../../scenes/tickets/supportTicketsSceneLogic'
 import type { SavedTicketView, TicketViewFilters } from '../../types'
 import type { ticketViewsLogicType } from './ticketViewsLogicType'
@@ -14,7 +20,10 @@ export interface TicketViewsLogicProps {
     id: string
 }
 
-const viewsUrl = (teamId: number | null): string => `api/environments/${teamId}/conversations/views`
+export interface TicketViewChanges {
+    name?: string
+    filters?: TicketViewFilters
+}
 
 export const ticketViewsLogic = kea<ticketViewsLogicType>([
     props({} as TicketViewsLogicProps),
@@ -22,12 +31,14 @@ export const ticketViewsLogic = kea<ticketViewsLogicType>([
     path((key) => ['products', 'conversations', 'frontend', 'components', 'SavedViews', 'ticketViewsLogic', key]),
 
     connect(() => ({
-        values: [teamLogic, ['currentTeamId'], supportTicketsSceneLogic, ['currentFilters']],
+        values: [teamLogic, ['currentTeamId'], supportTicketsSceneLogic, ['currentFilters', 'activeView']],
         actions: [supportTicketsSceneLogic, ['applyViewFilters', 'setActiveView']],
     })),
 
     actions({
         deleteView: (shortId: string) => ({ shortId }),
+        updateView: (shortId: string, changes: TicketViewChanges) => ({ shortId, changes }),
+        viewUpdated: (view: SavedTicketView) => ({ view }),
         loadView: (view: SavedTicketView) => ({ view }),
         openModal: true,
         closeModal: true,
@@ -42,16 +53,14 @@ export const ticketViewsLogic = kea<ticketViewsLogicType>([
             [] as SavedTicketView[],
             {
                 loadViews: async () => {
-                    // nosemgrep: prefer-codegen-api
-                    const response = await api.get(viewsUrl(values.currentTeamId))
-                    return response.results
+                    const response = await conversationsViewsList(String(values.currentTeamId))
+                    return response.results as unknown as SavedTicketView[]
                 },
                 createView: async ({ name, filters }: { name: string; filters: TicketViewFilters }) => {
-                    // nosemgrep: prefer-codegen-api
-                    const created: SavedTicketView = await api.create(viewsUrl(values.currentTeamId), {
+                    const created = (await conversationsViewsCreate(String(values.currentTeamId), {
                         name,
-                        filters,
-                    })
+                        filters: filters as TicketViewApiFilters,
+                    })) as unknown as SavedTicketView
                     lemonToast.success('View saved')
                     return [created, ...values.views]
                 },
@@ -62,6 +71,7 @@ export const ticketViewsLogic = kea<ticketViewsLogicType>([
     reducers({
         views: {
             deleteView: (state, { shortId }) => state.filter((v) => v.short_id !== shortId),
+            viewUpdated: (state, { view }) => state.map((v) => (v.short_id === view.short_id ? view : v)),
         },
         isModalOpen: [
             false,
@@ -102,11 +112,28 @@ export const ticketViewsLogic = kea<ticketViewsLogicType>([
         },
         deleteView: async ({ shortId }) => {
             try {
-                // nosemgrep: prefer-codegen-api
-                await api.delete(`${viewsUrl(values.currentTeamId)}/${shortId}`)
+                await conversationsViewsDestroy(String(values.currentTeamId), shortId)
                 lemonToast.success('View deleted')
             } catch {
                 lemonToast.error('Failed to delete view')
+                actions.loadViews()
+            }
+        },
+        updateView: async ({ shortId, changes }) => {
+            try {
+                const updated = (await conversationsViewsPartialUpdate(
+                    String(values.currentTeamId),
+                    shortId,
+                    changes as PatchedTicketViewApi
+                )) as unknown as SavedTicketView
+                actions.viewUpdated(updated)
+                // Keep the header indicator and URL state in sync when the loaded view changes
+                if (values.activeView?.short_id === shortId) {
+                    actions.setActiveView(updated)
+                }
+                lemonToast.success('View updated')
+            } catch {
+                lemonToast.error('Failed to update view')
                 actions.loadViews()
             }
         },

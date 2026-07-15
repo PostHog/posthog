@@ -2053,7 +2053,7 @@ pipeline just built + hardened).
 
 ```text
 reviewhog label on a non-fork PostHog/posthog PR
-  └─ .github/workflows/review-hog.yml   (gates: label==reviewhog, head.repo==base.repo, non-bot, non-draft, concurrency)
+  └─ .github/workflows/review-hog.yml   (gates: label==reviewhog, head.repo==base.repo, non-bot, concurrency; drafts allowed)
        └─ one authenticated curl  →  POST /api/review_hog/trigger  {repo, pr_number}   (Authorization: Bearer <secret>)
             └─ endpoint: verify shared secret · validate repo allowlist (forks blocked upstream by the Action
                  + downstream by the fetch activity) · resolve team-2 integration + run user
@@ -2118,8 +2118,8 @@ github-actions[bot] trick), and its Action carries **one** secret (no Anthropic 
    the review is **pinned to the reviewed `head_sha`** via `commit=repo_obj.get_commit(head_sha)`. Fork rejection is
    authoritative in the **fetch activity** (`PRMetadata.is_fork`, non-retryable `ApplicationError` before the report
    row is created).
-4. ✅ **The Action:** `.github/workflows/review-hog.yml` — `on: pull_request [labeled, ready_for_review, synchronize]`,
-   `permissions: {}`, per-PR concurrency, `if:` gates (label + non-fork + non-bot + non-draft), one `curl` with the
+4. ✅ **The Action:** `.github/workflows/review-hog.yml` — `on: pull_request [labeled]`,
+   `permissions: {}`, per-PR concurrency, `if:` gates (label + non-fork + non-bot; drafts allowed), one `curl` with the
    bearer secret. `pull_request` (not `pull_request_target`) ⇒ forks get no secret ⇒ can't trigger.
    **2026-07-14 update:** `synchronize` dropped (ADR 0002) — pushes no longer re-trigger; re-review = re-add the
    label (or mark an already-labeled draft ready).
