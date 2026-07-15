@@ -88,7 +88,7 @@ class TestPagination:
         rows = _run(endpoint, fetch)
 
         assert len(rows) == size * 2 + 2
-        assert fetch.requested == [1, 2, 3]  # type: ignore[attr-defined]
+        assert fetch.requested == [1, 2, 3]
 
     def test_total_stops_before_an_empty_page(self) -> None:
         # A full final page whose count equals `total` must not trigger one more (empty) request.
@@ -98,7 +98,7 @@ class TestPagination:
         rows = _run("sessions", fetch)
 
         assert len(rows) == size + 1
-        assert fetch.requested == [1, 2]  # type: ignore[attr-defined]
+        assert fetch.requested == [1, 2]
 
     def test_correct_pagination_param_sent(self) -> None:
         # /browsers uses pageNumber/pageSize, not page/page_size — sending the wrong name would
@@ -166,23 +166,27 @@ class TestSessionMessagesFanOut:
 
     def test_fans_out_over_sessions_with_cursor(self) -> None:
         # Two sessions, one paginated via the `after` cursor; every message must be collected and
-        # tagged with its own session id (the composite [sessionId, id] key depends on it).
+        # stamped with its parent session id. The raw child payload omits `sessionId`, so the source
+        # has to inject it — the composite [sessionId, id] primary key depends on it being present.
         sessions_pages = [[{"id": "s1"}, {"id": "s2"}]]
         messages = {
             "s1": [
-                [{"id": "m1", "sessionId": "s1"}, {"id": "m2", "sessionId": "s1"}],
-                [{"id": "m3", "sessionId": "s1"}],
+                [{"id": "m1"}, {"id": "m2"}],
+                [{"id": "m3"}],
             ],
-            "s2": [[{"id": "m9", "sessionId": "s2"}]],
+            "s2": [[{"id": "m9"}]],
         }
         rows = _run("session_messages", self._fetch(sessions_pages, messages))
 
         assert [r["id"] for r in rows] == ["m1", "m2", "m3", "m9"]
         assert {r["id"] for r in rows if r["sessionId"] == "s1"} == {"m1", "m2", "m3"}
+        assert {r["id"] for r in rows if r["sessionId"] == "s2"} == {"m9"}
 
-    def test_resumes_into_bookmarked_session(self) -> None:
-        # A saved bookmark must skip already-finished sessions and continue from the saved cursor,
-        # not restart the whole fan-out.
+    def test_resumes_cursor_within_bookmarked_session(self) -> None:
+        # The saved `after` cursor must apply only to the bookmarked session (s2 continues from m8).
+        # Earlier sessions are re-walked rather than sliced away: the API has no stable ordering, so
+        # skipping them would drop rows for any session that reordered ahead of the bookmark. Merge
+        # dedupes the re-pulled rows downstream on the [sessionId, id] primary key.
         sessions_pages = [[{"id": "s1"}, {"id": "s2"}]]
         messages = {
             "s1": [[{"id": "m1", "sessionId": "s1"}]],
@@ -191,7 +195,7 @@ class TestSessionMessagesFanOut:
         manager = _FakeResumableManager(BrowserUseResumeConfig(session_id="s2", after="m8"))
         rows = _run("session_messages", self._fetch(sessions_pages, messages), manager)
 
-        assert [r["id"] for r in rows] == ["m9"]
+        assert [r["id"] for r in rows] == ["m1", "m9"]
 
     def test_missing_bookmark_restarts_from_first_session(self) -> None:
         # If the bookmarked session was deleted between runs, fan-out restarts (merge dedupes).
@@ -222,7 +226,7 @@ class TestFetchPage:
         response = MagicMock()
         response.status_code = 401
         response.ok = False
-        response.raise_for_status.side_effect = requests.HTTPError("401 Client Error")
+        response.raise_for_status.side_effect = requests.HTTPError("401 Client Error", response=response)
         session = MagicMock()
         session.get.return_value = response
 

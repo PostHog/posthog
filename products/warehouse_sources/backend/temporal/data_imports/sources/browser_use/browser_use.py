@@ -66,7 +66,9 @@ def _fetch_page(session: requests.Session, url: str, headers: dict[str, str], lo
         raise BrowserUseRetryableError(f"Browser Use API error (retryable): status={response.status_code}, url={url}")
 
     if not response.ok:
-        logger.error(f"Browser Use API error: status={response.status_code}, body={response.text}, url={url}")
+        # Log status + URL only. Error bodies can echo prompt/message content or other tenant data,
+        # which must not land in application logs outside warehouse-table access controls.
+        logger.error(f"Browser Use API error: status={response.status_code}, url={url}")
         response.raise_for_status()
 
     return response.json()
@@ -76,7 +78,7 @@ def validate_credentials(api_key: str) -> bool:
     # The cheapest genuine token probe: list a single session. 200 means the key is accepted.
     url = _build_url("/sessions", {"page_size": 1})
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_key), timeout=10)
+        response = make_tracked_session(redact_values=(api_key,)).get(url, headers=_get_headers(api_key), timeout=10)
         return response.status_code == 200
     except Exception:
         return False
@@ -154,27 +156,30 @@ def _get_session_message_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     session_ids = list(_iter_session_ids(session, headers, logger))
 
-    # Resolve the saved session bookmark to the slice of sessions still to process. If the
-    # bookmarked session no longer exists (deleted between runs), start over from the first session
-    # — merge dedupes the re-pulled rows on the [sessionId, id] primary key.
+    # Resume only fast-forwards the message cursor *within* the session that was mid-read at the
+    # crash; we deliberately re-walk every session rather than slicing the list from the bookmark.
+    # The API guarantees no session ordering, so a session that reorders (or is newly inserted)
+    # ahead of the bookmark between runs would be skipped for the whole resumed run if we sliced.
+    # Re-pulling already-synced sessions is cheap correctness insurance — merge dedupes the rows on
+    # the [sessionId, id] primary key.
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    remaining = session_ids
-    resume_after: str | None = None
-    if resume is not None and resume.session_id is not None and resume.session_id in session_ids:
-        remaining = session_ids[session_ids.index(resume.session_id) :]
-        resume_after = resume.after
-        logger.debug(f"Browser Use: resuming session_messages from session_id={resume.session_id}")
+    resume_session_id = resume.session_id if resume is not None else None
+    resume_after = resume.after if resume is not None else None
+    if resume_session_id is not None:
+        logger.debug(f"Browser Use: resuming session_messages cursor within session_id={resume_session_id}")
 
-    for index, session_id in enumerate(remaining):
-        after = resume_after
-        resume_after = None  # only the resumed-into session uses the saved cursor
+    for index, session_id in enumerate(session_ids):
+        # Only the bookmarked session continues from its saved cursor; every other session restarts.
+        after = resume_after if session_id == resume_session_id else None
         path = config.path.format(session_id=session_id)
 
         while True:
             data = _fetch_page(session, _build_url(path, {"after": after, "limit": config.page_size}), headers, logger)
             messages = data.get(config.data_key) or []
             if messages:
-                yield messages
+                # Stamp the parent session id: the child endpoint may omit it from each message, but
+                # it's half of the declared [sessionId, id] primary key, so the merge needs it present.
+                yield [{**message, "sessionId": session_id} for message in messages]
 
             has_more = bool(data.get("hasMore")) and bool(messages)
             if not has_more:
@@ -184,8 +189,8 @@ def _get_session_message_rows(
             resumable_source_manager.save_state(BrowserUseResumeConfig(session_id=session_id, after=after))
 
         # Advance the bookmark to the next session so a crash between sessions resumes correctly.
-        if index + 1 < len(remaining):
-            resumable_source_manager.save_state(BrowserUseResumeConfig(session_id=remaining[index + 1], after=None))
+        if index + 1 < len(session_ids):
+            resumable_source_manager.save_state(BrowserUseResumeConfig(session_id=session_ids[index + 1], after=None))
 
 
 def get_rows(
@@ -197,8 +202,9 @@ def get_rows(
     config = BROWSER_USE_ENDPOINTS[endpoint]
     headers = _get_headers(api_key)
     # One session reused across every page (and, for fan-out, every child request) so urllib3 keeps
-    # the connection alive instead of re-handshaking per request.
-    session = make_tracked_session()
+    # the connection alive instead of re-handshaking per request. Register the key for redaction so
+    # the shared HTTP observer masks it anywhere it surfaces in captured URLs or samples.
+    session = make_tracked_session(redact_values=(api_key,))
 
     if config.fan_out_over_sessions:
         yield from _get_session_message_rows(session, headers, logger, resumable_source_manager, config)

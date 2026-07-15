@@ -83,6 +83,9 @@ You can create a non-expiring API key at [cloud.browser-use.com/settings](https:
             # Retrying can never satisfy a credential problem, so stop the sync. Match the stable
             # status text and base host, not the per-request path.
             "401 Client Error: Unauthorized for url: https://api.browser-use.com": "Your Browser Use API key is invalid or has been revoked. Create a new key at cloud.browser-use.com/settings, then reconnect.",
+            # A 403 means the key is valid but lacks access to the resource; retrying can never
+            # satisfy a permission problem, so surface it as terminal too.
+            "403 Client Error: Forbidden for url: https://api.browser-use.com": "Your Browser Use API key does not have permission to access this Browser Use resource. Check the key permissions, then reconnect.",
         }
 
     def get_schemas(
@@ -130,6 +133,9 @@ You can create a non-expiring API key at [cloud.browser-use.com/settings](https:
         resumable_source_manager: ResumableSourceManager[BrowserUseResumeConfig],
         inputs: SourceInputs,
     ) -> SourceResponse:
+        if inputs.schema_name not in BROWSER_USE_ENDPOINTS:
+            raise ValueError(f"Unknown Browser Use schema '{inputs.schema_name}'")
+
         return browser_use_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
