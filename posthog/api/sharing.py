@@ -264,7 +264,7 @@ def get_global_themes():
 
 # Rendering-only flags evaluated for the resource creator, so exported and shared charts
 # render with the same styling the creator sees in-app (the anonymous exporter page has
-# no user to evaluate flags for otherwise).
+# no user to evaluate flags for otherwise). Remove entries once their rollout is complete.
 CHART_RENDERING_FEATURE_FLAGS = ["quill-chart-style-refresh"]
 
 
@@ -1212,6 +1212,9 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             # result so the exporter page can render `<Query cachedResults={…} />` without POSTing
             # to the query API (which the asset token can't authenticate). The image exporter warms
             # the cache right before rendering, so this is normally a cache hit.
+            # Render-once assets: only the exporter's short-lived render token may trigger this compute.
+            if self._token_purpose != EXPORTED_ASSET_PURPOSE_RENDER:
+                raise NotFound()
             source_query = resource.export_context["source"]
             execution_mode = shared_insights_execution_mode(
                 ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
