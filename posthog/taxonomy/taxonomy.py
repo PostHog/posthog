@@ -2246,6 +2246,18 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The number of tokens created in the cache for the input prompt (anthropic only).",
             "examples": [23],
         },
+        "$ai_cache_creation_5m_input_tokens": {
+            "label": "AI 5-minute cache creation input tokens (LLM)",
+            "description": "The number of tokens created in the 5-minute prompt cache (Anthropic only).",
+            "examples": [23],
+            "type": "Numeric",
+        },
+        "$ai_cache_creation_1h_input_tokens": {
+            "label": "AI 1-hour cache creation input tokens (LLM)",
+            "description": "The number of tokens created in the 1-hour prompt cache (Anthropic only).",
+            "examples": [23],
+            "type": "Numeric",
+        },
         "$ai_cache_reporting_exclusive": {
             "label": "AI cache reporting exclusive (LLM)",
             "description": "Whether cache tokens are excluded from the input token count. When true, cache tokens are separate from input tokens (Anthropic-style). When false, input tokens already include cache tokens. Auto-detected from provider when not set explicitly.",
@@ -3177,6 +3189,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "AI cache write token price (LLM)",
             "description": "The price per token written to the prompt cache.",
             "examples": [0.00000375],
+            "type": "Numeric",
+        },
+        "$ai_cache_write_1h_token_price": {
+            "label": "AI 1-hour cache write token price (LLM)",
+            "description": "The price per token written to the 1-hour prompt cache. Set this to override PostHog's cost calculation for 1-hour cache writes.",
+            "examples": [0.000006],
             "type": "Numeric",
         },
         "$ai_request_price": {
