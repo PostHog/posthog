@@ -327,13 +327,33 @@ class HoglandBackend(PreviewBackend):
         return self._pen.id if (self._pen is not None and self._pen.id) else None
 
     def destroy(self) -> None:
-        # A cancelled workflow can finish after a newer workflow has repointed
-        # this pen. Delete only if its current box remains the one we observed;
-        # otherwise the newer preview must stay alive. The server cascades the
-        # matching pen's box and snapshot.
+        # An explicit box id is owned by this invocation. When its pen was
+        # already removed, still release that requested box rather than leaving
+        # it until its TTL.
+        if self._box_id:
+            try:
+                self._delete_pen_if_current_box(self._box_id)
+                return
+            except ConflictError:
+                timing.stage("teardown skipped: preview was replaced by a newer run")
+                return
+            except NotFoundError:
+                try:
+                    self._client.get(self._box_id).delete()
+                except NotFoundError:
+                    pass
+                except Exception as e:
+                    timing.stage(f"warn: couldn't delete explicit box during teardown: {e}")
+                return
+
+        # Name-only cleanup is an authoritative teardown for a closed or
+        # opted-out preview, so it intentionally removes the pen's current box.
         try:
             pen = self._client.get_pen(self.name)
         except NotFoundError:
+            return
+        if not pen.current_box_id:
+            timing.stage("teardown skipped: preview has no current box")
             return
         try:
             self._delete_pen_if_current_box(pen.current_box_id)
