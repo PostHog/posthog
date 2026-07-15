@@ -33920,6 +33920,13 @@ export namespace Schemas {
       scraping_status?: ScrapingStatusEnum | BlankEnum | null;
     }
 
+    export interface MergedPRBucket {
+      /** Bucket start, aligned to merged_pr_series_granularity (top of hour, midnight, or Monday). */
+      bucket_start: string;
+      /** PRs merged in this bucket, all authors and bots included (the headline merged_pr_count population). 0 when nothing merged; a true zero, not a gap. */
+      merged_count: number;
+    }
+
     export type MessageContextualTools = { [key: string]: unknown };
 
     /**
@@ -52474,6 +52481,8 @@ export namespace Schemas {
       success_rate_series: PassRateBucket[];
       /** Median time-to-merge (p50 open_to_merge_seconds, bots/drafts excluded) per bucket across the window, oldest first, bucketed by open_to_merge_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
       open_to_merge_series: OpenToMergeBucket[];
+      /** PRs merged per bucket across the window (all authors, bots included; the headline merged_pr_count population), oldest first, zero-filled, bucketed by merged_pr_series_granularity. Empty when include_series=false. */
+      merged_pr_series: MergedPRBucket[];
       /** Workflow runs started in the window, all branches and workflows. */
       run_count: number;
       /** Same count over the equal-length window immediately before date_from — the delta baseline. */
@@ -52538,6 +52547,8 @@ export namespace Schemas {
       success_rate_series_granularity: string;
       /** Bucket width of the open_to_merge_series trend: 'hour', 'day', or 'week'. */
       open_to_merge_series_granularity: string;
+      /** Bucket width of the merged_pr_series trend: 'hour', 'day', or 'week'. */
+      merged_pr_series_granularity: string;
     }
 
     export type ReportPriority = typeof ReportPriority[keyof typeof ReportPriority];
@@ -70286,7 +70297,7 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
-     * Set false to skip the chart series (cost_series, time_to_green_series, success_rate_series, open_to_merge_series return empty) and their query cost — for headline-only consumers like the weekly digest. Defaults to true.
+     * Set false to skip the chart series (cost_series, time_to_green_series, success_rate_series, open_to_merge_series, merged_pr_series return empty) and their query cost — for headline-only consumers like the weekly digest. Defaults to true.
      */
     include_series?: boolean;
     /**

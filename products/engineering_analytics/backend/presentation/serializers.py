@@ -25,6 +25,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     FlakyTestList,
     GitHubSource,
     MasterFailureGroup,
+    MergedPRBucket,
     OpenToMergeBucket,
     PassRateBucket,
     PRCostSummary,
@@ -1012,6 +1013,20 @@ class OpenToMergeBucketSerializer(DataclassSerializer):
         }
 
 
+class MergedPRBucketSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = MergedPRBucket
+        extra_kwargs = {
+            "bucket_start": {
+                "help_text": "Bucket start, aligned to merged_pr_series_granularity (top of hour, midnight, or Monday)."
+            },
+            "merged_count": {
+                "help_text": "PRs merged in this bucket, all authors and bots included (the headline "
+                "merged_pr_count population). 0 when nothing merged; a true zero, not a gap."
+            },
+        }
+
+
 class RepoOverviewSerializer(DataclassSerializer):
     cost_series = CostPerMergeBucketSerializer(
         many=True,
@@ -1035,6 +1050,12 @@ class RepoOverviewSerializer(DataclassSerializer):
         help_text="Median time-to-merge (p50 open_to_merge_seconds, bots/drafts excluded) per bucket across "
         "the window, oldest first, bucketed by open_to_merge_series_granularity. Empty buckets carry null; "
         "the whole series is empty when include_series=false.",
+    )
+    merged_pr_series = MergedPRBucketSerializer(
+        many=True,
+        help_text="PRs merged per bucket across the window (all authors, bots included; the headline "
+        "merged_pr_count population), oldest first, zero-filled, bucketed by merged_pr_series_granularity. "
+        "Empty when include_series=false.",
     )
 
     class Meta:
@@ -1099,6 +1120,9 @@ class RepoOverviewSerializer(DataclassSerializer):
             },
             "open_to_merge_series_granularity": {
                 "help_text": "Bucket width of the open_to_merge_series trend: 'hour', 'day', or 'week'."
+            },
+            "merged_pr_series_granularity": {
+                "help_text": "Bucket width of the merged_pr_series trend: 'hour', 'day', or 'week'."
             },
         }
 

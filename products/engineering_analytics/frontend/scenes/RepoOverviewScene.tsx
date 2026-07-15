@@ -7,6 +7,7 @@ import { combineUrl, router } from 'kea-router'
 import { LemonButton, LemonCard, LemonSkeleton, LemonTable, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { TimeSeriesLineChart, useChartTheme } from '@posthog/quill-charts'
 
+import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
@@ -17,6 +18,7 @@ import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
 import { RepoEntityHeader } from '../components/EntityHeader'
 import { FailureLogGroups } from '../components/FailureLogs'
+import { DeltaBadge, percentChange } from '../components/MetricTile'
 import { PullRequestTable } from '../components/PullRequestTable'
 import { formatAxisMinutes, hasEnoughRunActivity } from '../components/RunActivityChart'
 import { RunActivityMiniBars } from '../components/RunActivityMiniBars'
@@ -240,6 +242,7 @@ export function RepoOverviewScene(): JSX.Element {
         timeToGreenSeries,
         passRateSeries,
         openToMergeSeries,
+        mergedPrSeries,
         jobsAvailable,
         overviewDefaultBranch,
         currentDefaultBranch,
@@ -401,11 +404,56 @@ export function RepoOverviewScene(): JSX.Element {
                         caption="Median created-to-merged time, bots and drafts excluded. Coarse: draft and ready time are fused."
                     />
 
-                    {/* CI cost per merged PR — the headline economic trend, so it earns a full quill line
-                        chart (axes + tooltip) rather than a sparkline. costPerMergeSeries carries ISO labels
-                        plus its interval; the chart owns tick/tooltip date formatting. Card chrome mirrors
-                        TrendCard so it sits flush in the grid. */}
+                    {/* Merge throughput: how much shipped. Unlike the TrendCards, the headline is the window
+                        total with its honest prior-window delta (the last bucket is usually partial, so a
+                        latest-bucket headline would read misleadingly low). Bars, not a line: counts per
+                        bucket are discrete sums. */}
                     <LemonCard hoverEffect={false} className="flex flex-col p-4">
+                        <h3 className="mb-1 text-xs font-semibold text-secondary">PRs merged</h3>
+                        {overviewPending ? (
+                            <LemonSkeleton className="h-20 w-full" />
+                        ) : mergedPrSeries ? (
+                            <>
+                                <div className="mb-1 flex items-baseline gap-2">
+                                    <span className="text-2xl font-semibold leading-none tabular-nums">
+                                        {humanFriendlyNumber(overview?.merged_pr_count ?? 0)}
+                                    </span>
+                                    <DeltaBadge
+                                        value={percentChange(overview?.merged_pr_count, overview?.merged_pr_count_prev)}
+                                    />
+                                </div>
+                                <Sparkline
+                                    data={mergedPrSeries.values}
+                                    labels={mergedPrSeries.labels}
+                                    name="PRs merged"
+                                    type="bar"
+                                    maximumIndicator={false}
+                                    className="h-16 w-full"
+                                    renderLabel={(label) => label}
+                                    renderTooltipValue={(value) => humanFriendlyNumber(value)}
+                                />
+                            </>
+                        ) : (
+                            <div className="flex h-20 items-center text-xs text-secondary">
+                                No merge data in the window yet.
+                            </div>
+                        )}
+                        <div className="mt-2 border-t border-primary pt-2 text-[11px] text-tertiary">
+                            Pull requests merged per{' '}
+                            {overview?.merged_pr_series_granularity === 'hour'
+                                ? 'hour'
+                                : overview?.merged_pr_series_granularity === 'week'
+                                  ? 'week'
+                                  : 'day'}
+                            , bots included. Total for the window vs the one before it.
+                        </div>
+                    </LemonCard>
+
+                    {/* CI cost per merged PR — the headline economic trend, so it earns a full-width quill
+                        line chart (axes + tooltip) rather than a sparkline. costPerMergeSeries carries ISO
+                        labels plus its interval; the chart owns tick/tooltip date formatting. Card chrome
+                        mirrors TrendCard so it sits flush in the grid. */}
+                    <LemonCard hoverEffect={false} className="flex flex-col p-4 md:col-span-2">
                         <h3 className="mb-1 text-xs font-semibold text-secondary">Cost per merged PR</h3>
                         {overviewPending ? (
                             <LemonSkeleton className="h-20 w-full" />

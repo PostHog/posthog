@@ -329,6 +329,23 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
                 return { values, labels: trimmed.map((bucket) => dayjs(bucket.bucket_start).format(fmt)) }
             },
         ],
+        // Merge throughput per bucket (all authors, bots included: the headline merged_pr_count
+        // population). Zero-filled by the backend, and a bucket with no merges is a true 0, so no
+        // carry-forward or trimming. Null when the series is absent (include_series=false).
+        mergedPrSeries: [
+            (s) => [s.overview],
+            (overview): { values: number[]; labels: string[] } | null => {
+                const series = overview?.merged_pr_series ?? []
+                if (!series.length) {
+                    return null
+                }
+                const fmt = overview?.merged_pr_series_granularity === 'hour' ? 'MMM D HH:mm' : 'MMM D'
+                return {
+                    values: series.map((bucket) => bucket.merged_count),
+                    labels: series.map((bucket) => dayjs(bucket.bucket_start).format(fmt)),
+                }
+            },
+        ],
         // Time-to-merge trend in seconds (median open→merge, bots/drafts excluded). Same carry-forward +
         // trim as time-to-green: a gap means "nothing merged", not instant merges, so zero-filling would
         // draw a false dip. Null when no bucket had a qualifying merge.
