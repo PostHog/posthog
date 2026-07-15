@@ -10,19 +10,14 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="cohort",
             name="condition_type",
-            field=models.CharField(
+            field=models.JSONField(
                 blank=True,
-                choices=[
-                    ("property_only", "property_only"),
-                    ("behavioral_only", "behavioral_only"),
-                    ("both", "both"),
-                ],
                 help_text=(
-                    "Whether the cohort's filters are property-only, behavioral-only, or contain both. "
-                    "Null when neither is present, e.g. empty filters or a cohort made up only of nested "
-                    "cohort references."
+                    "Flags describing which kinds of conditions the cohort's filters contain: "
+                    "person (property or person_metadata), behavioral, lifecycle (first-seen/regularly/"
+                    "stopped/restarted performing an event), and cohorts (nested cohort references). "
+                    "Null when the cohort has no filters to classify."
                 ),
-                max_length=50,
                 null=True,
             ),
         ),

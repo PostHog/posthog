@@ -556,6 +556,26 @@ class CohortFiltersField(serializers.JSONField):
     pass
 
 
+class CohortConditionTypeFlags(BaseModel, extra="forbid"):
+    person: bool = Field(description="The filters include a person property or person_metadata condition.")
+    behavioral: bool = Field(
+        description="The filters include a plain behavioral condition (performed_event, "
+        "performed_event_multiple, or performed_event_sequence)."
+    )
+    lifecycle: bool = Field(
+        description="The filters include a lifecycle-style behavioral condition (first-seen/regularly/"
+        "stopped/restarted performing an event)."
+    )
+    cohorts: bool = Field(description="The filters include a nested reference to another cohort.")
+
+
+@extend_schema_field(CohortConditionTypeFlags)  # type: ignore[arg-type]
+class CohortConditionTypeField(serializers.JSONField):
+    """Custom JSONField that exposes proper OpenAPI schema for condition_type flags."""
+
+    pass
+
+
 class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     earliest_timestamp_func = earliest_timestamp_func
@@ -566,6 +586,14 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
 
     # Explicit filters field with proper OpenAPI schema
     filters = CohortFiltersField(required=False, allow_null=True)
+
+    # Explicit condition_type field with proper OpenAPI schema
+    condition_type = CohortConditionTypeField(
+        read_only=True,
+        allow_null=True,
+        help_text="Flags describing which kinds of conditions the cohort's filters contain. "
+        "Null when the cohort has no filters to classify.",
+    )
 
     # If this cohort is an exposure cohort for an experiment
     experiment_set: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(many=True, read_only=True)  # ty: ignore[invalid-assignment]

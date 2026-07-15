@@ -15,7 +15,7 @@ from posthog.models import Person, Team
 from posthog.models.person.util import get_person_by_id
 from posthog.test.persons import add_cohort_members, create_person
 
-from products.cohorts.backend.models.cohort import Cohort, CohortConditionType, CohortType
+from products.cohorts.backend.models.cohort import Cohort, CohortConditionFlags, CohortType
 from products.cohorts.backend.models.sql import GET_COHORTPEOPLE_BY_COHORT_ID
 from products.cohorts.backend.models.util import count_cohort_members, list_cohort_member_ids
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
@@ -690,6 +690,32 @@ _PERSON_METADATA_AND_BEHAVIORAL_FILTERS = {
     }
 }
 
+_LIFECYCLE_FILTERS = {
+    "properties": {
+        "type": "AND",
+        "values": [
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "behavioral",
+                        "value": "performed_event_first_time",
+                        "event_type": "events",
+                        "key": "$pageview",
+                    }
+                ],
+            }
+        ],
+    }
+}
+
+
+def _condition_flags(
+    *, person: bool = False, behavioral: bool = False, lifecycle: bool = False, cohorts: bool = False
+) -> CohortConditionFlags:
+    return {"person": person, "behavioral": behavioral, "lifecycle": lifecycle, "cohorts": cohorts}
+
+
 _FIXED_TS = datetime(2026, 1, 1, tzinfo=UTC)
 
 
@@ -771,20 +797,23 @@ class TestCohortIsFlagCompatible(BaseTest):
 class TestCohortComputeConditionType(SimpleTestCase):
     @parameterized.expand(
         [
-            ("person_only", _PERSON_FILTERS, CohortConditionType.PROPERTY_ONLY),
-            ("behavioral_only", _BEHAVIORAL_FILTERS, CohortConditionType.BEHAVIORAL_ONLY),
-            ("mixed", _MIXED_FILTERS, CohortConditionType.BOTH),
-            ("cohort_reference_only", _COHORT_REF_FILTERS, None),
+            ("person_only", _PERSON_FILTERS, _condition_flags(person=True)),
+            ("behavioral_only", _BEHAVIORAL_FILTERS, _condition_flags(behavioral=True)),
+            ("mixed", _MIXED_FILTERS, _condition_flags(person=True, behavioral=True)),
+            ("cohort_reference_only", _COHORT_REF_FILTERS, _condition_flags(cohorts=True)),
             ("empty_filters", {}, None),
             ("none_filters", None, None),
             # person_metadata reads a top-level persons-table column rather than the
             # properties JSON blob, but it's still a property-style (non-behavioral) condition.
-            ("person_metadata_only", _PERSON_METADATA_FILTERS, CohortConditionType.PROPERTY_ONLY),
+            ("person_metadata_only", _PERSON_METADATA_FILTERS, _condition_flags(person=True)),
             (
                 "person_metadata_and_behavioral",
                 _PERSON_METADATA_AND_BEHAVIORAL_FILTERS,
-                CohortConditionType.BOTH,
+                _condition_flags(person=True, behavioral=True),
             ),
+            # Lifecycle-style behavioral values (first-seen/regularly/stopped/restarted) are
+            # distinct from plain event-count behavioral filters.
+            ("lifecycle_only", _LIFECYCLE_FILTERS, _condition_flags(lifecycle=True)),
         ]
     )
     def test_compute_condition_type(self, _label, filters, expected):
@@ -798,21 +827,21 @@ class TestCohortConditionTypeDerivedOnSave(BaseTest):
     # command or get_or_create_internal_test_users_cohort) must still get classified.
     def test_direct_orm_create_derives_condition_type(self):
         cohort = Cohort.objects.create(team=self.team, filters=_PERSON_FILTERS)
-        self.assertEqual(cohort.condition_type, CohortConditionType.PROPERTY_ONLY)
+        self.assertEqual(cohort.condition_type, _condition_flags(person=True))
 
     # Static cohorts skip cohort_type/realtime computation, but condition_type
     # classifies filter shape independent of that, so it must still be set.
     def test_static_cohort_with_filters_derives_condition_type(self):
         cohort = Cohort.objects.create(team=self.team, is_static=True, filters=_BEHAVIORAL_FILTERS)
-        self.assertEqual(cohort.condition_type, CohortConditionType.BEHAVIORAL_ONLY)
+        self.assertEqual(cohort.condition_type, _condition_flags(behavioral=True))
 
     # Saves that don't touch filters (e.g. toggling is_calculating) must not
     # recompute or drop condition_type.
     def test_narrow_update_fields_save_does_not_touch_condition_type(self):
         cohort = Cohort.objects.create(team=self.team, filters=_PERSON_FILTERS)
-        self.assertEqual(cohort.condition_type, CohortConditionType.PROPERTY_ONLY)
+        self.assertEqual(cohort.condition_type, _condition_flags(person=True))
 
         cohort.is_calculating = True
         cohort.save(update_fields=["is_calculating"])
         cohort.refresh_from_db()
-        self.assertEqual(cohort.condition_type, CohortConditionType.PROPERTY_ONLY)
+        self.assertEqual(cohort.condition_type, _condition_flags(person=True))
