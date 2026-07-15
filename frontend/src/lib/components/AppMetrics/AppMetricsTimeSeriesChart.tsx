@@ -74,7 +74,6 @@ export function AppMetricsTimeSeriesChart({
     }, [labels, minimal, showLegend])
 
     return (
-        // Quill charts fill a *flex* parent (their root is flex-1), so this wrapper must be a flex column.
         <div className={clsx('relative flex h-full w-full flex-col', className)}>
             <TimeSeriesLineChart series={series} labels={labels} theme={theme} config={config} />
         </div>
