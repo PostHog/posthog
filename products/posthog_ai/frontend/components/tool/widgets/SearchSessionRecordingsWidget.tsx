@@ -1,7 +1,8 @@
-import { GenericMcpToolRenderer, DataToolRow, type ToolRendererProps } from 'products/posthog_ai/frontend/api/tools'
-
-import { RecordingsWidget } from '../UIPayloadAnswer'
+import { DataToolRow } from '../DataToolRow'
+import { GenericMcpToolRenderer } from '../GenericMcpToolRenderer'
+import type { ToolRendererProps } from '../toolRegistry'
 import { extractRecordingFilters } from './extractors'
+import { RecordingsWidget } from './RecordingsWidget'
 
 /**
  * Session-recording search / filter tool calls. The resolved `RecordingUniversalFilters` come back
@@ -18,7 +19,7 @@ export function SearchSessionRecordingsWidget(props: ToolRendererProps): JSX.Ele
 
     return (
         <DataToolRow {...props}>
-            <RecordingsWidget toolCallId={message.id} filters={filters} embedded />
+            <RecordingsWidget toolCallId={message.id} filters={filters} />
         </DataToolRow>
     )
 }

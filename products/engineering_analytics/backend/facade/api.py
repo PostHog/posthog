@@ -25,6 +25,7 @@ from posthog.models.team import Team
 from products.engineering_analytics.backend import logic
 from products.engineering_analytics.backend.facade.contracts import (
     BranchPRMatch,
+    BrokenTestsResult,
     CICardSummary,
     CIFailureLogs,
     CurrentBranchHealth,
@@ -309,6 +310,15 @@ def list_flaky_tests(
         min_failed_prs=min_failed_prs,
         limit=limit,
     )
+
+
+def get_broken_tests(
+    *,
+    team: Team,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> BrokenTestsResult:
+    return logic.build_broken_tests(curated=_authorized_source(team, source_id, user_access_control))
 
 
 def list_github_sources(*, team: Team, user_access_control: "UserAccessControl | None" = None) -> list[GitHubSource]:

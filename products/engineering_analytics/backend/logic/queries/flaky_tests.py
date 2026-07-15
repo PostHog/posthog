@@ -46,6 +46,7 @@ _SELECT = """
         countIf(outcome = 'rerun_passed') AS rerun_passed_count,
         countIf(outcome IN ('failed', 'error')) AS failed_count,
         uniqIf(pr_number, outcome IN ('failed', 'error') AND pr_number != '') AS failed_pr_count,
+        countIf(outcome IN ('failed', 'error') AND branch IN ('master', 'main')) AS master_failed_count,
         uniqIf(branch, branch != '') AS branch_count,
         countIf(outcome = 'xfailed') AS xfailed_count,
         max(span_timestamp) AS last_seen_at
@@ -137,11 +138,12 @@ def query_flaky_tests(
                 rerun_passed_count=rerun_passed_count,
                 failed_count=failed_count,
                 failed_pr_count=failed_pr_count,
+                master_failed_count=master_failed_count,
                 branch_count=branch_count,
                 xfailed_count=xfailed_count,
                 last_seen_at=last_seen_at,
             )
-            for nodeid, selector, rerun_passed_count, failed_count, failed_pr_count, branch_count, xfailed_count, last_seen_at in rows[
+            for nodeid, selector, rerun_passed_count, failed_count, failed_pr_count, master_failed_count, branch_count, xfailed_count, last_seen_at in rows[
                 :limit
             ]
         ],
