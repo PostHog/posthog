@@ -24,6 +24,7 @@ A project may also have **custom scouts** beyond the canonical fleet — any `si
 
 This skill helps you **understand and explore what a project's scouts are doing and how they're performing** — entirely through read-only MCP tools.
 It is the observability counterpart to the `authoring-scouts` skill (which teaches writing and tuning) and to the `inbox-exploration` skill (which covers the inbox reports scouts feed into).
+(The scout tools were recently renamed from `signals-scout-*` to `scout-*`; if a `scout-*` name comes back unknown, the server may still expose it under the legacy `signals-scout-*` name — search the tool catalog and call whichever name it returns.)
 
 **A scout's output is inbox reports, written 1:1.** Scouts list `emit_report` / `edit_report` in their `allowed_tools` and **author or edit inbox reports directly**; a run's output shows up as **`emitted_report_ids`** (reports it authored) and **`edited_report_ids`** (reports it updated).
 The run rows also carry `emitted_count` / `emitted_finding_ids` — **legacy fields from the deprecated signal-emitting channel** (weak `emit_signal` findings a pipeline consolidated). On a report-channel scout they stay `0` / empty even on a productive run; a non-zero tally means the run came from a scout still on the legacy channel (an old custom scout, or a canonical scout not yet ported) — real output for that run, not noise. When unsure of a scout's channel, check its `allowed_tools` via `skill-get`.

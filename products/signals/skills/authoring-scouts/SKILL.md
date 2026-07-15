@@ -34,6 +34,7 @@ The harness discovers scouts by globbing `signals-scout-*` over the project's sk
 
 Don't write a scout in the abstract.
 Ground it in the target project first — a scout is only as good as its fit to the data it watches.
+(The scout tools were recently renamed from `signals-scout-*` to `scout-*`; if a `scout-*` name comes back unknown, the server may still expose it under the legacy `signals-scout-*` name — search the tool catalog and call whichever name it returns.)
 
 1. **Read the project.** `posthog:scout-project-profile-get` returns the deterministic snapshot the scout itself cold-starts from: products in use, top events with reach/burst metrics, integrations, existing inbox counts.
    If the scout watches a specific event, confirm it exists and check its shape with `posthog:read-data-schema`.
