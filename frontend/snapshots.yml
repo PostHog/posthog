@@ -1909,17 +1909,17 @@ snapshots:
     dashboards-dashboard-widgets-overview--all-widget-types--light:
         hash: v1.k794b7964.59fb61901d264c3bf3cd29dd681c9ace3520a5e14a4fcd0e8d11f44994a52600.tvKjlXPoKEJOPZWaP3E52rAkO4FRlDQjaB0SJVPY_6k
     dashboards-dashboard-widgets-widget-types-activity-recent-events--default--dark:
-        hash: v1.k794b7964.2452910051f06a264c5af21e003ab5286fa4b7be350b8e4c193aff454778e5b9.nowYT2exrkg_P27P5mOBomdP2jOUawjYAx6tD9v72OI
+        hash: v1.k794b7964.c69d28ef03335511de9b7dd75d5ad1c0458272d5d8f340083cdb86acc3b3c888.sG6UTKifs9l67mTpsjqLovlcw0LSVzL56FVlvzJMwhw
     dashboards-dashboard-widgets-widget-types-activity-recent-events--default--light:
-        hash: v1.k794b7964.718e60acbc45fa3d116cb0d33db3779fd22b192ee61b7c2ff8df943a16028c49.WEufCcKq22LRQzVfAh-NTKeOevE0TcYwC9q2R06DF1o
+        hash: v1.k794b7964.233cb727aaecfd19327bedd009d996c7fa04750a52e55f89428463c205016b70.FSObaa4l6dhVDMAAX2WThoyievlc55VNRpja9CO_md8
     dashboards-dashboard-widgets-widget-types-activity-recent-events--empty--dark:
-        hash: v1.k794b7964.730a19232754e6a00e9af2a8a4c17831013544fcfc6019267d13f4cab7e3ca26.aTinTWYCBDKHlfjbxxnHxBPOTdOeYAFEUDyE66liurM
+        hash: v1.k794b7964.523ebce5008e94d9b9aff5e970980ead40cd2bbd179db1af3577965c1375b2b9.4avue7kDjaSOHugE4GuSiRQx5GA6MuzGrt-zVPBFdh8
     dashboards-dashboard-widgets-widget-types-activity-recent-events--empty--light:
-        hash: v1.k794b7964.12f049d37afe4836f7e12fdd9eb555ca9bf4cd9ecd350d50d780ba43ece63a31.Thl9fx5DTcoq1x_M4R4nbKje3g9mmTwSkdfy80A6mro
+        hash: v1.k794b7964.755f7b40674d5f27a9930e476c4e4d09a62c918408ff49553e1cc5c67f69ae63.YMNLKBbAFZt64PhOcNuLs5yjWfM3cjwllj-hw0R4xK0
     dashboards-dashboard-widgets-widget-types-activity-recent-events--loading--dark:
-        hash: v1.k794b7964.87cae4729937995b072889db74be4ed80f9dccc0c30c5ce0721f45cfdd054e3b.KkLauKTJRRWPwd_3lpvffCi2ciBnKzWMWA_xX5M04q4
+        hash: v1.k794b7964.2d8bf0bf8c9da7bde31f52653ca4ef033430f9c657a7a1923b6730cf9ed857cb.YMwHbhFjFW3C01kJ4lpY8cLiPFZ3vqU0ZxoIgNOVE8I
     dashboards-dashboard-widgets-widget-types-activity-recent-events--loading--light:
-        hash: v1.k794b7964.19aaea74e5b83b2978aaa2fbe2e1571b04a369cc1fb81f35894cdd3003298d22.C66YRZlvfw0EMx5KqApeYTUOIeHxEPSCDJEYxJhO4qI
+        hash: v1.k794b7964.e88d69650143ac49b21e984aa8c26becabf97f16d61c8cae46fe7b1f72eaa94f.bg6LDBIimmJtjN-9bOmalC2zCiU0G4BNVHSupcIwwJk
     dashboards-dashboard-widgets-widget-types-activity-recent-events--tile-filters-read-only--dark:
         hash: v1.k794b7964.092862fa126fa9d89eb14efa0eebc8f74cfeb10aa1550301404662317ff6cfae.yckxUzCihAx1XdCoH-5WZJomiag7K40nW6gXRoUG_rY
     dashboards-dashboard-widgets-widget-types-activity-recent-events--tile-filters-read-only--light:
