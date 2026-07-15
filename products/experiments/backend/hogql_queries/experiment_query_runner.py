@@ -290,6 +290,9 @@ class ExperimentQueryRunner(QueryRunner):
             table=LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
             placeholders=placeholders,
             sentinel_placeholders={"experiment_date_to"},
+            # High-volume teams' builds OOM even at capped window widths; spilling the
+            # GROUP BY to disk degrades gracefully instead of failing the build.
+            spill_to_disk=True,
         )
 
     def _ensure_metric_events_precomputed(self, builder: ExperimentQueryBuilder) -> LazyComputationResult:
@@ -321,6 +324,7 @@ class ExperimentQueryRunner(QueryRunner):
             table=LazyComputationTable.EXPERIMENT_METRIC_EVENTS_PREAGGREGATED,
             placeholders=placeholders,
             sentinel_placeholders={"experiment_date_to"},
+            spill_to_disk=True,
         )
 
     @cached_property
@@ -357,6 +361,8 @@ class ExperimentQueryRunner(QueryRunner):
             return "min_runtime"
         if self.is_data_warehouse_query:
             return "data_warehouse"
+        if self.group_type_index is not None:
+            return "group_aggregation"
         return None  # precompute was attempted; a direct path means the build failed / wasn't ready
 
     def _metric_events_precompute_applicable(self) -> bool:
@@ -406,8 +412,11 @@ class ExperimentQueryRunner(QueryRunner):
         metric_events_job_ids: list[str] | None = None
 
         # Skip precomputation for data warehouse metrics because the precomputed table
-        # doesn't include the join keys needed to link exposures to data warehouse tables
-        if should_precompute and not self.is_data_warehouse_query:
+        # doesn't include the join keys needed to link exposures to data warehouse tables.
+        # Group-aggregated experiments are excluded too: their build INSERT references
+        # $group_N, which the INSERT ... SELECT analysis path can't resolve (MATERIALIZED
+        # on sharded_events), so every build fails with UNKNOWN_IDENTIFIER.
+        if should_precompute and not self.is_data_warehouse_query and self.group_type_index is None:
             try:
                 with tags_context(experiment_query_surface="precompute_build", experiment_precompute_table="exposures"):
                     result = self._ensure_exposures_precomputed(builder)

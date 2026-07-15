@@ -119,7 +119,7 @@ pub struct HandoffState {
 ///   - `Warming → Complete`: the new owner has written a `PodWarmedAck`,
 ///     meaning its cache has been populated up to the stable HWM. The
 ///     phase write and the new `PartitionAssignment` happen atomically.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum HandoffPhase {
     /// Routers are establishing per-partition stash queues. While in this
     /// phase, the old owner continues to serve writes — the gate that

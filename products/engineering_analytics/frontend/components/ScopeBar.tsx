@@ -3,7 +3,7 @@
 // one page carries to the next.
 
 import { useActions, useValues } from 'kea'
-import { combineUrl, router } from 'kea-router'
+import { router } from 'kea-router'
 import { Fragment, ReactNode, useState } from 'react'
 
 import { IconX } from '@posthog/icons'
@@ -14,6 +14,7 @@ import { cn } from 'lib/utils/css-classes'
 import { dateMapping } from 'lib/utils/dateFilters'
 import { urls } from 'scenes/urls'
 
+import { withScope } from '../lib/scope'
 import { SHARED_DEFAULT_DATE_FROM, engineeringAnalyticsFiltersLogic } from '../scenes/engineeringAnalyticsFiltersLogic'
 import { engineeringAnalyticsLogic } from '../scenes/engineeringAnalyticsLogic'
 import { workflowSwitcherLogic } from '../scenes/workflowSwitcherLogic'
@@ -116,10 +117,11 @@ export function WorkflowScopeChip({
         setSearch('')
         if (name !== workflowName) {
             router.actions.push(
-                combineUrl(
+                withScope(
                     urls.engineeringAnalyticsWorkflowRuns(repoOwner, repoName, name),
-                    sourceId ? { source: sourceId } : {}
-                ).url
+                    router.values.currentLocation.searchParams,
+                    sourceId
+                )
             )
         }
     }
@@ -185,22 +187,16 @@ export function WorkflowScopeChip({
     )
 }
 
-// Quick presets for the default branch. We can't tell main from master without another query, so offer
-// both — picking the active one clears back to all branches.
-const DEFAULT_BRANCHES = ['main', 'master']
-
-/** Branch chip opening a small picker — a server-side head_branch filter shared across pages. */
-function BranchScopeChip(): JSX.Element {
-    const { branchInput, appliedBranch } = useValues(engineeringAnalyticsFiltersLogic)
-    const { setBranchFilter, applyBranchFilter } = useActions(engineeringAnalyticsFiltersLogic)
+/** Branch chip opening a small picker — a shared CI scope: an exact head_branch, all branches, or the
+ *  pull-request lens (non-default-branch runs). Only workflow health honors the PR lens; exact-branch
+ *  surfaces fall back to all branches for it. No default-branch preset — the repo's default (master vs
+ *  main) isn't known here, so type it exactly instead of guessing. */
+export function BranchScopeChip(): JSX.Element {
+    const { branchInput, appliedBranch, pullRequestScope } = useValues(engineeringAnalyticsFiltersLogic)
+    const { setBranchFilter, applyBranchFilter, setAppliedBranch, scopeToPullRequests } = useActions(
+        engineeringAnalyticsFiltersLogic
+    )
     const [visible, setVisible] = useState(false)
-
-    // Stage + apply a branch in one click; picking the active preset clears back to all branches.
-    const selectBranch = (branch: string): void => {
-        setBranchFilter(branch)
-        applyBranchFilter()
-        setVisible(false)
-    }
 
     return (
         <LemonDropdown
@@ -208,7 +204,7 @@ function BranchScopeChip(): JSX.Element {
             onVisibilityChange={setVisible}
             closeOnClickInside={false}
             overlay={
-                <div className="flex w-64 flex-col gap-2 p-1">
+                <div className="flex w-72 flex-col gap-2 p-1">
                     <LemonInput
                         type="search"
                         size="small"
@@ -223,20 +219,24 @@ function BranchScopeChip(): JSX.Element {
                         data-attr="engineering-analytics-branch-filter"
                     />
                     <div className="flex flex-wrap gap-1">
-                        {DEFAULT_BRANCHES.map((branch) => (
-                            <LemonButton
-                                key={branch}
-                                size="xsmall"
-                                type={appliedBranch === branch ? 'primary' : 'secondary'}
-                                onClick={() => selectBranch(appliedBranch === branch ? '' : branch)}
-                            >
-                                {branch}
-                            </LemonButton>
-                        ))}
                         <LemonButton
                             size="xsmall"
-                            type={appliedBranch === '' ? 'primary' : 'secondary'}
-                            onClick={() => selectBranch('')}
+                            type={pullRequestScope ? 'primary' : 'secondary'}
+                            onClick={() => {
+                                scopeToPullRequests()
+                                setVisible(false)
+                            }}
+                            tooltip="CI on pull-request branches, excluding master/main. Same-repo PRs only — fork PRs carry no attribution. Applies to workflow health."
+                        >
+                            Pull requests
+                        </LemonButton>
+                        <LemonButton
+                            size="xsmall"
+                            type={!pullRequestScope && !appliedBranch ? 'primary' : 'secondary'}
+                            onClick={() => {
+                                setAppliedBranch('')
+                                setVisible(false)
+                            }}
                         >
                             all branches
                         </LemonButton>
@@ -244,14 +244,36 @@ function BranchScopeChip(): JSX.Element {
                 </div>
             }
         >
-            <span className={cn(CHIP_CLASS, 'cursor-pointer')} title="One branch scope for every section below">
-                branch:{' '}
-                <strong className={cn('font-semibold', appliedBranch ? 'text-primary' : 'text-tertiary')}>
-                    {appliedBranch || 'all'}
-                </strong>
+            <span className={cn(CHIP_CLASS, 'cursor-pointer')} title="One CI scope for every section below">
+                {pullRequestScope ? (
+                    <strong className="font-semibold text-primary">pull requests</strong>
+                ) : appliedBranch ? (
+                    <>
+                        {'branch: '}
+                        <strong className="font-semibold text-primary">{appliedBranch}</strong>
+                    </>
+                ) : (
+                    <strong className="font-semibold text-tertiary">all branches</strong>
+                )}
                 <span className="text-[8px] text-tertiary">▼</span>
             </span>
         </LemonDropdown>
+    )
+}
+
+/** The shared window picker, wired to the cross-page date scope. Standalone so pages can place it outside
+ *  the scope bar (the hub docks it in the repo header). */
+export function ScopeDateFilter(): JSX.Element {
+    const { dateFrom, dateTo } = useValues(engineeringAnalyticsFiltersLogic)
+    const { setDateRange } = useActions(engineeringAnalyticsFiltersLogic)
+    return (
+        <DateFilter
+            dateFrom={dateFrom}
+            dateTo={dateTo}
+            onChange={(from, to) => setDateRange(from ?? SHARED_DEFAULT_DATE_FROM, to ?? null)}
+            dateOptions={SCOPE_DATE_OPTIONS}
+            size="small"
+        />
     )
 }
 
@@ -273,9 +295,6 @@ export function ScopeBar({
     showDate?: boolean
     extra?: ReactNode
 }): JSX.Element {
-    const { dateFrom, dateTo } = useValues(engineeringAnalyticsFiltersLogic)
-    const { setDateRange } = useActions(engineeringAnalyticsFiltersLogic)
-
     return (
         <div className="flex flex-wrap items-center gap-2">
             {repoSlot}
@@ -306,15 +325,7 @@ export function ScopeBar({
                     </span>
                 )}
                 {showBranch && <BranchScopeChip />}
-                {showDate && (
-                    <DateFilter
-                        dateFrom={dateFrom}
-                        dateTo={dateTo}
-                        onChange={(from, to) => setDateRange(from ?? SHARED_DEFAULT_DATE_FROM, to ?? null)}
-                        dateOptions={SCOPE_DATE_OPTIONS}
-                        size="small"
-                    />
-                )}
+                {showDate && <ScopeDateFilter />}
                 {extra}
             </span>
         </div>

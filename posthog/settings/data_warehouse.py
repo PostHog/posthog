@@ -19,6 +19,12 @@ USE_LOCAL_SETUP = TEST or (DEBUG and len(os.getenv("OBJECT_STORAGE_ENDPOINT", "h
 
 PYARROW_DEBUG_LOGGING = get_from_env("PYARROW_DEBUG_LOGGING", False, type_cast=str_to_bool)
 
+# Rollback-only escape hatch: restores the legacy delta-rs unsafe-rename S3 backend,
+# which has no commit-conflict detection. Default (false) keeps conditional-put commits.
+DATA_WAREHOUSE_DELTA_S3_ALLOW_UNSAFE_RENAME = get_from_env(
+    "DATA_WAREHOUSE_DELTA_S3_ALLOW_UNSAFE_RENAME", False, type_cast=str_to_bool
+)
+
 # At-rest (compressed) byte budget per Delta partition. The auto-repartition controller rewrites a
 # table into a finer scheme once its largest partition exceeds this. delta-rs merges decompress the
 # whole target partition into an Arrow working set — roughly ~20x the at-rest size, and far more for

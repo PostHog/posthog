@@ -63,7 +63,11 @@ describe('Hogflow Executor', () => {
         hub = await createHub({
             SITE_URL: 'http://localhost:8000',
         })
-        const hogInputsService = new HogInputsService(hub.integrationManager, hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
+        const hogInputsService = new HogInputsService(
+            hub.integrationManager,
+            new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
+            hub.encryptedFields
+        )
         const emailService = new EmailService(
             {
                 sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
@@ -85,12 +89,12 @@ describe('Hogflow Executor', () => {
                 fetchRetries: hub.CDP_FETCH_RETRIES,
                 fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
                 fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
-                selfLoopGuardMode: hub.CDP_SELF_LOOP_GUARD_MODE,
             },
             { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
             hogInputsService,
             emailService,
-            recipientTokensService
+            recipientTokensService,
+            undefined as any
         )
         const hogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub.postgres)
         const hogFlowFunctionsService = new HogFlowFunctionsService(
@@ -549,6 +553,72 @@ describe('Hogflow Executor', () => {
                 })
                 .build()
         }
+
+        describe('workflow definition changed mid-run', () => {
+            const buildFlow = (): HogFlow =>
+                createHogFlow({
+                    actions: {},
+                    edges: [
+                        { from: 'trigger', to: 'delay', type: 'continue' },
+                        { from: 'delay', to: 'exit', type: 'continue' },
+                    ],
+                })
+
+            it.each([
+                [
+                    'the current action was deleted',
+                    (hogFlow: HogFlow) => {
+                        hogFlow.actions = hogFlow.actions.filter((action) => action.id !== 'delay')
+                    },
+                ],
+                [
+                    'the current action no longer has a continue edge',
+                    (hogFlow: HogFlow) => {
+                        hogFlow.edges = hogFlow.edges.filter((edge) => edge.from !== 'delay')
+                    },
+                ],
+            ])('exits gracefully when %s', async (_desc, mutateFlow) => {
+                const hogFlow = buildFlow()
+                const invocation = createExampleHogFlowInvocation(hogFlow)
+                // Parked on the delay long enough that it has elapsed, so the handler advances
+                invocation.state.currentAction = {
+                    id: 'delay',
+                    startedAtTimestamp: DateTime.now().minus({ hours: 3 }).toMillis(),
+                }
+                mutateFlow(hogFlow)
+                // The flow was edited after the run arrived at the step - the live-edit case
+                hogFlow.updated_at = DateTime.now().toMillis()
+
+                const result = await executor.execute(invocation)
+
+                expect(result.finished).toBe(true)
+                expect(result.error).toBeUndefined()
+                const exitMetric = result.metrics.find((m) => m.metric_name === 'exited_workflow_changed')
+                expect(exitMetric).toMatchObject({ metric_kind: 'other', instance_id: 'delay' })
+                expect(result.metrics.map((m) => m.metric_name)).not.toContain('failed')
+                expect(result.logs.filter((l) => l.level === 'error')).toEqual([])
+                expect(result.logs.map((l) => l.message).join('\n')).toContain('Workflow exited')
+            })
+
+            it('still fails the run when the graph was malformed all along (no edit since the step started)', async () => {
+                const hogFlow = buildFlow()
+                const invocation = createExampleHogFlowInvocation(hogFlow)
+                invocation.state.currentAction = {
+                    id: 'delay',
+                    startedAtTimestamp: DateTime.now().minus({ hours: 3 }).toMillis(),
+                }
+                hogFlow.edges = hogFlow.edges.filter((edge) => edge.from !== 'delay')
+                // No edit since the run arrived: the missing edge is a bad definition, not a live edit
+                hogFlow.updated_at = DateTime.now().minus({ hours: 4 }).toMillis()
+
+                const result = await executor.execute(invocation)
+
+                expect(result.finished).toBe(true)
+                expect(result.error).toBe('No next action found for action delay')
+                expect(result.metrics.map((m) => m.metric_name)).toContain('failed')
+                expect(result.metrics.map((m) => m.metric_name)).not.toContain('exited_workflow_changed')
+            })
+        })
 
         describe('early exit conditions', () => {
             let hogFlow: HogFlow

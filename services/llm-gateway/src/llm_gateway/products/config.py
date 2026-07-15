@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Final
+from typing import Final, Literal
 
 from fastapi import HTTPException
 
@@ -15,9 +15,11 @@ class CreditBucket(StrEnum):
 
     Values match (or, once created, will match) the Django quota resource keys
     (ee/billing/quota_limiting.py QuotaResource), which is what the gateway's
-    quota resolver checks against. Only AI_CREDITS has a QuotaResource and
-    gateway-side quota enforcement today; POSTHOG_CODE_CREDITS bills without
-    blocking until its resource lands.
+    quota resolver checks against. Both buckets have gateway-side quota
+    enforcement; which users are blocked when a bucket is exhausted depends on
+    ``ProductConfig.credit_bucket_scope`` — AI_CREDITS blocks all users of the
+    product, POSTHOG_CODE_CREDITS blocks only usage-based-plan users (see
+    ``credit_bucket_scope`` below).
     """
 
     AI_CREDITS = "ai_credits"
@@ -35,9 +37,17 @@ class ProductConfig:
     # $ai_generation events are tagged $ai_billable=false and the usage reporter
     # (posthog/tasks/usage_report.py) ignores them. A bucket value tags events billable
     # so the reporter rolls them into that bucket's credit counter, and requests are
-    # blocked when the bucket's quota is exhausted — currently only AI_CREDITS has
-    # gateway-side quota enforcement; other buckets bill without blocking.
+    # blocked when the bucket's quota is exhausted — see credit_bucket_scope below for
+    # which users that block applies to.
     credit_bucket: CreditBucket | None = None
+    # Which users a bucket's exhausted-limit should block, once credit_bucket is set.
+    # "all_users" (default): every user of a billable product counts against the bucket
+    # limit — appropriate when all of the product's usage is billable (e.g. AI_CREDITS).
+    # "usage_based_plans": only users on a usage-based plan (see
+    # services.plan_resolver.is_usage_based_plan) count against the bucket limit —
+    # seat-covered (free/pro/alpha) users are excluded from the org's billed usage
+    # counter at the usage-report layer, so they must not be blocked by it either.
+    credit_bucket_scope: Literal["all_users", "usage_based_plans"] = "all_users"
 
 
 BEDROCK_MODELS = BEDROCK_MODEL_IDS
@@ -59,15 +69,18 @@ POSTHOG_AI_DEV_APP_ID = "019edb1a-cce4-0000-1f6d-682061862da9"
 # allowlist is identical.
 _POSTHOG_CODE_AGENT_MODELS: Final[frozenset[str]] = frozenset(
     {
+        "claude-fable-5",
         "claude-opus-4-5",
         "claude-opus-4-6",
         "claude-opus-4-7",
         "claude-opus-4-8",
-        "claude-fable-5",
         "claude-sonnet-4-5",
         "claude-sonnet-4-6",
         "claude-sonnet-5",
         "claude-haiku-4-5",
+        "gpt-5.6-sol",
+        "gpt-5.6-terra",
+        "gpt-5.6-luna",
         "gpt-5.5",
         "gpt-5.4",
         "gpt-5.3-codex",
@@ -98,6 +111,10 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         # Bills as posthog_code credits (pass-through model costs, no markup) — see
         # get_teams_with_posthog_code_credits_used_in_period in posthog/tasks/usage_report.py.
         credit_bucket=CreditBucket.POSTHOG_CODE_CREDITS,
+        # Only usage-based-plan users' generations are billed to the org's usage
+        # subscription (seat-covered usage is excluded at the usage-report layer), so
+        # only those users should be blocked when the org's usage limit is reached.
+        credit_bucket_scope="usage_based_plans",
     ),
     # PostHog-initiated internal task runs (Task.internal=True without a more specific
     # origin route — e.g. the repo-selection agent). Deliberately unbilled: this is
@@ -108,11 +125,11 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID, POSTHOG_CODE_DEV_APP_ID}),
         allowed_models=frozenset(
             {
+                "claude-fable-5",
                 "claude-opus-4-5",
                 "claude-opus-4-6",
                 "claude-opus-4-7",
                 "claude-opus-4-8",
-                "claude-fable-5",
                 "claude-sonnet-4-5",
                 "claude-sonnet-5",
                 "claude-haiku-4-5",
@@ -198,6 +215,13 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID, POSTHOG_CODE_DEV_APP_ID}),
         allowed_models=None,  # any model — the signals pipeline picks models per stage (haiku, sonnet, ...)
         allow_api_keys=True,
+        credit_bucket=None,
+    ),
+    "review_hog": ProductConfig(
+        allowed_application_ids=None,
+        allowed_models=None,  # any model — the one-shot chunking/dedup calls pin theirs in review_hog constants
+        allow_api_keys=True,
+        # Deliberately unbilled while ReviewHog is an internal alpha.
         credit_bucket=None,
     ),
     "subscriptions": ProductConfig(

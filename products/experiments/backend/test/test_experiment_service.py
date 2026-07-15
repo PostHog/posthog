@@ -31,10 +31,15 @@ from posthog.models import OrganizationMembership, Team, User
 from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.actions.backend.models.action import Action
+from products.approvals.backend.exceptions import ApprovalRequired
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.event_definition import EventDefinition
-from products.experiments.backend.experiment_service import ExperimentService, _deprecated_fields_in_request
+from products.experiments.backend.experiment_service import (
+    ExperimentService,
+    _deprecated_fields_in_request,
+    _deprecated_parameters_keys_in_request,
+)
 from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_COHORT_KEY,
     EXPOSURE_FROZEN_GROUP_KEY,
@@ -46,7 +51,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentTimeseriesRecalculation,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
+from products.feature_flags.backend.facade.api import set_flag_active, update_flag
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
@@ -1006,13 +1011,19 @@ class TestExperimentService(APIBaseTest):
             description="All optional fields set",
             type="web",
             parameters={
-                "feature_flag_variants": [
-                    {"key": "control", "name": "Control", "rollout_percentage": 34},
-                    {"key": "variant-a", "name": "Variant A", "rollout_percentage": 33},
-                    {"key": "variant-b", "name": "Variant B", "rollout_percentage": 33},
-                ],
-                "rollout_percentage": 80,
                 "minimum_detectable_effect": 20,
+            },
+            feature_flag_config={
+                "filters": {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "name": "Control", "rollout_percentage": 34},
+                            {"key": "variant-a", "name": "Variant A", "rollout_percentage": 33},
+                            {"key": "variant-b", "name": "Variant B", "rollout_percentage": 33},
+                        ]
+                    },
+                    "groups": [{"properties": [], "rollout_percentage": 80}],
+                },
             },
             metrics=[
                 {
@@ -1272,13 +1283,16 @@ class TestExperimentService(APIBaseTest):
         with self.assertRaises(ValidationError) as ctx:
             service.update_experiment(
                 experiment,
-                {
-                    "parameters": {
-                        "feature_flag_variants": [
-                            {"key": "control", "name": "Control", "rollout_percentage": 34},
-                            {"key": "test", "name": "Test", "rollout_percentage": 33},
-                            {"key": "new_variant", "name": "New", "rollout_percentage": 33},
-                        ]
+                {},
+                feature_flag_config={
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "control", "name": "Control", "rollout_percentage": 34},
+                                {"key": "test", "name": "Test", "rollout_percentage": 33},
+                                {"key": "new_variant", "name": "New", "rollout_percentage": 33},
+                            ]
+                        }
                     }
                 },
             )
@@ -1322,12 +1336,15 @@ class TestExperimentService(APIBaseTest):
         service = self._service()
         service.update_experiment(
             experiment,
-            {
-                "parameters": {
-                    "feature_flag_variants": [
-                        {"key": "control", "name": "Control", "rollout_percentage": 50},
-                        {"key": "test", "name": "Test", "rollout_percentage": 50},
-                    ],
+            {},
+            feature_flag_config={
+                "filters": {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "name": "Control", "rollout_percentage": 50},
+                            {"key": "test", "name": "Test", "rollout_percentage": 50},
+                        ]
+                    },
                 },
             },
         )
@@ -1342,13 +1359,16 @@ class TestExperimentService(APIBaseTest):
 
         service.update_experiment(
             experiment,
-            {
-                "parameters": {
-                    "feature_flag_variants": [
-                        {"key": "control", "name": "Control", "rollout_percentage": 34},
-                        {"key": "test", "name": "Test", "rollout_percentage": 33},
-                        {"key": "variant-b", "name": "Variant B", "rollout_percentage": 33},
-                    ],
+            {},
+            feature_flag_config={
+                "filters": {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "name": "Control", "rollout_percentage": 34},
+                            {"key": "test", "name": "Test", "rollout_percentage": 33},
+                            {"key": "variant-b", "name": "Variant B", "rollout_percentage": 33},
+                        ]
+                    },
                 }
             },
         )
@@ -1365,15 +1385,17 @@ class TestExperimentService(APIBaseTest):
 
         self._service().update_experiment(
             experiment,
-            {
-                "parameters": {
-                    "feature_flag_variants": [
-                        {"key": "control", "name": "Control", "rollout_percentage": 75},
-                        {"key": "test", "name": "Test", "rollout_percentage": 25},
-                    ],
-                    "rollout_percentage": 50,
+            {"update_feature_flag_params": True},
+            feature_flag_config={
+                "filters": {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "name": "Control", "rollout_percentage": 75},
+                            {"key": "test", "name": "Test", "rollout_percentage": 25},
+                        ]
+                    },
+                    "groups": [{"properties": [], "rollout_percentage": 50}],
                 },
-                "update_feature_flag_params": True,
             },
         )
 
@@ -1395,14 +1417,16 @@ class TestExperimentService(APIBaseTest):
 
         self._service().update_experiment(
             experiment,
-            {
-                "parameters": {
-                    "feature_flag_variants": [
-                        {"key": "control", "name": "Control", "rollout_percentage": 75},
-                        {"key": "test", "name": "Test", "rollout_percentage": 25},
-                    ],
+            {**extra},
+            feature_flag_config={
+                "filters": {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "name": "Control", "rollout_percentage": 75},
+                            {"key": "test", "name": "Test", "rollout_percentage": 25},
+                        ]
+                    },
                 },
-                **extra,
             },
         )
 
@@ -1425,14 +1449,16 @@ class TestExperimentService(APIBaseTest):
 
         self._service().update_experiment(
             experiment,
-            {
-                "parameters": {
-                    "feature_flag_variants": [
-                        {"key": "control", "name": "Control", "rollout_percentage": 70},
-                        {"key": "test", "name": "Test", "rollout_percentage": 30},
-                    ],
+            {"update_feature_flag_params": True},
+            feature_flag_config={
+                "filters": {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "name": "Control", "rollout_percentage": 70},
+                            {"key": "test", "name": "Test", "rollout_percentage": 30},
+                        ]
+                    },
                 },
-                "update_feature_flag_params": True,
             },
         )
 
@@ -1462,14 +1488,16 @@ class TestExperimentService(APIBaseTest):
 
         self._service().update_experiment(
             experiment,
-            {
-                "parameters": {
-                    "feature_flag_variants": [
-                        {"key": "control", "name": "Control", "rollout_percentage": 70},
-                        {"key": "test", "name": "Test", "rollout_percentage": 30},
-                    ],
+            {"update_feature_flag_params": True},
+            feature_flag_config={
+                "filters": {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "name": "Control", "rollout_percentage": 70},
+                            {"key": "test", "name": "Test", "rollout_percentage": 30},
+                        ]
+                    },
                 },
-                "update_feature_flag_params": True,
             },
         )
 
@@ -1488,15 +1516,17 @@ class TestExperimentService(APIBaseTest):
         with self.assertRaises(ValidationError) as ctx:
             self._service().update_experiment(
                 experiment,
-                {
-                    "parameters": {
-                        "feature_flag_variants": [
-                            {"key": "control", "name": "Control", "rollout_percentage": 34},
-                            {"key": "test", "name": "Test", "rollout_percentage": 33},
-                            {"key": "new_variant", "name": "New", "rollout_percentage": 33},
-                        ]
+                {"update_feature_flag_params": True},
+                feature_flag_config={
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "control", "name": "Control", "rollout_percentage": 34},
+                                {"key": "test", "name": "Test", "rollout_percentage": 33},
+                                {"key": "new_variant", "name": "New", "rollout_percentage": 33},
+                            ]
+                        }
                     },
-                    "update_feature_flag_params": True,
                 },
             )
 
@@ -2177,6 +2207,55 @@ class TestExperimentService(APIBaseTest):
         assert len(links) == 1
         assert links[0].saved_metric_id == sm.id
 
+    # index 0 is the truthiness edge case: a `if index:` guard would wrongly drop it.
+    @parameterized.expand([("index_zero", 0), ("index_one", 1)])
+    def test_duplicate_experiment_preserves_group_aggregation(self, _name: str, group_index: int):
+        flag = self._create_flag(key="dup-group-source")
+        flag.filters = {**flag.filters, "aggregation_group_type_index": group_index}
+        flag.save()
+        service = self._service()
+        source = service.create_experiment(name="Group Source", feature_flag_key="dup-group-source")
+
+        # New key forces a fresh flag through _ensure_feature_flag rather than reusing the source.
+        dup = service.duplicate_experiment(source, feature_flag_key="dup-group-target")
+
+        assert dup.feature_flag.id != source.feature_flag.id
+        assert dup.feature_flag.aggregation_group_type_index == group_index
+
+    # Only groups[0]'s rollout percentage clones; property targeting and extra groups do not, matching
+    # the experiment input surface that restricts groups to a single empty-properties entry.
+    @parameterized.expand(
+        [
+            ("single_group", [{"properties": [], "rollout_percentage": 20}]),
+            (
+                "targeting_and_extra_groups_dropped",
+                [
+                    {
+                        "properties": [{"key": "email", "type": "person", "value": "a@b.com", "operator": "exact"}],
+                        "rollout_percentage": 20,
+                    },
+                    {"properties": [], "rollout_percentage": 55},
+                ],
+            ),
+        ]
+    )
+    def test_duplicate_experiment_inherits_rollout_percentage(self, _name: str, source_groups: list[dict]):
+        flag = self._create_flag(key="dup-rollout-source")
+        flag.filters = {**flag.filters, "groups": source_groups}
+        flag.save()
+        service = self._service()
+        source = service.create_experiment(name="Rollout Source", feature_flag_key="dup-rollout-source")
+
+        # New key forces a fresh flag through _ensure_feature_flag rather than reusing the source.
+        dup = service.duplicate_experiment(source, feature_flag_key="dup-rollout-target")
+
+        assert dup.feature_flag.id != source.feature_flag.id
+        clone_groups = dup.feature_flag.filters["groups"]
+        # Inherits groups[0]'s percentage but nothing else: one group, no property targeting.
+        assert len(clone_groups) == 1
+        assert clone_groups[0]["rollout_percentage"] == 20
+        assert clone_groups[0]["properties"] == []
+
     # ------------------------------------------------------------------
     # Launch experiment
     # ------------------------------------------------------------------
@@ -2433,7 +2512,7 @@ class TestExperimentService(APIBaseTest):
         experiment = self._create_ended_experiment(name="No Flag Access", feature_flag_key="no-flag-access")
         service = self._service()
 
-        with patch.object(service, "_user_can_edit_flag", return_value=False):
+        with patch("products.experiments.backend.experiment_service.user_can_edit_flag", return_value=False):
             with self.assertRaises(PermissionDenied):
                 service.archive_experiment(experiment, disable_feature_flag=True)
 
@@ -2444,7 +2523,7 @@ class TestExperimentService(APIBaseTest):
         assert flag.archived is False
 
     def test_archive_experiment_denies_disabling_flag_for_user_without_real_access(self):
-        # Exercises the real _user_can_edit_flag check (no patching): a user with no access to
+        # Exercises the real user_can_edit_flag check (no patching): a user with no access to
         # the flag is refused, so an inverted/broken access check would fail this test.
         experiment = self._create_ended_experiment(name="Real No Access", feature_flag_key="real-no-access-flag")
         outsider = User.objects.create_user("outsider@example.com", None, "Outsider")
@@ -2512,8 +2591,8 @@ class TestExperimentService(APIBaseTest):
         service = self._service()
 
         with (
-            patch.object(service, "_user_can_edit_flag", return_value=True),
-            patch.object(service, "_flag_disable_requires_approval", return_value=True),
+            patch("products.experiments.backend.experiment_service.user_can_edit_flag", return_value=True),
+            patch("products.experiments.backend.experiment_service.flag_disable_requires_approval", return_value=True),
         ):
             with self.assertRaises(PermissionDenied):
                 service.archive_experiment(experiment, disable_feature_flag=True)
@@ -2554,7 +2633,7 @@ class TestExperimentService(APIBaseTest):
         experiment.feature_flag.save()
         service = self._service()
 
-        with patch.object(service, "_user_can_edit_flag", return_value=False):
+        with patch("products.experiments.backend.experiment_service.user_can_edit_flag", return_value=False):
             service.archive_experiment(experiment)
 
         experiment.refresh_from_db()
@@ -2630,6 +2709,41 @@ class TestExperimentService(APIBaseTest):
         assert refreshed.feature_flag_auto_archived is False
         # The flag stays disabled — re-enabling is an explicit user decision
         assert flag.active is False
+
+    def test_unarchive_experiment_flag_unarchive_not_blocked_by_approval_policies(self):
+        # unarchive_experiment runs inside transaction.atomic, so its gated flag write must
+        # never trip an approval policy — an ApprovalRequired escaping the block would roll
+        # back the just-created change request. Archived-only payloads match no flag action
+        # today; this pins that invariant against detect() being broadened.
+        experiment = self._create_ended_experiment(name="Unarchive Policy", feature_flag_key="unarchive-policy-flag")
+        experiment.feature_flag.active = False
+        experiment.feature_flag.save()
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.APPROVALS, "name": AvailableFeature.APPROVALS}
+        ]
+        self.organization.save()
+        for action_key in ["feature_flag.enable", "feature_flag.disable", "feature_flag.update"]:
+            ApprovalPolicy.objects.create(
+                organization=self.organization,
+                team=self.team,
+                action_key=action_key,
+                approver_config={"quorum": 1, "users": [self.user.id]},
+                created_by=self.user,
+            )
+
+        service = self._service()
+        service.archive_experiment(experiment)
+        service.unarchive_experiment(experiment)
+
+        assert ChangeRequest.objects.filter(team=self.team).count() == 0
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.feature_flag.archived is False
+
+        # Positive control: the gate is live in this harness — a payload a policy does
+        # match must trip it, or the zero-change-request assertion above proves nothing.
+        with self.assertRaises(ApprovalRequired):
+            set_flag_active(experiment.feature_flag, True, team=self.team, user=self.user)
 
     def test_unarchive_experiment_keeps_manually_archived_flag(self):
         # The user archived the flag themselves, so unarchiving the experiment must not undo it.
@@ -3059,6 +3173,61 @@ class TestExperimentService(APIBaseTest):
         with self.assertRaises(ValidationError):
             service.resume_experiment(experiment)
 
+    @parameterized.expand(
+        [
+            (
+                "launched",
+                "experiment launched",
+                lambda self: self._create_launchable_experiment(name="Ev L", feature_flag_key="ev-launched-flag"),
+                lambda service, experiment, request: service.launch_experiment(experiment, request=request),
+            ),
+            (
+                "paused",
+                "experiment paused",
+                lambda self: self._create_running_experiment(name="Ev P", feature_flag_key="ev-paused-flag"),
+                lambda service, experiment, request: service.pause_experiment(experiment, request=request),
+            ),
+            (
+                "resumed",
+                "experiment resumed",
+                lambda self: self._create_running_experiment(name="Ev R", feature_flag_key="ev-resumed-flag"),
+                # pause first (no request -> no report), then resume with the request under assertion
+                lambda service, experiment, request: (
+                    service.pause_experiment(experiment),
+                    service.resume_experiment(experiment, request=request),
+                ),
+            ),
+            (
+                "archived",
+                "experiment archived",
+                lambda self: self._create_ended_experiment(name="Ev A", feature_flag_key="ev-archived-flag"),
+                lambda service, experiment, request: service.archive_experiment(experiment, request=request),
+            ),
+            (
+                "unarchived",
+                "experiment unarchived",
+                lambda self: self._create_ended_experiment(name="Ev U", feature_flag_key="ev-unarchived-flag"),
+                # archive first (no request -> no report), then unarchive with the request under assertion
+                lambda service, experiment, request: (
+                    service.archive_experiment(experiment),
+                    service.unarchive_experiment(experiment, request=request),
+                ),
+            ),
+        ]
+    )
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_lifecycle_action_emits_exact_event_name(self, _name, event_name, build, act, mock_report_user_action):
+        # These five event strings are asserted nowhere else. After the per-action report methods were
+        # collapsed into one _report_lifecycle_event(event_name) call, a typo'd string at any call site
+        # would silently break the analytics event without this guard.
+        experiment = build(self)
+        mock_report_user_action.reset_mock()
+
+        act(self._service(), experiment, self._make_request())
+
+        mock_report_user_action.assert_called_once()
+        assert mock_report_user_action.call_args.args[1] == event_name
+
     # ------------------------------------------------------------------
     # Freeze exposure
     # ------------------------------------------------------------------
@@ -3072,14 +3241,7 @@ class TestExperimentService(APIBaseTest):
         flag.save()
 
     def _update_flag_filters(self, flag: FeatureFlag, filters: dict) -> None:
-        serializer = FeatureFlagSerializer(
-            flag,
-            data={"filters": filters},
-            partial=True,
-            context={"request": self._make_request(), "team_id": self.team.id, "project_id": self.team.project_id},
-        )
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
+        update_flag(flag, {"filters": filters}, team=self.team, user=self.user, request=self._make_request())
         flag.refresh_from_db()
 
     @contextmanager
@@ -3090,11 +3252,14 @@ class TestExperimentService(APIBaseTest):
             # The stubbed uuids have no real persons behind them; treat them all as resolvable so
             # the personless guard doesn't reject these unrelated scenarios.
             patch(
-                "products.experiments.backend.experiment_service.validate_person_uuids_exist",
-                new=lambda team_id, uuids: uuids,
+                "products.experiments.backend.experiment_service.get_person_ids_and_uuids_by_uuids",
+                new=lambda team_id, uuids, **kwargs: [
+                    (index + 1, person_uuid) for index, person_uuid in enumerate(uuids)
+                ],
             ),
             patch(
-                "products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_uuid", return_value=0
+                "products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_id_uuid_pairs_skip_validation",
+                return_value=0,
             ) as mock_insert,
         ):
             yield mock_insert
@@ -3138,10 +3303,14 @@ class TestExperimentService(APIBaseTest):
 
         frozen.feature_flag.refresh_from_db()
 
-        # A static snapshot cohort was created and populated synchronously from the exposed set.
+        # A static snapshot cohort was created and populated synchronously from the exposed set,
+        # fed the (person_id, uuid) pairs already resolved by the personless guard — the freeze
+        # must not fetch the persons from personhog a second time.
         cohort = Cohort.objects.get(team=self.team, name='Exposure snapshot for experiment "Freeze Exposure"')
         assert cohort.is_static is True
-        mock_insert.assert_called_once()
+        mock_insert.assert_called_once_with(
+            [(1, "00000000-0000-0000-0000-000000000001")], team_id=self.team.id, raise_on_error=True
+        )
 
         # The cohort condition + freeze key + marker note were AND'd into every release group.
         groups = frozen.feature_flag.filters["groups"]
@@ -3375,7 +3544,10 @@ class TestExperimentService(APIBaseTest):
 
         # Any failure persisting the narrowed flag must not leave the snapshot cohort behind.
         with self._stub_freeze_population():
-            with patch.object(FeatureFlagSerializer, "save", side_effect=ValidationError("boom")):
+            with patch(
+                "products.experiments.backend.experiment_service.update_flag",
+                side_effect=ValidationError("boom"),
+            ):
                 with self.assertRaises(ValidationError):
                     self._service().freeze_exposure(experiment, request=self._make_request())
 
@@ -3421,10 +3593,15 @@ class TestExperimentService(APIBaseTest):
         with (
             patch.object(ExperimentService, "_fetch_exposed_person_uuids", return_value=uuids),
             patch(
-                "products.experiments.backend.experiment_service.validate_person_uuids_exist",
-                new=lambda team_id, batch: batch[unresolved:],
+                "products.experiments.backend.experiment_service.get_person_ids_and_uuids_by_uuids",
+                new=lambda team_id, batch, **kwargs: [
+                    (index + 1, person_uuid) for index, person_uuid in enumerate(batch[unresolved:])
+                ],
             ),
-            patch("products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_uuid", return_value=0),
+            patch(
+                "products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_id_uuid_pairs_skip_validation",
+                return_value=0,
+            ),
         ):
             if expect_rejection:
                 with self.assertRaises(ValidationError) as ctx:
@@ -3453,11 +3630,13 @@ class TestExperimentService(APIBaseTest):
                 return_value=["00000000-0000-0000-0000-000000000001"],
             ),
             patch(
-                "products.experiments.backend.experiment_service.validate_person_uuids_exist",
-                new=lambda team_id, uuids: uuids,
+                "products.experiments.backend.experiment_service.get_person_ids_and_uuids_by_uuids",
+                new=lambda team_id, uuids, **kwargs: [
+                    (index + 1, person_uuid) for index, person_uuid in enumerate(uuids)
+                ],
             ),
             patch(
-                "products.cohorts.backend.models.cohort.Cohort._insert_batch_via_personhog",
+                "products.cohorts.backend.models.cohort.Cohort._insert_resolved_batch",
                 side_effect=RuntimeError("clickhouse insert failed"),
             ),
         ):
@@ -3567,10 +3746,15 @@ class TestExperimentService(APIBaseTest):
         with (
             patch.object(ExperimentService, "_fetch_exposed_person_uuids", side_effect=concurrent_change_then_return),
             patch(
-                "products.experiments.backend.experiment_service.validate_person_uuids_exist",
-                new=lambda team_id, uuids: uuids,
+                "products.experiments.backend.experiment_service.get_person_ids_and_uuids_by_uuids",
+                new=lambda team_id, uuids, **kwargs: [
+                    (index + 1, person_uuid) for index, person_uuid in enumerate(uuids)
+                ],
             ),
-            patch("products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_uuid", return_value=0),
+            patch(
+                "products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_id_uuid_pairs_skip_validation",
+                return_value=0,
+            ),
         ):
             with self.assertRaises(ValidationError) as ctx:
                 self._service().freeze_exposure(experiment, request=self._make_request())
@@ -3602,10 +3786,15 @@ class TestExperimentService(APIBaseTest):
         with (
             patch.object(ExperimentService, "_fetch_exposed_person_uuids", side_effect=concurrent_edit_then_return),
             patch(
-                "products.experiments.backend.experiment_service.validate_person_uuids_exist",
-                new=lambda team_id, uuids: uuids,
+                "products.experiments.backend.experiment_service.get_person_ids_and_uuids_by_uuids",
+                new=lambda team_id, uuids, **kwargs: [
+                    (index + 1, person_uuid) for index, person_uuid in enumerate(uuids)
+                ],
             ),
-            patch("products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_uuid", return_value=0),
+            patch(
+                "products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_id_uuid_pairs_skip_validation",
+                return_value=0,
+            ),
         ):
             frozen = self._service().freeze_exposure(experiment, request=self._make_request())
 
@@ -3951,7 +4140,10 @@ class TestExperimentService(APIBaseTest):
 
         # If persisting the shipped flag fails (e.g. ApprovalRequired surfacing as a 409), the flag
         # is still frozen and serving from the snapshot — the cohort must not be deleted from under it.
-        with patch.object(FeatureFlagSerializer, "save", side_effect=ValidationError("boom")):
+        with patch(
+            "products.experiments.backend.experiment_service.ship_flag_variant",
+            side_effect=ValidationError("boom"),
+        ):
             with self.assertRaises(ValidationError):
                 self._service().ship_variant(frozen, variant_key="test", request=self._make_request())
 
@@ -3971,18 +4163,7 @@ class TestExperimentService(APIBaseTest):
             "rollout_percentage": 100,
         }
         updated_filters = {**flag.filters, "groups": [scoped_group]}
-        serializer = FeatureFlagSerializer(
-            flag,
-            data={"filters": updated_filters},
-            partial=True,
-            context={
-                "request": self._make_request(),
-                "team_id": self.team.id,
-                "project_id": self.team.project_id,
-            },
-        )
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
+        update_flag(flag, {"filters": updated_filters}, team=self.team, user=self.user, request=self._make_request())
         flag.refresh_from_db()
         original_groups = flag.filters["groups"]
 
@@ -4004,18 +4185,7 @@ class TestExperimentService(APIBaseTest):
         }
         existing_groups = flag.filters.get("groups", [])
         updated_filters = {**flag.filters, "groups": [override_group, *existing_groups]}
-        serializer = FeatureFlagSerializer(
-            flag,
-            data={"filters": updated_filters},
-            partial=True,
-            context={
-                "request": self._make_request(),
-                "team_id": self.team.id,
-                "project_id": self.team.project_id,
-            },
-        )
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
+        update_flag(flag, {"filters": updated_filters}, team=self.team, user=self.user, request=self._make_request())
         flag.refresh_from_db()
         original_groups = flag.filters["groups"]
 
@@ -4088,18 +4258,7 @@ class TestExperimentService(APIBaseTest):
             "aggregation_group_type_index": 1,
             "groups": [{**g, "aggregation_group_type_index": 1} for g in flag.filters.get("groups", [])],
         }
-        flag_serializer = FeatureFlagSerializer(
-            flag,
-            data={"filters": updated_filters},
-            partial=True,
-            context={
-                "request": self._make_request(),
-                "team_id": self.team.id,
-                "project_id": self.team.project_id,
-            },
-        )
-        flag_serializer.is_valid(raise_exception=True)
-        flag_serializer.save()
+        update_flag(flag, {"filters": updated_filters}, team=self.team, user=self.user, request=self._make_request())
         flag.refresh_from_db()
 
         shipped = self._service().ship_variant(experiment, variant_key="test", request=self._make_request())
@@ -4178,125 +4337,6 @@ class TestExperimentService(APIBaseTest):
         assert "experiment variant shipped" in event_names
         assert "experiment completed" not in event_names
         assert "experiment stopped" not in event_names
-
-    # ------------------------------------------------------------------
-    # Transform filters for winning variant
-    # ------------------------------------------------------------------
-
-    def test_transform_filters_default_preserves_groups(self):
-        current_filters = {
-            "groups": [{"properties": [], "rollout_percentage": 100}],
-            "payloads": {},
-            "multivariate": {
-                "variants": [
-                    {"key": "control", "name": "Control Group", "rollout_percentage": 50},
-                    {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
-                ]
-            },
-            "aggregation_group_type_index": None,
-        }
-
-        result = ExperimentService._transform_filters_for_winning_variant(current_filters, "test")
-
-        # Variant distribution flipped
-        assert result["multivariate"]["variants"] == [
-            {"key": "control", "name": "Control Group", "rollout_percentage": 0},
-            {"key": "test", "name": "Test Variant", "rollout_percentage": 100},
-        ]
-        # Groups preserved exactly — no catch-all prepended in default mode
-        assert result["groups"] == current_filters["groups"]
-        assert result["payloads"] == {}
-        assert result["aggregation_group_type_index"] is None
-
-    def test_transform_filters_release_to_everyone_prepends_catch_all(self):
-        current_filters = {
-            "groups": [{"properties": [], "rollout_percentage": 100}],
-            "payloads": {},
-            "multivariate": {
-                "variants": [
-                    {"key": "control", "name": "Control Group", "rollout_percentage": 50},
-                    {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
-                ]
-            },
-            "aggregation_group_type_index": None,
-        }
-
-        result = ExperimentService._transform_filters_for_winning_variant(
-            current_filters, "test", release_to_everyone=True
-        )
-
-        assert result["multivariate"]["variants"] == [
-            {"key": "control", "name": "Control Group", "rollout_percentage": 0},
-            {"key": "test", "name": "Test Variant", "rollout_percentage": 100},
-        ]
-        assert result["groups"][0] == {
-            "properties": [],
-            "rollout_percentage": 100,
-            "description": "Added automatically when the experiment was ended to keep only one variant.",
-        }
-        assert result["groups"][1:] == [{"properties": [], "rollout_percentage": 100}]
-        assert result["payloads"] == {}
-        assert result["aggregation_group_type_index"] is None
-
-    def test_transform_filters_default_does_not_mutate_input(self):
-        """Defensive: ensure the function returns a new groups list without mutating caller's filters."""
-        original_groups = [{"properties": [], "rollout_percentage": 50}]
-        current_filters = {
-            "groups": original_groups,
-            "multivariate": {
-                "variants": [
-                    {"key": "control", "rollout_percentage": 50},
-                    {"key": "test", "rollout_percentage": 50},
-                ]
-            },
-        }
-
-        result = ExperimentService._transform_filters_for_winning_variant(current_filters, "test")
-
-        # Caller's list reference is untouched
-        assert current_filters["groups"] is original_groups
-        # Result's groups equals original by value but is a distinct list object
-        assert result["groups"] == original_groups
-        assert result["groups"] is not original_groups
-
-    def test_transform_filters_multiple_variants_with_payloads(self):
-        current_filters = {
-            "groups": [{"properties": [], "rollout_percentage": 100}],
-            "payloads": {
-                "test_1": "{key: 'test_1'}",
-                "test_2": "{key: 'test_2'}",
-                "test_3": "{key: 'test_3'}",
-                "control": "{key: 'control'}",
-            },
-            "multivariate": {
-                "variants": [
-                    {"key": "control", "name": "This is control", "rollout_percentage": 25},
-                    {"key": "test_1", "name": "This is test_1", "rollout_percentage": 25},
-                    {"key": "test_2", "name": "This is test_2", "rollout_percentage": 25},
-                    {"key": "test_3", "name": "This is test_3", "rollout_percentage": 25},
-                ]
-            },
-            "aggregation_group_type_index": 1,
-        }
-
-        result = ExperimentService._transform_filters_for_winning_variant(
-            current_filters, "control", release_to_everyone=True
-        )
-
-        assert result["multivariate"]["variants"] == [
-            {"key": "control", "name": "This is control", "rollout_percentage": 100},
-            {"key": "test_1", "name": "This is test_1", "rollout_percentage": 0},
-            {"key": "test_2", "name": "This is test_2", "rollout_percentage": 0},
-            {"key": "test_3", "name": "This is test_3", "rollout_percentage": 0},
-        ]
-        assert result["groups"][0] == {
-            "properties": [],
-            "rollout_percentage": 100,
-            "description": "Added automatically when the experiment was ended to keep only one variant.",
-        }
-        assert result["groups"][1:] == [{"properties": [], "rollout_percentage": 100}]
-        assert result["payloads"] == current_filters["payloads"]
-        assert result["aggregation_group_type_index"] == 1
 
     # ------------------------------------------------------------------
     # Exposure cohort
@@ -5088,61 +5128,24 @@ class TestExperimentService(APIBaseTest):
     # Validation hardening
     # ------------------------------------------------------------------
 
-    def test_variant_missing_key_raises_validation_error(self):
-        """Variant without 'key' should return 400, not 500 KeyError."""
-        service = self._service()
-        with self.assertRaises(ValidationError):
-            service.create_experiment(
-                name="Bad Variants",
-                feature_flag_key="bad-variant-flag",
-                parameters={
-                    "feature_flag_variants": [
-                        {"name": "Control", "rollout_percentage": 50},
-                        {"key": "test", "name": "Test", "rollout_percentage": 50},
-                    ]
-                },
-            )
-
-    def test_variant_not_a_dict_raises_validation_error(self):
-        """Variant that is not a dict should return 400."""
-        service = self._service()
-        with self.assertRaises(ValidationError):
-            service.create_experiment(
-                name="Bad Variants",
-                feature_flag_key="bad-variant-flag-2",
-                parameters={"feature_flag_variants": ["control", "test"]},
-            )
-
-    def test_variant_missing_both_percentages_raises_validation_error(self):
-        """Variant without split_percent or rollout_percentage should be rejected."""
-        service = self._service()
-        with self.assertRaises(ValidationError) as ctx:
-            service.create_experiment(
-                name="Missing Percentages",
-                feature_flag_key="missing-pct-flag",
-                parameters={
-                    "feature_flag_variants": [
-                        {"key": "control"},
-                        {"key": "test", "rollout_percentage": 50},
-                    ]
-                },
-            )
-        assert "split_percent" in str(ctx.exception)
-
-    def test_variant_with_only_rollout_percentage_succeeds(self):
-        """Legacy clients sending only rollout_percentage must still work (deprecated but accepted)."""
+    def test_create_with_rollout_only_variants_succeeds(self):
+        """Variants carrying rollout_percentage (the flag's native shape) build the flag as-is."""
         service = self._service()
         experiment = service.create_experiment(
-            name="Legacy rollout only",
-            feature_flag_key="legacy-rollout-flag",
-            parameters={
-                "feature_flag_variants": [
-                    {"key": "control", "rollout_percentage": 50},
-                    {"key": "test", "rollout_percentage": 50},
-                ]
+            name="Rollout only",
+            feature_flag_key="rollout-only-flag",
+            feature_flag_config={
+                "filters": {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 50},
+                            {"key": "test", "rollout_percentage": 50},
+                        ]
+                    }
+                }
             },
         )
-        assert experiment.id is not None
+        assert [v["key"] for v in experiment.feature_flag.variants] == ["control", "test"]
 
     def test_duplicate_metric_uuids_within_list_are_regenerated(self):
         """Duplicate metric UUIDs within one list should be silently regenerated.
@@ -6364,12 +6367,15 @@ class TestExperimentService(APIBaseTest):
         with self.assertRaises(ValidationError):
             service.update_experiment(
                 experiment,
-                {
-                    "parameters": {
-                        "feature_flag_variants": [
-                            {"key": "control", "rollout_percentage": 50},
-                            {"key": "variant-b", "rollout_percentage": 50},
-                        ]
+                {},
+                feature_flag_config={
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "control", "rollout_percentage": 50},
+                                {"key": "variant-b", "rollout_percentage": 50},
+                            ]
+                        }
                     }
                 },
             )
@@ -6572,3 +6578,27 @@ class TestDeprecatedFieldsInRequest(SimpleTestCase):
         request = MagicMock()
         type(request).data = PropertyMock(side_effect=RuntimeError("stream consumed"))
         assert _deprecated_fields_in_request(request) == {}
+
+
+class TestDeprecatedParametersKeysInRequest(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "deprecated_subset_sorted",
+                {"parameters": {"rollout_percentage": 50, "feature_flag_variants": [], "variant_notes": {}}},
+                ["feature_flag_variants", "rollout_percentage"],
+            ),
+            ("only_non_deprecated_keys", {"parameters": {"variant_notes": {"control": "n"}}}, []),
+            ("parameters_not_a_dict", {"parameters": [1, 2]}, []),
+            ("non_dict_body", [1, 2, 3], []),
+        ]
+    )
+    def test_detects_deprecated_parameters_keys(self, _name: str, body: Any, expected: list[str]) -> None:
+        request = MagicMock()
+        request.data = body
+        assert _deprecated_parameters_keys_in_request(request) == expected
+
+    def test_returns_empty_when_reading_body_raises(self) -> None:
+        request = MagicMock()
+        type(request).data = PropertyMock(side_effect=RuntimeError("stream consumed"))
+        assert _deprecated_parameters_keys_in_request(request) == []

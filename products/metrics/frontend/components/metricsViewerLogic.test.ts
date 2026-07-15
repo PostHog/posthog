@@ -1,3 +1,8 @@
+import { expectLogic } from 'kea-test-utils'
+
+import { insightsApi } from 'scenes/insights/utils/api'
+
+import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
     FilterLogicalOperator,
@@ -7,7 +12,7 @@ import {
     UniversalFiltersGroupValue,
 } from '~/types'
 
-import { metricsValuesRetrieve } from 'products/metrics/frontend/generated/api'
+import { metricsAttributesRetrieve, metricsValuesRetrieve } from 'products/metrics/frontend/generated/api'
 
 import { metricNamePickerLogic } from './metricNamePickerLogic'
 import { metricsViewerLogic, NEW_QUERY_STARTED_ERROR_MESSAGE } from './metricsViewerLogic'
@@ -15,6 +20,12 @@ import { metricsViewerLogic, NEW_QUERY_STARTED_ERROR_MESSAGE } from './metricsVi
 jest.mock('products/metrics/frontend/generated/api', () => ({
     ...jest.requireActual('products/metrics/frontend/generated/api'),
     metricsValuesRetrieve: jest.fn(),
+    metricsAttributesRetrieve: jest.fn(),
+}))
+
+jest.mock('scenes/insights/utils/api', () => ({
+    ...jest.requireActual('scenes/insights/utils/api'),
+    insightsApi: { create: jest.fn() },
 }))
 
 const filterGroupWith = (filters: Record<string, any>[]): UniversalFiltersGroup => ({
@@ -75,6 +86,117 @@ describe('metricsViewerLogic', () => {
         logic.actions.setMetricName('requests_total')
         logic.actions.setMetricName('mystery_metric')
         expect(logic.values.aggregation).toBe('increase')
+    })
+
+    // metricsQueryNode is what "Save as insight" persists: a wrong mapping here
+    // silently saves insights that re-run a different query than the viewer showed.
+    it('maps viewer state to a MetricsQuery node, translating p95 to quantile', () => {
+        logic.actions.setMetricName('request_duration')
+        logic.actions.setGroupByKeys(['container'])
+        logic.actions.setFilterGroup(
+            filterGroupWith([{ key: 'namespace', operator: PropertyOperator.Exact, value: ['posthog'] }])
+        )
+        logic.actions.setDateFrom('-24h')
+
+        expect(logic.values.aggregation).toBe('p95')
+        expect(logic.values.metricsQueryNode).toEqual({
+            kind: NodeKind.MetricsQuery,
+            clauses: [
+                {
+                    name: 'a',
+                    metricName: 'request_duration',
+                    aggregation: 'quantile',
+                    metricType: 'histogram',
+                    quantile: 0.95,
+                    filters: [{ key: 'namespace', op: 'eq', value: 'posthog' }],
+                    groupBy: [{ key: 'container' }],
+                },
+            ],
+            dateRange: { date_from: '-24h' },
+        })
+    })
+
+    it('produces no MetricsQuery node without a metric name', () => {
+        expect(logic.values.metricsQueryNode).toBeNull()
+    })
+
+    // A type outside the API enum (or a metric missing from the picker list) must be
+    // omitted, not persisted — the backend rejects unknown metric types.
+    it('omits metricType from the node when the picked type is unknown', () => {
+        logic.actions.setMetricName('mystery_metric')
+        expect(logic.values.metricsQueryNode?.clauses[0]).not.toHaveProperty('metricType')
+    })
+
+    // The picker's items are live search results: typing a new search after picking
+    // a metric replaces them. The picked type must be latched, not derived, or a
+    // save at that moment silently persists an untyped (blendable) query.
+    it('keeps the picked metric type when the picker search results change', () => {
+        logic.actions.setMetricName('queue_depth')
+        metricNamePickerLogic.actions.loadItemsSuccess([{ name: 'http_requests', metric_type: 'sum' }] as any)
+        expect(logic.values.metricsQueryNode?.clauses[0].metricType).toBe('gauge')
+    })
+
+    it('backfills the metric type when the picker loads after the metric was set', () => {
+        metricNamePickerLogic.actions.loadItemsSuccess([])
+        logic.actions.setMetricName('queue_depth')
+        expect(logic.values.metricsQueryNode?.clauses[0]).not.toHaveProperty('metricType')
+        metricNamePickerLogic.actions.loadItemsSuccess(PICKER_ITEMS)
+        expect(logic.values.metricsQueryNode?.clauses[0].metricType).toBe('gauge')
+    })
+
+    // "Add to dashboard" must not create a fresh insight on every click — repeated
+    // clicks for an unchanged query would litter saved insights with duplicates.
+    // The mock normalizes the echoed query (like the API can: injected defaults,
+    // version stamps), so reuse must not depend on the server round-tripping the
+    // node byte-for-byte.
+    it('add to dashboard saves the insight once, then reuses it while the query is unchanged', async () => {
+        jest.mocked(insightsApi.create).mockImplementation(
+            async (insight: any) =>
+                ({ id: 1, short_id: 'abc123', ...insight, query: { ...insight.query, version: 1 } }) as any
+        )
+        logic.actions.setMetricName('queue_depth')
+
+        logic.actions.addToDashboard()
+        await expectLogic(logic).toDispatchActions(['saveAsInsightSuccess', 'openAddToDashboardModal'])
+        expect(logic.values.isAddToDashboardModalOpen).toBe(true)
+        expect(insightsApi.create).toHaveBeenCalledTimes(1)
+
+        logic.actions.closeAddToDashboardModal()
+        logic.actions.addToDashboard()
+        await expectLogic(logic).toDispatchActions(['openAddToDashboardModal'])
+        expect(logic.values.isAddToDashboardModalOpen).toBe(true)
+        expect(insightsApi.create).toHaveBeenCalledTimes(1)
+    })
+
+    it('add to dashboard saves a fresh insight after the query changes', async () => {
+        jest.mocked(insightsApi.create).mockImplementation(
+            async (insight: any) => ({ id: 1, short_id: 'abc123', ...insight }) as any
+        )
+        logic.actions.setMetricName('queue_depth')
+        logic.actions.addToDashboard()
+        await expectLogic(logic).toDispatchActions(['openAddToDashboardModal'])
+
+        logic.actions.closeAddToDashboardModal()
+        logic.actions.setAggregation('rate')
+        logic.actions.addToDashboard()
+        await expectLogic(logic).toDispatchActions(['saveAsInsightSuccess', 'openAddToDashboardModal'])
+        expect(insightsApi.create).toHaveBeenCalledTimes(2)
+    })
+
+    // A failed add-to-dashboard save must not leave the flow armed: a later plain
+    // "Save as insight" success would unexpectedly pop the modal.
+    it('a later plain save does not open the modal after a failed add-to-dashboard save', async () => {
+        jest.mocked(insightsApi.create).mockRejectedValueOnce(new Error('boom'))
+        logic.actions.setMetricName('queue_depth')
+        logic.actions.addToDashboard()
+        await expectLogic(logic).toDispatchActions(['saveAsInsightFailure'])
+
+        jest.mocked(insightsApi.create).mockImplementation(
+            async (insight: any) => ({ id: 1, short_id: 'abc123', ...insight }) as any
+        )
+        logic.actions.saveAsInsight()
+        await expectLogic(logic).toDispatchActions(['saveAsInsightSuccess'])
+        expect(logic.values.isAddToDashboardModalOpen).toBe(false)
     })
 
     // A failed query (bad regex, 500) used to render the same "No data" empty state as a genuinely
@@ -144,5 +266,26 @@ describe('metricsViewerLogic', () => {
             ])
         )
         expect(logic.values.queryFilters).toEqual([{ key: 'env', op: 'eq', value: 'prod' }])
+    })
+
+    // The group-by picker shipped with `options={[]}` and never fetched, so it offered no
+    // attribute keys. Typing must query the attributes endpoint (scoped by search) and map
+    // `{ name }` rows into `{ key, label }` options.
+    it('group-by search fetches attribute keys and maps them into options', async () => {
+        jest.mocked(metricsAttributesRetrieve).mockResolvedValue({
+            results: [{ name: 'env' }, { name: 'service_name' }],
+            count: 2,
+        })
+        await expectLogic(logic, () => {
+            logic.actions.setGroupBySearch('e')
+        }).toDispatchActions(['loadAttributeKeyOptions', 'loadAttributeKeyOptionsSuccess'])
+        expect(metricsAttributesRetrieve).toHaveBeenCalledWith(
+            expect.any(String),
+            expect.objectContaining({ search: 'e' })
+        )
+        expect(logic.values.attributeKeyOptions).toEqual([
+            { key: 'env', label: 'env' },
+            { key: 'service_name', label: 'service_name' },
+        ])
     })
 })

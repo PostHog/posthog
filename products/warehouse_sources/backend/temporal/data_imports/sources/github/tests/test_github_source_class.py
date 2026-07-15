@@ -1,12 +1,19 @@
 import pytest
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+    IntegrationAccountListingError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
     GithubAuthMethodConfig,
     GithubSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.source import GithubSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+_GITHUB_INTEGRATION_PATH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.github.source.GitHubIntegration"
+)
 
 
 class TestGithubSource:
@@ -16,6 +23,52 @@ class TestGithubSource:
 
     def test_source_type(self):
         assert self.source.source_type == ExternalDataSourceType.GITHUB
+
+    @mock.patch(_GITHUB_INTEGRATION_PATH)
+    @mock.patch.object(GithubSource, "get_oauth_integration")
+    def test_get_oauth_accounts_maps_repositories(self, mock_get_oauth, mock_github_integration):
+        mock_get_oauth.return_value = mock.MagicMock()
+        mock_github_integration.return_value.list_cached_repositories.return_value = (
+            [{"full_name": "PostHog/posthog"}, {"full_name": "PostHog/code"}],
+            False,
+        )
+
+        accounts = self.source.get_oauth_accounts(1, self.team_id)
+
+        assert [a.value for a in accounts] == ["PostHog/posthog", "PostHog/code"]
+        assert [a.display_name for a in accounts] == ["PostHog/posthog", "PostHog/code"]
+        mock_get_oauth.assert_called_once_with(1, self.team_id)
+
+    @mock.patch(_GITHUB_INTEGRATION_PATH)
+    @mock.patch.object(GithubSource, "get_oauth_integration")
+    def test_get_oauth_accounts_pushes_search_down(self, mock_get_oauth, mock_github_integration):
+        mock_get_oauth.return_value = mock.MagicMock()
+        list_repos = mock_github_integration.return_value.list_cached_repositories
+        list_repos.return_value = ([], False)
+
+        self.source.get_oauth_accounts(1, self.team_id, search="posthog")
+
+        list_repos.assert_called_once_with(search="posthog", limit=100, offset=0)
+
+    @mock.patch(_GITHUB_INTEGRATION_PATH)
+    @mock.patch.object(GithubSource, "get_oauth_integration")
+    def test_get_oauth_accounts_skips_repos_without_full_name(self, mock_get_oauth, mock_github_integration):
+        mock_get_oauth.return_value = mock.MagicMock()
+        mock_github_integration.return_value.list_cached_repositories.return_value = (
+            [{"full_name": "PostHog/posthog"}, {"full_name": ""}, {"id": 1}],
+            False,
+        )
+
+        accounts = self.source.get_oauth_accounts(1, self.team_id)
+
+        assert [a.value for a in accounts] == ["PostHog/posthog"]
+
+    @mock.patch.object(GithubSource, "get_oauth_integration")
+    def test_get_oauth_accounts_missing_integration_raises(self, mock_get_oauth):
+        mock_get_oauth.side_effect = ValueError("Integration not found")
+
+        with pytest.raises(IntegrationAccountListingError):
+            self.source.get_oauth_accounts(999, self.team_id)
 
     @pytest.mark.parametrize(
         "expected_key",
@@ -118,6 +171,26 @@ class TestGithubSource:
         assert schemas["workflow_runs"].supports_webhooks is True
         assert schemas["workflow_jobs"].supports_webhooks is True
         assert all(s.should_sync_default for s in schemas.values() if s.name not in ("teams", "team_members"))
+
+    def test_reviews_schema_is_webhook_only_and_default_on(self):
+        # reviews does no poll backfill (zero lookback floor), so it must be offered webhook-only;
+        # advertising a poll mode would sync an empty table forever. It needs only the repo grant
+        # validated at create, unlike the org tables, so it stays selected by default. If the
+        # webhook map entry or the zero floor regressed, these flags would flip and the picker
+        # would offer a broken mode.
+        config = GithubSourceConfig(
+            auth_method=GithubAuthMethodConfig(github_integration_id=None, selection="pat", personal_access_token="t"),
+            repository="acme/widgets",
+        )
+        schemas = {s.name: s for s in self.source.get_schemas(config, self.team_id)}
+
+        reviews = schemas["reviews"]
+        assert reviews.supports_webhooks is True
+        assert reviews.webhook_only is True
+        assert reviews.supports_incremental is False
+        assert reviews.supports_append is False
+        assert reviews.should_sync_default is True
+        assert [f["field"] for f in reviews.incremental_fields] == ["submitted_at"]
 
     def test_get_access_token_returns_pat(self):
         config = GithubSourceConfig(
