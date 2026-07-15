@@ -2,7 +2,7 @@
 //! `config`, `domain`, `store`, and its `app` siblings; this `TryFrom<&Config>` is what keeps the
 //! dependency arrow pointing down (`config` no longer names an `app` type).
 
-use std::num::NonZeroUsize;
+use std::num::{NonZeroU16, NonZeroUsize};
 use std::time::Duration;
 
 use crate::config::Config;
@@ -29,6 +29,7 @@ impl OrchestratorSettings {
         chunk_lease: Duration,
         max_chunk_attempts: u32,
         max_lookback_days: u32,
+        bands_per_day: u16,
         producer: ProducerSettings,
     ) -> Result<Self, OrchestratorSettingsError> {
         if run_poll_interval.is_zero() {
@@ -48,12 +49,19 @@ impl OrchestratorSettings {
                 MaxAttemptsError::Zero => OrchestratorSettingsError::ZeroMaxAttempts,
                 MaxAttemptsError::OutOfRange(_) => OrchestratorSettingsError::MaxAttemptsOutOfRange,
             })?;
+        // The `band` column is a smallint, so the count must fit i16 for band indices to encode.
+        let bands_per_day = NonZeroU16::new(bands_per_day)
+            .filter(|bands| i16::try_from(bands.get()).is_ok())
+            .ok_or(OrchestratorSettingsError::BandsPerDayOutOfRange)?;
         Ok(Self {
             run_poll_interval,
             max_concurrent_chunks,
             chunk_lease,
             max_chunk_attempts,
-            plan_caps: PlanCaps { max_lookback_days },
+            plan_caps: PlanCaps {
+                max_lookback_days,
+                bands_per_day,
+            },
             producer,
         })
     }
@@ -73,6 +81,7 @@ impl TryFrom<&Config> for OrchestratorSettings {
             Duration::from_secs(config.seeder_chunk_lease_secs),
             config.seeder_max_chunk_attempts,
             config.seeder_max_lookback_days,
+            config.seeder_bands_per_day,
             producer,
         )?)
     }
@@ -94,6 +103,8 @@ pub enum OrchestratorSettingsError {
     ZeroMaxAttempts,
     #[error("maximum chunk attempts exceeds PostgreSQL integer range")]
     MaxAttemptsOutOfRange,
+    #[error("bands per day must be between 1 and 32767")]
+    BandsPerDayOutOfRange,
 }
 
 /// The produce sequencing's tunables: the in-flight delivery bound and the queue-full backoff (capped
@@ -179,6 +190,7 @@ mod tests {
                     Duration::from_secs(3),
                     1,
                     400,
+                    1,
                     producer_settings(),
                 ),
                 OrchestratorSettingsError::PollIntervalExceedsLivenessDeadline,
@@ -190,6 +202,7 @@ mod tests {
                     Duration::from_secs(3),
                     1,
                     400,
+                    1,
                     producer_settings(),
                 ),
                 OrchestratorSettingsError::ZeroPollInterval,
@@ -201,6 +214,7 @@ mod tests {
                     Duration::from_secs(3),
                     1,
                     400,
+                    1,
                     producer_settings(),
                 ),
                 OrchestratorSettingsError::ZeroConcurrency,
@@ -212,6 +226,7 @@ mod tests {
                     Duration::from_secs(2),
                     1,
                     400,
+                    1,
                     producer_settings(),
                 ),
                 OrchestratorSettingsError::LeaseTooShort,
@@ -223,9 +238,34 @@ mod tests {
                     Duration::from_secs(3),
                     0,
                     400,
+                    1,
                     producer_settings(),
                 ),
                 OrchestratorSettingsError::ZeroMaxAttempts,
+            ),
+            (
+                OrchestratorSettings::new(
+                    Duration::from_secs(1),
+                    1,
+                    Duration::from_secs(3),
+                    1,
+                    400,
+                    0,
+                    producer_settings(),
+                ),
+                OrchestratorSettingsError::BandsPerDayOutOfRange,
+            ),
+            (
+                OrchestratorSettings::new(
+                    Duration::from_secs(1),
+                    1,
+                    Duration::from_secs(3),
+                    1,
+                    400,
+                    u16::MAX,
+                    producer_settings(),
+                ),
+                OrchestratorSettingsError::BandsPerDayOutOfRange,
             ),
         ];
         for (result, expected) in cases {

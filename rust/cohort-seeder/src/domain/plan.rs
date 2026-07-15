@@ -2,6 +2,7 @@
 //! Depends on `condition`, `window`, `ids`, and `cohort-core`.
 
 use std::collections::BTreeSet;
+use std::num::NonZeroU16;
 
 use cohort_core::bucket_tz::window_start_for_now;
 
@@ -63,8 +64,10 @@ pub fn plan_days(
                 }
                 (last_historical_day, last_historical_day)
             }
+            // `from_day` is clamped to the cap like sliding windows are: an explicit_datetime far
+            // in the past would otherwise plan one chunk per day since that date, unbounded.
             Lookback::FixedRange { from_day, to_day } => (
-                from_day.unwrap_or(capped_start),
+                from_day.unwrap_or(capped_start).max(capped_start),
                 to_day
                     .unwrap_or(last_historical_day)
                     .min(last_historical_day),
@@ -97,8 +100,13 @@ pub fn conditions_active_on(
     }))
 }
 
-pub fn bands_for_day(_day: DayIdx) -> Vec<Band> {
-    vec![Band(0)]
+/// The person-hash bands a day is planned into. Each band scans `cityHash64(person) % n = band`,
+/// so raising the count bounds one chunk's in-memory aggregate at the cost of re-reading the day's
+/// rows per band. Settings validation keeps the count within `i16` (the `band` column's width).
+pub fn bands_for_day(_day: DayIdx, bands_per_day: NonZeroU16) -> Vec<Band> {
+    (0..bands_per_day.get())
+        .map(|band| Band(i16::try_from(band).expect("bands_per_day is validated to fit i16")))
+        .collect()
 }
 
 #[cfg(test)]
@@ -137,8 +145,17 @@ mod tests {
                     to_day: Some(99),
                 },
             ),
+            // Starts below the cap: clamped to the capped start, keeping only 90..=96.
             condition(
-                "oldrange00000000",
+                "straddling000000",
+                Lookback::FixedRange {
+                    from_day: Some(85),
+                    to_day: Some(96),
+                },
+            ),
+            // Entirely below the cap: clamping empties it, so it plans nothing.
+            condition(
+                "ancient000000000",
                 Lookback::FixedRange {
                     from_day: Some(80),
                     to_day: Some(82),
@@ -147,9 +164,19 @@ mod tests {
         ];
         let caps = PlanCaps {
             max_lookback_days: 10,
+            ..PlanCaps::default()
         };
-        let expected = BTreeSet::from([80, 81, 82, 90, 91, 92, 93, 94, 98, 99]);
+        let expected = BTreeSet::from([90, 91, 92, 93, 94, 95, 96, 98, 99]);
         assert_eq!(plan_days(&conditions, boundary, &caps), expected);
+    }
+
+    #[test]
+    fn bands_fan_out_zero_indexed() {
+        assert_eq!(bands_for_day(0, NonZeroU16::MIN), vec![Band(0)]);
+        assert_eq!(
+            bands_for_day(5, NonZeroU16::new(3).unwrap()),
+            vec![Band(0), Band(1), Band(2)]
+        );
     }
 
     #[test]
@@ -178,14 +205,24 @@ mod tests {
             boundary_day in -20_000i32..20_000,
             cap in 0u16..500,
             windows in prop::collection::vec(0u16..1_000, 0..20),
+            ranges in prop::collection::vec(
+                (prop::option::of(-30_000i32..30_000), prop::option::of(-30_000i32..30_000)),
+                0..8,
+            ),
         ) {
             let boundary = Boundary::new(UtcMillis::new(i64::from(boundary_day) * 86_400_000), UTC);
-            let conditions = windows
+            let sliding = windows
                 .into_iter()
+                .map(|days| Lookback::SlidingDays(u32::from(days)));
+            let fixed = ranges
+                .into_iter()
+                .map(|(from_day, to_day)| Lookback::FixedRange { from_day, to_day });
+            let conditions = sliding
+                .chain(fixed)
                 .enumerate()
-                .map(|(index, days)| condition(&format!("{index:016}"), Lookback::SlidingDays(u32::from(days))))
+                .map(|(index, lookback)| condition(&format!("{index:016}"), lookback))
                 .collect::<Vec<_>>();
-            let caps = PlanCaps { max_lookback_days: u32::from(cap) };
+            let caps = PlanCaps { max_lookback_days: u32::from(cap), ..PlanCaps::default() };
             let first = plan_days(&conditions, boundary, &caps);
             let second = plan_days(&conditions, boundary, &caps);
             prop_assert_eq!(&first, &second);

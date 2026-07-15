@@ -16,6 +16,7 @@ use cohort_core::{day_idx_of_naive_date, DayIdx};
 use sqlx::types::Json;
 use sqlx::{FromRow, PgPool};
 use std::fmt;
+use std::num::NonZeroU16;
 use uuid::Uuid;
 
 use crate::domain::{
@@ -46,13 +47,14 @@ impl PgChunkStore {
         &self,
         run_id: RunId,
         days: impl IntoIterator<Item = DayIdx>,
+        bands_per_day: NonZeroU16,
     ) -> Result<PlanOutcome, ChunkStoreError> {
         let mut ids = Vec::new();
         let mut dates = Vec::new();
         let mut bands = Vec::new();
         for day in days {
             let date = date_for_day(day).ok_or(ChunkStoreError::InvalidDay(day))?;
-            for band in bands_for_day(day) {
+            for band in bands_for_day(day, bands_per_day) {
                 ids.push(Uuid::now_v7());
                 dates.push(date);
                 bands.push(band.0);

@@ -159,6 +159,13 @@ pub struct Config {
     #[envconfig(default = "400")]
     pub seeder_max_lookback_days: u32,
 
+    /// Person-hash bands each planned day is split into, bounding one chunk's in-memory aggregate
+    /// to roughly `uniq(person, condition) / bands`. Safe to raise mid-run: planning is idempotent
+    /// per (run, day, band) and tile application is max-merge idempotent, so a re-planned day only
+    /// adds narrower re-scans.
+    #[envconfig(default = "1")]
+    pub seeder_bands_per_day: u16,
+
     #[envconfig(default = "14400")]
     pub seeder_ch_max_execution_time_secs: u64,
 

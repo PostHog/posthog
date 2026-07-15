@@ -7,6 +7,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use cohort_core::bucket_tz::window_start_for_now;
 use common_types::cohort::TeamAllowlist;
 use metrics::{counter, gauge};
 use sqlx::PgPool;
@@ -142,7 +143,10 @@ async fn prepare_run(
     if days.is_empty() {
         return PrepareOutcome::NoChunks;
     }
-    match store.plan_chunks(validated.run.run_id, days).await {
+    match store
+        .plan_chunks(validated.run.run_id, days, plan_caps.bands_per_day)
+        .await
+    {
         Ok(PlanOutcome::Planned { inserted }) => {
             counter!(CHUNKS_PLANNED).increment(inserted);
         }
@@ -192,15 +196,17 @@ fn record_pinned_warnings(warnings: &[PinnedWarning]) {
 }
 
 fn lookback_was_truncated(run: &PinnedRun, caps: PlanCaps) -> bool {
+    let capped_start = window_start_for_now(run.boundary.day(), caps.max_lookback_days);
     run.conditions
         .iter()
         .any(|condition| match condition.lookback {
             Lookback::SlidingDays(days) => days > caps.max_lookback_days,
             Lookback::FixedRange { from_day: None, .. } => true,
-            Lookback::SubDay
-            | Lookback::FixedRange {
-                from_day: Some(_), ..
-            } => false,
+            Lookback::FixedRange {
+                from_day: Some(from),
+                ..
+            } => from < capped_start,
+            Lookback::SubDay => false,
         })
 }
 

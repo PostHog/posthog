@@ -128,6 +128,7 @@ fn log_startup(config: &Config) {
         run_poll_secs = config.seeder_run_poll_secs,
         max_concurrent_chunks = config.seeder_max_concurrent_chunks,
         max_lookback_days = config.seeder_max_lookback_days,
+        bands_per_day = config.seeder_bands_per_day,
         tiles_per_second = config.seeder_tiles_per_sec,
         max_inflight_tiles = config.seeder_max_inflight_tiles,
         "starting cohort-seeder",

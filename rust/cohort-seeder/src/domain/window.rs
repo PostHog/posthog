@@ -1,6 +1,8 @@
 //! Domain layer: `Boundary`, `SeedDomain`, and `PlanCaps` — the tz-anchored seed window and its caps,
 //! with validity proven in the constructors. Depends on `ids` and `cohort-core`'s tz math.
 
+use std::num::NonZeroU16;
+
 use chrono_tz::Tz;
 use cohort_core::{day_idx_in_tz, start_of_day_ms_in_tz};
 
@@ -32,12 +34,16 @@ impl Boundary {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PlanCaps {
     pub max_lookback_days: u32,
+    /// Bands each planned day is split into: the scan hashes persons via `cityHash64 % bands`, so
+    /// one chunk's in-memory aggregate holds roughly `uniq(person, condition) / bands` entries.
+    pub bands_per_day: NonZeroU16,
 }
 
 impl Default for PlanCaps {
     fn default() -> Self {
         Self {
             max_lookback_days: 400,
+            bands_per_day: NonZeroU16::MIN,
         }
     }
 }

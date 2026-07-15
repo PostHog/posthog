@@ -7,6 +7,7 @@
 
 #![cfg(feature = "pg-test-support")]
 
+use std::num::NonZeroU16;
 use std::time::Duration;
 
 use anyhow::{bail, ensure, Context, Result};
@@ -28,6 +29,8 @@ use support::{
     behavioral_filter, empty_pinned, ensure_lease_lost, insert_participation, insert_run,
     pinned_condition, planned_count, with_db, ACTIVE_HASH, SUPERSEDED_HASH,
 };
+
+const ONE_BAND: NonZeroU16 = NonZeroU16::MIN;
 
 /// Discovery honors an `Only` allowlist (self team only) and `All` admits every eligible run
 /// regardless of team, trigger, or already-seeding status.
@@ -305,8 +308,8 @@ async fn planning_is_idempotent_scopes_team_and_gates_on_seeding() -> Result<()>
             insert_run(&pool, 2, "team_enablement", "seeding", true, empty_pinned()).await?;
         let store = PgChunkStore::new(pool.clone());
 
-        ensure!(planned_count(store.plan_chunks(seeding_run, [100, 101]).await?)? == 2);
-        ensure!(planned_count(store.plan_chunks(seeding_run, [100, 101]).await?)? == 0);
+        ensure!(planned_count(store.plan_chunks(seeding_run, [100, 101], ONE_BAND).await?)? == 2);
+        ensure!(planned_count(store.plan_chunks(seeding_run, [100, 101], ONE_BAND).await?)? == 0);
         let chunk_teams_match: bool = sqlx::query_scalar(
             "SELECT bool_and(team_id = 2) FROM cohort_backfill_chunks WHERE run_id = $1",
         )
@@ -325,9 +328,41 @@ async fn planning_is_idempotent_scopes_team_and_gates_on_seeding() -> Result<()>
         )
         .await?;
         ensure!(matches!(
-            store.plan_chunks(idle_run, [200]).await?,
+            store.plan_chunks(idle_run, [200], ONE_BAND).await?,
             PlanOutcome::RunNotSeeding
         ));
+        Ok(())
+    })
+    .await
+}
+
+/// A multi-band plan fans a day into one chunk per band (idempotently), and a claim decodes the
+/// band with the day's full band count so the scan predicate partitions persons correctly.
+#[tokio::test]
+async fn planning_fans_out_bands_and_claims_carry_the_band_count() -> Result<()> {
+    with_db(|pool| async move {
+        let seeding_run =
+            insert_run(&pool, 2, "team_enablement", "seeding", true, empty_pinned()).await?;
+        let store = PgChunkStore::new(pool.clone());
+        let four_bands = NonZeroU16::new(4).context("four is non-zero")?;
+        ensure!(planned_count(store.plan_chunks(seeding_run, [100], four_bands).await?)? == 4);
+        ensure!(planned_count(store.plan_chunks(seeding_run, [100], four_bands).await?)? == 0);
+
+        let lease60 = LeaseDuration::new(Duration::from_secs(60))?;
+        let attempts5 = MaxAttempts::new(5)?;
+        let claimed = store
+            .claim_next(
+                &[seeding_run],
+                &Claimant::new("worker-a")?,
+                lease60,
+                attempts5,
+            )
+            .await?
+            .context("claimant found no chunk")?;
+        let band = claimed.chunk.spec().band;
+        ensure!(band.num_bands().get() == 4);
+        ensure!(band.band() < 4);
+        drop(claimed);
         Ok(())
     })
     .await
@@ -340,7 +375,7 @@ async fn concurrent_claims_take_disjoint_chunks() -> Result<()> {
         let seeding_run =
             insert_run(&pool, 2, "team_enablement", "seeding", true, empty_pinned()).await?;
         let store = PgChunkStore::new(pool.clone());
-        ensure!(planned_count(store.plan_chunks(seeding_run, [100, 101]).await?)? == 2);
+        ensure!(planned_count(store.plan_chunks(seeding_run, [100, 101], ONE_BAND).await?)? == 2);
 
         let lease60 = LeaseDuration::new(Duration::from_secs(60))?;
         let attempts5 = MaxAttempts::new(5)?;
@@ -369,7 +404,7 @@ async fn expired_lease_reclaim_bumps_epoch_and_fences_the_stale_lease() -> Resul
         let seeding_run =
             insert_run(&pool, 2, "team_enablement", "seeding", true, empty_pinned()).await?;
         let store = PgChunkStore::new(pool.clone());
-        ensure!(planned_count(store.plan_chunks(seeding_run, [100]).await?)? == 1);
+        ensure!(planned_count(store.plan_chunks(seeding_run, [100], ONE_BAND).await?)? == 1);
 
         let lease60 = LeaseDuration::new(Duration::from_secs(60))?;
         let attempts5 = MaxAttempts::new(5)?;
@@ -422,7 +457,7 @@ async fn unclaim_returns_chunk_to_pending_and_refunds_one_attempt() -> Result<()
         let seeding_run =
             insert_run(&pool, 2, "team_enablement", "seeding", true, empty_pinned()).await?;
         let store = PgChunkStore::new(pool.clone());
-        ensure!(planned_count(store.plan_chunks(seeding_run, [100]).await?)? == 1);
+        ensure!(planned_count(store.plan_chunks(seeding_run, [100], ONE_BAND).await?)? == 1);
 
         let lease60 = LeaseDuration::new(Duration::from_secs(60))?;
         let attempts5 = MaxAttempts::new(5)?;
@@ -468,7 +503,7 @@ async fn attempt_cap_is_terminal_for_failed_but_reclaims_expired_produced() -> R
         let run_ids = [seeding_run];
 
         // A chunk driven to the attempt cap by claiming, then failed, is not claimable again.
-        ensure!(planned_count(store.plan_chunks(seeding_run, [100]).await?)? == 1);
+        ensure!(planned_count(store.plan_chunks(seeding_run, [100], ONE_BAND).await?)? == 1);
         sqlx::query("UPDATE cohort_backfill_chunks SET attempts = 4 WHERE run_id = $1")
             .bind(seeding_run)
             .execute(&pool)
@@ -494,7 +529,7 @@ async fn attempt_cap_is_terminal_for_failed_but_reclaims_expired_produced() -> R
             .is_none());
 
         // A second chunk, marked produced then expired at the cap, IS reclaimed.
-        ensure!(planned_count(store.plan_chunks(seeding_run, [101]).await?)? == 1);
+        ensure!(planned_count(store.plan_chunks(seeding_run, [101], ONE_BAND).await?)? == 1);
         let final_attempt = store
             .claim_next(&run_ids, &Claimant::new("worker-e")?, lease60, attempts5)
             .await?
@@ -536,7 +571,7 @@ async fn expired_scanning_chunk_at_the_cap_is_reaped_not_reclaimed() -> Result<(
         let seeding_run =
             insert_run(&pool, 2, "team_enablement", "seeding", true, empty_pinned()).await?;
         let store = PgChunkStore::new(pool.clone());
-        ensure!(planned_count(store.plan_chunks(seeding_run, [100]).await?)? == 1);
+        ensure!(planned_count(store.plan_chunks(seeding_run, [100], ONE_BAND).await?)? == 1);
 
         let lease60 = LeaseDuration::new(Duration::from_secs(60))?;
         let attempts5 = MaxAttempts::new(5)?;
@@ -594,7 +629,7 @@ async fn fail_truncates_chunk_and_run_error_columns() -> Result<()> {
         let seeding_run =
             insert_run(&pool, 2, "team_enablement", "seeding", true, empty_pinned()).await?;
         let store = PgChunkStore::new(pool.clone());
-        ensure!(planned_count(store.plan_chunks(seeding_run, [100]).await?)? == 1);
+        ensure!(planned_count(store.plan_chunks(seeding_run, [100], ONE_BAND).await?)? == 1);
 
         let lease60 = LeaseDuration::new(Duration::from_secs(60))?;
         let attempts5 = MaxAttempts::new(5)?;
@@ -654,7 +689,7 @@ async fn cancelling_a_run_kills_its_live_lease_via_the_heartbeat() -> Result<()>
         let seeding_run =
             insert_run(&pool, 2, "team_enablement", "seeding", true, empty_pinned()).await?;
         let store = PgChunkStore::new(pool.clone());
-        ensure!(planned_count(store.plan_chunks(seeding_run, [100]).await?)? == 1);
+        ensure!(planned_count(store.plan_chunks(seeding_run, [100], ONE_BAND).await?)? == 1);
 
         let lease3 = LeaseDuration::new(Duration::from_secs(3))?;
         let attempts5 = MaxAttempts::new(5)?;
