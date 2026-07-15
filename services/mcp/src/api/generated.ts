@@ -41023,10 +41023,10 @@ export namespace Schemas {
      * * `no` - no
      * * `inconclusive` - inconclusive
      */
-    export type SelectionVerdictEnum = typeof SelectionVerdictEnum[keyof typeof SelectionVerdictEnum];
+    export type VerdictEnum = typeof VerdictEnum[keyof typeof VerdictEnum];
 
 
-    export const SelectionVerdictEnum = {
+    export const VerdictEnum = {
       Yes: 'yes',
       No: 'no',
       Inconclusive: 'inconclusive',
@@ -41040,7 +41040,7 @@ export namespace Schemas {
       /** Restrict to observations produced by these scanner IDs. Defaults to the bound scanner. */
       scanner_ids?: string[];
       /** Only run on monitor observations with one of these verdicts (yes/no/inconclusive). */
-      verdict?: SelectionVerdictEnum[];
+      verdict?: VerdictEnum[];
       /** Only run on classifier observations carrying any of these tags (fixed or freeform). */
       tags?: string[];
       /** Only run on scorer observations with a score at or above this value (inclusive). */
