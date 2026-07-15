@@ -61,26 +61,32 @@ export interface SlackStatusReporterDeps {
     /** Injectable clock for tests. Default Date.now. */
     now?: () => number
     /**
-     * How to render the "working on it" indicator:
-     *   - `'native'` (agent surface / `agent_surface: true`) — Slack's native
-     *     `assistant.threads.setStatus`, which shows "<App> <status>" and
-     *     auto-clears when the app posts its reply. `clear()` is a no-op.
-     *   - `'simulated'` (default, back-compat for BYO apps without the agent
-     *     surface) — a normal message we post / chat.update / chat.delete.
+     * How to render the "working on it" indicator (default `'native'`):
+     *   - `'native'` — Slack's native `assistant.threads.setStatus`, which shows
+     *     "<App> <status>" in the agent surface and auto-clears when the app
+     *     posts its reply. `clear()` is a no-op. This is the standard rendering:
+     *     every Slack agent is a native agent surface.
+     *   - `'simulated'` — a normal thread message we post / chat.update /
+     *     chat.delete. `setStatus` only renders inside an assistant/DM thread, so
+     *     this is the right rendering for a plain channel @-mention thread; the
+     *     driver does not select it yet (a follow-up can, once the session's
+     *     DM-ness is threaded through to the runner).
      */
     mode?: 'native' | 'simulated'
 }
 
 /**
  * The "working on it" status shown while a turn is in flight, cleared when the
- * agent's real reply lands. Two renderings selected by `deps.mode`:
+ * agent's real reply lands. Two renderings selected by `deps.mode` (default
+ * `native`):
  *
  *   - `native`: Slack's `assistant.threads.setStatus` — the real agent thinking
  *     indicator. It auto-clears when the app posts a message, so `clear()` does
  *     nothing; the reply relay in the driver clears it implicitly.
  *   - `simulated`: a normal thread message we post / `chat.update` / `chat.delete`
  *     (not a true Slack ephemeral — those need a response_url and can't be
- *     edited). The fallback for apps that haven't enabled the agent surface.
+ *     edited). For plain channel threads, where the native indicator has no
+ *     assistant surface to render in.
  *
  * Never throws — a Slack hiccup must not break the agent loop.
  */
@@ -92,7 +98,7 @@ export class SlackStatusReporter {
     constructor(private readonly deps: SlackStatusReporterDeps) {}
 
     private get mode(): 'native' | 'simulated' {
-        return this.deps.mode ?? 'simulated'
+        return this.deps.mode ?? 'native'
     }
 
     /** Post/show the status if it isn't already shown. */

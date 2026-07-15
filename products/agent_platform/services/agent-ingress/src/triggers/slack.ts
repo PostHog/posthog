@@ -69,13 +69,13 @@ async function slackEventsHandler(ctx: RouteCtx): Promise<void> {
             : ({} as SlackTriggerConfig)
 
     // Agent-surface lifecycle events (Slack's "Agent messaging experience").
-    // They only arrive when `agent_surface` is enabled in the manifest, so
-    // handle them before the message/app_mention gate. Everything the handler
-    // does is fire-and-forget — a Slack hiccup must never break the 200 ack.
+    // Every Slack agent is a native agent surface, so its manifest always
+    // subscribes to these — handle them before the message/app_mention gate.
+    // Everything the handler does is fire-and-forget: a Slack hiccup must never
+    // break the 200 ack.
     if (
         event &&
         !event.bot_id &&
-        (slackConfig.agent_surface ?? false) &&
         (event.type === 'assistant_thread_started' ||
             event.type === 'app_home_opened' ||
             event.type === 'assistant_thread_context_changed')
@@ -131,23 +131,11 @@ async function slackEventsHandler(ctx: RouteCtx): Promise<void> {
     // above already authorized the workspace.
     const allowWorkspaceParticipants = slackConfig.allow_workspace_participants ?? false
     const ackReaction = slackConfig.ack_reaction
-    // DM surface. `im` = 1:1, `mpim` = group DM. A DM is inherently directed at
-    // the bot (there's no @-mention in a 1:1), so it bypasses `mention_only`.
-    // The agent surface is DM-first (the manifest subscribes `message.im` for
-    // it), so `agent_surface` enables DMs on its own — same rule the manifest
-    // builder uses.
-    const allowDirectMessages = (slackConfig.allow_direct_messages ?? false) || (slackConfig.agent_surface ?? false)
+    // DM surface. `im` = 1:1, `mpim` = group DM. Every Slack agent is a native,
+    // DM-able agent surface, so DMs are always handled; a DM is inherently
+    // directed at the bot (there's no @-mention in a 1:1), so it bypasses
+    // `mention_only`.
     const isDm = event.channel_type === 'im' || event.channel_type === 'mpim'
-    // A DM arriving while the surface isn't opted in must not be silently
-    // processed — drop it with a structured reason.
-    if (isDm && !allowDirectMessages) {
-        log.info(
-            { slug: resolved.application.slug, channel: event.channel, channel_type: event.channel_type },
-            'slack_event_dropped_dm_not_enabled'
-        )
-        res.json({ ok: true, dropped: 'dm_not_enabled' })
-        return
-    }
     // We need `externalKey` for both the gate and the enqueue below; compute once.
     // DMs have no thread, so they key per-channel — one rolling session per DM
     // conversation. Channels/groups stay thread-scoped.
@@ -952,9 +940,7 @@ interface SlackTriggerConfig {
     mention_only?: boolean
     auto_resume_threads?: boolean
     allow_workspace_participants?: boolean
-    allow_direct_messages?: boolean
     ack_reaction?: string
-    agent_surface?: boolean
     agent_description?: string
     suggested_prompts?: Array<{ title: string; message: string }>
     welcome_message?: string

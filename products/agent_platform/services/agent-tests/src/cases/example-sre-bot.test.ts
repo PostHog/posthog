@@ -79,7 +79,7 @@ describe('example: sre-slack-bot bundle', () => {
         expect(files['agent.md'].length).toBeGreaterThan(200)
     })
 
-    it('routes a Slack DM into a session — allow_direct_messages bypasses mention_only', async () => {
+    it('routes a Slack DM into a session — a DM bypasses mention_only', async () => {
         const { spec, files } = await loadBundle()
         c.setScript([fauxText('On it — pulling up the ingestion alert now.')])
         // Signing secret must live in the agent's encrypted_env: the slack guard
@@ -93,9 +93,9 @@ describe('example: sre-slack-bot bundle', () => {
         })
 
         // A 1:1 DM (channel_type "im"), no @-mention. The bundle sets
-        // mention_only: true, so without allow_direct_messages this would be
-        // dropped — a DM is inherently directed at the bot. `team` must match
-        // the bundle's trusted_workspaces or the workspace gate 403s.
+        // mention_only: true, but a DM is inherently directed at the bot so it
+        // bypasses the mention gate and enqueues. `team` must match the bundle's
+        // trusted_workspaces or the workspace gate 403s.
         const dm = {
             type: 'event_callback',
             event_id: 'Ev_dm_1',

@@ -967,10 +967,10 @@ describe('slack trigger: real e2e', () => {
         })
     })
 
-    describe('allow_direct_messages', () => {
-        /** Slack trigger with a DM surface, optionally still gating channel
-         *  messages behind @-mentions. */
-        function dmSpec(opts: { allow_direct_messages: boolean; mention_only?: boolean }): Record<string, unknown> {
+    describe('direct messages (always on — native agent surface)', () => {
+        /** Slack trigger with the default DM-able agent surface, optionally still
+         *  gating channel messages behind @-mentions. */
+        function dmSpec(opts: { mention_only?: boolean } = {}): Record<string, unknown> {
             return {
                 triggers: [
                     {
@@ -978,7 +978,6 @@ describe('slack trigger: real e2e', () => {
                         config: {
                             mention_only: opts.mention_only ?? true,
                             auto_resume_threads: false,
-                            allow_direct_messages: opts.allow_direct_messages,
                             trusted_workspaces: '*',
                         },
                     },
@@ -993,7 +992,7 @@ describe('slack trigger: real e2e', () => {
             c.setScript([fauxText('dm reply')])
             await c.deployAgent({
                 slug: 'dm-bot',
-                spec: dmSpec({ allow_direct_messages: true, mention_only: true }),
+                spec: dmSpec({ mention_only: true }),
                 encrypted_env: SLACK_ENV,
             })
             const res = await c.slackPost(
@@ -1020,7 +1019,7 @@ describe('slack trigger: real e2e', () => {
             c.setScript([fauxText('first'), fauxText('second')])
             await c.deployAgent({
                 slug: 'dm-resume',
-                spec: dmSpec({ allow_direct_messages: true }),
+                spec: dmSpec(),
                 encrypted_env: SLACK_ENV,
             })
             const first = await c.slackPost(
@@ -1042,23 +1041,6 @@ describe('slack trigger: real e2e', () => {
             )
             expect(second.body.resumed).toBe(true)
             expect(second.body.session_id).toBe(first.body.session_id)
-        })
-
-        it('DM dropped when allow_direct_messages is false', async () => {
-            await c.deployAgent({
-                slug: 'dm-disabled',
-                spec: dmSpec({ allow_direct_messages: false }),
-                encrypted_env: SLACK_ENV,
-            })
-            const res = await c.slackPost(
-                'dm-disabled',
-                'events',
-                slackEvent({ eventType: 'message', channel_type: 'im', channel: 'D01', text: 'anyone home?' }),
-                SLACK_SECRET
-            )
-            expect(res.status).toBe(200)
-            expect(res.body.dropped).toBe('dm_not_enabled')
-            expect(res.body.session_id).toBeUndefined()
         })
     })
 
@@ -1584,7 +1566,6 @@ describe('slack trigger: real e2e', () => {
                         config: {
                             mention_only: false,
                             auto_resume_threads: false,
-                            agent_surface: true,
                             welcome_message: 'Hey! What can I dig into?',
                             suggested_prompts: PROMPTS,
                             trusted_workspaces: '*',
@@ -1689,13 +1670,13 @@ describe('slack trigger: real e2e', () => {
             }
         })
 
-        it('DMs enqueue under agent_surface even without allow_direct_messages (agent surface is DM-first)', async () => {
+        it('a DM message enqueues a turn on the agent surface (DM-first, always on)', async () => {
             const { cc } = await recorderCluster({ SLACK_BOT_TOKEN: 'xoxb-agent' })
             try {
                 cc.setScript([fauxText('dm handled')])
                 await cc.deployAgent({
                     slug: 'agent-dm',
-                    spec: agentSurfaceSpec(), // no allow_direct_messages set
+                    spec: agentSurfaceSpec(),
                     encrypted_env: { ...SLACK_ENV, SLACK_BOT_TOKEN: 'xoxb-agent' },
                 })
                 const res = await cc.slackPost(
@@ -1712,7 +1693,7 @@ describe('slack trigger: real e2e', () => {
             }
         })
 
-        it('a turn under agent_surface reports progress with native setStatus (not a simulated message)', async () => {
+        it('a turn reports progress with native setStatus (not a simulated message)', async () => {
             const { cc, slackCalls } = await recorderCluster({ SLACK_BOT_TOKEN: 'xoxb-agent' })
             try {
                 cc.setScript([fauxText('here is the answer')])

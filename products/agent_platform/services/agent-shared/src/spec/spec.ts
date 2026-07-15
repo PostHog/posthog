@@ -134,19 +134,17 @@ export const TriggerSchema = z.discriminatedUnion('type', [
      *     `message.*` events for channels the bot has joined.
      *   - `SLACK_SIGNING_SECRET` (verify inbound) and `SLACK_BOT_TOKEN` (call
      *     Slack APIs) must be set in the agent's encrypted env.
-     *   - Direct messages (`allow_direct_messages: true`): subscribe to
-     *     `message.im` / `message.mpim`, add the `im:history` / `mpim:history`
-     *     scopes, and enable the App Home Messages tab (otherwise users can't
-     *     open a DM with the bot). The manifest builder emits all three.
-     *   - Agent surface (`agent_surface: true`): opts the app into Slack's
-     *     "Agent messaging experience" so the bot shows up as a native,
-     *     DM-able agent (thinking indicator, suggested prompts, welcome). The
-     *     manifest builder then emits `features.agent_view`, the `assistant:write`
-     *     scope, the App Home Messages tab, and the `assistant_thread_started` /
-     *     `app_home_opened` bot events; the runner switches the "working on it"
-     *     status to the native `assistant.threads.setStatus` indicator. Implies
-     *     DMs (arriving as `message.im`), so it is treated as DM-enabling on its
-     *     own.
+     *   - Agent surface: every Slack agent is a native, DM-able agent (Slack's
+     *     "Agent messaging experience") — this is standard, not an option. The
+     *     manifest builder always emits `features.agent_view`, the
+     *     `assistant:write` scope, the App Home Messages tab, the `message.im` /
+     *     `message.mpim` subscriptions with `im:history` / `mpim:history`, and
+     *     the `assistant_thread_started` / `app_home_opened` bot events. The
+     *     ingress greets each new conversation (welcome + suggested prompts) and
+     *     the runner reports progress with the native
+     *     `assistant.threads.setStatus` indicator. Because the surface is
+     *     DM-first, direct messages are always handled (they arrive as
+     *     `message.im`, bypass `mention_only`, and are keyed per-channel).
      *
      * The session key for a channel/thread is `slack:<channel>:<thread_ts>`
      * (the opening @-mention's `ts` becomes the thread root); every later event
@@ -216,18 +214,6 @@ export const TriggerSchema = z.discriminatedUnion('type', [
              */
             ack_reaction: z.string().optional(),
             /**
-             * Opt-in DM surface. When true, the bot also handles direct
-             * messages (`channel_type: "im"`) and group DMs
-             * (`channel_type: "mpim"`), not just channel mentions. Drives both
-             * the manifest builder (subscribes `message.im` / `message.mpim`,
-             * adds `im:history` / `mpim:history`, enables the App Home Messages
-             * tab) and the ingress gate (a DM arriving while this is false is
-             * dropped). A DM is inherently directed at the bot, so it bypasses
-             * `mention_only` and is keyed per-channel (`slack:<channel>`) for
-             * one rolling session per conversation. Default false.
-             */
-            allow_direct_messages: z.boolean().default(false),
-            /**
              * Required. Workspaces (Slack team ids, e.g. "T01ABC") allowed to
              * invoke this agent. Use the literal string `"*"` to opt into an
              * open-to-any-workspace policy (B2C-style public bot). Authors
@@ -236,30 +222,9 @@ export const TriggerSchema = z.discriminatedUnion('type', [
              */
             trusted_workspaces: z.union([z.array(z.string()).min(1), z.literal('*')]),
             /**
-             * Opt into Slack's "Agent messaging experience" (the June-2026
-             * successor to the Assistant experience). When true the bot appears
-             * as a native agent you can DM: conversations live in the app's
-             * Messages tab, the runner reports progress with the native
-             * `assistant.threads.setStatus` "thinking" indicator (instead of the
-             * simulated status message), and the ingress greets new
-             * conversations with `welcome_message` + `suggested_prompts` via
-             * `assistant.threads.setSuggestedPrompts`.
-             *
-             * Drives the manifest builder to emit `features.agent_view`, the
-             * `assistant:write` scope, the App Home Messages tab, and the
-             * `assistant_thread_started` / `app_home_opened` bot events. Because
-             * agent turns arrive as `message.im`, this is DM-enabling on its own
-             * (no need to also set `allow_direct_messages`). Default false so
-             * already-deployed BYO apps are unaffected. The workspace admin must
-             * re-apply the regenerated manifest and enable the AI-app feature
-             * before the surface takes effect.
-             */
-            agent_surface: z.boolean().default(false),
-            /**
              * Short description of the agent shown in Slack's agent/split-view
-             * surface (manifest `features.agent_view.agent_description`). Only
-             * meaningful when `agent_surface` is true. Slack caps this at 300
-             * characters.
+             * surface (manifest `features.agent_view.agent_description`). Slack
+             * caps this at 300 characters.
              */
             agent_description: z.string().max(300).optional(),
             /**
@@ -268,7 +233,7 @@ export const TriggerSchema = z.discriminatedUnion('type', [
              * `message` is the text sent as the user's turn when clicked. Set on
              * the manifest (fixed prompts) and pushed at runtime via
              * `assistant.threads.setSuggestedPrompts` when a conversation opens.
-             * Slack shows at most 4. Only meaningful when `agent_surface` is true.
+             * Slack shows at most 4.
              */
             suggested_prompts: z
                 .array(z.object({ title: z.string().min(1).max(64), message: z.string().min(1) }))
@@ -276,8 +241,7 @@ export const TriggerSchema = z.discriminatedUnion('type', [
                 .optional(),
             /**
              * Greeting the ingress posts into a new agent conversation (on
-             * `assistant_thread_started`). Only meaningful when `agent_surface`
-             * is true; when unset a generic default is used.
+             * `assistant_thread_started`). When unset a generic default is used.
              */
             welcome_message: z.string().optional(),
         }),

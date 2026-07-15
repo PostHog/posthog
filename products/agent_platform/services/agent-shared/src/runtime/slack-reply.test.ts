@@ -199,9 +199,9 @@ describe('SlackStatusReporter', () => {
         return { http, calls }
     }
 
-    it('start posts once; a second start is a no-op', async () => {
+    it('simulated mode: start posts once; a second start is a no-op', async () => {
         const { http, calls } = recorder()
-        const r = new SlackStatusReporter({ http, token: 'xoxb', channel: 'C1', thread_ts: 't' })
+        const r = new SlackStatusReporter({ http, token: 'xoxb', channel: 'C1', thread_ts: 't', mode: 'simulated' })
         await r.start('working')
         await r.start('working again')
         const posts = calls.filter((c) => c.url.endsWith('chat.postMessage'))
@@ -218,7 +218,7 @@ describe('SlackStatusReporter', () => {
         expect(calls).toHaveLength(0)
     })
 
-    it('update edits the message and is throttled by minUpdateIntervalMs', async () => {
+    it('simulated mode: update edits the message and is throttled by minUpdateIntervalMs', async () => {
         const { http, calls } = recorder()
         let nowMs = 1000
         const r = new SlackStatusReporter({
@@ -226,6 +226,7 @@ describe('SlackStatusReporter', () => {
             token: 'xoxb',
             channel: 'C1',
             thread_ts: 't',
+            mode: 'simulated',
             minUpdateIntervalMs: 1000,
             now: () => nowMs,
         })
@@ -239,9 +240,9 @@ describe('SlackStatusReporter', () => {
         expect(updates[0].body).toMatchObject({ channel: 'C1', ts: 'TS1', text: 'step 2' })
     })
 
-    it('clear deletes the message and is idempotent; start after clear re-posts', async () => {
+    it('simulated mode: clear deletes the message and is idempotent; start after clear re-posts', async () => {
         const { http, calls } = recorder()
-        const r = new SlackStatusReporter({ http, token: 'xoxb', channel: 'C1', thread_ts: 't' })
+        const r = new SlackStatusReporter({ http, token: 'xoxb', channel: 'C1', thread_ts: 't', mode: 'simulated' })
         await r.start('working')
         await r.clear()
         await r.clear()
@@ -251,6 +252,14 @@ describe('SlackStatusReporter', () => {
 
         await r.start('working again')
         expect(calls.filter((c) => c.url.endsWith('chat.postMessage'))).toHaveLength(2)
+    })
+
+    it('defaults to native mode — every Slack agent is a native agent surface', async () => {
+        const { http, calls } = recorder()
+        const r = new SlackStatusReporter({ http, token: 'xoxb', channel: 'C1', thread_ts: 't' })
+        await r.start('working')
+        expect(calls.filter((c) => c.url.endsWith('assistant.threads.setStatus'))).toHaveLength(1)
+        expect(calls.some((c) => c.url.endsWith('chat.postMessage'))).toBe(false)
     })
 
     it('native mode uses assistant.threads.setStatus and never posts/deletes a message', async () => {

@@ -47,11 +47,16 @@ describe('buildSlackManifest', () => {
         ).toThrow('no_slack_trigger')
     })
 
-    it('mention_only=true + auto_resume_threads=false → only app_mention, no message scopes', () => {
+    it('mention_only=true + auto_resume_threads=false → no channel message events or history scopes', () => {
         const { manifest } = build({ triggers: [slackTrigger({ mention_only: true, auto_resume_threads: false })] })
-        expect(manifest.settings.event_subscriptions.bot_events).toEqual(['app_mention'])
+        // No channel message events / history scopes when only mentions are watched…
+        expect(manifest.settings.event_subscriptions.bot_events).not.toContain('message.channels')
+        expect(manifest.settings.event_subscriptions.bot_events).not.toContain('message.groups')
         expect(manifest.oauth_config.scopes.bot).not.toContain('channels:history')
-        expect(manifest.oauth_config.scopes.bot).toEqual(['app_mentions:read', 'chat:write'])
+        expect(manifest.oauth_config.scopes.bot).not.toContain('groups:history')
+        // …but app_mention + the always-on agent surface (DMs) are still there.
+        expect(manifest.settings.event_subscriptions.bot_events).toContain('app_mention')
+        expect(manifest.settings.event_subscriptions.bot_events).toContain('message.im')
     })
 
     it('auto_resume_threads=true → subscribes to message.* and adds history scopes', () => {
@@ -67,10 +72,8 @@ describe('buildSlackManifest', () => {
         expect(manifest.settings.event_subscriptions.bot_events).toContain('message.channels')
     })
 
-    it('allow_direct_messages=true → message.im/.mpim events, im/mpim history scopes, Messages tab', () => {
-        const { manifest, notes } = build({
-            triggers: [slackTrigger({ mention_only: true, allow_direct_messages: true })],
-        })
+    it('every agent is a native DM-able agent surface → DM events, im/mpim history scopes, Messages tab', () => {
+        const { manifest } = build({ triggers: [slackTrigger({ mention_only: true })] })
         expect(manifest.settings.event_subscriptions.bot_events).toContain('message.im')
         expect(manifest.settings.event_subscriptions.bot_events).toContain('message.mpim')
         expect(manifest.oauth_config.scopes.bot).toContain('im:history')
@@ -79,16 +82,6 @@ describe('buildSlackManifest', () => {
             messages_tab_enabled: true,
             messages_tab_read_only_enabled: false,
         })
-        expect(notes.some((n) => n.toLowerCase().includes('direct messages enabled'))).toBe(true)
-    })
-
-    it('allow_direct_messages default false → no DM events, scopes, or app_home (back-compat)', () => {
-        const { manifest } = build({ triggers: [slackTrigger({ mention_only: true })] })
-        expect(manifest.settings.event_subscriptions.bot_events).not.toContain('message.im')
-        expect(manifest.settings.event_subscriptions.bot_events).not.toContain('message.mpim')
-        expect(manifest.oauth_config.scopes.bot).not.toContain('im:history')
-        expect(manifest.oauth_config.scopes.bot).not.toContain('mpim:history')
-        expect(manifest.features.app_home).toBeUndefined()
     })
 
     it('ack_reaction adds reactions:write', () => {
@@ -144,12 +137,11 @@ describe('buildSlackManifest', () => {
         expect(longDesc[kept.length]).toBe(' ') // cut fell on a word boundary
     })
 
-    it('agent_surface=true → agent_view, assistant:write, App Home, and assistant events', () => {
+    it('every agent gets the native agent surface → agent_view, assistant:write, App Home, assistant events', () => {
         const { manifest, notes } = build({
             triggers: [
                 slackTrigger({
                     mention_only: true,
-                    agent_surface: true,
                     agent_description: 'Ask me about on-call',
                     suggested_prompts: [{ title: "Who's on call?", message: 'Who is on call right now?' }],
                 }),
@@ -160,7 +152,6 @@ describe('buildSlackManifest', () => {
             agent_description: 'Ask me about on-call',
             suggested_prompts: [{ title: "Who's on call?", message: 'Who is on call right now?' }],
         })
-        // Agent surface is DM-first: Messages tab + DM events/scopes ride along.
         expect(manifest.features.app_home).toEqual({
             messages_tab_enabled: true,
             messages_tab_read_only_enabled: false,
@@ -169,19 +160,11 @@ describe('buildSlackManifest', () => {
         expect(manifest.settings.event_subscriptions.bot_events).toContain('app_home_opened')
         expect(manifest.settings.event_subscriptions.bot_events).toContain('message.im')
         expect(manifest.oauth_config.scopes.bot).toContain('im:history')
-        expect(notes.some((n) => n.toLowerCase().includes('agent surface enabled'))).toBe(true)
+        expect(notes.some((n) => n.toLowerCase().includes('native slack agent surface'))).toBe(true)
     })
 
-    it('agent_surface=true with no description/prompts → agent_view present but empty', () => {
-        const { manifest } = build({ triggers: [slackTrigger({ mention_only: true, agent_surface: true })] })
-        expect(manifest.features.agent_view).toEqual({})
-    })
-
-    it('agent_surface default false → no agent_view or assistant:write (back-compat)', () => {
+    it('agent_view is emitted even with no description/prompts (its presence selects the surface)', () => {
         const { manifest } = build({ triggers: [slackTrigger({ mention_only: true })] })
-        expect(manifest.features.agent_view).toBeUndefined()
-        expect(manifest.oauth_config.scopes.bot).not.toContain('assistant:write')
-        expect(manifest.settings.event_subscriptions.bot_events).not.toContain('assistant_thread_started')
-        expect(manifest.settings.event_subscriptions.bot_events).not.toContain('app_home_opened')
+        expect(manifest.features.agent_view).toEqual({})
     })
 })
