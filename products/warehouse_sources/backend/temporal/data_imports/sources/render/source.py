@@ -79,7 +79,6 @@ An API key grants access to every workspace your user belongs to. To sync a sing
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
