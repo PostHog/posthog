@@ -33,10 +33,6 @@ from products.product_analytics.backend.models.insight import Insight
 
 logger = structlog.get_logger(__name__)
 
-# strip_null_bytes now lives in delivery_common (a general-purpose sanitizer shared across delivery
-# paths); imported here for the query-result scrub below and so existing
-# `insight_snapshot.strip_null_bytes` importers keep resolving.
-
 
 def _json_safe_value(val: Any) -> Any:
     """Coerce to JSONField-safe Python (dict/list/scalars); unknown types use fallback, not pass-through."""
@@ -91,10 +87,19 @@ def _serialize_insight_result(result: InsightResult) -> dict[str, Any]:
         default=str,
     )
     parsed = orjson.loads(dumped)
-    # Query results can carry NUL bytes from upstream data. Django's JSONField serializes a NUL to
-    # a unicode escape that Postgres text/jsonb columns reject, which fails the whole delivery write.
-    # orjson emits that same escape sequence for a real NUL, so gate the (rare) recursive strip on
-    # its presence to avoid walking multi-MB payloads on every delivery.
+    # Query results can carry NUL bytes from upstream data, and Django's JSONField serializes a NUL
+    # to a unicode escape that Postgres text/jsonb columns reject — failing the whole delivery write
+    # with a DataError. So we strip NUL before returning, but only when one is actually present:
+    #
+    # - Cost: result.result is arbitrary ClickHouse output and can reach several MB; strip_null_bytes
+    #   rebuilds the entire dict/list tree, so running it on every delivery (nearly none carry a NUL)
+    #   would be pure waste. The gate is a single byte scan over the buffer we already serialized.
+    # - Correctness: orjson always emits a real NUL as an escape sequence (JSON forbids a raw control
+    #   byte), including inside object keys, so the check never misses a genuine NUL. It can only
+    #   over-trigger on literal escape text in the data, which is harmless — the walk then finds none.
+    #
+    # The AI-report path scrubs unconditionally instead, since those payloads are small (see
+    # delivery_common.strip_null_bytes callers).
     if b"\\u0000" in dumped:
         parsed = strip_null_bytes(parsed)
     return parsed
