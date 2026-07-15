@@ -69,7 +69,6 @@ class HyperspellSource(ResumableSource[HyperspellSourceConfig, HyperspellResumeC
             docsUrl="https://posthog.com/docs/cdp/sources/hyperspell",
             keywords=["ai", "memory", "agents", "context"],
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [
