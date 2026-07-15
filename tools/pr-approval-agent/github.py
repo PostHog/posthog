@@ -24,6 +24,7 @@ class PRData:
     mergeable_state: str
     author: str
     labels: list[str]
+    base_ref: str
     base_sha: str
     head_sha: str
     files: list[dict]
@@ -458,22 +459,46 @@ def write_pr_diff(base_sha: str, head_sha: str, dest: Path, repo_root: Path) -> 
     return dest
 
 
-def ensure_commits(pr_number: int, head_sha: str, repo_root: Path) -> None:
-    """Fetch PR commits if not available locally."""
-    result = subprocess.run(
-        ["git", "cat-file", "-t", head_sha],
-        cwd=repo_root,
-        capture_output=True,
-        timeout=5,
+def _have_commit(sha: str, repo_root: Path) -> bool:
+    return (
+        subprocess.run(
+            ["git", "cat-file", "-t", sha],
+            cwd=repo_root,
+            capture_output=True,
+            timeout=5,
+        ).returncode
+        == 0
     )
-    if result.returncode == 0:
-        return
-    subprocess.run(
-        ["git", "fetch", "origin", f"pull/{pr_number}/head"],
-        cwd=repo_root,
-        capture_output=True,
-        timeout=30,
-    )
+
+
+def ensure_commits(pr_number: int, head_sha: str, base_ref: str, base_sha: str, repo_root: Path) -> None:
+    """Make the PR head and its base commit available locally.
+
+    The workflow checks out master and fetches `pull/<n>/head`, which covers
+    the common case. Two stacked-PR cases need more:
+      - The head: fetched explicitly if the merge commit isn't present.
+      - The base: a stacked PR targets its parent branch, not master, so
+        `base_sha` is the parent's tip. It's usually an ancestor of the head
+        (reachable once the head is fetched), but a rebased/force-pushed stack
+        can leave it unreachable — fetch the base branch by name to be sure.
+        `git diff base_sha...head_sha` (and dismiss_check's ancestry walk)
+        need that object present. Best-effort: a missing base surfaces later
+        as a diff error rather than a silent wrong scope.
+    """
+    if not _have_commit(head_sha, repo_root):
+        subprocess.run(
+            ["git", "fetch", "--filter=blob:none", "origin", f"pull/{pr_number}/head"],
+            cwd=repo_root,
+            capture_output=True,
+            timeout=60,
+        )
+    if not _have_commit(base_sha, repo_root):
+        subprocess.run(
+            ["git", "fetch", "--filter=blob:none", "origin", base_ref],
+            cwd=repo_root,
+            capture_output=True,
+            timeout=60,
+        )
 
 
 def fetch_pr(pr_number: int, repo: str, repo_root: Path | None = None) -> PRData:
@@ -493,12 +518,13 @@ def fetch_pr(pr_number: int, repo: str, repo_root: Path | None = None) -> PRData
         except Exception as exc:
             print(f"warning: discussion fetch failed ({exc}); continuing with no discussion context")  # noqa: T201
 
+    base_ref = pr["base"]["ref"]
     base_sha = pr["base"]["sha"]
     head_sha = pr["head"]["sha"]
     check_runs_resp = _gh_api(f"repos/{repo}/commits/{head_sha}/check-runs")
 
     git_root = repo_root or Path.cwd()
-    ensure_commits(pr_number, head_sha, git_root)
+    ensure_commits(pr_number, head_sha, base_ref, base_sha, git_root)
     files = _git_diff_files(base_sha, head_sha, git_root)
 
     review_comments, pr_reactions = _fetch_threads_and_reactions(repo, pr_number, pr["user"]["login"])
@@ -512,6 +538,7 @@ def fetch_pr(pr_number: int, repo: str, repo_root: Path | None = None) -> PRData
         mergeable_state=pr.get("mergeable_state", "unknown"),
         author=pr["user"]["login"],
         labels=[label["name"] for label in pr.get("labels", [])],
+        base_ref=base_ref,
         base_sha=base_sha,
         head_sha=head_sha,
         files=files,

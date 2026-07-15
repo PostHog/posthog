@@ -7,7 +7,9 @@ and reach a verdict on whether a PR is safe to auto-approve.
 
 import os
 import json
+import shutil
 import asyncio
+import tempfile
 import textwrap
 from pathlib import Path
 
@@ -268,8 +270,12 @@ def _apply_gateway_route(gateway: tuple[str, str] | None, attribution: dict[str,
 class Reviewer:
     """LLM reviewer using Agent SDK."""
 
-    def __init__(self, repo_root: Path, *, verbose: bool = False):
+    def __init__(self, repo_root: Path, *, explore_root: Path | None = None, verbose: bool = False):
         self.repo_root = repo_root
+        # Where the agent's Read/Grep/Glob look. For stacked PRs this is a
+        # worktree at the PR head so imports from not-yet-merged parent PRs
+        # resolve (see review_pr._pr_head_worktree). Falls back to repo_root.
+        self.explore_root = explore_root or repo_root
         self.verbose = verbose
 
     def review(self, pr: PRData, classification: dict, gate_context: dict, diff_path: Path | None = None) -> dict:
@@ -280,12 +286,36 @@ class Reviewer:
         """
         return asyncio.run(self._review(pr, classification, gate_context, diff_path))
 
+    def _copy_diff_into_explore_root(self, diff_path: Path) -> Path:
+        """Copy the diff to a runner-created path the agent can read.
+
+        A predictable worktree path could be a tracked symlink. ``mkstemp``
+        creates a fresh regular file, so PR content cannot redirect this copy.
+        """
+        fd, copied_path = tempfile.mkstemp(prefix=".pr-review-diff-", suffix=".patch", dir=self.explore_root)
+        os.close(fd)
+        copied_diff_path = Path(copied_path)
+        try:
+            shutil.copyfile(diff_path, copied_diff_path)
+        except OSError:
+            copied_diff_path.unlink(missing_ok=True)
+            raise
+        return copied_diff_path
+
     async def _review(
         self, pr: PRData, classification: dict, gate_context: dict, diff_path: Path | None = None
     ) -> dict:
         owns_diff = diff_path is None
         if diff_path is None:
             diff_path = self._write_diff_file(pr)
+        original_diff = diff_path
+        copied_diff_path: Path | None = None
+        if self.explore_root != self.repo_root:
+            # The agent's file access is scoped to cwd (explore_root); a diff
+            # sitting in the master checkout would need an out-of-cwd read the
+            # dontAsk permission mode never grants.
+            copied_diff_path = self._copy_diff_into_explore_root(diff_path)
+            diff_path = copied_diff_path
         prompt = self._build_review_prompt(pr, classification, gate_context, diff_path)
 
         # Gate denials and trivial PRs don't need deep exploration —
@@ -296,7 +326,25 @@ class Reviewer:
             system_prompt=REVIEWER_SYSTEM,
             allowed_tools=["Read", "Grep", "Glob"],
             disallowed_tools=["Write", "Edit", "NotebookEdit", "Bash", "Agent", "WebFetch", "WebSearch"],
-            cwd=str(self.repo_root),
+            cwd=str(self.explore_root),
+            # SECURITY: explore_root holds PR-authored content (a worktree at
+            # the PR head for stacked PRs). With the default (None) the SDK
+            # loads filesystem settings from cwd like the CLI does — including
+            # .claude/settings.json hooks (arbitrary command execution) and
+            # CLAUDE.md (injected as instructions). A PR could ship either.
+            # [] is SDK isolation mode: no filesystem settings, no hooks, no
+            # CLAUDE.md autoload. The agent can still Read those files, but as
+            # untrusted content under the anti-injection notice, never as
+            # configuration. This is the guardrail that makes pointing cwd at
+            # PR-controlled files safe.
+            setting_sources=[],
+            # setting_sources=[] covers settings.json but not .mcp.json, which
+            # has its own discovery. The CLI's project-trust gate already
+            # refuses an unapproved .mcp.json in headless mode, but pin it:
+            # strict config + empty server map ignore any .mcp.json the PR
+            # ships in the head tree, regardless of CLI defaults.
+            mcp_servers={},
+            strict_mcp_config=True,
             max_turns=5 if quick else 20,
             model=MODEL,
             permission_mode="dontAsk",
@@ -387,8 +435,10 @@ class Reviewer:
                     if isinstance(block, ToolUseBlock) and self.verbose:
                         self._log_tool_call(block)
 
+        if copied_diff_path is not None:
+            copied_diff_path.unlink(missing_ok=True)
         if owns_diff:
-            diff_path.unlink(missing_ok=True)
+            original_diff.unlink(missing_ok=True)
 
         if structured_output is None:
             raise RuntimeError("Reviewer agent returned no structured output")
@@ -499,6 +549,16 @@ class Reviewer:
                 f"\nDependency manifests changed without a lockfile: {', '.join(dep_manifests)} — "
                 "no third-party code can be added, but check the manifest hunks and REFUSE if "
                 "scripts or lifecycle hooks changed."
+            )
+
+        # For a stacked PR the working tree is the PR head, so parent-PR symbols
+        # resolve in Read/Grep/Glob though absent from the diff; tell the agent.
+        if pr.base_ref != "master":
+            constraint += (
+                f"\nStacked PR: this targets `{pr.base_ref}`, not master. The working tree reflects the "
+                "codebase as it will look after the whole stack lands, so symbols defined in parent PRs "
+                "resolve via Read/Grep/Glob even though they're absent from the diff below. Review only the "
+                "diff's changes; do not flag imports or references that resolve in the tree as missing."
             )
 
         file_list = "\n".join(

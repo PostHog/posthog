@@ -1,6 +1,7 @@
 """Tests for GitHub review normalization used by the PR approval agent."""
 
 import re
+from pathlib import Path
 
 import pytest
 
@@ -10,6 +11,7 @@ from github import (
     _normalize_reviews_for_prompt,
     _reaction_emoji,
     _trusted_reactor_predicate,
+    ensure_commits,
     is_bot_author,
 )
 
@@ -84,6 +86,49 @@ def test_normalize_reviews_filters_by_trust_source(
     )
 
     assert len(normalized) == expected_count
+
+
+class _Result:
+    def __init__(self, returncode: int) -> None:
+        self.returncode = returncode
+
+
+@pytest.mark.parametrize(
+    "present, expected_fetches",
+    [
+        pytest.param({"HEAD_SHA", "BASE_SHA"}, [], id="both-present-no-fetch"),
+        pytest.param({"BASE_SHA"}, ["pull/9/head"], id="head-missing-fetches-pr-head"),
+        pytest.param({"HEAD_SHA"}, ["query-validations"], id="base-missing-fetches-base-branch"),
+        pytest.param(set(), ["pull/9/head", "query-validations"], id="both-missing-fetches-both"),
+    ],
+)
+def test_ensure_commits_fetches_missing_head_and_base(
+    monkeypatch: pytest.MonkeyPatch, present: set[str], expected_fetches: list[str]
+) -> None:
+    """Stacked PRs target a parent branch, so the base commit may not be
+    reachable from the master checkout. ensure_commits fetches whatever is
+    missing — head via the pull ref, base via the base branch name."""
+    fetched: list[str] = []
+
+    def fake_run(cmd: list[str], **kwargs: object) -> _Result:
+        if cmd[:3] == ["git", "cat-file", "-t"]:
+            return _Result(0 if cmd[3] in present else 1)
+        if "fetch" in cmd:
+            fetched.append(cmd[-1])
+            return _Result(0)
+        return _Result(0)
+
+    monkeypatch.setattr(github.subprocess, "run", fake_run)
+
+    ensure_commits(
+        pr_number=9,
+        head_sha="HEAD_SHA",
+        base_ref="query-validations",
+        base_sha="BASE_SHA",
+        repo_root=Path("/repo"),
+    )
+
+    assert fetched == expected_fetches
 
 
 @pytest.mark.parametrize(

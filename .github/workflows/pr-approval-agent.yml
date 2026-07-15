@@ -2,14 +2,19 @@ name: PR Approval Agent
 
 on:
     pull_request:
-        types: [labeled, ready_for_review, synchronize]
+        types: [labeled, ready_for_review, synchronize, edited]
 
 permissions:
     contents: read
     pull-requests: write
 
+# `edited` fires on title/body edits too; those runs skip every job but would
+# still cancel an in-flight review via the shared group. Give them a unique
+# throwaway group. Base-change edits (retarget) keep the shared group on
+# purpose: cancelling a review that's mid-flight against the old base is the
+# desired outcome.
 concurrency:
-    group: pr-approval-${{ github.event.pull_request.number }}
+    group: pr-approval-${{ github.event.pull_request.number }}${{ github.event.action == 'edited' && github.event.changes.base == null && format('-edit-{0}', github.run_id) || '' }}
     cancel-in-progress: true
 
 jobs:
@@ -21,9 +26,10 @@ jobs:
         # Triggers: explicit `stamphog` label, ready_for_review with the
         # label already present, or `synchronize` where decide-delta
         # asked for re-review (or itself failed — fail closed for safety).
-        needs: [decide-delta, dismiss]
+        needs: [decide-delta, dismiss, dismiss-on-retarget]
         if: >-
             always()
+            && !cancelled()
             && !github.event.pull_request.draft
             && github.event.pull_request.user.type != 'Bot'
             && !contains(github.event.pull_request.user.login, '[bot]')
@@ -33,6 +39,7 @@ jobs:
               || (github.event.action == 'ready_for_review' && contains(github.event.pull_request.labels.*.name, 'stamphog'))
               || needs.decide-delta.outputs.run_review == 'true'
               || needs.decide-delta.result == 'failure'
+              || (github.event.action == 'edited' && github.event.changes.base != null && contains(github.event.pull_request.labels.*.name, 'stamphog'))
             )
         runs-on: ubuntu-latest
         # Budget for the in-flight-bot-review wait (5 min of sleeps plus the
@@ -88,7 +95,7 @@ jobs:
                     --output-json /tmp/review.json
 
             - name: Post review
-              if: always()
+              if: always() && !cancelled()
               env:
                   # Everything stamphog does — the approval, the sticky comment,
                   # the label strip — posts as the Stamphog app (GH_TOKEN) so it
@@ -107,6 +114,7 @@ jobs:
                   # bullets + folded gate mechanics); fall back to the bare
                   # reasoning when the script predates the field.
                   REASONING=$(jq -r '.review_body // .reviewer.reasoning // ""' /tmp/review.json 2>/dev/null || echo "")
+                  REVIEWED_BASE_SHA=$(jq -r '.base_sha // ""' /tmp/review.json 2>/dev/null || echo "")
                   REVIEWED_SHA=$(jq -r '.head_sha // ""' /tmp/review.json 2>/dev/null || echo "")
 
                   # Lock the review to the sha the LLM actually saw — `gh pr
@@ -118,6 +126,15 @@ jobs:
                   fi
 
                   if [ "$VERDICT" = "APPROVED" ]; then
+                    # Stacked PRs move under us: re-read the live base/head and
+                    # skip the approval if either drifted from what the LLM saw,
+                    # so we never stamp a review onto code that has since changed.
+                    CURRENT_REFS=$(gh api "repos/$REPO/pulls/$PR" --jq '[.base.sha, .head.sha] | @tsv')
+                    IFS=$'\t' read -r CURRENT_BASE_SHA CURRENT_HEAD_SHA <<< "$CURRENT_REFS"
+                    if [ "$CURRENT_BASE_SHA" != "$REVIEWED_BASE_SHA" ] || [ "$CURRENT_HEAD_SHA" != "$REVIEWED_SHA" ]; then
+                      echo "PR base or head changed after review; skipping stale approval."
+                      exit 0
+                    fi
                     # Single Stamphog app approval, carrying the review body.
                     # Fatal on failure (the step runs under `set -e`): this is
                     # now the only approval, so if it doesn't post the PR stays
@@ -230,7 +247,7 @@ jobs:
                   fi
 
             - name: Upload evidence
-              if: always()
+              if: always() && !cancelled()
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: review-${{ github.event.pull_request.number }}
@@ -278,8 +295,22 @@ jobs:
                   filter: blob:none
                   fetch-depth: 0
 
-            - name: Fetch PR head
-              run: git fetch --filter=blob:none origin pull/${{ github.event.pull_request.number }}/head
+            - name: Fetch PR head and base
+              # base.ref is author-controlled, so it goes through an env var
+              # (never interpolated into the command). A stacked PR's base is
+              # its parent branch, which the master checkout doesn't fetch;
+              # dismiss_check needs it to classify merge commits. Best-effort —
+              # a missing base just fails the merge check closed to re-review.
+              env:
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  BASE_REF_NAME: ${{ github.event.pull_request.base.ref }}
+              run: |
+                  set -euo pipefail
+                  git fetch --filter=blob:none origin "pull/${PR_NUMBER}/head"
+                  # Explicit refspec: a bare `git fetch origin <branch>` only
+                  # writes FETCH_HEAD, and dismiss_check resolves origin/<branch>.
+                  git fetch --filter=blob:none origin \
+                    "+refs/heads/${BASE_REF_NAME}:refs/remotes/origin/${BASE_REF_NAME}" || true
 
             - name: Install uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
@@ -343,6 +374,7 @@ jobs:
         # of secrets on forks), so gate the whole job to head branches in this repo.
         if: >-
             always()
+            && !cancelled()
             && github.event.action == 'synchronize'
             && !github.event.pull_request.draft
             && github.event.pull_request.head.repo.full_name == github.repository
@@ -391,6 +423,48 @@ jobs:
                         -f event=DISMISS
                   done
 
+    # A base retarget (Graphite moving a child onto master when its parent
+    # merges) changes the diff without a push, so no `synchronize` fires and a
+    # prior bot approval carries onto the new base under the master ruleset
+    # (dismiss_stale_reviews_on_push=false). Dismiss it; review re-runs against
+    # the new base. Ordered before review via `needs`, so it can't dismiss the
+    # fresh approval that re-review is about to post. See README for the full rationale.
+    dismiss-on-retarget:
+        if: >-
+            github.event.action == 'edited'
+            && github.event.changes.base != null
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+
+        steps:
+            # The dismissal loop below mirrors the `dismiss` job's. Neither job
+            # checks out the repo, so factoring it into a shared script would
+            # force a checkout into both — more cost than the duplication saves.
+            # If you change the stamphog-approval selection, update both
+            # dismissal jobs in lockstep.
+            - name: Dismiss stale bot approvals on base change
+              env:
+                  # pull-requests:write dismisses any review regardless of its
+                  # author, so github.token clears both the app's approvals
+                  # (stamphog[bot]) and any legacy github-actions[bot] ones.
+                  GH_TOKEN: ${{ github.token }}
+                  PR: ${{ github.event.pull_request.number }}
+                  REPO: ${{ github.repository }}
+              run: |
+                  set -euo pipefail
+
+                  mapfile -t REVIEW_IDS < <(
+                      gh api "repos/$REPO/pulls/$PR/reviews" --paginate \
+                        --jq '.[] | select((.user.login == "github-actions[bot]" or .user.login == "stamphog[bot]") and .state == "APPROVED") | .id'
+                  )
+
+                  for id in "${REVIEW_IDS[@]}"; do
+                      [ -z "$id" ] && continue
+                      gh api -X PUT "repos/$REPO/pulls/$PR/reviews/$id/dismissals" \
+                        -f message="Base branch retargeted — stamphog approval dismissed; re-review runs automatically if the label is present." \
+                        -f event=DISMISS
+                  done
+
     # stamphog never reviews bot-authored PRs (dependabot, mendral, other
     # agents). A human applying the label can't override this — bot output
     # isn't a trusted basis for an auto-approval. review / decide-delta are
@@ -432,9 +506,10 @@ jobs:
               run: |
                   set -euo pipefail
                   # Explain only on the apply paths (a human just labeled it, or
-                  # marked the PR ready). On synchronize the note was already
-                  # posted — or the label predates this gate — so just clean up.
-                  if [ "$ACTION" != "synchronize" ]; then
+                  # marked the PR ready). On synchronize/edited the note was
+                  # already posted — or the label predates this gate — so just
+                  # clean up.
+                  if [ "$ACTION" = "labeled" ] || [ "$ACTION" = "ready_for_review" ]; then
                     gh pr comment "$PR" --repo "$REPO" \
                       --body "stamphog does not review bot-authored PRs — removing the \`stamphog\` label. This change needs a human reviewer."
                   fi

@@ -143,6 +143,43 @@ An approval is posted once, as the Stamphog app (`stamphog[bot]`), carrying the 
 This identity was confirmed to satisfy branch protection, so the earlier bodyless `github-actions[bot]` fallback approval has been dropped and every stamphog action now runs under the app token.
 Every other verdict (REFUSED, ESCALATE, WAIT, ERROR) goes into a single sticky comment that is updated in place on each run, with a counter of how many verdicts the comment has carried (failure notes append without bumping it) — repeated refusals don't stack up as separate review comments on the PR.
 
+## Stacked PRs (Graphite / git stacks)
+
+A stacked PR targets its parent branch, not master, and depends on code the
+parent introduces but hasn't merged yet. Two parts make stamphog correct on
+these:
+
+- **Exploration sees the post-stack tree.** The workflow checks out master
+  (hardcoded, so a PR can't swap the review script), but the LLM reviewer's
+  `Read`/`Grep`/`Glob` run in a detached **worktree at the PR head** instead.
+  The head tree already contains the parent PRs' code, so symbols from a
+  not-yet-merged parent resolve and aren't flagged as broken imports. The diff
+  itself is still computed `base_sha...head_sha`, so the review is scoped to
+  exactly this PR's changes. If the worktree cannot be created, stamphog
+  returns `ERROR` and retains the label rather than reviewing against the wrong
+  source tree.
+  - **Security:** the worktree is PR-authored content. The reviewer runs the
+    Agent SDK with `setting_sources=[]` (isolation mode), so it does **not**
+    load `.claude/settings.json` hooks (command execution) or `CLAUDE.md`
+    (injected instructions) from the head tree. Those files are still readable
+    as untrusted _content_ under the anti-injection notice — never as
+    configuration. Stacked PR heads with tracked symbolic links fail closed,
+    so a PR path cannot resolve outside the worktree.
+
+- **Base retarget dismisses the stale approval.** When a stack's parent merges,
+  the child PR is retargeted from the parent branch onto master, changing its
+  effective diff **without a push** — so no `synchronize` fires and the normal
+  push-dismiss path is skipped. Under the master ruleset
+  (`dismiss_stale_reviews_on_push=false`), a prior bot approval would silently
+  carry onto the new base. The workflow listens for the `edited` event and, when
+  the base changed, dismisses the bot approval and re-reviews against the new
+  base (if the label is still present).
+
+The base commit of a stacked PR is its parent branch tip, which the master
+checkout doesn't fetch by default — `github.ensure_commits` and the
+`decide-delta` job both fetch the base branch so `git diff base_sha...head_sha`
+and the dismiss-time merge classification resolve it.
+
 ## Tiers
 
 ### T0 — deterministic
