@@ -15,7 +15,6 @@ import {
     ReplayCycleState,
     createFoldOffsetsStep,
     createRecordToStateStep,
-    createSerializeSessionStep,
 } from '~/ingestion/pipelines/sessionreplay/replay-cycle-state'
 import { SessionBatchRecorder } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-recorder'
 import { SessionFilter } from '~/ingestion/pipelines/sessionreplay/sessions/session-filter'
@@ -160,7 +159,6 @@ describe('ml-mirror-pipeline', () => {
     ): Promise<void> {
         pipeline.feed(messages.map((message) => createOkContext({ message }, { message })))
         const foldOffsets = createFoldOffsetsStep()
-        const serializeSession = createSerializeSessionStep()
         const recordToState = createRecordToStateStep({ topHog, isDebugLoggingEnabled: () => false })
         let state: ReplayCycleState = { sessionBatchRecorder: recorder, offsets: new Map() }
         let batch = await pipeline.next()
@@ -170,11 +168,7 @@ describe('ml-mirror-pipeline', () => {
                 if (!isOkResult(folded)) {
                     throw new Error('foldOffsets returned non-ok result')
                 }
-                const serialized = await serializeSession(folded.value)
-                if (!isOkResult(serialized)) {
-                    throw new Error('serializeSession returned non-ok result')
-                }
-                const reduced = await recordToState(serialized.value)
+                const reduced = await recordToState(folded.value)
                 if (!isOkResult(reduced)) {
                     throw new Error('recordToState returned non-ok result')
                 }

@@ -13,6 +13,7 @@ import {
 } from '~/ingestion/pipelines/sessionreplay'
 import { createAiTrainingOptInFilterStep } from '~/ingestion/pipelines/sessionreplay/ai-training-optin-filter-step'
 import { createParseAndAnonymizeMessageStep } from '~/ingestion/pipelines/sessionreplay/parse-and-anonymize-step'
+import { createSerializeSessionStep } from '~/ingestion/pipelines/sessionreplay/serialize-session-step'
 import { createMarkSeenStep } from '~/ingestion/pipelines/sessionreplay/session-batch-mark-seen-step'
 import { createResolveRetentionStep } from '~/ingestion/pipelines/sessionreplay/session-batch-resolve-retention-step'
 import { createTrackAndGateStep } from '~/ingestion/pipelines/sessionreplay/session-batch-track-and-gate-step'
@@ -110,6 +111,10 @@ export function createMlMirrorReplayPipeline(config: SessionReplayInnerPipelineC
                                                     })),
                                                 ])
                                             )
+                                            // Serialize the session block chunks and extract the
+                                            // console logs — the per-message business logic, done
+                                            // here so the cycle reducer only aggregates.
+                                            .pipe(createSerializeSessionStep())
                                     )
                                     .gather()
                             )

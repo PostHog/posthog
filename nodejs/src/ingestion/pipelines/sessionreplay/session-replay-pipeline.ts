@@ -29,8 +29,8 @@ import {
     createFoldOffsetsStep,
     createRecordToStateStep,
     createReplayOnNewCycle,
-    createSerializeSessionStep,
 } from './replay-cycle-state'
+import { createSerializeSessionStep } from './serialize-session-step'
 import { createCommitOffsetsStep } from './session-batch-commit-offsets-step'
 import { createMarkSeenStep } from './session-batch-mark-seen-step'
 import { createRecordMetricsStep } from './session-batch-record-metrics-step'
@@ -130,9 +130,10 @@ export interface SessionReplayPipelineConfig {
  *    encryption key, off the S3 write path; drop blocked/deleted sessions
  * 6. Parse - Parse Kafka messages into structured session recording data (inside teamAware)
  * 7. Version Monitor - Check library version and emit warnings for old versions
+ * 8. Serialize - Derive the per-message record data (session block chunks, console logs)
  *
- * Recording happens outside: the accumulating pipeline's reducer folds each emitted element into
- * the cycle's recorder.
+ * Recording happens outside: the accumulating pipeline's reducer aggregates each emitted element
+ * into the cycle's recorder.
  */
 export function createSessionReplayInnerPipeline(config: SessionReplayInnerPipelineConfig): SessionReplayInnerPipeline {
     const {
@@ -233,6 +234,10 @@ export function createSessionReplayInnerPipeline(config: SessionReplayInnerPipel
                                             )
                                             // Monitor library version and emit warnings for old versions
                                             .pipe(createLibVersionMonitorStep())
+                                            // Serialize the session block chunks and extract the
+                                            // console logs — the per-message business logic, done
+                                            // here so the cycle reducer only aggregates.
+                                            .pipe(createSerializeSessionStep())
                                     )
                                     .gather()
                             )
@@ -286,10 +291,7 @@ export function createSessionReplayPipeline(config: SessionReplayPipelineConfig)
         // Folds every drained result into the state: its offset always (dropped and DLQ'd messages
         // advance the commit too), and OK results into the recorder.
         reduce: (builder) =>
-            builder
-                .pipe(createFoldOffsetsStep())
-                .pipe(createSerializeSessionStep())
-                .pipe(createRecordToStateStep({ topHog, isDebugLoggingEnabled })),
+            builder.pipe(createFoldOffsetsStep()).pipe(createRecordToStateStep({ topHog, isDebugLoggingEnabled })),
         shouldFlush: (state) => state.sessionBatchRecorder.size >= maxBatchSizeBytes,
         // The flush lifecycle: write to storage (retention and keys already resolved at record time),
         // commit the offsets the cycle covers (off the state, with in-flight produces awaited

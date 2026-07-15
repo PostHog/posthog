@@ -23,12 +23,7 @@ import { createMockKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/t
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 
-import {
-    ReplayCycleState,
-    createFoldOffsetsStep,
-    createRecordToStateStep,
-    createSerializeSessionStep,
-} from './replay-cycle-state'
+import { ReplayCycleState, createFoldOffsetsStep, createRecordToStateStep } from './replay-cycle-state'
 import {
     SessionReplayInnerPipelineConfig,
     SessionReplayPipelineOutput,
@@ -213,7 +208,6 @@ describe('session-replay-pipeline', () => {
             pipeline.feed(messages.map((message) => createOkContext({ message }, { message })))
         }
         const foldOffsets = createFoldOffsetsStep()
-        const serializeSession = createSerializeSessionStep()
         const recordToState = createRecordToStateStep({ topHog, isDebugLoggingEnabled })
         const recorded: SessionReplayPipelineOutput[] = []
         let batch = await pipeline.next()
@@ -223,11 +217,7 @@ describe('session-replay-pipeline', () => {
                 if (!isOkResult(folded)) {
                     throw new Error('foldOffsets returned non-ok result')
                 }
-                const serialized = await serializeSession(folded.value)
-                if (!isOkResult(serialized)) {
-                    throw new Error('serializeSession returned non-ok result')
-                }
-                const reduced = await recordToState(serialized.value)
+                const reduced = await recordToState(folded.value)
                 if (!isOkResult(reduced)) {
                     throw new Error('recordToState returned non-ok result')
                 }

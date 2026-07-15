@@ -2,9 +2,10 @@
 import { Message } from 'node-rdkafka'
 
 import { ParsedMessageData } from './kafka/types'
-import { RetentionPeriod } from './shared/constants'
+import { SessionRef } from './sessions/session-batch-recorder'
+import { ExtractedConsoleLogs } from './sessions/session-console-log-recorder'
+import { SerializedSessionData } from './sessions/snappy-session-recorder'
 import { SessionKey } from './shared/types'
-import { TeamForReplay } from './teams/types'
 
 /** The per-message context threaded through every stage of the session replay pipeline. */
 export interface MessageContext {
@@ -12,14 +13,16 @@ export interface MessageContext {
 }
 
 /**
- * What the inner pipeline emits per message: everything the cycle reducer needs to record it —
- * the parsed events plus the team, retention, and encryption key resolved along the way.
+ * What the inner pipeline emits per message: everything the cycle reducer needs to aggregate it —
+ * the session it belongs to (retention and key resolved along the way) plus the serialized session
+ * data and console logs derived by the serialize step. `parsedMessage` still rides along for
+ * feature extraction, which is sequential across a session's messages and can't be precomputed.
  */
 export interface SessionReplayPipelineOutput {
-    team: TeamForReplay
+    session: SessionRef
+    data: SerializedSessionData
+    logs: ExtractedConsoleLogs
     parsedMessage: ParsedMessageData
-    retentionPeriod: RetentionPeriod
-    sessionKey: SessionKey
 }
 
 /**
