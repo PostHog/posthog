@@ -53,6 +53,7 @@ import {
 } from './mcpAnalyticsToolDetailLogic'
 import { mcpToolQualityUrlWithDates } from './mcpAnalyticsToolQualityLogic'
 import { formatBucketLabel } from './timeBuckets'
+import { CreateFixTaskButton } from './tool-quality/CreateFixTaskButton'
 import { type MCPErrorContext, formatErrorContext, mcpSessionUrl } from './tool-quality/errorContext'
 
 export const scene: SceneExport<MCPAnalyticsToolDetailLogicProps> = {
@@ -781,6 +782,7 @@ function FailureOccurrencesModal({ toolName }: { toolName: string }): JSX.Elemen
                                             )
                                         }}
                                     />
+                                    <CreateFixTaskButton context={occurrenceContext(occurrence)} />
                                     {occurrence.session_id ? (
                                         <LemonButton
                                             size="xsmall"

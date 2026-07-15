@@ -36989,6 +36989,7 @@ export namespace Schemas {
      * * `hogdesk` - HogDesk
      * * `review_hog` - ReviewHog
      * * `image_builder` - Image Builder
+     * * `mcp_analytics` - MCP Analytics
      */
     export type OriginProductEnum = typeof OriginProductEnum[keyof typeof OriginProductEnum];
 
@@ -37010,6 +37011,7 @@ export namespace Schemas {
       Hogdesk: 'hogdesk',
       ReviewHog: 'review_hog',
       ImageBuilder: 'image_builder',
+      McpAnalytics: 'mcp_analytics',
     } as const;
 
     /**
@@ -49039,7 +49041,8 @@ export namespace Schemas {
        * * `support_reply` - Support Reply
        * * `hogdesk` - HogDesk
        * * `review_hog` - ReviewHog
-       * * `image_builder` - Image Builder */
+       * * `image_builder` - Image Builder
+       * * `mcp_analytics` - MCP Analytics */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -62410,7 +62413,8 @@ export namespace Schemas {
        * * `support_reply` - Support Reply
        * * `hogdesk` - HogDesk
        * * `review_hog` - ReviewHog
-       * * `image_builder` - Image Builder */
+       * * `image_builder` - Image Builder
+       * * `mcp_analytics` - MCP Analytics */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).

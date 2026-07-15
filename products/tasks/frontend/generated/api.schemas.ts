@@ -773,6 +773,7 @@ export interface PaginatedTaskDetailDTOListApi {
  * * `hogdesk` - HogDesk
  * * `review_hog` - ReviewHog
  * * `image_builder` - Image Builder
+ * * `mcp_analytics` - MCP Analytics
  */
 export type OriginProductEnumApi = (typeof OriginProductEnumApi)[keyof typeof OriginProductEnumApi]
 
@@ -793,6 +794,7 @@ export const OriginProductEnumApi = {
     Hogdesk: 'hogdesk',
     ReviewHog: 'review_hog',
     ImageBuilder: 'image_builder',
+    McpAnalytics: 'mcp_analytics',
 } as const
 
 /**
@@ -963,7 +965,8 @@ export interface TaskWriteApi {
      * * `support_reply` - Support Reply
      * * `hogdesk` - HogDesk
      * * `review_hog` - ReviewHog
-     * * `image_builder` - Image Builder */
+     * * `image_builder` - Image Builder
+     * * `mcp_analytics` - MCP Analytics */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -1082,7 +1085,8 @@ export interface PatchedTaskWriteApi {
      * * `support_reply` - Support Reply
      * * `hogdesk` - HogDesk
      * * `review_hog` - ReviewHog
-     * * `image_builder` - Image Builder */
+     * * `image_builder` - Image Builder
+     * * `mcp_analytics` - MCP Analytics */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).

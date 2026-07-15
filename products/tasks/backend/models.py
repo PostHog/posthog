@@ -139,6 +139,8 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         # ReviewHog PR reviewer — its sandbox steps (chunking/review/validation/dedup) spawn one task each.
         REVIEW_HOG = "review_hog", "ReviewHog"
         IMAGE_BUILDER = "image_builder", "Image Builder"
+        # "Create fix task" on the MCP analytics tool-quality failure drill-down.
+        MCP_ANALYTICS = "mcp_analytics", "MCP Analytics"
 
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
