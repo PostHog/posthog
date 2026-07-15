@@ -308,3 +308,20 @@ class TestValidateCredentials:
         assert valid is False
         assert error is not None
         assert "Application ID" in error and "index" in error
+
+    def test_unexpected_status_surfaces_algolia_message(self) -> None:
+        # A non-404 error carrying an Algolia message should surface it so the user isn't left with
+        # only a status code.
+        resp = _response({"message": "Request rejected"}, status_code=400)
+        valid, error = self._run(resp, index_name="idx")
+        assert valid is False
+        assert error is not None and "Request rejected" in error
+
+    def test_non_json_error_body_does_not_crash(self) -> None:
+        # A non-JSON error body (e.g. an HTML 502 page) must not blow up validation; fall back to a
+        # status-based message.
+        resp = _response({}, status_code=502)
+        resp.json.side_effect = ValueError("no json")
+        valid, error = self._run(resp, index_name="idx")
+        assert valid is False
+        assert error is not None and "502" in error
