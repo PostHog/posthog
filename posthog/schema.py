@@ -24824,6 +24824,13 @@ class TraceSpansAttributeBreakdownQuery(BaseModel):
             " while one of its values is selected."
         ),
     )
+    facetSearch: str | None = Field(
+        default=None,
+        description=(
+            "Type-ahead filter over the breakdown field's own values (case-insensitive"
+            " substring match). Lets a facet's value search reach past the row limit."
+        ),
+    )
     filterGroup: PropertyGroupFilter | None = None
     kind: Literal["TraceSpansAttributeBreakdownQuery"] = "TraceSpansAttributeBreakdownQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
