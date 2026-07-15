@@ -2947,7 +2947,8 @@ class OrbitSourceConfig(config.Config):
 
 @config.config
 class OrcaSecuritySourceConfig(config.Config):
-    pass
+    api_token: str
+    region: Literal["global", "us", "eu"] = config.value(default="global")
 
 
 @config.config
