@@ -125,40 +125,35 @@ export function createAiIngestionPipeline<
         topHog,
     } = config
 
-    const validated = newCommonIngestionPipeline<TInput, TContext, OverflowOutput>({
-        teamManager,
-        outputs,
-        promiseScheduler,
-        concurrentBatches,
-    })
-        .beforeBatch((b) => b.pipe(createEventFiltersBatchAppMetricsBeforeBatchStep(outputs)))
-        // Header-only steps: allow only AI events, apply token restrictions.
-        .parseHeaders()
-        .pipe(createAllowEventsStep([...AI_EVENT_TYPES]))
-        .pipe(
-            createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
-                overflowMode,
-                preservePartitionLocality,
-            })
-        )
-        // Rate-limit non-cookieless events to overflow before parsing the body.
-        // Cookieless events pass through and are handled post-cookieless below.
-        .pipeChunk(createSkipCookielessRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService))
-        .parseMessage()
-        .resolveTeam()
-        .pipe(createValidateHistoricalMigrationStep())
-        .pipe(createValidateAiEventTokensStep())
-        .pipe(createValidateEventMetadataStep())
-        .pipe(createValidateEventPropertiesStep())
-
-    // Schema enforcement is opt-in (same as analytics); only
-    // applied when enabled so AI events match that path.
-    const schemaChecked = eventSchemaEnforcementEnabled
-        ? validated.pipe(createValidateEventSchemaStep(eventSchemaEnforcementManager))
-        : validated
-
     return (
-        schemaChecked
+        newCommonIngestionPipeline<TInput, TContext, OverflowOutput>({
+            teamManager,
+            outputs,
+            promiseScheduler,
+            concurrentBatches,
+        })
+            .beforeBatch((b) => b.pipe(createEventFiltersBatchAppMetricsBeforeBatchStep(outputs)))
+            // Header-only steps: allow only AI events, apply token restrictions.
+            .parseHeaders()
+            .pipe(createAllowEventsStep([...AI_EVENT_TYPES]))
+            .pipe(
+                createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
+                    overflowMode,
+                    preservePartitionLocality,
+                })
+            )
+            // Rate-limit non-cookieless events to overflow before parsing the body.
+            // Cookieless events pass through and are handled post-cookieless below.
+            .pipeChunk(createSkipCookielessRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService))
+            .parseMessage()
+            .resolveTeam()
+            .pipe(createValidateHistoricalMigrationStep())
+            .pipe(createValidateAiEventTokensStep())
+            .pipe(createValidateEventMetadataStep())
+            .pipe(createValidateEventPropertiesStep())
+            // Schema enforcement is opt-in (same as analytics); the step passes
+            // events through when disabled.
+            .pipe(createValidateEventSchemaStep(eventSchemaEnforcementManager, eventSchemaEnforcementEnabled))
             .pipe(createApplyPersonProcessingRestrictionsStep(eventIngestionRestrictionManager))
             .pipe(createDropOldEventsStep())
             .pipe(createApplyEventFiltersStep(eventFilterManager))
