@@ -90,9 +90,6 @@ pub struct RecordingProperties {
     #[serde(rename = "$snapshot_source", skip_serializing_if = "Option::is_none")]
     pub snapshot_source: Option<Value>,
 
-    /// The recorded page's hostname, stamped by the browser SDK; the ml-mirror anonymizer keys
-    /// its host classification on it. `Value` (not `String`) so a malformed stamp cannot fail
-    /// the whole properties parse; a non-string is dropped at serialization.
     #[serde(rename = "$snapshot_host", skip_serializing_if = "Option::is_none")]
     pub snapshot_host: Option<Value>,
 
