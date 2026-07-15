@@ -3,6 +3,8 @@ import { useValues } from 'kea'
 import { IconLive } from '@posthog/icons'
 import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { logsConfigLogic } from 'products/logs/frontend/logsConfigLogic'
 import { buildLogsSessionUrl } from 'products/logs/frontend/utils'
 
@@ -15,9 +17,20 @@ export interface ViewLogsButtonProps extends Pick<LemonButtonProps, 'size' | 'ty
 
 // Links into the logs scene filtered to one session, using the team's configured
 // session ID attribute keys. The session-replay / error-tracking counterpart of
-// logs' own ViewRecordingButton usage.
-export function ViewLogsButton({ sessionId, timestamp, iconOnly, ...buttonProps }: ViewLogsButtonProps): JSX.Element {
+// logs' own ViewRecordingButton usage. Gated here rather than at call sites so
+// every surface of the logs-in-error-tracking rollout toggles with one flag.
+export function ViewLogsButton({
+    sessionId,
+    timestamp,
+    iconOnly,
+    ...buttonProps
+}: ViewLogsButtonProps): JSX.Element | null {
     const { configuredSessionIdKeys } = useValues(logsConfigLogic)
+    const enabled = useFeatureFlag('LOGS_IN_ERROR_TRACKING')
+
+    if (!enabled) {
+        return null
+    }
 
     return (
         <LemonButton
