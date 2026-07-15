@@ -19,10 +19,10 @@ if AGENT_INGRESS_ROUTING_MODE not in ("domain", "path"):
 # URLs are omitted (not externally reachable).
 AGENT_INGRESS_DOMAIN_SUFFIX = get_from_env("AGENT_INGRESS_DOMAIN_SUFFIX", "")
 
-# Public base URL for agent-ingress in "path" mode (Slack callbacks, webhooks);
-# empty → the slack_events_url field is omitted from API responses. In local dev
-# (DEBUG=True) we default to the local agent-ingress port so URLs surface
-# without requiring a tunnel; production must set this explicitly.
+# Public base URL for agent-ingress. This is used for Slack/webhook URLs and as
+# the root-level OAuth identity callback base in every routing mode. In local
+# dev (DEBUG=True) it defaults to the local agent-ingress port; production must
+# set it before enabling explicit identity linking.
 AGENT_INGRESS_PUBLIC_URL = get_from_env("AGENT_INGRESS_PUBLIC_URL", "http://localhost:3030" if DEBUG else "")
 
 # Shared HMAC key for trusted-service JWTs across the agent platform. Empty

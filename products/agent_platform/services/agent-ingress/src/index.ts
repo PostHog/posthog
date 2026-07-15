@@ -155,8 +155,8 @@ async function main(): Promise<void> {
             {
                 port: config.port,
                 bus: bus.constructor.name,
-                // Only surfaced when set — an unset public URL is normal (domain-mode
-                // routes by host; Django builds callback URLs from its own settings).
+                // Only surfaced when set. Domain-mode agent routes do not need it,
+                // but root-level OAuth identity callbacks do.
                 ...(config.publicUrl ? { public_url: config.publicUrl } : {}),
             },
             config.publicUrl ? `listening — reachable at ${config.publicUrl}` : 'listening'

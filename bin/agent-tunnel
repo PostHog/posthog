@@ -4,7 +4,7 @@
 # parses the trycloudflare URL it emits, and writes
 # `AGENT_INGRESS_PUBLIC_URL=<url>` into `.env.local` so the next
 # `./bin/start` / `hogli start` boots the agent stack with the URL
-# already wired into agent-ingress + Django.
+# already wired into Django, agent-ingress, and agent-runner.
 #
 # Usage:
 #   bin/agent-tunnel                 # tunnel to http://localhost:3030
@@ -157,7 +157,7 @@ else
 
   $WROTE_ENV_LINE
 
-  Restart your dev stack so the new URL flows into Django + agent-ingress:
+  Restart your dev stack so the new URL flows into Django + the agent services:
     ./bin/start    (or restart \`hogli start\`)
 
   Ctrl-C to stop the tunnel — the entry is removed from $ENV_FILE on exit.
