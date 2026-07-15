@@ -351,7 +351,7 @@ def normalize_table_column_names(table: pa.Table) -> pa.Table:
             table = table.set_column(
                 table.schema.get_field_index(column_name),
                 temp_name,
-                table.column(column_name),  # type: ignore
+                table.column(column_name),
             )
             used_names.add(temp_name)
 
@@ -684,8 +684,12 @@ def append_partition_key_to_table(
                 elif isinstance(date, datetime.date):
                     partition_array.append(date.strftime(date_format))
                 elif isinstance(date, str) and date.strip():
-                    date = parser.parse(date)
-                    partition_array.append(date.strftime(date_format))
+                    try:
+                        date = parser.parse(date)
+                        partition_array.append(date.strftime(date_format))
+                    except (ValueError, OverflowError):
+                        # Non-date-like string (e.g. a UUID primary key) — treat as unknown date
+                        partition_array.append("1970-01")
                 elif isinstance(date, str):
                     # Empty string — treat as unknown date
                     partition_array.append("1970-01")

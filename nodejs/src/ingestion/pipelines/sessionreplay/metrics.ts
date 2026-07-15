@@ -1,5 +1,7 @@
 import { Counter, Gauge, Histogram, Summary } from 'prom-client'
 
+import { recordMessagesDroppedByRestrictions } from './otel-metrics'
+
 const BUCKETS_KB_WRITTEN = [0, 128, 512, 1024, 5120, 10240, 20480, 51200, 102400, 204800, Infinity]
 
 /** Which anonymizer produced the output; the label makes the flag rollout a direct A/B. */
@@ -77,6 +79,7 @@ export class SessionRecordingIngesterMetrics {
 
     public static observeDroppedByRestrictions(count: number): void {
         this.messagesDroppedByRestrictions.inc(count)
+        recordMessagesDroppedByRestrictions(count)
     }
 
     public static observeOverflowedByRestrictions(count: number): void {

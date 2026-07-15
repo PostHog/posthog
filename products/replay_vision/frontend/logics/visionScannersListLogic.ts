@@ -1,6 +1,7 @@
 import { actions, afterMount, connect, isBreakpoint, kea, listeners, path } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { metricCount } from 'lib/operationalMetrics'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { visionScannersList } from '../generated/api'
@@ -53,6 +54,8 @@ export const visionScannersListLogic = kea<visionScannersListLogicType>([
                         if (error instanceof Error && isBreakpoint(error)) {
                             throw error
                         }
+                        // Degrades silently to the stale list, so count it or it is invisible.
+                        metricCount('replay_vision_frontend_scanners_load_failures')
                         return values.scanners
                     }
                 },
