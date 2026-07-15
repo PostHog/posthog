@@ -95,6 +95,27 @@ class TestRepartitionDetection:
         assert pending["trigger_reason"] == "proactive_threshold"
         assert capture.call_args.args[0] == "warehouse_repartition_flagged"
 
+    def test_unpartitioned_table_flags_auto_target_scheme(self, team):
+        # An unpartitioned table's target legitimately has mode None (auto-detect at rewrite time),
+        # but the flagged event must report "auto" — a null here NULL-poisons dashboard strings —
+        # while the pending target must keep mode None so the rewrite still auto-detects.
+        schema = _make_schema(team, {"primary_key_columns": ["id"]})
+        with tempfile.TemporaryDirectory() as d:
+            delta = _write_unpartitioned_delta(f"{d}/t")
+            with (
+                patch.object(ctrl, "target_partition_bytes", return_value=1),
+                patch.object(ctrl, "is_auto_repartition_enabled", return_value=True),
+                patch.object(ctrl, "capture_repartition_event") as capture,
+            ):
+                self._detect(team, schema, delta)
+
+        schema.refresh_from_db()
+        pending = schema.repartition_pending
+        assert pending is not None
+        assert pending["partition_mode"] is None
+        assert capture.call_args.args[0] == "warehouse_repartition_flagged"
+        assert capture.call_args.args[1]["partition_mode_after"] == "auto"
+
     def test_within_budget_records_size_but_does_not_flag(self, team):
         schema = _make_schema(team, {"partitioning_enabled": True, "partition_mode": "md5", "partition_count": 2})
         with tempfile.TemporaryDirectory() as d:

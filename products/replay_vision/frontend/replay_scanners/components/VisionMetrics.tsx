@@ -60,7 +60,7 @@ export function VisionMetrics(): JSX.Element {
     )
 
     return (
-        <div className="flex flex-col lg:flex-row gap-4 h-72">
+        <div className="flex flex-col lg:flex-row gap-4 h-80">
             <div className="flex-1 bg-bg-light rounded p-4 flex flex-col InsightCard h-full">
                 <div className="flex items-start justify-between gap-2 mb-1">
                     <h3 className="text-base font-semibold m-0">Observations over time</h3>

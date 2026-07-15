@@ -149,6 +149,7 @@
 # name: TestVisitorFieldSnapshots.test_primitive_fields_Cohort
   list([
     'cohort_type',
+    'condition_type',
     'created_at',
     'deleted',
     'description',
@@ -490,6 +491,8 @@
     '__repr__',
     '__static_attributes__',
     '__str__',
+    '_filter_leaves',
+    '_filters_contain_type',
     '_get_existing_ch_member_uuids',
     '_get_uuids_for_emails_batch_ch',
     '_has_filter_type',
@@ -506,6 +509,7 @@
     'calculate_people_ch',
     'cohortcalculationhistory_set',
     'cohortpeople_set',
+    'compute_condition_type',
     'count',
     'created_by_id',
     'enqueue_calculation',

@@ -5,11 +5,8 @@ import { LemonLabel, LemonSkeleton, SpinnerOverlay, Tooltip } from '@posthog/lem
 
 import { formatPercentageDiff, humanFriendlyNumber } from 'lib/utils/numbers'
 
-import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
-import { AxisSeries } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
-import { ChartDisplayType } from '~/types'
-
 import { AppMetricsTimeSeriesResponse } from './appMetricsLogic'
+import { AppMetricsSeriesOverride, AppMetricsTimeSeriesChart } from './AppMetricsTimeSeriesChart'
 
 export type AppMetricSummaryProps = {
     name: string
@@ -59,6 +56,17 @@ export function AppMetricSummary({
     }, [previousPeriodTimeSeries])
 
     const diffForDisplay = formatPercentageDiff(total, totalPreviousPeriod)
+
+    const chartColor = total === 0 ? colorIfZero : color
+    const seriesOverrides = useMemo(
+        () =>
+            timeSeries && chartColor
+                ? Object.fromEntries(
+                      timeSeries.series.map((x): [string, AppMetricsSeriesOverride] => [x.name, { color: chartColor }])
+                  )
+                : undefined,
+        [timeSeries, chartColor]
+    )
 
     // Hide component if hideIfZero is true and there's no data
     if (hideIfZero && !loading && total === 0 && totalPreviousPeriod === 0) {
@@ -114,48 +122,7 @@ export function AppMetricSummary({
                             <LemonLabel>No data</LemonLabel>
                         </div>
                     ) : (
-                        <LineGraph
-                            xData={{
-                                column: {
-                                    name: 'date',
-                                    type: {
-                                        name: 'DATE',
-                                        isNumerical: false,
-                                    },
-                                    label: 'Date',
-                                    dataIndex: 0,
-                                },
-                                data: timeSeries.labels,
-                            }}
-                            yData={timeSeries.series.map(
-                                (x): AxisSeries<number | null> => ({
-                                    column: {
-                                        name: x.name,
-                                        type: { name: 'INTEGER', isNumerical: true },
-                                        label: x.name,
-                                        dataIndex: 0,
-                                    },
-                                    data: x.values,
-                                    settings: {
-                                        display: {
-                                            color: total === 0 ? colorIfZero : color,
-                                        },
-                                    },
-                                })
-                            )}
-                            visualizationType={ChartDisplayType.ActionsLineGraph}
-                            chartSettings={{
-                                showLegend: false,
-                                showTotalRow: false,
-                                showXAxisBorder: false,
-                                showYAxisBorder: false,
-                                showXAxisTicks: false,
-                                leftYAxisSettings: {
-                                    showTicks: false,
-                                    showGridLines: false,
-                                },
-                            }}
-                        />
+                        <AppMetricsTimeSeriesChart timeSeries={timeSeries} seriesOverrides={seriesOverrides} minimal />
                     )}
                 </div>
             </div>
