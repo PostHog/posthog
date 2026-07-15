@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from llm_gateway.products.config import CreditBucket, get_product_config
 from llm_gateway.rate_limiting.throttles import Throttle, ThrottleContext, ThrottleResult
-from llm_gateway.services.plan_resolver import is_usage_based_plan
 
 _BUCKET_EXHAUSTED_DETAIL = {
     CreditBucket.AI_CREDITS: (
@@ -30,27 +29,29 @@ _DEFAULT_EXHAUSTED_DETAIL = (
 _RETRY_AFTER_SECONDS = 60
 
 
-def bucket_block_applies(product: str, plan_key: str | None, credits_exhausted: bool) -> bool:
+def bucket_block_applies(context: ThrottleContext) -> bool:
     """Whether the product's exhausted credit bucket blocks this caller.
 
     The single source of truth for the bucket-block decision, shared by the
     request-path throttle and the usage endpoint so what's reported always
     matches what's enforced. Unbilled products (``credit_bucket=None``) are
-    never blocked. For a bucket scoped to usage-based plans (see
-    ``ProductConfig.credit_bucket_scope``), only a user on a usage-based plan
-    is blocked — seat-covered usage is excluded from the billed usage counter
-    at the usage-report layer, so the org's usage limit doesn't apply to those
-    users; blocking them would take the product away from free/pro seat holders
-    because of other users' usage-based spend. An unknown/missing plan_key
-    means NOT usage-based here too, i.e. not blocked — consistent with the
-    resolver's fail-open posture.
+    never blocked. For a bucket scoped to seatless users (see
+    ``ProductConfig.credit_bucket_scope``), seat holders are exempt — their
+    usage is excluded from the org's usage counter at the usage-report layer,
+    so the org's limit must not take the product away from them because of
+    other users' spend. Seatless callers count against the bucket whether or
+    not the org pays for the usage: a free org's monthly allocation and a
+    paying org's billing limit both surface here as exhaustion. A caller whose
+    seat state can't be resolved reads as seated (``seat_missing`` is only set
+    on a definitive no-seat response), i.e. not blocked — consistent with the
+    quota resolver's fail-open posture.
     """
-    config = get_product_config(product)
+    config = get_product_config(context.product)
     if not (config and config.credit_bucket is not None):
         return False
-    if not credits_exhausted:
+    if not context.credits_exhausted:
         return False
-    if config.credit_bucket_scope == "usage_based_plans" and not is_usage_based_plan(plan_key):
+    if config.credit_bucket_scope == "seatless_users" and not context.seat_missing:
         return False
     return True
 
@@ -70,7 +71,7 @@ class BillableCreditThrottle(Throttle):
         if config is None or config.credit_bucket is None:
             return ThrottleResult.allow()
 
-        if not bucket_block_applies(context.product, context.plan_key, context.credits_exhausted):
+        if not bucket_block_applies(context):
             return ThrottleResult.allow()
 
         return ThrottleResult.deny(

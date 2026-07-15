@@ -19,8 +19,22 @@ def _make_user() -> AuthenticatedUser:
     )
 
 
-def _make_context(product: str, *, credits_exhausted: bool = False, plan_key: str | None = None) -> ThrottleContext:
-    return ThrottleContext(user=_make_user(), product=product, credits_exhausted=credits_exhausted, plan_key=plan_key)
+def _make_context(
+    product: str,
+    *,
+    credits_exhausted: bool = False,
+    plan_key: str | None = None,
+    seat_missing: bool = False,
+    code_usage_billed: bool = False,
+) -> ThrottleContext:
+    return ThrottleContext(
+        user=_make_user(),
+        product=product,
+        credits_exhausted=credits_exhausted,
+        plan_key=plan_key,
+        seat_missing=seat_missing,
+        code_usage_billed=code_usage_billed,
+    )
 
 
 class TestBillableCreditThrottle:
@@ -36,14 +50,14 @@ class TestBillableCreditThrottle:
 
     @pytest.mark.asyncio
     async def test_denies_posthog_code_when_its_bucket_is_exhausted(self) -> None:
-        # `posthog_code` bills into posthog_code_credits, scoped to usage-based-plan
+        # `posthog_code` bills into posthog_code_credits, scoped to seatless
         # users; the dependency layer resolves exhaustion for that bucket, so the
-        # throttle blocks a usage-based-plan user on it — with the Code-specific
+        # throttle blocks a seatless user on it — with the Code-specific
         # message, not the PostHog AI one.
         throttle = BillableCreditThrottle()
 
         result = await throttle.allow_request(
-            _make_context(product="posthog_code", credits_exhausted=True, plan_key="posthog-code-usage-20260709")
+            _make_context(product="posthog_code", credits_exhausted=True, seat_missing=True)
         )
 
         assert result.allowed is False
@@ -52,14 +66,47 @@ class TestBillableCreditThrottle:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
+        ("seat_missing", "code_usage_billed", "expected_allowed"),
+        [
+            # Seatless in a paying org: the org's billing limit surfaced as
+            # exhaustion is the only ceiling (the per-user cap is lifted) - it
+            # must block, or usage runs past the org's configured limit.
+            (True, True, False),
+            # Seatless in a non-paying org: the free plan's monthly allocation
+            # surfaces the same way and must block the same way.
+            (True, False, False),
+            # Seat holder: seat-covered usage is excluded from the org's
+            # counter, so its exhaustion must not take the product away.
+            (False, True, True),
+        ],
+    )
+    async def test_bucket_blocks_seatless_callers_only(
+        self, seat_missing: bool, code_usage_billed: bool, expected_allowed: bool
+    ) -> None:
+        throttle = BillableCreditThrottle()
+
+        result = await throttle.allow_request(
+            _make_context(
+                product="posthog_code",
+                credits_exhausted=True,
+                seat_missing=seat_missing,
+                code_usage_billed=code_usage_billed,
+            )
+        )
+
+        assert result.allowed is expected_allowed
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
         "plan_key",
         ["posthog-code-pro-200-20260301", "posthog-code-free-20260301", None],
     )
     async def test_allows_posthog_code_seat_covered_plans_even_when_exhausted(self, plan_key: str | None) -> None:
-        # `posthog_code`'s bucket is scoped to usage-based plans: seat-covered
-        # (pro/free/alpha) users' generations aren't billed to the org's usage
-        # subscription at the usage-report layer, so the org's usage limit must not
-        # block them either — including when the plan can't be resolved at all.
+        # `posthog_code`'s bucket is scoped to seatless users: seat-covered
+        # (pro/free/alpha) users' generations are excluded from the org's usage
+        # counter at the usage-report layer, so the org's usage limit must not
+        # block them either — including when the plan can't be resolved at all
+        # (seat_missing is only set on a definitive no-seat response).
         throttle = BillableCreditThrottle()
 
         result = await throttle.allow_request(
@@ -112,7 +159,7 @@ class TestBillableCreditThrottle:
 
         with patch.dict("llm_gateway.rate_limiting.billable_credits_throttle._BUCKET_EXHAUSTED_DETAIL", clear=True):
             result = await throttle.allow_request(
-                _make_context(product="posthog_code", credits_exhausted=True, plan_key="posthog-code-usage-20260709")
+                _make_context(product="posthog_code", credits_exhausted=True, seat_missing=True)
             )
 
         assert result.allowed is False

@@ -18,7 +18,7 @@ class CreditBucket(StrEnum):
     quota resolver checks against. Both buckets have gateway-side quota
     enforcement; which users are blocked when a bucket is exhausted depends on
     ``ProductConfig.credit_bucket_scope`` — AI_CREDITS blocks all users of the
-    product, POSTHOG_CODE_CREDITS blocks only usage-based-plan users (see
+    product, POSTHOG_CODE_CREDITS blocks only seatless users (see
     ``credit_bucket_scope`` below).
     """
 
@@ -43,11 +43,12 @@ class ProductConfig:
     # Which users a bucket's exhausted-limit should block, once credit_bucket is set.
     # "all_users" (default): every user of a billable product counts against the bucket
     # limit — appropriate when all of the product's usage is billable (e.g. AI_CREDITS).
-    # "usage_based_plans": only users on a usage-based plan (see
-    # services.plan_resolver.is_usage_based_plan) count against the bucket limit —
-    # seat-covered (free/pro/alpha) users are excluded from the org's billed usage
-    # counter at the usage-report layer, so they must not be blocked by it either.
-    credit_bucket_scope: Literal["all_users", "usage_based_plans"] = "all_users"
+    # "seatless_users": only users without a seat count against the bucket limit.
+    # Seat-covered (free/pro/alpha) usage is excluded from the org's usage counter at
+    # the usage-report layer, so seat holders must not be blocked by it either; a
+    # seatless caller's usage counts whether or not the org pays for it (a free org's
+    # monthly allocation and a paying org's billing limit both surface as `limited`).
+    credit_bucket_scope: Literal["all_users", "seatless_users"] = "all_users"
 
 
 BEDROCK_MODELS = BEDROCK_MODEL_IDS
@@ -111,10 +112,10 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         # Bills as posthog_code credits (pass-through model costs, no markup) — see
         # get_teams_with_posthog_code_credits_used_in_period in posthog/tasks/usage_report.py.
         credit_bucket=CreditBucket.POSTHOG_CODE_CREDITS,
-        # Only usage-based-plan users' generations are billed to the org's usage
-        # subscription (seat-covered usage is excluded at the usage-report layer), so
-        # only those users should be blocked when the org's usage limit is reached.
-        credit_bucket_scope="usage_based_plans",
+        # Seat-covered usage is excluded at the usage-report layer, so seat holders
+        # must not be blocked when the org's usage limit is reached; every seatless
+        # user's generations count against the org's bucket, so they are.
+        credit_bucket_scope="seatless_users",
     ),
     # PostHog-initiated internal task runs (Task.internal=True without a more specific
     # origin route — e.g. the repo-selection agent). Deliberately unbilled: this is

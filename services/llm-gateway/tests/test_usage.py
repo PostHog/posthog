@@ -363,14 +363,14 @@ class TestUsageEndpoint:
     def test_credits_reflect_products_own_bucket(self, authenticated_usage_client: TestClient) -> None:
         # posthog_code's usage reports the posthog_code_credits bucket (under the
         # legacy `ai_credits` response field), resolved against its own resource key.
-        # A usage-based plan is the population the bucket actually blocks.
+        # Seatless callers are the population the bucket actually blocks.
         from llm_gateway.services.quota_resolver import QuotaResourceStatus
 
         app = authenticated_usage_client.app
         resolver_mock = AsyncMock(return_value=QuotaResourceStatus(limited=True))
         app.state.quota_resolver.get_resource_status = resolver_mock
         app.state.plan_resolver.get_plan = AsyncMock(
-            return_value=PlanInfo(plan_key="posthog-code-usage-20260709", seat_created_at="2026-01-01T00:00:00+00:00")
+            return_value=PlanInfo(plan_key=None, seat_created_at=None, seat_missing=True)
         )
 
         response = authenticated_usage_client.get(

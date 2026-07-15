@@ -78,13 +78,6 @@ async def get_usage(
         product=product,
     )
     now = datetime.now(tz=UTC)
-    # The product's own credit bucket (resolve_plan_and_quota resolves per bucket;
-    # always unlimited for unbilled products), reported under the legacy `ai_credits`
-    # response field — clients read `ai_credits.exhausted` regardless of bucket. Run
-    # through the same credit_bucket_scope check as the request-path throttle: clients
-    # gate on this response, so reporting the raw bucket state would disable the product
-    # for seat-covered users the gateway itself would allow.
-    credits_exhausted = bucket_block_applies(product, plan_info.plan_key, quota_status.limited)
 
     context = ThrottleContext(
         user=user,
@@ -97,6 +90,13 @@ async def get_usage(
         billing_period_start=plan_info.billing_period.current_period_start if plan_info.billing_period else None,
         credits_exhausted=quota_status.limited,
     )
+    # The product's own credit bucket (resolve_plan_and_quota resolves per bucket;
+    # always unlimited for unbilled products), reported under the legacy `ai_credits`
+    # response field — clients read `ai_credits.exhausted` regardless of bucket. Run
+    # through the same credit_bucket_scope check as the request-path throttle: clients
+    # gate on this response, so reporting the raw bucket state would disable the product
+    # for seat-covered users the gateway itself would allow.
+    credits_exhausted = bucket_block_applies(context)
 
     burst_status: CostLimitStatus | None = None
     sustained_status: CostLimitStatus | None = None
