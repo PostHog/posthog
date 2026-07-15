@@ -124,9 +124,16 @@ def verify_and_fix_all_teams(
 
     batch_number = 0
     while True:
-        teams = list(
-            base_qs.filter(id__gt=last_id).select_related("organization", "project").order_by("id")[:chunk_size]
-        )
+        batch_qs = base_qs.filter(id__gt=last_id).select_related("organization", "project").order_by("id")
+
+        # Narrow the SELECT to the columns verification actually reads, mirroring the
+        # refresh/warm paths. Otherwise the implicit `SELECT *` raises UndefinedColumn
+        # whenever the read replica lags on a newly added posthog_team column, aborting
+        # the whole verification sweep for that batch.
+        if config.refresh_only_fields is not None:
+            batch_qs = batch_qs.only(*config.refresh_only_fields)
+
+        teams = list(batch_qs[:chunk_size])
 
         if not teams:
             break
