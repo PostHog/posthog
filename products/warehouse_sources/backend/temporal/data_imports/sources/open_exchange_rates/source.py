@@ -49,7 +49,6 @@ class OpenExchangeRatesSource(ResumableSource[OpenExchangeRatesSourceConfig, Ope
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Open Exchange Rates",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Open Exchange Rates App ID to pull foreign-exchange reference rates into the PostHog Data warehouse.
 
 Find your App ID in your [Open Exchange Rates dashboard](https://openexchangerates.org/account/app-ids).

@@ -166,9 +166,9 @@ class RevenueCatSource(
             releaseStatus=ReleaseStatus.GA,
             webhookSetupCaption=(
                 "PostHog tries to register a webhook integration in RevenueCat using your "
-                "secret API key. RevenueCat does not HMAC-sign deliveries — instead, the "
-                "integration sends a custom **Authorization** header on every request, whose "
-                "value you set below. PostHog rejects deliveries whose header does not match.\n\n"
+                "secret API key. The integration authenticates itself by sending a custom "
+                "**Authorization** header on every request, whose value you set below. "
+                "PostHog rejects deliveries whose header does not match.\n\n"
                 "**Manual setup** (only needed if auto-registration failed):\n\n"
                 "1. Go to your **RevenueCat project** > **Integrations** > **+ New** > **Webhook**\n"
                 "2. Paste the webhook URL shown below into the **Webhook URL** field\n"
@@ -270,10 +270,9 @@ class RevenueCatSource(
         return WebhookSourceManager(inputs, inputs.logger)
 
     def create_webhook(self, config: RevenueCatSourceConfig, webhook_url: str, team_id: int) -> WebhookCreationResult:
-        # RevenueCat requires the auth-header value at integration creation
-        # time, but the user hasn't entered it yet on the warehouse side. Skip
-        # passing one and the surrounding flow will collect it via
-        # `webhookFields`, then re-create the integration to bind it.
+        # The user hasn't entered the auth-header value yet on the warehouse
+        # side. Skip passing one and the surrounding flow will collect it via
+        # `webhookFields`, then bind it to the integration in place.
         return api_client.create_webhook(
             api_key=config.secret_api_key,
             project_id=config.project_id,
@@ -283,18 +282,13 @@ class RevenueCatSource(
     def webhook_inputs_updated(
         self, config: RevenueCatSourceConfig, webhook_url: str, team_id: int, inputs: dict[str, Any]
     ) -> tuple[bool, str | None]:
-        # Once the user provides the authorization header value, re-register
-        # the integration so RevenueCat starts sending the header on every
-        # delivery. RevenueCat's API doesn't let you update the auth header on
-        # an existing integration in-place — delete + recreate is the
-        # supported path.
+        # Once the user provides the authorization header value, bind it to the
+        # integration so RevenueCat starts sending the header on every
+        # delivery. `create_webhook` updates the existing integration in place
+        # (or creates it fresh if auto-registration failed earlier).
         header_value = inputs.get("authorization_header")
         if not header_value:
             return True, None
-
-        deletion = api_client.delete_webhook(config.secret_api_key, config.project_id, webhook_url)
-        if not deletion.success:
-            return False, deletion.error or "Failed to refresh RevenueCat webhook integration."
 
         creation = api_client.create_webhook(
             api_key=config.secret_api_key,

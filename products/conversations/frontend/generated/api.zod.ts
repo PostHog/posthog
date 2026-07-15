@@ -399,6 +399,18 @@ export const ConversationsViewsCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const conversationsViewsPartialUpdateBodyNameMax = 400
+
+export const ConversationsViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(conversationsViewsPartialUpdateBodyNameMax).optional(),
+    filters: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            'Saved ticket filter criteria. May contain status, priority, channel, sla, assignee, tags, dateFrom, dateTo, and sorting keys.'
+        ),
+})
+
 export const conversationsZendeskImportsCreateBodySubdomainMax = 255
 
 export const conversationsZendeskImportsCreateBodyApiTokenMax = 500

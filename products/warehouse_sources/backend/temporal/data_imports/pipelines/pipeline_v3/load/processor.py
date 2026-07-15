@@ -277,9 +277,7 @@ def _release_pipeline_lock_for_job(export_signal: ExportSignalMessage) -> None:
 
 
 def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
-    _promote_staged_cursor(export_signal)
-
-    update_external_job_status(
+    model = update_external_job_status(
         job_id=export_signal.job_id,
         team_id=export_signal.team_id,
         status=ExternalDataJob.Status.COMPLETED,
@@ -287,14 +285,28 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
         latest_error=None,
     )
 
-    async_to_sync(finish_row_tracking)(export_signal.team_id, export_signal.schema_id)
+    if model.status == ExternalDataJob.Status.COMPLETED:
+        # Promote only when the Completed write landed: if the job was cancelled (absorbing
+        # Failed) after the final batch passed should_process_batch, the staged incremental
+        # cursor must not advance past data that was never fully loaded.
+        _promote_staged_cursor(export_signal)
 
-    logger.info(
-        "job_marked_completed",
-        external_data_job_id=export_signal.job_id,
-        team_id=export_signal.team_id,
-        external_data_schema_id=export_signal.schema_id,
-    )
+        async_to_sync(finish_row_tracking)(export_signal.team_id, export_signal.schema_id)
+
+        logger.info(
+            "job_marked_completed",
+            external_data_job_id=export_signal.job_id,
+            team_id=export_signal.team_id,
+            external_data_schema_id=export_signal.schema_id,
+        )
+    else:
+        logger.info(
+            "job_completion_suppressed_terminal_status",
+            external_data_job_id=export_signal.job_id,
+            team_id=export_signal.team_id,
+            external_data_schema_id=export_signal.schema_id,
+            status=model.status,
+        )
 
     _release_pipeline_lock_for_job(export_signal)
 

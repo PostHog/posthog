@@ -241,7 +241,6 @@ depends_on = [
     "posthog",
     "products.data_tools",
     "products.data_warehouse",
-    "products.engineering_analytics",
     "products.revenue_analytics",
     "products.warehouse_sources",
 ]
