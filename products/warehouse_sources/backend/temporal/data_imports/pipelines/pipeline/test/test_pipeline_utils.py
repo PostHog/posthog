@@ -682,14 +682,17 @@ def test_evolve_pyarrow_schema_decimal_does_not_widen_unnecessarily_and_can_wide
         (pa.int32(), pa.int64(), 6178466636),  # > int32 max (2147483647)
         (pa.int16(), pa.int64(), 6178466636),  # > int16 max, fits int64
         (pa.int16(), pa.int32(), 100000),  # > int16 max (32767), fits int32
+        (pa.int64(), pa.float64(), 19.99),  # fractional float into an int column
+        (pa.int64(), pa.decimal128(4, 2), decimal.Decimal("19.99")),  # fractional decimal into an int column
     ],
 )
 def test_evolve_pyarrow_schema_integer_overflow_raises_actionable_error(
-    delta_type: pa.DataType, incoming_type: pa.DataType, overflowing_value: int
+    delta_type: pa.DataType, incoming_type: pa.DataType, overflowing_value: int | float | decimal.Decimal
 ):
-    """An incoming integer value that overflows the stored (narrower) Delta type raises a
-    clear, actionable error instructing the user to reset and re-sync — rather than a raw
-    pyarrow ArrowInvalid."""
+    """An incoming value that doesn't fit the stored integer Delta type — a wider integer
+    that overflows, or a fractional float/decimal that would be truncated — raises a clear,
+    actionable error instructing the user to reset and re-sync, rather than a raw pyarrow
+    ArrowInvalid."""
     arrow_table = pa.table(
         {
             "id": pa.array([1, 2], type=pa.int64()),
@@ -720,6 +723,25 @@ def test_evolve_pyarrow_schema_integer_narrowing_within_range_is_preserved():
     evolved_table = evolve_pyarrow_schema(arrow_table, delta_schema)
 
     assert evolved_table.schema.field("val").type == pa.int32()
+    assert evolved_table.column("val").to_pylist() == [10, 20]
+
+
+def test_evolve_pyarrow_schema_whole_valued_floats_cast_into_stored_integer_column():
+    # The type-changed error must only fire on genuine truncation: a float column whose
+    # values are all whole numbers still casts losslessly into a stored integer column.
+    arrow_table = pa.table(
+        {
+            "id": pa.array([1, 2], type=pa.int64()),
+            "val": pa.array([10.0, 20.0], type=pa.float64()),
+        }
+    )
+    delta_schema = deltalake.Schema.from_arrow(
+        pa.schema([pa.field("id", pa.int64(), nullable=False), pa.field("val", pa.int64(), nullable=True)])
+    )
+
+    evolved_table = evolve_pyarrow_schema(arrow_table, delta_schema)
+
+    assert evolved_table.schema.field("val").type == pa.int64()
     assert evolved_table.column("val").to_pylist() == [10, 20]
 
 

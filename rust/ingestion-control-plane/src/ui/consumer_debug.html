@@ -65,8 +65,9 @@
       .tab.active { color: var(--text); background: var(--panel-2); border-color: var(--border); }
       .tab .badge { color: var(--muted); font-family: var(--mono); font-size: 11px; margin-left: 4px; }
 
-      /* live feed */
-      #feed { max-height: calc(100vh - 190px); overflow-y: auto; font-family: var(--mono); font-size: 12px; }
+      /* live feed: a bounded tail — fixed height, not vh-based, so it stays
+         stable when the page is embedded in an auto-sizing iframe. */
+      #feed { max-height: 600px; overflow-y: auto; font-family: var(--mono); font-size: 12px; }
       .ev { padding: 5px 14px; border-bottom: 1px solid var(--border); display: flex; gap: 10px; align-items: baseline; }
       .ev .t { color: var(--muted); flex: 0 0 62px; font-size: 11px; }
       .ev .body { flex: 1 1 auto; word-break: break-word; }
@@ -80,8 +81,9 @@
       .controls { display: flex; gap: 8px; align-items: center; }
       .controls label { color: var(--muted); font-size: 11px; }
 
-      /* batches list */
-      #batches-view { max-height: calc(100vh - 190px); overflow-y: auto; }
+      /* batches list: grows with content — the page (or embedding iframe)
+         expands instead of squeezing the list into an inner scroll box. */
+      #batches-view { overflow-y: visible; }
       .brow { display: grid; grid-template-columns: 96px 90px 1fr auto; gap: 10px; align-items: center; padding: 8px 14px; border-bottom: 1px solid var(--border); cursor: pointer; }
       .brow:hover { background: var(--panel-2); }
       .brow .id { font-family: var(--mono); color: #d2a8ff; }
@@ -132,7 +134,7 @@
       .banner { margin: 12px 14px 0; padding: 8px 12px; border-radius: 6px; font-size: 12px; }
       .banner.ok { background: rgba(63,185,80,0.12); color: var(--good); }
       .banner.bad { background: rgba(248,81,73,0.14); color: var(--error); font-weight: 600; }
-      #commits { max-height: calc(100vh - 240px); overflow-y: auto; }
+      #commits { overflow-y: visible; }
       tr.ooo td { background: rgba(248,81,73,0.12); }
       .offchips { display: flex; flex-wrap: wrap; gap: 6px; }
       .offchip { display: inline-flex; align-items: baseline; gap: 6px; padding: 2px 8px; border-radius: 6px;
