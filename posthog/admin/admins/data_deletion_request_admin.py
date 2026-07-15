@@ -221,7 +221,7 @@ class DataDeletionRequestForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         request_type = self.fields.get("request_type")
-        if request_type is not None:
+        if isinstance(request_type, forms.ChoiceField):
             request_type.choices = [c for c in request_type.choices if c[0] != RequestType.PERSON_REMOVAL]
 
 
