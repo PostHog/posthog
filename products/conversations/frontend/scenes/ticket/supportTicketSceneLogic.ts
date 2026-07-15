@@ -34,6 +34,7 @@ import type {
     TicketPriority,
     TicketStatus,
 } from '../../types'
+import { conversationsDraftModeLogic } from '../settings/conversationsDraftModeLogic'
 import { supportTicketsSceneLogic } from '../tickets/supportTicketsSceneLogic'
 import type { supportTicketSceneLogicType } from './supportTicketSceneLogicType'
 
@@ -153,7 +154,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
     key((props) => props.id),
     connect(() => ({
         actions: [supportTicketsSceneLogic, ['loadTickets']],
-        values: [teamLogic, ['currentTeam']],
+        values: [teamLogic, ['currentTeam'], conversationsDraftModeLogic, ['draftModeDefault']],
     })),
     actions({
         loadTicket: true,
@@ -201,6 +202,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         // Draft message state (persists across tab switches)
         setDraftContent: (content: JSONContent | null) => ({ content }),
         setDraftIsPrivate: (isPrivate: boolean) => ({ isPrivate }),
+        // Per-ticket draft mode override, seeded from the browser-local default on open
+        setDraftModeEnabled: (enabled: boolean) => ({ enabled }),
 
         submitAiReplyFeedback: (messageId: string, rating: AiReplyFeedbackRating, feedbackText?: string) => ({
             messageId,
@@ -393,6 +396,12 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 setDraftIsPrivate: (_, { isPrivate }) => isPrivate,
             },
         ],
+        draftModeEnabled: [
+            false,
+            {
+                setDraftModeEnabled: (_, { enabled }) => enabled,
+            },
+        ],
         feedbackByMessageId: [
             {} as Record<string, AiReplyFeedbackRating>,
             { persist: true, storageKey: 'conversations_ai_reply_feedback' },
@@ -409,6 +418,26 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             (s) => [s.ticket, s.currentTeam],
             (ticket, currentTeam): EmailReplyBlockedReason | null =>
                 getEmailReplyBlockedReason(ticket, currentTeam?.conversations_settings),
+        ],
+        replyRecipientDescription: [
+            (s) => [s.ticket],
+            (ticket): string => {
+                switch (ticket?.channel_source) {
+                    case 'email': {
+                        // email_from is the customer's address; email_to is our sending identity.
+                        const recipients = [ticket.email_from, ...(ticket.cc_participants ?? [])].filter(Boolean)
+                        return recipients.length ? recipients.join(', ') : 'the customer'
+                    }
+                    case 'slack':
+                        return 'the linked Slack thread'
+                    case 'teams':
+                        return 'the linked Microsoft Teams channel'
+                    case 'github':
+                        return 'the linked GitHub issue'
+                    default:
+                        return 'the customer'
+                }
+            },
         ],
         hasUnsavedChanges: [
             (s) => [s.status, s.priority, s.assignee, s.tags, s.snoozedUntil, s.ticket],
@@ -720,7 +749,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             }
         },
     })),
-    afterMount(({ actions, props }) => {
+    afterMount(({ actions, props, values }) => {
+        actions.setDraftModeEnabled(values.draftModeDefault)
         if (props.id !== 'new') {
             actions.loadTicket()
         }
