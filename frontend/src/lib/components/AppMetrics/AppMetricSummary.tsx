@@ -1,12 +1,24 @@
 import { useMemo } from 'react'
 
-import { IconArrowRight } from '@posthog/icons'
-import { LemonLabel, LemonSkeleton, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
+import { IconArrowRight, IconInfo } from '@posthog/icons'
+import { Card, CardContent, Skeleton, Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/quill'
+import {
+    Metric,
+    type MetricChange,
+    MetricDelta,
+    MetricHeader,
+    MetricSparkline,
+    MetricSubtitle,
+    MetricTitle,
+    MetricValue,
+} from '@posthog/quill-components/metric'
 
-import { formatPercentageDiff, humanFriendlyNumber } from 'lib/utils/numbers'
+import { useChartTheme } from 'lib/charts/hooks'
+import { getColorVar } from 'lib/colors'
+import { dayjs } from 'lib/dayjs'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { AppMetricsTimeSeriesResponse } from './appMetricsLogic'
-import { AppMetricsSeriesOverride, AppMetricsTimeSeriesChart } from './AppMetricsTimeSeriesChart'
 
 export type AppMetricSummaryProps = {
     name: string
@@ -17,12 +29,36 @@ export type AppMetricSummaryProps = {
     previousPeriodTimeSeries?: AppMetricsTimeSeriesResponse | null
     loading?: boolean
     hideIfZero?: boolean
+    /** Which direction of change is good, for the change pill's color. Defaults from the tile
+     *  `color`: danger/warning tiles (failures, drops) treat an increase as bad. */
+    goodDirection?: 'up' | 'down'
     /** When set, the tile becomes clickable (e.g. to drill into matching invocations). */
     onClick?: () => void
     /** Tooltip shown on the drill-down affordance when `onClick` is set. */
     onClickTooltip?: string
     /** Optional content rendered at the bottom of the card, e.g. a deep-link to the underlying data. */
     footer?: JSX.Element | null
+}
+
+function sumSeries(timeSeries: AppMetricsTimeSeriesResponse | null | undefined): number {
+    if (!timeSeries) {
+        return 0
+    }
+    return timeSeries.series.reduce((acc, curr) => acc + curr.values.reduce((acc, curr) => acc + curr, 0), 0)
+}
+
+function TitleWithInfo({ name, description }: { name: string; description: string }): JSX.Element {
+    return (
+        <span className="inline-flex items-center gap-1">
+            {name}
+            <Tooltip>
+                <TooltipTrigger render={<span className="inline-flex cursor-default" />}>
+                    <IconInfo className="text-sm opacity-60" />
+                </TooltipTrigger>
+                <TooltipContent className="max-w-60">{description}</TooltipContent>
+            </Tooltip>
+        </span>
+    )
 }
 
 export function AppMetricSummary({
@@ -34,39 +70,43 @@ export function AppMetricSummary({
     colorIfZero,
     loading,
     hideIfZero = false,
+    goodDirection,
     onClick,
     onClickTooltip,
     footer,
 }: AppMetricSummaryProps): JSX.Element | null {
-    const total = useMemo(() => {
+    const theme = useChartTheme()
+
+    const total = useMemo(() => sumSeries(timeSeries), [timeSeries])
+    const totalPreviousPeriod = useMemo(() => sumSeries(previousPeriodTimeSeries), [previousPeriodTimeSeries])
+
+    const change = useMemo<MetricChange | null>(() => {
+        const percent = ((total - totalPreviousPeriod) / totalPreviousPeriod) * 100
+        return Number.isFinite(percent) ? { value: percent } : null
+    }, [total, totalPreviousPeriod])
+
+    // Per-bucket sum across series — the tile is a single-line summary even when the
+    // underlying response has several series.
+    const data = useMemo(
+        () =>
+            timeSeries
+                ? timeSeries.labels.map((_, i) => timeSeries.series.reduce((acc, s) => acc + (s.values[i] ?? 0), 0))
+                : [],
+        [timeSeries]
+    )
+
+    const labels = useMemo(() => {
         if (!timeSeries) {
-            return 0
+            return []
         }
-        return timeSeries.series.reduce((acc, curr) => acc + curr.values.reduce((acc, curr) => acc + curr, 0), 0)
+        const hasTimePart = timeSeries.labels.some((label) => label.includes(' '))
+        return timeSeries.labels.map((label) => dayjs(label).format(hasTimePart ? 'MMM D, HH:mm' : 'MMM D, YYYY'))
     }, [timeSeries])
 
-    const totalPreviousPeriod = useMemo(() => {
-        if (!previousPeriodTimeSeries) {
-            return 0
-        }
-        return previousPeriodTimeSeries.series.reduce(
-            (acc, curr) => acc + curr.values.reduce((acc, curr) => acc + curr, 0),
-            0
-        )
-    }, [previousPeriodTimeSeries])
-
-    const diffForDisplay = formatPercentageDiff(total, totalPreviousPeriod)
-
     const chartColor = total === 0 ? colorIfZero : color
-    const seriesOverrides = useMemo(
-        () =>
-            timeSeries && chartColor
-                ? Object.fromEntries(
-                      timeSeries.series.map((x): [string, AppMetricsSeriesOverride] => [x.name, { color: chartColor }])
-                  )
-                : undefined,
-        [timeSeries, chartColor]
-    )
+    const resolvedGoodDirection =
+        goodDirection ?? (color === getColorVar('danger') || color === getColorVar('warning') ? 'down' : 'up')
+    const hasSparkline = !loading && data.length > 0
 
     // Hide component if hideIfZero is true and there's no data
     if (hideIfZero && !loading && total === 0 && totalPreviousPeriod === 0) {
@@ -74,18 +114,19 @@ export function AppMetricSummary({
     }
 
     return (
-        <div
-            className={
-                onClick
-                    ? 'flex flex-1 flex-col relative border rounded p-3 bg-surface-primary min-w-[16rem] cursor-pointer transition-colors hover:border-primary'
-                    : 'flex flex-1 flex-col relative border rounded p-3 bg-surface-primary min-w-[16rem]'
-            }
+        <Card
+            size="sm"
+            flush={hasSparkline}
+            className={cn(
+                'flex-1 min-w-[16rem]',
+                onClick && 'cursor-pointer transition-transform hover:-translate-y-0.5'
+            )}
             role={onClick ? 'button' : undefined}
             tabIndex={onClick ? 0 : undefined}
             onClick={onClick}
             onKeyDown={
                 onClick
-                    ? (e) => {
+                    ? (e: React.KeyboardEvent) => {
                           if (e.key === 'Enter' || e.key === ' ') {
                               e.preventDefault()
                               onClick()
@@ -94,39 +135,59 @@ export function AppMetricSummary({
                     : undefined
             }
         >
-            <div className="flex flex-row justify-between items-start">
-                <LemonLabel info={description}>{name}</LemonLabel>
-                {loading ? (
-                    <LemonSkeleton className="w-20 h-6 mb-2" />
-                ) : (
-                    <div className="flex items-center gap-1 text-right text-2xl text-muted-foreground">
-                        {onClick ? (
-                            <Tooltip title={onClickTooltip ?? 'View matching invocations'}>
-                                <IconArrowRight className="text-base text-muted" />
-                            </Tooltip>
-                        ) : null}
-                        {humanFriendlyNumber(total)}
-                    </div>
-                )}
-            </div>
-            <div className="flex flex-row justify-end items-center gap-2 text-xs text-muted">
-                {loading ? <LemonSkeleton className="w-10 h-4" /> : <>{diffForDisplay}</>}
-            </div>
-
-            <div className="flex-1 mt-2">
-                <div className="h-[10rem]">
-                    {loading ? (
-                        <SpinnerOverlay />
-                    ) : !timeSeries ? (
-                        <div className="flex-1 flex items-center justify-center">
-                            <LemonLabel>No data</LemonLabel>
-                        </div>
-                    ) : (
-                        <AppMetricsTimeSeriesChart timeSeries={timeSeries} seriesOverrides={seriesOverrides} minimal />
-                    )}
-                </div>
-            </div>
-            {footer ? <div className="mt-2 text-xs text-center">{footer}</div> : null}
-        </div>
+            {loading ? (
+                <CardContent className="flex flex-col gap-2">
+                    <Skeleton className="h-3 w-16" />
+                    <Skeleton className="h-7 w-20" />
+                </CardContent>
+            ) : !timeSeries ? (
+                <CardContent className="flex flex-col gap-2">
+                    <TitleWithInfo name={name} description={description} />
+                    <div className="text-sm opacity-60">No data</div>
+                </CardContent>
+            ) : (
+                <Metric
+                    className="px-3 text-primary"
+                    value={total}
+                    data={hasSparkline ? data : undefined}
+                    labels={hasSparkline ? labels : undefined}
+                    theme={theme}
+                    color={chartColor}
+                    goodDirection={resolvedGoodDirection}
+                    formatValue={humanFriendlyNumber}
+                    change={change}
+                    changeTooltip="Compared to the previous period"
+                    // '' suppresses the resting subtitle (a null would fall back to the last
+                    // bucket's date, misleading under a period-total headline)
+                    restingSubtitle={
+                        previousPeriodTimeSeries ? `vs. ${humanFriendlyNumber(totalPreviousPeriod)} prior` : ''
+                    }
+                    sparklineHeight={60}
+                >
+                    <MetricHeader>
+                        <MetricTitle>
+                            <span className="inline-flex items-center gap-1">
+                                <TitleWithInfo name={name} description={description} />
+                                {onClick ? (
+                                    <Tooltip>
+                                        <TooltipTrigger render={<span className="inline-flex" />}>
+                                            <IconArrowRight className="text-sm opacity-60" />
+                                        </TooltipTrigger>
+                                        <TooltipContent>{onClickTooltip ?? 'View matching invocations'}</TooltipContent>
+                                    </Tooltip>
+                                ) : null}
+                            </span>
+                        </MetricTitle>
+                        <MetricDelta />
+                    </MetricHeader>
+                    <MetricValue className="mt-2" />
+                    <MetricSubtitle className="mt-1" />
+                    <MetricSparkline className="mt-3 -mx-3" />
+                </Metric>
+            )}
+            {footer ? (
+                <div className={cn('mt-2 text-xs text-center', hasSparkline && 'px-3 pb-3')}>{footer}</div>
+            ) : null}
+        </Card>
     )
 }
