@@ -8,6 +8,7 @@ import { waitForPlugin } from 'kea-waitfor'
 import { windowValuesPlugin } from 'kea-window-values'
 import posthog from 'posthog-js'
 
+import { isAccessDeniedError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import {
     addProjectIdIfMissing,
@@ -118,7 +119,7 @@ export function initKea({
                 // (AccessDenied scene gates on load, friendly messaging on write), so the generic
                 // toast is suppressed for them regardless of action. Read-only mode uses distinct
                 // codes (`read_only_blocked`, `impersonation_read_only`) and still toasts.
-                const isAccessDenied = error.status === 403 && error.code === 'permission_denied'
+                const isAccessDenied = isAccessDeniedError(error)
                 if (
                     !ERROR_FILTER_ALLOW_LIST.includes(actionKey) &&
                     error?.status !== undefined &&

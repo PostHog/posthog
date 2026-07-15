@@ -446,18 +446,16 @@ export function FeatureFlagReleaseConditions({
                                 of <b>{aggregationTargetName(group.aggregation_group_type_index)}</b> in this set.
                                 {(() => {
                                     const targetIndex = group.aggregation_group_type_index
+                                    const resolvedGroupTypeIndex = resolveAggregationGroupTypeIndex(
+                                        targetIndex,
+                                        filters.aggregation_group_type_index
+                                    )
                                     const pluralName = aggregationTargetName(targetIndex)
-                                    const singularName = aggregationLabel(
-                                        resolveAggregationGroupTypeIndex(
-                                            targetIndex,
-                                            filters.aggregation_group_type_index
-                                        ),
-                                        true
-                                    ).singular
-                                    const affected = group.sort_key ? affectedCounts[group.sort_key] : undefined
-                                    const total = group.sort_key ? totalCounts[group.sort_key] : undefined
-                                    const hasError = group.sort_key ? blastRadiusErrors[group.sort_key] : false
-                                    if (hasError) {
+                                    const singularName = aggregationLabel(resolvedGroupTypeIndex, true).singular
+                                    const sortKey = group.sort_key
+                                    const affected = sortKey ? affectedCounts[sortKey] : undefined
+                                    const total = sortKey ? totalCounts[sortKey] : undefined
+                                    if (sortKey && blastRadiusErrors[sortKey]) {
                                         return (
                                             <div className="basis-full flex items-center gap-2 mt-1 text-secondary">
                                                 <IconErrorOutline className="text-danger text-base shrink-0" />
@@ -466,14 +464,10 @@ export function FeatureFlagReleaseConditions({
                                                     type="secondary"
                                                     size="xsmall"
                                                     onClick={() =>
-                                                        group.sort_key &&
                                                         calculateBlastRadiusForCondition(
-                                                            group.sort_key,
+                                                            sortKey,
                                                             group.properties,
-                                                            resolveAggregationGroupTypeIndex(
-                                                                group.aggregation_group_type_index,
-                                                                filters.aggregation_group_type_index
-                                                            )
+                                                            resolvedGroupTypeIndex
                                                         )
                                                     }
                                                 >

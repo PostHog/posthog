@@ -263,7 +263,8 @@ describe('the feature flag release conditions logic', () => {
                 ])
             }).toDispatchActions(['setAffectedCount', 'setTotalCount'])
 
-            // Update with complete property — triggers API call after debounce
+            // Update with complete property — triggers API call after debounce.
+            // Three pairs: the immediate reset, calculateBlastRadiusForCondition's reset, the API result.
             await expectLogic(logic, () => {
                 logic.actions.updateConditionSet(0, 20, [
                     {
@@ -274,6 +275,7 @@ describe('the feature flag release conditions logic', () => {
                     },
                 ])
             })
+                .toDispatchActions(['setAffectedCount', 'setTotalCount'])
                 .toDispatchActions(['setAffectedCount', 'setTotalCount'])
                 .toDispatchActions(['setAffectedCount', 'setTotalCount'])
                 .toMatchValues({
@@ -300,6 +302,7 @@ describe('the feature flag release conditions logic', () => {
                     },
                 ])
             })
+                .toDispatchActions(['setAffectedCount', 'setTotalCount'])
                 .toDispatchActions(['setAffectedCount', 'setTotalCount'])
                 .toDispatchActions(['setAffectedCount', 'setTotalCount'])
                 .toMatchValues({
