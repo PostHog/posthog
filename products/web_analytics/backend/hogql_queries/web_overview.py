@@ -399,7 +399,16 @@ CROSS JOIN {sessions_agg} AS sessions_agg
 
         response = (
             execute_hogql_query(
-                query_type="web_overview_query",
+                # Distinct tags per strategy so query_log analysis doesn't need to
+                # text-match the SQL shape (see /evaluating-web-analytics-performance).
+                # Cache warming prefix-matches web_overview_, so new tags stay warmed.
+                query_type=(
+                    "web_overview_no_join_query"
+                    if self.should_skip_session_join
+                    else "web_overview_two_phase_query"
+                    if self.should_use_two_phase and self._two_phase_selectivity_ok is not False
+                    else "web_overview_query"
+                ),
                 query=self.to_query(),
                 team=self.team,
                 user=self.user,

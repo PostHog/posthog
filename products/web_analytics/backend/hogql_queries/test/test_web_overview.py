@@ -1266,3 +1266,44 @@ class TestWebOverviewTwoPhaseFastPath(ClickhouseTestMixin, APIBaseTest):
 
         for gated, join in zip(gated_results, join_results):
             assert gated.value == join.value, f"{gated.key}: {gated.value} != {join.value}"
+
+
+class TestWebOverviewNoJoinRolloutPercent(ClickhouseTestMixin, APIBaseTest):
+    def _runner(self) -> WebOverviewQueryRunner:
+        query = WebOverviewQuery(dateRange=DateRange(date_from="-7d"), properties=[])
+        return WebOverviewQueryRunner(team=self.team, query=query)
+
+    def test_percent_rollout_buckets_deterministically_by_team(self):
+        bucket = self.team.pk % 100
+        cases = [
+            (0, False),
+            (bucket, False),
+            (bucket + 1, True),
+            (100, True),
+        ]
+        for percent, expected in cases:
+            with override_settings(WEB_ANALYTICS_NO_JOIN_TEAM_IDS=[], WEB_ANALYTICS_NO_JOIN_ROLLOUT_PERCENT=percent):
+                assert self._runner().should_skip_session_join == expected, f"percent={percent}"
+
+    def test_allowlist_wins_regardless_of_percent(self):
+        with override_settings(WEB_ANALYTICS_NO_JOIN_TEAM_IDS=[self.team.pk], WEB_ANALYTICS_NO_JOIN_ROLLOUT_PERCENT=0):
+            assert self._runner().should_skip_session_join
+
+    def test_no_join_executions_emit_their_own_query_type_tag(self):
+        from posthog.hogql import query as hogql_query_module
+
+        with override_settings(WEB_ANALYTICS_NO_JOIN_TEAM_IDS=[self.team.pk], WEB_ANALYTICS_NO_JOIN_ROLLOUT_PERCENT=0):
+            with patch(
+                "products.web_analytics.backend.hogql_queries.web_overview.execute_hogql_query",
+                wraps=hogql_query_module.execute_hogql_query,
+            ) as spy:
+                self._runner().calculate()
+        assert spy.call_args.kwargs["query_type"] == "web_overview_no_join_query"
+
+        with override_settings(WEB_ANALYTICS_NO_JOIN_TEAM_IDS=[], WEB_ANALYTICS_NO_JOIN_ROLLOUT_PERCENT=0):
+            with patch(
+                "products.web_analytics.backend.hogql_queries.web_overview.execute_hogql_query",
+                wraps=hogql_query_module.execute_hogql_query,
+            ) as spy:
+                self._runner().calculate()
+        assert spy.call_args.kwargs["query_type"] == "web_overview_query"

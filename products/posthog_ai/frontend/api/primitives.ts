@@ -19,11 +19,6 @@ export type {
     ComposerSubmitProps,
 } from '../components/composer/Composer'
 
-// Self-sizing textarea (native field-sizing with a react-textarea-autosize fallback) — the input
-// element behind Composer.Textarea, for surfaces that need the bare control (e.g. message editing).
-export { AutosizeTextArea } from '../components/AutosizeTextArea'
-export type { AutosizeTextAreaProps } from '../components/AutosizeTextArea'
-
 // Controlled model + reasoning-effort pickers for a composer footer.
 export { ComposerModelEffortPickers } from '../components/composer/ComposerModelEffortPickers'
 export type { ComposerModelEffortPickersProps } from '../components/composer/ComposerModelEffortPickers'
@@ -80,3 +75,11 @@ export { ContextUsageBar } from '../components/ContextUsageBar'
 export { QuestionField, MultiFieldQuestion, isFieldValid } from '../components/QuestionField'
 export { OptionSelector } from '../components/OptionSelector'
 export type { Option } from '../components/OptionSelector'
+
+// Product data-tool widgets — the atomic PostHog-entity renderers Max's LangGraph path composes directly
+// (the sandbox path reaches them through the tool registry, not these exports).
+export { VisualizationWidget, getArtifactOpenTarget } from '../components/tool/widgets/VisualizationWidget'
+export type { VisualizationWidgetProps } from '../components/tool/widgets/VisualizationWidget'
+export { RecordingsWidget } from '../components/tool/widgets/RecordingsWidget'
+export { ErrorTrackingFiltersWidget } from '../components/tool/widgets/ErrorTrackingFiltersWidget'
+export { ErrorTrackingIssueCard } from '../components/tool/widgets/ErrorTrackingIssueCard'

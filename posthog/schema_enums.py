@@ -2343,6 +2343,7 @@ class IntegrationKind(StrEnum):
     POSTGRESQL = "postgresql"
     AWS_S3 = "aws-s3"
     S3_COMPATIBLE = "s3-compatible"
+    SNOWFLAKE = "snowflake"
 
 
 class IntervalType(StrEnum):
