@@ -19,8 +19,8 @@ describe('timeoutGuard', () => {
     })
 
     it('captures with a per-message fingerprint so unrelated timeouts do not collapse into one issue', () => {
-        clearTimeout(timeoutGuard('Redis call startup-ping delayed.', undefined, 1000))
-        clearTimeout(timeoutGuard('cdpConsumer.publishBehavioralEvents timeout!', undefined, 1000))
+        timeoutGuard('Redis call startup-ping delayed.', undefined, 1000)
+        timeoutGuard('cdpConsumer.publishBehavioralEvents timeout!', undefined, 1000)
 
         jest.advanceTimersByTime(1000)
 
@@ -42,7 +42,7 @@ describe('timeoutGuard', () => {
 
     it('only logs (no capture) when sendException is false', () => {
         const reportMetric = jest.fn()
-        clearTimeout(timeoutGuard('Redis call startup-ping delayed.', undefined, 1000, false, reportMetric))
+        timeoutGuard('Redis call startup-ping delayed.', undefined, 1000, false, reportMetric)
 
         jest.advanceTimersByTime(1000)
 
