@@ -23364,7 +23364,10 @@
                 "ConfluentCloud",
                 "KongKonnect",
                 "Kandji",
-                "Automox"
+                "Automox",
+                "Autumn",
+                "GetStream",
+                "Octolens"
             ],
             "type": "string"
         },
@@ -48552,6 +48555,7 @@
         },
         "UserProductListReason": {
             "enum": [
+                "default",
                 "onboarding",
                 "product_intent",
                 "used_by_colleagues",

@@ -412,6 +412,11 @@ class AutomoxSourceConfig(config.Config):
 
 
 @config.config
+class AutumnSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class AviationstackSourceConfig(config.Config):
     access_key: str
 
@@ -614,7 +619,7 @@ class BrowseAISourceConfig(config.Config):
 
 @config.config
 class BrowserUseSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1619,6 +1624,11 @@ class GerritSourceConfig(config.Config):
 
 
 @config.config
+class GetStreamSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class GiphySourceConfig(config.Config):
     api_key: str
     search_query: str | None = None
@@ -2272,7 +2282,7 @@ class LagoSourceConfig(config.Config):
 
 @config.config
 class LambdaLabsSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2792,6 +2802,11 @@ class NylasSourceConfig(config.Config):
 
 @config.config
 class OPUSWatchSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class OctolensSourceConfig(config.Config):
     pass
 
 
@@ -4334,7 +4349,8 @@ class UnleashSourceConfig(config.Config):
 
 @config.config
 class UnstructuredSourceConfig(config.Config):
-    pass
+    api_key: str
+    base_url: str | None = None
 
 
 @config.config
@@ -4422,7 +4438,7 @@ class VitallySourceConfig(config.Config):
 
 @config.config
 class VultrSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -4775,6 +4791,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.ATTIO: AttioSourceConfig,
         ExternalDataSourceType.AUTH0: Auth0SourceConfig,
         ExternalDataSourceType.AUTOMOX: AutomoxSourceConfig,
+        ExternalDataSourceType.AUTUMN: AutumnSourceConfig,
         ExternalDataSourceType.AVIATIONSTACK: AviationstackSourceConfig,
         ExternalDataSourceType.AVIATOR: AviatorSourceConfig,
         ExternalDataSourceType.AWIN: AwinSourceConfig,
@@ -4994,6 +5011,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.GNEWS: GNewsSourceConfig,
         ExternalDataSourceType.GAINSIGHTPX: GainsightPxSourceConfig,
         ExternalDataSourceType.GERRIT: GerritSourceConfig,
+        ExternalDataSourceType.GETSTREAM: GetStreamSourceConfig,
         ExternalDataSourceType.GIPHY: GiphySourceConfig,
         ExternalDataSourceType.GITBOOK: GitBookSourceConfig,
         ExternalDataSourceType.GITLAB: GitLabSourceConfig,
@@ -5213,6 +5231,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.NUTSHELL: NutshellSourceConfig,
         ExternalDataSourceType.NYLAS: NylasSourceConfig,
         ExternalDataSourceType.OPUSWATCH: OPUSWatchSourceConfig,
+        ExternalDataSourceType.OCTOLENS: OctolensSourceConfig,
         ExternalDataSourceType.OCTOPUSDEPLOY: OctopusDeploySourceConfig,
         ExternalDataSourceType.OKTA: OktaSourceConfig,
         ExternalDataSourceType.OMNISEND: OmnisendSourceConfig,

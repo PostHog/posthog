@@ -536,6 +536,14 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
                     },
                 )
 
+        # After role assignment, so role-granted project access is included. Covers joins
+        # that don't go through an invite (e.g. domain/SSO auto-join).
+        from posthog.models.file_system.user_product_list import (  # noqa: PLC0415 - avoids a circular import
+            add_default_products_for_accessible_teams,
+        )
+
+        add_default_products_for_accessible_teams(self, organization)
+
         return membership
 
     @property
