@@ -15,7 +15,7 @@ WIZARD_HEAD_BRANCH_PREFIX = "posthog/instrumentation-"
 
 
 def generate_wizard_head_branch() -> str:
-    """A unique PR head branch for a wizard run; the random suffix only prevents
+    """A unique PR head branch for a wizard run; the random suffix is here to prevent
     collisions with existing branches in the user's repo."""
     return f"{WIZARD_HEAD_BRANCH_PREFIX}{secrets.token_hex(3)}"
 
@@ -25,7 +25,8 @@ WIZARD_PR_AGENT_PROMPT = f"""
 
 PostHog's setup wizard has already run in this repository and integrated PostHog. The working tree
 contains its uncommitted changes: modified source files, an updated package manifest, installed
-dependencies, a `posthog-setup-report.md` summary, and possibly a `.posthog-events.json` plan.
+dependencies, a `posthog-setup-report.md` summary. It'll also possibly contain a
+`.posthog-events.json` plan and some skills definitions under `.claude/skills/*`.
 
 The wizard's full console output is saved to `/tmp/wizard-cloud-run/wizard-output.log` (outside the
 repository, so it can never be committed). Read it whenever you need to understand what the wizard
@@ -86,6 +87,8 @@ are actually in the repository.
 
 4. Do NOT commit `posthog-setup-report.md` or `.posthog-events.json` - they are local reference
    only. Leave them untracked or exclude them from staging.
+5. Do NOT commit any of the skills included under `.claude/skills/*` or any other folder used
+   by local harnesses to store skills. Leave them untracked or exclude them from staging.
 
 **Checkpoint:** the commit exists on `{WIZARD_HEAD_BRANCH_PLACEHOLDER}` and
 contains neither reference file:
@@ -102,7 +105,8 @@ git show --stat HEAD | grep -E 'posthog-setup-report|posthog-events|wizard-outpu
 1. Identify how the codebase is deployed to production.
 2. If you can automatically configure the required PostHog environment variables in a file that
    will be read in production, do so, and commit that change to the same branch as a SEPARATE
-   commit.
+   commit. This includes any changes to `.env`, `wrangler.jsonc`, `docker-compose.yml`,
+   or any other file that is used to configure the production environment.
 3. If you can't configure them automatically, do not commit anything in this step - instead write
    down in your notes which variables are needed and what values they must be set to,
    for use in the PR description in Step 4.
@@ -183,10 +187,12 @@ nothing about environment variables, so the reader cannot tell whether anything 
 
 ### Examples of the env-var section when you could NOT configure them automatically
 
-This happens when the deployment does not read a committed file like `.env.production` - e.g. the
-env vars live in a hosting dashboard (Vercel, Netlify, Heroku, Fly.io) or in infrastructure config
-you cannot see from the repo. Name the platform you detected, list every variable with its exact
-value, and tell the reader where to put them. Calibrate to the audience.
+This happens when the deployment does not read a committed file like `.env.production`,
+`wrangler.jsonc`, `docker-compose.yml`, or any other file that is used to configure the production
+environment - e.g. the env vars live in a hosting dashboard (Vercel, Netlify, Heroku, Fly.io)
+or in infrastructure config you cannot see from the repo. Name the platform you detected,
+list every variable with its exact value, and tell the reader where to put them. Calibrate to the
+audience.
 
 For a Javascript project (assume a non-technical reader - explain what env vars are and walk
 through the exact clicks):
@@ -214,6 +220,24 @@ To set them:
    click **Save**.
 4. Redeploy the app (Deployments tab, "..." menu on the latest deployment, **Redeploy**) - the new
    settings only take effect on the next deployment.
+```
+
+If there's a way to set these environment variables via a local CLI - like it's common for Vercel,
+Netlify, Heroku, Fly.io, etc. - then suggest using that instead of the dashboard.
+
+The following example is for Vercel, but you should use the appropriate command for the hosting provider
+you've inferred from the codebase.
+
+```markdown
+### Setting environment variables via a local CLI
+
+If you are used to running commands locally to configure your environment variables, then you can
+do it as follows for Vercel:
+
+```bash
+npx vercel env add NEXT_PUBLIC_POSTHOG_TOKEN phc_abc123def456
+npx vercel env add NEXT_PUBLIC_POSTHOG_HOST https://us.i.posthog.com
+```
 ```
 
 For any other language (assume a technical reader - be direct, no env-var explainer):
