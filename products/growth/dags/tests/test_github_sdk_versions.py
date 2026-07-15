@@ -13,6 +13,7 @@ from products.growth.dags.github_sdk_versions import (
     fetch_ios_sdk_data,
     fetch_java_sdk_data,
     fetch_java_server_sdk_data,
+    fetch_kmp_sdk_data,
     fetch_node_sdk_data,
     fetch_php_sdk_data,
     fetch_python_sdk_data,
@@ -188,6 +189,30 @@ class TestFetchFlutterSdkData(TestFetchSdkDataBase):
 
         # `flutter` included a leading `v` prefix on some tags, let's make sure it's removed
         assert not any(version.startswith("v") for version in result["releaseDates"].keys())
+
+
+class TestFetchKmpSdkData(TestFetchSdkDataBase):
+    @patch("posthog.egress.transport.transport.requests.request")
+    def test_fetch_kmp_sdk_data_success(self, mock_get: MagicMock) -> None:
+        self.setup_ok_json_mock(
+            mock_get,
+            [
+                {
+                    "tag_name": "v0.0.1",
+                    "created_at": "2026-07-14T18:03:29Z",
+                    "draft": False,
+                    "prerelease": False,
+                }
+            ],
+        )
+
+        result = fetch_kmp_sdk_data()
+
+        assert result == {
+            "latestVersion": "0.0.1",
+            "releaseDates": {"0.0.1": "2026-07-14T18:03:29Z"},
+        }
+        assert "/repos/PostHog/posthog-kmp/releases" in mock_get.call_args_list[0].args[1]
 
 
 class TestFetchIosSdkData(TestFetchSdkDataBase):

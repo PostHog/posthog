@@ -2,7 +2,7 @@ import asyncio
 from datetime import timedelta
 
 import temporalio.workflow
-from temporalio.common import RetryPolicy
+from temporalio.common import Priority, RetryPolicy
 from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.common.base import PostHogWorkflow
@@ -122,6 +122,9 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
                     ],
                     start_to_close_timeout=timedelta(seconds=METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS),
                     retry_policy=calc_retry_policy,
+                    # Round-robin dispatch across orgs under backlog; a no-op on namespaces without
+                    # fairness support.
+                    priority=Priority(fairness_key=inputs.fairness_key),
                 )
                 for metric in metrics
             ],
