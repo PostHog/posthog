@@ -37,8 +37,6 @@ class TestLambdaLabsSource:
         config = LambdaLabsSource().get_source_config
         assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        # Kept hidden until the source is validated end-to-end.
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/lambda-labs"
 
         fields = config.fields

@@ -140,5 +140,4 @@ You can create an API key in the [API keys section](https://cloud.lambda.ai/api-
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
