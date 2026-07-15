@@ -639,6 +639,30 @@ payload into Python) from the turn's working-state artefacts, preferring the sna
   must not masquerade as another skill card. Hidden until data exists. In-progress row label format:
   "Step k/4 · <stage> · NN%" (stages fetching/chunking/reviewing/validating numbered 1-4).
 
+#### ✅ BUILT 2026-07-15 — "For you / Entire project" scope on the recent-reviews block
+
+Mirrors the Inbox scope switch: the block can now list every review on the project, not just the requesting user's.
+
+- **`GET review_hog/reviews/?scope=mine|everyone`** (`ReviewsListParamsSerializer`, default `mine`):
+  `everyone` drops the `acting_user` filter; everything else (running-first ordering, 5-row cap, DB-side enrichment) is unchanged.
+  Bad values 400 via `is_valid(raise_exception=True)`.
+  The `scope` ChoiceField's enum stays inline in the OpenAPI query parameter, so no `ScopeEnum` component collision (verified with `--fail-on-warn`).
+- **`retrieve` is now project-wide** (queries with `SCOPE_EVERYONE` internally) so any listed review opens;
+  another team's report id still 404s (`for_team`), garbage ids still 404.
+  `perspective_stats` stays personal — it describes *your* reviewers' effectiveness.
+- **Index:** `(team, -last_run_at)` `reviewhog_rpt_team_recent_idx` (migration 0016, `SafeAddIndexConcurrently`) serves the everyone-scope completed slice;
+  the mine slice keeps the 0011 `(team, acting_user, -last_run_at)` index.
+- **UI/logic:** `LemonSegmentedButton` "For you / Entire project" on the section header;
+  `reviewsScope` + `hasUserChosenReviewsScope` persisted reducers in `reviewHogSettingsLogic`;
+  **auto-default** — an empty first mine-scope load flips to Entire project via `applyDefaultReviewsScope`, which is *not* marked as a user choice so a later explicit pick wins (both directions jest-tested);
+  scope mirrored to `?reviews_scope=` (hydrating from a shared link counts as an explicit choice);
+  the loader takes a `breakpoint()` after the fetch so a scope flip mid-flight drops the stale response;
+  rows show `by <pr_author>` in everyone scope only;
+  an empty mine-scope shows an empty state instead of hiding the section (the toggle must stay reachable) — loaded-and-empty hides the section only in everyone scope.
+- Tests: everyone-scope list (teammate rows in, cross-team rows out, bad scope 400s as the params-serializer wiring guard);
+  retrieve contract flip (teammate's review 200, other team's 404);
+  2 jest tests for the auto-default rule.
+
 #### ✅ BUILT 2026-07-02 — authoring guide moved to a canonical skill (`review-hog-authoring`)
 
 The "Create your own …" frontend prompts were fat, self-describing instruction sets — an
