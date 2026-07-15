@@ -9,6 +9,7 @@ from __future__ import annotations
 from products.stamphog.backend.temporal.activities import (
     dismiss_stale_approvals,
     fetch_review_context,
+    list_in_flight_reviewer_bots,
     mark_review_failed,
     post_verdict,
     run_review_in_sandbox,
@@ -18,8 +19,9 @@ from products.stamphog.backend.temporal.workflow import StamphogReviewWorkflow
 WORKFLOWS = [StamphogReviewWorkflow]
 
 ACTIVITIES = [
-    fetch_review_context,
     dismiss_stale_approvals,
+    fetch_review_context,
+    list_in_flight_reviewer_bots,
     run_review_in_sandbox,
     post_verdict,
     mark_review_failed,

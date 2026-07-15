@@ -5,6 +5,8 @@ from django.test import SimpleTestCase
 from products.stamphog.backend.logic.digest import DigestPRSummary, DigestSummary
 from products.stamphog.backend.logic.reviewer import build_reviewer_invocation, parse_reviewer_output
 from products.stamphog.backend.logic.slack_digest import _build_blocks, _build_fallback_text
+from products.stamphog.backend.temporal import activities as activities_module
+from products.stamphog.backend.temporal.registry import ACTIVITIES
 
 # The gate/policy engine now lives in tools/pr-approval-agent and is covered by its
 # own suite (test_gates.py, test_policy.py); it runs inside the sandbox rather than
@@ -125,3 +127,14 @@ class SlackDigestEscapingTests(SimpleTestCase):
         text = _build_fallback_text(self._summary(title="<!channel>", author="a", body="b", intro="<!everyone>"))
         assert "<!channel>" not in text
         assert "<!everyone>" not in text
+
+
+class TemporalRegistryTests(SimpleTestCase):
+    def test_every_defined_activity_is_registered_with_the_worker(self) -> None:
+        # A new @activity.defn that isn't added to ACTIVITIES fails only at runtime, when the worker
+        # rejects the workflow's schedule request — this has already almost shipped once.
+        defined = {
+            name for name, obj in vars(activities_module).items() if hasattr(obj, "__temporal_activity_definition")
+        }
+        registered = {fn.__name__ for fn in ACTIVITIES}
+        assert defined == registered

@@ -180,8 +180,22 @@ def _reclaim_stale_pending_runs() -> None:
     # reclaim writes commit on the product DB rather than the default connection.
     write_db = router.db_for_write(DigestRun)
     reclaimed = finalized = 0
-    for run_id, team_id, slack_ts in stale.values_list("id", "team_id", "slack_message_ts").iterator():
+    for run_id, team_id in stale.values_list("id", "team_id").iterator():
         with transaction.atomic(using=write_db):
+            # Lock and RE-READ inside the transaction: the iterator's snapshot is stale by the time
+            # this branch runs, and a slow worker may have recorded slack_message_ts (or finished
+            # outright) in between. Deciding from the old snapshot would unlink an already-posted
+            # digest's PRs and re-send them on the next run.
+            current = (
+                DigestRun.objects.for_team(team_id)
+                .select_for_update()
+                .filter(id=run_id, status=DigestRunStatus.PENDING)
+                .values_list("slack_message_ts", flat=True)
+                .first()
+            )
+            if current is None:
+                continue  # the worker finished (or another sweeper won) while we iterated
+            slack_ts = current
             if slack_ts:
                 # It already posted to Slack (the COMPLETED write just never landed). Finalize the run and
                 # KEEP its PRs linked, so the next digest doesn't re-send PRs Slack already received.
