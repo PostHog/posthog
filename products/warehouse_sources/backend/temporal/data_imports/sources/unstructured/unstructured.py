@@ -103,7 +103,9 @@ def _fetch(
     # parsing the redirect body, so a customer-controlled host can't quietly point the sync elsewhere.
     if response.is_redirect or response.is_permanent_redirect:
         logger.error(f"Unstructured API returned an unexpected redirect: status={response.status_code}, url={url}")
-        raise requests.HTTPError(f"Unexpected redirect from Unstructured API (status={response.status_code})")
+        raise requests.HTTPError(
+            f"Unexpected redirect from Unstructured API (status={response.status_code})", response=response
+        )
 
     if response.status_code == 429 or response.status_code >= 500:
         raise UnstructuredRetryableError(
