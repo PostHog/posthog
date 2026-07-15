@@ -115,6 +115,22 @@ class TestSdkOutdatedCheck(SimpleTestCase):
         assert alert.title == "SDK migration recommended"
         assert alert.summary == issue.payload["reason"]
 
+    def test_sorts_partial_and_full_semver_versions_before_assessment(self):
+        github = {
+            "posthog-server": {
+                "latestVersion": "2.0.0",
+                "releaseDates": {"1.2.0": OLD_RELEASE, "1.10": OLD_RELEASE},
+            }
+        }
+        rows = [
+            _make_ch_row(1, "posthog-server", "1.2.0", event_count=100),
+            _make_ch_row(1, "posthog-server", "1.10", event_count=50),
+        ]
+
+        results = self._run(github, rows, [1])
+
+        assert results[1][0].payload["current_version"] == "1.10"
+
     def test_alert_reason_explains_significant_outdated_traffic(self):
         # The most-used version already matches latest, but an older version still serves a
         # significant share of traffic. The SDK is flagged, and the alert must explain *that*

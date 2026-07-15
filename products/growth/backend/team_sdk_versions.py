@@ -16,6 +16,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 
 from products.growth.backend.constants import TEAM_SDK_CACHE_EXPIRY, SdkVersionEntry, team_sdk_versions_v2_key
+from products.growth.backend.sdk_health import sort_sdk_version_entries
 from products.growth.dags.github_sdk_versions import SDK_TYPES
 
 default_logger: BoundLogger = structlog.get_logger(__name__)
@@ -34,7 +35,6 @@ QUERY = parse_select("""
     GROUP BY lib, lib_version
     ORDER BY
         lib,
-        sortableSemVer(coalesce(lib_version, '')) DESC,
         event_count DESC
 """)
 
@@ -66,7 +66,7 @@ def get_sdk_versions_for_team(
         team = Team.objects.get(id=team_id)
         response = run_query(team)
 
-        output = defaultdict(list)
+        output: defaultdict[str, list[SdkVersionEntry]] = defaultdict(list)
         for lib, lib_version, max_timestamp, event_count in response.results:
             if lib in SDK_TYPES:
                 output[lib].append(
@@ -77,7 +77,7 @@ def get_sdk_versions_for_team(
                     }
                 )
 
-        return dict(output)
+        return {lib: sort_sdk_version_entries(entries) for lib, entries in output.items()}
     except Team.DoesNotExist:
         logger.exception(f"[SDK Health] Team {team_id} not found")
         return {}  # Safe to return empty dict, this is not an error

@@ -22,7 +22,7 @@ from urllib.parse import quote
 
 import humanize
 
-from products.growth.backend.constants import LEGACY_JAVA_SDK
+from products.growth.backend.constants import LEGACY_JAVA_SDK, SdkVersionEntry
 
 # --- SDK classification --------------------
 
@@ -219,6 +219,28 @@ def try_parse_version(version: str) -> Optional[SemanticVersion]:
         return parse_version(version)
     except ValueError:
         return None
+
+
+def _sdk_version_sort_key(entry: SdkVersionEntry) -> tuple[int, int, int, int, int, str, int]:
+    raw_version = entry["lib_version"]
+    version = try_parse_version(raw_version) if raw_version else None
+    if version is None:
+        return (0, 0, 0, 0, 0, "", entry["count"])
+
+    return (
+        1,
+        version.major,
+        version.minor or 0,
+        version.patch or 0,
+        1 if version.extra is None else 0,
+        version.extra or "",
+        entry["count"],
+    )
+
+
+def sort_sdk_version_entries(entries: list[SdkVersionEntry]) -> list[SdkVersionEntry]:
+    """Order SDK usage consistently for scheduled and request-time scans."""
+    return sorted(entries, key=_sdk_version_sort_key, reverse=True)
 
 
 def diff_versions(a: SemanticVersion, b: SemanticVersion) -> Optional[SemanticVersionDiff]:

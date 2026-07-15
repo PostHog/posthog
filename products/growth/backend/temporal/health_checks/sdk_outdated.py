@@ -27,7 +27,12 @@ from products.growth.backend.constants import (
     github_sdk_versions_key,
     team_sdk_versions_v2_key,
 )
-from products.growth.backend.sdk_health import SdkAssessment, _is_safe_for_interpolation, compute_sdk_health
+from products.growth.backend.sdk_health import (
+    SdkAssessment,
+    _is_safe_for_interpolation,
+    compute_sdk_health,
+    sort_sdk_version_entries,
+)
 
 # Issue severity follows the SDK Health assessment severity: a single outdated SDK is a warning,
 # but when the bulk of a team's SDKs are outdated the assessment escalates to "danger".
@@ -59,7 +64,6 @@ GROUP BY team_id, lib, lib_version
 ORDER BY
     team_id,
     lib,
-    arrayMap(x -> toInt64OrZero(x), splitByChar('.', extract(coalesce(lib_version, ''), '(\\d+(\\.\\d+)+)'))) DESC,
     event_count DESC
 """
 
@@ -196,6 +200,10 @@ class SdkOutdatedCheck(HealthCheck):
                         "count": event_count,
                     }
                 )
+
+        for sdk_data in team_sdk_data.values():
+            for lib, entries in sdk_data.items():
+                sdk_data[lib] = sort_sdk_version_entries(entries)
 
         _cache_team_sdk_data({tid: dict(sdk_data) for tid, sdk_data in team_sdk_data.items()})
 
