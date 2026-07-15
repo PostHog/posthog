@@ -197,12 +197,6 @@
             "description": "Search exception types, exception values, and current URL among sampled events.",
             "maxLength": 500,
             "type": "string"
-        },
-        "verbosity": {
-            "default": "summary",
-            "description": "Controls exception detail size: summary, stack, or raw. Defaults to summary.\n\n* `summary` - summary\n* `stack` - stack\n* `raw` - raw",
-            "enum": ["summary", "stack", "raw"],
-            "type": "string"
         }
     },
     "required": ["issueId"],
