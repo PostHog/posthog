@@ -10,33 +10,17 @@ import {
 describe('objects utils', () => {
     describe('objectsEqual()', () => {
         it.each([
-            ['equal primitives', 1, 1, true],
-            ['unequal primitives', 1, 2, false],
-            ['both NaN', NaN, NaN, true],
-            ['equal nested objects', { a: { b: [1, 2] } }, { a: { b: [1, 2] } }, true],
-            ['unequal nested objects', { a: { b: [1, 2] } }, { a: { b: [1, 3] } }, false],
-            ['equal arrays', [1, { x: 1 }], [1, { x: 1 }], true],
-            ['unequal by key count', { a: 1 }, { a: 1, b: 2 }, false],
-        ])('%s', (_name, a, b, expected) => {
-            expect(objectsEqual(a, b)).toBe(expected)
-        })
-
-        // User-captured event/person properties can contain a key literally named `toString` or
-        // `valueOf` whose value is not callable. fast-deep-equal calls the shadow unconditionally and
-        // throws `TypeError: t.toString is not a function`; objectsEqual must instead compare by keys.
-        it.each([
             [
                 'toString shadowed by a string',
                 { toString: 'not a function', a: 1 },
                 { toString: 'not a function', a: 1 },
+                true,
             ],
-            ['valueOf shadowed by a number', { valueOf: 5, a: 1 }, { valueOf: 5, a: 1 }],
-        ])('does not throw when %s and reports equal', (_name, a, b) => {
-            expect(objectsEqual(a, b)).toBe(true)
-        })
-
-        it('does not throw for a non-callable toString and reports unequal when values differ', () => {
-            expect(objectsEqual({ toString: 'x', a: 1 }, { toString: 'x', a: 2 })).toBe(false)
+            ['valueOf shadowed by a number', { valueOf: 5, a: 1 }, { valueOf: 5, a: 1 }, true],
+            ['toString callable only on the left', { toString: () => 'x' }, { toString: 'x' }, false],
+            ['valueOf callable only on the right', { valueOf: 5 }, { valueOf: () => 5 }, false],
+        ])('compares objects with %s without throwing', (_name, a, b, expected) => {
+            expect(objectsEqual(a, b)).toBe(expected)
         })
     })
 

@@ -1,0 +1,76 @@
+diff --git a/index.js b/index.js
+index 30dd1ba7..778e1dfd 100644
+--- a/index.js
++++ b/index.js
+@@ -22,8 +22,12 @@ module.exports = function equal(a, b) {
+ 
+ 
+     if (a.constructor === RegExp) return a.source === b.source && a.flags === b.flags;
+-    if (a.valueOf !== Object.prototype.valueOf) return a.valueOf() === b.valueOf();
+-    if (a.toString !== Object.prototype.toString) return a.toString() === b.toString();
++    if ((a.valueOf !== Object.prototype.valueOf || b.valueOf !== Object.prototype.valueOf)
++        && typeof a.valueOf === 'function' && typeof b.valueOf === 'function')
++      return a.valueOf() === b.valueOf();
++    if ((a.toString !== Object.prototype.toString || b.toString !== Object.prototype.toString)
++        && typeof a.toString === 'function' && typeof b.toString === 'function')
++      return a.toString() === b.toString();
+ 
+     keys = Object.keys(a);
+     length = keys.length;
+diff --git a/react.js b/react.js
+index 3489b983..eee2ee29 100644
+--- a/react.js
++++ b/react.js
+@@ -22,8 +22,12 @@ module.exports = function equal(a, b) {
+ 
+ 
+     if (a.constructor === RegExp) return a.source === b.source && a.flags === b.flags;
+-    if (a.valueOf !== Object.prototype.valueOf) return a.valueOf() === b.valueOf();
+-    if (a.toString !== Object.prototype.toString) return a.toString() === b.toString();
++    if ((a.valueOf !== Object.prototype.valueOf || b.valueOf !== Object.prototype.valueOf)
++        && typeof a.valueOf === 'function' && typeof b.valueOf === 'function')
++      return a.valueOf() === b.valueOf();
++    if ((a.toString !== Object.prototype.toString || b.toString !== Object.prototype.toString)
++        && typeof a.toString === 'function' && typeof b.toString === 'function')
++      return a.toString() === b.toString();
+ 
+     keys = Object.keys(a);
+     length = keys.length;
+diff --git a/es6/index.js b/es6/index.js
+index d980be25..e7cf3b94 100644
+--- a/es6/index.js
++++ b/es6/index.js
+@@ -48,8 +48,12 @@ module.exports = function equal(a, b) {
+ 
+ 
+     if (a.constructor === RegExp) return a.source === b.source && a.flags === b.flags;
+-    if (a.valueOf !== Object.prototype.valueOf) return a.valueOf() === b.valueOf();
+-    if (a.toString !== Object.prototype.toString) return a.toString() === b.toString();
++    if ((a.valueOf !== Object.prototype.valueOf || b.valueOf !== Object.prototype.valueOf)
++        && typeof a.valueOf === 'function' && typeof b.valueOf === 'function')
++      return a.valueOf() === b.valueOf();
++    if ((a.toString !== Object.prototype.toString || b.toString !== Object.prototype.toString)
++        && typeof a.toString === 'function' && typeof b.toString === 'function')
++      return a.toString() === b.toString();
+ 
+     keys = Object.keys(a);
+     length = keys.length;
+diff --git a/es6/react.js b/es6/react.js
+index 98e2f9b7..fb9434ae 100644
+--- a/es6/react.js
++++ b/es6/react.js
+@@ -48,8 +48,12 @@ module.exports = function equal(a, b) {
+ 
+ 
+     if (a.constructor === RegExp) return a.source === b.source && a.flags === b.flags;
+-    if (a.valueOf !== Object.prototype.valueOf) return a.valueOf() === b.valueOf();
+-    if (a.toString !== Object.prototype.toString) return a.toString() === b.toString();
++    if ((a.valueOf !== Object.prototype.valueOf || b.valueOf !== Object.prototype.valueOf)
++        && typeof a.valueOf === 'function' && typeof b.valueOf === 'function')
++      return a.valueOf() === b.valueOf();
++    if ((a.toString !== Object.prototype.toString || b.toString !== Object.prototype.toString)
++        && typeof a.toString === 'function' && typeof b.toString === 'function')
++      return a.toString() === b.toString();
+ 
+     keys = Object.keys(a);
+     length = keys.length;

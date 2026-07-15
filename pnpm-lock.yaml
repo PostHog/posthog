@@ -186,6 +186,9 @@ patchedDependencies:
   dayjs@1.11.11:
     hash: 2e3e09d22bbc20d8961e0392c318f12ffada0babb6422f03b5538af8b2707852
     path: patches/dayjs@1.11.11.patch
+  fast-deep-equal@3.1.3:
+    hash: 7a8cd6e49274fc25ae764b6a86232a3aa741584029fe77a76899dcaa7373a75e
+    path: patches/fast-deep-equal@3.1.3.patch
   heatmap.js@2.0.5:
     hash: d95e6638894935a75bd93b60b5243cb825892a1eedcc4c9a125a3e7dce8b64f0
     path: patches/heatmap.js@2.0.5.patch
