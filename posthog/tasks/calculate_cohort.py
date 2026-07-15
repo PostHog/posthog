@@ -12,6 +12,8 @@ from celery import chain, current_task, shared_task
 from dateutil.relativedelta import relativedelta
 from prometheus_client import Counter, Gauge, Histogram
 
+from posthog.hogql.errors import ExposedHogQLError
+
 from posthog.api.monitoring import Feature
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import QueryTags, update_tags
@@ -572,7 +574,11 @@ def insert_cohort_from_query(cohort_id: int, team_id: Optional[int] = None) -> N
             team_id=team_id,
             error=str(err),
         )
-        capture_exception()
+        # ExposedHogQLError means the user's query is invalid — that's a validation
+        # error, not a system bug, so don't report it to error tracking. The failure is
+        # still recorded on the cohort's errors_calculating state in the finally block.
+        if not isinstance(err, ExposedHogQLError):
+            capture_exception()
         if settings.DEBUG:
             raise
     finally:
