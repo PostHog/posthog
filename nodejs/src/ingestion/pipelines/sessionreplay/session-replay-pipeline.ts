@@ -27,8 +27,9 @@ import { SessionReplayPipelineOutput } from './pipeline-types'
 import {
     ReplayCycleState,
     createFoldOffsetsStep,
-    createRecordToBatchStep,
+    createRecordToStateStep,
     createReplayOnNewCycle,
+    createSerializeSessionStep,
 } from './replay-cycle-state'
 import { createCommitOffsetsStep } from './session-batch-commit-offsets-step'
 import { createMarkSeenStep } from './session-batch-mark-seen-step'
@@ -285,7 +286,10 @@ export function createSessionReplayPipeline(config: SessionReplayPipelineConfig)
         // Folds every drained result into the state: its offset always (dropped and DLQ'd messages
         // advance the commit too), and OK results into the recorder.
         reduce: (builder) =>
-            builder.pipe(createFoldOffsetsStep()).pipe(createRecordToBatchStep({ topHog, isDebugLoggingEnabled })),
+            builder
+                .pipe(createFoldOffsetsStep())
+                .pipe(createSerializeSessionStep())
+                .pipe(createRecordToStateStep({ topHog, isDebugLoggingEnabled })),
         shouldFlush: (state) => state.sessionBatchRecorder.size >= maxBatchSizeBytes,
         // The flush lifecycle: write to storage (retention and keys already resolved at record time),
         // commit the offsets the cycle covers (off the state, with in-flight produces awaited

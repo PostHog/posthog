@@ -34,6 +34,7 @@ import {
 } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-file-storage'
 import { SessionBatchRecorder } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-recorder'
 import { SessionConsoleLogStore } from '~/ingestion/pipelines/sessionreplay/sessions/session-console-log-store'
+import { serializeSessionData } from '~/ingestion/pipelines/sessionreplay/sessions/snappy-session-recorder'
 import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
 import { SessionBlockMetadata } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
 import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
@@ -234,7 +235,16 @@ describe('session recording integration', () => {
 
         // Record all messages
         for (const message of messages) {
-            await recorder.record(message, '30d', createMockSessionKey())
+            recorder.recordSessionData(
+                {
+                    teamId: message.team.teamId,
+                    sessionId: message.message.session_id,
+                    partition: message.message.metadata.partition,
+                    retentionPeriod: '30d',
+                    sessionKey: createMockSessionKey(),
+                },
+                serializeSessionData(message.message)
+            )
         }
 
         // Flush and get metadata

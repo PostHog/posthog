@@ -23,7 +23,12 @@ import { createMockKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/t
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 
-import { ReplayCycleState, createFoldOffsetsStep, createRecordToBatchStep } from './replay-cycle-state'
+import {
+    ReplayCycleState,
+    createFoldOffsetsStep,
+    createRecordToStateStep,
+    createSerializeSessionStep,
+} from './replay-cycle-state'
 import {
     SessionReplayInnerPipelineConfig,
     SessionReplayPipelineOutput,
@@ -37,8 +42,9 @@ jest.mock('~/ingestion/common/steps/event-preprocessing', () => ({
 
 function createMockBatchRecorder(): jest.Mocked<SessionBatchRecorder> {
     return {
-        record: jest.fn().mockResolvedValue(undefined),
-        getRetention: jest.fn().mockReturnValue(undefined),
+        recordSessionData: jest.fn().mockReturnValue({ accepted: true, bytesWritten: 1 }),
+        recordSessionLogs: jest.fn().mockResolvedValue(undefined),
+        recordSessionFeatures: jest.fn(),
         size: 0,
     } as unknown as jest.Mocked<SessionBatchRecorder>
 }
@@ -207,7 +213,8 @@ describe('session-replay-pipeline', () => {
             pipeline.feed(messages.map((message) => createOkContext({ message }, { message })))
         }
         const foldOffsets = createFoldOffsetsStep()
-        const recordToBatch = createRecordToBatchStep({ topHog, isDebugLoggingEnabled })
+        const serializeSession = createSerializeSessionStep()
+        const recordToState = createRecordToStateStep({ topHog, isDebugLoggingEnabled })
         const recorded: SessionReplayPipelineOutput[] = []
         let batch = await pipeline.next()
         while (batch !== null) {
@@ -216,9 +223,13 @@ describe('session-replay-pipeline', () => {
                 if (!isOkResult(folded)) {
                     throw new Error('foldOffsets returned non-ok result')
                 }
-                const reduced = await recordToBatch(folded.value)
+                const serialized = await serializeSession(folded.value)
+                if (!isOkResult(serialized)) {
+                    throw new Error('serializeSession returned non-ok result')
+                }
+                const reduced = await recordToState(serialized.value)
                 if (!isOkResult(reduced)) {
-                    throw new Error('recordToBatch returned non-ok result')
+                    throw new Error('recordToState returned non-ok result')
                 }
                 cycleState = reduced.value
                 if (isOkResult(element.result)) {
@@ -233,7 +244,7 @@ describe('session-replay-pipeline', () => {
     // The session ids recorded into the batch, in call order — the observable effect of a message
     // reaching the reducer's record.
     function recordedSessionIds(): string[] {
-        return mockBatchRecorder.record.mock.calls.map((call) => call[0].message.session_id)
+        return mockBatchRecorder.recordSessionData.mock.calls.map((call) => call[0].sessionId)
     }
 
     beforeEach(() => {
@@ -683,17 +694,19 @@ describe('session-replay-pipeline', () => {
             await runPipeline(pipeline, messages)
 
             const mockBatch = mockBatchRecorder
-            expect(mockBatch.record).toHaveBeenCalledTimes(1)
-            expect(mockBatch.record).toHaveBeenCalledWith(
+            expect(mockBatch.recordSessionData).toHaveBeenCalledTimes(1)
+            expect(mockBatch.recordSessionData).toHaveBeenCalledWith(
                 expect.objectContaining({
-                    team: defaultTeam,
-                    message: expect.objectContaining({
-                        session_id: 'session-1',
-                    }),
+                    teamId: defaultTeam.teamId,
+                    sessionId: 'session-1',
+                    retentionPeriod: '30d',
+                    sessionKey: expect.objectContaining({ sessionState: 'cleartext' }),
                 }),
-                '30d',
-                expect.objectContaining({ sessionState: 'cleartext' })
+                expect.objectContaining({ eventCount: expect.any(Number) })
             )
+            // Accepted messages also record their logs and features into the same session.
+            expect(mockBatch.recordSessionLogs).toHaveBeenCalledTimes(1)
+            expect(mockBatch.recordSessionFeatures).toHaveBeenCalledTimes(1)
         })
 
         it('records multiple messages to session batch', async () => {
@@ -708,7 +721,7 @@ describe('session-replay-pipeline', () => {
             await runPipeline(pipeline, messages)
 
             const mockBatch = mockBatchRecorder
-            expect(mockBatch.record).toHaveBeenCalledTimes(3)
+            expect(mockBatch.recordSessionData).toHaveBeenCalledTimes(3)
         })
 
         it('reduces every fed message offset into the cycle state, dropped ones included', async () => {
@@ -749,7 +762,7 @@ describe('session-replay-pipeline', () => {
 
             expect(result).toHaveLength(0)
             const mockBatch = mockBatchRecorder
-            expect(mockBatch.record).not.toHaveBeenCalled()
+            expect(mockBatch.recordSessionData).not.toHaveBeenCalled()
         })
 
         it('does not record messages with invalid team to session batch', async () => {
@@ -765,7 +778,7 @@ describe('session-replay-pipeline', () => {
 
             expect(result).toHaveLength(0)
             const mockBatch = mockBatchRecorder
-            expect(mockBatch.record).not.toHaveBeenCalled()
+            expect(mockBatch.recordSessionData).not.toHaveBeenCalled()
         })
 
         it('records parse time metric via TopHog', async () => {

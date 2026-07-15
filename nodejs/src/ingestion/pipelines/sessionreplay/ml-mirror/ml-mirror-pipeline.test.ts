@@ -14,7 +14,8 @@ import { defaultAllowLists } from '~/ingestion/pipelines/sessionreplay/anonymize
 import {
     ReplayCycleState,
     createFoldOffsetsStep,
-    createRecordToBatchStep,
+    createRecordToStateStep,
+    createSerializeSessionStep,
 } from '~/ingestion/pipelines/sessionreplay/replay-cycle-state'
 import { SessionBatchRecorder } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-recorder'
 import { SessionFilter } from '~/ingestion/pipelines/sessionreplay/sessions/session-filter'
@@ -111,10 +112,11 @@ describe('ml-mirror-pipeline', () => {
         jest.clearAllMocks()
         outputs = createMockIngestionOutputs()
 
-        recordMock = jest.fn().mockResolvedValue(undefined)
+        recordMock = jest.fn().mockReturnValue({ accepted: true, bytesWritten: 1 })
         recorder = {
-            record: recordMock,
-            getRetention: jest.fn().mockReturnValue(undefined),
+            recordSessionData: recordMock,
+            recordSessionLogs: jest.fn().mockResolvedValue(undefined),
+            recordSessionFeatures: jest.fn(),
             size: 0,
         } as unknown as jest.Mocked<SessionBatchRecorder>
 
@@ -158,7 +160,8 @@ describe('ml-mirror-pipeline', () => {
     ): Promise<void> {
         pipeline.feed(messages.map((message) => createOkContext({ message }, { message })))
         const foldOffsets = createFoldOffsetsStep()
-        const recordToBatch = createRecordToBatchStep({ topHog, isDebugLoggingEnabled: () => false })
+        const serializeSession = createSerializeSessionStep()
+        const recordToState = createRecordToStateStep({ topHog, isDebugLoggingEnabled: () => false })
         let state: ReplayCycleState = { sessionBatchRecorder: recorder, offsets: new Map() }
         let batch = await pipeline.next()
         while (batch !== null) {
@@ -167,9 +170,13 @@ describe('ml-mirror-pipeline', () => {
                 if (!isOkResult(folded)) {
                     throw new Error('foldOffsets returned non-ok result')
                 }
-                const reduced = await recordToBatch(folded.value)
+                const serialized = await serializeSession(folded.value)
+                if (!isOkResult(serialized)) {
+                    throw new Error('serializeSession returned non-ok result')
+                }
+                const reduced = await recordToState(serialized.value)
                 if (!isOkResult(reduced)) {
-                    throw new Error('recordToBatch returned non-ok result')
+                    throw new Error('recordToState returned non-ok result')
                 }
                 state = reduced.value
             }
@@ -258,9 +265,10 @@ describe('ml-mirror-pipeline', () => {
         } as unknown as Message
     }
 
-    // The fused step emits pre-serialized JSONL lines of [windowId, event].
+    // The fused step emits pre-serialized JSONL lines of [windowId, event]; the serialize reduce
+    // step passes them through as the session data's single chunk.
     function recordedEvents(): [string, any][] {
-        const lines: Buffer = recordMock.mock.calls[0][0].message.preSerialized.lines
+        const lines: Buffer = recordMock.mock.calls[0][1].chunks[0]
         return lines
             .toString()
             .split('\n')
