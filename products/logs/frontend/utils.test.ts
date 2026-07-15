@@ -1,4 +1,5 @@
 import {
+    buildLogsSessionUrl,
     formatFilterGroupValues,
     getFiltersSummaryLines,
     getSessionIdFromLogAttributes,
@@ -145,6 +146,44 @@ describe('logs utils', () => {
             ['prefix.my.custom.key', ['my.custom.key'], false],
         ])('isSessionIdKey(%s, %j) returns %s', (key, configuredKeys, expected) => {
             expect(isSessionIdKey(key, configuredKeys)).toBe(expected)
+        })
+    })
+
+    describe('buildLogsSessionUrl', () => {
+        const parseUrl = (url: string): { path: string; params: URLSearchParams } => {
+            const [path, query] = url.split('?')
+            return { path, params: new URLSearchParams(query) }
+        }
+
+        it.each([
+            ['defaults to the SDK convention key', undefined, ['posthogSessionId']],
+            ['uses configured keys in order', ['session.id', 'custom.key'], ['session.id', 'custom.key']],
+            ['empty configured list falls back to default', [], ['posthogSessionId']],
+        ])('%s', (_, configuredKeys, expectedKeys) => {
+            const { path, params } = parseUrl(buildLogsSessionUrl('sess-1', configuredKeys))
+            expect(path).toBe('/logs')
+
+            const filterGroup = JSON.parse(params.get('filterGroup')!)
+            const innerGroup = filterGroup.values[0]
+            expect(innerGroup.type).toBe('OR')
+            expect(innerGroup.values).toEqual(
+                expectedKeys.map((key) => ({
+                    key,
+                    value: ['sess-1'],
+                    operator: 'exact',
+                    type: 'log_attribute',
+                }))
+            )
+            expect(params.get('dateRange')).toBeNull()
+        })
+
+        it('scopes the date range around the timestamp', () => {
+            const { params } = parseUrl(buildLogsSessionUrl('sess-1', undefined, '2026-03-24T12:00:00.000Z'))
+            const dateRange = JSON.parse(params.get('dateRange')!)
+            expect(dateRange).toEqual({
+                date_from: '2026-03-24T11:30:00.000Z',
+                date_to: '2026-03-24T12:30:00.000Z',
+            })
         })
     })
 
