@@ -278,7 +278,11 @@ async def maybe_flag_for_repartition(
                 "max_partition_bytes_before": max_bytes,
                 "trigger_reason": trigger_reason,
                 "recent_oom_count": oom_count,
-                "partition_mode_after": target.partition_mode,
+                # An unpartitioned table's target has mode None ("enable partitioning, auto-detect
+                # the scheme on the first rewrite batch"). Emit an explicit "auto" so dashboards can
+                # render the target scheme instead of a null — half of all flagged events are this
+                # case, and a null here NULL-poisons any string built from the scheme properties.
+                "partition_mode_after": target.partition_mode or "auto",
                 "partition_format_after": target.partition_format,
                 "partition_count_after": target.partition_count,
                 "partition_size_after": target.partition_size,
