@@ -594,6 +594,35 @@ mod test {
     }
 
     #[tokio::test]
+    async fn fetch_decompresses_gzip_source() {
+        let server = MockServer::start();
+        let compressed = common_compression::compress_gzip(MINIFIED).unwrap();
+
+        let source_mock = server.mock(|when, then| {
+            when.method("GET").path("/static/chunk-PGUQKT6S.js");
+            then.status(200)
+                .header("Content-Encoding", "gzip")
+                .body(compressed);
+        });
+        let map_mock = server.mock(|when, then| {
+            when.method("GET").path("/static/chunk-PGUQKT6S.js.map");
+            then.status(200).body(MAP);
+        });
+
+        let mut config = ResolverConfig::init_with_defaults().unwrap();
+        config.allow_internal_ips = true;
+        let provider = SourcemapProvider::new(&config);
+        let url = server.url("/static/chunk-PGUQKT6S.js").parse().unwrap();
+        let data = provider.fetch(1, url).await.unwrap();
+        let (source_and_map, _): (SourceAndMap, usize) =
+            read_symbol_data_with_byte_count(&data).unwrap();
+
+        assert_eq!(source_and_map.minified_source.as_bytes(), MINIFIED);
+        source_mock.assert_hits(1);
+        map_mock.assert_hits(1);
+    }
+
+    #[tokio::test]
     async fn full_follows_links_test() {
         let server = MockServer::start();
 
