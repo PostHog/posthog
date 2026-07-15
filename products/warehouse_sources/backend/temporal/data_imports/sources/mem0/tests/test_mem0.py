@@ -237,6 +237,44 @@ class TestEventsRows:
 
         assert mock_session.return_value.request.call_args.args[1] == f"{MEM0_BASE_URL}/v1/events/?page=5"
 
+    @parameterized.expand(
+        [
+            ("absolute", "https://evil.example.com/v1/events/?page=2"),
+            ("scheme_relative", "//evil.example.com/v1/events/?page=2"),
+            ("non_https", "http://api.mem0.ai/v1/events/?page=2"),
+            ("lookalike_host", "https://api.mem0.ai.evil.example.com/v1/events/?page=2"),
+        ]
+    )
+    @patch(f"{_MODULE}.make_tracked_session")
+    def test_refuses_to_follow_off_origin_next_links(self, _name, next_url, mock_session):
+        # The session carries the API key; a tampered `next` link must never receive a
+        # credentialed request or be persisted as resume state.
+        mock_session.return_value.request.return_value = _response({"next": next_url, "results": [{"id": "e1"}]})
+        manager = _manager()
+
+        try:
+            list(get_rows("m0-test", EVENTS_ENDPOINT, MagicMock(), manager))
+            raise AssertionError("expected ValueError")
+        except ValueError:
+            pass
+
+        assert mock_session.return_value.request.call_count == 1
+        manager.save_state.assert_not_called()
+
+    @patch(f"{_MODULE}.make_tracked_session")
+    def test_refuses_to_resume_from_an_off_origin_saved_url(self, mock_session):
+        manager = _manager(
+            Mem0ResumeConfig(endpoint=EVENTS_ENDPOINT, next_url="https://evil.example.com/v1/events/?page=5")
+        )
+
+        try:
+            list(get_rows("m0-test", EVENTS_ENDPOINT, MagicMock(), manager))
+            raise AssertionError("expected ValueError")
+        except ValueError:
+            pass
+
+        mock_session.return_value.request.assert_not_called()
+
 
 class TestFetchRetry:
     @patch("tenacity.nap.time.sleep", return_value=None)

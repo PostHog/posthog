@@ -10,7 +10,7 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode, urljoin
+from urllib.parse import urlencode, urljoin, urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -93,6 +93,20 @@ def _build_memories_filters(incremental_field: str, cutoff: str | None) -> dict[
     if not cutoff:
         return _MATCH_ALL_FILTER
     return {"AND": [_MATCH_ALL_FILTER, {incremental_field: {"gte": cutoff}}]}
+
+
+def _ensure_mem0_origin(url: str) -> str:
+    """Refuse pagination/resume URLs that leave the Mem0 API origin.
+
+    The session carries the API key on every request, so following an off-origin ``next`` link
+    (from a tampered response, or a poisoned resume-state entry) would send the credential to an
+    arbitrary host. ``urljoin`` alone doesn't protect against absolute or scheme-relative URLs.
+    """
+    parsed = urlparse(url)
+    expected = urlparse(MEM0_BASE_URL)
+    if parsed.scheme != expected.scheme or parsed.netloc != expected.netloc:
+        raise ValueError(f"Refusing to follow a pagination URL off the Mem0 API origin: {url}")
+    return url
 
 
 @retry(
@@ -196,7 +210,11 @@ def _get_events_rows(
     resume: Mem0ResumeConfig | None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = MEM0_ENDPOINTS[EVENTS_ENDPOINT]
-    url = resume.next_url if resume is not None and resume.next_url else f"{MEM0_BASE_URL}{config.path}"
+    url = (
+        _ensure_mem0_origin(resume.next_url)
+        if resume is not None and resume.next_url
+        else f"{MEM0_BASE_URL}{config.path}"
+    )
 
     while True:
         data = _fetch_json(session, config.method, url, logger)
@@ -209,7 +227,7 @@ def _get_events_rows(
         if not next_url:
             break
 
-        url = urljoin(MEM0_BASE_URL, next_url)
+        url = _ensure_mem0_origin(urljoin(MEM0_BASE_URL, next_url))
         resumable_source_manager.save_state(Mem0ResumeConfig(endpoint=EVENTS_ENDPOINT, next_url=url))
 
 
