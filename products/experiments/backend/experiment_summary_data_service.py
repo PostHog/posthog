@@ -1,7 +1,10 @@
+import time
+import random
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, TypeIs, Union
+from typing import Any, TypeIs, TypeVar, Union
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
@@ -30,6 +33,7 @@ from posthog.hogql.constants import LimitContext
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.event_usage import EventSource
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.sync import database_sync_to_async
 
@@ -55,7 +59,36 @@ class ExposureQueryResult:
 
 
 MAX_METRICS_TO_SUMMARIZE = 50
-MAX_CONCURRENT_EXPERIMENT_SUMMARY_QUERIES = 10
+# Keep this comfortably below the max_ai ClickHouse user's per-user concurrency cap (10) so a
+# single summary run leaves headroom for other max_ai traffic (the Max chat agent, another team's
+# summary) instead of saturating the pool and rejecting queries with ClickHouseAtCapacity.
+MAX_CONCURRENT_EXPERIMENT_SUMMARY_QUERIES = 5
+
+# Retry transient ClickHouseAtCapacity (TOO_MANY_SIMULTANEOUS_QUERIES) with short exponential
+# backoff so momentary saturation self-heals inline instead of surfacing to the user. Backoff is
+# kept short because this runs on the interactive Max AI path — the agent gets one shot and the
+# user is waiting — unlike the minute-scale backoff in the sessions backfill DAG.
+CLICKHOUSE_CAPACITY_MAX_RETRIES = 3
+CLICKHOUSE_CAPACITY_BACKOFF_BASE_SECONDS = 0.5
+
+T = TypeVar("T")
+
+
+def run_with_capacity_retry(run_fn: Callable[[], T]) -> T:
+    """Run a query callable, retrying on transient ClickHouseAtCapacity with jittered backoff."""
+    attempt = 0
+    while True:
+        try:
+            return run_fn()
+        except ClickHouseAtCapacity:
+            attempt += 1
+            if attempt > CLICKHOUSE_CAPACITY_MAX_RETRIES:
+                raise
+            # Exponential backoff with full jitter to avoid a thundering herd of concurrent
+            # retries all resubmitting at the same instant.
+            backoff = CLICKHOUSE_CAPACITY_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1))
+            time.sleep(random.uniform(0, backoff))
+
 
 # This threshold is just to avoid minor discrepancies in timestamps.
 # The check itself compares the frontend timestamp with the last
@@ -207,9 +240,11 @@ class ExperimentSummaryDataService:
                         user=self._user,
                         error_event_context="agent",
                     )
-                    result = query_runner.run(
-                        execution_mode=execution_mode,
-                        analytics_props={"source": EventSource.POSTHOG_AI},
+                    result = run_with_capacity_retry(
+                        lambda: query_runner.run(
+                            execution_mode=execution_mode,
+                            analytics_props={"source": EventSource.POSTHOG_AI},
+                        )
                     )
                 refresh_time = getattr(result, "last_refresh", None)
 
@@ -260,9 +295,11 @@ class ExperimentSummaryDataService:
                             limit_context=LimitContext.QUERY_ASYNC,
                             error_event_context="agent",
                         )
-                        exposure_result = exposure_runner.run(
-                            execution_mode=execution_mode,
-                            analytics_props={"source": EventSource.POSTHOG_AI},
+                        exposure_result = run_with_capacity_retry(
+                            lambda: exposure_runner.run(
+                                execution_mode=execution_mode,
+                                analytics_props={"source": EventSource.POSTHOG_AI},
+                            )
                         )
 
                     if is_incomplete_response(exposure_result):
