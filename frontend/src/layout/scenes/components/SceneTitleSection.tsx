@@ -18,7 +18,7 @@ import { Tooltip } from '@posthog/lemon-ui'
 import { ProductSetupButton } from 'lib/components/ProductSetup'
 import { RenderKeybind } from 'lib/components/Shortcuts/ShortcutMenu'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, type FeatureFlagKey } from 'lib/constants'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive, buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
@@ -41,9 +41,15 @@ import { SceneBreadcrumbBackButton } from './SceneBreadcrumbs'
 export function SceneTitlePanelButton({
     maxToolProps,
     buttonClassName = 'size-[33px]',
+    maxButtonLabelExperiment,
 }: {
     maxToolProps?: Omit<UseMaxToolOptions, 'active'>
     buttonClassName?: string
+    maxButtonLabelExperiment?: {
+        flag: FeatureFlagKey
+        variant: string
+        label: string
+    }
 }): JSX.Element | null {
     const { scenePanelIsPresent } = useValues(sceneLayoutLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
@@ -62,11 +68,18 @@ export function SceneTitlePanelButton({
         return null
     }
 
+    const maxButtonLabel =
+        !sceneMenuBarEnabled &&
+        maxButtonLabelExperiment &&
+        featureFlags[maxButtonLabelExperiment.flag] === maxButtonLabelExperiment.variant
+            ? maxButtonLabelExperiment.label
+            : undefined
+
     return (
         <>
             {!sceneMenuBarEnabled && (
                 <ButtonPrimitive
-                    className={buttonClassName}
+                    className={cn(buttonClassName, maxButtonLabel && 'w-auto px-2')}
                     onClick={(e) => {
                         e.stopPropagation()
                         e.preventDefault()
@@ -92,7 +105,7 @@ export function SceneTitlePanelButton({
                     }
                     tooltipPlacement="bottom-end"
                     tooltipCloseDelayMs={0}
-                    iconOnly
+                    iconOnly={!maxButtonLabel}
                     data-attr="open-context-panel-ai-button"
                 >
                     <div className="relative">
@@ -101,6 +114,7 @@ export function SceneTitlePanelButton({
                             <IconBrackets className="absolute size-2.5 top-0 -right-1 text-black dark:text-white" />
                         )}
                     </div>
+                    {maxButtonLabel}
                 </ButtonPrimitive>
             )}
             {/* Size to mimic lemon button small */}
@@ -216,6 +230,12 @@ type SceneMainTitleProps = {
      * the AI button in the title section registers the tool with Max
      */
     maxToolProps?: Omit<UseMaxToolOptions, 'active'>
+    /** Optional experiment that labels the PostHog AI button for one variant. */
+    maxButtonLabelExperiment?: {
+        flag: FeatureFlagKey
+        variant: string
+        label: string
+    }
     /** Max character length for the description field */
     descriptionMaxLength?: number
 }
@@ -241,6 +261,7 @@ export function SceneTitleSection({
     onGenerateMetadata,
     isGeneratingMetadata,
     maxToolProps,
+    maxButtonLabelExperiment,
     descriptionMaxLength,
 }: SceneMainTitleProps): JSX.Element | null {
     const { breadcrumbs } = useValues(breadcrumbsLogic)
@@ -390,7 +411,10 @@ export function SceneTitleSection({
                             )}
                         >
                             {effectiveActions}
-                            <SceneTitlePanelButton maxToolProps={maxToolProps} />
+                            <SceneTitlePanelButton
+                                maxToolProps={maxToolProps}
+                                maxButtonLabelExperiment={maxButtonLabelExperiment}
+                            />
                         </div>
                     )}
                 </div>
