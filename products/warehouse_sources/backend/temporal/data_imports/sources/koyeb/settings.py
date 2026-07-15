@@ -26,6 +26,10 @@ class KoyebEndpointConfig:
     # /v1/usages/details requires a starting_time/ending_time window on every request (they are
     # the only list params Koyeb does not mark "(Optional)" in its API spec).
     requires_time_window: bool = False
+    # Endpoint rows embed a deployment `definition`, whose `env[].value` and `config_files[].content`
+    # carry plaintext application secrets. Redact those before persisting so warehouse-query access
+    # can't surface credentials a member can't read in Koyeb itself.
+    scrub_definition_secrets: bool = False
 
 
 # Every Koyeb list endpoint shares one pagination model: `limit`/`offset` query params, with the
@@ -59,6 +63,7 @@ KOYEB_ENDPOINTS: dict[str, KoyebEndpointConfig] = {
         response_data_key="deployments",
         primary_keys=["id"],
         partition_key="created_at",
+        scrub_definition_secrets=True,
     ),
     "regional_deployments": KoyebEndpointConfig(
         name="regional_deployments",
@@ -66,6 +71,9 @@ KOYEB_ENDPOINTS: dict[str, KoyebEndpointConfig] = {
         response_data_key="regional_deployments",
         primary_keys=["id"],
         partition_key="created_at",
+        # Documented rows carry no definition, but scrub defensively in case a per-region rollout
+        # ever echoes the deployment definition it was cut from.
+        scrub_definition_secrets=True,
     ),
     "instances": KoyebEndpointConfig(
         name="instances",

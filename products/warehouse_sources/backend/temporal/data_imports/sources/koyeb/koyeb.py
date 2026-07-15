@@ -43,6 +43,39 @@ class KoyebResumeConfig:
     offset: int = 0
 
 
+# Placeholder written over plaintext secrets pulled out of deployment definitions, so the column
+# still shows a value existed without exposing it.
+REDACTED_SECRET = "[redacted by PostHog]"
+
+
+def _scrub_definition_secrets(row: dict[str, Any]) -> dict[str, Any]:
+    """Redact plaintext secrets embedded in a deployment `definition` in place.
+
+    `definition.env[].value` is a plaintext environment value and `definition.config_files[].content`
+    is raw config-file content — both can hold credentials. We keep the surrounding structure (env
+    keys, secret *references*, file paths) so the row stays useful, but overwrite the secret-bearing
+    values. Anything that isn't shaped as expected is left untouched.
+    """
+    definition = row.get("definition")
+    if not isinstance(definition, dict):
+        return row
+
+    env = definition.get("env")
+    if isinstance(env, list):
+        for var in env:
+            # `secret` is only a reference to a Koyeb secret name (safe); `value` is the plaintext.
+            if isinstance(var, dict) and var.get("value") is not None:
+                var["value"] = REDACTED_SECRET
+
+    config_files = definition.get("config_files")
+    if isinstance(config_files, list):
+        for config_file in config_files:
+            if isinstance(config_file, dict) and config_file.get("content") is not None:
+                config_file["content"] = REDACTED_SECRET
+
+    return row
+
+
 def _get_headers(api_token: str) -> dict[str, str]:
     return {
         "Authorization": f"Bearer {api_token}",
@@ -161,6 +194,11 @@ def get_rows(
         items = data.get(config.response_data_key) or []
         if not items:
             break
+
+        if config.scrub_definition_secrets:
+            for item in items:
+                if isinstance(item, dict):
+                    _scrub_definition_secrets(item)
 
         # Some Koyeb replies carry `has_next`; the rest only echo pagination params, so a short
         # page is the fallback end-of-list signal (an exact-multiple total costs one extra empty

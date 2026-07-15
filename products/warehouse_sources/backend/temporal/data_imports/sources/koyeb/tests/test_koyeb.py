@@ -219,6 +219,44 @@ class TestGetRows:
 
         assert "starting_time" not in calls[0]
 
+    def test_deployment_definition_secrets_are_redacted(self, monkeypatch: Any) -> None:
+        # Deployment definitions embed plaintext env values and config-file content; leaving them
+        # in place would expose credentials to anyone with warehouse-query access.
+        responses = [
+            {
+                "deployments": [
+                    {
+                        "id": "d1",
+                        "definition": {
+                            "env": [
+                                {"key": "DB_PASSWORD", "value": "hunter2"},
+                                {"key": "API_KEY", "secret": "my-secret-ref"},
+                            ],
+                            "config_files": [{"path": "/etc/app.conf", "content": "token=abc123"}],
+                        },
+                    }
+                ],
+                "has_next": False,
+            }
+        ]
+        rows, _ = _collect("deployments", _FakeResumableManager(), monkeypatch, responses)
+
+        env = rows[0]["definition"]["env"]
+        assert env[0] == {"key": "DB_PASSWORD", "value": "[redacted by PostHog]"}
+        # A secret *reference* is just a name, not the value, so it survives untouched.
+        assert env[1] == {"key": "API_KEY", "secret": "my-secret-ref"}
+        assert rows[0]["definition"]["config_files"][0] == {
+            "path": "/etc/app.conf",
+            "content": "[redacted by PostHog]",
+        }
+
+    def test_non_deployment_rows_pass_through_untouched(self, monkeypatch: Any) -> None:
+        # Only definition-bearing endpoints are scrubbed; a stray `value`/`content` elsewhere stays.
+        responses = [{"secrets": [{"id": "s1", "value": "keep-me"}]}]
+        rows, _ = _collect("secrets", _FakeResumableManager(), monkeypatch, responses)
+
+        assert rows[0] == {"id": "s1", "value": "keep-me"}
+
     def test_uses_response_data_key_per_endpoint(self, monkeypatch: Any) -> None:
         # Event streams all return their rows under "events", not the endpoint name.
         responses = [{"events": [{"id": "e1"}], "has_next": False}]
