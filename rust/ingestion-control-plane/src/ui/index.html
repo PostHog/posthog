@@ -189,16 +189,17 @@
         },
         mount(root) {
           const overviewBody = el("div", {}, el("div", { class: "empty" }, "Scanning consumer groups…"));
+          const overviewFetchedAt = el("span", { class: "muted mono", style: "text-transform: none; letter-spacing: 0" });
           const partitionsTitle = el("span", {}, "Partitions");
           const partitionsBody = el("div", {}, el("div", { class: "empty" }, "Select a consumer group above."));
           const analysisTitle = el("span", {}, "Analysis");
           const analysisBody = el("div", {}, el("div", { class: "empty" }, "Start an analysis from a partition row: head reads from the group's committed offset, tail samples the newest messages."));
 
-          this.ui = { overviewBody, partitionsTitle, partitionsBody, analysisTitle, analysisBody };
+          this.ui = { overviewBody, overviewFetchedAt, partitionsTitle, partitionsBody, analysisTitle, analysisBody };
 
           root.append(
             el("div", { class: "panel" },
-              el("h2", {}, "Consumer groups", el("button", { class: "small", onclick: () => this.refreshOverview() }, "Refresh")),
+              el("h2", {}, "Consumer groups", el("span", { class: "row", style: "padding:0" }, overviewFetchedAt, el("button", { class: "small", onclick: () => this.refreshOverview() }, "Refresh"))),
               overviewBody),
             el("div", { class: "panel" },
               el("h2", {}, partitionsTitle, el("button", { class: "small", onclick: () => this.refreshPartitions() }, "Refresh")),
@@ -211,9 +212,11 @@
         },
 
         async refreshOverview() {
-          const { overviewBody } = this.ui;
+          const { overviewBody, overviewFetchedAt } = this.ui;
           try {
-            const rows = await fetchJSON("api/lag/overview");
+            const data = await fetchJSON("api/lag/overview");
+            const rows = data.groups;
+            overviewFetchedAt.textContent = `as of ${new Date(data.fetched_at).toLocaleTimeString()}`;
             if (!rows.length) {
               overviewBody.replaceChildren(el("div", { class: "empty" }, "No consumer targets configured."));
               return;

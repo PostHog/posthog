@@ -12,7 +12,7 @@ use uuid::Uuid;
 use k8s_awareness::DiscoveredPod;
 
 use crate::jobs::{AnalysisRequest, JobView};
-use crate::kafka::lag::{self, ConsumerTarget, GroupLag, GroupLagSummary};
+use crate::kafka::lag::{self, ConsumerTarget, GroupLag, LagOverview};
 use crate::proxy;
 use crate::state::AppState;
 use crate::ui;
@@ -91,13 +91,19 @@ fn validated_target(
     })
 }
 
-async fn get_lag_overview(
-    State(state): State<AppState>,
-) -> Result<Json<Vec<GroupLagSummary>>, ApiError> {
-    let summaries = lag::scan_all_groups(&state.config)
+async fn get_lag_overview(State(state): State<AppState>) -> Result<Json<LagOverview>, ApiError> {
+    let overview = state
+        .overview
+        .get_or_refresh(|| async {
+            let targets = state
+                .discovery
+                .get_or_refresh(|| lag::discover_targets(&state.config))
+                .await?;
+            Ok(lag::scan_targets(&state.config, targets.as_ref().clone()).await)
+        })
         .await
-        .map_err(|e| ApiError::upstream(format!("target discovery failed: {e:#}")))?;
-    Ok(Json(summaries))
+        .map_err(|e| ApiError::upstream(format!("lag overview failed: {e:#}")))?;
+    Ok(Json(overview.as_ref().clone()))
 }
 
 #[derive(Deserialize)]

@@ -54,6 +54,17 @@ pub struct Config {
     #[envconfig(default = "ingestion-")]
     pub group_prefix: String,
 
+    /// Topology (topics, groups, partitions) changes rarely; discovered
+    /// targets are cached this long.
+    #[envconfig(default = "300")]
+    pub discovery_cache_ttl_secs: u64,
+
+    /// The lag overview triggers broker-wide offset/watermark scans; results
+    /// are cached (with single-flight refresh) this long so repeated requests
+    /// coalesce instead of multiplying broker load.
+    #[envconfig(default = "15")]
+    pub overview_cache_ttl_secs: u64,
+
     /// Read-replica Postgres URL for token -> team_id resolution. When unset,
     /// resolution is disabled and analyses report `team_id: null`.
     #[envconfig(from = "DATABASE_URL")]

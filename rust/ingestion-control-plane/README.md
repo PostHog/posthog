@@ -28,6 +28,8 @@ Lists live ingestion-consumer pods and serves the consumer's routing debug UI pe
 | `KAFKA_TLS` | `false` | |
 | `TOPIC_PREFIX` | `ingestion-` | Topics are discovered from cluster metadata by prefix |
 | `GROUP_PREFIX` | `ingestion-` | Consumer groups are discovered by prefix; a group maps to the topics it has committed offsets on |
+| `DISCOVERY_CACHE_TTL_SECS` | `300` | Discovered targets are cached; topology changes rarely |
+| `OVERVIEW_CACHE_TTL_SECS` | `15` | Overview scans are cached with single-flight refresh, bounding broker load from repeated requests |
 | `DATABASE_URL` | empty | Read replica; empty disables token → team resolution |
 | `ANALYSIS_MESSAGE_COUNT` | `10000` | Messages per analysis |
 | `ANALYSIS_DEADLINE_SECS` | `120` | |

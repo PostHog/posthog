@@ -227,7 +227,7 @@ pub async fn scan_group_lag(config: &Config, target: &ConsumerTarget) -> anyhow:
 /// One row of the all-groups overview: total outstanding messages per
 /// configured consumer target. Scan failures are reported inline so one
 /// broken topic doesn't blank the whole overview.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct GroupLagSummary {
     pub group: String,
     pub topic: String,
@@ -239,8 +239,16 @@ pub struct GroupLagSummary {
 }
 
 /// Scan every configured target concurrently, sorted by total lag desc.
-pub async fn scan_all_groups(config: &Config) -> anyhow::Result<Vec<GroupLagSummary>> {
-    let targets = discover_targets(config).await?;
+/// The full overview, cached by the API layer; `fetched_at` tells the UI how
+/// stale the cached scan is.
+#[derive(Debug, Clone, Serialize)]
+pub struct LagOverview {
+    pub fetched_at: String,
+    pub groups: Vec<GroupLagSummary>,
+}
+
+pub async fn scan_targets(config: &Config, targets: Vec<ConsumerTarget>) -> LagOverview {
+    let fetched_at = chrono::Utc::now().to_rfc3339();
     let summaries = futures::future::join_all(targets.into_iter().map(|target| async {
         match scan_group_lag(config, &target).await {
             Ok(group_lag) => GroupLagSummary {
@@ -265,7 +273,10 @@ pub async fn scan_all_groups(config: &Config) -> anyhow::Result<Vec<GroupLagSumm
 
     let mut summaries = summaries;
     summaries.sort_by(|a, b| b.total_lag.cmp(&a.total_lag).then(a.group.cmp(&b.group)));
-    Ok(summaries)
+    LagOverview {
+        fetched_at,
+        groups: summaries,
+    }
 }
 
 /// Watermarks and committed offset for a single partition, read at analysis
