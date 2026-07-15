@@ -2,11 +2,14 @@ import { useMemo } from 'react'
 
 import { IconArrowRight } from '@posthog/icons'
 import { LemonLabel, LemonSkeleton, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
+import { MetricCard, type MetricChange } from '@posthog/quill-charts'
 
-import { formatPercentageDiff, humanFriendlyNumber } from 'lib/utils/numbers'
+import { useChartTheme } from 'lib/charts/hooks'
+import { getColorVar } from 'lib/colors'
+import { dayjs } from 'lib/dayjs'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { AppMetricsTimeSeriesResponse } from './appMetricsLogic'
-import { AppMetricsSeriesOverride, AppMetricsTimeSeriesChart } from './AppMetricsTimeSeriesChart'
 
 export type AppMetricSummaryProps = {
     name: string
@@ -17,12 +20,22 @@ export type AppMetricSummaryProps = {
     previousPeriodTimeSeries?: AppMetricsTimeSeriesResponse | null
     loading?: boolean
     hideIfZero?: boolean
+    /** Which direction of change is good, for the change pill's color. Defaults from the tile
+     *  `color`: danger/warning tiles (failures, drops) treat an increase as bad. */
+    goodDirection?: 'up' | 'down'
     /** When set, the tile becomes clickable (e.g. to drill into matching invocations). */
     onClick?: () => void
     /** Tooltip shown on the drill-down affordance when `onClick` is set. */
     onClickTooltip?: string
     /** Optional content rendered at the bottom of the card, e.g. a deep-link to the underlying data. */
     footer?: JSX.Element | null
+}
+
+function sumSeries(timeSeries: AppMetricsTimeSeriesResponse | null | undefined): number {
+    if (!timeSeries) {
+        return 0
+    }
+    return timeSeries.series.reduce((acc, curr) => acc + curr.values.reduce((acc, curr) => acc + curr, 0), 0)
 }
 
 export function AppMetricSummary({
@@ -34,39 +47,42 @@ export function AppMetricSummary({
     colorIfZero,
     loading,
     hideIfZero = false,
+    goodDirection,
     onClick,
     onClickTooltip,
     footer,
 }: AppMetricSummaryProps): JSX.Element | null {
-    const total = useMemo(() => {
+    const theme = useChartTheme()
+
+    const total = useMemo(() => sumSeries(timeSeries), [timeSeries])
+    const totalPreviousPeriod = useMemo(() => sumSeries(previousPeriodTimeSeries), [previousPeriodTimeSeries])
+
+    const change = useMemo<MetricChange | null>(() => {
+        const percent = ((total - totalPreviousPeriod) / totalPreviousPeriod) * 100
+        return Number.isFinite(percent) ? { value: percent } : null
+    }, [total, totalPreviousPeriod])
+
+    // Per-bucket sum across series — the tile is a single-line summary even when the
+    // underlying response has several series.
+    const data = useMemo(
+        () =>
+            timeSeries
+                ? timeSeries.labels.map((_, i) => timeSeries.series.reduce((acc, s) => acc + (s.values[i] ?? 0), 0))
+                : [],
+        [timeSeries]
+    )
+
+    const labels = useMemo(() => {
         if (!timeSeries) {
-            return 0
+            return []
         }
-        return timeSeries.series.reduce((acc, curr) => acc + curr.values.reduce((acc, curr) => acc + curr, 0), 0)
+        const hasTimePart = timeSeries.labels.some((label) => label.includes(' '))
+        return timeSeries.labels.map((label) => dayjs(label).format(hasTimePart ? 'MMM D, HH:mm' : 'MMM D, YYYY'))
     }, [timeSeries])
 
-    const totalPreviousPeriod = useMemo(() => {
-        if (!previousPeriodTimeSeries) {
-            return 0
-        }
-        return previousPeriodTimeSeries.series.reduce(
-            (acc, curr) => acc + curr.values.reduce((acc, curr) => acc + curr, 0),
-            0
-        )
-    }, [previousPeriodTimeSeries])
-
-    const diffForDisplay = formatPercentageDiff(total, totalPreviousPeriod)
-
     const chartColor = total === 0 ? colorIfZero : color
-    const seriesOverrides = useMemo(
-        () =>
-            timeSeries && chartColor
-                ? Object.fromEntries(
-                      timeSeries.series.map((x): [string, AppMetricsSeriesOverride] => [x.name, { color: chartColor }])
-                  )
-                : undefined,
-        [timeSeries, chartColor]
-    )
+    const resolvedGoodDirection =
+        goodDirection ?? (color === getColorVar('danger') || color === getColorVar('warning') ? 'down' : 'up')
 
     // Hide component if hideIfZero is true and there's no data
     if (hideIfZero && !loading && total === 0 && totalPreviousPeriod === 0) {
@@ -94,38 +110,52 @@ export function AppMetricSummary({
                     : undefined
             }
         >
-            <div className="flex flex-row justify-between items-start">
-                <LemonLabel info={description}>{name}</LemonLabel>
-                {loading ? (
-                    <LemonSkeleton className="w-20 h-6 mb-2" />
-                ) : (
-                    <div className="flex items-center gap-1 text-right text-2xl text-muted-foreground">
-                        {onClick ? (
-                            <Tooltip title={onClickTooltip ?? 'View matching invocations'}>
-                                <IconArrowRight className="text-base text-muted" />
-                            </Tooltip>
-                        ) : null}
-                        {humanFriendlyNumber(total)}
+            {loading ? (
+                <>
+                    <div className="flex flex-row justify-between items-start">
+                        <LemonLabel info={description}>{name}</LemonLabel>
+                        <LemonSkeleton className="w-20 h-6 mb-2" />
                     </div>
-                )}
-            </div>
-            <div className="flex flex-row justify-end items-center gap-2 text-xs text-muted">
-                {loading ? <LemonSkeleton className="w-10 h-4" /> : <>{diffForDisplay}</>}
-            </div>
-
-            <div className="flex-1 mt-2">
-                <div className="h-[10rem]">
-                    {loading ? (
+                    <div className="flex-1 mt-2 h-[10rem]">
                         <SpinnerOverlay />
-                    ) : !timeSeries ? (
-                        <div className="flex-1 flex items-center justify-center">
-                            <LemonLabel>No data</LemonLabel>
-                        </div>
-                    ) : (
-                        <AppMetricsTimeSeriesChart timeSeries={timeSeries} seriesOverrides={seriesOverrides} minimal />
-                    )}
-                </div>
-            </div>
+                    </div>
+                </>
+            ) : !timeSeries ? (
+                <>
+                    <LemonLabel info={description}>{name}</LemonLabel>
+                    <div className="flex-1 flex items-center justify-center h-[10rem]">
+                        <LemonLabel>No data</LemonLabel>
+                    </div>
+                </>
+            ) : (
+                <MetricCard
+                    title={
+                        <span className="flex items-center gap-1">
+                            <LemonLabel info={description}>{name}</LemonLabel>
+                            {onClick ? (
+                                <Tooltip title={onClickTooltip ?? 'View matching invocations'}>
+                                    <IconArrowRight className="text-base text-muted" />
+                                </Tooltip>
+                            ) : null}
+                        </span>
+                    }
+                    value={total}
+                    data={data}
+                    labels={labels}
+                    theme={theme}
+                    color={chartColor}
+                    sparklineHeight={160}
+                    formatValue={humanFriendlyNumber}
+                    change={change}
+                    goodDirection={resolvedGoodDirection}
+                    changeTooltip="Compared to the previous period"
+                    // '' suppresses the resting subtitle (a null would fall back to the last
+                    // bucket's date, misleading under a period-total headline)
+                    restingSubtitle={
+                        previousPeriodTimeSeries ? `vs. ${humanFriendlyNumber(totalPreviousPeriod)} prior` : ''
+                    }
+                />
+            )}
             {footer ? <div className="mt-2 text-xs text-center">{footer}</div> : null}
         </div>
     )
