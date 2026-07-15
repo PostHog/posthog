@@ -222,15 +222,6 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
         )
 
 
-# Inbox weight per investigation verdict — true positives are the actionable ones and should be
-# prioritized; false positives are low-signal noise the agent already dismissed.
-_VERDICT_WEIGHTS: dict[str, float] = {
-    "true_positive": 0.9,
-    "inconclusive": 0.6,
-    "false_positive": 0.3,
-}
-
-
 def _build_investigation_signal_extra(
     *,
     alert: AlertConfiguration,
@@ -250,12 +241,6 @@ def _build_investigation_signal_extra(
         "insight_id": str(insight.id),
         "detector_type": detector_type,
         "verdict": report.verdict,
-        "summary": report.summary,
-        "hypotheses": [
-            {"title": h.title, "rationale": h.rationale, "evidence": list(h.evidence)} for h in report.hypotheses
-        ],
-        "recommendations": list(report.recommendations),
-        "tool_calls_used": report.tool_calls_used,
         "url": notebook_url,
     }
     # Optional fields — omit when absent so the schema's None defaults apply.
@@ -294,7 +279,7 @@ async def _emit_investigation_signal(
             insight_short_id=getattr(insight, "short_id", None),
             report=report,
         ),
-        weight=_VERDICT_WEIGHTS.get(report.verdict, 0.6),
+        weight=1,
         extra=_build_investigation_signal_extra(
             alert=alert,
             alert_check=alert_check,
