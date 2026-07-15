@@ -12,17 +12,20 @@ from __future__ import annotations
 
 import re
 import logging
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from django.db import transaction
 from django.utils import timezone
 
+from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.models.integration import GitHubIntegration
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.tasks.backend.facade.repo_activity import collect_repository_commit_activity
+from products.tasks.backend.facade.repo_activity import RepositoryCommitActivity, collect_repository_commit_activity
 
 from ..models import SignalRepositoryAreaActivity
 
@@ -38,6 +41,9 @@ MAX_CONTRIBUTORS_PER_AREA = 50
 # Synthetic area holding every contributor to the repository; the last fallback level.
 # Distinct from "" (files at the repository root).
 REPO_WIDE_AREA = "*"
+# GitHub commit lookups per rebuild for author emails that neither noreply parsing nor
+# org-member matching resolved (people committing with personal emails).
+MAX_LOGIN_API_LOOKUPS = 50
 
 _NOREPLY_EMAIL_RE = re.compile(r"^(?:\d+\+)?([a-z0-9-]+)@users\.noreply\.github\.com$", re.IGNORECASE)
 
@@ -142,6 +148,7 @@ def rebuild_repository_activity(team_id: int, repository: str) -> int:
     repository = repository.strip().lower()
     commits = collect_repository_commit_activity(team_id, repository, since_days=ACTIVITY_WINDOW_DAYS)
     login_by_email = _github_logins_for_emails(team_id, {c.author_email.lower() for c in commits})
+    login_by_email.update(_logins_via_github_api(team_id, repository, commits, resolved_emails=set(login_by_email)))
 
     per_area: dict[str, dict[str, dict]] = {}
     for commit in commits:  # newest-first, so the first commit seen per login is their latest
@@ -227,6 +234,48 @@ def _github_logins_for_emails(team_id: int, emails: set[str]) -> dict[str, str]:
             if login:
                 resolved[user.email.lower()] = login.lower()
 
+    return resolved
+
+
+def _logins_via_github_api(
+    team_id: int,
+    repository: str,
+    commits: list[RepositoryCommitActivity],
+    *,
+    resolved_emails: set[str],
+) -> dict[str, str]:
+    """Resolve leftover author emails to logins via one GitHub commit lookup each.
+
+    People committing with personal emails match neither noreply parsing nor org-member
+    email matching (their git email differs from their PostHog account email), yet GitHub
+    itself maps their commits to a login. Bounded to ``MAX_LOGIN_API_LOOKUPS`` per rebuild,
+    most-active emails first; best-effort — a rate limit stops the pass, leaving those
+    contributors out of this rebuild.
+    """
+    latest_sha_by_email: dict[str, str] = {}
+    counts: Counter[str] = Counter()
+    for commit in commits:
+        email = commit.author_email.lower()
+        if email in resolved_emails:
+            continue
+        counts[email] += 1
+        latest_sha_by_email.setdefault(email, commit.sha)
+    if not counts:
+        return {}
+
+    github = GitHubIntegration.first_for_team_repository(team_id, repository, source="signals_activity_rebuild")
+    if github is None:
+        return {}
+
+    resolved: dict[str, str] = {}
+    for email, _count in counts.most_common(MAX_LOGIN_API_LOOKUPS):
+        try:
+            info = github.get_commit_author_info(repository, latest_sha_by_email[email])
+        except GitHubRateLimitError:
+            logger.info("GitHub rate limited resolving author logins for %s", repository)
+            break
+        if info is not None:
+            resolved[email] = info.login.lower()
     return resolved
 
 

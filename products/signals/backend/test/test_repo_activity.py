@@ -134,6 +134,28 @@ class TestRebuildRepositoryActivity:
         assert repo_wide["alice"].commit_count == 2
         assert repo_wide["bobdev"].commit_count == 1
 
+    def test_personal_email_resolves_via_github_commit_lookup(self, team):
+        commits = [_commit("a" * 7, "marius.andra@gmail.com", 3, ["frontend/src/notebooks/Notebook.tsx"])]
+
+        class FakeGitHub:
+            def get_commit_author_info(self, repository, sha):
+                from posthog.models.github_integration_base import GitHubCommitAuthor
+
+                assert sha == "a" * 7
+                return GitHubCommitAuthor(login="MariusAndra", name="Marius", commit_url="")
+
+        with (
+            patch(_COLLECT_PATCH_TARGET, return_value=commits),
+            patch(
+                "products.signals.backend.report_generation.repo_activity.GitHubIntegration.first_for_team_repository",
+                return_value=FakeGitHub(),
+            ),
+        ):
+            rebuild_repository_activity(team.id, "acme/app")
+
+        activity = get_area_activity(team.id, "acme/app", ["frontend/src"])
+        assert [c.login for c in activity["frontend/src"]] == ["mariusandra"]
+
     def test_replaces_previous_map_and_empties_dead_areas(self, team):
         _fresh_row(team, "products/old", refreshed_at=timezone.now() - timedelta(days=30))
 
