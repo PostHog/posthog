@@ -1,12 +1,14 @@
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
 import { getDefaultTreeDataAndPeople, getDefaultTreeProducts } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
 import { FileSystemImport } from '~/queries/schema/schema-general'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
+import { ActivityTab } from '~/types'
 
 import type { navAppsTabLogicType } from './navAppsTabLogicType'
 
@@ -23,6 +25,14 @@ export function appsItemName(item: { path: string }): string {
 const matchesSearch = (name: string, search: string): boolean =>
     name.toLowerCase().includes(search.trim().toLowerCase())
 
+const sortByName = (items: FileSystemImport[]): FileSystemImport[] =>
+    [...items].sort((a, b) => appsItemName(a).localeCompare(appsItemName(b), undefined, { sensitivity: 'accent' }))
+
+const withHrefAndFlagsOn = (
+    items: FileSystemImport[],
+    featureFlags: Record<string, boolean | string>
+): FileSystemImport[] => items.filter((item) => !!item.href && (!item.flag || !!featureFlags[item.flag]))
+
 export const navAppsTabLogic = kea<navAppsTabLogicType>([
     path(['layout', 'panel-layout', 'ai-first', 'tabs', 'navAppsTabLogic']),
     connect(() => ({
@@ -38,19 +48,33 @@ export const navAppsTabLogic = kea<navAppsTabLogicType>([
         search: ['', { setSearch: (_, { search }) => search }],
     }),
     selectors({
-        allItems: [
+        appsItems: [
             () => [featureFlagLogic.selectors.featureFlags],
             (featureFlags: Record<string, boolean | string>): FileSystemImport[] =>
-                [...getDefaultTreeProducts(), ...getDefaultTreeDataAndPeople()]
-                    .filter((item) => !!item.href && (!item.flag || !!featureFlags[item.flag]))
-                    .sort((a, b) =>
-                        appsItemName(a).localeCompare(appsItemName(b), undefined, { sensitivity: 'accent' })
-                    ),
+                sortByName([
+                    ...withHrefAndFlagsOn(getDefaultTreeProducts(), featureFlags),
+                    {
+                        path: 'Activity',
+                        type: 'activity',
+                        iconType: 'activity',
+                        href: urls.activity(ActivityTab.ExploreEvents),
+                    },
+                ]),
         ],
-        filteredItems: [
-            (s) => [s.allItems, s.search],
-            (allItems: FileSystemImport[], search: string): FileSystemImport[] =>
-                search ? allItems.filter((item) => matchesSearch(appsItemName(item), search)) : allItems,
+        dataItems: [
+            () => [featureFlagLogic.selectors.featureFlags],
+            (featureFlags: Record<string, boolean | string>): FileSystemImport[] =>
+                sortByName(withHrefAndFlagsOn(getDefaultTreeDataAndPeople(), featureFlags)),
+        ],
+        filteredAppsItems: [
+            (s) => [s.appsItems, s.search],
+            (appsItems: FileSystemImport[], search: string): FileSystemImport[] =>
+                search ? appsItems.filter((item) => matchesSearch(appsItemName(item), search)) : appsItems,
+        ],
+        filteredDataItems: [
+            (s) => [s.dataItems, s.search],
+            (dataItems: FileSystemImport[], search: string): FileSystemImport[] =>
+                search ? dataItems.filter((item) => matchesSearch(appsItemName(item), search)) : dataItems,
         ],
         starredItems: [
             (s) => [projectTreeDataLogic.selectors.shortcutData, s.search],

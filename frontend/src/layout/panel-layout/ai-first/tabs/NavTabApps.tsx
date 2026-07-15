@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconClock, IconX } from '@posthog/icons'
+import { IconX } from '@posthog/icons'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -12,13 +12,11 @@ import { DropdownMenuGroup, DropdownMenuItem } from 'lib/ui/DropdownMenu/Dropdow
 import { Label } from 'lib/ui/Label/Label'
 import { LinkListItem } from 'lib/ui/LinkListItem/LinkListItem'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
-import { urls } from 'scenes/urls'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { BrowserLikeMenuItems } from '~/layout/panel-layout/ProjectTree/menus/BrowserLikeMenuItems'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { FileSystemEntry, FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
-import { ActivityTab } from '~/types'
 
 import { appsItemName, navAppsTabLogic } from './navAppsTabLogic'
 import { AddToStarredDropdownAction } from './NavTabBrowse'
@@ -75,8 +73,44 @@ function AppsRow({
     )
 }
 
+function AppsSection({
+    label,
+    items,
+    currentPath,
+}: {
+    label: string
+    items: FileSystemImport[]
+    currentPath: string
+}): JSX.Element | null {
+    if (items.length === 0) {
+        return null
+    }
+    return (
+        <>
+            <div className="px-2 pt-2">
+                <Label intent="menu" className="text-xxs text-secondary">
+                    {label}
+                </Label>
+            </div>
+            <div className="flex flex-col gap-px">
+                {items.map((item: FileSystemImport) => (
+                    <AppsRow
+                        key={`${item.path}-${item.href}`}
+                        href={item.href ?? '#'}
+                        name={appsItemName(item)}
+                        icon={iconForType(item.iconType, item.iconColor)}
+                        active={!!item.href && currentPath === removeProjectIdIfPresent(item.href)}
+                        tags={item.tags}
+                        actions={<AddToStarredDropdownAction item={item as FileSystemEntry} />}
+                    />
+                ))}
+            </div>
+        </>
+    )
+}
+
 export function NavTabApps(): JSX.Element {
-    const { search, filteredItems, starredItems } = useValues(navAppsTabLogic)
+    const { search, filteredAppsItems, filteredDataItems, starredItems } = useValues(navAppsTabLogic)
     const { setSearch } = useActions(navAppsTabLogic)
     const { deleteShortcut } = useActions(projectTreeDataLogic)
     const { location } = useValues(router)
@@ -97,19 +131,6 @@ export function NavTabApps(): JSX.Element {
             </div>
 
             <ScrollableShadows direction="vertical" className="flex-1 min-h-0" innerClassName="px-1 pb-2">
-                <ButtonPrimitive
-                    menuItem
-                    active={currentPath.startsWith('/activity')}
-                    onClick={() => router.actions.push(urls.activity(ActivityTab.ExploreEvents))}
-                    className="w-full"
-                    data-attr="nav-apps-activity"
-                >
-                    <span className="flex size-4 shrink-0 items-center opacity-80">
-                        <IconClock />
-                    </span>
-                    Activity
-                </ButtonPrimitive>
-
                 {starredItems.length > 0 && (
                     <>
                         <div className="px-2 pt-2">
@@ -142,28 +163,11 @@ export function NavTabApps(): JSX.Element {
                     </>
                 )}
 
-                <div className="px-2 pt-2">
-                    <Label intent="menu" className="text-xxs text-secondary">
-                        Apps
-                    </Label>
-                </div>
-                <div className="flex flex-col gap-px">
-                    {filteredItems.length === 0 ? (
-                        <span className="text-xs text-tertiary px-2 py-1">No results</span>
-                    ) : (
-                        filteredItems.map((item: FileSystemImport) => (
-                            <AppsRow
-                                key={`${item.path}-${item.href}`}
-                                href={item.href ?? '#'}
-                                name={appsItemName(item)}
-                                icon={iconForType(item.iconType, item.iconColor)}
-                                active={!!item.href && currentPath === removeProjectIdIfPresent(item.href)}
-                                tags={item.tags}
-                                actions={<AddToStarredDropdownAction item={item as FileSystemEntry} />}
-                            />
-                        ))
-                    )}
-                </div>
+                <AppsSection label="Apps" items={filteredAppsItems} currentPath={currentPath} />
+                <AppsSection label="Data" items={filteredDataItems} currentPath={currentPath} />
+                {filteredAppsItems.length === 0 && filteredDataItems.length === 0 && starredItems.length === 0 && (
+                    <span className="text-xs text-tertiary px-2 py-1">No results</span>
+                )}
             </ScrollableShadows>
         </div>
     )

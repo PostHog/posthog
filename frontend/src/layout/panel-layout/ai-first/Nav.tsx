@@ -174,6 +174,8 @@ export function Nav(): JSX.Element {
     const activeTab = visibleTabs.some((tab) => tab.id === navExperimentActiveTab)
         ? navExperimentActiveTab
         : visibleTabs[0].id
+    // Four tabs with icons + labels need ~300px; below that, drop the labels
+    const iconOnlyTabs = visibleTabs.length === 4 && openWidth < 300
 
     useShortcut({
         name: 'ToggleLeftNav',
@@ -363,30 +365,31 @@ export function Nav(): JSX.Element {
                                                       : 'w-1/2'
                                             )}
                                             data-attr={`nav-tab-${tab.id}`}
+                                            tooltip={iconOnlyTabs ? tab.label : undefined}
+                                            tooltipPlacement="bottom"
                                         >
-                                            {/* With four tabs (desktop) the labels alone fill the strip */}
-                                            {visibleTabs.length < 4 && (
-                                                <span
-                                                    className={cn(
-                                                        'flex size-4',
-                                                        activeTab === tab.id
-                                                            ? 'text-primary'
-                                                            : 'text-secondary group-hover:text-primary'
-                                                    )}
-                                                >
-                                                    {tab.icon}
-                                                </span>
-                                            )}
                                             <span
                                                 className={cn(
-                                                    'text-xs',
+                                                    'flex size-4',
                                                     activeTab === tab.id
                                                         ? 'text-primary'
                                                         : 'text-secondary group-hover:text-primary'
                                                 )}
                                             >
-                                                {tab.label}
+                                                {tab.icon}
                                             </span>
+                                            {!iconOnlyTabs && (
+                                                <span
+                                                    className={cn(
+                                                        'text-xs',
+                                                        activeTab === tab.id
+                                                            ? 'text-primary'
+                                                            : 'text-secondary group-hover:text-primary'
+                                                    )}
+                                                >
+                                                    {tab.label}
+                                                </span>
+                                            )}
                                         </ButtonPrimitive>
                                     )}
                                 />
