@@ -1,6 +1,7 @@
 """Inbound email webhook endpoint for Mailgun routes."""
 
 import re
+import json
 from email.utils import getaddresses, parseaddr
 from typing import Any, cast
 
@@ -21,6 +22,7 @@ from products.conversations.backend.mailgun import validate_webhook_signature
 from products.conversations.backend.models import Channel, EmailChannel, EmailMessageMapping, Status
 from products.conversations.backend.models.ticket import Ticket
 from products.conversations.backend.services.attachments import save_file_to_uploaded_media
+from products.conversations.backend.services.email_authentication import forwarder_attests_sender, registrable_domain
 from products.conversations.backend.services.region_routing import is_primary_region, proxy_to_secondary_region
 
 logger = structlog.get_logger(__name__)
@@ -231,29 +233,102 @@ def _recover_dmarc_rewritten_sender(
     return sender_email, sender_name
 
 
-def _sender_authenticated(request: HttpRequest, sender_email: str) -> bool:
-    """Verify the From header domain is authenticated before trusting it for identity.
+def _get_message_headers(request: HttpRequest) -> list[tuple[str, str]]:
+    """Parse the `message-headers` field: a JSON list of [name, value] pairs, topmost first."""
+    raw_headers = request.POST.get("message-headers", "")
+    if not raw_headers:
+        return []
+    try:
+        headers = json.loads(raw_headers)
+    except (ValueError, TypeError):
+        return []
+    if not isinstance(headers, list):
+        return []
+    return [(str(entry[0]), str(entry[1])) for entry in headers if isinstance(entry, (list, tuple)) and len(entry) == 2]
 
-    We require SPF pass + envelope-to-From domain alignment:
-      - SPF pass means the sending IP is authorized by the envelope sender's
-        domain DNS (X-Mailgun-Spf). An attacker can't pass SPF for posthog.com
-        without controlling posthog.com's DNS records.
-      - Domain alignment means the envelope sender (MAIL FROM) domain matches
-        the From header domain, preventing an attacker from passing SPF on
-        evil.com while forging From: teammate@posthog.com.
+
+def _get_mime_header(request: HttpRequest, name: str) -> str:
+    """Read a MIME header from the Mailgun webhook payload.
+
+    Mailgun posts each header of a fully parsed message as its own form field,
+    but the complete set is also available in the `message-headers` field.
+    Prefer the flat field and fall back to the JSON blob so the lookup
+    survives payload-shape drift.
+    """
+    flat = request.POST.get(name, "")
+    if flat:
+        return flat
+    wanted = name.lower()
+    for header_name, header_value in _get_message_headers(request):
+        if header_name.lower() == wanted:
+            return header_value
+    return ""
+
+
+def _sender_authenticated(request: HttpRequest, sender_email: str, config: EmailChannel) -> bool:
+    """Verify the From header identity is authenticated before trusting it.
+
+    Everything is gated on SPF pass (X-Mailgun-Spf): the sending IP must be
+    authorized by the envelope sender's domain DNS, so an attacker can't inject
+    mail straight at Mailgun's MX while claiming someone else's envelope.
+    Mailgun only inserts X-Mailgun-Spf when the receiving domain's inbound spam
+    filter is in "Mark spam with MIME headers" (tag) mode — with the header
+    absent this check fails closed.
+
+    Two ways a sender can then authenticate:
+
+    1. Direct alignment: the envelope (MAIL FROM) domain aligns with the From
+       header domain, DMARC-relaxed (registrable domains compared, so envelope
+       bounce.acme.com aligns with From acme.com). Covers direct senders and —
+       because mailbox forwarding rewrites the envelope to the forwarding
+       tenant's own domain — teammates emailing their own support address.
+
+    2. Forwarder attestation: forwarding hides the original sender's SPF, but
+       the tenant's mail system verified the sender at its own boundary and
+       recorded the verdict in an Authentication-Results header. When the
+       envelope aligns with the channel's own *verified* domain (proving the
+       tenant's mail system did the forwarding — domain_verified keeps
+       shared-provider mailboxes like support@gmail.com out of this trust
+       path), we accept a trusted forwarder's topmost AR header reporting
+       dmarc=pass for the From domain. See services/email_authentication.py
+       for the injection-resistance reasoning.
 
     DKIM alone is insufficient — Mailgun's X-Mailgun-Dkim-Check-Result only
     confirms a valid signature exists without reporting which domain signed it.
-    An attacker signing with evil.com's key but forging From: teammate@posthog.com
-    would still get DKIM Pass.
     """
-    spf_passed = request.POST.get("X-Mailgun-Spf", "").lower() == "pass"
-    if not spf_passed:
-        return False
+    spf_result = _get_mime_header(request, "X-Mailgun-Spf").strip()
+    spf_passed = spf_result.lower() == "pass"
     envelope_sender = request.POST.get("sender", "")
     envelope_domain = envelope_sender.rsplit("@", 1)[-1].lower() if "@" in envelope_sender else ""
     from_domain = sender_email.rsplit("@", 1)[-1].lower() if "@" in sender_email else ""
-    return bool(envelope_domain and from_domain and envelope_domain == from_domain)
+    envelope_root = registrable_domain(envelope_domain) if envelope_domain else None
+    from_root = registrable_domain(from_domain) if from_domain else None
+
+    directly_aligned = envelope_root is not None and envelope_root == from_root
+
+    forwarder_attested = False
+    observed_authserv_id = ""
+    envelope_is_own_channel = (
+        config.domain_verified
+        and envelope_root is not None
+        and envelope_root == registrable_domain(config.domain or "")
+    )
+    if spf_passed and not directly_aligned and envelope_is_own_channel and from_domain:
+        forwarder_attested, observed_authserv_id = forwarder_attests_sender(_get_message_headers(request), from_domain)
+
+    authenticated = spf_passed and (directly_aligned or forwarder_attested)
+    logger.info(
+        "email_inbound_auth_signals",
+        team_id=config.team_id,
+        spf_result=spf_result or "absent",
+        envelope_domain=envelope_domain,
+        from_domain=from_domain,
+        directly_aligned=directly_aligned,
+        forwarder_attested=forwarder_attested,
+        authserv_id=observed_authserv_id or None,
+        authenticated=authenticated,
+    )
+    return authenticated
 
 
 def _resolve_team_member(email: str, team: Team) -> User | None:
@@ -264,6 +339,7 @@ def _resolve_team_member(email: str, team: Team) -> User | None:
         OrganizationMembership.objects.filter(
             organization_id=team.organization_id,
             user__email__iexact=email,
+            user__is_active=True,
         )
         .select_related("user")
         .first()
@@ -352,9 +428,9 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
     content = (request.POST.get("stripped-text", "") or request.POST.get("body-plain", ""))[:MAX_EMAIL_BODY_LENGTH]
     subject = request.POST.get("subject", "")[:500]
 
-    # 7b. Detect team member sender — only trust From when DKIM passes
-    # AND the envelope-sender domain aligns with the From domain.
-    sender_authenticated = _sender_authenticated(request, sender_email)
+    # 7b. Detect team member sender — only trust From when the sender
+    # authenticates (SPF + alignment, or a trusted forwarder attestation).
+    sender_authenticated = _sender_authenticated(request, sender_email, config)
     posthog_user = _resolve_team_member(sender_email, team) if sender_authenticated else None
     is_team_member = posthog_user is not None
 
