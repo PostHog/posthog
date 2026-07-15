@@ -49,7 +49,7 @@ _STAGE_LABELS = {
     "fetching": "Step 1/6 · Preparing the diff",
     "chunking": "Step 1/6 · Splitting into chunks",
     "selecting": "Step 2/6 · Picking perspectives",
-    "reviewing": "Step 3/6 · Reviewing chunks",
+    "reviewing": "Step 3/6 · Running review passes",
     "deduplicating": "Step 4/6 · Merging overlapping findings",
     "validating": "Step 5/6 · Validating findings",
     "finalizing": "Step 6/6 · Finalizing the review",
