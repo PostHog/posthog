@@ -1,7 +1,7 @@
 from collections.abc import Callable
 from typing import Any, Literal
 
-from django.db import close_old_connections
+from django.db import close_old_connections, transaction
 
 import s3fs
 import pyarrow as pa
@@ -303,20 +303,30 @@ def _release_pipeline_lock_for_job(export_signal: ExportSignalMessage) -> None:
 
 
 def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
-    model = update_external_job_status(
-        job_id=export_signal.job_id,
-        team_id=export_signal.team_id,
-        status=ExternalDataJob.Status.COMPLETED,
-        logger=logger,
-        latest_error=None,
-    )
+    # Reconnect stale connections before the transaction; close_old_connections must never
+    # run inside an atomic block since it can drop the connection mid-transaction.
+    close_old_connections()
 
-    if model.status == ExternalDataJob.Status.COMPLETED:
-        # Promote only when the Completed write landed: if the job was cancelled (absorbing
-        # Failed) after the final batch passed should_process_batch, the staged incremental
-        # cursor must not advance past data that was never fully loaded.
-        _promote_staged_cursor(export_signal)
+    # The Completed write and cursor promotion share one transaction so they commit together:
+    # if promotion raises, the completion rolls back and the batch retries, never stranding a
+    # terminal job with a stale cursor that a later append sync would re-extract past.
+    with transaction.atomic():
+        model = update_external_job_status(
+            job_id=export_signal.job_id,
+            team_id=export_signal.team_id,
+            status=ExternalDataJob.Status.COMPLETED,
+            logger=logger,
+            latest_error=None,
+        )
 
+        job_completed = model.status == ExternalDataJob.Status.COMPLETED
+        if job_completed:
+            # Promote only when the Completed write landed: if the job was cancelled (absorbing
+            # Failed) after the final batch passed should_process_batch, the staged incremental
+            # cursor must not advance past data that was never fully loaded.
+            _promote_staged_cursor(export_signal)
+
+    if job_completed:
         async_to_sync(finish_row_tracking)(export_signal.team_id, export_signal.schema_id)
 
         logger.info(
@@ -338,8 +348,7 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
 
 
 def _promote_staged_cursor(export_signal: ExportSignalMessage) -> None:
-    # Failures propagate so the batch retries instead of completing with a stale cursor.
-    close_old_connections()
+    # Runs inside the completion transaction; failures roll it back so the batch retries.
     schema = ExternalDataSchema.objects.get(id=export_signal.schema_id, team_id=export_signal.team_id)
     promoted = schema.promote_staged_incremental_values(export_signal.run_uuid)
     if promoted:

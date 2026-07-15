@@ -369,6 +369,7 @@ class TestMarkJobCompleted:
             ("completed_write_absorbed_by_failed", "Failed", False),
         ]
     )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.transaction")
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.release_v3_pipeline_lock"
     )
@@ -395,6 +396,7 @@ class TestMarkJobCompleted:
         mock_finish_row_tracking: AsyncMock,
         mock_job_objects: MagicMock,
         mock_release: MagicMock,
+        mock_transaction: MagicMock,
     ) -> None:
         model = MagicMock()
         model.status = resulting_status
@@ -415,6 +417,44 @@ class TestMarkJobCompleted:
             mock_finish_row_tracking.assert_not_awaited()
         # The pipeline lock must be released either way, or the next sync is blocked.
         mock_release.assert_called_once_with(team_id=1, schema_id="schema-1", token="wf-run-1")
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.transaction")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.release_v3_pipeline_lock"
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.finish_row_tracking",
+        new_callable=AsyncMock,
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.ExternalDataSchema.objects"
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.update_external_job_status"
+    )
+    def test_promotion_failure_does_not_finalize_job(
+        self,
+        mock_update: MagicMock,
+        mock_schema_objects: MagicMock,
+        mock_finish_row_tracking: AsyncMock,
+        mock_release: MagicMock,
+        mock_transaction: MagicMock,
+    ) -> None:
+        # Promotion raising must propagate and skip finalization so the batch retries; otherwise the
+        # job stays Completed with a stale cursor and a later append sync re-extracts the same window.
+        model = MagicMock()
+        model.status = "Completed"
+        mock_update.return_value = model
+
+        schema = MagicMock()
+        schema.promote_staged_incremental_values.side_effect = RuntimeError("db error")
+        mock_schema_objects.get.return_value = schema
+
+        with pytest.raises(RuntimeError, match="db error"):
+            _mark_job_completed(self._make_signal())
+
+        mock_finish_row_tracking.assert_not_awaited()
+        mock_release.assert_not_called()
 
 
 # Regression guard for #70476: pyarrow 21+ string_view broke delta pushdown on string PKs.
