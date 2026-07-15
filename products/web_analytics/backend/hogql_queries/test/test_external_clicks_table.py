@@ -9,6 +9,8 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 
+from parameterized import parameterized
+
 from posthog.schema import (
     DateRange,
     HogQLQueryModifiers,
@@ -18,6 +20,9 @@ from posthog.schema import (
     WebAnalyticsPreComputeStrategy,
     WebExternalClicksTableQuery,
 )
+
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.models.utils import uuid7
 
@@ -394,3 +399,30 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ],
             "Sorting by visitors DESC should show URLs with more visitors first, then alphabetically",
         )
+
+    @parameterized.expand(
+        [
+            ("string_session_id", None, "$session_id"),
+            ("uuid_session_id", "uuid", "$session_id_uuid"),
+        ]
+    )
+    def test_session_id_group_by_is_projected_and_aliased(self, _name, join_mode, session_column):
+        # On the sharded events cluster the per-session scan grouped by a bare, unprojected
+        # `$session_id`, whose intermediate name didn't round-trip through two-stage aggregation
+        # (NotFoundColumnInBlock on Remote). The session id must be projected under a plain alias
+        # and grouped by that alias so the group key stays consistently named across shards.
+        modifiers = HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V2)
+        if join_mode:
+            modifiers.sessionsV2JoinMode = join_mode
+        query = WebExternalClicksTableQuery(
+            dateRange=DateRange(date_from="2023-12-01", date_to="2023-12-11"),
+            properties=[],
+        )
+        runner = WebExternalClicksTableQueryRunner(team=self.team, query=query, modifiers=modifiers)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers)
+        sql, _ = prepare_and_print_ast(runner.to_query(), context=context, dialect="clickhouse")
+
+        self.assertIn(f"`{session_column}` AS session_id", sql)
+        self.assertIn("GROUP BY session_id, url", sql)
+        self.assertNotIn("GROUP BY `$session_id`", sql)
+        self.assertNotIn("GROUP BY `$session_id_uuid`", sql)

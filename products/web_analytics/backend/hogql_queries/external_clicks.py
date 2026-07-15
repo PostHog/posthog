@@ -54,7 +54,8 @@ FROM (
         any(person_id) AS filtered_person_id,
         count() AS filtered_click_count,
         {url_expr} AS url,
-        MIN(session.$start_timestamp) AS start_timestamp
+        MIN(session.$start_timestamp) AS start_timestamp,
+        {events_session_id} AS session_id
     FROM events
     WHERE and(
         events.event == '$autocapture',
@@ -65,7 +66,7 @@ FROM (
         {inside_periods},
         {all_properties},
     )
-    GROUP BY {events_session_id}, url
+    GROUP BY session_id, url
 )
 GROUP BY "context.columns.url"
 """,

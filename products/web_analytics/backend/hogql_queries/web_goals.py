@@ -146,7 +146,8 @@ class WebGoalsQueryRunner(WebAnalyticsQueryRunner[WebGoalsQueryResponse]):
                 """
 SELECT
     any(events.person_id) as web_goals_person_id,
-    min(session.$start_timestamp) as start_timestamp
+    min(session.$start_timestamp) as start_timestamp,
+    {events_session_id} AS session_id
 FROM events
 WHERE and(
     {events_session_id} IS NOT NULL,
@@ -155,7 +156,7 @@ WHERE and(
     {event_properties},
     {session_properties}
 )
-GROUP BY {events_session_id}
+GROUP BY session_id
         """,
                 placeholders={
                     "periods_expression": self._periods_expression("timestamp"),
