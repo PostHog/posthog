@@ -8,8 +8,11 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.jfrog_artifactory import jfrog_artifactory
 from products.warehouse_sources.backend.temporal.data_imports.sources.jfrog_artifactory.jfrog_artifactory import (
+    RESPONSE_LIMIT_ERROR,
+    JfrogArtifactoryResponseTooLargeError,
     JfrogArtifactoryResumeConfig,
     _format_aql_datetime,
+    _request,
     _strip_domain_prefix,
     build_aql_query,
     get_rows,
@@ -339,12 +342,17 @@ class _FakeSession:
         self.requests: list[tuple[str, str, str | None]] = []
         self._status_code = status_code
 
-    def get(self, url: str, headers: dict | None = None, timeout: int | None = None) -> MagicMock:
+    def get(self, url: str, headers: dict | None = None, timeout: int | None = None, stream: bool = False) -> MagicMock:
         self.requests.append(("GET", url, None))
         return MagicMock(status_code=self._status_code)
 
     def post(
-        self, url: str, headers: dict | None = None, data: str | None = None, timeout: int | None = None
+        self,
+        url: str,
+        headers: dict | None = None,
+        data: str | None = None,
+        timeout: int | None = None,
+        stream: bool = False,
     ) -> MagicMock:
         self.requests.append(("POST", url, data))
         return MagicMock(status_code=self._status_code)
@@ -381,3 +389,44 @@ class TestProbeEndpoint:
     def test_malformed_url_raises(self) -> None:
         with pytest.raises(ValueError):
             probe_endpoint("https://acme.jfrog.io/evil@path", "token")
+
+
+def _streamed_response(status_code: int = 200, chunks: list[bytes] | None = None) -> MagicMock:
+    response = MagicMock()
+    response.status_code = status_code
+    response.ok = 200 <= status_code < 400
+    response.iter_content.return_value = chunks if chunks is not None else [b"{}"]
+    return response
+
+
+class TestRequestBodyCap:
+    def test_decodes_streamed_body(self) -> None:
+        session = MagicMock()
+        session.request.return_value = _streamed_response(chunks=[b'{"a":', b"1}"])
+
+        result = _request(session, "GET", "https://acme.jfrog.io/api/x", {}, MagicMock())
+
+        assert result == {"a": 1}
+        # stream=True keeps a hostile host's body off the wire until we read it under the cap.
+        assert session.request.call_args.kwargs["stream"] is True
+
+    @parameterized.expand(
+        [
+            ("MAX_RESPONSE_BYTES", 4, [b"aaaa", b"aaaa"]),  # decoded body past the byte cap
+            ("MAX_TRANSFER_SECONDS", -1, [b"a"]),  # transfer past the wall-clock deadline
+        ]
+    )
+    def test_over_limit_raises_non_retryable(self, attr: str, value: int, chunks: list[bytes]) -> None:
+        # A hostile/self-hosted host could stream an unbounded or slow-drip body and OOM a shared
+        # worker. The read must abort past either cap before parsing JSON, with a non-retryable error
+        # (retrying can't shrink or speed up the body) — so session.request is called exactly once.
+        session = MagicMock()
+        session.request.return_value = _streamed_response(chunks=chunks)
+
+        with pytest.raises(JfrogArtifactoryResponseTooLargeError) as exc:
+            with pytest.MonkeyPatch.context() as mp:
+                mp.setattr(jfrog_artifactory, attr, value)
+                _request(session, "GET", "https://acme.jfrog.io/api/x", {}, MagicMock())
+
+        assert RESPONSE_LIMIT_ERROR in str(exc.value)
+        assert session.request.call_count == 1

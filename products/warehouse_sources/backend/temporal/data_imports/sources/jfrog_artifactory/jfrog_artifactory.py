@@ -1,4 +1,5 @@
 import json
+import time
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
@@ -27,9 +28,50 @@ ARTIFACTORY_API_PATH = "/artifactory/api"
 REQUEST_TIMEOUT_SECONDS = 120
 MAX_RETRY_ATTEMPTS = 5
 
+# The platform URL is user-supplied, so a hostile host could stream an arbitrarily large (or
+# highly compressed) body and OOM the import worker. Cap how much we buffer before decoding JSON,
+# and how long a single transfer may run, on both the sync path and the reachability probe.
+MAX_RESPONSE_BYTES = 512 * 1024 * 1024
+MAX_TRANSFER_SECONDS = 600
+RESPONSE_CHUNK_BYTES = 1024 * 1024
+RESPONSE_LIMIT_ERROR = "JFrog response exceeded a transfer limit"
+
 
 class JfrogArtifactoryRetryableError(Exception):
     pass
+
+
+class JfrogArtifactoryResponseTooLargeError(Exception):
+    # Non-retryable: a body over the cap won't shrink on retry, and buffering it again wastes the worker.
+    pass
+
+
+def _read_capped_body(response: requests.Response, url: str) -> bytes:
+    """Stream the response body under a byte cap and a wall-clock deadline, then return the raw bytes.
+
+    Called only when the caller opened the request with ``stream=True`` so the body isn't buffered
+    until here. ``iter_content`` decodes any content-encoding, so ``total`` and the cap track the
+    decoded size that actually lands in memory — a compression bomb trips the cap as it inflates.
+    Raises :class:`JfrogArtifactoryResponseTooLargeError` before the JSON is decoded rather than
+    letting a hostile host OOM or occupy the worker.
+    """
+    started = time.monotonic()
+    total = 0
+    chunks: list[bytes] = []
+    for chunk in response.iter_content(chunk_size=RESPONSE_CHUNK_BYTES):
+        if not chunk:
+            continue
+        total += len(chunk)
+        if total > MAX_RESPONSE_BYTES:
+            raise JfrogArtifactoryResponseTooLargeError(
+                f"{RESPONSE_LIMIT_ERROR}: {url} returned more than {MAX_RESPONSE_BYTES} bytes"
+            )
+        if time.monotonic() - started > MAX_TRANSFER_SECONDS:
+            raise JfrogArtifactoryResponseTooLargeError(
+                f"{RESPONSE_LIMIT_ERROR}: {url} transfer exceeded {MAX_TRANSFER_SECONDS}s"
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 @dataclasses.dataclass
@@ -151,17 +193,20 @@ def _request(
     logger: FilteringBoundLogger,
     data: str | None = None,
 ) -> Any:
-    response = session.request(method, url, headers=headers, data=data, timeout=REQUEST_TIMEOUT_SECONDS)
+    # stream=True so the (user-supplied) host's body isn't buffered until we read it under a cap.
+    response = session.request(method, url, headers=headers, data=data, timeout=REQUEST_TIMEOUT_SECONDS, stream=True)
 
     # JFrog Cloud tiers rate limit; transient 5xx are retryable too.
     if response.status_code == 429 or response.status_code >= 500:
         raise JfrogArtifactoryRetryableError(f"JFrog API error (retryable): status={response.status_code}, url={url}")
 
+    body = _read_capped_body(response, url)
+
     if not response.ok:
-        logger.error(f"JFrog API error: status={response.status_code}, body={response.text[:500]}, url={url}")
+        logger.error(f"JFrog API error: status={response.status_code}, body={body[:500]!r}, url={url}")
         response.raise_for_status()
 
-    return response.json()
+    return json.loads(body)
 
 
 def _get_json(
@@ -280,6 +325,8 @@ def probe_endpoint(base_url: str, access_token: str, endpoint: str | None = None
     """
     config = JFROG_ARTIFACTORY_ENDPOINTS[endpoint] if endpoint is not None else None
     session = _get_session(access_token)
+    # stream=True keeps the (user-supplied) host's body off the wire until we ask for it — the probe
+    # only inspects the status code, so we never read it, and closing the response frees the socket.
     try:
         if config is not None and config.kind == "aql":
             # AQL requires authentication and (for builds) admin/scoped-token access, so a
@@ -287,13 +334,20 @@ def probe_endpoint(base_url: str, access_token: str, endpoint: str | None = None
             query = build_aql_query(config, limit=1)
             url = _api_url(base_url, "/search/aql")
             response = session.post(
-                url, headers={**_headers(access_token), "Content-Type": "text/plain"}, data=query, timeout=30
+                url,
+                headers={**_headers(access_token), "Content-Type": "text/plain"},
+                data=query,
+                timeout=30,
+                stream=True,
             )
         else:
             path = config.path if config is not None else "/repositories"
-            response = session.get(_api_url(base_url, path), headers=_headers(access_token), timeout=30)
+            response = session.get(_api_url(base_url, path), headers=_headers(access_token), timeout=30, stream=True)
     except ValueError:
         raise
     except Exception:
         return False, None
-    return response.status_code == 200, response.status_code
+    try:
+        return response.status_code == 200, response.status_code
+    finally:
+        response.close()
