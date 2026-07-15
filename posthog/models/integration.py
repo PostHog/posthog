@@ -115,12 +115,17 @@ REFRESH_FAILURE_REASON_NETWORK = "network"
 REFRESH_FAILURE_REASON_OTHER = "other"
 
 
-def oauth_refresh_failure_reason(status_code: int, body: dict) -> str:
+def oauth_refresh_failure_reason(status_code: int, body: dict, kind: str | None = None) -> str:
     error = body.get("error")
     if error == REFRESH_FAILURE_REASON_INVALID_GRANT:
         return REFRESH_FAILURE_REASON_INVALID_GRANT
     if error == REFRESH_FAILURE_REASON_INVALID_CLIENT:
         return REFRESH_FAILURE_REASON_INVALID_CLIENT
+    # Reddit reports a dead grant as `{"message": "Bad Request", "error": 400}` with no OAuth
+    # error code. Our refresh request shape is fixed and succeeds fleet-wide, so a 400 on this
+    # endpoint means the grant, not the request - match that exact shape for reddit only.
+    if kind == "reddit-ads" and status_code == 400 and error == 400:
+        return REFRESH_FAILURE_REASON_INVALID_GRANT
     if status_code >= 500:
         return REFRESH_FAILURE_REASON_HTTP_5XX
     return REFRESH_FAILURE_REASON_OTHER
@@ -1392,7 +1397,7 @@ class OauthIntegration:
             )
             self.integration.errors = ERROR_TOKEN_REFRESH_FAILED
             reason = (
-                oauth_refresh_failure_reason(res.status_code, config)
+                oauth_refresh_failure_reason(res.status_code, config, kind=self.integration.kind)
                 if res is not None
                 else REFRESH_FAILURE_REASON_NETWORK
             )
@@ -3324,7 +3329,7 @@ class MetaAdsIntegration:
         if res.status_code != 200 or not config.get("access_token"):
             logger.warning(f"Failed to refresh token for {self}", response=res.text)
             self.integration.errors = ERROR_TOKEN_REFRESH_FAILED
-            reason = oauth_refresh_failure_reason(res.status_code, config)
+            reason = oauth_refresh_failure_reason(res.status_code, config, kind=self.integration.kind)
             attempt = record_refresh_failure(self.integration, reason=reason)
             oauth_refresh_counter.labels(
                 kind=self.integration.kind, result="failed", reason=reason, attempt=attempt
