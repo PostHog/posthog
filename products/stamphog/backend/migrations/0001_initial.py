@@ -185,6 +185,7 @@ class Migration(migrations.Migration):
                 ("changed_files", models.IntegerField(default=0)),
                 ("audience_key", models.CharField(blank=True, max_length=255)),
                 ("posted_comment_id", models.BigIntegerField(null=True)),
+                ("payload_updated_at", models.DateTimeField(null=True)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
                 (

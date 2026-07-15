@@ -17,6 +17,7 @@ import structlog
 from celery import shared_task
 
 from products.stamphog.backend.facade.enums import ReviewMode, ReviewRunStatus, ReviewVerdict
+from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
 from products.stamphog.backend.logic.audiences import resolve_audience_key
 from products.stamphog.backend.models import PullRequest, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.temporal.client import execute_stamphog_review_workflow
@@ -34,6 +35,18 @@ STAMPHOG_PR_EVENT_IDEMPOTENCY_KEY_PREFIX = "stamphog:github:pr_event:"
 # In ALL mode it stays ignored: every label add fires a new delivery id, so toggling any label would
 # re-run the sandbox + LLM review without a code change.
 RELEVANT_PR_ACTIONS = frozenset({"opened", "synchronize", "ready_for_review", "reopened", "labeled"})
+
+# Actions that (may) move the PR head. When one of these is skipped by the LABEL-mode gate, a prior
+# stamphog approval at the old head must still be retracted — the review workflow that normally does it
+# is skipped. `reopened` doesn't move the head itself but is included defensively.
+_HEAD_CHANGING_ACTIONS = frozenset({"synchronize", "reopened"})
+
+# Approval dismissal message for the LABEL-mode skip path. Unlike the workflow's dismissal, no re-review
+# follows here (the trigger label is absent), so the copy tells the author how to re-request one.
+_LABEL_SKIP_DISMISS_MESSAGE = (
+    "New commits were pushed — dismissing the stamphog approval from an earlier head. "
+    "Re-add the trigger label to request a fresh review."
+)
 
 # Per-PR cooldown for label-triggered re-reviews, so removing/re-adding the trigger label can't spam
 # sandbox + LLM runs. Set only when a `labeled` event actually queues a run in LABEL mode.
@@ -146,6 +159,15 @@ def _upsert_pull_request(repo_config: StamphogRepoConfig, pr_payload: dict[str, 
             "body_excerpt": (pr_payload.get("body") or "")[:PR_BODY_EXCERPT_MAX_CHARS],
         },
     )
+    # Advance the monotonic payload clock only forward. The review path already drops strictly-older
+    # deliveries before it gets here, but the merge path has no such guard, so never regress the stored
+    # value on an out-of-order snapshot. pr_obj still holds the pre-upsert value (not in defaults above).
+    incoming_updated_at = parse_datetime(pr_payload.get("updated_at") or "")
+    if incoming_updated_at is not None and (
+        pr_obj.payload_updated_at is None or incoming_updated_at > pr_obj.payload_updated_at
+    ):
+        pr_obj.payload_updated_at = incoming_updated_at
+        pr_obj.save(update_fields=["payload_updated_at", "updated_at"])
     return pr_obj
 
 
@@ -207,6 +229,34 @@ def _supersede_prior_runs(pr_obj: PullRequest) -> None:
     if stale_ids:
         ReviewRun.objects.for_team(pr_obj.team_id).filter(id__in=stale_ids).update(
             status=ReviewRunStatus.SUPERSEDED, updated_at=timezone.now()
+        )
+
+
+def _retract_stale_approvals_on_label_skip(repo_config: StamphogRepoConfig, pr: dict[str, Any]) -> None:
+    """Retract a standing stamphog approval when a LABEL-mode head change is skipped for a missing label.
+
+    In LABEL mode a `synchronize`/`reopened` without the trigger label never enters the review workflow,
+    so its dismiss_stale_approvals step never runs and a prior approval keeps satisfying required reviews
+    over the newly pushed, unreviewed commits. Retract it here with the payload's head sha. No PR row yet
+    means no prior run, so nothing to do. Raises on failure so the caller can retry — a dropped dismissal
+    would leave the stale approval standing. No explicit transaction: the helper's per-run saves route to
+    the model's DB on their own, and wrapping the GitHub dismissal in an atomic block is what we avoid.
+    """
+    team_id = repo_config.team_id
+    pr_number = pr.get("number")
+    head_sha = (pr.get("head") or {}).get("sha") or ""
+    pull_request = PullRequest.objects.for_team(team_id).filter(repo_config=repo_config, pr_number=pr_number).first()
+    if pull_request is None:
+        return
+    dismissed = dismiss_stale_approvals_for_head(
+        team_id, pull_request, repo_config, head_sha, message=_LABEL_SKIP_DISMISS_MESSAGE
+    )
+    if dismissed:
+        logger.info(
+            "stamphog_pr_event_label_skip_dismissed_stale_approvals",
+            repo=repo_config.repository,
+            pr_number=pr_number,
+            dismissed=dismissed,
         )
 
 
@@ -491,6 +541,15 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
 
     mode_skip_reason = _review_mode_skip_reason(repo_config, action, payload, pr)
     if mode_skip_reason is not None:
+        # Safety net before dropping the event: a LABEL-mode head change skipped for a missing trigger
+        # label still invalidates any standing approval. Retract it before marking the delivery processed,
+        # and retry (don't drop) on failure so a transient blip can't leave the stale approval live.
+        if action in _HEAD_CHANGING_ACTIONS and repo_config.review_mode == ReviewMode.LABEL:
+            try:
+                _retract_stale_approvals_on_label_skip(repo_config, pr)
+            except Exception as e:
+                logger.exception("stamphog_pr_event_label_skip_dismiss_failed", delivery_id=delivery_id, error=str(e))
+                raise cast(Any, process_pull_request_event).retry(exc=e)
         logger.info("stamphog_pr_event_skipped", repo=repo, pr_number=pr_number, reason=mode_skip_reason)
         if delivery_id:
             _mark_pr_event_processed(delivery_id)
@@ -512,6 +571,25 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
             raise cast(Any, process_pull_request_event).retry(exc=e)
         if resumed:
             _mark_pr_event_processed(delivery_id)
+            return
+
+    # Out-of-order guard: GitHub can deliver (or fan out) an older PR snapshot after a newer one.
+    # pull_request.updated_at is monotonic per PR, so a payload strictly older than the one we last
+    # applied is stale — superseding the current run for it would cancel the up-to-date review and start
+    # one against an outdated head, leaving the PR unreviewed until the next push. Drop it; the newer
+    # delivery already queued the correct run. Equal timestamps proceed (a redelivery of the current head).
+    incoming_updated_at = parse_datetime(pr.get("updated_at") or "")
+    if incoming_updated_at is not None:
+        stored_updated_at = (
+            PullRequest.objects.for_team(team_id)
+            .filter(repo_config=repo_config, pr_number=pr_number)
+            .values_list("payload_updated_at", flat=True)
+            .first()
+        )
+        if stored_updated_at is not None and incoming_updated_at < stored_updated_at:
+            logger.info("stamphog_pr_event_stale_payload", repo=repo, pr_number=pr_number, action=action)
+            if delivery_id:
+                _mark_pr_event_processed(delivery_id)
             return
 
     # Bind the transaction and its on_commit hook to the model's routed DB. A bare atomic() opens on

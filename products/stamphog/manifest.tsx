@@ -19,14 +19,15 @@ export const manifest: ProductManifest = {
     },
     routes: {
         '/stamphog': ['Stamphog', 'stamphog'],
-        // GitHub App Setup URL — GitHub redirects here after install with an
-        // installation_id search param, mirroring the shared github callback route.
-        '/integrations/stamphog/callback': ['Stamphog', 'stamphogCallback'],
+        // GitHub App Setup URL — GitHub redirects here after install with an installation_id search
+        // param. Lives under the product's own /stamphog namespace, not /integrations/*, so the generic
+        // /integrations/:kind/callback scene route can't shadow it (product routes register after core).
+        '/stamphog/install/callback': ['Stamphog', 'stamphogCallback'],
     },
     redirects: {},
     urls: {
         stamphog: (): string => '/stamphog',
-        stamphogCallback: (): string => '/integrations/stamphog/callback',
+        stamphogCallback: (): string => '/stamphog/install/callback',
     },
     fileSystemTypes: {},
     treeItemsNew: [],

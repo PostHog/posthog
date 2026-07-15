@@ -27,18 +27,37 @@ logger = structlog.get_logger(__name__)
 
 _REPO_AUDIENCE_PREFIX = "repo:"
 
+# Slack channel flags that mark a channel as shared beyond this workspace. Auto-provisioning maps a
+# GitHub team/author slug onto a same-named Slack channel, so a shared channel matching that name would
+# route internal PR digests into an externally connected (Slack Connect) or cross-org channel — a leak.
+# is_ext_shared / is_pending_ext_shared cover live and pending external connections; is_shared also
+# catches org-shared channels. A repo-DECLARED digest channel is exempt (the maintainer chose it).
+_SHARED_CHANNEL_FLAGS = ("is_ext_shared", "is_pending_ext_shared", "is_shared")
 
-def _fetch_channel_map(integration: Integration) -> dict[str, dict[str, str]]:
+
+def _is_shared_channel(channel: dict) -> bool:
+    return any(channel.get(flag) for flag in _SHARED_CHANNEL_FLAGS)
+
+
+def _fetch_channel_map(integration: Integration, *, exclude_shared: bool) -> dict[str, dict[str, str]]:
     """Public channel name -> {"id": ..., "name": ...} for one Slack integration.
 
     Private channels are skipped: listing them needs a real authed Slack user, and this runs from
     a background task with no request user to act as — public-only is fine for name matching.
+    When ``exclude_shared`` (the name-match auto-provision path), externally/org-shared channels are
+    dropped too so a digest can never be routed into a channel another org can see (see
+    _SHARED_CHANNEL_FLAGS). A repo-declared channel is looked up with ``exclude_shared=False`` — the
+    maintainer named it explicitly, so a shared target there is their deliberate choice.
     """
     authed_user = cast(str, (integration.config or {}).get("authed_user", {}).get("id") or "")
     channels = SlackIntegration(integration).list_channels(
         should_include_private_channels=False, authed_user=authed_user
     )
-    return {channel["name"]: {"id": channel["id"], "name": channel["name"]} for channel in channels}
+    return {
+        channel["name"]: {"id": channel["id"], "name": channel["name"]}
+        for channel in channels
+        if not (exclude_shared and _is_shared_channel(channel))
+    }
 
 
 def _declared_repo_channel_name(team_id: int, audience_key: str) -> str | None:
@@ -85,10 +104,15 @@ def resolve_slack_destination(
     if integration is None:
         return None
 
+    # Only the name-match path drops shared channels: it auto-picks a channel by a slug it didn't
+    # choose, so an externally shared match would leak the digest. A repo-declared channel is the
+    # maintainer's explicit pick, shared or not.
+    exclude_shared = resolution_source == ChannelResolutionSource.SLACK_NAME_MATCH
+
     # Fetched fresh per provisioning attempt: only never-seen audiences get here (at most a handful
     # a day), so a paginated list per attempt is fine — a Slack hiccup just retries tomorrow.
     try:
-        channel_map = _fetch_channel_map(integration)
+        channel_map = _fetch_channel_map(integration, exclude_shared=exclude_shared)
     except Exception:
         logger.warning("stamphog_channel_resolution_list_channels_failed", team_id=team_id, exc_info=True)
         return None

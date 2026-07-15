@@ -103,6 +103,10 @@ class PullRequest(ProductTeamModel):
     digest_run = models.ForeignKey("DigestRun", on_delete=models.SET_NULL, null=True, related_name="pull_requests")
     # The sticky comment is a PR-level artifact, upserted per PR across review runs.
     posted_comment_id = models.BigIntegerField(null=True)
+    # The PR's own pull_request.updated_at from the last payload we applied. GitHub can redeliver or
+    # fan out an older snapshot after a newer one; this field is the monotonic clock that lets the task
+    # drop a strictly-older delivery instead of superseding the current run with a stale review.
+    payload_updated_at = models.DateTimeField(null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

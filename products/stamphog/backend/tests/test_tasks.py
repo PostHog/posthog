@@ -4,6 +4,8 @@ from typing import Any
 import pytest
 from unittest.mock import patch
 
+from django.utils.dateparse import parse_datetime
+
 from posthog.models import Project, Team
 from posthog.models.scoping import team_scope
 
@@ -30,20 +32,24 @@ def _pr_payload(
     draft: bool = False,
     labels: list[str] | None = None,
     added_label: str | None = None,
+    updated_at: str | None = None,
 ) -> dict[str, Any]:
+    pr: dict[str, Any] = {
+        "number": pr_number,
+        "html_url": f"https://github.com/{repo}/pull/{pr_number}",
+        "head": {"sha": head_sha, "ref": head_branch},
+        "user": {"login": author_login, "type": user_type},
+        "author_association": author_association,
+        "draft": draft,
+        "labels": [{"name": name} for name in labels or []],
+    }
+    if updated_at is not None:
+        pr["updated_at"] = updated_at
     payload: dict[str, Any] = {
         "action": action,
         "installation": {"id": installation_id},
         "repository": {"full_name": repo},
-        "pull_request": {
-            "number": pr_number,
-            "html_url": f"https://github.com/{repo}/pull/{pr_number}",
-            "head": {"sha": head_sha, "ref": head_branch},
-            "user": {"login": author_login, "type": user_type},
-            "author_association": author_association,
-            "draft": draft,
-            "labels": [{"name": name} for name in labels or []],
-        },
+        "pull_request": pr,
     }
     if added_label is not None:
         payload["label"] = {"name": added_label}
@@ -298,6 +304,44 @@ def test_synchronize_supersedes_prior_non_terminal_run_but_not_terminal_ones(tea
     assert completed_run.status == ReviewRunStatus.COMPLETED
     assert new_run.status == ReviewRunStatus.QUEUED
     assert new_run.head_sha == "sha-2"
+
+
+@pytest.mark.parametrize(
+    "incoming_updated_at,expect_new_run",
+    [
+        ("2026-07-15T11:00:00Z", False),
+        ("2026-07-15T12:00:00Z", True),
+        ("2026-07-15T13:00:00Z", True),
+    ],
+    ids=["older_payload_skipped", "equal_payload_proceeds", "newer_payload_proceeds"],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_out_of_order_payload_is_dropped(team, repo_config, incoming_updated_at, expect_new_run):
+    # GitHub can deliver an older PR snapshot after a newer one. pull_request.updated_at is monotonic
+    # per PR, so a strictly-older payload must be dropped — otherwise it supersedes the current run and
+    # starts a stale review, leaving the PR unreviewed until the next push. Equal/newer proceed.
+    with team_scope(team.id):
+        PullRequest.objects.create(
+            team_id=team.id,
+            repo_config=repo_config,
+            pr_number=42,
+            payload_updated_at=parse_datetime("2026-07-15T12:00:00Z"),
+        )
+
+    mock_execute = _run_task(
+        _pr_payload(action="synchronize", head_sha="sha-2", updated_at=incoming_updated_at),
+        f"delivery-ooo-{uuid.uuid4()}",
+        team.id,
+    )
+
+    with team_scope(team.id):
+        count = ReviewRun.objects.count()
+    if expect_new_run:
+        assert count == 1
+        mock_execute.assert_called_once()
+    else:
+        assert count == 0
+        mock_execute.assert_not_called()
 
 
 def _installation_payload(

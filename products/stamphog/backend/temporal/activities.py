@@ -33,6 +33,7 @@ from posthog.ph_client import ph_scoped_capture
 from posthog.temporal.common.utils import asyncify
 
 from products.stamphog.backend.facade.enums import ReviewMode, ReviewRunStatus, ReviewVerdict
+from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
 from products.stamphog.backend.logic.audiences import resolve_audience_key
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
 from products.stamphog.backend.logic.reviewer import (
@@ -203,35 +204,8 @@ def dismiss_stale_approvals(input: StamphogReviewInput) -> dict:
 
     pull_request = run.pull_request
     repo_config = pull_request.repo_config
-    repo = repo_config.repository
 
-    # Prior approved runs for this PR posted at a different head that haven't been dismissed yet.
-    stale_runs = list(
-        ReviewRun.objects.for_team(input.team_id)
-        .filter(
-            pull_request=pull_request,
-            verdict=ReviewVerdict.APPROVED,
-            posted_review_id__isnull=False,
-            approval_dismissed_at__isnull=True,
-        )
-        .exclude(head_sha=run.head_sha)
-    )
-    if not stale_runs:
-        return {"dismissed": 0}
-
-    client = StamphogGitHubClient(repo_config.installation_id)
-    message = (
-        "New commits were pushed — dismissing the stamphog approval from an earlier head; "
-        "a re-review runs automatically."
-    )
-    dismissed = 0
-    for stale in stale_runs:
-        if stale.posted_review_id is None:
-            continue  # excluded by the query filter; narrows the Optional for the type checker
-        client.dismiss_pr_review(repo, pull_request.pr_number, stale.posted_review_id, message)
-        stale.approval_dismissed_at = timezone.now()
-        stale.save(update_fields=["approval_dismissed_at", "updated_at"])
-        dismissed += 1
+    dismissed = dismiss_stale_approvals_for_head(input.team_id, pull_request, repo_config, run.head_sha)
 
     activity.logger.info(f"Dismissed {dismissed} stale approval(s) for run {run.id} (pr #{pull_request.pr_number})")
     return {"dismissed": dismissed}
@@ -398,7 +372,6 @@ def post_verdict(input: StamphogReviewInput) -> dict:
             run.posted_review_id = _comment_id(review)
         run.status = ReviewRunStatus.COMPLETED
         run.verdict = ReviewVerdict.APPROVED
-        _stamp_digest_audience_if_merged(repo_config, pull_request, output.get("pr") or {})
         update_fields.append("posted_review_id")
     else:
         _post_sticky(client, repo, pull_request, parsed.review_body or _verdict_comment(parsed))
@@ -418,6 +391,16 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     run.completed_at = timezone.now()
     run.verdict_posted_at = run.completed_at
     run.save(update_fields=update_fields)
+
+    # Close the merge-before-approval race only AFTER this run's APPROVED verdict is durably saved. If
+    # the PR auto-merged the instant GitHub recorded the approval, the closed webhook may run before this
+    # save committed and find no approved run, so it stamps nothing; stamping here (which refreshes
+    # merged_at) then catches the merge. Ordering the two the other way — stamp before save — was the bug:
+    # the webhook saw no approved run AND the refresh predated the webhook's merged_at, so both missed and
+    # a merged+approved PR silently skipped the digest. Idempotent: it no-ops unless merged, digest-enabled,
+    # and unstamped, so the closed-webhook path and this path can't double-stamp.
+    if run.verdict == ReviewVerdict.APPROVED:
+        _stamp_digest_audience_if_merged(repo_config, pull_request, output.get("pr") or {})
 
     activity.logger.info(f"Posted verdict {parsed.verdict} for run {run.id}")
     return {"verdict": str(parsed.verdict)}

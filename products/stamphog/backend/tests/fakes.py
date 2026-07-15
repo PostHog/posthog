@@ -127,6 +127,9 @@ class GitHubRecorder:
         self.prs: dict[tuple[str, int], dict] = {}
         self.pr_files: dict[tuple[str, int], list[dict]] = {}
         self.pr_reviews: dict[tuple[str, int], list[dict]] = {}
+        # Pre-existing issue comments a GET returns (e.g. a user-planted sticky marker to exercise the
+        # bot-identity filter in upsert_sticky_comment). Empty by default — most tests post fresh.
+        self.issue_comments: dict[tuple[str, int], list[dict]] = {}
         self.author_merged: dict[tuple[str, str], list[int]] = {}
         self.teams_by_login: dict[str, list[str]] = {}
         self.policy_files: dict[str, str] = {}
@@ -165,8 +168,10 @@ class GitHubRecorder:
             return FakeResponse(200, json_data=self.pr_reviews.get((m.group("repo"), int(m.group("number"))), []))
         if method == "POST" and (m := _REVIEWS_RE.match(path)):
             return self._record_write("approve_review", m.group("repo"), int(m.group("number")), json_body)
-        if method == "GET" and _ISSUE_COMMENTS_RE.match(path):
-            return FakeResponse(200, json_data=[])
+        if method == "GET" and (m := _ISSUE_COMMENTS_RE.match(path)):
+            page = int(params.get("page", 1))
+            comments = self.issue_comments.get((m.group("repo"), int(m.group("number"))), []) if page == 1 else []
+            return FakeResponse(200, json_data=comments)
         if method == "POST" and (m := _ISSUE_COMMENTS_RE.match(path)):
             return self._record_write("issue_comment", m.group("repo"), int(m.group("number")), json_body)
         if method == "PATCH" and (m := _COMMENT_PATCH_RE.match(path)):

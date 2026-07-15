@@ -20,6 +20,7 @@ from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
@@ -78,6 +79,33 @@ def _adopt_preexisting_config(team_id: int, repository: str, installation_id: st
     return existing
 
 
+class StamphogCanonicalTeamAccessPermission(BasePermission):
+    """Authorize against the canonical (data-owning) team, not just the URL environment team.
+
+    stamphog rows canonicalize to the parent (project-root) team on save, so a request made against a
+    child environment reads and writes the PARENT's data. The default team gate only checks membership
+    of the URL team, so a user with access to the child but not the parent (or the reverse) would be
+    authorized against one team while touching another's rows. Re-anchor the membership check to the
+    canonical team so authorization and data access target the same team. Root teams (no parent) are
+    unaffected — the default checks already cover them.
+    """
+
+    message = "You don't have access to the project that owns this data."
+
+    def has_permission(self, request: Request, view: "_StamphogTeamScopedViewSet") -> bool:
+        if not request.user.is_authenticated:
+            return True  # IsAuthenticated handles the unauthenticated case first
+        team = view.team
+        # parent_team_id is null (or equals self) for a root team; then canonical == URL team and the
+        # default membership gate already authorized the right team.
+        if team.parent_team_id is None or team.parent_team_id == team.id:
+            return True
+        # Same helper the default gate uses (effective_membership_level), just re-pointed at the parent.
+        # It already accounts for a private parent team, so None means genuinely no access -> 403.
+        level = view.user_permissions.team(team.parent_team).effective_membership_level
+        return level is not None
+
+
 class _StamphogTeamScopedViewSet(TeamAndOrgViewSetMixin):
     """Shared base that exposes the canonical (parent) team id for queryset scoping.
 
@@ -86,7 +114,13 @@ class _StamphogTeamScopedViewSet(TeamAndOrgViewSetMixin):
     under that same canonical id — scoping by the raw request team_id would miss rows the parent
     stored. resolve_effective_team_id is the framework helper the model uses; self.team is already
     loaded by the permission checks, so this resolves cheaply and is cached for the request.
+
+    StamphogCanonicalTeamAccessPermission keeps authorization pointed at that same canonical team, so a
+    caller can never be authorized against the child environment while reading/writing the parent's rows.
     """
+
+    # Appended onto the default team/scope permission stack by get_permissions.
+    permission_classes = [StamphogCanonicalTeamAccessPermission]
 
     @cached_property
     def canonical_team_id(self) -> int:

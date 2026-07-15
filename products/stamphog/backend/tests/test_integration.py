@@ -16,6 +16,8 @@ from products.stamphog.backend.facade.enums import (
     ReviewRunStatus,
     ReviewVerdict,
 )
+from products.stamphog.backend.logic.channel_resolution import auto_provision_channel
+from products.stamphog.backend.logic.github_client import STICKY_COMMENT_MARKER
 from products.stamphog.backend.models import DigestChannel, DigestRun, PullRequest, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.tasks.digest import send_daily_digests
 from products.stamphog.backend.temporal.activities import (
@@ -90,7 +92,10 @@ def _merged_event(number: int, author: str, head_sha: str) -> dict:
         head_ref=f"feat/pr-{number}",
         base_sha=BASE_SHA,
         merged=True,
-        merged_at="2026-07-13T10:00:00Z",
+        # Recent, not a fixed date: send_daily_digests bounds a channel's first digest to the previous
+        # weekday slot, so a hardcoded merged_at silently ages out of the claim window as the calendar
+        # moves and the digest stops posting. now() keeps the merged PR inside the window on any run day.
+        merged_at=timezone.now().isoformat(),
         merge_commit_sha=f"merge{number}",
         additions=8,
         deletions=1,
@@ -466,3 +471,154 @@ def test_disabled_digest_channel_is_a_permanent_opt_out(team, stamphog_chain: St
     assert channels[0].enabled is False
     assert fakes.FakeSlackIntegration.posted_messages == []
     assert PullRequest.objects.for_team(team.id).get(pr_number=101).digest_run_id is None
+
+
+@pytest.mark.parametrize(
+    "channel_flags,expect_provisioned",
+    [
+        ({}, True),
+        ({"is_ext_shared": True}, False),
+        ({"is_pending_ext_shared": True}, False),
+        ({"is_shared": True}, False),
+    ],
+    ids=["ordinary_channel_provisions", "ext_shared_skipped", "pending_ext_shared_skipped", "org_shared_skipped"],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_auto_provision_skips_shared_channels(
+    team, stamphog_chain: StamphogChain, channel_flags: dict, expect_provisioned: bool
+) -> None:
+    # Auto-provision maps an audience_key onto a same-named Slack channel it didn't choose. A shared
+    # channel (Slack Connect / org-shared) matching that name would route internal PR digests to another
+    # org — a leak. Only ordinary internal channels may be auto-provisioned.
+    Integration.objects.create(
+        team_id=team.id, kind="slack", config={"authed_user": {"id": "U1"}}, sensitive_config={"access_token": "x"}
+    )
+    fakes.FakeSlackIntegration.reset(channels=[{"id": "C-DEVEX", "name": "team-devex", **channel_flags}])
+
+    row = auto_provision_channel(team.id, "team-devex")
+
+    if expect_provisioned:
+        assert row is not None
+        assert row.slack_channel_id == "C-DEVEX"
+    else:
+        assert row is None
+        assert not DigestChannel.objects.for_team(team.id).filter(audience_key="team-devex").exists()
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_post_verdict_stamps_digest_audience_for_already_merged_pr(team, stamphog_chain: StamphogChain) -> None:
+    # Merge-before-approval race: if the PR already merged when the approval lands, post_verdict must
+    # still stamp the digest audience. The run's APPROVED verdict is saved first, then the merge-stamp
+    # helper runs — so a merged+approved PR reaches the digest even though the closed webhook saw no
+    # approved run yet. Regression: the stamp used to run before the save and could be lost on both sides.
+    repo_config = _repo_config(team.id)
+    head_sha = "sha-merged"
+    stamphog_chain.recorder.register_pr(REPO, 101, _pr_object(101, "devex-dev", head_sha))
+    stamphog_chain.recorder.teams_by_login["devex-dev"] = ["team-devex"]
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=101, author_login="devex-dev", merged_at=timezone.now()
+    )
+    run = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id,
+        pull_request=pull_request,
+        head_sha=head_sha,
+        status=ReviewRunStatus.REVIEWING,
+        output={"reviewer_raw": fakes.approved_engine_output(), "pr": _pr_object(101, "devex-dev", head_sha)},
+    )
+
+    _run_activity(post_verdict, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
+
+    run.refresh_from_db()
+    pull_request.refresh_from_db()
+    assert run.verdict == ReviewVerdict.APPROVED
+    assert pull_request.audience_key == "team-devex"
+
+
+@pytest.mark.parametrize(
+    "comment_user_type,expect_patch",
+    [("User", False), ("Bot", True)],
+    ids=["user_planted_marker_ignored", "own_bot_comment_patched"],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_sticky_comment_only_edits_the_apps_own_comment(
+    team, stamphog_chain: StamphogChain, comment_user_type: str, expect_patch: bool
+) -> None:
+    # The sticky marker is visible in the comment source, so a user could plant it to make the bot PATCH
+    # (hijack) their comment. Only a Bot-authored comment carrying the marker may be edited; a user's is
+    # ignored and a fresh comment is posted. (App slug is unset in tests, so any Bot author qualifies.)
+    repo_config = _repo_config(team.id)
+    head_sha = "sha-refused"
+    stamphog_chain.recorder.register_pr(REPO, 101, _pr_object(101, "devex-dev", head_sha))
+    stamphog_chain.recorder.issue_comments[(REPO, 101)] = [
+        {
+            "id": 4242,
+            "body": f"{STICKY_COMMENT_MARKER}\nstatus",
+            "user": {"login": "someone", "type": comment_user_type},
+        }
+    ]
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=101, author_login="devex-dev"
+    )
+    run = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id,
+        pull_request=pull_request,
+        head_sha=head_sha,
+        status=ReviewRunStatus.REVIEWING,
+        output={"reviewer_raw": _refused_engine_output()},
+    )
+
+    _run_activity(post_verdict, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
+
+    writes = stamphog_chain.recorder.github_writes
+    patched = [w for w in writes if w["kind"] == "issue_comment_edit"]
+    posted = [w for w in writes if w["kind"] == "issue_comment"]
+    if expect_patch:
+        assert len(patched) == 1
+        assert posted == []
+    else:
+        assert patched == []
+        assert len(posted) == 1
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_label_mode_synchronize_without_label_dismisses_stale_approval(team, stamphog_chain: StamphogChain) -> None:
+    # LABEL-mode bypass: a synchronize without the trigger label is skipped before the review workflow,
+    # so its dismiss_stale_approvals step never runs. The stale-approval retraction must still happen on
+    # the skip path — otherwise removing the label + pushing commits leaves an old approval standing.
+    repo_config = _repo_config(team.id)
+    repo_config.review_mode = ReviewMode.LABEL
+    repo_config.save()
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=101, author_login="devex-dev"
+    )
+    prior = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id,
+        pull_request=pull_request,
+        head_sha="sha-old",
+        status=ReviewRunStatus.COMPLETED,
+        verdict=ReviewVerdict.APPROVED,
+        posted_review_id=777,
+    )
+
+    event = fakes.build_pull_request_event(
+        action="synchronize",
+        installation_id=INSTALLATION_ID,
+        repo=REPO,
+        number=101,
+        title="PR 101",
+        body="body",
+        author_login="devex-dev",
+        head_sha="sha-new",
+        head_ref="feat/pr-101",
+        base_sha=BASE_SHA,
+    )
+    status = stamphog_chain.post_webhook(event, delivery_id=str(uuid.uuid4()))
+    assert status == 202
+
+    dismissals = [w for w in stamphog_chain.recorder.github_writes if w["kind"] == "dismiss_review"]
+    assert len(dismissals) == 1
+    assert dismissals[0]["review_id"] == 777
+    prior.refresh_from_db()
+    assert prior.approval_dismissed_at is not None
+    # The review itself stays gated: no new run is queued because the trigger label is absent.
+    assert ReviewRun.objects.for_team(team.id).exclude(id=prior.id).count() == 0

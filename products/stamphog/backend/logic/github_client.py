@@ -35,6 +35,32 @@ _SOURCE = "stamphog"
 # the same comment in place instead of stacking a new one every run. Invisible in the rendered comment.
 STICKY_COMMENT_MARKER = "<!-- stamphog:review-status -->"
 
+
+def _expected_sticky_comment_login() -> str | None:
+    """The GitHub login the App posts sticky comments under (``<slug>[bot]``), or None if unconfigured.
+
+    GitHub App comments are authored by ``<app-slug>[bot]`` with ``user.type == "Bot"``. When we know
+    the slug we can require that exact identity; when it isn't configured we fall back to "any Bot".
+    """
+    slug = settings.STAMPHOG_GITHUB_APP_SLUG
+    return f"{slug}[bot]" if slug else None
+
+
+def _is_own_sticky_comment(comment: dict, expected_login: str | None) -> bool:
+    """Whether ``comment`` was posted by this App, not just any account carrying the marker.
+
+    The marker is visible in the rendered comment source, so a user could plant it to trick a naive
+    upsert into PATCHing (hijacking) their comment. Require a Bot author, and — when we know our slug —
+    the exact ``<slug>[bot]`` login. Without a configured slug, "type == Bot" is the minimum floor.
+    """
+    user = comment.get("user") or {}
+    if user.get("type") != "Bot":
+        return False
+    if expected_login is not None:
+        return (user.get("login") or "") == expected_login
+    return True
+
+
 # Cap on how many comment/file pages we page through, so a pathological PR can't spin forever.
 _MAX_PAGES = 20
 _PER_PAGE = 100
@@ -724,7 +750,13 @@ class StamphogGitHubClient:
         return sorted({node["slug"] for node in nodes if isinstance(node, dict) and node.get("slug")})
 
     def _find_sticky_comment_id(self, repo: str, number: int) -> int | None:
-        """Return the id of the existing sticky comment on the PR, or ``None`` if there isn't one."""
+        """Return the id of the App's own sticky comment on the PR, or ``None`` if there isn't one.
+
+        Matching on the marker alone would let a user plant the (source-visible) marker and have the App
+        PATCH their comment; candidates are filtered to this App's bot identity (see
+        _is_own_sticky_comment) so an impostor comment is ignored and a fresh one is posted instead.
+        """
+        expected_login = _expected_sticky_comment_login()
         for page in range(1, _MAX_PAGES + 1):
             response = self._request(
                 "GET",
@@ -741,10 +773,13 @@ class StamphogGitHubClient:
             if not isinstance(comments, list):
                 raise StamphogGitHubError(f"Unexpected comments payload for {repo}#{number}")
             for comment in comments:
-                if isinstance(comment, dict) and STICKY_COMMENT_MARKER in (comment.get("body") or ""):
-                    comment_id = comment.get("id")
-                    if isinstance(comment_id, int):
-                        return comment_id
+                if not (isinstance(comment, dict) and STICKY_COMMENT_MARKER in (comment.get("body") or "")):
+                    continue
+                if not _is_own_sticky_comment(comment, expected_login):
+                    continue
+                comment_id = comment.get("id")
+                if isinstance(comment_id, int):
+                    return comment_id
             if len(comments) < _PER_PAGE:
                 break
         return None
