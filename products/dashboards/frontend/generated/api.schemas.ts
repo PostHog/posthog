@@ -512,6 +512,10 @@ export const ActivityEventsPropertyFilterApiType = {
 } as const
 
 export interface ActivityEventsPropertyFilterApi {
+    /**
+     * @minLength 1
+     * @maxLength 400
+     */
     key: string
     label?: string | null
     operator: PropertyOperatorApi

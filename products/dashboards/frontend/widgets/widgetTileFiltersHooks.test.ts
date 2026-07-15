@@ -66,4 +66,54 @@ describe('useWidgetTileConfigPersist', () => {
         expect(onUpdateConfig).toHaveBeenNthCalledWith(1, { status: 'active' })
         expect(onUpdateConfig).toHaveBeenNthCalledWith(2, { status: 'resolved' })
     })
+
+    it('keeps the latest local config while queued updates are pending', async () => {
+        let resolveFirstUpdate: (() => void) | undefined
+        const onUpdateConfig = jest.fn().mockImplementationOnce(
+            () =>
+                new Promise<void>((resolve) => {
+                    resolveFirstUpdate = resolve
+                })
+        )
+        const { result, rerender } = renderHook(({ config }) => useWidgetTileConfigPersist(onUpdateConfig, config), {
+            initialProps: { config: { status: 'initial' } },
+        })
+
+        let firstUpdate: Promise<void>
+        let secondUpdate: Promise<void>
+        act(() => {
+            firstUpdate = result.current.persistConfigNow({ status: 'active' })
+            secondUpdate = result.current.persistConfigNow({ status: 'resolved' })
+        })
+
+        await act(async () => {
+            await Promise.resolve()
+        })
+
+        rerender({ config: { status: 'active' } })
+
+        expect(result.current.getLatestConfig()).toEqual({ status: 'resolved' })
+
+        resolveFirstUpdate?.()
+        await act(async () => {
+            await firstUpdate
+            await secondUpdate
+        })
+    })
+
+    it('flushes a pending debounced update on unmount', async () => {
+        const onUpdateConfig = jest.fn().mockResolvedValue(undefined)
+        const { result, unmount } = renderHook(() => useWidgetTileConfigPersist(onUpdateConfig))
+
+        act(() => {
+            result.current.persistConfigDebounced({ status: 'active' })
+        })
+        unmount()
+
+        await act(async () => {
+            await Promise.resolve()
+        })
+
+        expect(onUpdateConfig).toHaveBeenCalledWith({ status: 'active' })
+    })
 })

@@ -1,5 +1,3 @@
-import { useRef } from 'react'
-
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 
@@ -34,28 +32,26 @@ export function ActivityEventsWidgetTileFilters({
     const eventName = parsed.eventName ?? null
     const properties = (parsed.properties ?? []) as AnyPropertyFilter[]
 
-    const configRef = useRef(config)
-    configRef.current = config
-    const { persistConfigDebounced, persistConfigNow } = useWidgetTileConfigPersist(onUpdateConfig)
+    const { getLatestConfig, persistConfigDebounced, persistConfigNow } = useWidgetTileConfigPersist(
+        onUpdateConfig,
+        config
+    )
 
     const controlDisabledReason = disabledReason
     const canUpdate = !!onUpdateConfig && !controlDisabledReason
 
     const applyDateFrom = async (value: WidgetDateFromValue): Promise<void> => {
-        const nextConfig = patchActivityEventsWidgetFilterFields(configRef.current, { dateFrom: value })
-        configRef.current = nextConfig
+        const nextConfig = patchActivityEventsWidgetFilterFields(getLatestConfig(), { dateFrom: value })
         await persistConfigNow(nextConfig)
     }
 
     const applyEventName = async (value: string | null): Promise<void> => {
-        const nextConfig = patchActivityEventsWidgetFilterFields(configRef.current, { eventName: value })
-        configRef.current = nextConfig
+        const nextConfig = patchActivityEventsWidgetFilterFields(getLatestConfig(), { eventName: value })
         await persistConfigNow(nextConfig)
     }
 
     const applyProperties = (value: AnyPropertyFilter[]): void => {
-        const nextConfig = patchActivityEventsWidgetFilterFields(configRef.current, { properties: value })
-        configRef.current = nextConfig
+        const nextConfig = patchActivityEventsWidgetFilterFields(getLatestConfig(), { properties: value })
         persistConfigDebounced(nextConfig)
     }
 
@@ -104,7 +100,7 @@ export function ActivityEventsWidgetTileFilters({
                     void applyEventName(value)
                 }}
             />
-            {canUpdate ? (
+            {canUpdate && (
                 <EventPropertyFilters
                     query={propertyFilterQuery}
                     setQuery={(query) => applyProperties(query.properties ?? [])}
@@ -113,12 +109,13 @@ export function ActivityEventsWidgetTileFilters({
                         TaxonomicFilterGroupType.PersonProperties,
                     ]}
                 />
-            ) : properties.length > 0 ? (
+            )}
+            {!canUpdate && properties.length > 0 && (
                 <WidgetTileFilterReadOnlyLabel
                     name="Properties"
                     value={`${properties.length} ${properties.length === 1 ? 'filter' : 'filters'}`}
                 />
-            ) : null}
+            )}
         </WidgetTileFiltersBar>
     )
 }

@@ -1,13 +1,18 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from posthog.schema import PropertyOperator
 
 from products.dashboards.backend.constants import (
     ACTIVITY_EVENTS_DEFAULT_LIMIT,
+    ACTIVITY_EVENTS_MAX_PROPERTY_FILTER_VALUES,
+    ACTIVITY_EVENTS_MAX_PROPERTY_FILTERS,
+    ACTIVITY_EVENTS_MAX_PROPERTY_KEY_LENGTH,
+    ACTIVITY_EVENTS_MAX_PROPERTY_LABEL_LENGTH,
+    ACTIVITY_EVENTS_MAX_PROPERTY_VALUE_LENGTH,
     DEFAULT_WIDGET_LIST_LIMIT,
     LOGS_LIST_DEFAULT_LIMIT,
 )
@@ -28,6 +33,18 @@ EXPERIMENTS_LIST_WIDGET_TYPE = "experiments_list"
 EXPERIMENT_RESULTS_WIDGET_TYPE = "experiment_results"
 SURVEY_RESULTS_WIDGET_TYPE = "survey_results"
 LOGS_LIST_WIDGET_TYPE = "logs_list"
+
+ActivityEventsPropertyKey = Annotated[
+    str,
+    Field(min_length=1, max_length=ACTIVITY_EVENTS_MAX_PROPERTY_KEY_LENGTH),
+]
+ActivityEventsPropertyLabel = Annotated[str, Field(max_length=ACTIVITY_EVENTS_MAX_PROPERTY_LABEL_LENGTH)]
+ActivityEventsPropertyStringValue = Annotated[str, Field(max_length=ACTIVITY_EVENTS_MAX_PROPERTY_VALUE_LENGTH)]
+ActivityEventsPropertyScalar = ActivityEventsPropertyStringValue | float | bool
+ActivityEventsPropertyValues = Annotated[
+    list[ActivityEventsPropertyScalar],
+    Field(max_length=ACTIVITY_EVENTS_MAX_PROPERTY_FILTER_VALUES),
+]
 
 ErrorTrackingOrderBy = Literal["last_seen", "first_seen", "occurrences", "users", "sessions"]
 ErrorTrackingWidgetStatus = Literal["archived", "active", "resolved", "pending_release", "suppressed", "all"]
@@ -54,11 +71,31 @@ class WidgetAssigneeFilter(BaseModel):
 class ActivityEventsPropertyFilter(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    key: str
-    label: str | None = None
+    key: ActivityEventsPropertyKey
+    label: ActivityEventsPropertyLabel | None = None
     operator: PropertyOperator
     type: Literal["event", "person"]
-    value: list[str | float | bool] | str | float | bool | None = None
+    value: ActivityEventsPropertyValues | ActivityEventsPropertyScalar | None = None
+
+    @model_validator(mode="after")
+    def validate_operator_value(self) -> Self:
+        if self.operator == PropertyOperator.FLAG_EVALUATES_TO:
+            raise ValueError("flag_evaluates_to is only valid for feature flag filters.")
+        if self.operator in {PropertyOperator.IN_, PropertyOperator.NOT_IN} and not isinstance(self.value, list):
+            raise ValueError(f"{self.operator.value} requires a list of values.")
+        if self.operator in {PropertyOperator.BETWEEN, PropertyOperator.NOT_BETWEEN} and (
+            not isinstance(self.value, list) or len(self.value) != 2
+        ):
+            raise ValueError(f"{self.operator.value} requires exactly two values.")
+        if self.operator in {
+            PropertyOperator.IS_DATE_EXACT,
+            PropertyOperator.IS_DATE_BEFORE,
+            PropertyOperator.IS_DATE_AFTER,
+            PropertyOperator.REGEX,
+            PropertyOperator.NOT_REGEX,
+        } and not isinstance(self.value, str):
+            raise ValueError(f"{self.operator.value} requires a string value.")
+        return self
 
 
 class ErrorTrackingListWidgetConfig(WidgetListConfigBase):
@@ -114,6 +151,7 @@ class ActivityEventsListWidgetConfig(WidgetListConfigBase):
     )
     properties: list[ActivityEventsPropertyFilter] | None = Field(
         default=None,
+        max_length=ACTIVITY_EVENTS_MAX_PROPERTY_FILTERS,
         description="Event and person property filters, matching Activity > Explore events.",
     )
 

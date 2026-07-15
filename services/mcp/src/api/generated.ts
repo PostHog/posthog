@@ -2039,6 +2039,10 @@ export namespace Schemas {
     } as const;
 
     export interface ActivityEventsPropertyFilter {
+      /**
+         * @minLength 1
+         * @maxLength 400
+         */
       key: string;
       label?: string | null;
       operator: PropertyOperator;

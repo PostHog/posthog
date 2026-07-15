@@ -186,11 +186,14 @@
                                                         "items": {
                                                             "properties": {
                                                                 "key": {
+                                                                    "maxLength": 400,
+                                                                    "minLength": 1,
                                                                     "type": "string"
                                                                 },
                                                                 "label": {
                                                                     "anyOf": [
                                                                         {
+                                                                            "maxLength": 400,
                                                                             "type": "string"
                                                                         },
                                                                         {
@@ -247,6 +250,7 @@
                                                                             "items": {
                                                                                 "anyOf": [
                                                                                     {
+                                                                                        "maxLength": 4000,
                                                                                         "type": "string"
                                                                                     },
                                                                                     {
@@ -257,9 +261,11 @@
                                                                                     }
                                                                                 ]
                                                                             },
+                                                                            "maxItems": 100,
                                                                             "type": "array"
                                                                         },
                                                                         {
+                                                                            "maxLength": 4000,
                                                                             "type": "string"
                                                                         },
                                                                         {
@@ -277,6 +283,7 @@
                                                             "required": ["key", "operator", "type"],
                                                             "type": "object"
                                                         },
+                                                        "maxItems": 20,
                                                         "type": "array"
                                                     },
                                                     {

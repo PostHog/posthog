@@ -8,15 +8,33 @@ import { z as zod } from 'zod'
 
 import { PropertyOperator } from './propertyOperator.zod'
 
+export const activityEventsPropertyFilterKeyMax = 400
+
+export const activityEventsPropertyFilterLabelOneMax = 400
+
+export const activityEventsPropertyFilterValueOneItemOneMax = 4000
+
+export const activityEventsPropertyFilterValueOneMax = 100
+
+export const activityEventsPropertyFilterValueTwoMax = 4000
+
 export const ActivityEventsPropertyFilter = /* @__PURE__ */ zod.object({
-    key: zod.string(),
-    label: zod.union([zod.string(), zod.null()]).optional(),
+    key: zod.string().min(1).max(activityEventsPropertyFilterKeyMax),
+    label: zod.union([zod.string().max(activityEventsPropertyFilterLabelOneMax), zod.null()]).optional(),
     operator: PropertyOperator,
     type: zod.enum(['event', 'person']),
     value: zod
         .union([
-            zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
-            zod.string(),
+            zod
+                .array(
+                    zod.union([
+                        zod.string().max(activityEventsPropertyFilterValueOneItemOneMax),
+                        zod.number(),
+                        zod.boolean(),
+                    ])
+                )
+                .max(activityEventsPropertyFilterValueOneMax),
+            zod.string().max(activityEventsPropertyFilterValueTwoMax),
             zod.number(),
             zod.boolean(),
             zod.null(),

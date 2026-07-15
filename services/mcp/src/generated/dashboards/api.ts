@@ -123,6 +123,18 @@ export const dashboardsPartialUpdateBodyNameMax = 400
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneLimitDefault = 25
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOneLimitMax = 50
 
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnePropertiesOneItemKeyMax = 400
+
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnePropertiesOneItemLabelOneMax = 400
+
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnePropertiesOneItemValueOneItemOneMax = 4000
+
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnePropertiesOneItemValueOneMax = 100
+
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnePropertiesOneItemValueTwoMax = 4000
+
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnePropertiesOneMax = 20
+
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneTwoLimitDefault = 10
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneTwoLimitMax = 25
 
@@ -315,64 +327,94 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                                             ),
                                         properties: zod
                                             .union([
-                                                zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod.enum([
-                                                            'exact',
-                                                            'is_not',
-                                                            'icontains',
-                                                            'not_icontains',
-                                                            'regex',
-                                                            'not_regex',
-                                                            'gt',
-                                                            'gte',
-                                                            'lt',
-                                                            'lte',
-                                                            'is_set',
-                                                            'is_not_set',
-                                                            'is_date_exact',
-                                                            'is_date_before',
-                                                            'is_date_after',
-                                                            'between',
-                                                            'not_between',
-                                                            'min',
-                                                            'max',
-                                                            'in',
-                                                            'not_in',
-                                                            'is_cleaned_path_exact',
-                                                            'flag_evaluates_to',
-                                                            'semver_eq',
-                                                            'semver_neq',
-                                                            'semver_gt',
-                                                            'semver_gte',
-                                                            'semver_lt',
-                                                            'semver_lte',
-                                                            'semver_tilde',
-                                                            'semver_caret',
-                                                            'semver_wildcard',
-                                                            'icontains_multi',
-                                                            'not_icontains_multi',
-                                                        ]),
-                                                        type: zod.enum(['event', 'person']),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
+                                                zod
+                                                    .array(
+                                                        zod.object({
+                                                            key: zod
+                                                                .string()
+                                                                .min(1)
+                                                                .max(
+                                                                    dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnePropertiesOneItemKeyMax
                                                                 ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
-                                                ),
+                                                            label: zod
+                                                                .union([
+                                                                    zod
+                                                                        .string()
+                                                                        .max(
+                                                                            dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnePropertiesOneItemLabelOneMax
+                                                                        ),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                            operator: zod.enum([
+                                                                'exact',
+                                                                'is_not',
+                                                                'icontains',
+                                                                'not_icontains',
+                                                                'regex',
+                                                                'not_regex',
+                                                                'gt',
+                                                                'gte',
+                                                                'lt',
+                                                                'lte',
+                                                                'is_set',
+                                                                'is_not_set',
+                                                                'is_date_exact',
+                                                                'is_date_before',
+                                                                'is_date_after',
+                                                                'between',
+                                                                'not_between',
+                                                                'min',
+                                                                'max',
+                                                                'in',
+                                                                'not_in',
+                                                                'is_cleaned_path_exact',
+                                                                'flag_evaluates_to',
+                                                                'semver_eq',
+                                                                'semver_neq',
+                                                                'semver_gt',
+                                                                'semver_gte',
+                                                                'semver_lt',
+                                                                'semver_lte',
+                                                                'semver_tilde',
+                                                                'semver_caret',
+                                                                'semver_wildcard',
+                                                                'icontains_multi',
+                                                                'not_icontains_multi',
+                                                            ]),
+                                                            type: zod.enum(['event', 'person']),
+                                                            value: zod
+                                                                .union([
+                                                                    zod
+                                                                        .array(
+                                                                            zod.union([
+                                                                                zod
+                                                                                    .string()
+                                                                                    .max(
+                                                                                        dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnePropertiesOneItemValueOneItemOneMax
+                                                                                    ),
+                                                                                zod.number(),
+                                                                                zod.boolean(),
+                                                                            ])
+                                                                        )
+                                                                        .max(
+                                                                            dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnePropertiesOneItemValueOneMax
+                                                                        ),
+                                                                    zod
+                                                                        .string()
+                                                                        .max(
+                                                                            dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnePropertiesOneItemValueTwoMax
+                                                                        ),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        })
+                                                    )
+                                                    .max(
+                                                        dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnePropertiesOneMax
+                                                    ),
                                                 zod.null(),
                                             ])
                                             .optional()
@@ -1113,6 +1155,18 @@ export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneNameMax = 400
 export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOneLimitDefault = 25
 export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOneLimitMax = 50
 
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOnePropertiesOneItemKeyMax = 400
+
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOnePropertiesOneItemLabelOneMax = 400
+
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOnePropertiesOneItemValueOneItemOneMax = 4000
+
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOnePropertiesOneItemValueOneMax = 100
+
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOnePropertiesOneItemValueTwoMax = 4000
+
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOnePropertiesOneMax = 20
+
 export const dashboardsWidgetsBatchCreateBodyWidgetsItemTwoNameMax = 400
 
 export const dashboardsWidgetsBatchCreateBodyWidgetsItemTwoConfigOneLimitDefault = 10
@@ -1306,60 +1360,94 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                     .describe('Limit the feed to a single event name. Omit or null for all events.'),
                                 properties: zod
                                     .union([
-                                        zod.array(
-                                            zod.object({
-                                                key: zod.string(),
-                                                label: zod.union([zod.string(), zod.null()]).optional(),
-                                                operator: zod.enum([
-                                                    'exact',
-                                                    'is_not',
-                                                    'icontains',
-                                                    'not_icontains',
-                                                    'regex',
-                                                    'not_regex',
-                                                    'gt',
-                                                    'gte',
-                                                    'lt',
-                                                    'lte',
-                                                    'is_set',
-                                                    'is_not_set',
-                                                    'is_date_exact',
-                                                    'is_date_before',
-                                                    'is_date_after',
-                                                    'between',
-                                                    'not_between',
-                                                    'min',
-                                                    'max',
-                                                    'in',
-                                                    'not_in',
-                                                    'is_cleaned_path_exact',
-                                                    'flag_evaluates_to',
-                                                    'semver_eq',
-                                                    'semver_neq',
-                                                    'semver_gt',
-                                                    'semver_gte',
-                                                    'semver_lt',
-                                                    'semver_lte',
-                                                    'semver_tilde',
-                                                    'semver_caret',
-                                                    'semver_wildcard',
-                                                    'icontains_multi',
-                                                    'not_icontains_multi',
-                                                ]),
-                                                type: zod.enum(['event', 'person']),
-                                                value: zod
-                                                    .union([
-                                                        zod.array(
-                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                        zod
+                                            .array(
+                                                zod.object({
+                                                    key: zod
+                                                        .string()
+                                                        .min(1)
+                                                        .max(
+                                                            dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOnePropertiesOneItemKeyMax
                                                         ),
-                                                        zod.string(),
-                                                        zod.number(),
-                                                        zod.boolean(),
-                                                        zod.null(),
-                                                    ])
-                                                    .optional(),
-                                            })
-                                        ),
+                                                    label: zod
+                                                        .union([
+                                                            zod
+                                                                .string()
+                                                                .max(
+                                                                    dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOnePropertiesOneItemLabelOneMax
+                                                                ),
+                                                            zod.null(),
+                                                        ])
+                                                        .optional(),
+                                                    operator: zod.enum([
+                                                        'exact',
+                                                        'is_not',
+                                                        'icontains',
+                                                        'not_icontains',
+                                                        'regex',
+                                                        'not_regex',
+                                                        'gt',
+                                                        'gte',
+                                                        'lt',
+                                                        'lte',
+                                                        'is_set',
+                                                        'is_not_set',
+                                                        'is_date_exact',
+                                                        'is_date_before',
+                                                        'is_date_after',
+                                                        'between',
+                                                        'not_between',
+                                                        'min',
+                                                        'max',
+                                                        'in',
+                                                        'not_in',
+                                                        'is_cleaned_path_exact',
+                                                        'flag_evaluates_to',
+                                                        'semver_eq',
+                                                        'semver_neq',
+                                                        'semver_gt',
+                                                        'semver_gte',
+                                                        'semver_lt',
+                                                        'semver_lte',
+                                                        'semver_tilde',
+                                                        'semver_caret',
+                                                        'semver_wildcard',
+                                                        'icontains_multi',
+                                                        'not_icontains_multi',
+                                                    ]),
+                                                    type: zod.enum(['event', 'person']),
+                                                    value: zod
+                                                        .union([
+                                                            zod
+                                                                .array(
+                                                                    zod.union([
+                                                                        zod
+                                                                            .string()
+                                                                            .max(
+                                                                                dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOnePropertiesOneItemValueOneItemOneMax
+                                                                            ),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                    ])
+                                                                )
+                                                                .max(
+                                                                    dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOnePropertiesOneItemValueOneMax
+                                                                ),
+                                                            zod
+                                                                .string()
+                                                                .max(
+                                                                    dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOnePropertiesOneItemValueTwoMax
+                                                                ),
+                                                            zod.number(),
+                                                            zod.boolean(),
+                                                            zod.null(),
+                                                        ])
+                                                        .optional(),
+                                                })
+                                            )
+                                            .max(
+                                                dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOnePropertiesOneMax
+                                            ),
                                         zod.null(),
                                     ])
                                     .optional()
@@ -2120,6 +2208,18 @@ export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOneNameMax = 400
 export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOneLimitDefault = 25
 export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOneLimitMax = 50
 
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOnePropertiesOneItemKeyMax = 400
+
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOnePropertiesOneItemLabelOneMax = 400
+
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOnePropertiesOneItemValueOneItemOneMax = 4000
+
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOnePropertiesOneItemValueOneMax = 100
+
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOnePropertiesOneItemValueTwoMax = 4000
+
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOnePropertiesOneMax = 20
+
 export const dashboardsUpdateWidgetsBatchBodyWidgetsItemTwoNameMax = 400
 
 export const dashboardsUpdateWidgetsBatchBodyWidgetsItemTwoConfigOneLimitDefault = 10
@@ -2271,60 +2371,94 @@ export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
                                     .describe('Limit the feed to a single event name. Omit or null for all events.'),
                                 properties: zod
                                     .union([
-                                        zod.array(
-                                            zod.object({
-                                                key: zod.string(),
-                                                label: zod.union([zod.string(), zod.null()]).optional(),
-                                                operator: zod.enum([
-                                                    'exact',
-                                                    'is_not',
-                                                    'icontains',
-                                                    'not_icontains',
-                                                    'regex',
-                                                    'not_regex',
-                                                    'gt',
-                                                    'gte',
-                                                    'lt',
-                                                    'lte',
-                                                    'is_set',
-                                                    'is_not_set',
-                                                    'is_date_exact',
-                                                    'is_date_before',
-                                                    'is_date_after',
-                                                    'between',
-                                                    'not_between',
-                                                    'min',
-                                                    'max',
-                                                    'in',
-                                                    'not_in',
-                                                    'is_cleaned_path_exact',
-                                                    'flag_evaluates_to',
-                                                    'semver_eq',
-                                                    'semver_neq',
-                                                    'semver_gt',
-                                                    'semver_gte',
-                                                    'semver_lt',
-                                                    'semver_lte',
-                                                    'semver_tilde',
-                                                    'semver_caret',
-                                                    'semver_wildcard',
-                                                    'icontains_multi',
-                                                    'not_icontains_multi',
-                                                ]),
-                                                type: zod.enum(['event', 'person']),
-                                                value: zod
-                                                    .union([
-                                                        zod.array(
-                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                        zod
+                                            .array(
+                                                zod.object({
+                                                    key: zod
+                                                        .string()
+                                                        .min(1)
+                                                        .max(
+                                                            dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOnePropertiesOneItemKeyMax
                                                         ),
-                                                        zod.string(),
-                                                        zod.number(),
-                                                        zod.boolean(),
-                                                        zod.null(),
-                                                    ])
-                                                    .optional(),
-                                            })
-                                        ),
+                                                    label: zod
+                                                        .union([
+                                                            zod
+                                                                .string()
+                                                                .max(
+                                                                    dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOnePropertiesOneItemLabelOneMax
+                                                                ),
+                                                            zod.null(),
+                                                        ])
+                                                        .optional(),
+                                                    operator: zod.enum([
+                                                        'exact',
+                                                        'is_not',
+                                                        'icontains',
+                                                        'not_icontains',
+                                                        'regex',
+                                                        'not_regex',
+                                                        'gt',
+                                                        'gte',
+                                                        'lt',
+                                                        'lte',
+                                                        'is_set',
+                                                        'is_not_set',
+                                                        'is_date_exact',
+                                                        'is_date_before',
+                                                        'is_date_after',
+                                                        'between',
+                                                        'not_between',
+                                                        'min',
+                                                        'max',
+                                                        'in',
+                                                        'not_in',
+                                                        'is_cleaned_path_exact',
+                                                        'flag_evaluates_to',
+                                                        'semver_eq',
+                                                        'semver_neq',
+                                                        'semver_gt',
+                                                        'semver_gte',
+                                                        'semver_lt',
+                                                        'semver_lte',
+                                                        'semver_tilde',
+                                                        'semver_caret',
+                                                        'semver_wildcard',
+                                                        'icontains_multi',
+                                                        'not_icontains_multi',
+                                                    ]),
+                                                    type: zod.enum(['event', 'person']),
+                                                    value: zod
+                                                        .union([
+                                                            zod
+                                                                .array(
+                                                                    zod.union([
+                                                                        zod
+                                                                            .string()
+                                                                            .max(
+                                                                                dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOnePropertiesOneItemValueOneItemOneMax
+                                                                            ),
+                                                                        zod.number(),
+                                                                        zod.boolean(),
+                                                                    ])
+                                                                )
+                                                                .max(
+                                                                    dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOnePropertiesOneItemValueOneMax
+                                                                ),
+                                                            zod
+                                                                .string()
+                                                                .max(
+                                                                    dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOnePropertiesOneItemValueTwoMax
+                                                                ),
+                                                            zod.number(),
+                                                            zod.boolean(),
+                                                            zod.null(),
+                                                        ])
+                                                        .optional(),
+                                                })
+                                            )
+                                            .max(
+                                                dashboardsUpdateWidgetsBatchBodyWidgetsItemOneConfigOnePropertiesOneMax
+                                            ),
                                         zod.null(),
                                     ])
                                     .optional()

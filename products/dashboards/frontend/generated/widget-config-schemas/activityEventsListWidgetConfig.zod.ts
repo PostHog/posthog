@@ -13,6 +13,8 @@ import { WidgetFilterEntry } from './widgetFilterEntry.zod'
 export const activityEventsListWidgetConfigLimitDefault = 25
 export const activityEventsListWidgetConfigLimitMax = 50
 
+export const activityEventsListWidgetConfigPropertiesOneMax = 20
+
 export const ActivityEventsListWidgetConfig = /* @__PURE__ */ zod.object({
     dateRange: zod.union([WidgetDateRange, zod.null()]).optional(),
     filterTestAccounts: zod.union([zod.boolean(), zod.null()]).optional(),
@@ -28,7 +30,10 @@ export const ActivityEventsListWidgetConfig = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Limit the feed to a single event name. Omit or null for all events.'),
     properties: zod
-        .union([zod.array(ActivityEventsPropertyFilter), zod.null()])
+        .union([
+            zod.array(ActivityEventsPropertyFilter).max(activityEventsListWidgetConfigPropertiesOneMax),
+            zod.null(),
+        ])
         .optional()
         .describe('Event and person property filters, matching Activity > Explore events.'),
 })
