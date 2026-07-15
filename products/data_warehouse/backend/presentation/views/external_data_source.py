@@ -2067,15 +2067,28 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             payload.get("cdc_enabled", False) and cdc_adapter is not None and is_cdc_enabled_for_team(self.team)
         )
 
-        source_schemas = source.get_schemas(source_config, self.team_id)
-        if is_direct_query:
-            new_source_model.connection_metadata = get_direct_connection_metadata(
-                source_impl=source,
-                source_config=source_config,
-                team_id=self.team_id,
-                source_model=new_source_model,
+        try:
+            source_schemas = source.get_schemas(source_config, self.team_id)
+            if is_direct_query:
+                new_source_model.connection_metadata = get_direct_connection_metadata(
+                    source_impl=source,
+                    source_config=source_config,
+                    team_id=self.team_id,
+                    source_model=new_source_model,
+                )
+                new_source_model.save(update_fields=["connection_metadata", "updated_at"])
+        except (OperationalError, BaseSSHTunnelForwarderError, SSLRequiredError) as e:
+            # Connecting to the user's database to list schemas is expected to fail when the host,
+            # port, credentials, or SSH tunnel are wrong, or the server requires/refuses SSL. Most
+            # bad-credential cases are caught by validation above, but transient or pooler auth
+            # rejections slip through to here. Surface it as a 400, but don't capture it — these are
+            # user/upstream connection problems, not bugs in our code, and capturing every one floods
+            # error tracking. Mirrors the CDC-prerequisite handler below.
+            new_source_model.delete()
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Could not connect to your database: {e}"},
             )
-            new_source_model.save(update_fields=["connection_metadata", "updated_at"])
         source_schemas_by_name = {schema.name: schema for schema in source_schemas}
         schema_names = [schema.name for schema in source_schemas]
         source_config_dict = source_config.to_dict()
