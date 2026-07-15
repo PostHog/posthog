@@ -14,6 +14,7 @@ with workflow.unsafe.imports_passed_through():
     )
 
 WORKFLOW_NAME = "error-tracking-symbol-set-cleanup"
+PARALLEL_CLEANUP_PATCH_ID = "error-tracking-parallel-symbol-set-cleanup"
 
 ACTIVITY_RETRY_POLICY = common.RetryPolicy(maximum_attempts=1)
 ACTIVITY_START_TO_CLOSE_TIMEOUT = timedelta(hours=2)
@@ -62,6 +63,14 @@ class ErrorTrackingSymbolSetCleanupWorkflow(PostHogWorkflow):
     async def run(self, inputs: SymbolSetCleanupInputs | None = None) -> SymbolSetCleanupResult:
         if inputs is None:
             inputs = SymbolSetCleanupInputs()
+
+        if not workflow.patched(PARALLEL_CLEANUP_PATCH_ID):
+            return await workflow.execute_activity(
+                cleanup_symbol_sets_activity,
+                inputs,
+                start_to_close_timeout=ACTIVITY_START_TO_CLOSE_TIMEOUT,
+                retry_policy=ACTIVITY_RETRY_POLICY,
+            )
 
         results = await asyncio.gather(
             *[

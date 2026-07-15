@@ -5,7 +5,7 @@ from datetime import timedelta
 import pytest
 from freezegun import freeze_time
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from django.utils import timezone
 
@@ -227,3 +227,25 @@ class TestSymbolSetCleanupWorkflow:
 
         assert result == expected
         assert activity_inputs == [inputs]
+
+    @pytest.mark.asyncio
+    async def test_workflow_preserves_single_activity_for_unpatched_histories(self) -> None:
+        inputs = SymbolSetCleanupInputs(total_per_run=100, parallelism=4)
+        expected = SymbolSetCleanupResult(objects_processed=100, objects_deleted=100, objects_failed=0)
+
+        with (
+            patch(
+                "products.error_tracking.backend.temporal.symbol_set_cleanup.workflow.workflow.patched",
+                return_value=False,
+            ),
+            patch(
+                "products.error_tracking.backend.temporal.symbol_set_cleanup.workflow.workflow.execute_activity",
+                new_callable=AsyncMock,
+                return_value=expected,
+            ) as execute_activity,
+        ):
+            result = await ErrorTrackingSymbolSetCleanupWorkflow().run(inputs)
+
+        assert result == expected
+        execute_activity.assert_awaited_once()
+        assert execute_activity.call_args.args[1] == inputs

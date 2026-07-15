@@ -94,7 +94,7 @@ def cleanup_symbol_sets_activity(inputs: SymbolSetCleanupInputs) -> SymbolSetCle
                 ErrorTrackingSymbolSet.objects.select_for_update(skip_locked=True)
                 .filter(query_filter)
                 .exclude(id__in=failed_ids)
-                .order_by("id")
+                .order_by("last_used", "created_at")
                 .values_list("id", "storage_ptr")[:chunk_size]
             )
 
