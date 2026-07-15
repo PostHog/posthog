@@ -2163,8 +2163,10 @@ github-actions[bot] trick), and its Action carries **one** secret (no Anthropic 
    branch's version of the file (a PR can't edit its own trigger) and fires even on conflicted PRs; it exposes
    secrets to fork PRs, so the non-fork `if:` gate is the fork barrier — safe because the job never runs PR code.
    Residual gap: stacked PRs whose base branch predates this file still dispatch nothing (no workflow on the base).
+   A paired `bot-labeler-skip` job (Stamphog's pattern) turns the bot-labeler skip into feedback: it comments why
+   and strips the label so a human can re-add it.
    **2026-07-14 update:** `synchronize` dropped (ADR 0002) — pushes no longer re-trigger; re-review = re-add the
-   label (or mark an already-labeled draft ready).
+   label.
 5. ⏳ **Later (v2):** label lifecycle (strip-on-non-approval / keep-on-error / dismiss-stale-on-push). (`synchronize` /
    `ready_for_review` events are already wired in step 4.) Then **Stage 5b** (iterate-on-same-PR validation).
 

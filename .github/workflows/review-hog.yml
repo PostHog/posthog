@@ -18,8 +18,8 @@ on:
     pull_request_target:
         types: [labeled]
 
-# No GitHub permissions needed — the job only makes an outbound authenticated request; the review is
-# fetched and published server-side via the PostHog GitHub App installation token.
+# No GitHub permissions by default — the trigger job only makes an outbound authenticated request;
+# the review is fetched and published server-side via the PostHog GitHub App installation token.
 permissions: {}
 
 concurrency:
@@ -58,3 +58,27 @@ jobs:
                     -H "Authorization: Bearer $REVIEWHOG_TRIGGER_TOKEN" \
                     -H "Content-Type: application/json" \
                     -d "$payload"
+
+    # The trigger job skips bot-applied labels silently; explain why and strip the label so a
+    # human can re-add it deliberately.
+    bot-labeler-skip:
+        name: Explain skipped bot label
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        permissions:
+            issues: write
+        if: >-
+            github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name
+            && github.event.sender.type == 'Bot'
+            && github.event.label.name == 'reviewhog'
+        steps:
+            - name: Comment and strip label
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  REPO: ${{ github.repository }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+              run: |
+                  set -euo pipefail
+                  gh api -X POST "repos/$REPO/issues/$PR_NUMBER/comments" \
+                    -f body="ReviewHog reviews start only when a human adds the \`reviewhog\` label, so this bot-applied label was removed. Re-add it yourself to start a review."
+                  gh api -X DELETE "repos/$REPO/issues/$PR_NUMBER/labels/reviewhog"
