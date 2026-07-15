@@ -15,7 +15,11 @@ describe('downloadExportedAsset', () => {
 
     it('uses anchor navigation instead of fetch to avoid buffering large files in memory', () => {
         const fakeAnchor = { style: {}, click: jest.fn() } as unknown as HTMLAnchorElement
-        jest.spyOn(document, 'createElement').mockReturnValue(fakeAnchor)
+        // Cast keeps this compiling when Electron's ambient types (via optional deps)
+        // add extra createElement overloads with non-HTMLElement return types
+        jest.spyOn(document, 'createElement').mockReturnValue(
+            fakeAnchor as unknown as ReturnType<typeof document.createElement>
+        )
         const appendSpy = jest.spyOn(document.body, 'appendChild').mockImplementation((node) => node)
         const removeSpy = jest.spyOn(document.body, 'removeChild').mockImplementation((node) => node)
 

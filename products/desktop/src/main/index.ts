@@ -86,6 +86,7 @@ async function main(): Promise<void> {
                     showShell()
                 },
                 upstreamHeaders: { 'user-agent': `PostHog-Desktop/${app.getVersion()}` },
+                desktopVersion: app.getVersion(),
             },
             store.get('port')
         )
@@ -100,7 +101,16 @@ async function main(): Promise<void> {
     }
 
     const showShell = (): void => {
+        // Signed-out state is app-wide: collapse back to a single window showing the shell
+        for (const win of BrowserWindow.getAllWindows().slice(1)) {
+            win.close()
+        }
         void getWindow().loadFile(path.join(__dirname, 'shell/index.html'))
+    }
+    const openAppWindow = (url: string): void => {
+        const win = createMainWindow(store)
+        scheduleScreenshot(win)
+        void win.loadURL(url)
     }
     const showApp = (): void => {
         void getWindow().loadURL(`${backend.origin}/`)
@@ -122,7 +132,14 @@ async function main(): Promise<void> {
     }
 
     registerIpcHandlers(state, { showShell, showApp })
-    buildAppMenu({ showShell })
+    buildAppMenu({
+        showShell,
+        newWindow: () => {
+            if (state.getAuth() && state.snapshot().frontendBuilt) {
+                openAppWindow(`${backend.origin}/`)
+            }
+        },
+    })
 
     app.on('second-instance', () => {
         const win = getWindow()
@@ -141,7 +158,12 @@ async function main(): Promise<void> {
     })
     app.on('web-contents-created', (_event, contents) => {
         contents.setWindowOpenHandler(({ url }) => {
-            if (isAllowedExternalUrl(url)) {
+            // Local-origin URLs open a new PostHog window ("open in new window" in the
+            // app, window.open, target=_blank on internal links); everything else goes
+            // to the system browser
+            if (url.startsWith(backend.origin) && state.getAuth()) {
+                openAppWindow(url)
+            } else if (isAllowedExternalUrl(url)) {
                 void shell.openExternal(url)
             }
             return { action: 'deny' }

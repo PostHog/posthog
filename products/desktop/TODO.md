@@ -17,6 +17,11 @@ The long-term goal is to merge PostHog Code (github.com/posthog/code) into this 
 - [x] Window state persistence, app menu (settings, zoom, devtools), single-instance lock, separate dev/prod userData dirs
 - [x] Unit tests for the server (routing, proxy auth, offline cache, traversal) and HTML generation via `node:test`; `pnpm --filter=@posthog/desktop test`
 - [x] Smoke-tested against real `us.posthog.com`: preflight proxying, auth errors, SPA routes, static chunks
+- [x] Desktop detection seam: the local server injects `window.__POSTHOG_DESKTOP__`; the frontend gates on `isDesktopApp()` (`frontend/src/lib/utils/isDesktopApp.ts`)
+- [x] Scene tabs, desktop-only (rebuild of the tabs removed from the web app in #59764): tab strip above the scene (`frontend/src/layout/scenes/SceneTabs.tsx` + self-contained `sceneTabsLogic`), new-tab button, close/middle-click close, drag-to-reorder, rename, pin/unpin, close-left/right, duplicate; titles/icons sync from scene breadcrumbs; tabs persist to localStorage and restore on launch; jest coverage in `sceneTabsLogic.test.ts`
+- [x] Open in new tab: cmd/ctrl+click on internal links and the project-tree "open in new tab" open background scene tabs via `newInternalTab`
+- [x] Open in new window: tab context menu item, File → New window (Cmd/Ctrl+Shift+N), and any `window.open`/`target=_blank` on the local origin opens another PostHog window; sign-out collapses back to one window
+- [x] `POSTHOG_DESKTOP_SCREENSHOT` capture hook for headless verification under Xvfb
 
 ## Next steps
 
@@ -28,7 +33,7 @@ The long-term goal is to merge PostHog Code (github.com/posthog/code) into this 
 
 ### Frontend integration
 
-- [ ] A `desktop` flag in the app context / a `getDesktopBridge()` seam so the SPA can detect it runs in the desktop app (hide the region switcher, add native menus and notifications, deep links)
+- [ ] Tabs polish: global keyboard shortcuts (new tab / close tab / next tab), per-scene state preservation when switching tabs (the old implementation kept per-tab mounted scene logics), corner join between the active first tab and the scene container, pinned-tabs backend sync
 - [ ] Handle endpoints that need session auth rather than a personal API key (e.g. some billing routes) gracefully
 - [ ] Per-scene chunk preload map (the Django index.html embeds one; the desktop server could read it from the build metafile)
 - [ ] Websocket/livestream proxying if `livestream_host` requests need auth headers

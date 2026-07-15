@@ -2,6 +2,8 @@ import { app, Menu, type MenuItemConstructorOptions, shell } from 'electron'
 
 export interface MenuActions {
     showShell: () => void
+    /** Opens a new PostHog window when signed in; no-op otherwise */
+    newWindow: () => void
 }
 
 export function buildAppMenu(actions: MenuActions): void {
@@ -12,6 +14,12 @@ export function buildAppMenu(actions: MenuActions): void {
         {
             label: 'File',
             submenu: [
+                {
+                    label: 'New window',
+                    accelerator: 'CmdOrCtrl+Shift+N',
+                    click: () => actions.newWindow(),
+                },
+                { type: 'separator' },
                 {
                     label: 'Settings',
                     accelerator: 'CmdOrCtrl+,',

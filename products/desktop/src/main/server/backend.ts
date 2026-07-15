@@ -41,6 +41,8 @@ export interface LocalBackendOptions {
     onAuthRejected?: () => void
     /** Extra headers to send upstream, e.g. a desktop User-Agent */
     upstreamHeaders?: Record<string, string>
+    /** Desktop app version, exposed to the frontend as window.__POSTHOG_DESKTOP__ */
+    desktopVersion?: string
 }
 
 export interface LocalBackend {
@@ -304,7 +306,7 @@ const SIGNED_OUT_HTML = `<!doctype html>
 
 export async function startLocalBackend(options: LocalBackendOptions, preferredPort: number): Promise<LocalBackend> {
     const manifest = readPreloadManifest(options.distDir)
-    const indexHtml = manifest ? buildIndexHtml(manifest) : null
+    const indexHtml = manifest ? buildIndexHtml(manifest, { desktopVersion: options.desktopVersion }) : null
 
     const server = http.createServer((req, res) => {
         const pathname = new URL(req.url || '/', 'http://localhost').pathname

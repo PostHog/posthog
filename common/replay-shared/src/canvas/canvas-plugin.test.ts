@@ -69,14 +69,16 @@ describe('CanvasReplayerPlugin', () => {
             }),
         }
 
-        // Mock document.createElement to return our mock image
+        // Mock document.createElement to return our mock image. The cast keeps this
+        // compiling when Electron's ambient types (via optional deps) add extra
+        // createElement overloads like HTMLElementTagNameMap['webview'].
         const originalCreateElement = document.createElement.bind(document)
-        jest.spyOn(document, 'createElement').mockImplementation((tagName) => {
+        jest.spyOn(document, 'createElement').mockImplementation(((tagName: string) => {
             if (tagName === 'img') {
                 return mockImage
             }
             return originalCreateElement(tagName)
-        })
+        }) as typeof document.createElement)
     })
 
     afterEach(() => {
