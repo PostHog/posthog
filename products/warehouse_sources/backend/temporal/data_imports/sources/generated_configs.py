@@ -212,7 +212,7 @@ class AirtableSourceConfig(config.Config):
 
 @config.config
 class AivenSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -408,6 +408,11 @@ class Auth0SourceConfig(config.Config):
 
 @config.config
 class AutomoxSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class AutumnSourceConfig(config.Config):
     pass
 
 
@@ -614,7 +619,7 @@ class BrowseAISourceConfig(config.Config):
 
 @config.config
 class BrowserUseSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1484,7 +1489,8 @@ class FirecrawlSourceConfig(config.Config):
 
 @config.config
 class FireworksAISourceConfig(config.Config):
-    pass
+    api_key: str
+    account_id: str
 
 
 @config.config
@@ -1615,6 +1621,11 @@ class GainsightPxSourceConfig(config.Config):
 
 @config.config
 class GerritSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class GetStreamSourceConfig(config.Config):
     pass
 
 
@@ -1902,7 +1913,7 @@ class HerokuSourceConfig(config.Config):
 
 @config.config
 class HetznerSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -1977,7 +1988,7 @@ class HuntrSourceConfig(config.Config):
 class HyperspellSourceConfig(config.Config):
     api_key: str
     region: Literal["us", "eu"] = config.value(default="us")
-    user_id: str | None = None
+    user_ids: str | None = None
 
 
 @config.config
@@ -2245,7 +2256,7 @@ class KongKonnectSourceConfig(config.Config):
 
 @config.config
 class KoyebSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -2272,7 +2283,7 @@ class LagoSourceConfig(config.Config):
 
 @config.config
 class LambdaLabsSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2762,7 +2773,7 @@ class NoCRMSourceConfig(config.Config):
 
 @config.config
 class NorthflankSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -2792,6 +2803,11 @@ class NylasSourceConfig(config.Config):
 
 @config.config
 class OPUSWatchSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class OctolensSourceConfig(config.Config):
     pass
 
 
@@ -2854,7 +2870,7 @@ class OpenAIAdsSourceConfig(config.Config):
 
 @config.config
 class OpenAISourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -3173,7 +3189,8 @@ class PlanhatSourceConfig(config.Config):
 
 @config.config
 class PlatformShSourceConfig(config.Config):
-    pass
+    api_token: str
+    platform: Literal["platform_sh", "upsun"] = config.value(default="platform_sh")
 
 
 @config.config
@@ -3422,7 +3439,8 @@ class ReferralHeroSourceConfig(config.Config):
 
 @config.config
 class RenderSourceConfig(config.Config):
-    pass
+    api_key: str
+    owner_id: str | None = None
 
 
 @config.config
@@ -3488,7 +3506,7 @@ class RipplingSourceConfig(config.Config):
 
 @config.config
 class RoarkSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -3761,7 +3779,8 @@ class ShutterstockSourceConfig(config.Config):
 
 @config.config
 class SigNozSourceConfig(config.Config):
-    pass
+    host: str
+    api_key: str
 
 
 @config.config
@@ -4334,7 +4353,8 @@ class UnleashSourceConfig(config.Config):
 
 @config.config
 class UnstructuredSourceConfig(config.Config):
-    pass
+    api_key: str
+    base_url: str | None = None
 
 
 @config.config
@@ -4422,7 +4442,7 @@ class VitallySourceConfig(config.Config):
 
 @config.config
 class VultrSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -4631,7 +4651,7 @@ class ZenloopSourceConfig(config.Config):
 
 @config.config
 class ZepSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -4775,6 +4795,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.ATTIO: AttioSourceConfig,
         ExternalDataSourceType.AUTH0: Auth0SourceConfig,
         ExternalDataSourceType.AUTOMOX: AutomoxSourceConfig,
+        ExternalDataSourceType.AUTUMN: AutumnSourceConfig,
         ExternalDataSourceType.AVIATIONSTACK: AviationstackSourceConfig,
         ExternalDataSourceType.AVIATOR: AviatorSourceConfig,
         ExternalDataSourceType.AWIN: AwinSourceConfig,
@@ -4994,6 +5015,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.GNEWS: GNewsSourceConfig,
         ExternalDataSourceType.GAINSIGHTPX: GainsightPxSourceConfig,
         ExternalDataSourceType.GERRIT: GerritSourceConfig,
+        ExternalDataSourceType.GETSTREAM: GetStreamSourceConfig,
         ExternalDataSourceType.GIPHY: GiphySourceConfig,
         ExternalDataSourceType.GITBOOK: GitBookSourceConfig,
         ExternalDataSourceType.GITLAB: GitLabSourceConfig,
@@ -5213,6 +5235,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.NUTSHELL: NutshellSourceConfig,
         ExternalDataSourceType.NYLAS: NylasSourceConfig,
         ExternalDataSourceType.OPUSWATCH: OPUSWatchSourceConfig,
+        ExternalDataSourceType.OCTOLENS: OctolensSourceConfig,
         ExternalDataSourceType.OCTOPUSDEPLOY: OctopusDeploySourceConfig,
         ExternalDataSourceType.OKTA: OktaSourceConfig,
         ExternalDataSourceType.OMNISEND: OmnisendSourceConfig,

@@ -23364,7 +23364,10 @@
                 "ConfluentCloud",
                 "KongKonnect",
                 "Kandji",
-                "Automox"
+                "Automox",
+                "Autumn",
+                "GetStream",
+                "Octolens"
             ],
             "type": "string"
         },

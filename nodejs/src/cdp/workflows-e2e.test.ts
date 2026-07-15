@@ -575,6 +575,168 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
         })
     })
 
+    describe('live edit while a run is parked (follow-live contract)', () => {
+        // The runs park on a 2m delay so they cannot wake before the edit lands; the tests then
+        // pull the wake forward explicitly (the same scheduled-time update the subscription
+        // matcher performs), so there is no race between the park deadline and the edit.
+
+        /** Wait until a job is parked in the future (a delay/wait step was hit) */
+        async function waitForParkedJob(): Promise<void> {
+            await waitForExpect(async () => {
+                const jobs = await queryCyclotronJobs()
+                expect(jobs.some((j: any) => j.status === 'available' && new Date(j.scheduled) > new Date())).toBe(true)
+            }, 5000)
+        }
+
+        /** Persist an edited actions/edges graph and bust the worker's config cache, like Django's save + pub/sub would */
+        async function applyLiveEdit(flow: HogFlow): Promise<void> {
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_hogflow SET actions = $2, edges = $3, updated_at = NOW() WHERE id = $1`,
+                [flow.id, JSON.stringify(flow.actions), JSON.stringify(flow.edges)],
+                'liveEditHogFlow'
+            )
+            ;(hogflowWorker as any).hogFlowManager.lazyLoader.markForRefresh(flow.id)
+        }
+
+        /** Pull parked jobs' scheduled time forward so the worker picks them up now */
+        async function wakeParkedJobsNow(): Promise<void> {
+            await cyclotronPool.query(
+                `UPDATE cyclotron_jobs SET scheduled = NOW() WHERE ${statusColumn} = 'available' AND scheduled > NOW()`
+            )
+        }
+
+        /** Shorten the flow's delay so the woken run advances instead of re-parking */
+        function shortenDelay(flow: HogFlow, actionId: string): void {
+            const delay = flow.actions.find((a) => a.id === actionId)!
+            ;(delay.config as any).delay_duration = '1s'
+        }
+
+        it('a content edit made while parked on an upstream delay is honored on wake', async () => {
+            const flow = await createWorkflowFlow({
+                actions: {
+                    trigger: trigger(),
+                    delay_1: delayAction('2m'),
+                    function_1: fetchAction('https://example.com/content-v1'),
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'delay_1', type: 'continue' },
+                    { from: 'delay_1', to: 'function_1', type: 'continue' },
+                    { from: 'function_1', to: 'exit', type: 'continue' },
+                ],
+            })
+            await triggerWorkflow(createGlobals())
+            await waitForParkedJob()
+
+            const functionAction = flow.actions.find((a) => a.id === 'function_1')!
+            ;(functionAction.config as any).inputs.url.value = 'https://example.com/content-v2'
+            shortenDelay(flow, 'delay_1')
+            await applyLiveEdit(flow)
+            await wakeParkedJobsNow()
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/content-v2', expect.anything())
+        })
+
+        it("rerouting the parked step's edge does not re-run earlier steps or run the old target", async () => {
+            const flow = await createWorkflowFlow({
+                actions: {
+                    trigger: trigger(),
+                    function_a: fetchAction('https://example.com/step-a'),
+                    delay_1: delayAction('2m'),
+                    function_b: fetchAction('https://example.com/step-b'),
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'function_a', type: 'continue' },
+                    { from: 'function_a', to: 'delay_1', type: 'continue' },
+                    { from: 'delay_1', to: 'function_b', type: 'continue' },
+                    { from: 'function_b', to: 'exit', type: 'continue' },
+                ],
+            })
+            await triggerWorkflow(createGlobals())
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledWith('https://example.com/step-a', expect.anything())
+            }, 10000)
+            await waitForParkedJob()
+
+            // Reroute the delay's continue edge onto a newly added step
+            const functionB = flow.actions.find((a) => a.id === 'function_b')!
+            flow.actions.push({
+                ...functionB,
+                id: 'function_c',
+                config: {
+                    ...(functionB.config as any),
+                    inputs: { url: { value: 'https://example.com/step-c' }, method: { value: 'POST' } },
+                },
+            })
+            flow.edges = [
+                { from: 'trigger', to: 'function_a', type: 'continue' },
+                { from: 'function_a', to: 'delay_1', type: 'continue' },
+                { from: 'delay_1', to: 'function_c', type: 'continue' },
+                { from: 'function_c', to: 'exit', type: 'continue' },
+            ]
+            shortenDelay(flow, 'delay_1')
+            await applyLiveEdit(flow)
+            await wakeParkedJobsNow()
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledWith('https://example.com/step-c', expect.anything())
+            }, 10000)
+
+            // Exactly one send per executed step: the step behind the run did not re-run, the old
+            // target never ran, the new target ran once
+            const urls = mockFetch.mock.calls.map((call) => call[0])
+            expect(urls.filter((u) => u === 'https://example.com/step-a')).toHaveLength(1)
+            expect(urls.filter((u) => u === 'https://example.com/step-b')).toHaveLength(0)
+            expect(urls.filter((u) => u === 'https://example.com/step-c')).toHaveLength(1)
+        })
+
+        it('deleting the step a run is parked on exits the run gracefully on wake', async () => {
+            const flow = await createWorkflowFlow({
+                actions: {
+                    trigger: trigger(),
+                    delay_1: delayAction('2m'),
+                    function_1: fetchAction('https://example.com/should-not-fire'),
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'delay_1', type: 'continue' },
+                    { from: 'delay_1', to: 'function_1', type: 'continue' },
+                    { from: 'function_1', to: 'exit', type: 'continue' },
+                ],
+            })
+            await triggerWorkflow(createGlobals())
+            await waitForParkedJob()
+
+            flow.actions = flow.actions.filter((a) => a.id !== 'delay_1')
+            flow.edges = [
+                { from: 'trigger', to: 'function_1', type: 'continue' },
+                { from: 'function_1', to: 'exit', type: 'continue' },
+            ]
+            await applyLiveEdit(flow)
+            await wakeParkedJobsNow()
+
+            // The parked run wakes, finds its step gone, and finishes as a deliberate exit
+            await waitForExpect(async () => {
+                const jobs = await queryCyclotronJobs()
+                expect(jobs.filter((j: any) => j.status === 'completed')).toHaveLength(1)
+            }, 10000)
+            expect(mockFetch).not.toHaveBeenCalled()
+
+            await waitForExpect(() => {
+                const metricNames = mockProducerObserver
+                    .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .map((m: any) => m.value.metric_name)
+                expect(metricNames).toContain('exited_workflow_changed')
+                expect(metricNames).not.toContain('failed')
+            }, 5000)
+        })
+    })
+
     describe('multiple workflows matching same event', () => {
         const simpleFetchWorkflow = (url: string) => ({
             actions: {

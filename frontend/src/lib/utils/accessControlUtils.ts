@@ -69,11 +69,15 @@ export const pluralizeResource = (resource: APIScopeObject): string => {
         return 'activity logs'
     } else if (resource === AccessControlResourceType.ExternalDataSource) {
         return 'data warehouse sources'
+    } else if (resource === AccessControlResourceType.ErrorTracking) {
+        return 'error tracking'
     } else if (resource === AccessControlResourceType.WarehouseObjects) {
         // Umbrella label for warehouse tables + views (both inherit from this)
         return 'data warehouse tables & views'
     } else if (resource === AccessControlResourceType.Logs) {
         return 'logs'
+    } else if (resource === AccessControlResourceType.Metrics) {
+        return 'metrics'
     } else if (resource === AccessControlResourceType.Tracing) {
         return 'tracing'
     } else if (resource === AccessControlResourceType.Workflow) {
@@ -120,6 +124,10 @@ export const resourceTypeToString = (resourceType: AccessControlResourceType): s
         return 'error tracking resource'
     } else if (resourceType === AccessControlResourceType.ExternalDataSource) {
         return 'data warehouse source'
+    } else if (resourceType === AccessControlResourceType.Metrics) {
+        return 'metrics resource'
+    } else if (resourceType === AccessControlResourceType.Tracing) {
+        return 'tracing resource'
     } else if (resourceType === AccessControlResourceType.Workflow) {
         return 'workflow'
     }
@@ -284,6 +292,9 @@ export const getAccessControlTooltip = (resource: APIScopeObject): string | null
     }
     if (resource === AccessControlResourceType.WarehouseObjects) {
         return 'Viewer is required to query a table or view via SQL. Editor and above also control creating, editing, and deleting tables, views (aka "models"), folders, and joins.'
+    }
+    if (resource === AccessControlResourceType.Metrics) {
+        return 'Controls access to the metrics product and its API. It does not restrict querying the underlying metrics tables with SQL.'
     }
     return null
 }

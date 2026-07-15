@@ -1047,7 +1047,10 @@ class EnterpriseExperimentsViewSet(
                 asyncio.run(
                     temporal.start_workflow(
                         "experiment-metrics-recalculation-workflow",
-                        MetricsRecalcInputs(recalculation_id=recalculation_id),
+                        MetricsRecalcInputs(
+                            recalculation_id=recalculation_id,
+                            fairness_key=str(experiment.team.organization_id),
+                        ),
                         id=f"experiment-metrics-recalculation-{recalculation_id}",
                         task_queue=settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
                     )

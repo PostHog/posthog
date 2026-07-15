@@ -47,6 +47,7 @@ class UsageResponse(BaseModel):
     ai_credits: AiCreditsStatus
     is_rate_limited: bool
     is_pro: bool
+    code_usage_subscribed: bool = False
     billing_period_end: datetime | None = None
 
 
@@ -141,6 +142,7 @@ async def get_usage(
         ai_credits=AiCreditsStatus(exhausted=credits_exhausted),
         is_rate_limited=burst_status.exceeded or sustained_status.exceeded or credits_exhausted,
         is_pro=is_pro_plan(plan_info.plan_key),
+        code_usage_subscribed=quota_status.code_usage_billing_active,
         billing_period_end=billing_period_end,
     )
 
