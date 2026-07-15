@@ -3295,33 +3295,33 @@ def _resolve_permission_interaction(payload: dict) -> tuple[str, dict[str, Any],
     return context_token, context, integration, clicker_slack_user_id
 
 
-def _replace_permission_prompt(payload: dict, text: str) -> None:
+def _replace_permission_prompt(payload: dict, title: str, body: str | None = None) -> None:
     response_url = payload.get("response_url", "")
     if not response_url:
         return
+    card: dict[str, Any] = {
+        "type": "card",
+        "slack_icon": {"type": "icon", "name": "rocket"},
+        "title": {
+            "type": "mrkdwn",
+            "text": title,
+            "verbatim": False,
+        },
+        "subtitle": {
+            "type": "mrkdwn",
+            "text": "No further action is needed.",
+            "verbatim": False,
+        },
+    }
+    if body:
+        card["body"] = {"type": "mrkdwn", "text": body, "verbatim": False}
     try:
         requests.post(
             response_url,
             json={
                 "replace_original": True,
-                "text": text,
-                "blocks": [
-                    {
-                        "type": "card",
-                        "slack_icon": {"type": "icon", "name": "rocket"},
-                        "title": {
-                            "type": "mrkdwn",
-                            "text": "Approval recorded",
-                            "verbatim": False,
-                        },
-                        "subtitle": {
-                            "type": "mrkdwn",
-                            "text": "No further action is needed.",
-                            "verbatim": False,
-                        },
-                        "body": {"type": "mrkdwn", "text": text, "verbatim": False},
-                    }
-                ],
+                "text": body or title,
+                "blocks": [card],
             },
             timeout=3,
         )
@@ -3435,10 +3435,8 @@ def _handle_permission_submit(payload: dict) -> HttpResponse:
     action_id = action.get("action_id")
     if action_id == SLACK_PERMISSION_ACTION_DENY:
         option_id = context.get("reject_option_id")
-        action_label = "Denied"
     else:
         option_id = _default_permission_option_id(context, options_by_id)
-        action_label = "Approved"
 
     if not isinstance(option_id, str) or option_id not in options_by_id:
         return HttpResponse(status=200)
@@ -3448,7 +3446,7 @@ def _handle_permission_submit(payload: dict) -> HttpResponse:
         return HttpResponse(status=200)
 
     if task_run.is_terminal:
-        _replace_permission_prompt(payload, f"This run is already `{task_run.status}`. There is nothing to approve.")
+        _replace_permission_prompt(payload, "Nothing to approve", f"This run is already `{task_run.status}`.")
         cache.delete(_picker_context_cache_key(context_token))
         return HttpResponse(status=200)
 
@@ -3505,12 +3503,9 @@ def _handle_permission_submit(payload: dict) -> HttpResponse:
 
     cache.delete(_picker_context_cache_key(context_token))
     if action_id == SLACK_PERMISSION_ACTION_DENY:
-        _replace_permission_prompt(
-            payload,
-            f"{action_label} `{option_label}` for the agent. I told it to find another path or ask for context.",
-        )
+        _replace_permission_prompt(payload, "Denial recorded")
     else:
-        _replace_permission_prompt(payload, f"{action_label} `{option_label}` for the agent.")
+        _replace_permission_prompt(payload, "Approval recorded")
     logger.info(
         "slack_app_permission_response_signaled",
         run_id=run_id,

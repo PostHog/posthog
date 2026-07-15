@@ -20,6 +20,7 @@ from products.signals.backend.artefact_schemas import (
     TASK_RUN_TYPE_RESEARCH,
     TaskRunArtefact,
 )
+from products.signals.backend.billing import mark_report_billing_exempt
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalReportTask
 
 # The task-run vocabulary lives in `artefact_schemas` (a leaf module the model layer can import
@@ -94,7 +95,7 @@ def signals_task_ids(*, report_id: str, type: str) -> list[str]:
 
 
 def record_implementation_task(
-    *, team_id: int, report_id: str, task_id: str, run_id: str | None = None
+    *, team_id: int, report_id: str, task_id: str, run_id: str | None = None, billing_exempt_reason: str | None = None
 ) -> SignalReportArtefact:
     """Record a started implementation task as BOTH the legacy `SignalReportTask` gate row and the
     `task_run` work-log artefact.
@@ -105,7 +106,16 @@ def record_implementation_task(
     `backfill_task_run_artefacts` has converted every legacy row, the gate can switch to the
     artefact log and `SignalReportTask` can be dropped. Call inside the transaction that created
     the task. Shared by auto-start and the manual start-task API.
+
+    `billing_exempt_reason` lets a caller that knows its origin is PostHog-system declare the
+    report never-billable in the same transaction that records the task — before the run can ship
+    a billable PR. Enforced by the prospective-only freeze rule (`billing.mark_report_billing_exempt`
+    raises once a billable PR run exists). Auto-start stamps its exemption itself under its row
+    lock and does not pass this.
     """
+    if billing_exempt_reason:
+        report = SignalReport.objects.select_for_update().get(id=report_id, team_id=team_id)
+        mark_report_billing_exempt(report, billing_exempt_reason)
     SignalReportTask.objects.get_or_create(
         team_id=team_id,
         report_id=report_id,

@@ -6,8 +6,8 @@ import { commonConfig, copyRRWebWorkerFiles, createHashlessEntrypoints, esbuildB
 // `TOOLBAR_PUBLIC_PATH`, when set, overrides the default `publicPath` so the
 // toolbar bundle and its assets can be hosted under a versioned, content-pinned
 // URL on the posthog-js CDN. Used by posthog-js's release workflow to ship a
-// fully self-contained toolbar bundle. When unset, behaviour is unchanged from
-// before this knob existed (Django-served `https://us.posthog.com/static/`).
+// fully self-contained toolbar bundle. When unset, the bundle is served from
+// Django `/static/`.
 //
 // esbuild uses this verbatim as a URL prefix, so a trailing slash is required;
 // add one if the caller forgot.
@@ -26,9 +26,6 @@ const shimmedModules = {
     'scenes/sceneLogic': 'src/toolbar/shims/sceneLogic.ts',
     'scenes/teamLogic': 'src/toolbar/shims/teamLogic.ts',
     'lib/logic/featureFlagLogic': 'src/toolbar/shims/featureFlagLogic.ts',
-    // Hoggie illustrations are decorative; the shim renders null so no PNG assets or image
-    // requests reach the toolbar bundle that runs on customer sites (asset URLs are CSP-relevant).
-    'lib/brand/hoggies': 'src/toolbar/shims/hoggies.tsx',
     // Not a kea shim: the toolbar's parity-tested urls duplicate (see src/toolbar/urls.ts).
     // Toolbar code imports it directly; this entry covers lib/ components shared with the
     // app (TZLabel, Link, HeatmapEventsPanel), whose scenes/urls import would otherwise pull
@@ -47,21 +44,14 @@ const deniedPaths = [
     'scenes/session-recordings/player/snapshot-processing/DecompressionWorkerManager.ts',
 ]
 
-// Heavy third-party libraries the toolbar never renders, but which leak in transitively
-// through the shared scene graph (mostly via scenes/urls.ts -> products.tsx). Code splitting
-// would defer the lazily-`import()`-ed ones rather than inline them, but until their import
-// edges are cut at the source (.agents/toolbar-migration.md), denying them at resolve time
-// keeps them out of the artifact set entirely — bin/check-toolbar-graph.mjs asserts absence.
+// Heavy third-party libraries the toolbar never renders but which would otherwise leak in
+// transitively through the shared scene graph. Denying them at resolve time keeps them out of
+// the artifact set entirely; bin/check-toolbar-graph.mjs asserts their absence.
 const deniedThirdPartyPackages = [
-    // mermaid diagram rendering (via LemonMarkdownWithMermaid). Denying the entry cascades to
-    // its exclusive deps: katex, cytoscape, @mermaid-js/parser, dagre-d3-es, layout/cose-base.
-    /^mermaid(\/|$)/,
     // chart.js + its annotation plugin (via Sparkline). Charts in the toolbar go through the
     // already-denied LineGraph.
     /^chart\.js(\/|$)/,
     /^chartjs-plugin-annotation(\/|$)/,
-    // hls.js video streaming, dynamically imported by the shared replay rrweb plugins.
-    /^hls\.js(\/|$)/,
 ]
 
 const deniedPatterns = [
@@ -79,17 +69,24 @@ const deniedPatterns = [
 ]
 
 /**
- * The toolbar includes many parts of the main posthog app,
- * but we don't want to include everything in the toolbar bundle.
- * Partly because it would be too big, and partly because some things
- * in the main app cause problems for people using CSPs on their sites.
+ * The toolbar shares lib/ code with the main app, and that code reaches app-only modules
+ * the toolbar must not ship. Tree shaking can't drop them (the shared packages aren't marked
+ * side-effect-free) and app code shouldn't contort itself for the toolbar, so imports are
+ * replaced at resolve time:
  *
- * It wasn't possible to tree-shake the dependencies out of the bundle,
- * and we don't want to change the app code significantly just for the toolbar.
+ * - Shimmed modules get swapped for lightweight stand-ins (kea logics satisfying connect()
+ *   contracts, and the parity-tested urls duplicate). These are intentional injection points:
+ *   the toolbar genuinely needs different answers (its own team context, no scene routing)
+ *   than the app.
+ * - Denied modules get replaced with an inert proxy. Every deny is load-bearing: without them
+ *   PayGateMini pulls in scenes/billing (re-inlining the app scene graph), and even with
+ *   billing denied the lib-zone paths (CodeSnippet -> monaco, Sparkline/LineGraph -> chart.js,
+ *   the replay player, the query schema) balloon the eager set. A deny can only be retired
+ *   once its import path is cut at the source.
  *
- * So instead we replace some imports in the toolbar:
- * - Shimmed modules get swapped for lightweight kea logics (needed by connect())
- * - Denied modules get replaced with an inert proxy
+ * The enforced invariants live in bin/check-toolbar-size.mjs (eager-chunk budget, per-file
+ * CloudFront limit), bin/check-toolbar-graph.mjs (boundary edges, forbidden packages, source
+ * budget), and bin/check-toolbar-csp-eval.mjs (no eval on customer pages).
  */
 function createToolbarModulePlugin(dirname) {
     // Shims must also catch relative imports of the same modules (e.g. dataThemeLogic's
@@ -155,7 +152,7 @@ function createToolbarModulePlugin(dirname) {
     }
 }
 
-// The toolbar ships as two artifacts (see .agents/toolbar-migration.md):
+// The toolbar ships as two artifacts:
 //
 //   dist/toolbar.js          — a tiny classic-script loader (src/toolbar/loader.ts). posthog-js
 //                              injects it with a plain <script> tag on customer pages and calls

@@ -124,6 +124,11 @@ def _parse_retry_after(value: str | None) -> float | None:
         return None
 
 
+def _is_invalid_start_cursor(error: NotionBadRequestError) -> bool:
+    # Notion rejects an expired or otherwise stale pagination cursor with this validation_error text.
+    return "start_cursor provided is invalid" in str(error)
+
+
 _wait_exponential = wait_exponential_jitter(initial=1, max=MAX_RETRY_WAIT_SECONDS)
 
 
@@ -237,14 +242,24 @@ def _search_stream(
     cursor = resume.next_cursor if resume is not None else None
 
     while True:
-        data = _request(
-            session,
-            "POST",
-            "/v1/search",
-            logger,
-            json_body=_search_body(config.object_filter, cursor),
-            throttle=throttle,
-        )
+        try:
+            data = _request(
+                session,
+                "POST",
+                "/v1/search",
+                logger,
+                json_body=_search_body(config.object_filter, cursor),
+                throttle=throttle,
+            )
+        except NotionBadRequestError as e:
+            if cursor is None or not _is_invalid_start_cursor(e):
+                raise
+            # A resumed cursor can expire before the retry runs; Notion then rejects it as invalid.
+            # Restart from the beginning rather than failing the sync — search is sorted ascending
+            # and rows dedup on the primary key at merge, so replaying loses nothing.
+            logger.warning("Notion: resumed search cursor rejected as invalid; restarting stream from the start")
+            cursor = None
+            continue
         results = data.get("results", [])
         has_more = data.get("has_more", False)
         next_cursor = data.get("next_cursor")
@@ -280,7 +295,17 @@ def _users_stream(
         if cursor:
             params["start_cursor"] = cursor
 
-        data = _request(session, "GET", "/v1/users", logger, params=params, throttle=throttle)
+        try:
+            data = _request(session, "GET", "/v1/users", logger, params=params, throttle=throttle)
+        except NotionBadRequestError as e:
+            if cursor is None or not _is_invalid_start_cursor(e):
+                raise
+            # A resumed cursor can expire before the retry runs; Notion then rejects it as invalid.
+            # Restart from the beginning rather than failing the sync — rows dedup on the primary key
+            # at merge, so replaying loses nothing.
+            logger.warning("Notion: resumed users cursor rejected as invalid; restarting stream from the start")
+            cursor = None
+            continue
         results = data.get("results", [])
         has_more = data.get("has_more", False)
         next_cursor = data.get("next_cursor")
