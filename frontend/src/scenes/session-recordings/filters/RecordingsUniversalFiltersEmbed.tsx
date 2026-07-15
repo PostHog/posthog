@@ -266,8 +266,8 @@ export const RecordingsUniversalFiltersEmbed = ({ ...props }: ReplayUniversalFil
             label: (
                 <div className="px-2 flex">
                     <span>
-                        {savedFilters.results?.length ? (
-                            <LemonBadge.Number count={savedFilters.results?.length} className="mr-2" />
+                        {savedFilters?.results?.length ? (
+                            <LemonBadge.Number count={savedFilters.results.length} className="mr-2" />
                         ) : null}
                     </span>
                     <span>Saved filters</span>

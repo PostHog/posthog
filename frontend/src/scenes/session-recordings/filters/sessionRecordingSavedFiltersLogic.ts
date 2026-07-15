@@ -102,7 +102,8 @@ export const sessionRecordingSavedFiltersLogic = kea<sessionRecordingSavedFilter
                 const response = await api.recordings.listPlaylists(toParams(params))
                 breakpoint()
 
-                return response
+                // Guard against a nullish response body so downstream `savedFilters.results` reads never throw
+                return response ?? { results: [], count: 0, filters: null }
             },
         },
         playlists: {
@@ -152,8 +153,8 @@ export const sessionRecordingSavedFiltersLogic = kea<sessionRecordingSavedFilter
                     controlled: true,
                     pageSize: PLAYLISTS_PER_PAGE,
                     currentPage: filters.page,
-                    entryCount: savedFilters.count,
-                    onBackward: savedFilters.previous
+                    entryCount: savedFilters?.count,
+                    onBackward: savedFilters?.previous
                         ? () => {
                               actions.setSavedPlaylistsFilters({
                                   page: filters.page - 1,
@@ -161,7 +162,7 @@ export const sessionRecordingSavedFiltersLogic = kea<sessionRecordingSavedFilter
                               actions.loadSavedFilters()
                           }
                         : undefined,
-                    onForward: savedFilters.next
+                    onForward: savedFilters?.next
                         ? () => {
                               actions.setSavedPlaylistsFilters({
                                   page: filters.page + 1,

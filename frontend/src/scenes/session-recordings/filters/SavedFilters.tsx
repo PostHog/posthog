@@ -137,7 +137,7 @@ export function SavedFilters({
         return <SavedFiltersLoadingState />
     }
 
-    if (savedFilters.results?.length === 0 && !hasActiveFilters) {
+    if (savedFilters?.results?.length === 0 && !hasActiveFilters) {
         return <SavedFiltersEmptyState />
     }
 
@@ -146,7 +146,7 @@ export function SavedFilters({
             title: 'Name',
             dataIndex: 'name',
             render: function Render(name, { short_id, derived_name }) {
-                const filter = savedFilters.results.find(
+                const filter = savedFilters?.results?.find(
                     (filter: SessionRecordingPlaylistType) => filter.short_id === short_id
                 )
                 return (
@@ -205,7 +205,7 @@ export function SavedFilters({
                             status="danger"
                             onClick={() => {
                                 deletePlaylist(playlist)
-                                if (savedFilters.results?.length === 1) {
+                                if (savedFilters?.results?.length === 1) {
                                     setActiveFilterTab('filters')
                                 }
                             }}
@@ -238,7 +238,7 @@ export function SavedFilters({
                 />
             </div>
             <LemonTable
-                dataSource={savedFilters.results}
+                dataSource={savedFilters?.results ?? []}
                 columns={columns}
                 pagination={paginationSavedFilters}
                 noSortingCancellation
