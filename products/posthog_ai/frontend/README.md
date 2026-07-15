@@ -216,7 +216,7 @@ afterMount(({ actions, cache, values }) => {
 ```
 
 Re-dispatching `registerContext` with the same provider id (e.g. from a `subscriptions` handler when the
-resource changes) is an upsert — see `scenes/max/posthogAiContextBridgeLogic.ts` for the full shape.
+resource changes) is an upsert — see `logics/contextPickerLogic.ts` for the full shape.
 
 ### Let the user pick context (the composer @-affordance)
 

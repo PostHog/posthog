@@ -23,6 +23,7 @@ import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollec
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { MarketingAnalyticsFilters } from '../web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsFilters/MarketingAnalyticsFilters'
 import { MarketingAnalyticsSourceStatusBanner } from '../web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsSourceStatusBanner'
@@ -245,6 +246,33 @@ const MarketingAnalyticsAIToolWrapper = ({ children }: { children: React.ReactNo
     useMaxTool({ identifier: 'marketing_audit_utm', context: maxContext, active: aiEnabled })
     useMaxTool({ identifier: 'marketing_suggest_conversion_goals', context: maxContext, active: aiEnabled })
     useMaxTool({ identifier: 'marketing_suggest_utm_mappings', context: maxContext, active: aiEnabled })
+
+    useAttachedContext(
+        [
+            {
+                type: 'marketing_analytics_filters',
+                value: JSON.stringify({ integrationFilter, compareFilter }),
+                label: 'Current filters',
+            },
+            {
+                type: 'marketing_analytics_date_range',
+                value: JSON.stringify({ date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo }),
+                label: 'Date range',
+            },
+            {
+                type: 'marketing_analytics_config_counts',
+                value: JSON.stringify({
+                    custom_source_mappings_count: Object.keys(marketingAnalyticsConfig?.custom_source_mappings || {})
+                        .length,
+                    campaign_name_mappings_count: Object.keys(marketingAnalyticsConfig?.campaign_name_mappings || {})
+                        .length,
+                    existing_goal_count: (conversion_goals || []).length,
+                }),
+                label: 'Marketing config counts',
+            },
+        ],
+        { active: aiEnabled }
+    )
 
     return (
         <MaxTool
