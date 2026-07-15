@@ -8,6 +8,7 @@ from posthog.hogql_queries.utils.dashboard_filter_conflicts import filters_contr
 from posthog.models import Team
 
 WRAPPER_NODE_KINDS = [NodeKind.DATA_TABLE_NODE, NodeKind.DATA_VISUALIZATION_NODE, NodeKind.INSIGHT_VIZ_NODE]
+_DATA_WAREHOUSE_NODE_KINDS = {"DataWarehouseNode", "FunnelsDataWarehouseNode", "LifecycleDataWarehouseNode"}
 
 # Fields where the higher-priority (override) layer replaces the lower-priority (base) value outright
 # when set. Property filters are handled separately (stacked unless they contradict).
@@ -114,25 +115,24 @@ def remove_query_properties_overridden_by(query: dict, overriding_filters: dict 
     return _strip_query_properties(query, overriding_props)
 
 
+def _has_data_warehouse_series(query: dict) -> bool:
+    if query.get("kind") in WRAPPER_NODE_KINDS:
+        return _has_data_warehouse_series(query["source"])
+    series = query.get("series")
+    return isinstance(series, list) and any(
+        isinstance(node, dict) and node.get("kind") in _DATA_WAREHOUSE_NODE_KINDS for node in series
+    )
+
+
 def resolve_effective_dashboard_filters(
     query: dict, base_filters: dict | None, tile_filters_override: dict | None
 ) -> tuple[dict, dict]:
-    """Combine the dashboard-level `base_filters` with a tile's `tile_filters_override` into the filter set
-    that actually applies, and strip any of the insight's own property filters that set provably
-    contradicts. Both the "compute the query" and "reconstruct it for display" call sites need this same
-    dashboard+tile+insight precedence resolved identically, so it lives here once rather than being
-    re-derived at each call site.
-
-    Returns `(query, effective_filters)` — callers still apply `effective_filters` to the query themselves
-    via `apply_dashboard_filters_to_dict`.
-    """
+    """Combine dashboard and tile filters for query execution and display reconstruction."""
     effective_filters = (
         merge_filters_by_priority(base_filters, tile_filters_override) if tile_filters_override else base_filters or {}
     )
-
-    if effective_filters:
+    if effective_filters and not _has_data_warehouse_series(query):
         query = remove_query_properties_overridden_by(query, effective_filters)
-
     return query, effective_filters
 
 
