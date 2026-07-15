@@ -92,6 +92,14 @@ class TestMergeDashboardAndTileFilters(SimpleTestCase):
         assert merged["date_from"] == "-30d"
         assert merged["date_to"] == "-1d"
 
+    def test_tile_property_with_unhashable_key_does_not_raise(self):
+        # `key` comes from unvalidated client JSON and can be a list; must not crash the set-building.
+        merged = merge_dashboard_and_tile_filters(
+            {"properties": [{"key": "browser", "type": "event", "value": "x"}]},
+            {"properties": [{"key": ["a", "b"], "type": "event", "value": "y"}]},
+        )
+        assert len(merged["properties"]) == 2
+
 
 class TestRemoveQueryPropertiesOverriddenByTile(SimpleTestCase):
     def _query(self, properties):
@@ -138,3 +146,32 @@ class TestRemoveQueryPropertiesOverriddenByTile(SimpleTestCase):
         assert stripped["source"]["properties"]["values"][0]["values"] == [
             {"key": "$country", "value": "US", "type": "event"}
         ]
+
+    def test_prunes_matching_leaf_nested_three_levels_deep(self):
+        # AND[OR[AND[leaf]]] — a plain PropertyGroupFilter nesting shape. A shallow, one-level-only
+        # traversal would leave the innermost leaf in place despite the tile overriding it.
+        query = self._query(
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {"key": "$browser", "value": "Chrome", "type": "event"},
+                                    {"key": "$country", "value": "US", "type": "event"},
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+        tile = {"properties": [{"key": "$browser", "value": "Firefox", "type": "event"}]}
+
+        stripped = remove_query_properties_overridden_by_tile(query, tile)
+
+        innermost = stripped["source"]["properties"]["values"][0]["values"][0]["values"]
+        assert innermost == [{"key": "$country", "value": "US", "type": "event"}]

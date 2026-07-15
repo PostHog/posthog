@@ -1,5 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import { DashboardFilter, TileFilters } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator, QueryBasedInsightModel } from '~/types'
 
@@ -169,6 +171,9 @@ export const TileFilterOverrides: Story = {
 
 // Both layers present: the tile breakdown wins over the dashboard's, per the merge semantics.
 export const MergedFilterOverrides: Story = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.DASHBOARD_TILE_FILTER_MERGE],
+    },
     args: {
         insight: __trendsLine as any,
         filtersOverride: {

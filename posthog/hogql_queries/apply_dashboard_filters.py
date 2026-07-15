@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 import posthoganalytics
@@ -31,8 +32,13 @@ def tile_filter_merge_enabled(team: Team) -> bool:
 
 def _property_identity(prop: dict) -> tuple[str, Any]:
     """The (type, key) a property filter targets — the unit at which a tile takes precedence.
-    `type` defaults to "event" to match how untyped property filters are interpreted downstream."""
-    return (prop.get("type") or "event", prop.get("key"))
+    `type` defaults to "event" to match how untyped property filters are interpreted downstream.
+    `key` is coerced to a hashable form since it comes from unvalidated client JSON and must be
+    usable in a set/dict — an unhashable key (e.g. a list) would otherwise raise TypeError."""
+    key = prop.get("key")
+    if isinstance(key, (list, dict)):
+        key = json.dumps(key, sort_keys=True)
+    return (prop.get("type") or "event", key)
 
 
 def merge_dashboard_and_tile_filters(dashboard_filters: dict | None, tile_filters: dict | None) -> dict:
@@ -83,16 +89,18 @@ def merge_dashboard_and_tile_filters(dashboard_filters: dict | None, tile_filter
 def _without_keys(properties: Any, keys: set[tuple[str, Any]]) -> Any:
     """Drop leaf property filters whose (type, key) is in `keys` from a query's `properties`, which is
     either a flat list of leaves or a `PropertyGroupFilter` dict (a group of `PropertyGroupFilterValue`
-    subgroups). Emptied subgroups are pruned."""
+    subgroups, themselves arbitrarily nested — AND of ORs of ANDs, etc). Recurses into every nested
+    subgroup rather than stopping at one level, since leaves can sit at any depth. Emptied subgroups
+    are pruned."""
     if isinstance(properties, list):
         return [p for p in properties if _property_identity(p) not in keys]
     if isinstance(properties, dict) and isinstance(properties.get("values"), list):
         new_values = []
         for value in properties["values"]:
             if isinstance(value, dict) and isinstance(value.get("values"), list):
-                kept = [p for p in value["values"] if _property_identity(p) not in keys]
-                if kept:
-                    new_values.append({**value, "values": kept})
+                pruned = _without_keys(value, keys)
+                if pruned["values"]:
+                    new_values.append(pruned)
             elif not (isinstance(value, dict) and _property_identity(value) in keys):
                 new_values.append(value)
         return {**properties, "values": new_values}
