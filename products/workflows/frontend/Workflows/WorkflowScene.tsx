@@ -9,9 +9,7 @@ import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { LastSavedIndicator } from 'lib/components/LastSavedIndicator'
 import { NotFound } from 'lib/components/NotFound'
 import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -60,8 +58,6 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     const showSaving = useDebouncedValue(isAutoSavePending || workflowLoading, 1000)
     const isDraft = originalWorkflow?.status === 'draft'
 
-    const runsV2Enabled = useFeatureFlag('HOG_INVOCATION_RESULTS_RUNS_TAB')
-
     // Attach child logics to the scene logic so they persist across tab switches
     useAttachedLogic(batchJobsLogic, sceneLogic)
     useAttachedLogic(logic, sceneLogic)
@@ -82,26 +78,18 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
         },
 
         {
-            // Once the new Invocations (beta) tab is on, the old log viewer becomes "Logs"
-            // to match the hog function scene and avoid two "Invocations" tabs.
-            label: runsV2Enabled ? 'Logs' : 'Invocations',
+            // Runtime view backed by hog_invocation_results. Batch-triggered workflows keep the
+            // batch-run + schedule view; everything else gets the shared invocations table.
+            // Keeps the 'logs' key so existing deep links and batchWorkflowJobsLogic still resolve.
+            label: 'Invocations',
             key: 'logs',
-            content: <WorkflowLogs id={workflowSceneProps.id!} />,
+            content:
+                originalWorkflow.trigger?.type === 'batch' ? (
+                    <WorkflowLogs id={workflowSceneProps.id!} />
+                ) : (
+                    <WorkflowInvocations id={workflowSceneProps.id!} />
+                ),
         },
-        runsV2Enabled
-            ? {
-                  label: (
-                      <div className="flex flex-row">
-                          <div>Invocations</div>
-                          <LemonTag className="ml-2 uppercase" type="warning">
-                              Beta
-                          </LemonTag>
-                      </div>
-                  ),
-                  key: 'invocations',
-                  content: <WorkflowInvocations id={workflowSceneProps.id!} />,
-              }
-            : null,
         {
             label: 'Metrics',
             key: 'metrics',

@@ -45,14 +45,7 @@ import { HogFunctionMetrics } from './metrics/HogFunctionMetrics'
 import { HogFunctionSkeleton } from './misc/HogFunctionSkeleton'
 import { HogFunctionRuns } from './runs/HogFunctionRuns'
 
-const HOG_FUNCTION_SCENE_TABS = [
-    'configuration',
-    'metrics',
-    'runs',
-    'invocations',
-    'backfills',
-    'history',
-] as const
+const HOG_FUNCTION_SCENE_TABS = ['configuration', 'metrics', 'runs', 'invocations', 'backfills', 'history'] as const
 export type HogFunctionSceneTab = (typeof HOG_FUNCTION_SCENE_TABS)[number]
 
 const HogFunctionSceneMapping: Partial<Record<HogFunctionTypeType, { scene: Scene; url: () => string }>> = {
