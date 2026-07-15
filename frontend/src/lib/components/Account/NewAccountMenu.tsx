@@ -24,6 +24,7 @@ import { Label } from 'lib/ui/Label/Label'
 import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { isDesktopApp } from 'lib/utils/isDesktopApp'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
@@ -123,6 +124,9 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                     className={isLayoutNavCollapsed ? 'absolute top-0.5 right-0.5' : 'mr-0.5'}
                                 />
                             )}
+                            {/* Desktop app: the switcher sits in the navbar footer, so it gets the
+                                same open indicator as the "More" row above it */}
+                            {!isLayoutNavCollapsed && isDesktopApp() && <MenuOpenIndicator direction="up" />}
                         </ButtonPrimitive>
                     )}
                 />

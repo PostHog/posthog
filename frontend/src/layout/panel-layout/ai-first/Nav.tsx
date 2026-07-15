@@ -156,10 +156,9 @@ export function Nav(): JSX.Element {
         }
     }, [openWidth, isLayoutNavCollapsed, isMobileLayout, setNavbarWidth])
 
-    // macOS desktop app traffic lights: with enough navbar width the picker shifts right,
-    // otherwise (collapsed or narrow) the reserved space goes above it
+    // macOS desktop app: the title bar is hidden, so a full-width strip at the very top
+    // reserves room for the traffic lights (and doubles as the window drag region)
     const trafficLightsSpace = isDesktopAppMac()
-    const trafficLightsBesidePicker = trafficLightsSpace && !isLayoutNavCollapsed && openWidth >= 200
 
     // The Code tab (PostHog Code demo) only ships in the desktop app
     const visibleTabs = TAB_CONFIG.filter((tab) => tab.id !== 'code' || isDesktopApp())
@@ -182,6 +181,100 @@ export function Nav(): JSX.Element {
         }
     }
 
+    // The search (and collapsed-mode chat) row. On the web it's the 40px navbar header at the
+    // very top; in the desktop app it renders compact, below the Browse/Chat/Code tab strip.
+    const headerRow = (
+        <div
+            className={cn(
+                'flex justify-between items-center',
+                isLayoutNavCollapsed
+                    ? 'justify-center'
+                    : !isDesktopApp()
+                      ? 'h-[var(--scene-layout-header-height)]'
+                      : undefined
+            )}
+        >
+            <div
+                className={cn('flex gap-1 rounded-md w-full px-2', isDesktopApp() ? 'py-1' : 'pt-2 pb-1', {
+                    'flex-col items-center pt-2 pb-0': isLayoutNavCollapsed,
+                })}
+            >
+                {/* Desktop app: the org/project switcher moves to the NavBarFooter (below
+                    "More"), leaving only the traffic lights, tabs, and search up here */}
+                {!isDesktopApp() && <NewAccountMenu isLayoutNavCollapsed={isLayoutNavCollapsed} />}
+
+                <NavSearchButton isLayoutNavCollapsed={isLayoutNavCollapsed} toggleCommand={toggleCommand} />
+
+                {isLayoutNavCollapsed && (
+                    <ButtonPrimitive
+                        className="group w-full justify-center"
+                        data-attr="nav-tab-chat-collapsed"
+                        iconOnly
+                        tooltip="Chat"
+                        tooltipPlacement="right"
+                        active={activePanelIdentifier === 'Chat'}
+                        onClick={() => {
+                            const isOpening = activePanelIdentifier !== 'Chat'
+                            posthog.capture('nav chat panel toggled', {
+                                is_open: isOpening,
+                            })
+                            handlePanelTriggerClick('Chat')
+                            if (isOpening) {
+                                router.actions.push(urls.ai())
+                            }
+                        }}
+                    >
+                        <span
+                            className={cn(
+                                'relative flex size-4 text-secondary group-hover:text-primary opacity-50 group-hover:opacity-100 transition-all duration-50',
+                                activePanelIdentifier === 'Chat' && 'text-primary opacity-100'
+                            )}
+                        >
+                            <IconChat
+                                className={cn(
+                                    'text-secondary group-hover:text-ai',
+                                    activePanelIdentifier === 'Chat' && 'text-primary'
+                                )}
+                            />
+
+                            <PanelIndicatorIcon />
+                        </span>
+                    </ButtonPrimitive>
+                )}
+            </div>
+        </div>
+    )
+
+    const createButton = showCreateButton ? (
+        <div className={cn('px-2 py-1', isLayoutNavCollapsed && 'flex justify-center px-0')}>
+            <CreateMenuLogics />
+            <DropdownMenu
+                onOpenChange={(open) => {
+                    if (open) {
+                        posthog.capture('nav create button clicked')
+                    }
+                }}
+            >
+                <DropdownMenuTrigger asChild>
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconPlusSmall />}
+                        fullWidth={!isLayoutNavCollapsed}
+                        center={!isLayoutNavCollapsed}
+                        title={isLayoutNavCollapsed ? 'Create' : undefined}
+                        data-attr="nav-create-button"
+                    >
+                        {!isLayoutNavCollapsed ? 'Create' : null}
+                    </LemonButton>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent side="bottom" align="start" className="min-w-[220px]">
+                    <CreateMenu />
+                </DropdownMenuContent>
+            </DropdownMenu>
+        </div>
+    ) : null
+
     return (
         <div className="flex gap-0 relative">
             <nav
@@ -194,99 +287,15 @@ export function Nav(): JSX.Element {
                 )}
                 ref={containerRef}
             >
-                {/* macOS desktop app: the title bar is hidden, so reserve room for the traffic
-                    lights — above the org/project picker when the navbar is narrow, or to its
-                    left when there's enough width (see trafficLightsBesidePicker below) */}
-                {trafficLightsSpace && !trafficLightsBesidePicker && (
-                    <div className="desktop-traffic-lights-spacer h-7 w-full shrink-0" />
-                )}
-                <div
-                    className={cn(
-                        'flex justify-between items-center',
-                        isLayoutNavCollapsed ? 'justify-center' : 'h-[var(--scene-layout-header-height)]'
-                    )}
-                >
-                    <div
-                        className={cn('flex gap-1 rounded-md w-full px-2 pt-2 pb-1', {
-                            'flex-col items-center pt-2 pb-0': isLayoutNavCollapsed,
-                        })}
-                    >
-                        {trafficLightsBesidePicker && (
-                            <div className="desktop-traffic-lights-spacer w-16 shrink-0 self-stretch" />
-                        )}
-                        {/* Desktop app: the org/project switcher moves to the NavBarFooter (below
-                            "More"), leaving only the traffic lights and search up here */}
-                        {!isDesktopApp() && <NewAccountMenu isLayoutNavCollapsed={isLayoutNavCollapsed} />}
-
-                        <NavSearchButton isLayoutNavCollapsed={isLayoutNavCollapsed} toggleCommand={toggleCommand} />
-
-                        {isLayoutNavCollapsed && (
-                            <ButtonPrimitive
-                                className="group w-full justify-center"
-                                data-attr="nav-tab-chat-collapsed"
-                                iconOnly
-                                tooltip="Chat"
-                                tooltipPlacement="right"
-                                active={activePanelIdentifier === 'Chat'}
-                                onClick={() => {
-                                    const isOpening = activePanelIdentifier !== 'Chat'
-                                    posthog.capture('nav chat panel toggled', {
-                                        is_open: isOpening,
-                                    })
-                                    handlePanelTriggerClick('Chat')
-                                    if (isOpening) {
-                                        router.actions.push(urls.ai())
-                                    }
-                                }}
-                            >
-                                <span
-                                    className={cn(
-                                        'relative flex size-4 text-secondary group-hover:text-primary opacity-50 group-hover:opacity-100 transition-all duration-50',
-                                        activePanelIdentifier === 'Chat' && 'text-primary opacity-100'
-                                    )}
-                                >
-                                    <IconChat
-                                        className={cn(
-                                            'text-secondary group-hover:text-ai',
-                                            activePanelIdentifier === 'Chat' && 'text-primary'
-                                        )}
-                                    />
-
-                                    <PanelIndicatorIcon />
-                                </span>
-                            </ButtonPrimitive>
-                        )}
-                    </div>
-                </div>
-
-                {showCreateButton && (
-                    <div className={cn('px-2 py-1', isLayoutNavCollapsed && 'flex justify-center px-0')}>
-                        <CreateMenuLogics />
-                        <DropdownMenu
-                            onOpenChange={(open) => {
-                                if (open) {
-                                    posthog.capture('nav create button clicked')
-                                }
-                            }}
-                        >
-                            <DropdownMenuTrigger asChild>
-                                <LemonButton
-                                    type="secondary"
-                                    size="small"
-                                    icon={<IconPlusSmall />}
-                                    fullWidth={!isLayoutNavCollapsed}
-                                    center={!isLayoutNavCollapsed}
-                                    title={isLayoutNavCollapsed ? 'Create' : undefined}
-                                    data-attr="nav-create-button"
-                                >
-                                    {!isLayoutNavCollapsed ? 'Create' : null}
-                                </LemonButton>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent side="bottom" align="start" className="min-w-[220px]">
-                                <CreateMenu />
-                            </DropdownMenuContent>
-                        </DropdownMenu>
-                    </div>
+                {trafficLightsSpace && <div className="desktop-traffic-lights-spacer h-7 w-full shrink-0" />}
+                {/* Web: search header at the very top. Desktop app: the Browse/Chat/Code tab
+                    strip comes first (right below the traffic lights), then the search row —
+                    both render inside Tabs.Root below. */}
+                {!isDesktopApp() && (
+                    <>
+                        {headerRow}
+                        {createButton}
+                    </>
                 )}
 
                 <Tabs.Root
@@ -344,6 +353,13 @@ export function Nav(): JSX.Element {
                             ))}
                         </Tabs.List>
                     </div>
+
+                    {isDesktopApp() && (
+                        <>
+                            {headerRow}
+                            {createButton}
+                        </>
+                    )}
 
                     <div className="flex-1 overflow-hidden relative">
                         <Tabs.Panel value="home" className="absolute inset-0 flex flex-col" keepMounted tabIndex={-1}>
