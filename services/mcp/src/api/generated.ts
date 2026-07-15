@@ -27732,9 +27732,6 @@ export namespace Schemas {
       readonly experiment_set_metadata: readonly FeatureFlagExperimentSetMetadata[];
       readonly surveys: FeatureFlagSurveys;
       readonly features: FeatureFlagFeatures;
-      rollback_conditions?: unknown;
-      /** @nullable */
-      performed_rollback?: boolean | null;
       readonly can_edit: boolean;
       tags?: unknown[];
       evaluation_contexts?: unknown[];
@@ -27988,9 +27985,6 @@ export namespace Schemas {
          * @nullable
          */
       version?: number | null;
-      rollback_conditions?: unknown;
-      /** @nullable */
-      performed_rollback?: boolean | null;
       /** @nullable */
       ensure_experience_continuity?: boolean | null;
       /** @nullable */

@@ -97,8 +97,6 @@
     'analytics_dashboards',
     'deleted',
     'last_called_at',
-    'performed_rollback',
-    'rollback_conditions',
     'usage_dashboard',
   ])
 # ---
@@ -844,10 +842,8 @@
     'last_modified_by_id',
     'objects',
     'objects_including_soft_deleted',
-    'performed_rollback',
     'product_tours_internal_targeting_flag',
     'product_tours_linked_flag',
-    'rollback_conditions',
     'rollout_percentage',
     'scheduled_changes_dispatcher',
     'surveys_internal_response_sampling_flag',
