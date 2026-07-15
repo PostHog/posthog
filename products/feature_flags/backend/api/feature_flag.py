@@ -2913,7 +2913,7 @@ class FeatureFlagViewSet(
                 location=OpenApiParameter.QUERY,
                 required=False,
                 enum=["true"],
-                description="When 'true', only return flags that can back an experiment: multivariate with 2-20 variants and 'control' as the first variant. Any other value is ignored.",
+                description="When 'true', only return flags that can back an experiment: multivariate with 2-20 variants. Any other value is ignored.",
             ),
         ]
     )

@@ -4003,8 +4003,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     @parameterized.expand(
         [
-            ("filtered", "?eligible_for_experiment=true", {"eligible-flag"}),
-            ("unfiltered", "", {"eligible-flag", "wrong-order-flag", "single-variant-flag"}),
+            ("filtered", "?eligible_for_experiment=true", {"eligible-flag", "control-second-flag"}),
+            ("unfiltered", "", {"eligible-flag", "control-second-flag", "single-variant-flag"}),
         ]
     )
     def test_list_eligible_for_experiment_filtering(self, _name, query, expected_keys):
@@ -4017,7 +4017,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 ],
             ),
             (
-                "wrong-order-flag",
+                # Eligibility is variant count only; control need not be first.
+                "control-second-flag",
                 [
                     {"key": "test", "name": "Test", "rollout_percentage": 50},
                     {"key": "control", "name": "Control", "rollout_percentage": 50},
@@ -4039,7 +4040,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         assert response.status_code == 200
         keys = {flag["key"] for flag in response.json()["results"]}
-        assert keys & {"eligible-flag", "wrong-order-flag", "single-variant-flag"} == expected_keys
+        assert keys & {"eligible-flag", "control-second-flag", "single-variant-flag"} == expected_keys
 
     @parameterized.expand(
         [

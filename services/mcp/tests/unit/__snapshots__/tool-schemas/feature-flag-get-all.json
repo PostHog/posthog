@@ -15,7 +15,7 @@
             "type": "string"
         },
         "eligible_for_experiment": {
-            "description": "When 'true', only return flags that can back an experiment: multivariate with 2-20 variants and 'control' as the first variant. Any other value is ignored.",
+            "description": "When 'true', only return flags that can back an experiment: multivariate with 2-20 variants. Any other value is ignored.",
             "enum": ["true"],
             "type": "string"
         },

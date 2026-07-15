@@ -1743,7 +1743,7 @@ export type FeatureFlagsListParams = {
      */
     created_by_id?: string
     /**
-     * When 'true', only return flags that can back an experiment: multivariate with 2-20 variants and 'control' as the first variant. Any other value is ignored.
+     * When 'true', only return flags that can back an experiment: multivariate with 2-20 variants. Any other value is ignored.
      */
     eligible_for_experiment?: FeatureFlagsListEligibleForExperiment
     /**
