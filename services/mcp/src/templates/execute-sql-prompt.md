@@ -18,6 +18,7 @@ If a `query-*` tool fits, use it. Default to `query-*`; SQL is the escape hatch,
 
 ### Common pitfalls
 
+- **Never scan the whole `events` table.** Before running an events query, re-check it against the four anti-patterns in **Query performance — avoid full events-table scans** above: leading-wildcard `LIKE '%…%'` (look up the exact value with `read-data-schema` and match on `=`/`IN` instead), a missing `WHERE timestamp >= …` bound, `uniq(distinct_id)` where `uniq(person_id)` is meant, and raw joins on `events`.
 - **For `system.*` entities, filter `information_schema` by the fully-qualified `table_name`:** use `'system.insights'`, not `'insights'`; the bare name (or a `table_schema = 'system'` split) silently returns zero rows.
 
 ### Format SQL for readability
