@@ -1,6 +1,16 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import type { ComponentProps } from 'react'
 
 import { ApiVersionDeprecationBanner } from './SourceScene'
+
+// LemonBanner is a CSS container, so it collapses without an explicitly sized parent.
+const renderInSizedParent = (props: ComponentProps<typeof ApiVersionDeprecationBanner>): JSX.Element => {
+    return (
+        <div id="target" className="w-200">
+            <ApiVersionDeprecationBanner {...props} />
+        </div>
+    )
+}
 
 type Story = StoryObj<typeof ApiVersionDeprecationBanner>
 const meta: Meta<typeof ApiVersionDeprecationBanner> = {
@@ -10,6 +20,7 @@ const meta: Meta<typeof ApiVersionDeprecationBanner> = {
         viewMode: 'story',
         testOptions: {
             snapshotBrowsers: ['chromium'],
+            snapshotTargetSelector: '#target',
         },
     },
 }
@@ -17,6 +28,7 @@ const meta: Meta<typeof ApiVersionDeprecationBanner> = {
 export default meta
 
 export const WithSunsetDate: Story = {
+    render: renderInSizedParent,
     args: {
         sourceType: 'Stripe',
         deprecation: {
@@ -28,6 +40,7 @@ export const WithSunsetDate: Story = {
 }
 
 export const WithoutSunsetDate: Story = {
+    render: renderInSizedParent,
     args: {
         sourceType: 'Klaviyo',
         deprecation: {
