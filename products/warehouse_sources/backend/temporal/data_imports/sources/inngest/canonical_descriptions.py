@@ -66,12 +66,11 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "webhooks": {
-        "description": "An inbound webhook intake endpoint that transforms third-party payloads into Inngest events.",
+        "description": "An inbound webhook intake endpoint that transforms third-party payloads into Inngest events. The secret intake URL is not synced.",
         "docs_url": "https://api-docs.inngest.com/v1/webhooks/ListWebhooks",
         "columns": {
             "id": "Unique identifier of the webhook endpoint.",
             "name": "A custom descriptor for the webhook endpoint.",
-            "url": "The unique intake URL of the webhook endpoint.",
             "transform": "JavaScript transform turning the inbound request into an Inngest event payload.",
             "created_at": "When the webhook endpoint was created.",
             "updated_at": "When the webhook endpoint was last updated.",

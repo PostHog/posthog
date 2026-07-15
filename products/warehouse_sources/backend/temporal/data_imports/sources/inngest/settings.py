@@ -94,12 +94,15 @@ INNGEST_ENDPOINTS: dict[str, InngestEndpointConfig] = {
         pagination="v2_cursor",
     ),
     # Inngest webhooks are inbound intake URLs that transform third-party payloads into Inngest
-    # events (not outbound notifications), so this is a plain config inventory.
+    # events (not outbound notifications), so this is a plain config inventory. The intake URL is
+    # capability-bearing — anyone holding it can submit events that trigger functions — so it is
+    # stripped like key material.
     "webhooks": InngestEndpointConfig(
         name="webhooks",
         path="/v1/webhooks",
         primary_keys=["id"],
         pagination="none",
+        redacted_fields=("url",),
     ),
     "event_keys": InngestEndpointConfig(
         name="event_keys",

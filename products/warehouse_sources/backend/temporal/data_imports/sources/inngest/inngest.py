@@ -329,7 +329,7 @@ def _get_v1_list_rows(
     # object; handle both.
     if isinstance(data, dict):
         data = [data]
-    rows = [item for item in data or [] if isinstance(item, dict)]
+    rows = [_drop_redacted_fields(item, config.redacted_fields) for item in data or [] if isinstance(item, dict)]
     if rows:
         yield rows
 

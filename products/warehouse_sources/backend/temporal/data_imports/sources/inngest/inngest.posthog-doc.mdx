@@ -45,7 +45,7 @@ Inngest authenticates with a per-environment signing key (it starts with `signke
 
 **Events** sync append-only using the server-side `received_after` filter, backfilling up to 90 days of history on the first sync (bounded by your plan's retention). **Function runs** sync incrementally: they are discovered by walking the incoming event stream and looking up each event's runs, and each sync re-reads a trailing hour so recently-started runs pick up their final status. The other tables are small inventories with no server-side timestamp filter, so they sync as full refresh.
 
-The secret key material of event keys and signing keys is never synced — only their metadata (name, environment, creation time).
+Secret values are never synced: event keys and signing keys keep only their metadata (name, environment, creation time), and webhook intake URLs — which let anyone holding them submit events — are stripped too.
 
 ## Configuration
 

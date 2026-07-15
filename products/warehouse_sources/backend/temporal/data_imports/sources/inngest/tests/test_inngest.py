@@ -289,6 +289,15 @@ class TestV1Lists:
         rows, _ = _run_rows("cancellations", fake_fetch)
         assert [r["id"] for r in rows] == expected_ids
 
+    def test_webhook_intake_url_is_never_synced(self) -> None:
+        # The intake URL is capability-bearing: anyone holding it can submit events that trigger
+        # Inngest functions, so it must not be copied into a warehouse table viewers can read.
+        def fake_fetch(session: Any, url: str, headers: dict, logger: Any, params: dict | None = None) -> Any:
+            return {"data": [{"id": "wh1", "name": "github intake", "url": "https://inn.gs/e/secret-intake-token"}]}
+
+        rows, _ = _run_rows("webhooks", fake_fetch)
+        assert rows == [{"id": "wh1", "name": "github intake"}]
+
 
 class TestValidateCredentials:
     @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
