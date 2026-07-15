@@ -211,28 +211,37 @@ export function createSessionReplayPipeline(config: SessionReplayPipelineConfig)
                                                     // Derive the per-message record data — the
                                                     // session block chunks and the console logs —
                                                     // here, so the record step only aggregates.
-                                                    .pipe(createExtractSessionDataStep())
-                                                    .pipe(createExtractConsoleLogsStep())
+                                                    // Extraction does the per-message heavy lifting,
+                                                    // so the per-session cost metrics live on these
+                                                    // two steps.
                                                     .pipe(
-                                                        topHogWrapper(
-                                                            createRecordSessionEventStep({
-                                                                isDebugLoggingEnabled,
-                                                            }),
-                                                            [
-                                                                sum(
-                                                                    'message_size_by_session_id',
-                                                                    (input) => ({
-                                                                        token: input.parsedMessage.token ?? 'unknown',
-                                                                        session_id: input.parsedMessage.session_id,
-                                                                    }),
-                                                                    (input) => input.parsedMessage.metadata.rawSize
-                                                                ),
-                                                                timer('consume_time_ms_by_session_id', (input) => ({
+                                                        topHogWrapper(createExtractSessionDataStep(), [
+                                                            sum(
+                                                                'message_size_by_session_id',
+                                                                (input) => ({
                                                                     token: input.parsedMessage.token ?? 'unknown',
                                                                     session_id: input.parsedMessage.session_id,
-                                                                })),
-                                                            ]
-                                                        )
+                                                                }),
+                                                                (input) => input.parsedMessage.metadata.rawSize
+                                                            ),
+                                                            timer('extract_data_time_ms_by_session_id', (input) => ({
+                                                                token: input.parsedMessage.token ?? 'unknown',
+                                                                session_id: input.parsedMessage.session_id,
+                                                            })),
+                                                        ])
+                                                    )
+                                                    .pipe(
+                                                        topHogWrapper(createExtractConsoleLogsStep(), [
+                                                            timer('extract_logs_time_ms_by_session_id', (input) => ({
+                                                                token: input.parsedMessage.token ?? 'unknown',
+                                                                session_id: input.parsedMessage.session_id,
+                                                            })),
+                                                        ])
+                                                    )
+                                                    .pipe(
+                                                        createRecordSessionEventStep({
+                                                            isDebugLoggingEnabled,
+                                                        })
                                                     )
                                             )
                                             .gather()

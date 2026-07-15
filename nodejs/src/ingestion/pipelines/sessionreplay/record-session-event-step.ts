@@ -25,10 +25,6 @@ export interface RecordSessionEventStepConfig {
  * first, then, if the recorder accepted the message, its console logs and features. The parsed
  * message still feeds feature extraction, which is a sequential state machine across a session's
  * messages and can't be precomputed.
- *
- * Metrics (tracked via TopHog wrapper in the pipeline):
- * - message_size_by_session_id: Sum of raw message sizes per session
- * - consume_time_ms_by_session_id: Time spent recording each message
  */
 export function createRecordSessionEventStep<T extends RecordSessionEventStepInput>(
     config: RecordSessionEventStepConfig

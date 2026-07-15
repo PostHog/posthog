@@ -1153,7 +1153,7 @@ describe('session-replay-pipeline', () => {
             )
         })
 
-        it('records consume time metric via TopHog', async () => {
+        it('records extraction time metrics via TopHog', async () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
@@ -1173,14 +1173,16 @@ describe('session-replay-pipeline', () => {
 
             await runSessionReplayPipeline(pipeline, messages, mockBatchRecorder, promiseScheduler)
 
-            // Verify consume time metric was registered and recorded
-            const consumeTimeRecorder = topHog.sumRecorders.get('consume_time_ms_by_session_id')
-            expect(consumeTimeRecorder).toBeDefined()
-            expect(consumeTimeRecorder!.record).toHaveBeenCalledTimes(1)
-            expect(consumeTimeRecorder!.record).toHaveBeenCalledWith(
-                { token: 'test-token', session_id: 'session-1' },
-                expect.any(Number) // timing in ms
-            )
+            // Verify both extraction time metrics were registered and recorded
+            for (const metric of ['extract_data_time_ms_by_session_id', 'extract_logs_time_ms_by_session_id']) {
+                const timeRecorder = topHog.sumRecorders.get(metric)
+                expect(timeRecorder).toBeDefined()
+                expect(timeRecorder!.record).toHaveBeenCalledTimes(1)
+                expect(timeRecorder!.record).toHaveBeenCalledWith(
+                    { token: 'test-token', session_id: 'session-1' },
+                    expect.any(Number) // timing in ms
+                )
+            }
         })
 
         it('records TopHog metrics for multiple messages', async () => {
@@ -1214,8 +1216,11 @@ describe('session-replay-pipeline', () => {
             const messageSizeRecorder = topHog.sumRecorders.get('message_size_by_session_id')
             expect(messageSizeRecorder!.record).toHaveBeenCalledTimes(3)
 
-            const consumeTimeRecorder = topHog.sumRecorders.get('consume_time_ms_by_session_id')
-            expect(consumeTimeRecorder!.record).toHaveBeenCalledTimes(3)
+            const extractDataTimeRecorder = topHog.sumRecorders.get('extract_data_time_ms_by_session_id')
+            expect(extractDataTimeRecorder!.record).toHaveBeenCalledTimes(3)
+
+            const extractLogsTimeRecorder = topHog.sumRecorders.get('extract_logs_time_ms_by_session_id')
+            expect(extractLogsTimeRecorder!.record).toHaveBeenCalledTimes(3)
 
             // Verify different session_ids and tokens are recorded
             expect(parseTimeRecorder!.record).toHaveBeenCalledWith(
