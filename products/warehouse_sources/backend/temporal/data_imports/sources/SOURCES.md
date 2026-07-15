@@ -548,6 +548,7 @@ doesn't conflict with concurrent PRs.
 - deputy
 - display_video_360
 - docusign
+- dodopayments
 - dolibarr
 - dremio
 - dropbox
@@ -761,6 +762,7 @@ doesn't conflict with concurrent PRs.
 - sage_intacct
 - sailthru
 - salesforce_marketing_cloud
+- salestrics
 - sanity
 - sap_concur
 - sap_erp
