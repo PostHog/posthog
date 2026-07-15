@@ -732,8 +732,7 @@ class TestSlackNudge(BaseTest):
         assert event_props["classifier_verdict"] == expected_verdict
         assert event_props["llm_classifier_used"] is (expected_verdict in ("yes", "no"))
 
-        # The generation itself must carry attribution: a span name for the traces view and
-        # the same Slack keys as the funnel events, so a generation joins to its outcome.
+        # The generation must carry the funnel events' Slack keys so it joins to its outcome.
         create_kwargs = mock_get_llm_client.return_value.chat.completions.create.call_args.kwargs
         assert create_kwargs["extra_headers"] == {
             "x-posthog-property-feature": "slack_nudge_classifier",

@@ -756,6 +756,8 @@ def _is_trivial_message(text: str, files: list[dict] | None) -> bool:
 # package's __init__ pulls in the whole Temporal workflow surface). Must stay in the gateway's
 # `conversations` product allowlist (services/llm-gateway/src/llm_gateway/products/config.py).
 NUDGE_CLASSIFIER_MODEL = "claude-haiku-4-5"
+# Both the feature tag and the $ai_span_name on captured generations — they must stay equal.
+NUDGE_CLASSIFIER_FEATURE = "slack_nudge_classifier"
 # Bound the call so a slow gateway can't stall Slack event processing on the Celery worker.
 NUDGE_CLASSIFIER_TIMEOUT_SECONDS = 10
 # A yes/no read doesn't get better past this much text; cap what we send.
@@ -869,16 +871,6 @@ def _nudge_classifier_verdict(
     content = (text or "")[:NUDGE_CLASSIFIER_MAX_TEXT_CHARS]
     if files:
         content += f"\n\n[the message has {len(files)} file attachment(s)]"
-    # $ai_span_name names the generation in the AI observability traces view; the slack_*
-    # keys mirror the nudge funnel events (nudge_event_properties) so a generation joins to
-    # its outcome (sent / clicked / dismissed) on slack_thread_ts.
-    attribution_headers = {
-        "x-posthog-property-feature": "slack_nudge_classifier",
-        "x-posthog-property-$ai_span_name": "slack_nudge_classifier",
-        "x-posthog-property-slack_channel_id": channel,
-    }
-    if message_ts:
-        attribution_headers["x-posthog-property-slack_thread_ts"] = message_ts
     try:
         client = get_llm_client(product="conversations", team_id=team_id)
         response = client.chat.completions.create(
@@ -887,7 +879,13 @@ def _nudge_classifier_verdict(
             temperature=0,
             timeout=NUDGE_CLASSIFIER_TIMEOUT_SECONDS,
             user=f"team-{team_id}",
-            extra_headers=attribution_headers,
+            # slack_* keys mirror nudge_event_properties so a generation joins its funnel outcome.
+            extra_headers={
+                "x-posthog-property-feature": NUDGE_CLASSIFIER_FEATURE,
+                "x-posthog-property-$ai_span_name": NUDGE_CLASSIFIER_FEATURE,
+                "x-posthog-property-slack_channel_id": channel,
+                "x-posthog-property-slack_thread_ts": message_ts,
+            },
             messages=[
                 {"role": "system", "content": NUDGE_CLASSIFIER_SYSTEM_PROMPT},
                 {"role": "user", "content": content},
