@@ -13,7 +13,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import type { UserInterviewSearchResultApi, UserInterviewTopicApi } from './generated/api.schemas'
+import type { UserInterviewSearchResultApi, UserInterviewTopicSummaryApi } from './generated/api.schemas'
 import { userInterviewsLogic } from './userInterviewsLogic'
 
 export const scene: SceneExport = {
@@ -21,9 +21,9 @@ export const scene: SceneExport = {
     logic: userInterviewsLogic,
 }
 
-function targetingLabel(topic: UserInterviewTopicApi): string {
-    const emailCount = topic.interviewee_emails?.length || 0
-    const distinctIdCount = topic.interviewee_distinct_ids?.length || 0
+function targetingLabel(topic: UserInterviewTopicSummaryApi): string {
+    const emailCount = topic.interviewee_email_count || 0
+    const distinctIdCount = topic.interviewee_distinct_id_count || 0
     const parts: string[] = []
     if (emailCount > 0) {
         parts.push(`${emailCount} email${emailCount !== 1 ? 's' : ''}`)
@@ -141,14 +141,14 @@ export function UserInterviews(): JSX.Element {
                         {
                             title: 'Topic',
                             key: 'topic',
-                            render: (_, row: UserInterviewTopicApi) => (
+                            render: (_, row: UserInterviewTopicSummaryApi) => (
                                 <LemonTableLink title={row.topic} to={urls.userInterview(row.id)} />
                             ),
                         },
                         {
                             title: 'Targeting',
                             key: 'targeting',
-                            render: (_, row: UserInterviewTopicApi) => (
+                            render: (_, row: UserInterviewTopicSummaryApi) => (
                                 <span className="text-sm">{targetingLabel(row)}</span>
                             ),
                         },
@@ -156,8 +156,8 @@ export function UserInterviews(): JSX.Element {
                             title: 'Questions',
                             key: 'questions',
                             width: 100,
-                            render: (_, row: UserInterviewTopicApi) => {
-                                const count = row.questions?.length || 0
+                            render: (_, row: UserInterviewTopicSummaryApi) => {
+                                const count = row.question_count || 0
                                 return (
                                     <span className="text-muted">
                                         {count} question{count !== 1 ? 's' : ''}
@@ -168,7 +168,7 @@ export function UserInterviews(): JSX.Element {
                         {
                             title: 'Created',
                             key: 'created_at',
-                            render: (_, row: UserInterviewTopicApi) => (
+                            render: (_, row: UserInterviewTopicSummaryApi) => (
                                 <span className="text-muted whitespace-nowrap">{row.created_at?.split('T')[0]}</span>
                             ),
                             sorter: (a, b) => (a.created_at || '').localeCompare(b.created_at || ''),
@@ -176,7 +176,7 @@ export function UserInterviews(): JSX.Element {
                         {
                             title: 'Created by',
                             key: 'created_by',
-                            render: (_, row: UserInterviewTopicApi) => (
+                            render: (_, row: UserInterviewTopicSummaryApi) => (
                                 <span>{row.created_by?.first_name || row.created_by?.email || '—'}</span>
                             ),
                         },

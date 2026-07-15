@@ -12,7 +12,7 @@ import { toPaginatedResponse } from '~/mocks/handlers'
 
 import type {
     UserInterviewSearchResultApi,
-    UserInterviewTopicApi,
+    UserInterviewTopicSummaryApi,
 } from '../../../../products/user_interviews/frontend/generated/api.schemas'
 
 const MOCK_TOPICS = [
@@ -21,32 +21,29 @@ const MOCK_TOPICS = [
         created_by: MOCK_DEFAULT_BASIC_USER,
         created_at: '2026-05-15T10:00:00Z',
         topic: 'How users discover the MCP integration',
-        interviewee_emails: ['alex@example.com', 'sam@example.com', 'jordan@example.com', 'taylor@example.com'],
-        interviewee_distinct_ids: [],
-        agent_context: '',
-        questions: ['Why MCP?', 'Web UI experience?', 'What could we improve?'],
+        interviewee_email_count: 4,
+        interviewee_distinct_id_count: 0,
+        question_count: 3,
     },
     {
         id: '01999999-0000-0000-0000-000000000002',
         created_by: MOCK_DEFAULT_BASIC_USER,
         created_at: '2026-05-12T09:30:00Z',
         topic: 'Trial users that did not convert',
-        interviewee_emails: ['paul@example.com', 'jane@example.com'],
-        interviewee_distinct_ids: ['distinct-no-email'],
-        agent_context: 'Be warm, the trial just ended',
-        questions: ['What was missing?', 'What were you hoping for?'],
+        interviewee_email_count: 2,
+        interviewee_distinct_id_count: 1,
+        question_count: 2,
     },
     {
         id: '01999999-0000-0000-0000-000000000003',
         created_by: MOCK_DEFAULT_BASIC_USER,
         created_at: '2026-05-10T14:00:00Z',
         topic: 'Power users of session replay',
-        interviewee_emails: [],
-        interviewee_distinct_ids: ['power-user-1', 'power-user-2'],
-        agent_context: '',
-        questions: ['How did you discover replay?', 'What workflow does it support?'],
+        interviewee_email_count: 0,
+        interviewee_distinct_id_count: 2,
+        question_count: 2,
     },
-] as unknown as UserInterviewTopicApi[]
+] as unknown as UserInterviewTopicSummaryApi[]
 
 const MOCK_SEARCH_RESULTS: UserInterviewSearchResultApi[] = [
     {

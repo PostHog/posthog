@@ -17,7 +17,7 @@ import type {
     PaginatedInterviewLinkListApi,
     PaginatedIntervieweeContextListApi,
     PaginatedUserInterviewListApi,
-    PaginatedUserInterviewTopicListApi,
+    PaginatedUserInterviewTopicSummaryListApi,
     PatchedIntervieweeContextApi,
     PatchedUserInterviewApi,
     PatchedUserInterviewTopicApi,
@@ -74,8 +74,8 @@ export const userInterviewTopicsList = async (
     projectId: string,
     params?: UserInterviewTopicsListParams,
     options?: RequestInit
-): Promise<PaginatedUserInterviewTopicListApi> => {
-    return apiMutator<PaginatedUserInterviewTopicListApi>(getUserInterviewTopicsListUrl(projectId, params), {
+): Promise<PaginatedUserInterviewTopicSummaryListApi> => {
+    return apiMutator<PaginatedUserInterviewTopicSummaryListApi>(getUserInterviewTopicsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

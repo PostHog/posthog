@@ -94,13 +94,27 @@ export interface UserInterviewTopicApi {
     invite_message?: string
 }
 
-export interface PaginatedUserInterviewTopicListApi {
+export interface UserInterviewTopicSummaryApi {
+    readonly id: string
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    /** The product, feature, or idea interviewees are asked about. */
+    readonly topic: string
+    /** Number of email addresses targeted by this topic. */
+    readonly interviewee_email_count: number
+    /** Number of PostHog distinct IDs targeted by this topic. */
+    readonly interviewee_distinct_id_count: number
+    /** Number of questions the voice agent works through in this interview. */
+    readonly question_count: number
+}
+
+export interface PaginatedUserInterviewTopicSummaryListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: UserInterviewTopicApi[]
+    results: UserInterviewTopicSummaryApi[]
 }
 
 export interface PatchedUserInterviewTopicApi {
