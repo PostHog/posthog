@@ -22,8 +22,8 @@ import {
 import { notebooksModel, openNotebook } from '~/models/notebooksModel'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
-import { notebookLogicType } from '../Notebook/notebookLogicType'
+import type { notebookNodeLogicType } from '../Nodes/notebookNodeLogic'
+import type { notebookLogicType } from '../Notebook/notebookLogic'
 import { NotebookListItemType, NotebookTarget } from '../types'
 import { NOTEBOOK_DROPDOWN_LIMIT } from './notebookSelectButtonLogic'
 

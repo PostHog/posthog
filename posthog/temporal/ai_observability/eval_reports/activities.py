@@ -10,6 +10,7 @@ from structlog import get_logger
 
 from posthog.hogql import ast
 
+from posthog.clickhouse.client.connection import Workload
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.eval_reports.types import (
     CheckCountTriggeredEvalReportInput,
@@ -180,8 +181,10 @@ def _count_eval_results_for_report(report: "EvaluationReport", since: dt.datetim
             "since": ast.Constant(value=since),
         },
     )
+    # These count checks run every 5 minutes across all count-triggered reports, so keep them
+    # off the online cluster that serves user-facing queries — route to the offline replica.
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.ENRICHMENT, team_id=report.team_id):
-        result = execute_hogql_query(query=query, team=report.team)
+        result = execute_hogql_query(query=query, team=report.team, workload=Workload.OFFLINE)
     rows = result.results or []
     if not rows:
         return 0
@@ -227,7 +230,7 @@ def _find_nth_eval_timestamp(
         },
     )
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.ENRICHMENT, team_id=team.pk):
-        result = execute_hogql_query(query=query, team=team)
+        result = execute_hogql_query(query=query, team=team, workload=Workload.OFFLINE)
     rows = result.results or []
     if rows and rows[0][0] is not None:
         ts = rows[0][0]
