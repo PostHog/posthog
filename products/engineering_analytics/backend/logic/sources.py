@@ -165,7 +165,7 @@ def _repo_first(sources: QuerySet[ExternalDataSource], repo: str) -> list[Extern
     matching: list[ExternalDataSource] = []
     others: list[ExternalDataSource] = []
     for source in sources:
-        if str((source.job_inputs or {}).get("repository") or "").casefold() == wanted:
+        if _source_repository(source).casefold() == wanted:
             matching.append(source)
         else:
             others.append(source)
