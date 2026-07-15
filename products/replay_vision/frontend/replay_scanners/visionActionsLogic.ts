@@ -133,6 +133,7 @@ export const visionActionsLogic = kea<visionActionsLogicType>([
         loadActions: true,
         loadActionsSuccess: (visionActions: VisionActionApi[]) => ({ visionActions }),
         loadActionsFailure: true,
+        addAction: (action: VisionActionApi) => ({ action }),
         toggleActionEnabled: (id: string) => ({ id }),
         revertActionEnabled: (id: string) => ({ id }),
         toggleActionEnabledDone: (id: string) => ({ id }),
@@ -145,6 +146,7 @@ export const visionActionsLogic = kea<visionActionsLogicType>([
             [] as VisionActionApi[],
             {
                 loadActionsSuccess: (_, { visionActions }) => visionActions,
+                addAction: (state, { action }) => [...state, action],
                 deleteActionSuccess: (state, { id }) => state.filter((a) => a.id !== id),
                 // Optimistic flip on toggle; revert mirrors it back on failure.
                 toggleActionEnabled: (state, { id }) =>

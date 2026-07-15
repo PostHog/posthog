@@ -238,6 +238,38 @@ class TestRepartitionOOMHistoryTrigger:
         else:
             assert schema.repartition_pending is None
 
+    def test_pending_revive_skips_detection(self, team):
+        # A table pending a corruption revive must not be flagged for repartition — the extract activity
+        # heals it, and flagging here would re-arm the revive the moment the heal clears the marker.
+        schema = _make_schema(
+            team,
+            {
+                "partitioning_enabled": True,
+                "partition_mode": "md5",
+                "partition_count": 2,
+                "partitioning_keys": ["id"],
+                "delta_revive_required": {
+                    "reason": "repartition_scan_missing_data_file",
+                    "missing_path": "x/p.parquet",
+                },
+            },
+        )
+        for _ in range(3):  # enough OOMs to flag a within-budget table if the revive guard weren't there
+            ExternalDataSchemaOOMEvent.objects.for_team(schema.team_id).create(team_id=schema.team_id, schema=schema)
+
+        with tempfile.TemporaryDirectory() as d:
+            delta = _write_partitioned_delta(f"{d}/t", ["0", "1"])
+            with (
+                patch.object(ctrl, "target_partition_bytes", return_value=10**12),
+                patch.object(ctrl, "repartition_oom_threshold", return_value=3),
+                patch.object(ctrl, "is_auto_repartition_enabled", return_value=True),
+                patch.object(ctrl, "capture_repartition_event"),
+            ):
+                self._detect(team, schema, delta)
+
+        schema.refresh_from_db()
+        assert schema.repartition_pending is None
+
 
 # An Exception-derived cancellation, named exactly `CancelledError`: models how `async_to_sync` can
 # surface a worker-shutdown cancel so it slips past a plain BaseException catch. `_is_cancellation`
@@ -276,6 +308,36 @@ class TestRepartitionActivity:
             patch.object(repartition_table, "repartition_table_in_place", new=mocked),
             patch.object(repartition_table, "capture_repartition_event"),
             patch.object(repartition_table, "is_auto_repartition_enabled", return_value=False),
+            patch.object(repartition_table, "maybe_flag_for_repartition") as flag,
+        ):
+            ActivityEnvironment().run(maybe_repartition_table_activity, self._inputs(team, schema))
+        mocked.assert_not_called()
+        flag.assert_not_called()
+
+    def test_noop_when_revive_pending(self, team):
+        # A table pending a corruption revive skips the whole activity — no detection, no rewrite — even
+        # with a repartition already queued, so it can't interleave with the extract's heal and re-arm
+        # the non-billable revive loop.
+        schema = _make_schema(
+            team,
+            {
+                "repartition_pending": {
+                    "partition_mode": "md5",
+                    "partition_keys": ["id"],
+                    "trigger_reason": "oom_history",
+                },
+                "delta_revive_required": {
+                    "reason": "repartition_scan_missing_data_file",
+                    "missing_path": "x/p.parquet",
+                },
+            },
+        )
+        mocked = AsyncMock()
+        with (
+            patch.object(repartition_table, "HeartbeaterSync"),
+            patch.object(repartition_table, "repartition_table_in_place", new=mocked),
+            patch.object(repartition_table, "capture_repartition_event"),
+            patch.object(repartition_table, "is_auto_repartition_enabled", return_value=True),
             patch.object(repartition_table, "maybe_flag_for_repartition") as flag,
         ):
             ActivityEnvironment().run(maybe_repartition_table_activity, self._inputs(team, schema))
