@@ -75,7 +75,7 @@ export function AgentsTab(): JSX.Element {
         agentsBody = (
             <div className="flex flex-col gap-3">
                 <BackLink onClick={closeDataSourceSetup} />
-                <DataSourceSetup source={dataSourceSetupSource} onComplete={() => onDataSourceSetupComplete()} />
+                <DataSourceSetup source={dataSourceSetupSource} onComplete={onDataSourceSetupComplete} />
             </div>
         )
     } else if (sessionAnalysisSetupOpen) {

@@ -24,25 +24,13 @@ export const ERROR_TRACKING_SIGNAL_SOURCE_TYPES: SignalSourceType[] = [
     SignalSourceType.IssueSpiking,
 ]
 
-/** Warehouse-backed signal sources, keyed by roster source id. */
-export type WarehouseBackedSource = 'github' | 'linear' | 'zendesk' | 'pganalyze'
-
 /**
  * One registration per warehouse-backed signal source: the warehouse product that backs it, the
  * tables its signals read (pre-selected in the wizard and forced to sync), and the config row that
  * enabling creates. Keyed by signal source, not warehouse product, so one product can back several
  * sources.
  */
-export const WAREHOUSE_SOURCE_SETUP: Record<
-    WarehouseBackedSource,
-    {
-        dwSourceType: ExternalDataSourceType
-        requiredTables: string[]
-        sourceProduct: SignalSourceProduct
-        sourceType: SignalSourceType
-        enableErrorMessage: string
-    }
-> = {
+export const WAREHOUSE_SOURCE_SETUP = {
     github: {
         dwSourceType: 'Github',
         requiredTables: ['issues'],
@@ -71,19 +59,26 @@ export const WAREHOUSE_SOURCE_SETUP: Record<
         sourceType: SignalSourceType.Issue,
         enableErrorMessage: 'Failed to enable pganalyze',
     },
-}
+} satisfies Record<
+    string,
+    {
+        dwSourceType: ExternalDataSourceType
+        requiredTables: string[]
+        sourceProduct: SignalSourceProduct
+        sourceType: SignalSourceType
+        enableErrorMessage: string
+    }
+>
 
-/** Values subset used by data-warehouse source helpers */
-interface SignalSourcesLogicValuesForDw {
-    sourceConfigs: SignalSourceConfig[] | null
-}
+/** Warehouse-backed signal sources, keyed by roster source id. */
+export type WarehouseBackedSource = keyof typeof WAREHOUSE_SOURCE_SETUP
 
 function getWarehouseSourceConfig(
-    values: SignalSourcesLogicValuesForDw,
+    sourceConfigs: SignalSourceConfig[] | null,
     source: WarehouseBackedSource
 ): SignalSourceConfig | null {
     const { sourceProduct, sourceType } = WAREHOUSE_SOURCE_SETUP[source]
-    return values.sourceConfigs?.find((c) => c.source_product === sourceProduct && c.source_type === sourceType) ?? null
+    return sourceConfigs?.find((c) => c.source_product === sourceProduct && c.source_type === sourceType) ?? null
 }
 
 function toggleSourceConfigState(
@@ -138,7 +133,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         initiateDataWarehouseSourceToggle: (source: WarehouseBackedSource) => ({ source }),
         openDataSourceSetup: (source: WarehouseBackedSource) => ({ source }),
         closeDataSourceSetup: true,
-        onDataSourceSetupComplete: true,
+        onDataSourceSetupComplete: (source: WarehouseBackedSource) => ({ source }),
         toggleSignalSource: (params: ToggleSignalSourceParams) => ({ params }),
         toggleSignalSourceSuccess: (params: ToggleSignalSourceParams) => ({ params }),
         toggleSignalSourceFailure: (params: ToggleSignalSourceParams, error: string) => ({ params, error }),
@@ -406,7 +401,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             },
             initiateDataWarehouseSourceToggle: async ({ source }) => {
                 const { dwSourceType, requiredTables, enableErrorMessage } = WAREHOUSE_SOURCE_SETUP[source]
-                const sourceConfig = getWarehouseSourceConfig(values, source)
+                const sourceConfig = getWarehouseSourceConfig(values.sourceConfigs, source)
                 const isCurrentlyEnabled = sourceConfig?.enabled === true
                 if (!isCurrentlyEnabled) {
                     const hasSource =
@@ -418,9 +413,9 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                         return
                     }
                     try {
-                        for (const table of requiredTables) {
-                            await ensureRequiredTableSyncing(dwSourceType, table)
-                        }
+                        await Promise.all(
+                            requiredTables.map((table) => ensureRequiredTableSyncing(dwSourceType, table))
+                        )
                     } catch (error: any) {
                         lemonToast.error(error?.detail || error?.message || enableErrorMessage)
                         return
@@ -428,12 +423,8 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 }
                 actions.toggleDataWarehouseSource(source)
             },
-            onDataSourceSetupComplete: () => {
-                const source = values.dataSourceSetupSource
+            onDataSourceSetupComplete: ({ source }) => {
                 actions.closeDataSourceSetup()
-                if (source === null) {
-                    return
-                }
                 const { sourceProduct, sourceType } = WAREHOUSE_SOURCE_SETUP[source]
                 actions.toggleSignalSource({ sourceProduct, sourceType, enabled: true, viaSetupWizard: true })
             },
@@ -566,7 +557,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             },
             toggleDataWarehouseSource: ({ source }) => {
                 const { sourceProduct, sourceType } = WAREHOUSE_SOURCE_SETUP[source]
-                const config = getWarehouseSourceConfig(values, source)
+                const config = getWarehouseSourceConfig(values.sourceConfigs, source)
                 actions.toggleSignalSource({
                     sourceProduct,
                     sourceType,

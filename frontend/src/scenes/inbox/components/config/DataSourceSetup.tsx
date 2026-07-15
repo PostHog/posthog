@@ -18,7 +18,7 @@ export function DataSourceSetup({
     onComplete,
 }: {
     source: WarehouseBackedSource
-    onComplete: () => void
+    onComplete: (source: WarehouseBackedSource) => void
 }): JSX.Element {
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
     const { dwSourceType, requiredTables } = WAREHOUSE_SOURCE_SETUP[source]
@@ -38,7 +38,9 @@ export function DataSourceSetup({
             props={{
                 availableSources,
                 requiredTables,
-                onComplete,
+                // Bind the source from this mount's stable prop so completion enables the right
+                // signal even if the async connect resolves after the panel closes.
+                onComplete: () => onComplete(source),
             }}
         >
             <DataSourceSetupForm sourceConfig={sourceConfig} />

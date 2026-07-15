@@ -42,7 +42,7 @@ export function SignalSourcesPanel(): JSX.Element {
         return (
             <div className="flex flex-col gap-3">
                 <BackLink onClick={closeDataSourceSetup} />
-                <DataSourceSetup source={dataSourceSetupSource} onComplete={() => onDataSourceSetupComplete()} />
+                <DataSourceSetup source={dataSourceSetupSource} onComplete={onDataSourceSetupComplete} />
             </div>
         )
     }
