@@ -2,7 +2,6 @@ import './FeatureFlag.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { Fragment } from 'react'
 
 import { IconCopy, IconFlag, IconInfo, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonLabel, LemonSelect, LemonSnack, Link, Tooltip } from '@posthog/lemon-ui'
@@ -16,7 +15,7 @@ import { INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { GroupsAccessStatus, groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
-import { IconArrowDown, IconArrowUp, IconErrorOutline, IconOpenInNew, IconSubArrowRight } from 'lib/lemon-ui/icons'
+import { IconArrowDown, IconArrowUp, IconOpenInNew, IconSubArrowRight } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -52,6 +51,7 @@ import {
     featureFlagReleaseConditionsLogic,
     isDistinctIdFilter,
 } from './featureFlagReleaseConditionsLogic'
+import { getPropertySelectErrorMessages } from './propertySelectErrorMessages'
 
 function PropertyValueComponent({
     property,
@@ -381,22 +381,7 @@ export function FeatureFlagReleaseConditions({
                                           }
                                         : undefined
                                 }
-                                errorMessages={
-                                    propertySelectErrors?.[index]?.properties?.some((message) => !!message.value)
-                                        ? propertySelectErrors[index].properties?.map((message, index) => {
-                                              return message.value ? (
-                                                  <div
-                                                      key={index}
-                                                      className="text-danger flex items-center gap-1 text-sm Field--error"
-                                                  >
-                                                      <IconErrorOutline className="text-xl" /> {message.value}
-                                                  </div>
-                                              ) : (
-                                                  <Fragment key={index} />
-                                              )
-                                          })
-                                        : null
-                                }
+                                errorMessages={getPropertySelectErrorMessages(propertySelectErrors, index)}
                                 hideBehavioralCohorts={!realtimeCohortFlagTargeting}
                             />
                         </div>
@@ -551,13 +536,12 @@ export function FeatureFlagReleaseConditions({
             description={
                 !readOnly &&
                 !excludeTitle && (
-                    <>
-                        <div className="text-secondary mb-2">
-                            Specify users for flag release. Condition sets are evaluated top to bottom - the first
-                            matching set is used. A condition matches when all property filters pass AND the target
-                            falls within the rollout percentage.
-                        </div>
-                    </>
+                    // span, not div: SceneSection renders the description inside a <p>
+                    <span className="block text-secondary mb-2">
+                        Specify users for flag release. Condition sets are evaluated top to bottom - the first matching
+                        set is used. A condition matches when all property filters pass AND the target falls within the
+                        rollout percentage.
+                    </span>
                 )
             }
         >

@@ -8,6 +8,8 @@ module.exports = {
         ],
     },
     testEnvironment: 'node',
+    // Emit JUnit XML for Trunk flaky-test detection only when JEST_JUNIT_OUTPUT_DIR is set.
+    reporters: process.env.JEST_JUNIT_OUTPUT_DIR ? ['default', 'jest-junit'] : ['default'],
     clearMocks: true,
     coverageProvider: 'v8',
     setupFiles: ['./jest.setup-env.ts'],
@@ -19,8 +21,9 @@ module.exports = {
         '<rootDir>/.tmp/',
         '<rootDir>/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/',
     ],
-    // `dev/` folders hold dev-only benchmarks/scripts, never CI tests.
-    testPathIgnorePatterns: ['/node_modules/', '/dev/'],
+    // `dev/` folders hold dev-only benchmarks/scripts, never CI tests. Anchored to rootDir:
+    // an unanchored '/dev/' also matches checkout paths like ~/dev/posthog and ignores every test.
+    testPathIgnorePatterns: ['/node_modules/', '<rootDir>/(src|tests)(/.*)?/dev/'],
 
     // NOTE: This should be kept in sync with tsconfig.json
     moduleNameMapper: {

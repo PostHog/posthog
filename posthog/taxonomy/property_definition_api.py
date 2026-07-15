@@ -479,6 +479,14 @@ ALWAYS_EXCLUDED_EVENT_PROPERTIES = set(
 
 
 class PropertyDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
+    warehouse_origin = serializers.JSONField(
+        read_only=True,
+        help_text=(
+            "Provenance for a person property populated from a data warehouse source "
+            "(source/table/column/last synced), or null. Read-only."
+        ),
+    )
+
     class Meta:
         model = PropertyDefinition
         fields = (
@@ -489,6 +497,7 @@ class PropertyDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelS
             "tags",
             # This is a calculated property, set when property has been seen with the provided `event_names` query param events. NULL if no `event_names` provided
             "is_seen_on_filtered_events",
+            "warehouse_origin",
         )
 
     def validate(self, data):

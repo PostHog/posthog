@@ -15,8 +15,10 @@ from posthog.temporal.common.base import PostHogWorkflow
 
 from products.replay_vision.backend.temporal.constants import PROCESS_VISION_ACTION_WORKFLOW_NAME
 from products.replay_vision.backend.temporal.vision_actions.types import (
+    AlertStatus,
     CreateVisionActionRunInputs,
     EmitActionReadyInputs,
+    EvaluateAlertInputs,
     ProcessVisionActionInputs,
     SynthesisStatus,
     SynthesizeGroupSummaryInputs,
@@ -24,7 +26,7 @@ from products.replay_vision.backend.temporal.vision_actions.types import (
     ValidateVisionActionInputs,
 )
 
-# `activities` + the synthesis activity pull in Django/ee, which the workflow sandbox can't re-import.
+# `activities` + the synthesis/alert activities pull in Django/ee, which the workflow sandbox can't re-import.
 with wf.unsafe.imports_passed_through():
     from products.replay_vision.backend.models.vision_action import VisionActionRunStatus
     from products.replay_vision.backend.temporal.vision_actions.activities import (
@@ -33,6 +35,7 @@ with wf.unsafe.imports_passed_through():
         update_vision_action_run_activity,
         validate_vision_action_activity,
     )
+    from products.replay_vision.backend.temporal.vision_actions.alerts import evaluate_alert_activity
     from products.replay_vision.backend.temporal.vision_actions.synthesis import synthesize_group_summary_activity
 
 _RECORD_RETRY = common.RetryPolicy(initial_interval=dt.timedelta(seconds=5), maximum_attempts=3)
@@ -80,20 +83,34 @@ class ProcessVisionActionWorkflow(PostHogWorkflow):
                 error_info = {"skip_reason": skip_reason}
                 return
 
-            synth = await wf.execute_activity(
-                synthesize_group_summary_activity,
-                SynthesizeGroupSummaryInputs(run_id=run_id, team_id=inputs.team_id),
-                start_to_close_timeout=dt.timedelta(minutes=10),
-                retry_policy=_SYNTH_RETRY,
-            )
-            if synth.status in (SynthesisStatus.ABORTED_NO_CONSENT, SynthesisStatus.ABORTED_NO_USER):
-                final_status = VisionActionRunStatus.FAILED.value
-                error_info = {"aborted": synth.status.value}
-                return
-            if synth.status in (SynthesisStatus.SKIPPED_EMPTY, SynthesisStatus.SKIPPED_OVER_BUDGET):
-                # final_status stays SKIPPED; record why so the run isn't an unexplained skip.
-                error_info = {"skip_reason": synth.status.value}
-                return
+            if inputs.mode == "alert":
+                # Alerts evaluate a deterministic condition (no LLM); the message is persisted on the
+                # run by the activity, so a non-breach simply records a skip and delivers nothing.
+                alert = await wf.execute_activity(
+                    evaluate_alert_activity,
+                    EvaluateAlertInputs(run_id=run_id, team_id=inputs.team_id),
+                    start_to_close_timeout=dt.timedelta(minutes=5),
+                    retry_policy=_SYNTH_RETRY,
+                )
+                if alert.status in (AlertStatus.NOT_BREACHED, AlertStatus.STILL_BREACHED):
+                    # final_status stays SKIPPED; record why so the run isn't an unexplained skip.
+                    error_info = {"skip_reason": alert.status.value}
+                    return
+            else:
+                synth = await wf.execute_activity(
+                    synthesize_group_summary_activity,
+                    SynthesizeGroupSummaryInputs(run_id=run_id, team_id=inputs.team_id),
+                    start_to_close_timeout=dt.timedelta(minutes=10),
+                    retry_policy=_SYNTH_RETRY,
+                )
+                if synth.status in (SynthesisStatus.ABORTED_NO_CONSENT, SynthesisStatus.ABORTED_NO_USER):
+                    final_status = VisionActionRunStatus.FAILED.value
+                    error_info = {"aborted": synth.status.value}
+                    return
+                if synth.status in (SynthesisStatus.SKIPPED_EMPTY, SynthesisStatus.SKIPPED_OVER_BUDGET):
+                    # final_status stays SKIPPED; record why so the run isn't an unexplained skip.
+                    error_info = {"skip_reason": synth.status.value}
+                    return
 
             await wf.execute_activity(
                 emit_action_ready_activity,

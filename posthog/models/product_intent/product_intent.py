@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any, Optional
 
@@ -240,20 +241,8 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
         self.activation_last_checked_at = datetime.now(tz=UTC)
         self.save()
 
-        activation_checks = {
-            "data_warehouse": self.has_activated_data_warehouse,
-            "experiments": self.has_activated_experiments,
-            "feature_flags": self.has_activated_feature_flags,
-            "session_replay": self.has_activated_session_replay,
-            "error_tracking": self.has_activated_error_tracking,
-            "product_analytics": self.has_activated_product_analytics,
-            "surveys": self.has_activated_surveys,
-            "llm_analytics": self.has_activated_llm_analytics,
-            "mcp_analytics": self.has_activated_mcp_analytics,
-            "workflows": self.has_activated_workflows,
-        }
-
-        if self.product_type in activation_checks and activation_checks[self.product_type]():
+        activation_check = ACTIVATION_CHECKS.get(self.product_type)
+        if activation_check is not None and activation_check(self):
             self.activated_at = datetime.now(tz=UTC)
             self.save()
             if not skip_reporting:
@@ -336,6 +325,25 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
                 )
 
         return product_intent
+
+
+# Dispatch for `check_and_update_activation`. Module-level so other systems can tell
+# which product keys have a concrete activation criterion (vs. intent-existence only)
+# without duplicating this list.
+ACTIVATION_CHECKS: dict[str, Callable[[ProductIntent], bool]] = {
+    "data_warehouse": ProductIntent.has_activated_data_warehouse,
+    "experiments": ProductIntent.has_activated_experiments,
+    "feature_flags": ProductIntent.has_activated_feature_flags,
+    "session_replay": ProductIntent.has_activated_session_replay,
+    "error_tracking": ProductIntent.has_activated_error_tracking,
+    "product_analytics": ProductIntent.has_activated_product_analytics,
+    "surveys": ProductIntent.has_activated_surveys,
+    "llm_analytics": ProductIntent.has_activated_llm_analytics,
+    "mcp_analytics": ProductIntent.has_activated_mcp_analytics,
+    "workflows": ProductIntent.has_activated_workflows,
+}
+
+ACTIVATION_CHECK_PRODUCT_KEYS: frozenset[str] = frozenset(ACTIVATION_CHECKS)
 
 
 @shared_task(ignore_result=True)

@@ -18,6 +18,8 @@ import { useMaxTool } from 'scenes/max/useMaxTool'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+
 import { replayScannerLogic } from '../replayScannerLogic'
 import { ClassifierScannerConfig, SummarizerScannerConfig, scannerTypeLabel } from '../types'
 
@@ -65,6 +67,20 @@ function ScannerPromptField({
         initialMaxPrompt: 'Help me write the prompt for this scanner',
         callback: onDraftedPrompt,
     })
+
+    useAttachedContext(
+        scanner
+            ? [
+                  { type: 'replay_vision_scanner', key: scannerId, label: scannerTypeLabel(scanner?.scanner_type) },
+                  {
+                      type: 'replay_vision_scanner_prompt',
+                      value: JSON.stringify(scanner?.scanner_config?.prompt || ''),
+                      label: 'Current prompt',
+                  },
+              ]
+            : null,
+        { active: !!scanner }
+    )
 
     return (
         <div className="space-y-2">

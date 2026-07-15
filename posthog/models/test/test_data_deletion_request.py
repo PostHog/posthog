@@ -378,6 +378,51 @@ def test_rendered_count_query_includes_hogql_predicate(team):
     assert "%(" not in rendered
 
 
+def test_property_presence_where_scopes_and_matches_property_columns(team):
+    from posthog.clickhouse.client.escape import substitute_params_for_display
+
+    request = DataDeletionRequest(
+        **_base_kwargs(
+            team_id=team.id,
+            request_type=RequestType.PROPERTY_REMOVAL,
+            events=["$pageview"],
+            properties=["$ip"],
+            person_properties=["email"],
+            start_time=datetime(2026, 4, 1),
+            end_time=datetime(2026, 4, 15),
+        )
+    )
+    predicate, params = ddr._property_presence_where(request)
+    rendered = substitute_params_for_display(predicate, params)
+
+    assert f"team_id = {team.id}" in rendered
+    assert "timestamp >= '2026-04-01 00:00:00'" in rendered
+    assert "timestamp < '2026-04-15 00:00:00'" in rendered
+    assert "JSONHas(properties, '$ip')" in rendered
+    assert "JSONHas(person_properties, 'email')" in rendered
+    assert "%(" not in rendered
+
+
+def test_property_presence_where_includes_materialized_columns(team):
+    from posthog.clickhouse.client.escape import substitute_params_for_display
+
+    request = DataDeletionRequest(
+        **_base_kwargs(
+            team_id=team.id,
+            request_type=RequestType.PROPERTY_REMOVAL,
+            events=["$pageview"],
+            properties=["$ip"],
+            start_time=datetime(2026, 4, 1),
+            end_time=datetime(2026, 4, 15),
+        )
+    )
+    predicate, params = ddr._property_presence_where(request, mat_cols=[("mat_$ip", False)])
+    rendered = substitute_params_for_display(predicate, params)
+
+    assert "JSONHas(properties, '$ip')" in rendered
+    assert "`mat_$ip` != ''" in rendered
+
+
 def _person_kwargs(**overrides) -> dict:
     kwargs = {
         "team_id": TEAM_ID,

@@ -206,6 +206,9 @@ export const dataTableLogic = kea<dataTableLogicType>([
                 const rows = results ? (results.map((result: any) => ({ result })) ?? null) : null
                 return context?.dataTableRowsTransformer ? context.dataTableRowsTransformer(rows ?? []) : rows
             },
+            // A reload or poll reparses JSON, so unchanged results still arrive as new identities;
+            // keeping the previous array lets memoized rows skip re-rendering.
+            { resultEqualityCheck: objectsEqual },
         ],
         queryWithDefaults: [
             (s, p) => [p.query, s.columnsInQuery, s.featureFlags, (_, props) => props.context],

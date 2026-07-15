@@ -1,4 +1,4 @@
-import equal from 'fast-deep-equal'
+import { deepEqual as equal } from 'fast-equals'
 import { actions, afterMount, kea, key, listeners, path, propsChanged, props, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
@@ -86,9 +86,9 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
             pushToHistory,
         }),
 
-        // Mirror of the `pinnedFilters` prop into state so consumers (LogsFilterBar)
-        // can read it via useValues without going through the kea selector input-prop
-        // machinery (which doesn't accept optional props).
+        // Mirror of the `pinnedFilters` prop into state so consumers can read it via
+        // useValues without going through the kea selector input-prop machinery
+        // (which doesn't accept optional props).
         setPinnedFilters: (pinnedFilters: UniversalFiltersGroup | undefined) => ({ pinnedFilters }),
 
         zoomDateRange: (multiplier: number) => ({ multiplier }),

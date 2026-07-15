@@ -1,5 +1,7 @@
+import { parseMarkdownNotebook } from 'lib/components/MarkdownNotebook/markdown'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 
+import { NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG } from '../Notebook/markdownNotebookV2'
 import { NotebookNodeType } from '../types'
 
 export type PythonNodeSummary = {
@@ -24,6 +26,15 @@ export type HogqlSqlNodeSummary = {
     code: string
     returnVariable: string
     hogqlSqlIndex: number
+    title: string
+}
+
+export type SqlV2NodeSummary = {
+    nodeId: string
+    code: string
+    returnVariable: string
+    tablesUsed: string[]
+    sqlV2Index: number
     title: string
 }
 
@@ -125,6 +136,24 @@ export const extractDuckSqlTables = (sql: string): string[] => {
     return Array.from(tableNames.values())
 }
 
+// Rough by design, like the SQL extraction above: identifiers a Python cell's code mentions,
+// with string literals, comments, and attribute tails stripped. Only ever intersected with
+// sibling exports (matchesUsage), so a false positive just marks an extra cell stale.
+export const extractPythonIdentifiers = (code: string): string[] => {
+    const cleaned = (code || '')
+        .replace(/('''[\s\S]*?'''|"""[\s\S]*?""")/g, ' ')
+        .replace(/('(?:[^'\\\n]|\\.)*'|"(?:[^"\\\n]|\\.)*")/g, ' ')
+        .replace(/#.*$/gm, ' ')
+    const identifiers = new Set<string>()
+    const identifierPattern = /(?<![\w.])[A-Za-z_]\w*/g
+    let match = identifierPattern.exec(cleaned)
+    while (match) {
+        identifiers.add(match[0])
+        match = identifierPattern.exec(cleaned)
+    }
+    return Array.from(identifiers)
+}
+
 export const normalizeDuckSqlIdentifier = (identifier: string): string => {
     return normalizeSqlIdentifier(identifier)
 }
@@ -223,6 +252,129 @@ export const getUniqueHogqlReturnVariable = (
     return resolvedReturnVariable
 }
 
+// SQLV2 nodes reference upstream nodes by bare table name (like DuckSQL) but use HogQL
+// identifiers (like the HogQL node), so they reuse both extraction helpers.
+export const resolveSqlV2ReturnVariable = (returnVariable: string): string => {
+    return returnVariable.trim() || 'sql_df'
+}
+
+const buildUniqueSqlV2ReturnVariable = (baseReturnVariable: string, used: Set<string>): string => {
+    const normalizedBase = normalizeSqlIdentifier(baseReturnVariable)
+    if (!used.has(normalizedBase)) {
+        return baseReturnVariable
+    }
+
+    let suffix = 2
+    while (true) {
+        const candidate = `${baseReturnVariable}_${suffix}`
+        if (!used.has(normalizeSqlIdentifier(candidate))) {
+            return candidate
+        }
+        suffix += 1
+    }
+}
+
+export const getUniqueSqlV2ReturnVariable = (
+    nodes: SqlV2NodeSummary[],
+    nodeId: string,
+    fallbackReturnVariable: string
+): string => {
+    const used = new Set<string>()
+    let resolvedReturnVariable = resolveSqlV2ReturnVariable(fallbackReturnVariable)
+    let resolvedFromNodes = false
+
+    nodes.forEach((node) => {
+        const baseReturnVariable = resolveSqlV2ReturnVariable(node.returnVariable)
+        const uniqueReturnVariable = buildUniqueSqlV2ReturnVariable(baseReturnVariable, used)
+        used.add(normalizeSqlIdentifier(uniqueReturnVariable))
+
+        if (node.nodeId === nodeId) {
+            resolvedReturnVariable = uniqueReturnVariable
+            resolvedFromNodes = true
+        }
+    })
+
+    if (!resolvedFromNodes) {
+        resolvedReturnVariable = buildUniqueSqlV2ReturnVariable(resolvedReturnVariable, used)
+    }
+
+    return resolvedReturnVariable
+}
+
+// Markdown notebooks hold their cells as component tags inside a single markdown attribute,
+// so walking the tiptap JSON alone never finds them. Expand the given cell tag into
+// tiptap-shaped nodes so the collectors and the dependency graph see the same cells in both
+// notebook formats. Scoped to the revamped-notebook cell types (SQLV2 + kernel Python):
+// expanding the other node types would change their (markdown-blind) summaries and naming.
+const expandMarkdownNotebookNodesOfType = (node: any, nodeType: NotebookNodeType): JSONContent[] => {
+    if (typeof node?.attrs?.markdown !== 'string') {
+        return []
+    }
+    return parseMarkdownNotebook(node.attrs.markdown).nodes.flatMap((block) =>
+        block.type === 'component' && block.tagName === NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG[nodeType]
+            ? [
+                  {
+                      type: nodeType,
+                      attrs: {
+                          ...block.props,
+                          // Prefer the persisted nodeId prop: the parsed block id is a content
+                          // fingerprint, which drifts from the live cell id as soon as any prop
+                          // changes (running a cell writes runId/result into its props).
+                          nodeId:
+                              typeof block.props.nodeId === 'string' && block.props.nodeId
+                                  ? block.props.nodeId
+                                  : block.id,
+                      },
+                  },
+              ]
+            : []
+    )
+}
+
+const expandMarkdownNotebookSqlV2Nodes = (node: any): JSONContent[] =>
+    expandMarkdownNotebookNodesOfType(node, NotebookNodeType.SQLV2)
+
+export const collectSqlV2Nodes = (content?: JSONContent | null): SqlV2NodeSummary[] => {
+    if (!content || typeof content !== 'object') {
+        return []
+    }
+
+    const nodes: SqlV2NodeSummary[] = []
+    const usedReturnVariables = new Set<string>()
+
+    const walk = (node: any): void => {
+        if (!node || typeof node !== 'object') {
+            return
+        }
+        if (node.type === NotebookNodeType.SQLV2) {
+            const attrs = node.attrs ?? {}
+            const code = typeof attrs.code === 'string' ? attrs.code : ''
+            const baseReturnVariable = resolveSqlV2ReturnVariable(
+                typeof attrs.returnVariable === 'string' ? attrs.returnVariable : 'sql_df'
+            )
+            const returnVariable = buildUniqueSqlV2ReturnVariable(baseReturnVariable, usedReturnVariables)
+            usedReturnVariables.add(normalizeSqlIdentifier(returnVariable))
+            nodes.push({
+                nodeId: attrs.nodeId ?? '',
+                code,
+                returnVariable,
+                tablesUsed: extractDuckSqlTables(code),
+                sqlV2Index: nodes.length + 1,
+                title: typeof attrs.title === 'string' ? attrs.title : '',
+            })
+        }
+        if (node.type === NotebookNodeType.MarkdownNotebook) {
+            expandMarkdownNotebookSqlV2Nodes(node).forEach(walk)
+        }
+        if (Array.isArray(node.content)) {
+            node.content.forEach(walk)
+        }
+    }
+
+    walk(content)
+    return nodes
+}
+
 export const collectPythonNodes = (content?: JSONContent | null): PythonNodeSummary[] => {
     if (!content || typeof content !== 'object') {
         return []
@@ -243,6 +395,47 @@ export const collectPythonNodes = (content?: JSONContent | null): PythonNodeSumm
                 pythonIndex: nodes.length + 1,
                 title: typeof attrs.title === 'string' ? attrs.title : '',
             })
+        }
+        if (Array.isArray(node.content)) {
+            node.content.forEach(walk)
+        }
+    }
+
+    walk(content)
+    return nodes
+}
+
+export type PythonKernelNodeSummary = {
+    nodeId: string
+    returnVariable: string
+}
+
+// Kernel-run Python cells (revamped notebooks): each binds its result to `returnVariable` in
+// the kernel namespace. Unlike the SQL collectors the names are NOT disambiguated — they are
+// exactly the kernel variables, so a duplicated returnVariable means last-run-wins, matching
+// kernel semantics. Markdown-aware (unlike the legacy collectPythonNodes) because revamped
+// markdown notebooks store their cells as `<PythonV2 …/>` component tags.
+export const collectPythonKernelNodes = (content?: JSONContent | null): PythonKernelNodeSummary[] => {
+    if (!content || typeof content !== 'object') {
+        return []
+    }
+
+    const nodes: PythonKernelNodeSummary[] = []
+
+    const walk = (node: any): void => {
+        if (!node || typeof node !== 'object') {
+            return
+        }
+        if (node.type === NotebookNodeType.PythonV2) {
+            const attrs = node.attrs ?? {}
+            const returnVariable =
+                typeof attrs.returnVariable === 'string' && attrs.returnVariable.trim()
+                    ? attrs.returnVariable.trim()
+                    : 'df'
+            nodes.push({ nodeId: attrs.nodeId ?? '', returnVariable })
+        }
+        if (node.type === NotebookNodeType.MarkdownNotebook) {
+            expandMarkdownNotebookNodesOfType(node, NotebookNodeType.PythonV2).forEach(walk)
         }
         if (Array.isArray(node.content)) {
             node.content.forEach(walk)
@@ -344,6 +537,48 @@ const matchesUsage = (exportName: string, usageName: string, usageNodeType: Note
     return exportName === usageName
 }
 
+export type NotebookDependencyDirection = 'upstream' | 'downstream'
+
+/** Transitive closure of a node's dependencies (or dependents), including the start node. */
+export const collectDependencyNodeIds = (
+    dependencyGraph: NotebookDependencyGraph,
+    startNodeId: string,
+    direction: NotebookDependencyDirection
+): Set<string> => {
+    const visited = new Set<string>()
+    if (!startNodeId || !dependencyGraph.nodesById[startNodeId]) {
+        return visited
+    }
+
+    const stack = [startNodeId]
+
+    while (stack.length > 0) {
+        const currentId = stack.pop()
+        if (!currentId || visited.has(currentId)) {
+            continue
+        }
+        visited.add(currentId)
+
+        if (direction === 'upstream') {
+            const sources = Object.values(dependencyGraph.upstreamSourcesByNode[currentId] ?? {})
+            sources.forEach((source) => {
+                if (source.nodeId && !visited.has(source.nodeId)) {
+                    stack.push(source.nodeId)
+                }
+            })
+        } else {
+            const downstreamGroups = Object.values(dependencyGraph.downstreamUsageByNode[currentId] ?? {})
+            downstreamGroups.flat().forEach((usage) => {
+                if (usage.nodeId && !visited.has(usage.nodeId)) {
+                    stack.push(usage.nodeId)
+                }
+            })
+        }
+    }
+
+    return visited
+}
+
 export const buildNotebookDependencyGraph = (content?: JSONContent | null): NotebookDependencyGraph => {
     if (!content || typeof content !== 'object') {
         return {
@@ -356,10 +591,13 @@ export const buildNotebookDependencyGraph = (content?: JSONContent | null): Note
 
     const nodes: NotebookDependencyNode[] = []
     let pythonIndex = 0
+    let pythonV2Index = 0
     let duckSqlIndex = 0
     let hogqlSqlIndex = 0
+    let sqlV2Index = 0
     const usedDuckSqlReturnVariables = new Set<string>()
     const usedHogqlReturnVariables = new Set<string>()
+    const usedSqlV2ReturnVariables = new Set<string>()
 
     const walk = (node: any): void => {
         if (!node || typeof node !== 'object') {
@@ -423,6 +661,56 @@ export const buildNotebookDependencyGraph = (content?: JSONContent | null): Note
                 code,
                 returnVariable,
             })
+        }
+
+        if (node.type === NotebookNodeType.SQLV2) {
+            const attrs = node.attrs ?? {}
+            sqlV2Index += 1
+            const baseReturnVariable = resolveSqlV2ReturnVariable(
+                typeof attrs.returnVariable === 'string' ? attrs.returnVariable : 'sql_df'
+            )
+            const returnVariable = buildUniqueSqlV2ReturnVariable(baseReturnVariable, usedSqlV2ReturnVariables)
+            usedSqlV2ReturnVariables.add(normalizeSqlIdentifier(returnVariable))
+            const code = typeof attrs.code === 'string' ? attrs.code : ''
+            nodes.push({
+                nodeId: attrs.nodeId ?? '',
+                nodeType: NotebookNodeType.SQLV2,
+                nodeIndex: sqlV2Index,
+                title: typeof attrs.title === 'string' ? attrs.title : '',
+                exports: returnVariable ? [returnVariable] : [],
+                uses: extractDuckSqlTables(code),
+                code,
+                returnVariable,
+            })
+        }
+
+        if (node.type === NotebookNodeType.PythonV2) {
+            const attrs = node.attrs ?? {}
+            pythonV2Index += 1
+            // The returnVariable IS the kernel variable, never disambiguated — the same
+            // last-write-wins semantics as collectPythonKernelNodes.
+            const returnVariable =
+                typeof attrs.returnVariable === 'string' && attrs.returnVariable.trim()
+                    ? attrs.returnVariable.trim()
+                    : 'df'
+            const code = typeof attrs.code === 'string' ? attrs.code : ''
+            nodes.push({
+                nodeId: attrs.nodeId ?? '',
+                nodeType: NotebookNodeType.PythonV2,
+                nodeIndex: pythonV2Index,
+                title: typeof attrs.title === 'string' ? attrs.title : '',
+                exports: returnVariable ? [returnVariable] : [],
+                uses: extractPythonIdentifiers(code),
+                code,
+                returnVariable,
+            })
+        }
+
+        if (node.type === NotebookNodeType.MarkdownNotebook) {
+            // Markdown notebooks (the only V2 surface) store cells as component tags, so both
+            // V2 cell types must be expanded or the graph misses every markdown-held cell.
+            expandMarkdownNotebookSqlV2Nodes(node).forEach(walk)
+            expandMarkdownNotebookNodesOfType(node, NotebookNodeType.PythonV2).forEach(walk)
         }
 
         if (Array.isArray(node.content)) {

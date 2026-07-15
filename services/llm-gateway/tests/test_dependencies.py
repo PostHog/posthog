@@ -1,13 +1,20 @@
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException, Request
 from starlette.datastructures import Headers
 
 from llm_gateway.auth.models import AuthenticatedUser
-from llm_gateway.dependencies import _extract_end_user_id_from_body, enforce_throttles, get_provider_from_request
+from llm_gateway.dependencies import (
+    _extract_end_user_id_from_body,
+    enforce_throttles,
+    get_provider_from_request,
+    resolve_plan_and_quota,
+)
 from llm_gateway.rate_limiting.throttles import ThrottleContext, ThrottleResult
+from llm_gateway.services.plan_resolver import PlanInfo
+from llm_gateway.services.quota_resolver import QuotaResourceStatus
 
 
 def _make_request(body: dict | None = None, headers: dict[str, str] | None = None) -> Request:
@@ -195,3 +202,39 @@ class TestEnforceThrottles:
             auth_method="personal_api_key",
         )
         assert context.end_user_id is None
+
+
+class TestResolvePlanAndQuota:
+    """The quota resolver roundtrip runs for bucket-billed products (against the
+    product's own bucket) and is skipped entirely for unbilled ones."""
+
+    async def _run(self, product: str) -> tuple:
+        plan_info = PlanInfo(plan_key="pro", seat_created_at=None)
+        plan_mock = AsyncMock(return_value=plan_info)
+        quota_mock = AsyncMock(return_value=QuotaResourceStatus(limited=True))
+        with (
+            patch("llm_gateway.dependencies.resolve_plan_info", plan_mock),
+            patch("llm_gateway.dependencies.resolve_quota_status", quota_mock),
+        ):
+            result = await resolve_plan_and_quota(_make_request(), user_id=1, team_id=42, product=product)
+        return result, quota_mock
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("product", "expected_resource"),
+        [("slack_app", "ai_credits"), ("posthog_code", "posthog_code_credits")],
+    )
+    async def test_bucket_billed_product_resolves_its_own_bucket(self, product: str, expected_resource: str) -> None:
+        (_, quota_status), quota_mock = await self._run(product)
+
+        quota_mock.assert_awaited_once()
+        assert quota_mock.call_args.args[2] == expected_resource
+        assert quota_status.limited is True
+
+    @pytest.mark.asyncio
+    async def test_unbilled_product_skips_quota_resolver(self) -> None:
+        # wizard is unbilled — it shouldn't pay for the quota resolver roundtrip.
+        (_, quota_status), quota_mock = await self._run("wizard")
+
+        quota_mock.assert_not_awaited()
+        assert quota_status.limited is False

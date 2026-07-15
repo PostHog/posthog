@@ -13,6 +13,7 @@ from temporalio import activity
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.models import Team
 
 from products.error_tracking.backend.models import (
@@ -161,10 +162,12 @@ class TestFingerprintEmbeddingResultActivity:
         assert execute_hogql_query.call_args_list[0].kwargs["query_type"] == (
             "ErrorTrackingFingerprintEmbeddingResultTargetEmbedding"
         )
+        assert execute_hogql_query.call_args_list[0].kwargs["ch_user"] == ClickHouseUser.ERROR_TRACKING
         assert execute_hogql_query.call_args_list[1].kwargs["team"] == team
         assert execute_hogql_query.call_args_list[1].kwargs["query_type"] == (
             "ErrorTrackingFingerprintEmbeddingResultClosestFingerprints"
         )
+        assert execute_hogql_query.call_args_list[1].kwargs["ch_user"] == ClickHouseUser.ERROR_TRACKING
 
     def test_query_closest_fingerprints_uses_input_embedding(self) -> None:
         closest_response = MagicMock(
@@ -187,6 +190,7 @@ class TestFingerprintEmbeddingResultActivity:
         assert execute_hogql_query.call_args.kwargs["query_type"] == (
             "ErrorTrackingFingerprintEmbeddingResultClosestFingerprints"
         )
+        assert execute_hogql_query.call_args.kwargs["ch_user"] == ClickHouseUser.ERROR_TRACKING
 
     def test_target_embedding_from_inputs_rejects_invalid_embedding(self) -> None:
         inputs = FingerprintEmbeddingResultInputs(
@@ -212,6 +216,7 @@ class TestFingerprintEmbeddingResultActivity:
                 _query_closest_fingerprints(team, _inputs(), "text-embedding-3-large-3072")
 
         execute_hogql_query.assert_called_once()
+        assert execute_hogql_query.call_args.kwargs["ch_user"] == ClickHouseUser.ERROR_TRACKING
 
     def test_query_closest_fingerprints_raises_with_invalid_target_embedding(self) -> None:
         team = MagicMock()
@@ -285,6 +290,21 @@ class TestFingerprintEmbeddingResultActivity:
         assert result.merged_count == 0
         assert result.query_duration_ms is not None
         assert result.closest_fingerprints == closest_fingerprints
+
+    def test_merge_activity_returns_empty_result_when_team_deleted(self) -> None:
+        with (
+            patch(
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.Team.objects.get",
+                side_effect=Team.DoesNotExist(),
+            ),
+            patch(
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities._capture_activity_exception"
+            ) as capture_exception,
+        ):
+            result = merge_similar_fingerprints_activity(_inputs())
+
+        assert result == FingerprintEmbeddingMergeResult()
+        capture_exception.assert_not_called()
 
     def test_merge_fingerprint_skips_when_auto_merge_disabled(self) -> None:
         with override_settings(ERROR_TRACKING_AUTO_MERGE_ENABLED=False):

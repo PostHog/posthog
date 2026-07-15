@@ -726,6 +726,20 @@ class IsolationChainCheck(ProductCheck):
                 f"would skip the Django suite. Add the matching input(s) ({globs}) to keep the skip sound"
             )
 
+        # Guarding against marker abuse: the permanent-interface marker is only legitimate for
+        # modules core depends on outside the import graph (ClickHouse DDL in a frozen migration or
+        # the schema registry). Without this check the marker is mechanically unrestricted — a
+        # product could mark backend.models/backend.logic permanent, list it in turbo inputs, and
+        # pass the chain. Fires regardless of has_narrowed: the abuse lives in tach.toml itself, not
+        # in turbo config, so it must block even before the product narrows.
+        if status.unqualified_permanent_exposures:
+            modules = ", ".join(status.unqualified_permanent_exposures)
+            result.issues.append(
+                f"permanent-interface marker covers module(s) {modules}, but they are not imported by any "
+                "frozen ClickHouse migration or the ClickHouse schema registry — so they don't qualify as a "
+                "permanent interface. Route them through the facade instead (or remove the marker)"
+            )
+
         # Note: a product that has the contract-check script *and* deferred
         # presentation-wave ignore_imports entries is hard-blocked by
         # PackageJsonScriptsCheck — the skip can't be enabled until the wave empties them.
@@ -736,11 +750,14 @@ class IsolationChainCheck(ProductCheck):
             # script, and no narrowing). routes_unwatched can co-occur with them (it only needs
             # has_narrowed + a routes module), but turbo.json is still where the routes omission is
             # fixed, so it wins; the co-firing mismatch issues still print in the lint output.
-            result.file = (
-                f"products/{ctx.name}/turbo.json"
-                if needs_turn_on or routes_unwatched
-                else f"products/{ctx.name}/backend/facade/api.py"
-            )
+            # An unqualified permanent exposure is a defect in the tach.toml marker itself, so point
+            # there; it takes precedence because it's the most fundamental of these issues.
+            if status.unqualified_permanent_exposures:
+                result.file = "tach.toml"
+            elif needs_turn_on or routes_unwatched:
+                result.file = f"products/{ctx.name}/turbo.json"
+            else:
+                result.file = f"products/{ctx.name}/backend/facade/api.py"
         if result.issues:
             result.lines = [f"✗ {len(result.issues)} issue(s)"] + [f"  → {i}" for i in result.issues]
         elif result.warnings:

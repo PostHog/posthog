@@ -1097,7 +1097,7 @@ class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     pagination_class = None
 
     # The DRF default `list` operation_id would be `signals_scout_project_profile_list`,
-    # which renders as `signals-scout-project-profile-list` in the MCP. The agent-facing
+    # which renders as `scout-project-profile-list` in the MCP. The agent-facing
     # tool is semantically a "get the current profile" (singleton), not a "list" — override
     # the id so it matches the tool name in tools.yaml and the scout's bootstrap step.
     @validated_request(

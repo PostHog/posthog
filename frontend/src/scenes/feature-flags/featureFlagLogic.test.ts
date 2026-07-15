@@ -1,16 +1,26 @@
-import { MOCK_DEFAULT_BASIC_USER, MOCK_DEFAULT_PROJECT } from 'lib/api.mock'
+import {
+    MOCK_DEFAULT_BASIC_USER,
+    MOCK_DEFAULT_PROJECT,
+    MOCK_DEFAULT_TEAM,
+    MOCK_ORGANIZATION_ID,
+    MOCK_TEAM_ID,
+} from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
 import { dayjs } from 'lib/dayjs'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import {
     FeatureFlagGroupType,
     FeatureFlagType,
+    OrganizationFeatureFlag,
     PropertyFilterType,
     PropertyOperator,
     ScheduledChangeModels,
@@ -21,7 +31,12 @@ import { FeatureFlagFilters } from '~/types'
 
 import { TemplateKey } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
 
-import { defaultReleaseConditionsLogic, resolveDefaultReleaseConditions } from './defaultReleaseConditionsLogic'
+import * as defaultReleaseConditionsModule from './defaultReleaseConditionsLogic'
+import {
+    DefaultReleaseConditionsResponse,
+    defaultReleaseConditionsLogic,
+    resolveDefaultReleaseConditions,
+} from './defaultReleaseConditionsLogic'
 import { detectFeatureFlagChanges } from './featureFlagConfirmationLogic'
 import {
     NEW_FLAG,
@@ -35,6 +50,16 @@ import {
     slugifyFeatureFlagKey,
     validateFeatureFlagKey,
 } from './featureFlagLogic'
+import { featureFlagsLogic } from './featureFlagsLogic'
+
+// jest.config.ts sets clearMocks: true, so these mock.fn() call histories reset before every test.
+jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
+    lemonToast: {
+        success: jest.fn(),
+        error: jest.fn(),
+        warning: jest.fn(),
+    },
+}))
 
 const MOCK_FEATURE_FLAG = {
     ...NEW_FLAG,
@@ -191,6 +216,46 @@ describe('featureFlagLogic', () => {
     afterEach(() => {
         logic.unmount()
         jest.useRealTimers()
+    })
+
+    describe('stale list-cache reconciliation on mount', () => {
+        it('refreshes a cache-painted flag so active reflects the server, not the stale list cache', async () => {
+            logic.unmount()
+
+            useMocks({
+                get: {
+                    '/api/projects/:projectId/feature_flags/': () => [
+                        200,
+                        { results: [{ ...MOCK_FEATURE_FLAG, active: false }], count: 1 },
+                    ],
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/`]: () => [
+                        200,
+                        { ...MOCK_FEATURE_FLAG, active: true },
+                    ],
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/status`]: () => [
+                        200,
+                        MOCK_FEATURE_FLAG_STATUS,
+                    ],
+                },
+            })
+
+            featureFlagsLogic.mount()
+            featureFlagsLogic.actions.loadFeatureFlags()
+            await expectLogic(featureFlagsLogic).toFinishAllListeners()
+            expect(featureFlagsLogic.values.featureFlags.results[0].active).toBe(false)
+
+            logic = featureFlagLogic({ id: 1 })
+            logic.mount()
+
+            await expectLogic(logic)
+                .toDispatchActions(['setFeatureFlag', 'refreshFeatureFlag', 'refreshFeatureFlagSuccess'])
+                .toFinishAllListeners()
+
+            expect(logic.values.featureFlag.active).toBe(true)
+            expect(featureFlagsLogic.values.featureFlags.results[0].active).toBe(true)
+
+            featureFlagsLogic.unmount()
+        })
     })
 
     describe('setMultivariateEnabled functionality', () => {
@@ -395,6 +460,42 @@ describe('featureFlagLogic', () => {
                         }),
                     }),
                 })
+        })
+
+        it('does not access the store after unmounting mid-apply', async () => {
+            // applyTemplate awaits release conditions before reading values again. Unmounting during
+            // that await (navigating away, or the auto-apply from a ?template= param racing a fast
+            // unmount) must not touch a store path that no longer exists — that used to throw
+            // "Can not find path ... in the store" and surface as an unhandled rejection.
+            let resolveRelease: (value: DefaultReleaseConditionsResponse | null) => void = () => {}
+            const pendingRelease = new Promise<DefaultReleaseConditionsResponse | null>((resolve) => {
+                resolveRelease = resolve
+            })
+            const spy = jest
+                .spyOn(defaultReleaseConditionsModule, 'resolveDefaultReleaseConditions')
+                .mockReturnValue(pendingRelease)
+
+            const rejections: unknown[] = []
+            const onRejection = (error: unknown): void => {
+                rejections.push(error)
+            }
+            process.on('unhandledRejection', onRejection)
+
+            try {
+                // Listener parks on the pending release conditions, then we navigate away.
+                logic.actions.applyTemplate('targeted')
+                logic.unmount()
+
+                // Resuming after unmount must bail instead of reading values.featureFlag.
+                resolveRelease(null)
+                await pendingRelease
+                await new Promise((resolve) => setTimeout(resolve, 0))
+            } finally {
+                process.off('unhandledRejection', onRejection)
+                spy.mockRestore()
+            }
+
+            expect(rejections).toEqual([])
         })
     })
 
@@ -815,9 +916,6 @@ describe('featureFlagLogic', () => {
                 experiment_set_metadata: null,
             }
 
-            const noExperimentLogic = featureFlagLogic({ id: 3 })
-            noExperimentLogic.mount()
-
             useMocks({
                 get: {
                     [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${flagWithoutExperiment.id}/`]: () => [
@@ -828,6 +926,9 @@ describe('featureFlagLogic', () => {
                         () => [200, MOCK_FEATURE_FLAG_STATUS],
                 },
             })
+
+            const noExperimentLogic = featureFlagLogic({ id: 3 })
+            noExperimentLogic.mount()
 
             await expectLogic(noExperimentLogic, () => {
                 noExperimentLogic.actions.loadFeatureFlag()
@@ -851,7 +952,6 @@ describe('featureFlagLogic', () => {
             const flag = { ...MOCK_FEATURE_FLAG, id: 6, active: true }
 
             const testLogic = featureFlagLogic({ id: 6 })
-            testLogic.mount()
 
             useMocks({
                 get: {
@@ -866,6 +966,8 @@ describe('featureFlagLogic', () => {
                     ],
                 },
             })
+
+            testLogic.mount()
 
             await expectLogic(testLogic, () => {
                 testLogic.actions.loadFeatureFlag()
@@ -883,7 +985,6 @@ describe('featureFlagLogic', () => {
             const flag = { ...MOCK_FEATURE_FLAG, id: 4 }
 
             const testLogic = featureFlagLogic({ id: 4 })
-            testLogic.mount()
 
             useMocks({
                 get: {
@@ -899,6 +1000,8 @@ describe('featureFlagLogic', () => {
                 },
             })
 
+            testLogic.mount()
+
             await expectLogic(testLogic, () => {
                 testLogic.actions.loadFeatureFlag()
             })
@@ -912,7 +1015,6 @@ describe('featureFlagLogic', () => {
             const flag = { ...MOCK_FEATURE_FLAG, id: 5 }
 
             const testLogic = featureFlagLogic({ id: 5 })
-            testLogic.mount()
 
             useMocks({
                 get: {
@@ -928,6 +1030,8 @@ describe('featureFlagLogic', () => {
                 },
             })
 
+            testLogic.mount()
+
             await expectLogic(testLogic, () => {
                 testLogic.actions.loadFeatureFlag()
             })
@@ -938,10 +1042,10 @@ describe('featureFlagLogic', () => {
         })
 
         it('handles API failure gracefully and returns empty array', async () => {
+            silenceKeaLoadersErrors()
             const flag = { ...MOCK_FEATURE_FLAG, id: 14 }
 
             const testLogic = featureFlagLogic({ id: 14 })
-            testLogic.mount()
 
             useMocks({
                 get: {
@@ -957,6 +1061,8 @@ describe('featureFlagLogic', () => {
                 },
             })
 
+            testLogic.mount()
+
             await expectLogic(testLogic, () => {
                 testLogic.actions.loadFeatureFlag()
             })
@@ -964,6 +1070,7 @@ describe('featureFlagLogic', () => {
                 .toMatchValues({ dependentFlags: [], dependentFlagsLoading: false })
 
             testLogic.unmount()
+            resumeKeaLoadersErrors()
         })
     })
 
@@ -1149,9 +1256,165 @@ describe('featureFlagLogic', () => {
             })
 
             it('returns null when the fetch fails so new flag creation is not blocked', async () => {
+                // The graceful-failure path warns to the console by design.
+                const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
                 useMocks({ get: { [conditionsUrl]: () => [500, {}] } })
                 await expect(resolveDefaultReleaseConditions(null, MOCK_DEFAULT_PROJECT.id)).resolves.toBeNull()
+                warnSpy.mockRestore()
             })
+        })
+    })
+
+    describe('toggleProjectFlagActive', () => {
+        const projectRow = (teamId: number, flagId: number): OrganizationFeatureFlag => ({
+            flag_id: flagId,
+            team_id: teamId,
+            filters: { groups: [] },
+            active: true,
+            created_by: null,
+            created_at: '',
+        })
+
+        beforeEach(() => {
+            useMocks({
+                patch: {
+                    '/api/projects/:team_id/feature_flags/:id/': async ({ request, params }) => {
+                        const body = (await request.json()) as { active: boolean }
+                        return [200, { id: Number(params.id), active: body.active }]
+                    },
+                },
+            })
+        })
+
+        it.each([false, true])(
+            'updates the toggled project row without touching the current flag (active → %s)',
+            async (active) => {
+                logic.actions.loadProjectsWithCurrentFlagSuccess([
+                    projectRow(MOCK_TEAM_ID, 1),
+                    { ...projectRow(555, 42), active: !active },
+                ])
+
+                logic.actions.toggleProjectFlagActive(555, 42, active)
+                expect(logic.values.projectFlagsToggling).toEqual({ '555:42': true })
+
+                await expectLogic(logic).toFinishAllListeners()
+                expect(logic.values.projectsWithCurrentFlag).toMatchObject([
+                    { team_id: MOCK_TEAM_ID, active: true },
+                    { team_id: 555, active },
+                ])
+                expect(logic.values.featureFlag.active).toBe(true)
+                expect(logic.values.projectFlagsToggling).toEqual({})
+            }
+        )
+
+        it('syncs featureFlag.active when the current project row is toggled', async () => {
+            logic.actions.loadProjectsWithCurrentFlagSuccess([projectRow(MOCK_TEAM_ID, 1)])
+
+            logic.actions.toggleProjectFlagActive(MOCK_TEAM_ID, 1, false)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.projectsWithCurrentFlag).toMatchObject([{ team_id: MOCK_TEAM_ID, active: false }])
+            expect(logic.values.featureFlag.active).toBe(false)
+        })
+
+        it('clears the in-flight marker and keeps state when the update fails', async () => {
+            useMocks({
+                patch: {
+                    '/api/projects/:team_id/feature_flags/:id/': () => [403, { detail: 'No edit access' }],
+                },
+            })
+            logic.actions.loadProjectsWithCurrentFlagSuccess([projectRow(MOCK_TEAM_ID, 1), projectRow(555, 42)])
+
+            logic.actions.toggleProjectFlagActive(555, 42, false)
+            await expectLogic(logic).toDispatchActions(['projectFlagActiveUpdateFailed']).toFinishAllListeners()
+
+            expect(logic.values.projectsWithCurrentFlag).toMatchObject([
+                { team_id: MOCK_TEAM_ID, active: true },
+                { team_id: 555, active: true },
+            ])
+            expect(logic.values.featureFlag.active).toBe(true)
+            expect(logic.values.projectFlagsToggling).toEqual({})
+        })
+    })
+
+    describe('toggleFeatureFlagActive', () => {
+        it('opens one confirmation with matching disable copy', async () => {
+            const dialogOpenSpy = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+            logic.actions.setFeatureFlag({ ...MOCK_FEATURE_FLAG, active: true })
+
+            await expectLogic(logic, () => logic.actions.toggleFeatureFlagActive(false)).toFinishAllListeners()
+
+            expect(dialogOpenSpy).toHaveBeenCalledTimes(1)
+            const dialogProps = dialogOpenSpy.mock.calls[0][0]
+            expect(dialogProps.title).toBe('Disable feature flag "test-flag"?')
+            expect(dialogProps.primaryButton?.children).toBe('Disable flag')
+            dialogOpenSpy.mockRestore()
+        })
+    })
+
+    describe('copyFlagSuccess', () => {
+        const copyFlagsUrl = `/api/organizations/${MOCK_ORGANIZATION_ID}/feature_flags/copy_flags/`
+
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    // Hit by the loadProjectsWithCurrentFlag() the listener always triggers afterward.
+                    [`/api/organizations/${MOCK_ORGANIZATION_ID}/feature_flags/${MOCK_FEATURE_FLAG.key}/`]: () => [
+                        200,
+                        [],
+                    ],
+                },
+            })
+            logic.actions.setCopyDestinationProject(MOCK_TEAM_ID)
+        })
+
+        it('shows a pending-approval warning, not a raw error, when the target project gates the write', async () => {
+            useMocks({
+                post: {
+                    [copyFlagsUrl]: () => [
+                        200,
+                        {
+                            success: [],
+                            failed: [
+                                {
+                                    project_id: MOCK_TEAM_ID,
+                                    error_message: 'Approval required',
+                                    approval_pending: true,
+                                    change_request_id: 'cr-1',
+                                },
+                            ],
+                        },
+                    ],
+                },
+            })
+
+            logic.actions.copyFlag()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(lemonToast.warning).toHaveBeenCalledWith(
+                `A change request was created for ${MOCK_DEFAULT_TEAM.name}; the copy will apply once approved.`
+            )
+            expect(lemonToast.error).not.toHaveBeenCalled()
+        })
+
+        it('shows a plain error toast for a hard failure', async () => {
+            useMocks({
+                post: {
+                    [copyFlagsUrl]: () => [
+                        200,
+                        {
+                            success: [],
+                            failed: [{ project_id: MOCK_TEAM_ID, error_message: 'Project not found.' }],
+                        },
+                    ],
+                },
+            })
+
+            logic.actions.copyFlag()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(lemonToast.error).toHaveBeenCalledWith('Error while copying feature flag: Project not found.')
+            expect(lemonToast.warning).not.toHaveBeenCalled()
         })
     })
 })
@@ -1339,6 +1602,18 @@ describe('variant reordering', () => {
     let logic: ReturnType<typeof featureFlagLogic.build>
 
     beforeEach(() => {
+        useMocks({
+            get: {
+                [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/`]: () => [
+                    200,
+                    MOCK_FEATURE_FLAG,
+                ],
+                [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/status`]: () => [
+                    200,
+                    MOCK_FEATURE_FLAG_STATUS,
+                ],
+            },
+        })
         initKeaTests()
         logic = featureFlagLogic({ id: 1 })
         logic.mount()

@@ -1,0 +1,25 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "emit": {
+            "description": "Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing.",
+            "type": "boolean"
+        },
+        "enabled": {
+            "description": "Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator.",
+            "type": "boolean"
+        },
+        "id": {
+            "description": "A UUID string identifying this Signal scout config.",
+            "type": "string"
+        },
+        "run_interval_minutes": {
+            "description": "Minutes between runs (30–43200). The scout runs once this interval has elapsed since its last run.",
+            "maximum": 43200,
+            "minimum": 30,
+            "type": "number"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}
