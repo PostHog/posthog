@@ -1,7 +1,7 @@
 import './LemonModal.scss'
 
 import clsx from 'clsx'
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import Modal from 'react-modal'
 
 import { IconX } from '@posthog/icons'
@@ -103,12 +103,21 @@ function getTooltipTitle(titleElement: HTMLHeadingElement | null): string {
 }
 
 function LemonModalTitle({ children }: { children: React.ReactNode }): JSX.Element {
-    const titleRef = useRef<HTMLHeadingElement>(null)
+    const titleRef = useRef<HTMLHeadingElement | null>(null)
+    const resizeObserverRef = useRef<ResizeObserver | null>(null)
     const [isTruncated, setIsTruncated] = useState(false)
 
-    useLayoutEffect(() => {
-        const titleElement = titleRef.current
+    const setTitleRef = useCallback((titleElement: HTMLHeadingElement | null): void => {
+        if (titleRef.current === titleElement) {
+            return
+        }
+
+        resizeObserverRef.current?.disconnect()
+        resizeObserverRef.current = null
+        titleRef.current = titleElement
+
         if (!titleElement) {
+            setIsTruncated(false)
             return
         }
 
@@ -121,19 +130,17 @@ function LemonModalTitle({ children }: { children: React.ReactNode }): JSX.Eleme
 
         updateIsTruncated()
 
-        if (typeof ResizeObserver === 'undefined') {
-            return
+        if (typeof ResizeObserver !== 'undefined') {
+            resizeObserverRef.current = new ResizeObserver(updateIsTruncated)
+            resizeObserverRef.current.observe(titleElement)
         }
+    }, [])
 
-        const resizeObserver = new ResizeObserver(updateIsTruncated)
-        resizeObserver.observe(titleElement)
-
-        return () => resizeObserver.disconnect()
-    }, [children])
+    useEffect(() => () => resizeObserverRef.current?.disconnect(), [])
 
     return (
         <Tooltip title={isTruncated ? () => getTooltipTitle(titleRef.current) : undefined} placement="bottom-start">
-            <h3 ref={titleRef} className="LemonModal__title" tabIndex={isTruncated ? 0 : undefined}>
+            <h3 ref={setTitleRef} className="LemonModal__title" tabIndex={isTruncated ? 0 : undefined}>
                 {children}
             </h3>
         </Tooltip>
