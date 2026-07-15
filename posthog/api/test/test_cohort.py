@@ -6449,11 +6449,12 @@ class TestCohortTypeIntegration(APIBaseTest):
     def test_api_response_includes_cohort_type(self):
         """API responses should include the cohort_type and condition_type fields"""
 
+        # condition_type is intentionally not passed here: it's derived from filters on
+        # save (even for a direct ORM create, not just through the API serializer).
         cohort = Cohort.objects.create(
             team=self.team,
             name="Test Cohort",
             cohort_type=CohortType.BEHAVIORAL,
-            condition_type=CohortConditionType.BEHAVIORAL_ONLY,
             filters={
                 "properties": {
                     "type": "OR",

@@ -269,10 +269,19 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         return self.name or "Untitled cohort"
 
     def save(self, *args: Any, **kwargs: Any) -> None:
+        """Keep `condition_type` derived from `filters` on every save, so any creation path
+        (the cohorts API, management commands, or a direct `Cohort.objects.create(...)`)
+        ends up with a consistent classification, not just the API serializer's flow."""
         # update_fields can arrive positionally (4th positional, after force_insert/force_update/using)
         # or as a keyword. Intercept it so _maintain_behavioral_shape can extend the frozen set.
-        positional_update_fields = args[3] if len(args) > 3 else kwargs.get("update_fields")
-        maintained_update_fields = self._maintain_behavioral_shape(positional_update_fields)
+        update_fields = args[3] if len(args) > 3 else kwargs.get("update_fields")
+        if update_fields is None:
+            self.condition_type = Cohort.compute_condition_type(self.filters)
+        elif "filters" in update_fields and "condition_type" not in update_fields:
+            self.condition_type = Cohort.compute_condition_type(self.filters)
+            update_fields = [*update_fields, "condition_type"]
+
+        maintained_update_fields = self._maintain_behavioral_shape(update_fields)
         if len(args) > 3:
             args = (*args[:3], maintained_update_fields, *args[4:])
         else:
@@ -389,10 +398,16 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     def compute_condition_type(filters: Optional[dict]) -> Optional["CohortConditionType"]:
         """Classify a cohort filters dict as property-only, behavioral-only, or both.
 
-        Returns None when the filters contain neither a person nor a behavioral leaf
+        `person` and `person_metadata` are both property-style conditions (the latter reads
+        top-level persons-table columns instead of the properties JSON blob, but is not
+        behavioral), so either counts towards the "property" side of the classification.
+
+        Returns None when the filters contain neither a property nor a behavioral leaf
         condition (e.g. empty filters, or a cohort made up only of nested cohort references).
         """
-        has_person_filters = Cohort._filters_contain_type(filters, "person")
+        has_person_filters = Cohort._filters_contain_type(filters, "person") or Cohort._filters_contain_type(
+            filters, "person_metadata"
+        )
         has_behavioral_filters = Cohort._filters_contain_type(filters, "behavioral")
 
         if has_person_filters and has_behavioral_filters:

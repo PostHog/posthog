@@ -732,7 +732,6 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             )
             validated_data["filters"] = clean_filters
             validated_data["cohort_type"] = computed_cohort_type
-            validated_data["condition_type"] = Cohort.compute_condition_type(clean_filters)
 
         person_ids = validated_data.pop("_create_static_person_ids", None)
         cohort = Cohort.objects.create(team_id=self.context["team_id"], **validated_data)
@@ -1129,7 +1128,6 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                 )
                 cohort.filters = clean_filters
                 cohort.cohort_type = computed_cohort_type
-                cohort.condition_type = Cohort.compute_condition_type(clean_filters)
             else:
                 cohort.filters = filters
 

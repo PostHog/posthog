@@ -718,6 +718,31 @@ class TestCohortIsFlagCompatible(BaseTest):
         self.assertEqual(cohort.is_flag_compatible, expected)
 
 
+_PERSON_METADATA_FILTERS = {
+    "properties": {
+        "type": "AND",
+        "values": [
+            {"type": "AND", "values": [{"key": "created_at", "value": "2024-01-01", "type": "person_metadata"}]}
+        ],
+    }
+}
+
+_PERSON_METADATA_AND_BEHAVIORAL_FILTERS = {
+    "properties": {
+        "type": "AND",
+        "values": [
+            {"type": "AND", "values": [{"key": "created_at", "value": "2024-01-01", "type": "person_metadata"}]},
+            {
+                "type": "AND",
+                "values": [
+                    {"type": "behavioral", "value": "performed_event", "event_type": "events", "key": "$pageview"}
+                ],
+            },
+        ],
+    }
+}
+
+
 class TestCohortComputeConditionType(SimpleTestCase):
     @parameterized.expand(
         [
@@ -727,7 +752,42 @@ class TestCohortComputeConditionType(SimpleTestCase):
             ("cohort_reference_only", _COHORT_REF_FILTERS, None),
             ("empty_filters", {}, None),
             ("none_filters", None, None),
+            # person_metadata reads a top-level persons-table column rather than the
+            # properties JSON blob, but it's still a property-style (non-behavioral) condition.
+            ("person_metadata_only", _PERSON_METADATA_FILTERS, CohortConditionType.PROPERTY_ONLY),
+            (
+                "person_metadata_and_behavioral",
+                _PERSON_METADATA_AND_BEHAVIORAL_FILTERS,
+                CohortConditionType.BOTH,
+            ),
         ]
     )
     def test_compute_condition_type(self, _label, filters, expected):
         self.assertEqual(Cohort.compute_condition_type(filters), expected)
+
+
+class TestCohortConditionTypeDerivedOnSave(BaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    # A cohort created without going through the API serializer (e.g. a management
+    # command or get_or_create_internal_test_users_cohort) must still get classified.
+    def test_direct_orm_create_derives_condition_type(self):
+        cohort = Cohort.objects.create(team=self.team, filters=_PERSON_FILTERS)
+        self.assertEqual(cohort.condition_type, CohortConditionType.PROPERTY_ONLY)
+
+    # Static cohorts skip cohort_type/realtime computation, but condition_type
+    # classifies filter shape independent of that, so it must still be set.
+    def test_static_cohort_with_filters_derives_condition_type(self):
+        cohort = Cohort.objects.create(team=self.team, is_static=True, filters=_BEHAVIORAL_FILTERS)
+        self.assertEqual(cohort.condition_type, CohortConditionType.BEHAVIORAL_ONLY)
+
+    # Saves that don't touch filters (e.g. toggling is_calculating) must not
+    # recompute or drop condition_type.
+    def test_narrow_update_fields_save_does_not_touch_condition_type(self):
+        cohort = Cohort.objects.create(team=self.team, filters=_PERSON_FILTERS)
+        self.assertEqual(cohort.condition_type, CohortConditionType.PROPERTY_ONLY)
+
+        cohort.is_calculating = True
+        cohort.save(update_fields=["is_calculating"])
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.condition_type, CohortConditionType.PROPERTY_ONLY)
