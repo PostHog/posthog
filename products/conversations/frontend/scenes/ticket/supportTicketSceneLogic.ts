@@ -406,10 +406,9 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
     }),
     selectors({
         breadcrumbs: [
-            (s, p) => [s.ticket, p.id],
-            (ticket, id): Breadcrumb[] => {
-                const number = ticket?.ticket_number ?? id
-                const name = id === 'new' ? 'New ticket' : `Ticket #${number} detail`
+            (_, p) => [p.id],
+            (id): Breadcrumb[] => {
+                const name = id === 'new' ? 'New ticket' : `Ticket #${id} detail`
                 return [{ key: ['SupportTicketDetail', id], name }]
             },
         ],
