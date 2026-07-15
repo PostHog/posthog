@@ -2247,7 +2247,6 @@ dependencies = [
  "dashmap 6.1.0",
  "envconfig",
  "futures",
- "hogvm",
  "lifecycle",
  "metrics",
  "metrics-exporter-prometheus",
