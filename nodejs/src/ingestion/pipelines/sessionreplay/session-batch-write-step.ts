@@ -6,8 +6,8 @@ import { SessionBatchContext } from './session-batch-context'
 
 /**
  * Flush step: write the accumulated batch to storage. Each session's retention was resolved and
- * stored on the recorder at record time, so nothing here touches Redis; a later flush step commits
- * offsets on the written result, so nothing here touches Kafka offsets either.
+ * stored on the recorder at record time, so nothing here touches Redis; the consumer commits
+ * offsets after the flushed turn returns, so nothing here touches Kafka offsets either.
  *
  * Reads the recorder off the flush input's batch context and threads the written block metadata onto
  * the input, so the accumulated elements and batch context stay available to the downstream steps.
