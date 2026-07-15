@@ -1,4 +1,11 @@
-import { CostableJob, RunCostSummary, computeFleetSummary, computeHealthSummary, summarizeRunCost } from './runHealth'
+import {
+    CostableJob,
+    RunCostSummary,
+    computeFleetSummary,
+    computeHealthSummary,
+    isNoOpRun,
+    summarizeRunCost,
+} from './runHealth'
 
 const at = (hour: number): string => `2026-06-24T${String(hour).padStart(2, '0')}:00:00Z`
 
@@ -59,6 +66,31 @@ describe('runHealth', () => {
         expect(summary.passRate).toBe(0.5)
         expect(summary.failures).toBe(1)
         expect(summary.reruns).toBe(1)
+    })
+
+    it.each([
+        ['seconds-long success (gate job, rest skipped) → no-op', 'success', 4, true],
+        ['seconds-long skipped run → no-op', 'skipped', 2, true],
+        ['seconds-long failure is signal, not noise → kept', 'failure', 4, false],
+        ['at the threshold → kept', 'success', 10, false],
+        ['still running (no duration yet) → kept', null, null, false],
+    ])('flags no-op runs: %s', (_name, conclusion, durationSeconds, expected) => {
+        expect(isNoOpRun({ conclusion, durationSeconds })).toBe(expected)
+    })
+
+    it('keeps no-op runs in counts and pass rate but out of the duration percentiles', () => {
+        // A workflow dominated by no-op gate runs (e.g. a preview deploy that mostly decides "not
+        // eligible" in ~4s) must not read as having a ~4s median — that hides the real CI duration.
+        const summary = computeHealthSummary([
+            { conclusion: 'success', durationSeconds: 4, startedAt: at(9) },
+            { conclusion: 'success', durationSeconds: 4, startedAt: at(10) },
+            { conclusion: 'success', durationSeconds: 4, startedAt: at(11) },
+            { conclusion: 'success', durationSeconds: 600, startedAt: at(12) },
+        ])
+        expect(summary.medianSeconds).toBe(600)
+        expect(summary.totalRuns).toBe(4)
+        expect(summary.completedRuns).toBe(4)
+        expect(summary.passRate).toBe(1)
     })
 
     const fleetRow = (

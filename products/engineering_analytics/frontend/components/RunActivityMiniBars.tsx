@@ -9,7 +9,7 @@ import { humanFriendlyDuration } from 'lib/utils/durations'
 
 import { percentileSorted } from '../lib/runHealth'
 import { VERDICT_COLOR, verdictTag } from '../lib/runStatus'
-import { type ActivityRun, formatAxisMinutes, isPlottable } from './RunActivityChart'
+import { type ActivityRun, formatAxisMinutes, isChartableRun } from './RunActivityChart'
 
 interface RunActivityMiniBarsProps {
     runs: ActivityRun[]
@@ -42,7 +42,7 @@ export function RunActivityMiniBars({
     onBarClick,
     className,
 }: RunActivityMiniBarsProps): JSX.Element | null {
-    const plottable = runs.filter(isPlottable)
+    const plottable = runs.filter(isChartableRun)
     if (plottable.length < 2) {
         return null
     }

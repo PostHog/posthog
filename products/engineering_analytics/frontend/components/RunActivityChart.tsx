@@ -9,7 +9,7 @@ import { humanFriendlyDuration } from 'lib/utils/durations'
 
 import { TimeRange, clampFocus, defaultFocus, panFocus, pxToTime, resizeFocus, timeToFrac } from '../lib/brush'
 import { isDecisiveFailure } from '../lib/lifecycle'
-import { percentileSorted } from '../lib/runHealth'
+import { isNoOpRun, percentileSorted } from '../lib/runHealth'
 import { VERDICT_COLOR, verdictTag } from '../lib/runStatus'
 
 // A run reduced to what the chart needs. Both WorkflowRunRow and PrRunRow satisfy this, so either page
@@ -57,9 +57,14 @@ const MIN_POINTS = 2
 export const isPlottable = (run: ActivityRun): run is ActivityRun & { startedAt: string; durationSeconds: number } =>
     run.startedAt != null && run.durationSeconds != null && run.durationSeconds >= 0
 
+/** The runs the chart actually draws: completed with a start time, and not a no-op gate run — those
+ *  would carpet the bottom of the scatter and drag the median toward zero. */
+export const isChartableRun = (run: ActivityRun): run is ActivityRun & { startedAt: string; durationSeconds: number } =>
+    isPlottable(run) && !isNoOpRun(run)
+
 /** False when RunActivityChart would render null, so callers can show their empty state instead. */
 export function hasEnoughRunActivity(runs: ActivityRun[]): boolean {
-    return runs.filter(isPlottable).length >= MIN_POINTS
+    return runs.filter(isChartableRun).length >= MIN_POINTS
 }
 // The focus lens defaults to the most recent day — the "live" view — over a window that's wider than that.
 // Below this much total span there's nothing to pan over, so the brush is hidden and the chart shows it all.
@@ -246,9 +251,11 @@ export function RunActivityChart({
         setFocus(null)
     }, [runs])
     const now = dayjs().valueOf()
+    // No-op gate runs are dropped from the whole chart — scatter, median, count, and band alike.
+    const meaningful = runs.filter((run) => !isNoOpRun(run))
     // Every run with a start contributes an interval to the band; a still-running run extends to now, but
     // only up to MAX_IN_FLIGHT_MS so an abandoned run that never settled doesn't stretch the band by days.
-    const intervals: Interval[] = runs
+    const intervals: Interval[] = meaningful
         .filter((run): run is ActivityRun & { startedAt: string } => run.startedAt != null)
         .map((run) => {
             const start = dayjs(run.startedAt).valueOf()
@@ -264,7 +271,7 @@ export function RunActivityChart({
         })
 
     // Only completed runs land on the scatter — a still-running run has no final duration to place on Y.
-    const plottable = runs.filter(isPlottable)
+    const plottable = meaningful.filter(isPlottable)
     if (plottable.length < MIN_POINTS) {
         return null
     }

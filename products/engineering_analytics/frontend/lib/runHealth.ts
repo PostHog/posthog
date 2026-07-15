@@ -90,6 +90,20 @@ export interface FleetSummary {
     estimatedCostUsd: number | null
 }
 
+// A completed run that settled in under this many seconds did no real CI work. The common shape is a
+// gate job deciding the rest of the workflow should be skipped (path filters, eligibility checks): the
+// run "succeeds" in seconds with every other job skipped. Those runs are noise on duration surfaces —
+// they pile up at the bottom of the activity scatter and drag duration percentiles toward zero.
+export const NO_OP_RUN_MAX_SECONDS = 10
+
+/** True for no-op runs (see {@link NO_OP_RUN_MAX_SECONDS}). Decisive failures are kept regardless of
+ *  speed — a workflow that fails within seconds (broken config) is signal, not noise. */
+export function isNoOpRun(run: Pick<HealthRun, 'conclusion' | 'durationSeconds'>): boolean {
+    return (
+        run.durationSeconds != null && run.durationSeconds < NO_OP_RUN_MAX_SECONDS && !isDecisiveFailure(run.conclusion)
+    )
+}
+
 /** Nearest-rank percentile over an ascending-sorted sample. */
 export function percentileSorted(sortedAsc: number[], q: number): number | null {
     if (sortedAsc.length === 0) {
@@ -111,7 +125,10 @@ export function computeHealthSummary(runs: HealthRun[]): HealthSummary {
     const reruns = runs.filter((run) => (run.runAttempt ?? 1) > 1).length
     const passRate = completed.length ? passed / completed.length : null
 
+    // No-op runs stay in the counts and pass rate (they are real runs) but not in the duration
+    // percentiles, so the median/p95 tiles agree with the activity chart, which drops them entirely.
     const durations = completed
+        .filter((run) => !isNoOpRun(run))
         .map((run) => run.durationSeconds)
         .filter((d): d is number => d != null)
         .sort((a, b) => a - b)
