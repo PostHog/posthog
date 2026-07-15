@@ -109,6 +109,7 @@ the row lists both.
 | coassemble                | HTTP                        | requests                                                        | ✅                          |
 | coda                      | HTTP                        | requests                                                        | ✅                          |
 | codefresh                 | HTTP                        | requests                                                        | ✅                          |
+| cohere                    | HTTP                        | requests                                                        | ✅                          |
 | coin_api                  | HTTP                        | requests                                                        | ✅                          |
 | coingecko                 | HTTP                        | requests                                                        | ✅                          |
 | coinmarketcap             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -527,7 +528,6 @@ doesn't conflict with concurrent PRs.
 - coassemble
 - cockroachdb
 - cody
-- cohere
 - constant_contact
 - copper
 - cosmosdb
