@@ -4599,6 +4599,158 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         expected = [(self.org_1_team_1.id, expected_credits)] if expected_credits is not None else []
         self.assertEqual(result, expected)
 
+    @patch("posthog.tasks.usage_report.get_instance_region")
+    @patch("posthog.tasks.usage_report._get_posthog_code_seat_covered_team_distinct_id_pairs")
+    def test_posthog_code_seat_covered_generations_split_between_billed_and_seat_counters(
+        self, mock_seat_covered: MagicMock, mock_region: MagicMock
+    ) -> None:
+        """Generations matching a seat-covered (customer team, distinct_id) pair are excluded from
+        billed credits and counted in the seat-credits counter instead. Coverage is scoped to the
+        seat's org's teams: the same distinct_id generating in another org's team stays billed."""
+        from posthog.tasks.usage_report import get_posthog_code_credits_split_by_seat_coverage
+
+        mock_region.return_value = "US"
+        self._setup_teams()
+        analytics_org = Organization.objects.create(name="PostHog Analytics")
+        analytics_team = Team.objects.create(pk=2, organization=analytics_org, name="Analytics")
+        self._setup_instance_group_mapping(analytics_team)
+        other_org = Organization.objects.create(name="Org without covered seats")
+        other_org_team = Team.objects.create(pk=4, organization=other_org, name="Team 1 org other")
+
+        # Seat granted by org_1 only — covers usage in org_1's team, not other_org's.
+        mock_seat_covered.return_value = {(self.org_1_team_1.id, "user_seat_covered")}
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+
+        # Seat-covered pair (free/pro/alpha PostHog Code seat in org_1) — must not be billed.
+        _create_event(
+            event="$ai_generation",
+            team=analytics_team,
+            distinct_id="user_seat_covered",
+            timestamp=period_start + relativedelta(hours=1),
+            properties={
+                "team_id": self.org_1_team_1.id,
+                "$ai_trace_id": "trace_seat_covered",
+                "$ai_total_cost_usd": 2.0,
+                "$ai_billable": True,
+                "ai_product": "posthog_code",
+                "$group_1": "https://us.posthog.com",
+            },
+        )
+        # Billable distinct_id (usage-plan seat or no seat at all) — must stay billed.
+        _create_event(
+            event="$ai_generation",
+            team=analytics_team,
+            distinct_id="user_billable",
+            timestamp=period_start + relativedelta(hours=2),
+            properties={
+                "team_id": self.org_1_team_1.id,
+                "$ai_trace_id": "trace_billable",
+                "$ai_total_cost_usd": 3.0,
+                "$ai_billable": True,
+                "ai_product": "posthog_code",
+                "$group_1": "https://us.posthog.com",
+            },
+        )
+        # Same covered user, but in an org that pays per-usage — the org_1 seat must not exempt it.
+        _create_event(
+            event="$ai_generation",
+            team=analytics_team,
+            distinct_id="user_seat_covered",
+            timestamp=period_start + relativedelta(hours=3),
+            properties={
+                "team_id": other_org_team.id,
+                "$ai_trace_id": "trace_other_org",
+                "$ai_total_cost_usd": 4.0,
+                "$ai_billable": True,
+                "ai_product": "posthog_code",
+                "$group_1": "https://us.posthog.com",
+            },
+        )
+
+        flush_persons_and_events()
+
+        split = get_posthog_code_credits_split_by_seat_coverage(period_start, period_end)
+
+        # 3.0 USD * 100 (no markup) = 300 — the seat-covered generation's cost is excluded;
+        # 4.0 USD * 100 = 400 — the covered user's usage in the uncovered org stays billed.
+        self.assertEqual(sorted(split["billed"]), [(self.org_1_team_1.id, 300), (other_org_team.id, 400)])
+        # 2.0 USD * 100 (no markup) = 200 — only the seat-covered pair's cost.
+        self.assertEqual(split["seat_covered"], [(self.org_1_team_1.id, 200)])
+        # One roster snapshot serves both counters.
+        mock_seat_covered.assert_called_once_with(period_start)
+
+    @patch("posthog.tasks.usage_report._get_posthog_code_seat_covered_team_distinct_id_pairs")
+    def test_posthog_code_credits_raises_when_seat_roster_fetch_fails(self, mock_seat_covered: MagicMock) -> None:
+        """A failed roster fetch must raise, not silently bill everyone or no one."""
+        from posthog.tasks.usage_report import (
+            get_posthog_code_credits_split_by_seat_coverage,
+            get_teams_with_posthog_code_credits_used_in_period,
+        )
+
+        mock_seat_covered.side_effect = Exception("billing service unavailable")
+        self._setup_teams()
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+
+        with self.assertRaises(Exception):
+            get_teams_with_posthog_code_credits_used_in_period(period_start, period_end)
+        with self.assertRaises(Exception):
+            get_posthog_code_credits_split_by_seat_coverage(period_start, period_end)
+
+    @patch("posthog.tasks.usage_report.get_cached_instance_license")
+    def test_posthog_code_seat_coverage_expands_roster_orgs_to_their_teams(self, mock_license: MagicMock) -> None:
+        """The billing roster is org-scoped; coverage applies to every team of the granting org and
+        to nothing else — orgs unknown to this region (the roster spans all regions) drop out."""
+        from posthog.tasks.usage_report import _get_posthog_code_seat_covered_team_distinct_id_pairs
+
+        mock_license.return_value = MagicMock(is_v2_license=True)
+        self._setup_teams()
+        org_1_team_2 = Team.objects.create(pk=4, organization=self.org_1, name="Team 2 org 1")
+        other_org = Organization.objects.create(name="Org without covered seats")
+        Team.objects.create(pk=5, organization=other_org, name="Team 1 org other")
+
+        with patch(
+            "products.tasks.backend.facade.billing.get_seat_covered_distinct_ids_by_org",
+            return_value={
+                str(self.org_1.id): {"user_a", "user_b"},
+                "00000000-0000-0000-0000-00000000dead": {"user_other_region"},
+            },
+        ):
+            pairs = _get_posthog_code_seat_covered_team_distinct_id_pairs(now())
+
+        self.assertEqual(
+            pairs,
+            {
+                (self.org_1_team_1.id, "user_a"),
+                (self.org_1_team_1.id, "user_b"),
+                (org_1_team_2.id, "user_a"),
+                (org_1_team_2.id, "user_b"),
+            },
+        )
+
+    @parameterized.expand(
+        [
+            ("no_license", None),
+            ("v1_license", MagicMock(is_v2_license=False)),
+        ]
+    )
+    @patch("posthog.tasks.usage_report.get_cached_instance_license")
+    def test_posthog_code_seat_coverage_is_empty_without_v2_license(
+        self, _name: str, license: MagicMock | None, mock_license: MagicMock
+    ) -> None:
+        """OSS/unlicensed instances have no billing relationship to query — everything stays
+        billable, matching pre-split behavior, and the billing service is never called."""
+        from posthog.tasks.usage_report import _get_posthog_code_seat_covered_team_distinct_id_pairs
+
+        mock_license.return_value = license
+
+        with patch("products.tasks.backend.facade.billing.get_seat_covered_distinct_ids_by_org") as mock_roster:
+            self.assertEqual(_get_posthog_code_seat_covered_team_distinct_id_pairs(now()), set())
+            mock_roster.assert_not_called()
+
     def test_has_non_zero_usage_counts_posthog_code_credits(self) -> None:
         """A posthog_code-only org must survive has_non_zero_usage so its report still reaches billing."""
         import dataclasses
@@ -4609,11 +4761,22 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         self.assertFalse(has_non_zero_usage(UsageReportCounters(**zero)))
         self.assertTrue(has_non_zero_usage(UsageReportCounters(**{**zero, "posthog_code_credits_used_in_period": 5})))
+        self.assertTrue(
+            has_non_zero_usage(UsageReportCounters(**{**zero, "posthog_code_seat_credits_used_in_period": 5}))
+        )
 
 
 class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
+
+        # Licensed tests run the real report path; the billing seat-roster fetch is an external
+        # service call that raises without BILLING_SERVICE_API_KEY, so pin the pre-split default.
+        seat_roster_patcher = patch(
+            "posthog.tasks.usage_report._get_posthog_code_seat_covered_team_distinct_id_pairs", return_value=set()
+        )
+        seat_roster_patcher.start()
+        self.addCleanup(seat_roster_patcher.stop)
 
         self.team2 = Team.objects.create(organization=self.organization)
 
@@ -4855,6 +5018,13 @@ class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
 class TestSendNoUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
+        # Licensed tests run the real report path; the billing seat-roster fetch is an external
+        # service call that raises without BILLING_SERVICE_API_KEY, so pin the pre-split default.
+        seat_roster_patcher = patch(
+            "posthog.tasks.usage_report._get_posthog_code_seat_covered_team_distinct_id_pairs", return_value=set()
+        )
+        seat_roster_patcher.start()
+        self.addCleanup(seat_roster_patcher.stop)
         materialize("events", "$exception_values")
 
     @freeze_time("2021-10-10T23:01:00Z")
@@ -4939,6 +5109,14 @@ class TestOrganizationFiltering(LicensedTestMixin, ClickhouseDestroyTablesMixin,
 
     def setUp(self) -> None:
         super().setUp()
+
+        # Licensed tests run the real report path; the billing seat-roster fetch is an external
+        # service call that raises without BILLING_SERVICE_API_KEY, so pin the pre-split default.
+        seat_roster_patcher = patch(
+            "posthog.tasks.usage_report._get_posthog_code_seat_covered_team_distinct_id_pairs", return_value=set()
+        )
+        seat_roster_patcher.start()
+        self.addCleanup(seat_roster_patcher.stop)
 
         # Create additional organizations with teams
         self.org2 = Organization.objects.create(name="Org 2")
@@ -5159,6 +5337,14 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
     def setUp(self) -> None:
         super().setUp()
         materialize("events", "$exception_values")
+
+        # The real report path hits the billing seat-roster fetch, an external service call that
+        # raises without BILLING_SERVICE_API_KEY, so pin the pre-split default (bill everyone).
+        seat_roster_patcher = patch(
+            "posthog.tasks.usage_report._get_posthog_code_seat_covered_team_distinct_id_pairs", return_value=set()
+        )
+        seat_roster_patcher.start()
+        self.addCleanup(seat_roster_patcher.stop)
 
         # Clear existing Django data
         Team.objects.all().delete()

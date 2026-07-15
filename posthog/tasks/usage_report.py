@@ -6,7 +6,7 @@ import base64
 import logging
 import dataclasses
 from collections import Counter, defaultdict
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, Optional, TypedDict, Union
 
@@ -229,7 +229,10 @@ class UsageReportCounters:
     signals_credits_used_in_period: int
 
     # PostHog Code Billing Credits (PostHog Code product usage — same cost math as ai_credits, scoped to ai_product='posthog_code')
+    # Billed: excludes seat-covered usage (free/pro/alpha seats, scoped to the granting org).
     posthog_code_credits_used_in_period: int
+    # Seat-covered complement — reporting only, deliberately not billed or quota-limited.
+    posthog_code_seat_credits_used_in_period: int
 
     # CDP Delivery
     hog_function_calls_in_period: int
@@ -1370,10 +1373,18 @@ def _get_teams_with_ai_credits_for_products(
     usage_report_tag: str,
     product_tag: Product = Product.MAX_AI,
     markup_percent: float = AI_COST_MARKUP_PERCENT,
+    excluded_team_distinct_id_pairs: Collection[tuple[int, str]] | None = None,
+    included_team_distinct_id_pairs: Collection[tuple[int, str]] | None = None,
 ) -> list[tuple[int, int]]:
     """
     Shared implementation for AI billing credit aggregation, whitelisting on the
     `ai_product` event property — only generations tagged with an `ai_products` value are billed.
+
+    `excluded_team_distinct_id_pairs`/`included_team_distinct_id_pairs` are mutually exclusive
+    filters on (customer team_id, distinct_id) — the team an event bills to and the calling user —
+    used to split PostHog Code credits between seat-covered and billable generations. Pairs rather
+    than bare distinct_ids because seat coverage is org-scoped: a user's covered seat in one org
+    must not exempt their usage in an org that pays per-usage.
 
     A billable $ai_generation (with positive cost) is billed when its trace is billable OR it has no
     trace. Products that emit a paired $ai_trace (e.g. posthog_ai) are billed only on a billable trace;
@@ -1399,6 +1410,13 @@ def _get_teams_with_ai_credits_for_products(
     Events are stored in team 1 (EU) or team 2 (US), with the actual team (on which we group by) in properties.
     We filter by the configured `instance` group column, which contains the region URL.
     """
+    assert not (excluded_team_distinct_id_pairs and included_team_distinct_id_pairs), (
+        "excluded_team_distinct_id_pairs and included_team_distinct_id_pairs are mutually exclusive"
+    )
+
+    if included_team_distinct_id_pairs is not None and not included_team_distinct_id_pairs:
+        return []
+
     region = get_instance_region()
 
     if region is None:
@@ -1415,11 +1433,35 @@ def _get_teams_with_ai_credits_for_products(
     if region_filter_params is None:
         return []
 
+    # Roster is a per-day snapshot, not per-event: a mid-day seat change attributes the whole
+    # day to whichever plan billing reports for that day.
+    seat_pair_filter_clause = ""
+    query_params: dict[str, Any] = {
+        "team_to_query": team_to_query,
+        "begin": begin,
+        "end": end,
+        "markup_multiplier": 1 + markup_percent,
+        "excluded_tools": AI_BILLING_EXCLUDED_TOOLS,
+        "ai_products": tuple(ai_products),
+        **region_filter_params,
+    }
+    if excluded_team_distinct_id_pairs:
+        seat_pair_filter_clause = (
+            "AND (JSONExtractInt(properties, 'team_id'), distinct_id) NOT IN %(excluded_team_distinct_id_pairs)s"
+        )
+        query_params["excluded_team_distinct_id_pairs"] = tuple(sorted(excluded_team_distinct_id_pairs))
+    elif included_team_distinct_id_pairs:
+        seat_pair_filter_clause = (
+            "AND (JSONExtractInt(properties, 'team_id'), distinct_id) IN %(included_team_distinct_id_pairs)s"
+        )
+        query_params["included_team_distinct_id_pairs"] = tuple(sorted(included_team_distinct_id_pairs))
+
     with tags_context(
         product=product_tag, feature=Feature.USAGE_REPORT, usage_report=usage_report_tag, kind="usage_report"
     ):
+        # nosemgrep: clickhouse-fstring-param-audit - seat_pair_filter_clause is one of two hardcoded literals; pairs go through %(...)s params
         results = sync_execute(
-            """
+            f"""
             WITH trace_analysis AS (
                 WITH %(excluded_tools)s AS excluded_tools
                 SELECT
@@ -1499,6 +1541,7 @@ def _get_teams_with_ai_credits_for_products(
                         AND timestamp < %(end)s
                         AND event = '$ai_generation'
                         AND JSONExtractString(properties, 'ai_product') IN %(ai_products)s
+                        {seat_pair_filter_clause}
                 )
                 WHERE
                     ai_billable = 1
@@ -1525,15 +1568,7 @@ def _get_teams_with_ai_credits_for_products(
             ORDER BY
                 ai_credits DESC
             """,
-            {
-                "team_to_query": team_to_query,
-                "begin": begin,
-                "end": end,
-                "markup_multiplier": 1 + markup_percent,
-                "excluded_tools": AI_BILLING_EXCLUDED_TOOLS,
-                "ai_products": tuple(ai_products),
-                **region_filter_params,
-            },
+            query_params,
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
             ch_user=ClickHouseUser.BILLING,
@@ -1581,6 +1616,77 @@ def get_signals_credited_refund_credits_for_org(
     return credited_refund_credits_for_org(organization_id, begin, end)
 
 
+def _get_posthog_code_seat_covered_team_distinct_id_pairs(begin: datetime) -> set[tuple[int, str]]:
+    """Seat-covered (customer team_id, distinct_id) pairs from the billing service's roster for the
+    report day.
+
+    Seat coverage is org-scoped — a user's covered seat in one org must not exempt their usage in
+    an org that pays per-usage — so the roster's organizations are expanded to their teams to match
+    the customer team id each event bills to. Roster orgs unknown to this region's database (the
+    roster spans all regions) have no local teams and drop out here.
+
+    OSS/unlicensed instances have no billing relationship to query — empty set, i.e. everything
+    stays billable, matching behavior before the seat split (mirrors send_report_to_billing_service's
+    license no-op).
+    """
+    if not settings.EE_AVAILABLE:
+        return set()
+
+    license = get_cached_instance_license()
+    if not license or not license.is_v2_license:
+        return set()
+
+    from products.tasks.backend.facade.billing import (  # noqa: PLC0415 — imports ee, an optional dependency
+        POSTHOG_CODE_PRODUCT_KEY,
+        get_seat_covered_distinct_ids_by_org,
+    )
+
+    covered_by_org = get_seat_covered_distinct_ids_by_org(POSTHOG_CODE_PRODUCT_KEY, begin.date())
+    if not covered_by_org:
+        return set()
+
+    team_ids_by_org: dict[str, list[int]] = {}
+    for team_id, organization_id in Team.objects.filter(organization_id__in=covered_by_org.keys()).values_list(
+        "id", "organization_id"
+    ):
+        team_ids_by_org.setdefault(str(organization_id), []).append(team_id)
+
+    return {
+        (team_id, distinct_id)
+        for organization_id, distinct_ids in covered_by_org.items()
+        for team_id in team_ids_by_org.get(organization_id, ())
+        for distinct_id in distinct_ids
+    }
+
+
+def _get_posthog_code_billed_credits(
+    begin: datetime, end: datetime, seat_covered_pairs: set[tuple[int, str]]
+) -> list[tuple[int, int]]:
+    return _get_teams_with_ai_credits_for_products(
+        begin,
+        end,
+        ai_products=POSTHOG_CODE_AI_PRODUCTS,
+        usage_report_tag="posthog_code_credits",
+        product_tag=Product.POSTHOG_CODE,
+        markup_percent=POSTHOG_CODE_COST_MARKUP_PERCENT,
+        excluded_team_distinct_id_pairs=seat_covered_pairs,
+    )
+
+
+def _get_posthog_code_seat_credits(
+    begin: datetime, end: datetime, seat_covered_pairs: set[tuple[int, str]]
+) -> list[tuple[int, int]]:
+    return _get_teams_with_ai_credits_for_products(
+        begin,
+        end,
+        ai_products=POSTHOG_CODE_AI_PRODUCTS,
+        usage_report_tag="posthog_code_seat_credits",
+        product_tag=Product.POSTHOG_CODE,
+        markup_percent=POSTHOG_CODE_COST_MARKUP_PERCENT,
+        included_team_distinct_id_pairs=seat_covered_pairs,
+    )
+
+
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_posthog_code_credits_used_in_period(
@@ -1589,16 +1695,45 @@ def get_teams_with_posthog_code_credits_used_in_period(
 ) -> list[tuple[int, int]]:
     """PostHog Code billing credits — only events tagged with ai_product='posthog_code'.
 
-    Billed as pure pass-through of model costs (no markup), unlike PostHog AI's 20%.
+    Billed as pure pass-through of model costs (no markup), unlike PostHog AI's 20%. Excludes
+    generations whose (customer team, distinct_id) is seat-covered (free/pro/alpha PostHog Code
+    seats, already paid for via the seat itself). Used by quota limiting; the usage report goes
+    through `get_posthog_code_credits_split_by_seat_coverage` instead so both of its counters
+    come from one roster snapshot.
+
+    If the billing seat roster fetch fails, this raises rather than falling back to billing
+    everyone (overbilling seat holders) or no one (undercounting usage) — the callers'
+    existing retry/error handling takes over from there.
     """
-    return _get_teams_with_ai_credits_for_products(
-        begin,
-        end,
-        ai_products=POSTHOG_CODE_AI_PRODUCTS,
-        usage_report_tag="posthog_code_credits",
-        product_tag=Product.POSTHOG_CODE,
-        markup_percent=POSTHOG_CODE_COST_MARKUP_PERCENT,
-    )
+    seat_covered_pairs = _get_posthog_code_seat_covered_team_distinct_id_pairs(begin)
+    return _get_posthog_code_billed_credits(begin, end, seat_covered_pairs)
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_posthog_code_credits_split_by_seat_coverage(
+    begin: datetime,
+    end: datetime,
+) -> dict[str, list[tuple[int, int]]]:
+    """Both PostHog Code usage-report counters, split from ONE seat-roster snapshot so they are
+    exact complements — separate roster fetches could disagree and double-count or drop a
+    generation across the two.
+
+    `billed` excludes seat-covered (customer team, distinct_id) pairs; `seat_covered` is the
+    complement. The seat-covered side is not billed today: seat plans provide PostHog Code as a
+    $0 usage entitlement, and the counter exists purely for record/reporting/QA per the billing
+    team's request — do not wire it into billing_manager's update_billing_organization_usage or
+    quota limiting.
+
+    If the billing seat roster fetch fails, this raises rather than falling back to billing
+    everyone (overbilling seat holders) or no one (undercounting usage) — the usage-report task's
+    existing retry/error handling takes over from there.
+    """
+    seat_covered_pairs = _get_posthog_code_seat_covered_team_distinct_id_pairs(begin)
+    return {
+        "billed": _get_posthog_code_billed_credits(begin, end, seat_covered_pairs),
+        "seat_covered": _get_posthog_code_seat_credits(begin, end, seat_covered_pairs),
+    }
 
 
 dwh_pricing_free_period_start = datetime(2025, 10, 29, 0, 0, 0, tzinfo=UTC)
@@ -2316,6 +2451,7 @@ def has_non_zero_usage(report: UsageReportCounters) -> bool:
         or report.ai_credits_used_in_period > 0
         or report.signals_credits_used_in_period > 0
         or report.posthog_code_credits_used_in_period > 0
+        or report.posthog_code_seat_credits_used_in_period > 0
         or report.logs_bytes_in_period > 0
         or report.workflow_emails_sent_in_period > 0
         or report.workflow_push_sent_in_period > 0
@@ -2356,6 +2492,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
     exception_metrics_by_library, exception_metrics = get_teams_with_exceptions_captured_in_period(
         period_start, period_end
     )
+    posthog_code_credits_split = get_posthog_code_credits_split_by_seat_coverage(period_start, period_end)
 
     return {
         "teams_with_event_count_in_period": get_teams_with_billable_event_count_in_period(
@@ -2582,9 +2719,8 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_signals_credits_used_in_period": get_teams_with_signals_credits_used_in_period(
             period_start, period_end
         ),
-        "teams_with_posthog_code_credits_used_in_period": get_teams_with_posthog_code_credits_used_in_period(
-            period_start, period_end
-        ),
+        "teams_with_posthog_code_credits_used_in_period": posthog_code_credits_split["billed"],
+        "teams_with_posthog_code_seat_credits_used_in_period": posthog_code_credits_split["seat_covered"],
         "teams_with_active_hog_destinations_in_period": get_teams_with_active_hog_destinations_in_period(),
         "teams_with_active_hog_transformations_in_period": get_teams_with_active_hog_transformations_in_period(),
         "teams_with_workflow_emails_sent_in_period": get_teams_with_workflow_emails_sent_in_period(
@@ -2767,6 +2903,9 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         ai_credits_used_in_period=all_data["teams_with_ai_credits_used_in_period"].get(team.id, 0),
         signals_credits_used_in_period=all_data["teams_with_signals_credits_used_in_period"].get(team.id, 0),
         posthog_code_credits_used_in_period=all_data["teams_with_posthog_code_credits_used_in_period"].get(team.id, 0),
+        posthog_code_seat_credits_used_in_period=all_data["teams_with_posthog_code_seat_credits_used_in_period"].get(
+            team.id, 0
+        ),
         active_hog_destinations_in_period=all_data["teams_with_active_hog_destinations_in_period"].get(team.id, 0),
         active_hog_transformations_in_period=all_data["teams_with_active_hog_transformations_in_period"].get(
             team.id, 0

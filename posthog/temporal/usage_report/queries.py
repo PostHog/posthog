@@ -49,6 +49,7 @@ from posthog.constants import FlagRequestType
 from posthog.models.group_type_mapping import count_group_type_mappings_per_team
 from posthog.tasks.usage_report import (
     get_all_event_metrics_in_period,
+    get_posthog_code_credits_split_by_seat_coverage,
     get_teams_with_active_batch_exports_in_period,
     get_teams_with_active_external_data_schemas_in_period,
     get_teams_with_active_hog_destinations_in_period,
@@ -72,7 +73,6 @@ from posthog.tasks.usage_report import (
     get_teams_with_logs_records_in_period,
     get_teams_with_logs_retention_bytes_in_period,
     get_teams_with_mobile_billable_recording_count_in_period,
-    get_teams_with_posthog_code_credits_used_in_period,
     get_teams_with_query_metric,
     get_teams_with_recording_bytes_in_period,
     get_teams_with_recording_count_in_period,
@@ -441,8 +441,15 @@ QUERIES: list[QuerySpec] = [
         fn=get_teams_with_signals_credits_used_in_period,
     ),
     QuerySpec(
-        name="teams_with_posthog_code_credits_used_in_period",
-        fn=get_teams_with_posthog_code_credits_used_in_period,
+        name="posthog_code_credits_split",
+        fn=get_posthog_code_credits_split_by_seat_coverage,
+        output="multi",
+        # One spec (= one activity) on purpose: both counters must come from a single
+        # seat-roster snapshot so billed + seat-covered stay exact complements.
+        multi_keys_mapping={
+            "billed": "teams_with_posthog_code_credits_used_in_period",
+            "seat_covered": "teams_with_posthog_code_seat_credits_used_in_period",
+        },
     ),
     # ---- ClickHouse: workflows / messaging ----------------------------------
     QuerySpec(
