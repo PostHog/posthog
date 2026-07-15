@@ -335,9 +335,7 @@ class TestProcessMessageOwnershipGate:
         _post_load: MagicMock,
         mock_analytics: MagicMock,
     ) -> None:
-        # Fencing abandons are benign (the engine writes no failure status for
-        # them); counting them as warehouse_v3_load_failed pollutes the loader's
-        # headline failure metric.
+        # Fencing abandons are benign; counting them as load failures pollutes the metric.
         from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
             OwnershipLostError,
         )

@@ -338,11 +338,7 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
 
 
 def _promote_staged_cursor(export_signal: ExportSignalMessage) -> None:
-    # A promotion failure must fail the batch (which retries) rather than let the
-    # job complete with a stale cursor: the next run would re-extract the same
-    # window, duplicating rows for append-type syncs. Retrying is safe — the
-    # already-processed final-batch path re-runs completion idempotently, and
-    # promotion itself is gated on the run_uuid.
+    # Failures propagate so the batch retries instead of completing with a stale cursor.
     close_old_connections()
     schema = ExternalDataSchema.objects.get(id=export_signal.schema_id, team_id=export_signal.team_id)
     promoted = schema.promote_staged_incremental_values(export_signal.run_uuid)
