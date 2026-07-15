@@ -101,6 +101,16 @@ describe('createToolIdentity.resolve', () => {
         })
     })
 
+    it('does not initiate authorization when resolution is lookup-only', async () => {
+        const provider = fakeProvider()
+        const { toolIdentity } = deps({ provider })
+
+        const res = await toolIdentity.resolve('posthog', [], { initiate: false })
+
+        expect(res).toEqual({ kind: 'unavailable', provider: 'posthog', reason: 'identity_not_connected' })
+        expect(provider.initiate).not.toHaveBeenCalled()
+    })
+
     it('does not emit a link when the callback URL is unconfigured', async () => {
         const { toolIdentity } = deps({
             redirectUriFor: () => {

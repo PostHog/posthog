@@ -192,22 +192,6 @@ describe('buildSystemPrompt', () => {
         expect(prompt).not.toMatch(/Bearer|http/)
     })
 
-    it('renders a link-required MCP under "Connect required" with the URL, not as "unavailable"', async () => {
-        await bundle.write('rev1', 'agent.md', 'x')
-        const spec = AgentSpecSchema.parse({ model: 'test/x' })
-        const prompt = await buildSystemPrompt(makeRev(spec), bundle, {
-            unavailableMcps: [
-                { id: 'posthog', category: 'auth', authorizeUrl: 'https://app.posthog.test/oauth/authorize/?x=1' },
-            ],
-        })
-        expect(prompt).toContain('Connect required')
-        // Rendered as a markdown link (not a bare URL) so the model relays a clickable link.
-        expect(prompt).toContain('`posthog`: [Connect posthog](https://app.posthog.test/oauth/authorize/?x=1)')
-        expect(prompt).toMatch(/markdown link/)
-        // A linkable failure must NOT land in the dead-end "Unavailable" block.
-        expect(prompt).not.toContain('Unavailable capabilities')
-    })
-
     it('reasoning hint only fires for high / xhigh', async () => {
         await bundle.write('rev1', 'agent.md', 'x')
 

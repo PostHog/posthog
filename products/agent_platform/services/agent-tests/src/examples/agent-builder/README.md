@@ -103,6 +103,11 @@ points map to the same effective auth:
 
 The Agent Builder holds no fallback credential.
 
+The PostHog MCP is a first-party implementation detail of the builder, not a
+connection the user configures. MCP startup only reuses an existing trigger or
+linked credential; it never starts OAuth or reconnects automatically. Account
+authorization begins only through an explicit connect action.
+
 The checked-in MCP URL is the local development endpoint. `seed.py` rewrites
 PostHog-authenticated MCP entries to the target region, so the production US
 deployment uses `https://mcp.us.posthog.com/mcp` rather than localhost. The

@@ -31,10 +31,6 @@ export interface UnavailableMcp {
     /** Spec ref id — same string the model sees as the tool-name prefix. */
     id: string
     category: UnavailableMcpCategory
-    /** Set when the MCP didn't open because the asker hasn't linked its
-     *  identity provider yet. The model relays this connect link rather than
-     *  reporting a dead "temporarily unavailable". */
-    authorizeUrl?: string
 }
 
 export interface BuildSystemPromptOpts {
@@ -96,27 +92,10 @@ export async function buildSystemPrompt(
     }
 
     const unavailable = opts.unavailableMcps ?? []
-    // Three distinct fixes, three sections:
-    //   - linkable        — the ASKER connects their own account (authorizeUrl).
-    //   - dead            — a SHARED connection the asker can't touch; only the
-    //                       agent's owner/admin can reconnect it, and it won't
-    //                       self-heal (so: not "retry shortly").
-    //   - broken          — a transient/unknown outage; may recover on its own.
-    const linkable = unavailable.filter((u) => u.authorizeUrl)
-    const rest = unavailable.filter((u) => !u.authorizeUrl)
-    const dead = rest.filter((u) => u.category === 'connection_dead')
-    const broken = rest.filter((u) => u.category !== 'connection_dead')
-    if (linkable.length > 0) {
-        const lines = ['\n\n---\n\n## Connect required', '']
-        lines.push(
-            "These capabilities need the user to connect (or reconnect) their account before you can use them — the connection is either not set up yet or no longer has the access it needs. When they ask for something one powers (including asking to reconnect), relay the link below as a **markdown link** with a short friendly label (never the bare URL), ask them to click it, then re-ask — don't say it's unavailable:"
-        )
-        lines.push('')
-        for (const u of linkable) {
-            lines.push(`- \`${u.id}\`: [Connect ${u.id}](${u.authorizeUrl})`)
-        }
-        parts.push(lines.join('\n'))
-    }
+    // Shared connections need an owner/admin to reconnect them. Other MCP
+    // failures are unavailable for this session; startup never initiates OAuth.
+    const dead = unavailable.filter((u) => u.category === 'connection_dead')
+    const broken = unavailable.filter((u) => u.category !== 'connection_dead')
     if (dead.length > 0) {
         const lines = ['\n\n---\n\n## Disconnected integrations', '']
         lines.push(

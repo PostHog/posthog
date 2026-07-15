@@ -299,7 +299,6 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
         unavailableMcps: (deps.mcpFailures ?? []).map((f) => ({
             id: f.ref.id,
             category: f.category,
-            authorizeUrl: f.authorizeUrl,
         })),
         slackReplyRelay: slackReply !== null,
     })
