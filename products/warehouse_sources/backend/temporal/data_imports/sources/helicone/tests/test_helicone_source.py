@@ -42,7 +42,6 @@ class TestHeliconeSource:
         assert config.name.value == "Helicone"
         assert config.label == "Helicone"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.iconPath == "/static/services/helicone.svg"
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/helicone"
         assert len(config.fields) == 2

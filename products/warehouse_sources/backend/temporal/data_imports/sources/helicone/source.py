@@ -89,7 +89,6 @@ class HeliconeSource(ResumableSource[HeliconeSourceConfig, HeliconeResumeConfig]
                 ],
             ),
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
