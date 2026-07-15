@@ -24,6 +24,16 @@ export function slackTextFromContent(content: ReadonlyArray<{ type: string; text
         .join('\n\n')
 }
 
+/** Native status is plain text ("<App> <status>") — strip emoji shortcodes and
+ *  markdown emphasis that only render in a normal message. */
+export function toPlainStatus(text: string): string {
+    return text
+        .replace(/:[a-z0-9_+-]+:/gi, '')
+        .replace(/[*_`]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+}
+
 export interface SlackReplyLogger {
     warn: (meta: Record<string, unknown>, msg: string) => void
     info?: (meta: Record<string, unknown>, msg: string) => void
@@ -45,21 +55,34 @@ export interface SlackStatusReporterDeps {
     thread_ts: string
     sessionId?: string
     logger?: SlackReplyLogger
-    /** Min gap between chat.update calls — Slack rate-limits updates. Default 1000ms. */
+    /** Min gap between status updates — Slack rate-limits both chat.update and
+     *  assistant.threads.setStatus. Default 1000ms. */
     minUpdateIntervalMs?: number
     /** Injectable clock for tests. Default Date.now. */
     now?: () => number
+    /**
+     * How to render the "working on it" indicator:
+     *   - `'native'` (agent surface / `agent_surface: true`) — Slack's native
+     *     `assistant.threads.setStatus`, which shows "<App> <status>" and
+     *     auto-clears when the app posts its reply. `clear()` is a no-op.
+     *   - `'simulated'` (default, back-compat for BYO apps without the agent
+     *     surface) — a normal message we post / chat.update / chat.delete.
+     */
+    mode?: 'native' | 'simulated'
 }
 
 /**
- * A single ephemeral-feeling "working on it" status message in the thread. The
- * runner posts it while a turn is in flight, updates it as tools run, and
- * removes it the moment a real reply lands (re-posting on the next turn) so the
- * latest visible message is always the agent's actual answer. Never throws.
+ * The "working on it" status shown while a turn is in flight, cleared when the
+ * agent's real reply lands. Two renderings selected by `deps.mode`:
  *
- * Not a true Slack ephemeral (those need a response_url and can't be edited) —
- * a normal message we post / chat.update / chat.delete, which works from an
- * event-triggered session.
+ *   - `native`: Slack's `assistant.threads.setStatus` — the real agent thinking
+ *     indicator. It auto-clears when the app posts a message, so `clear()` does
+ *     nothing; the reply relay in the driver clears it implicitly.
+ *   - `simulated`: a normal thread message we post / `chat.update` / `chat.delete`
+ *     (not a true Slack ephemeral — those need a response_url and can't be
+ *     edited). The fallback for apps that haven't enabled the agent surface.
+ *
+ * Never throws — a Slack hiccup must not break the agent loop.
  */
 export class SlackStatusReporter {
     private ts: string | null = null
@@ -68,9 +91,22 @@ export class SlackStatusReporter {
 
     constructor(private readonly deps: SlackStatusReporterDeps) {}
 
-    /** Post the status message if it isn't already shown. */
+    private get mode(): 'native' | 'simulated' {
+        return this.deps.mode ?? 'simulated'
+    }
+
+    /** Post/show the status if it isn't already shown. */
     async start(text: string): Promise<void> {
-        if (this.ts || !this.deps.token) {
+        if (!this.deps.token) {
+            return
+        }
+        if (this.mode === 'native') {
+            this.lastText = text
+            this.lastUpdateMs = this.clock()
+            await this.setNativeStatus(text)
+            return
+        }
+        if (this.ts) {
             return
         }
         const res = await this.call('chat.postMessage', {
@@ -85,13 +121,22 @@ export class SlackStatusReporter {
         }
     }
 
-    /** Edit the status text. Throttled + best-effort; no-op if not shown. */
+    /** Update the status text. Throttled + best-effort. */
     async update(text: string): Promise<void> {
-        if (!this.ts || !this.deps.token || text === this.lastText) {
+        if (!this.deps.token || text === this.lastText) {
             return
         }
         const now = this.clock()
         if (now - this.lastUpdateMs < (this.deps.minUpdateIntervalMs ?? 1000)) {
+            return
+        }
+        if (this.mode === 'native') {
+            this.lastText = text
+            this.lastUpdateMs = now
+            await this.setNativeStatus(text)
+            return
+        }
+        if (!this.ts) {
             return
         }
         this.lastText = text
@@ -99,14 +144,27 @@ export class SlackStatusReporter {
         await this.call('chat.update', { channel: this.deps.channel, ts: this.ts, text })
     }
 
-    /** Remove the status message. Idempotent. */
+    /** Remove the status. Native status auto-clears on reply, so it's a no-op
+     *  there; simulated deletes the message. Idempotent. */
     async clear(): Promise<void> {
-        if (!this.ts || !this.deps.token) {
+        if (!this.deps.token || this.mode === 'native') {
+            return
+        }
+        if (!this.ts) {
             return
         }
         const ts = this.ts
         this.ts = null
         await this.call('chat.delete', { channel: this.deps.channel, ts })
+    }
+
+    /** Native indicator via assistant.threads.setStatus (plain text only). */
+    private async setNativeStatus(text: string): Promise<void> {
+        await this.call('assistant.threads.setStatus', {
+            channel_id: this.deps.channel,
+            thread_ts: this.deps.thread_ts,
+            status: toPlainStatus(text),
+        })
     }
 
     private clock(): number {

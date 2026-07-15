@@ -1542,4 +1542,220 @@ describe('slack trigger: real e2e', () => {
             }
         })
     })
+
+    describe('agent surface (native agent experience)', () => {
+        /** Records slack.com calls so we can assert on setSuggestedPrompts /
+         *  setStatus / the welcome + reply posts. `resolveSecrets` feeds the
+         *  runner's bot token (native setStatus is a runner-side call). */
+        async function recorderCluster(secrets: Record<string, string> = {}): Promise<{
+            cc: Cluster
+            slackCalls: Array<{ url: string; body: Record<string, unknown> }>
+        }> {
+            const slackCalls: Array<{ url: string; body: Record<string, unknown> }> = []
+            const recorder = {
+                fetch: (input: string | URL, init?: RequestInit): Promise<Response> => {
+                    const url = typeof input === 'string' ? input : input.toString()
+                    if (url.includes('slack.com/api/')) {
+                        slackCalls.push({
+                            url,
+                            body: typeof init?.body === 'string' ? JSON.parse(init.body) : {},
+                        })
+                        return Promise.resolve({
+                            ok: true,
+                            status: 200,
+                            json: async () => ({ ok: true, ts: 'TS_STATUS' }),
+                            text: async () => '{"ok":true,"ts":"TS_STATUS"}',
+                        } as unknown as Response)
+                    }
+                    return Promise.reject(new Error(`unexpected fetch in test: ${url}`))
+                },
+            }
+            const cc = await buildCluster({ http: recorder, resolveSecrets: async () => secrets })
+            return { cc, slackCalls }
+        }
+
+        const PROMPTS = [{ title: 'Top errors', message: 'What are my top errors today?' }]
+
+        function agentSurfaceSpec(): Record<string, unknown> {
+            return {
+                triggers: [
+                    {
+                        type: 'slack',
+                        config: {
+                            mention_only: false,
+                            auto_resume_threads: false,
+                            agent_surface: true,
+                            welcome_message: 'Hey! What can I dig into?',
+                            suggested_prompts: PROMPTS,
+                            trusted_workspaces: '*',
+                        },
+                    },
+                ],
+                auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
+            }
+        }
+
+        it('assistant_thread_started → posts the welcome and sets suggested prompts', async () => {
+            const { cc, slackCalls } = await recorderCluster({ SLACK_BOT_TOKEN: 'xoxb-agent' })
+            try {
+                await cc.deployAgent({
+                    slug: 'agentic',
+                    spec: agentSurfaceSpec(),
+                    encrypted_env: { ...SLACK_ENV, SLACK_BOT_TOKEN: 'xoxb-agent' },
+                })
+                const res = await cc.slackPost(
+                    'agentic',
+                    'events',
+                    {
+                        type: 'event_callback',
+                        event_id: 'Ev_ats',
+                        event: {
+                            type: 'assistant_thread_started',
+                            assistant_thread: { user_id: 'U01', channel_id: 'D01', thread_ts: '900.0' },
+                        },
+                    },
+                    SLACK_SECRET
+                )
+                expect(res.status).toBe(200)
+                expect(res.body.agent_surface_event).toBe('assistant_thread_started')
+                expect(res.body.session_id).toBeUndefined() // lifecycle event, not a turn
+
+                const prompts = slackCalls.filter((c) => c.url.endsWith('assistant.threads.setSuggestedPrompts'))
+                expect(prompts).toHaveLength(1)
+                expect(prompts[0].body).toMatchObject({ channel_id: 'D01', thread_ts: '900.0', prompts: PROMPTS })
+                const welcome = slackCalls.filter(
+                    (c) => c.url.endsWith('chat.postMessage') && String(c.body.text).includes('What can I dig into')
+                )
+                expect(welcome).toHaveLength(1)
+                expect(welcome[0].body).toMatchObject({ channel: 'D01', thread_ts: '900.0' })
+            } finally {
+                await cc.teardown()
+            }
+        })
+
+        it('app_home_opened on the Messages tab → refreshes suggested prompts (no thread_ts)', async () => {
+            const { cc, slackCalls } = await recorderCluster({ SLACK_BOT_TOKEN: 'xoxb-agent' })
+            try {
+                await cc.deployAgent({
+                    slug: 'homeopen',
+                    spec: agentSurfaceSpec(),
+                    encrypted_env: { ...SLACK_ENV, SLACK_BOT_TOKEN: 'xoxb-agent' },
+                })
+                const res = await cc.slackPost(
+                    'homeopen',
+                    'events',
+                    {
+                        type: 'event_callback',
+                        event_id: 'Ev_aho',
+                        event: { type: 'app_home_opened', user: 'U01', channel: 'D01', tab: 'messages' },
+                    },
+                    SLACK_SECRET
+                )
+                expect(res.status).toBe(200)
+                expect(res.body.agent_surface_event).toBe('app_home_opened')
+                const prompts = slackCalls.filter((c) => c.url.endsWith('assistant.threads.setSuggestedPrompts'))
+                expect(prompts).toHaveLength(1)
+                expect(prompts[0].body).toMatchObject({ channel_id: 'D01', prompts: PROMPTS })
+                expect(prompts[0].body.thread_ts).toBeUndefined()
+            } finally {
+                await cc.teardown()
+            }
+        })
+
+        it('app_home_opened on the Home tab is ignored (not the agent DM surface)', async () => {
+            const { cc, slackCalls } = await recorderCluster({ SLACK_BOT_TOKEN: 'xoxb-agent' })
+            try {
+                await cc.deployAgent({
+                    slug: 'hometab',
+                    spec: agentSurfaceSpec(),
+                    encrypted_env: { ...SLACK_ENV, SLACK_BOT_TOKEN: 'xoxb-agent' },
+                })
+                const res = await cc.slackPost(
+                    'hometab',
+                    'events',
+                    {
+                        type: 'event_callback',
+                        event_id: 'Ev_home',
+                        event: { type: 'app_home_opened', user: 'U01', channel: 'D01', tab: 'home' },
+                    },
+                    SLACK_SECRET
+                )
+                expect(res.status).toBe(200)
+                expect(slackCalls.filter((c) => c.url.endsWith('assistant.threads.setSuggestedPrompts'))).toHaveLength(
+                    0
+                )
+            } finally {
+                await cc.teardown()
+            }
+        })
+
+        it('DMs enqueue under agent_surface even without allow_direct_messages (agent surface is DM-first)', async () => {
+            const { cc } = await recorderCluster({ SLACK_BOT_TOKEN: 'xoxb-agent' })
+            try {
+                cc.setScript([fauxText('dm handled')])
+                await cc.deployAgent({
+                    slug: 'agent-dm',
+                    spec: agentSurfaceSpec(), // no allow_direct_messages set
+                    encrypted_env: { ...SLACK_ENV, SLACK_BOT_TOKEN: 'xoxb-agent' },
+                })
+                const res = await cc.slackPost(
+                    'agent-dm',
+                    'events',
+                    slackEvent({ eventType: 'message', channel_type: 'im', channel: 'D01', text: 'hey agent' }),
+                    SLACK_SECRET
+                )
+                expect(res.status).toBe(200)
+                expect(res.body.session_id).toBeTruthy()
+                expect(res.body.dropped).toBeUndefined()
+            } finally {
+                await cc.teardown()
+            }
+        })
+
+        it('a turn under agent_surface reports progress with native setStatus (not a simulated message)', async () => {
+            const { cc, slackCalls } = await recorderCluster({ SLACK_BOT_TOKEN: 'xoxb-agent' })
+            try {
+                cc.setScript([fauxText('here is the answer')])
+                await cc.deployAgent({
+                    slug: 'native-status',
+                    spec: agentSurfaceSpec(),
+                    encrypted_env: { ...SLACK_ENV, SLACK_BOT_TOKEN: 'xoxb-agent' },
+                })
+                const res = await cc.slackPost(
+                    'native-status',
+                    'events',
+                    slackEvent({
+                        eventType: 'app_mention',
+                        channel: 'C01',
+                        text: '<@U0BOT> help',
+                        ts: '950.0',
+                        thread_ts: '950.0',
+                    }),
+                    SLACK_SECRET
+                )
+                expect(res.status).toBe(200)
+                await cc.drain()
+
+                // Native indicator via assistant.threads.setStatus…
+                const statusCalls = slackCalls.filter((c) => c.url.endsWith('assistant.threads.setStatus'))
+                expect(statusCalls.length).toBeGreaterThanOrEqual(1)
+                expect(statusCalls[0].body).toMatchObject({ channel_id: 'C01', thread_ts: '950.0' })
+                // …and NOT the simulated status message (no "Working on it" post, no delete).
+                expect(
+                    slackCalls.filter(
+                        (c) => c.url.endsWith('chat.postMessage') && String(c.body.text).includes('Working on it')
+                    )
+                ).toHaveLength(0)
+                expect(slackCalls.filter((c) => c.url.endsWith('chat.delete'))).toHaveLength(0)
+                // The real reply still lands in the thread.
+                const replyPosts = slackCalls.filter(
+                    (c) => c.url.endsWith('chat.postMessage') && c.body.text === 'here is the answer'
+                )
+                expect(replyPosts).toHaveLength(1)
+                expect(replyPosts[0].body).toMatchObject({ channel: 'C01', thread_ts: '950.0' })
+            } finally {
+                await cc.teardown()
+            }
+        })
+    })
 })

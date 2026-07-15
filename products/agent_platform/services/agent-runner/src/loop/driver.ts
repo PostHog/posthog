@@ -296,6 +296,15 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
     // thread (the system prompt below tells the model to answer in natural
     // language instead of calling a slack tool).
     const slackReply = session.trigger_metadata?.kind === 'slack' ? session.trigger_metadata : null
+    // When the agent opts into Slack's "Agent messaging experience"
+    // (`agent_surface`), report progress with the native
+    // `assistant.threads.setStatus` indicator; otherwise fall back to the
+    // simulated status message. Read from the spec — no need to thread it
+    // through trigger_metadata.
+    const slackAgentSurface =
+        ((rev.spec.triggers ?? []).find((t) => t.type === 'slack')?.config as
+            | { agent_surface?: boolean }
+            | undefined)?.agent_surface === true
     const system = await buildSystemPrompt(rev, deps.bundle, {
         unavailableMcps: (deps.mcpFailures ?? []).map((f) => ({
             id: f.ref.id,
@@ -328,6 +337,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
               channel: slackReply.channel,
               thread_ts: slackReply.thread_ts,
               sessionId: session.id,
+              mode: slackAgentSurface ? 'native' : 'simulated',
               logger: { warn: (meta, m) => log('warn', m, meta), info: (meta, m) => log('info', m, meta) },
           })
         : null

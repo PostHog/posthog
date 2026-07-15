@@ -25,6 +25,14 @@ export interface SlackAppManifest {
         /** Only emitted when DMs are enabled — Slack hides the Messages tab
          *  (and so the ability to DM the bot) unless this opts in. */
         app_home?: { messages_tab_enabled: boolean; messages_tab_read_only_enabled: boolean }
+        /** Slack's "Agent messaging experience" config. Emitted only when the
+         *  agent surface is enabled (`agent_surface`). Slack caps
+         *  `agent_description` at 300 chars and shows at most 4
+         *  `suggested_prompts`. */
+        agent_view?: {
+            agent_description?: string
+            suggested_prompts?: Array<{ title: string; message: string }>
+        }
     }
     oauth_config: { scopes: { bot: string[] } }
     settings: {
@@ -97,14 +105,24 @@ export function buildSlackManifest(input: BuildSlackManifestInput): BuildSlackMa
     // mirrors the ingress gate exactly.
     const mentionOnly = config.mention_only ?? false
     const autoResumeThreads = config.auto_resume_threads ?? false
-    const allowDms = config.allow_direct_messages ?? false
+    const agentSurface = config.agent_surface ?? false
+    // The agent surface is inherently DM-first (turns arrive as `message.im`),
+    // so it enables the DM plumbing on its own without a separate flag.
+    const dmEnabled = (config.allow_direct_messages ?? false) || agentSurface
     const needsMessageEvents = mentionOnly === false || autoResumeThreads === true
     const botEvents = ['app_mention']
     if (needsMessageEvents) {
         botEvents.push('message.channels', 'message.groups')
     }
-    if (allowDms) {
+    if (dmEnabled) {
         botEvents.push('message.im', 'message.mpim')
+    }
+    if (agentSurface) {
+        // `assistant_thread_started` fires when a conversation opens in the
+        // split-view surface; `app_home_opened` is the new experience's
+        // DM-open signal (Slack no longer fires `assistant_thread_started`
+        // for that). Both let the ingress push the welcome + suggested prompts.
+        botEvents.push('assistant_thread_started', 'app_home_opened')
     }
 
     // Bot OAuth scopes. Union the Slack scopes declared by the agent's Slack
@@ -128,10 +146,17 @@ export function buildSlackManifest(input: BuildSlackManifestInput): BuildSlackMa
         scopes.add('channels:history')
         scopes.add('groups:history')
     }
-    if (allowDms) {
+    if (dmEnabled) {
         // Required to receive message.im / message.mpim events.
         scopes.add('im:history')
         scopes.add('mpim:history')
+    }
+    if (agentSurface) {
+        // Grants access to the native agent methods (setStatus /
+        // setSuggestedPrompts / setTitle). Slack auto-adds this when the AI-app
+        // feature is enabled in the app settings; requesting it in the manifest
+        // keeps the two in sync.
+        scopes.add('assistant:write')
     }
 
     // Interactivity is only used by approval-gated tools (the elevation buttons).
@@ -149,9 +174,30 @@ export function buildSlackManifest(input: BuildSlackManifestInput): BuildSlackMa
         'Invite the bot to each channel it should listen in — Slack only delivers channel ' +
             'message events to channels the bot has joined.'
     )
-    if (allowDms) {
+    if (dmEnabled) {
         notes.push("Direct messages enabled — users can DM the bot from the app's Messages tab.")
     }
+    if (agentSurface) {
+        notes.push(
+            'Agent surface enabled — the bot appears as a native, DM-able agent with a thinking ' +
+                'indicator and suggested prompts. Enable the AI-app feature in your Slack app ' +
+                "settings (Agents & AI Apps) so the `assistant:write` scope is granted, then reinstall."
+        )
+    }
+
+    // Present only when the agent surface is on; the presence of the
+    // `agent_view` key is what selects Slack's Agent messaging experience, so
+    // it's emitted even when no description/prompts are set.
+    const agentView = agentSurface
+        ? {
+              ...(config.agent_description
+                  ? { agent_description: truncate(config.agent_description, 300, true) }
+                  : {}),
+              ...(config.suggested_prompts && config.suggested_prompts.length > 0
+                  ? { suggested_prompts: config.suggested_prompts }
+                  : {}),
+          }
+        : null
 
     const manifest: SlackAppManifest = {
         display_information: {
@@ -161,8 +207,9 @@ export function buildSlackManifest(input: BuildSlackManifestInput): BuildSlackMa
         features: {
             bot_user: { display_name: truncate(input.displayName, 35), always_online: true },
             // Without the Messages tab enabled, users literally can't open a DM
-            // with the bot — so this rides along with allow_direct_messages.
-            ...(allowDms ? { app_home: { messages_tab_enabled: true, messages_tab_read_only_enabled: false } } : {}),
+            // with the bot — so this rides along with DMs / the agent surface.
+            ...(dmEnabled ? { app_home: { messages_tab_enabled: true, messages_tab_read_only_enabled: false } } : {}),
+            ...(agentView !== null ? { agent_view: agentView } : {}),
         },
         oauth_config: { scopes: { bot: [...scopes].sort() } },
         settings: {

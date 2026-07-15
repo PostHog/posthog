@@ -143,4 +143,45 @@ describe('buildSlackManifest', () => {
         expect(longDesc.startsWith(kept)).toBe(true) // a clean prefix, not mangled
         expect(longDesc[kept.length]).toBe(' ') // cut fell on a word boundary
     })
+
+    it('agent_surface=true → agent_view, assistant:write, App Home, and assistant events', () => {
+        const { manifest, notes } = build({
+            triggers: [
+                slackTrigger({
+                    mention_only: true,
+                    agent_surface: true,
+                    agent_description: 'Ask me about on-call',
+                    suggested_prompts: [{ title: "Who's on call?", message: 'Who is on call right now?' }],
+                }),
+            ],
+        })
+        expect(manifest.oauth_config.scopes.bot).toContain('assistant:write')
+        expect(manifest.features.agent_view).toEqual({
+            agent_description: 'Ask me about on-call',
+            suggested_prompts: [{ title: "Who's on call?", message: 'Who is on call right now?' }],
+        })
+        // Agent surface is DM-first: Messages tab + DM events/scopes ride along.
+        expect(manifest.features.app_home).toEqual({
+            messages_tab_enabled: true,
+            messages_tab_read_only_enabled: false,
+        })
+        expect(manifest.settings.event_subscriptions.bot_events).toContain('assistant_thread_started')
+        expect(manifest.settings.event_subscriptions.bot_events).toContain('app_home_opened')
+        expect(manifest.settings.event_subscriptions.bot_events).toContain('message.im')
+        expect(manifest.oauth_config.scopes.bot).toContain('im:history')
+        expect(notes.some((n) => n.toLowerCase().includes('agent surface enabled'))).toBe(true)
+    })
+
+    it('agent_surface=true with no description/prompts → agent_view present but empty', () => {
+        const { manifest } = build({ triggers: [slackTrigger({ mention_only: true, agent_surface: true })] })
+        expect(manifest.features.agent_view).toEqual({})
+    })
+
+    it('agent_surface default false → no agent_view or assistant:write (back-compat)', () => {
+        const { manifest } = build({ triggers: [slackTrigger({ mention_only: true })] })
+        expect(manifest.features.agent_view).toBeUndefined()
+        expect(manifest.oauth_config.scopes.bot).not.toContain('assistant:write')
+        expect(manifest.settings.event_subscriptions.bot_events).not.toContain('assistant_thread_started')
+        expect(manifest.settings.event_subscriptions.bot_events).not.toContain('app_home_opened')
+    })
 })

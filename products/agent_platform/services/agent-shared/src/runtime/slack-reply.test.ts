@@ -7,6 +7,7 @@ import {
     postSlackReply,
     SlackStatusReporter,
     slackTextFromContent,
+    toPlainStatus,
 } from './slack-reply'
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -250,5 +251,38 @@ describe('SlackStatusReporter', () => {
 
         await r.start('working again')
         expect(calls.filter((c) => c.url.endsWith('chat.postMessage'))).toHaveLength(2)
+    })
+
+    it('native mode uses assistant.threads.setStatus and never posts/deletes a message', async () => {
+        const { http, calls } = recorder()
+        let nowMs = 1000
+        const r = new SlackStatusReporter({
+            http,
+            token: 'xoxb',
+            channel: 'C1',
+            thread_ts: 't',
+            mode: 'native',
+            minUpdateIntervalMs: 1000,
+            now: () => nowMs,
+        })
+        await r.start(':hourglass_flowing_sand: _Working on it…_')
+        nowMs += 1000
+        await r.update('running a query')
+        await r.clear() // native status auto-clears on reply → no-op
+
+        const statusCalls = calls.filter((c) => c.url.endsWith('assistant.threads.setStatus'))
+        expect(statusCalls).toHaveLength(2)
+        // Status is plain text: emoji shortcodes + markdown emphasis stripped.
+        expect(statusCalls[0].body).toEqual({ channel_id: 'C1', thread_ts: 't', status: 'Working on it…' })
+        expect(statusCalls[1].body).toMatchObject({ status: 'running a query' })
+        expect(calls.some((c) => c.url.endsWith('chat.postMessage'))).toBe(false)
+        expect(calls.some((c) => c.url.endsWith('chat.delete'))).toBe(false)
+    })
+})
+
+describe('toPlainStatus', () => {
+    it('strips emoji shortcodes and markdown emphasis', () => {
+        expect(toPlainStatus(':hourglass_flowing_sand: _Working on it…_')).toBe('Working on it…')
+        expect(toPlainStatus('**bold** and `code`')).toBe('bold and code')
     })
 })

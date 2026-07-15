@@ -39,6 +39,10 @@ import type { RouteCtx, TriggerDeps, TriggerModule } from './types'
 // enforcement point, but the helper stays available on the package surface.
 export { verifySlackSignature }
 
+/** Fallback greeting for a new agent conversation when the spec sets no
+ *  `welcome_message`. */
+const DEFAULT_AGENT_WELCOME = "Hi! I'm your PostHog agent — ask me anything and I'll get to work."
+
 async function slackEventsHandler(ctx: RouteCtx): Promise<void> {
     const { req, res, deps, resolved } = ctx
     // Signature already verified by the slack_signing guard.
@@ -56,6 +60,31 @@ async function slackEventsHandler(ctx: RouteCtx): Promise<void> {
         return
     }
     const event = body.event
+    // The agent's slack trigger config drives every gate below; extract it once
+    // up front so the agent-surface lifecycle handler and the message gate share
+    // one view.
+    const slackConfig =
+        slackSpecTrigger && 'config' in slackSpecTrigger
+            ? (slackSpecTrigger.config as SlackTriggerConfig)
+            : ({} as SlackTriggerConfig)
+
+    // Agent-surface lifecycle events (Slack's "Agent messaging experience").
+    // They only arrive when `agent_surface` is enabled in the manifest, so
+    // handle them before the message/app_mention gate. Everything the handler
+    // does is fire-and-forget — a Slack hiccup must never break the 200 ack.
+    if (
+        event &&
+        !event.bot_id &&
+        (slackConfig.agent_surface ?? false) &&
+        (event.type === 'assistant_thread_started' ||
+            event.type === 'app_home_opened' ||
+            event.type === 'assistant_thread_context_changed')
+    ) {
+        await handleAgentSurfaceEvent(ctx, event, slackConfig)
+        res.json({ ok: true, agent_surface_event: event.type })
+        return
+    }
+
     // Accept both `message` (channel messages the bot is a member of) and
     // `app_mention` (someone @-mentioned the bot). Slack delivers the latter
     // even when a workspace only subscribed to mentions, and the spec's
@@ -68,24 +97,6 @@ async function slackEventsHandler(ctx: RouteCtx): Promise<void> {
 
     // Workspace trust check. trusted_workspaces is required in the spec: an
     // array gates on membership; `"*"` opens to any workspace.
-    const slackConfig =
-        slackSpecTrigger && 'config' in slackSpecTrigger
-            ? (slackSpecTrigger.config as {
-                  trusted_workspaces?: string[] | '*'
-                  mention_only?: boolean
-                  auto_resume_threads?: boolean
-                  allow_workspace_participants?: boolean
-                  allow_direct_messages?: boolean
-                  ack_reaction?: string
-              })
-            : ({} as {
-                  trusted_workspaces?: string[] | '*'
-                  mention_only?: boolean
-                  auto_resume_threads?: boolean
-                  allow_workspace_participants?: boolean
-                  allow_direct_messages?: boolean
-                  ack_reaction?: string
-              })
     const trusted = slackConfig.trusted_workspaces
     // message events lack event.team; fall back to the envelope team_id.
     const workspaceId = event.team ?? body.team_id ?? 'unknown'
@@ -122,7 +133,10 @@ async function slackEventsHandler(ctx: RouteCtx): Promise<void> {
     const ackReaction = slackConfig.ack_reaction
     // DM surface. `im` = 1:1, `mpim` = group DM. A DM is inherently directed at
     // the bot (there's no @-mention in a 1:1), so it bypasses `mention_only`.
-    const allowDirectMessages = slackConfig.allow_direct_messages ?? false
+    // The agent surface is DM-first (the manifest subscribes `message.im` for
+    // it), so `agent_surface` enables DMs on its own — same rule the manifest
+    // builder uses.
+    const allowDirectMessages = (slackConfig.allow_direct_messages ?? false) || (slackConfig.agent_surface ?? false)
     const isDm = event.channel_type === 'im' || event.channel_type === 'mpim'
     // A DM arriving while the surface isn't opted in must not be silently
     // processed — drop it with a structured reason.
@@ -785,6 +799,106 @@ async function postThreadMessage(
 }
 
 /**
+ * Handle Slack "Agent messaging experience" lifecycle events. On a new
+ * conversation (`assistant_thread_started`) post the welcome message and set the
+ * suggested prompts; on the new-experience DM open (`app_home_opened` on the
+ * Messages tab) refresh the suggested prompts. `assistant_thread_context_changed`
+ * is accepted and ignored for now (channel-context grounding is a follow-up).
+ * Every Slack call is best-effort and swallowed — this never throws, so the
+ * caller can ack Slack unconditionally.
+ */
+async function handleAgentSurfaceEvent(ctx: RouteCtx, event: SlackEvent, config: SlackTriggerConfig): Promise<void> {
+    const { deps, resolved } = ctx
+    const prompts = config.suggested_prompts ?? []
+    if (event.type === 'assistant_thread_started') {
+        const channel = event.assistant_thread?.channel_id
+        const threadTs = event.assistant_thread?.thread_ts
+        if (!channel || !threadTs) {
+            return
+        }
+        await postThreadMessage(deps, resolved.application, resolved.revision, {
+            channel,
+            thread_ts: threadTs,
+            text: config.welcome_message ?? DEFAULT_AGENT_WELCOME,
+        }).catch(() => false)
+        if (prompts.length > 0) {
+            await postSuggestedPrompts(deps, resolved.application, resolved.revision, {
+                channel,
+                thread_ts: threadTs,
+                prompts,
+            }).catch(() => false)
+        }
+        return
+    }
+    if (event.type === 'app_home_opened') {
+        // Only the Messages tab is the agent DM surface; ignore Home-tab opens.
+        if ((event.tab && event.tab !== 'messages') || !event.channel || prompts.length === 0) {
+            return
+        }
+        await postSuggestedPrompts(deps, resolved.application, resolved.revision, {
+            channel: event.channel,
+            prompts,
+        }).catch(() => false)
+    }
+}
+
+/**
+ * Set the agent's suggested prompts via `assistant.threads.setSuggestedPrompts`.
+ * In the Agent messaging experience `thread_ts` is optional (prompts pin to the
+ * top of the Messages tab). Best-effort — swallows every error, returns true
+ * only on a clean Slack `ok`.
+ */
+async function postSuggestedPrompts(
+    deps: TriggerDeps,
+    application: AgentApplication,
+    revision: AgentRevision,
+    opts: { channel: string; thread_ts?: string; prompts: Array<{ title: string; message: string }> }
+): Promise<boolean> {
+    const token = await deps.signingSecretResolver.resolve(SLACK_BOT_TOKEN_KEY, revision)
+    if (!token || !deps.http) {
+        log.warn(
+            { slug: application.slug, has_token: Boolean(token), has_http: Boolean(deps.http) },
+            'suggested_prompts_skipped'
+        )
+        return false
+    }
+    try {
+        const res = await deps.http.fetch('https://slack.com/api/assistant.threads.setSuggestedPrompts', {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json; charset=utf-8',
+            },
+            body: JSON.stringify({
+                channel_id: opts.channel,
+                ...(opts.thread_ts ? { thread_ts: opts.thread_ts } : {}),
+                prompts: opts.prompts,
+            }),
+        })
+        let body: { ok?: boolean; error?: string } = {}
+        try {
+            body = (await res.json()) as { ok?: boolean; error?: string }
+        } catch {
+            // Non-JSON response — treat as failure but don't throw.
+        }
+        if (!res.ok || body.ok === false) {
+            log.warn(
+                { slug: application.slug, channel: opts.channel, status: res.status, slack_error: body.error ?? null },
+                'suggested_prompts_failed'
+            )
+            return false
+        }
+        return true
+    } catch (err) {
+        log.warn(
+            { slug: application.slug, channel: opts.channel, err: err instanceof Error ? err.message : String(err) },
+            'suggested_prompts_threw'
+        )
+        return false
+    }
+}
+
+/**
  * Resolve a clicking Slack user to the same AgentUser id the events trigger
  * would produce. When the identity store is wired this is a stable lookup;
  * without it we fall back to the raw `workspace:user` tuple which matches what
@@ -823,6 +937,27 @@ interface SlackEvent {
     ts: string
     thread_ts?: string
     bot_id?: string
+    /** Present on `assistant_thread_started` / `assistant_thread_context_changed`
+     *  — the channel/thread/user live here rather than at the top level. */
+    assistant_thread?: { user_id?: string; channel_id?: string; thread_ts?: string; context?: unknown }
+    /** Present on `app_home_opened` — which tab the user opened (`"messages"`
+     *  is the agent DM surface, `"home"` is the App Home tab). */
+    tab?: string
+}
+
+/** The slack trigger's `config` (see `AgentSpecSchema`), narrowed to the fields
+ *  the ingress reads. Optional throughout — a missing block reads as defaults. */
+interface SlackTriggerConfig {
+    trusted_workspaces?: string[] | '*'
+    mention_only?: boolean
+    auto_resume_threads?: boolean
+    allow_workspace_participants?: boolean
+    allow_direct_messages?: boolean
+    ack_reaction?: string
+    agent_surface?: boolean
+    agent_description?: string
+    suggested_prompts?: Array<{ title: string; message: string }>
+    welcome_message?: string
 }
 
 /** Published `bodySchema` covers only the two envelope shapes we route on
