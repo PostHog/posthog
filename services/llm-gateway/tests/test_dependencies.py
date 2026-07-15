@@ -12,6 +12,7 @@ from llm_gateway.dependencies import (
     enforce_throttles,
     get_model_from_request,
     get_provider_from_request,
+    get_request_json,
     resolve_plan_and_quota,
 )
 from llm_gateway.products.config import POSTHOG_CODE_US_APP_ID
@@ -28,6 +29,7 @@ def _make_request(
     request = MagicMock(spec=Request)
     request.state = MagicMock()
     del request.state._cached_body
+    del request.state._cached_json
     request.headers = Headers(headers or {})
     # configure_mock dodges the read-only URL.path property the spec exposes
     request.configure_mock(**{"url.path": path})
@@ -127,12 +129,27 @@ class TestExtractEndUserIdFromBody:
         request = MagicMock(spec=Request)
         request.state = MagicMock()
         del request.state._cached_body
+        del request.state._cached_json
 
         async def fake_body():
             return b'["not", "a", "dict"]'
 
         request.body = fake_body
         assert await _extract_end_user_id_from_body(request) is None
+
+
+class TestGetRequestJson:
+    @pytest.mark.asyncio
+    async def test_parses_once_and_caches_the_dict(self) -> None:
+        # the access-check chain (product access, free-tier gate, end-user id) reads
+        # the body several times per request; losing the cache re-parses multi-MB
+        # completion bodies on the hot path
+        request = _make_request({"model": "gpt-4o", "messages": []})
+
+        first = await get_request_json(request)
+
+        assert first == {"model": "gpt-4o", "messages": []}
+        assert await get_request_json(request) is first
 
 
 class TestGetProviderFromRequest:

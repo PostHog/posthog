@@ -77,14 +77,20 @@ async def get_cached_body(request: Request) -> bytes | None:
 
 
 async def get_request_json(request: Request) -> dict[str, Any] | None:
+    """Parse the JSON body as a dict, caching the result for reuse — the
+    access-check chain reads it several times per request."""
+    if hasattr(request.state, "_cached_json"):
+        return request.state._cached_json
+    parsed: dict[str, Any] | None = None
     body = await get_cached_body(request)
-    if not body:
-        return None
-    try:
-        data = json.loads(body)
-        return data if isinstance(data, dict) else None
-    except (json.JSONDecodeError, TypeError):
-        return None
+    if body:
+        try:
+            data = json.loads(body)
+            parsed = data if isinstance(data, dict) else None
+        except (json.JSONDecodeError, TypeError):
+            parsed = None
+    request.state._cached_json = parsed
+    return parsed
 
 
 async def get_model_from_request(request: Request) -> str | None:
@@ -146,14 +152,8 @@ async def _extract_end_user_id_from_body(request: Request) -> str | None:
     For OpenAI-compatible endpoints, this is the top-level `user` field.
     For Anthropic endpoints, this is `metadata.user_id`.
     """
-    body = await get_cached_body(request)
-    if not body:
-        return None
-    try:
-        data = json.loads(body)
-    except (json.JSONDecodeError, TypeError):
-        return None
-    if not isinstance(data, dict):
+    data = await get_request_json(request)
+    if data is None:
         return None
 
     user_id = data.get("user")

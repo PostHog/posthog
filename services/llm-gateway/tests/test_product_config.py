@@ -9,6 +9,7 @@ from llm_gateway.products.config import (
     POSTHOG_AI_DEV_APP_ID,
     POSTHOG_AI_EU_APP_ID,
     POSTHOG_AI_US_APP_ID,
+    POSTHOG_CODE_DEV_APP_ID,
     POSTHOG_CODE_EU_APP_ID,
     POSTHOG_CODE_US_APP_ID,
     PRODUCT_ALIASES,
@@ -597,3 +598,32 @@ class TestServerCredentialRequirement:
         )
         assert allowed is True
         assert error is None
+
+
+_CODE_APP_IDS = frozenset({POSTHOG_CODE_DEV_APP_ID, POSTHOG_CODE_EU_APP_ID, POSTHOG_CODE_US_APP_ID})
+_CODE_APP_PRODUCTS = [
+    name
+    for name, config in PRODUCTS.items()
+    if config.allowed_application_ids and config.allowed_application_ids & _CODE_APP_IDS
+]
+
+
+class TestServerCredentialConfigInvariant:
+    # Derived from PRODUCTS rather than hand-enumerated: requires_server_credential
+    # defaults to False, so a future product added to the Code OAuth app without it
+    # would silently reopen the premium-model escape the marker closes. It must fail
+    # here instead.
+    @pytest.mark.parametrize("product", [p for p in _CODE_APP_PRODUCTS if p != "posthog_code"])
+    def test_internal_code_app_products_require_a_server_credential(self, product: str):
+        assert PRODUCTS[product].requires_server_credential, (
+            f"'{product}' accepts the PostHog Code OAuth app but doesn't require a server-minted "
+            "credential, so a user's own Code OAuth token could reach it and route around the "
+            "posthog_code free-tier model gate"
+        )
+
+    def test_posthog_code_is_the_only_code_app_product_open_to_user_tokens(self):
+        # desktop users hold marker-less Code tokens; requiring the marker on the
+        # user-facing product would lock them all out. Membership is asserted so a
+        # broken _CODE_APP_PRODUCTS derivation can't quietly hollow out this class.
+        assert "posthog_code" in _CODE_APP_PRODUCTS
+        assert PRODUCTS["posthog_code"].requires_server_credential is False
