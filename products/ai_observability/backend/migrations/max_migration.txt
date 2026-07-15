@@ -1,1 +1,1 @@
-0021_add_zeabur_provider
+0022_add_generated_delivery_status

@@ -499,7 +499,7 @@ const WorkflowGraphOperationSchema = z.discriminatedUnion('op', [
 ])
 
 export const WorkflowGraphPatchSchema = z.object({
-    id: z.string().describe('The workflow (HogFlow) id to edit. Draft only — active workflows are read-only via MCP.'),
+    id: z.string().describe('The workflow (HogFlow) id to edit.'),
     operations: z
         .array(WorkflowGraphOperationSchema)
         .min(1)
