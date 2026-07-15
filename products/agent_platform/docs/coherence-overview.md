@@ -2,9 +2,11 @@
 
 Orientation for this stack: what we set out to do, and the concrete boundaries we built.
 Every invariant below is declared as a coherence `boundary` — an invariant welded to a
-chokepoint symbol and an oracle — so `coherence log --strict` reds the build if any is
-renamed, deleted, or left unanchored ("can't ship a half-boundary"). For the method behind
-this — the doctrine and the harness that checks it — see
+chokepoint symbol and an oracle. Two gates keep them honest: `coherence verify` reds the
+build on a boundary that's left unanchored or whose oracle doesn't hold ("can't ship a
+half-boundary"), and `coherence log --strict` reds it on a boundary that's dropped — so the
+cheapest way to green a failing `verify` (delete the claim) is itself caught. For the method
+behind this — the doctrine and the harness that checks it — see
 [coherence-onboarding.md](coherence-onboarding.md).
 
 ## The goal

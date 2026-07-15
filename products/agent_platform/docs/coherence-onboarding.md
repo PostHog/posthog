@@ -115,14 +115,15 @@ benign edits (false alarms), and score which go red.
 ## Setup and the local gate
 
 ```sh
-git clone --branch v0.6.0 https://github.com/daniloc/coherence.git /tmp/coherence
+git clone --branch v0.9.0 https://github.com/daniloc/coherence.git /tmp/coherence
 cd /tmp/coherence && npm install && npm run build   # → dist/cli.js (Node ≥22, zero runtime deps)
 ```
 
-Pin `daniloc/coherence` at commit `f0b7319` or later: earlier mains lack `it.each` domain
-recognition, domain-floor detection, the NOT-FOUND hard-fail on `via test`, Python support,
-and markdown-escape-robust claim parsing. For eventual CI adoption it installs as a git
-dependency (`github:daniloc/coherence`) rather than a clone.
+The gate pins `daniloc/coherence` at commit `bb40f4a` (v0.9.0) — see
+`bin/coherence-install`. v0.9.0 carries everything the gate leans on: `it.each` domain
+recognition, domain-floor detection, the NOT-FOUND hard-fail on `via test`, the `parity`
+claim type, Python support, and markdown-escape-robust claim parsing. For eventual CI
+adoption it installs as a git dependency (`github:daniloc/coherence`) rather than a clone.
 
 Each node service is its own root and ships a `coherence.config.json`:
 
@@ -146,19 +147,24 @@ The harness is **not wired into CI** (a personal-repo tool, deliberately local-o
 one-week evaluation). The gate is a **local pre-commit hook**, scoped to agent_platform, and
 it **self-installs on first use**: your first commit touching `products/agent_platform/**`
 does a one-time clone + build of the pinned CLI into a gitignored cache (`.coherence-tool/`),
-then runs `coherence verify --fast` (structural claims + boundary anchoring + the meta-oracle;
-no DB, no test runner) in each coherence root you touched and blocks the commit on a red. Run
+then runs two cheap gates in each coherence root you touched — `coherence verify --fast`
+(structural claims + boundary anchoring + the meta-oracle; no DB, no test runner) and
+`coherence log --strict` (the loss-ratchet: reds if the commit drops an invariant/boundary/
+parity) — and blocks the commit on a red from either. Run
 `products/agent_platform/bin/coherence-install` upfront if you'd rather not wait on that first
 commit. It's wired through lint-staged, so it fires only for agent_platform changes; bypass a
 single commit with `git commit --no-verify`. If the install can't run (offline), it skips that
 commit and retries next time rather than blocking.
 
-What the fast pre-commit catches locally: a dropped/unanchored invariant, a renamed or
-missing chokepoint symbol, a vacuous or weak oracle (the meta-oracle), a missing floor. What
-it does **not** run is the oracle tests themselves (real DB / real dispatch) — those are
-ordinary vitest/pytest tests that run in CI regardless, so a semantic regression is still
-caught there. The pre-commit is advisory-by-consent (bypassable, and only for whoever has it
-installed); it is not the unbypassable enforcement a CI `verify` + `log --strict` would give.
+What the fast pre-commit catches locally: an unanchored invariant, a renamed or missing
+chokepoint symbol, a vacuous or weak oracle (the meta-oracle), a missing floor (all via
+`verify`), plus a _dropped_ invariant/boundary/parity (via `log --strict` — so the cheapest
+way to green a failing `verify`, deleting the claim, is caught too). What it does **not** run
+is the oracle tests themselves (real DB / real dispatch) — those are ordinary vitest/pytest
+tests that run in CI regardless, so a semantic regression is still caught there. The
+pre-commit is advisory-by-consent (bypassable, and only for whoever has it installed); the
+same `verify` + `log --strict` in CI would be unbypassable enforcement, but that's a
+deliberate not-yet for this one-week evaluation.
 The declared invariants live in the `*.spec.md` next to the code — read the ones in any
 directory you edit; they are the checklist of what your change must not break.
 

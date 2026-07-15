@@ -2,8 +2,16 @@
 # coherence-precommit — lint-staged command for agent_platform changes.
 #
 # For each coherence root (a dir with coherence.config.json) whose files are
-# staged, runs `coherence verify --fast` (structural claims + boundary anchoring
-# + meta-oracle; no DB, no test runner). Blocks the commit on a red.
+# staged, runs two cheap gates (no DB, no test runner):
+#   - `verify --fast`  — structural claims + boundary anchoring + meta-oracle.
+#                        Blocks on a red: a declared claim that isn't honest.
+#   - `log --strict`   — the loss-ratchet. Blocks when the commit DROPS an
+#                        invariant/boundary/parity. Without this, the cheapest
+#                        way to green a failing verify is to delete the claim,
+#                        and nothing would notice. A dropped claim must be
+#                        deliberate (re-add it, or `--no-verify` knowingly).
+#                        (The novelty advisory it also prints is advisory only —
+#                        it never fails the commit.)
 #
 # Scoped: lint-staged only invokes this for products/agent_platform/** files.
 # Graceful: if a staged file touches no coherence root it does nothing; if the
@@ -55,8 +63,14 @@ OLDIFS="$IFS"
 IFS='
 '
 for root in $roots; do
-    printf '\033[36m[coherence] verify --fast: %s\033[0m\n' "${root#$REPO_ROOT/}" >&2
+    rel="${root#$REPO_ROOT/}"
+    printf '\033[36m[coherence] verify --fast: %s\033[0m\n' "$rel" >&2
     if ! (cd "$root" && node "$CLI" verify --fast >&2); then
+        status=1
+    fi
+    # Loss-ratchet: fail if this commit drops a claim (HEAD -> working tree).
+    printf '\033[36m[coherence] log --strict: %s\033[0m\n' "$rel" >&2
+    if ! (cd "$root" && node "$CLI" log --strict >&2); then
         status=1
     fi
 done
