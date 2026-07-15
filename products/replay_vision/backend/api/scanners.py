@@ -1,7 +1,7 @@
 from typing import Any, NoReturn, cast
 
 from django.db import IntegrityError
-from django.db.models import CharField, Count, F, Q, QuerySet, Value
+from django.db.models import CharField, Count, F, IntegerField, OuterRef, Q, QuerySet, Subquery, Sum, Value
 from django.db.models.functions import Coalesce, NullIf
 from django.utils import timezone
 
@@ -35,7 +35,7 @@ from products.replay_vision.backend.api.trigger import (
     check_team_in_flight_capacity,
     start_apply_scanner_workflow,
 )
-from products.replay_vision.backend.billing import observation_credits_for_model
+from products.replay_vision.backend.billing import observation_credits_case, observation_credits_for_model
 from products.replay_vision.backend.digest import provision_scanner_digest
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission, is_replay_vision_actions_enabled
 from products.replay_vision.backend.feedback_themes import cached_feedback_themes
@@ -44,7 +44,11 @@ from products.replay_vision.backend.impact import (
     compute_scanner_impact,
     create_affected_cohort,
 )
-from products.replay_vision.backend.models.replay_observation import ObservationTrigger
+from products.replay_vision.backend.models.replay_observation import (
+    ObservationStatus,
+    ObservationTrigger,
+    ReplayObservation,
+)
 from products.replay_vision.backend.models.replay_scanner import (
     ReplayScanner,
     SamplingMode,
@@ -60,7 +64,11 @@ from products.replay_vision.backend.queries import (
     project_monthly_observations,
     refresh_scanner_estimate,
 )
-from products.replay_vision.backend.quota import sum_enabled_scanner_estimated_credits
+from products.replay_vision.backend.quota import (
+    credits_used_by_scanner,
+    current_period_bounds,
+    sum_enabled_scanner_estimated_credits,
+)
 from products.replay_vision.backend.tag_suggestions import SuggestionError, suggest_classifier_tags
 from products.replay_vision.backend.tags import slugify_tag
 from products.replay_vision.backend.temporal.constants import MAX_SESSION_ID_LENGTH
@@ -240,6 +248,12 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
     estimated_monthly_credits = serializers.SerializerMethodField(
         help_text="`estimated_monthly_observations` priced at `credits_per_observation`. Null until the estimate is first computed.",
     )
+    credits_this_month = serializers.SerializerMethodField(
+        help_text=(
+            "Credits this scanner's succeeded observations consumed in the current billing period "
+            "(1 credit = $0.01). Matches the window of the org-wide quota meter."
+        ),
+    )
     last_swept_at = serializers.DateTimeField(
         read_only=True,
         help_text="Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery.",
@@ -286,6 +300,7 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
             "estimated_monthly_observations",
             "credits_per_observation",
             "estimated_monthly_credits",
+            "credits_this_month",
             "last_swept_at",
             "created_at",
             "created_by",
@@ -298,6 +313,7 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
             "estimated_monthly_observations",
             "credits_per_observation",
             "estimated_monthly_credits",
+            "credits_this_month",
             "last_swept_at",
             "created_at",
             "created_by",
@@ -314,6 +330,18 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
         if scanner.estimated_monthly_observations is None:
             return None
         return scanner.estimated_monthly_observations * observation_credits_for_model(scanner.model)
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_credits_this_month(self, scanner: ReplayScanner) -> int:
+        # One grouped query per request: memoize the whole page's totals on the serializer root.
+        root = self.root
+        totals = getattr(root, "_scanner_credits_used", None)
+        if totals is None:
+            instance = root.instance if isinstance(root, serializers.ListSerializer) else None
+            scanner_ids = [s.id for s in instance] if instance is not None else [scanner.id]
+            totals = credits_used_by_scanner(self.context["get_team"]().organization_id, scanner_ids)
+            root._scanner_credits_used = totals
+        return totals.get(scanner.id, 0)
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         # Surface the (team_id, name) uniqueness as a 400 instead of letting the DB raise 500.
@@ -425,6 +453,7 @@ SCANNER_ORDER_FIELDS = (
     "enabled",
     "sampling_rate",
     "created_by",
+    "credits_this_month",
 )
 _SCANNER_ENABLED_CHOICES = frozenset({"enabled", "disabled"})
 # Map `?enabled=true/false/1/0` to the CSV form so the conventional boolean stays supported.
@@ -437,6 +466,29 @@ class _ScannerOrderByFilter(OrderByFilter):
     _allowed_keys = frozenset(SCANNER_ORDER_FIELDS)
 
     def _handle(self, qs: QuerySet[ReplayScanner], key: str, descending: bool) -> QuerySet[ReplayScanner]:
+        if key == "credits_this_month":
+            # Same window and pricing as the serializer's `credits_this_month`, expressed in SQL so the
+            # database can order by it. The org lookup costs one small query; sorting by spend is rare.
+            organization_id = qs.values_list("team__organization_id", flat=True).first()
+            if organization_id is None:
+                return qs.order_by(self._tiebreaker)
+            period_start, period_end = current_period_bounds(organization_id)
+            spend = (
+                ReplayObservation.objects.filter(
+                    scanner_id=OuterRef("pk"),
+                    status=ObservationStatus.SUCCEEDED,
+                    created_at__gte=period_start,
+                    created_at__lt=period_end,
+                )
+                .order_by()
+                .values("scanner_id")
+                .annotate(total=Sum(observation_credits_case()))
+                .values("total")
+            )
+            qs = qs.annotate(
+                _order_credits=Coalesce(Subquery(spend, output_field=IntegerField()), Value(0)),
+            )
+            return self._order_plain(qs, "_order_credits", descending)
         if key == "created_by":
             # Mirrors the frontend `createdByLabel` fallback so a row rendered "Brown" sorts on "Brown", not its email.
             qs = qs.annotate(
@@ -474,10 +526,7 @@ class ReplayScannerFilter(django_filters.FilterSet):
         help_text="Case-insensitive substring match across name, description, and the prompt in scanner_config.",
     )
     order_by = _ScannerOrderByFilter(
-        help_text=(
-            "Sort scanners by name, created_at, updated_at, scanner_type, enabled, sampling_rate, or "
-            "created_by. Prefix with `-` for descending."
-        ),
+        help_text=f"Sort scanners by {', '.join(SCANNER_ORDER_FIELDS)}. Prefix with `-` for descending.",
     )
 
     class Meta:
@@ -826,10 +875,7 @@ class AffectedCohortResponseSerializer(serializers.Serializer):
                 OpenApiParameter.QUERY,
                 required=False,
                 enum=ordering_enum(SCANNER_ORDER_FIELDS),
-                description=(
-                    "Sort scanners by name, created_at, updated_at, scanner_type, enabled, sampling_rate, or "
-                    "created_by. Prefix with `-` for descending."
-                ),
+                description=(f"Sort scanners by {', '.join(SCANNER_ORDER_FIELDS)}. Prefix with `-` for descending."),
             )
         ]
     )
