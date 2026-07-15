@@ -345,6 +345,18 @@ class GoogleAdsSource(
                     "Your Google Ads connection is no longer available — it may have been disconnected. "
                     "Please reconnect your Google Ads account.",
                 )
+            # A gRPC PERMISSION_DENIED ("The caller does not have permission") means the connected Google
+            # login can't access this customer ID — the wrong customer/manager (MCC) account, or access
+            # that was never granted. list_accessible_customers raises it as a raw _InactiveRpcError whose
+            # str() is a protobuf dump (with a per-request peer IP) the user can't act on, so surface an
+            # actionable prompt instead of leaking it, mirroring the MCC USER_PERMISSION_DENIED message.
+            if "PERMISSION_DENIED" in error_message or "caller does not have permission" in error_message:
+                return (
+                    False,
+                    "PostHog doesn't have permission to access this Google Ads account. Verify the "
+                    "customer ID (and manager account, if using an MCC) is accessible to the connected "
+                    "Google login, then reconnect your Google Ads account.",
+                )
             # A transient Google-side blip (INTERNAL / UNAVAILABLE) stringifies as a raw gRPC status and
             # protobuf failure dump the user can't act on. The sync rides these out in-process; here on
             # the interactive create path we surface a clean retry prompt instead of leaking the dump.

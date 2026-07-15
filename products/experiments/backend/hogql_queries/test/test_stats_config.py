@@ -361,12 +361,16 @@ class TestStatsConfig(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("stats_config_none", None, "control"),
-            ("stats_config_empty", {}, "control"),
-            ("stats_config_custom_baseline", {"baseline_variant_key": "test"}, "test"),
+            ("stats_config_none", None, ["control", "test"], "control"),
+            ("stats_config_empty", {}, ["control", "test"], "control"),
+            ("stats_config_custom_baseline", {"baseline_variant_key": "test"}, ["control", "test"], "test"),
+            ("no_control_falls_back_to_first_variant", None, ["variant_a", "variant_b"], "variant_a"),
+            ("control_not_first_still_baseline", None, ["test", "control"], "control"),
         ]
     )
-    def test_experiment_query_runner_reads_baseline_from_stats_config(self, _name, stats_config, expected_baseline):
+    def test_experiment_query_runner_reads_baseline_from_stats_config(
+        self, _name, stats_config, variant_keys, expected_baseline
+    ):
         feature_flag = FeatureFlag.objects.create(
             name="Test flag",
             key="test-flag",
@@ -374,10 +378,7 @@ class TestStatsConfig(APIBaseTest):
             filters={
                 "groups": [{"properties": [], "rollout_percentage": None}],
                 "multivariate": {
-                    "variants": [
-                        {"key": "control", "name": "Control", "rollout_percentage": 50},
-                        {"key": "test", "name": "Test", "rollout_percentage": 50},
-                    ]
+                    "variants": [{"key": key, "name": key, "rollout_percentage": 50} for key in variant_keys]
                 },
             },
             created_by=self.user,

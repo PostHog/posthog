@@ -69,7 +69,7 @@ class TestDataDeletionRequestAdminApprovalFlow(BaseTest):
         self.assertEqual(response.status_code, 200)
         context = response.context_data
         self.assertTrue(context["supports_deferred"])
-        self.assertEqual(context["default_execution_mode"], ExecutionMode.IMMEDIATE)
+        self.assertEqual(context["default_execution_mode"], ExecutionMode.DEFERRED)
 
     def test_approve_view_get_hides_picker_for_property_removal(self):
         request = self._pending_request(request_type=RequestType.PROPERTY_REMOVAL, properties=["$ip"])
@@ -93,6 +93,15 @@ class TestDataDeletionRequestAdminApprovalFlow(BaseTest):
         self.assertEqual(request.status, RequestStatus.APPROVED)
         self.assertEqual(request.execution_mode, execution_mode)
         self.assertTrue(request.approved)
+
+    def test_approve_view_post_defaults_event_removal_to_deferred(self):
+        request = self._pending_request()
+        response = self._call_approve("POST", request, {})
+
+        self.assertEqual(response.status_code, 302)
+        request.refresh_from_db()
+        self.assertEqual(request.status, RequestStatus.APPROVED)
+        self.assertEqual(request.execution_mode, ExecutionMode.DEFERRED)
 
     def test_approve_view_post_deferred_rejected_for_property_removal(self):
         request = self._pending_request(request_type=RequestType.PROPERTY_REMOVAL, properties=["$ip"])
@@ -783,13 +792,14 @@ class TestDataDeletionRequestAdminVerify(BaseTest):
         request.refresh_from_db()
         self.assertEqual(request.status, RequestStatus.QUEUED)
 
-    def test_verify_view_rejects_non_verifiable_status(self):
+    def test_verify_view_promotes_from_any_status_when_events_gone(self):
         request = self._queued_request()
         request.status = RequestStatus.APPROVED
         request.save(update_fields=["status"])
-        self._call_verify(request)
+        with patch("posthog.models.data_deletion_request.count_remaining_matching_events", return_value=0):
+            self._call_verify(request)
         request.refresh_from_db()
-        self.assertEqual(request.status, RequestStatus.APPROVED)
+        self.assertEqual(request.status, RequestStatus.COMPLETED)
 
     def test_verify_view_promotes_failed_when_events_gone(self):
         request = self._queued_request()
@@ -809,12 +819,23 @@ class TestDataDeletionRequestAdminVerify(BaseTest):
         request.refresh_from_db()
         self.assertEqual(request.status, RequestStatus.FAILED)
 
-    def test_verify_view_rejects_non_event_removal(self):
+    def test_verify_view_verifies_property_removal(self):
         request = self._queued_request()
         request.request_type = RequestType.PROPERTY_REMOVAL
+        request.properties = ["$ip"]
+        request.status = RequestStatus.FAILED
+        request.save(update_fields=["request_type", "properties", "status"])
+        with patch("posthog.models.data_deletion_request.count_remaining_property_events", return_value=0):
+            self._call_verify(request)
+        request.refresh_from_db()
+        self.assertEqual(request.status, RequestStatus.COMPLETED)
+
+    def test_verify_view_reports_person_removal_unsupported(self):
+        request = self._queued_request()
+        request.request_type = RequestType.PERSON_REMOVAL
         request.status = RequestStatus.FAILED
         request.save(update_fields=["request_type", "status"])
-        with patch("posthog.models.data_deletion_request.count_remaining_matching_events", return_value=0) as counted:
+        with patch("posthog.admin.admins.data_deletion_request_admin.count_remaining_for_request") as counted:
             self._call_verify(request)
         counted.assert_not_called()
         request.refresh_from_db()
@@ -918,3 +939,23 @@ class TestDagsterRunLink(SimpleTestCase):
     def test_admin_renders_placeholder_when_never_executed(self):
         admin_obj = DataDeletionRequestAdmin(DataDeletionRequest, AdminSite())
         self.assertEqual(admin_obj.last_dagster_run(DataDeletionRequest()), "—")
+
+
+class TestDataDeletionRequestFormHidesPersonRemoval(SimpleTestCase):
+    def test_person_removal_hidden_from_type_picker_and_fields(self):
+        from typing import cast
+
+        from django import forms
+
+        from posthog.admin.admins.data_deletion_request_admin import PERSON_REMOVAL_FIELDS, DataDeletionRequestForm
+
+        form = DataDeletionRequestForm()
+        request_type = form.fields["request_type"]
+        assert isinstance(request_type, forms.ChoiceField)
+        choices = cast("list[tuple[str, str]]", request_type.choices)
+        type_values = [value for value, _ in choices]
+        self.assertNotIn(RequestType.PERSON_REMOVAL, type_values)
+        self.assertIn(RequestType.EVENT_REMOVAL, type_values)
+        self.assertIn(RequestType.PROPERTY_REMOVAL, type_values)
+        for field in PERSON_REMOVAL_FIELDS:
+            self.assertNotIn(field, form.fields)
