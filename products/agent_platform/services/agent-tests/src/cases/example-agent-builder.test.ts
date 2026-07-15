@@ -54,6 +54,13 @@ describe('example: agent-builder bundle', () => {
         expect(files['agent.md'].length).toBeGreaterThan(500)
     })
 
+    it('explains the one-time PostHog connection required by internal sessions', async () => {
+        const { files } = await loadBundle()
+        expect(files['agent.md']).toContain('posthog_internal')
+        expect(files['agent.md']).toContain('Connect required')
+        expect(files['agent.md']).not.toContain('nothing to link')
+    })
+
     it('authors via ONE PostHog MCP authed by the posthog identity provider', async () => {
         const { spec } = await loadBundle()
         const parsed = AgentSpecSchema.parse(spec)

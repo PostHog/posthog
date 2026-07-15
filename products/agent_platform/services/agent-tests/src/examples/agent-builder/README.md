@@ -95,13 +95,20 @@ points map to the same effective auth:
 
 1. **PostHog Code** — user signs into the PostHog Code app via
    PostHog OAuth; the app mints a short-lived session-principal
-   token from the OAuth session, attaches it as the chat trigger's
-   principal field. Every tool call runs as the user.
+   token from the OAuth session. When that session carries the user's
+   PostHog bearer, every tool call runs as the user immediately. The
+   trusted `posthog_internal` bridge can open the builder without carrying
+   a delegated API bearer; on that path the runtime presents a one-time
+   PostHog connection link before authoring tools can run.
 2. **MCP** — user attaches their PostHog PAT in their MCP client
    config. The runner resolves the PAT to a principal once at
    session start, threads it through identically.
 
 The Agent Builder holds no fallback credential.
+
+The checked-in MCP URL is the local development endpoint. `seed.py` rewrites
+PostHog-authenticated MCP entries to the target region, so the production US
+deployment uses `https://mcp.us.posthog.com/mcp` rather than localhost.
 
 ## Platform pieces it relies on (all shipped)
 
