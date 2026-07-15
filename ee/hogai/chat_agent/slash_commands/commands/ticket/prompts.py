@@ -8,8 +8,8 @@ Your goal is to create a clear, concise summary that helps a support agent under
 """.strip()
 
 # Keep in sync with TARGET_AREA_TO_NAME in frontend/src/lib/components/Support/supportLogic.ts.
-# The frontend validates the emitted key against that list and falls back to no topic on mismatch,
-# so drift here degrades gracefully (the user picks the topic manually).
+# The frontend validates the emitted key against that list; unknown keys parse as null and the
+# support form falls back to its default target area, so drift here degrades gracefully.
 SUPPORT_TICKET_TOPICS = """
 - login: Authentication (incl. login, sign-up, invites)
 - analytics_platform: Analytics platform features (incl. alerts, subscriptions, exports)
@@ -55,10 +55,10 @@ SUPPORT_SUMMARIZER_USER_PROMPT = f"""
 Create a brief, actionable summary of this conversation for a support ticket.
 
 Format:
-- Exactly 3 labeled sections separated by blank lines
+- 2 or 3 labeled sections separated by blank lines
 - Section 1: "**Issue**:" followed by the user's problem and relevant technical details (error messages, event names, property names, etc.)
 - Section 2: "**Status**:" followed by what PostHog AI attempted and the current state of the request
-- Section 3: "**Topic**:" followed by exactly one topic key from the list below, chosen for the product area the user's issue is actually about
+- Section 3 (optional): "**Topic**:" followed by exactly one topic key from the list below, chosen for the product area the user's issue is actually about
 - Always refer to yourself as "PostHog AI" (never "the AI" or "I")
 - Write in third person perspective
 - Do NOT include bullet points or "Recommended next steps" sections
