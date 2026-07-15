@@ -6,7 +6,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
-import type { FocusPosition } from '../../../../../node_modules/.pnpm/@tiptap+core@3.20.6_@tiptap+pm@3.20.6/node_modules/@tiptap/core/dist/index'
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import { NotebookNodeResource } from '../types'
 
@@ -18,7 +17,6 @@ export interface notebookPanelLogicValues {
     dropMode: boolean
     dropProperties: Pick<HTMLProps<HTMLDivElement>, 'onDragEnter' | 'onDragLeave' | 'style'>
     droppedResource: string | NotebookNodeResource | null
-    initialAutofocus: EditorFocusPosition
     selectedNotebook: string
     visibility: 'hidden' | 'visible'
 }
@@ -41,11 +39,9 @@ export interface notebookPanelLogicActions {
     selectNotebook: (
         id: string,
         options?: {
-            autofocus?: EditorFocusPosition
             silent?: boolean
         }
     ) => {
-        autofocus?: FocusPosition | undefined
         id: string
         silent?: boolean | undefined
     }
