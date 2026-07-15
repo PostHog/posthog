@@ -46724,16 +46724,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `implementation` - Implementation
-     */
-    export type SignalReportTaskRelationshipEnum = typeof SignalReportTaskRelationshipEnum[keyof typeof SignalReportTaskRelationshipEnum];
-
-
-    export const SignalReportTaskRelationshipEnum = {
-      Implementation: 'implementation',
-    } as const;
-
-    /**
      * Request body for creating or updating a task.
      *
      * Field required/default semantics match the ``Task`` model. The view passes
@@ -46790,7 +46780,11 @@ export namespace Schemas {
          * @nullable
          */
       signal_report?: string | null;
-      signal_report_task_relationship?: SignalReportTaskRelationshipEnum;
+      /**
+         * How the created task relates to the signal report (e.g. 'implementation', 'discussion', 'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted.
+         * @maxLength 200
+         */
+      signal_report_task_relationship?: string;
       /** JSON schema used to validate the output of the task. */
       json_schema?: unknown;
       /** If true, this task is for internal use and should not be exposed to end users. */
@@ -59505,7 +59499,11 @@ export namespace Schemas {
          * @nullable
          */
       signal_report?: string | null;
-      signal_report_task_relationship?: SignalReportTaskRelationshipEnum;
+      /**
+         * How the created task relates to the signal report (e.g. 'implementation', 'discussion', 'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted.
+         * @maxLength 200
+         */
+      signal_report_task_relationship?: string;
       /** JSON schema used to validate the output of the task. */
       json_schema?: unknown;
       /** If true, this task is for internal use and should not be exposed to end users. */
