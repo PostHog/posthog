@@ -338,12 +338,20 @@ export interface BuildBarConfigArgs extends BuildConfigArgs {
     visualizationType: ChartDisplayType
 }
 
-function buildXAxisConfig(xData: AxisSeries<string>, chartSettings: ChartSettings, timezone: string): XAxisConfig {
+const SQL_BAR_TICK_LABEL_ROTATION = -45
+
+function buildXAxisConfig(
+    xData: AxisSeries<string>,
+    chartSettings: ChartSettings,
+    timezone: string,
+    tickLabelRotation?: number
+): XAxisConfig {
     const isDateAxis = xData.column.type.name === 'DATE' || xData.column.type.name === 'DATETIME'
 
     return {
         label: chartSettings.xAxisLabel,
         tickFormatter: isDateAxis ? createXAxisTickCallback({ allDays: xData.data, timezone }) : undefined,
+        tickLabelRotation: isDateAxis ? undefined : tickLabelRotation,
         hide: chartSettings.showXAxisTicks === false,
     }
 }
@@ -468,7 +476,7 @@ export function buildBarChartConfig({
     const rightSeries = seriesForAxis(ySeriesData, 'right')
 
     return {
-        xAxis: buildXAxisConfig(xData, chartSettings, timezone),
+        xAxis: buildXAxisConfig(xData, chartSettings, timezone, SQL_BAR_TICK_LABEL_ROTATION),
         yAxis:
             rightSeries.length > 0
                 ? [

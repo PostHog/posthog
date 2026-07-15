@@ -133,6 +133,7 @@ export function Chart<Meta = unknown>({
 }: ChartProps<Meta>): React.ReactElement {
     const {
         xTickFormatter,
+        xTickLabelRotation = 0,
         yTickFormatter,
         hideXAxis = false,
         hideYAxis = false,
@@ -203,6 +204,7 @@ export function Chart<Meta = unknown>({
         hideYAxis,
         xAxisLabel,
         xTickFormatter,
+        xTickLabelRotation,
         yTickFormatter,
         axisOrientation,
         override: marginsOverride,
@@ -275,7 +277,9 @@ export function Chart<Meta = unknown>({
         }
         const xs = hideXAxis
             ? []
-            : computeVisibleXLabels(labels, scales.x, xTickFormatter, maxCategoryLabelWidth).map((l) => l.x)
+            : computeVisibleXLabels(labels, scales.x, xTickFormatter, maxCategoryLabelWidth, xTickLabelRotation).map(
+                  (l) => l.x
+              )
         const ys = yGutters.flatMap((gutter) =>
             computeVisibleYTicks(gutter.ticks, gutter.scale)
                 .map((tick) => gutter.scale(tick))
@@ -290,6 +294,7 @@ export function Chart<Meta = unknown>({
         axisOrientation,
         labels,
         xTickFormatter,
+        xTickLabelRotation,
         maxCategoryLabelWidth,
         yGutters,
         hideXAxis,
@@ -428,6 +433,7 @@ export function Chart<Meta = unknown>({
                 >
                     <AxisLabels
                         xTickFormatter={xTickFormatter}
+                        xTickLabelRotation={xTickLabelRotation}
                         yTickFormatter={resolvedYFormatter}
                         hideXAxis={hideXAxis}
                         hideYAxis={hideYAxis}
