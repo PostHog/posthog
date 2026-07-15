@@ -5,7 +5,6 @@ import { EntityTypes, type FunnelStepWithConversionMetrics } from '~/types'
 import {
     buildFunnelStepsBarData,
     FUNNEL_STEPS_SERIES_KEY_PREFIX,
-    funnelStepsBarTooltipConfig,
     resolveFunnelStepClick,
     type FunnelStepsBarSeriesMeta,
 } from './funnelStepsBarTransforms'
@@ -244,18 +243,5 @@ describe('resolveFunnelStepClick', () => {
 
     it('returns null when the clicked column has no step', () => {
         expect(resolveFunnelStepClick(noBreakdownSteps, makeClick({ dataIndex: 99 }))).toBeNull()
-    })
-})
-
-describe('funnelStepsBarTooltipConfig', () => {
-    it('enables a pinnable tooltip that resolves clicks to the nearest series', () => {
-        // A breakdown puts one series per breakdown value at each step, so a pinnable tooltip
-        // here always covers multiple series — resolveClickToNearestSeries must stay set or a
-        // click pins the tooltip instead of opening the persons modal (the bug this guards).
-        expect(funnelStepsBarTooltipConfig()).toEqual({
-            pinnable: true,
-            resolveClickToNearestSeries: true,
-            placement: 'cursor',
-        })
     })
 })

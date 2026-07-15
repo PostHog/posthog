@@ -44,6 +44,10 @@ export interface FunnelChartConfig {
     /** Cap (px) on the band-axis range — clusters steps at the start of the plot instead of
      *  stretching a 2–3 step funnel across the full width. */
     maxBandRange?: number
+    /** Minimum pixel height of the chart plot region when `stepFooter` is set. The footer is
+     *  laid out below the chart in a flex column; without a floor a tall footer starves the
+     *  `flex-1` chart of height in a height-constrained parent, collapsing the canvas to zero. */
+    chartMinHeight?: number
 }
 
 export interface FunnelStepClickData<Meta = unknown> extends PointClickData<Meta> {
@@ -169,6 +173,7 @@ export function FunnelChart<Meta = unknown>({
         maxCategoryLabelWidth,
         bandPadding,
         maxBandRange,
+        chartMinHeight,
     } = config ?? {}
     const hasStepFooter = stepFooter != null
 
@@ -254,7 +259,14 @@ export function FunnelChart<Meta = unknown>({
 
     return (
         <div className="flex flex-col flex-1 min-h-0">
-            <div className="flex-1 min-h-0">{chart}</div>
+            {/* eslint-disable-next-line react/forbid-dom-props */}
+            <div
+                className="flex-1 min-h-0"
+                style={chartMinHeight != null ? { minHeight: chartMinHeight } : undefined}
+                data-attr="hog-funnel-chart-region"
+            >
+                {chart}
+            </div>
             {bands && bands.length > 0 && <StepFooterRow bands={bands} stepFooter={stepFooter} />}
         </div>
     )
