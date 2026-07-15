@@ -232,15 +232,35 @@ export function getDateRangeOverrideDisplay(
     return { ...winner, replaced }
 }
 
-function OverrideNote({ source, children }: { source: OverrideSource; children: React.ReactNode }): JSX.Element {
+const LAYER_LABELS: Record<OverrideSource | 'insight', string> = {
+    insight: 'Insight',
+    dashboard: 'Dashboard',
+    tile: 'Tile',
+}
+
+function OverrideNote({
+    source,
+    children,
+}: {
+    source: OverrideSource | 'insight'
+    children: React.ReactNode
+}): JSX.Element {
     return (
         <div className="mt-1.5 flex items-center gap-1">
             <LemonTag type="highlight" size="small">
-                {source === 'tile' ? 'Tile' : 'Dashboard'}
+                {LAYER_LABELS[source]}
             </LemonTag>
             <span className="text-muted-alt">{children}</span>
         </div>
     )
+}
+
+// Normalize a filter value into a canonical key for comparison. A scalar and its single-element array
+// form mean the same filter (the insight editor and the dashboard bar store the same value differently),
+// and the value list is a set — order and duplicates don't matter — so compare as a sorted set.
+function normalizeFilterValue(value: unknown): string {
+    const entries = value == null ? [] : Array.isArray(value) ? value : [value]
+    return JSON.stringify([...new Set(entries.map((entry) => JSON.stringify(entry)))].sort())
 }
 
 // The override round-trips through the backend into the merged query and picks up normalized fields
@@ -251,7 +271,7 @@ function isSamePropertyFilter(a: AnyPropertyFilter, b: AnyPropertyFilter): boole
         (a.type ?? 'event') === (b.type ?? 'event') &&
         a.key === b.key &&
         (operatorOf(a) ?? 'exact') === (operatorOf(b) ?? 'exact') &&
-        JSON.stringify(a.value ?? null) === JSON.stringify(b.value ?? null)
+        normalizeFilterValue(a.value) === normalizeFilterValue(b.value)
     )
 }
 
@@ -261,6 +281,32 @@ function samePropertyFilters(a: AnyPropertyFilter[], b: AnyPropertyFilter[]): bo
 
 // Matches the shape `convertPropertiesToPropertyGroup` accepts: a group, a flat list, or nothing.
 type PropertiesInput = PropertyGroupFilter | AnyPropertyFilter[] | null | undefined
+
+// Drop base leaves that are exact duplicates of a filter shown in a higher-priority override layer, so a
+// filter the insight and an override both set isn't listed twice — it shows once, on the layer that took
+// priority. Only exact matches (same type/key/operator/value) are collapsed; a shared key with a different
+// value is left alone, since both genuinely AND together.
+export function dropDuplicatesOfOverrides(
+    base: PropertiesInput,
+    overrideProperties: AnyPropertyFilter[]
+): PropertiesInput {
+    if (!base || overrideProperties.length === 0) {
+        return base
+    }
+    const isDuplicate = (leaf: AnyPropertyFilter): boolean =>
+        overrideProperties.some((override) => isSamePropertyFilter(leaf, override))
+    if (Array.isArray(base)) {
+        return base.filter((leaf) => !isDuplicate(leaf))
+    }
+    const values = (base.values ?? [])
+        .map((subgroup) =>
+            'values' in subgroup && Array.isArray(subgroup.values)
+                ? { ...subgroup, values: (subgroup.values as AnyPropertyFilter[]).filter((leaf) => !isDuplicate(leaf)) }
+                : subgroup
+        )
+        .filter((subgroup) => !('values' in subgroup && Array.isArray(subgroup.values) && subgroup.values.length === 0))
+    return { ...base, values }
+}
 
 // The query returned for a dashboard tile already has the override's properties ANDed in (as the
 // trailing subgroup/tail), so pull that part out to attribute it rather than list it twice.
@@ -565,9 +611,15 @@ export function PropertiesSummary({
     const overrideGroups = overrides ?? []
     const allOverrideProperties = overrideGroups.flatMap((group) => group.properties)
     const { base, overrideFound } = splitOutOverrideProperties(properties, allOverrideProperties)
+    // A filter the insight and an override both set would otherwise show twice — collapse the base copy so
+    // it appears once, on the layer that took priority.
+    const dedupedBase = overrideFound ? dropDuplicatesOfOverrides(base, allOverrideProperties) : base
     return (
         <InsightDetailSectionDisplay icon={<IconFilter />} label="Filters">
-            <CompactUniversalFiltersDisplay groupFilter={convertPropertiesToPropertyGroup(base)} />
+            {/* Label the base as the insight's own only when overrides stack on top, so the layers read
+                as a clear insight → dashboard → tile stack. Plain insights stay unlabeled. */}
+            {overrideFound && <OverrideNote source="insight">base filters:</OverrideNote>}
+            <CompactUniversalFiltersDisplay groupFilter={convertPropertiesToPropertyGroup(dedupedBase)} />
             {/* overrideFound means we removed the overrides from the list above, so show them once here. */}
             {overrideFound &&
                 overrideGroups.map((group) => (
@@ -705,20 +757,22 @@ export function DateRangeSummary({
     if (!dateFilterText) {
         return null
     }
-    const replacedText = override?.replaced
-        ? dateFilterToText(override.replaced.dateFrom, override.replaced.dateTo, null)
-        : null
+    const replaced = override?.replaced
+    const replacedText = replaced ? dateFilterToText(replaced.dateFrom, replaced.dateTo, null) : null
     return (
         <InsightDetailSectionDisplay icon={<IconCalendar />} label="Date range">
-            {override && (
-                <OverrideNote source={override.source}>
-                    {override.replaced ? 'date range replaced with:' : 'date range:'}
-                </OverrideNote>
-            )}
-            <div className="font-medium">{dateFilterText}</div>
-            {replacedText && (
+            {/* Tag the value with its source layer rather than repeating "date range" in a note. */}
+            <div className="flex items-center gap-1">
+                <span className="font-medium">{dateFilterText}</span>
+                {override && (
+                    <LemonTag type="highlight" size="small">
+                        {LAYER_LABELS[override.source]}
+                    </LemonTag>
+                )}
+            </div>
+            {replaced && replacedText && (
                 <div className="text-muted-alt text-xs mt-0.5">
-                    was <span className="line-through">{replacedText}</span> (from {override!.replaced!.source})
+                    was <span className="line-through">{replacedText}</span> (from {replaced.source})
                 </div>
             )}
         </InsightDetailSectionDisplay>
