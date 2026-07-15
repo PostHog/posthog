@@ -577,11 +577,19 @@
           // Measure the body, not documentElement: the latter is floored at the
           // iframe's own height, which would let the frame grow but never shrink.
           const resize = () => {
-            if (!frame.isConnected) return;
             frame.style.height = `${Math.max(480, doc.body.scrollHeight)}px`;
           };
+          // Disconnect once the frame is replaced so switching pods doesn't
+          // accumulate observers retaining detached iframe documents.
+          const observer = new ResizeObserver(() => {
+            if (!frame.isConnected) {
+              observer.disconnect();
+              return;
+            }
+            resize();
+          });
           resize();
-          new ResizeObserver(resize).observe(doc.body);
+          observer.observe(doc.body);
         },
       };
 
