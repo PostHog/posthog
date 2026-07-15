@@ -52,7 +52,6 @@ import {
     isRerunWrapperKind,
 } from './hogInvocationsLogic'
 import { InvocationsSparkline } from './InvocationsSparkline'
-import { InvocationsBetaBanner } from './InvocationsTabBanners'
 
 const STATUS_OPTIONS: { value: RunStatus; label: string }[] = [
     { value: 'running', label: 'Running' },
@@ -469,7 +468,6 @@ export function HogInvocations({ id, functionKind, renderLogMessage }: HogInvoca
 
     return (
         <div className="flex-1 deprecated-space-y-2 flex flex-col min-w-0">
-            <InvocationsBetaBanner />
             <InvocationsSparkline
                 data={sparkline}
                 loading={sparklineLoading}

@@ -20,8 +20,6 @@ import {
     HogFunctionConfigurationLogicProps,
     hogFunctionConfigurationLogic,
 } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
-import { HogFunctionLogs } from 'scenes/hog-functions/logs/HogFunctionLogs'
-import { HogFunctionTesting } from 'scenes/hog-functions/testing/HogFunctionTesting'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -50,8 +48,6 @@ import { HogFunctionRuns } from './runs/HogFunctionRuns'
 const HOG_FUNCTION_SCENE_TABS = [
     'configuration',
     'metrics',
-    'logs',
-    'testing',
     'runs',
     'invocations',
     'backfills',
@@ -441,35 +437,9 @@ export function HogFunctionScene(): JSX.Element {
         type === 'site_app' || type === 'site_destination'
             ? null
             : {
-                  label: 'Logs',
-                  key: 'logs',
-                  content: <HogFunctionLogs />,
-              },
-        // New runs view backed by hog_invocation_results. Behind a flag while
-        // the underlying ClickHouse producer ramps; subsumes the legacy
-        // logs tab once it's GA.
-        type === 'site_app' ||
-        type === 'site_destination' ||
-        !featureFlags[FEATURE_FLAGS.HOG_INVOCATION_RESULTS_RUNS_TAB]
-            ? null
-            : {
-                  label: (
-                      <div className="flex flex-row">
-                          <div>Invocations</div>
-                          <LemonTag className="ml-2 uppercase" type="warning">
-                              Beta
-                          </LemonTag>
-                      </div>
-                  ),
+                  label: 'Invocations',
                   key: 'invocations',
                   content: <HogInvocations id={id} functionKind="hog_function" />,
-              },
-        type === 'site_app' || type === 'site_destination' || type === 'internal_destination'
-            ? null
-            : {
-                  label: 'Testing',
-                  key: 'testing',
-                  content: <HogFunctionTesting />,
               },
 
         supportsBackfills && featureFlags[FEATURE_FLAGS.BACKFILL_WORKFLOWS_DESTINATION]
