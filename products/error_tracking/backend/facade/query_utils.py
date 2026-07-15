@@ -68,8 +68,8 @@ EVENT_CONTEXT_PROPERTY_SELECTS = {
     "navigation": ["properties.$current_url", "properties.$screen_name", "properties.$referrer"],
     "correlation": [
         "properties.$session_id",
-        "properties.$recording_status",
         "properties.$trace_id",
+        "properties.$ai_trace_id",
         "properties.$span_id",
     ],
     "diagnostics": ["properties.$cymbal_errors"],
