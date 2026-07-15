@@ -14,6 +14,8 @@ from posthog.models.scoping import team_scope
 from products.signals.backend.models import SignalRepositoryAreaActivity
 from products.signals.backend.report_generation.repo_activity import (
     MAX_AREAS_PER_RESOLUTION,
+    REPO_WIDE_AREA,
+    area_fallback_chain,
     area_for_path,
     areas_for_paths,
     get_area_activity,
@@ -91,6 +93,11 @@ class TestAreaForPath:
         many = [f"dir{i}/sub/file.py" for i in range(MAX_AREAS_PER_RESOLUTION + 3)]
         assert len(areas_for_paths(many)) == MAX_AREAS_PER_RESOLUTION
 
+    def test_fallback_chain_walks_up_to_repo_wide(self):
+        assert area_fallback_chain("products/signals") == ["products/signals", "products", REPO_WIDE_AREA]
+        assert area_fallback_chain("posthog") == ["posthog", REPO_WIDE_AREA]
+        assert area_fallback_chain("") == ["", REPO_WIDE_AREA]
+
 
 @pytest.mark.django_db
 class TestRebuildRepositoryActivity:
@@ -119,6 +126,13 @@ class TestRebuildRepositoryActivity:
         assert [c.login for c in activity["posthog/models"]] == ["bobdev"]
         # nobody@example.com resolves to no login and is dropped
         assert "nobody" not in signals_area
+
+        # commits are also indexed at the parent and repo-wide levels for walk-up
+        parents = get_area_activity(team.id, "acme/app", ["products", REPO_WIDE_AREA])
+        assert {c.login for c in parents["products"]} == {"alice", "bobdev"}
+        repo_wide = {c.login: c for c in parents[REPO_WIDE_AREA]}
+        assert repo_wide["alice"].commit_count == 2
+        assert repo_wide["bobdev"].commit_count == 1
 
     def test_replaces_previous_map_and_empties_dead_areas(self, team):
         _fresh_row(team, "products/old", refreshed_at=timezone.now() - timedelta(days=30))

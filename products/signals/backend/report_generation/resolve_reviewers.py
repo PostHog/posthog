@@ -26,7 +26,9 @@ from posthog.models.user_integration import UserIntegration
 from products.signals.backend.contracts import RelevantCommit
 from products.signals.backend.report_generation.repo_activity import (
     ACTIVITY_WINDOW_DAYS,
+    REPO_WIDE_AREA,
     ContributorActivity,
+    area_fallback_chain,
     areas_for_paths,
     get_area_activity,
     repository_activity_needs_rebuild,
@@ -205,7 +207,7 @@ def resolve_suggested_reviewers(
                     sha=activity.last_commit_sha,
                     url=activity.last_commit_url,
                     reason=(
-                        f"Recently active in `{activity.area or 'the repository root'}` "
+                        f"Recently active in {_area_label(activity.area)} "
                         f"({activity.commit_count} commit(s) in the last {ACTIVITY_WINDOW_DAYS} days)."
                     ),
                 )
@@ -215,6 +217,14 @@ def resolve_suggested_reviewers(
             name = activity_by_login[login].name
         reviewers.append(_ResolvedReviewer(login=login, name=name, commits=commits, weight=score))
     return reviewers
+
+
+def _area_label(area: str) -> str:
+    if area == REPO_WIDE_AREA:
+        return "this repository"
+    if area == "":
+        return "the repository root"
+    return f"`{area}`"
 
 
 @dataclass(frozen=True)
@@ -237,22 +247,31 @@ def _relevant_area_activity(
     """Aggregate cached area activity across the areas the finding commits touched.
 
     Cache-only; a missing or stale map schedules an async rebuild and this report falls
-    back to whatever is cached (possibly nothing). Returns an empty dict when nothing is
-    known — callers must treat that as "no signal", not "nobody is active".
+    back to whatever is cached (possibly nothing). An area with no active contributors
+    falls back up its chain (parent directory, then repo-wide) — someone active nearby
+    beats nobody. Returns an empty dict when nothing is known — callers must treat that
+    as "no signal", not "nobody is active".
     """
     areas = areas_for_paths(touched_paths)
     if not areas:
         return {}
-    activity_by_area = get_area_activity(team_id, repository, areas)
+    chains = [area_fallback_chain(area) for area in areas]
+    lookup_areas = list(dict.fromkeys(area for chain in chains for area in chain))
+    activity_by_area = get_area_activity(team_id, repository, lookup_areas)
     if repository_activity_needs_rebuild(team_id, repository):
         _schedule_activity_rebuild(team_id, repository)
 
     now = timezone.now()
     merged: dict[str, _AreaContributor] = {}
-    for area, contributors in activity_by_area.items():
-        for contributor in contributors:
+    used_levels: set[str] = set()
+    for chain in chains:
+        level = next((area for area in chain if activity_by_area.get(area)), None)
+        if level is None or level in used_levels:
+            continue
+        used_levels.add(level)
+        for contributor in activity_by_area[level]:
             existing = merged.get(contributor.login)
-            merged[contributor.login] = _merge_contributor(existing, contributor, area, now)
+            merged[contributor.login] = _merge_contributor(existing, contributor, level, now)
     return merged
 
 

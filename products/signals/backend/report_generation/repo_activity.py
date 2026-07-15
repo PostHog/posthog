@@ -34,6 +34,10 @@ ACTIVITY_STALE_AFTER = timedelta(days=7)
 ACTIVITY_KEEP_WARM_WINDOW = timedelta(days=45)
 AREA_PATH_DEPTH = 2
 MAX_AREAS_PER_RESOLUTION = 6
+MAX_CONTRIBUTORS_PER_AREA = 50
+# Synthetic area holding every contributor to the repository; the last fallback level.
+# Distinct from "" (files at the repository root).
+REPO_WIDE_AREA = "*"
 
 _NOREPLY_EMAIL_RE = re.compile(r"^(?:\d+\+)?([a-z0-9-]+)@users\.noreply\.github\.com$", re.IGNORECASE)
 
@@ -68,6 +72,20 @@ def areas_for_paths(paths: list[str]) -> list[str]:
     return [area for area, _count in ranked[:MAX_AREAS_PER_RESOLUTION]]
 
 
+def area_fallback_chain(area: str) -> list[str]:
+    """Lookup order when an area has no active contributors: itself, its parent, repo-wide.
+
+    ``products/signals`` → ``["products/signals", "products", "*"]``; the rebuild indexes
+    every commit at all of these levels, so walking up never invents data.
+    """
+    chain = [area]
+    if "/" in area:
+        chain.append(area.rsplit("/", 1)[0])
+    if area != REPO_WIDE_AREA:
+        chain.append(REPO_WIDE_AREA)
+    return chain
+
+
 def get_area_activity(team_id: int, repository: str, areas: list[str]) -> dict[str, list[ContributorActivity]]:
     """Recent contributors per area, read from the ``SignalRepositoryAreaActivity`` cache.
 
@@ -83,7 +101,7 @@ def get_area_activity(team_id: int, repository: str, areas: list[str]) -> dict[s
     result: dict[str, list[ContributorActivity]] = {}
 
     with team_scope(team_id):
-        for area in areas[:MAX_AREAS_PER_RESOLUTION]:
+        for area in areas:
             row, _created = SignalRepositoryAreaActivity.objects.get_or_create(
                 team_id=team_id,
                 repository=repository,
@@ -112,9 +130,11 @@ def rebuild_repository_activity(team_id: int, repository: str) -> int:
 
     One facade call collects the recent commits (with touched paths); commits map to areas
     locally and author emails resolve to GitHub logins (noreply-email parse, then org-member
-    email match). Every area row for the repository is replaced in one transaction — areas
-    with no recent commits are stamped refreshed with no contributors, which scoring reads
-    as "nobody is active here", distinct from a never-built row.
+    email match). Each commit is indexed at every fallback level (its areas, their parents,
+    and ``REPO_WIDE_AREA``) so lookups can walk up when an area has no active contributors.
+    Every area row for the repository is replaced in one transaction — areas with no recent
+    commits are stamped refreshed with no contributors, which scoring reads as "nobody is
+    active here", distinct from a never-built row.
 
     Returns the number of areas with at least one contributor. Raises
     ``RepositoryCommitActivityError`` when collection fails.
@@ -128,7 +148,10 @@ def rebuild_repository_activity(team_id: int, repository: str) -> int:
         login = login_by_email.get(commit.author_email.lower())
         if login is None:
             continue
-        for area in {area_for_path(path) for path in commit.paths}:
+        commit_areas: set[str] = set()
+        for path in commit.paths:
+            commit_areas.update(area_fallback_chain(area_for_path(path)))
+        for area in commit_areas:
             entry = per_area.setdefault(area, {}).get(login)
             if entry is None:
                 per_area[area][login] = {
@@ -150,7 +173,9 @@ def rebuild_repository_activity(team_id: int, repository: str) -> int:
                 repository=repository,
                 area=area,
                 defaults={
-                    "contributors": sorted(by_login.values(), key=lambda c: -c["commit_count"]),
+                    "contributors": sorted(by_login.values(), key=lambda c: -c["commit_count"])[
+                        :MAX_CONTRIBUTORS_PER_AREA
+                    ],
                     "refreshed_at": now,
                 },
             )

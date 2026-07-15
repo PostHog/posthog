@@ -12,8 +12,10 @@ from posthog.models import Organization, Team, User
 from posthog.models.github_integration_base import GitHubCommitAuthor
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
+from posthog.models.scoping import team_scope
 from posthog.models.user_integration import UserIntegration
 
+from products.signals.backend.models import SignalRepositoryAreaActivity
 from products.signals.backend.report_generation.repo_activity import ACTIVITY_WINDOW_DAYS, ContributorActivity
 from products.signals.backend.report_generation.resolve_reviewers import (
     RECENCY_DECAY_FLOOR,
@@ -21,6 +23,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     STALE_BLAME_MULTIPLIER,
     _AreaContributor,
     _recency_multiplier,
+    _relevant_area_activity,
     _score_candidates,
     resolve_org_github_login_to_users,
     resolve_suggested_reviewers,
@@ -183,6 +186,48 @@ class TestRecencyScoring:
         scores = _score_candidates(weights, activity)
 
         assert scores["active-author"] > scores["bystander"]
+
+
+@pytest.mark.django_db
+class TestAreaWalkUp:
+    def test_empty_area_falls_back_to_parent_then_repo_wide(self, team):
+        def _row(area: str, logins: list[str]) -> None:
+            SignalRepositoryAreaActivity.objects.create(
+                team=team,
+                repository="acme/app",
+                area=area,
+                contributors=[
+                    {
+                        "login": login,
+                        "name": login.title(),
+                        "commit_count": 3,
+                        "last_commit_at": timezone.now().isoformat(),
+                        "last_commit_sha": "a" * 7,
+                        "last_commit_url": "https://github.com/acme/app/commit/aaaaaaa",
+                    }
+                    for login in logins
+                ],
+                refreshed_at=timezone.now(),
+            )
+
+        with team_scope(team.id, canonical=True):
+            _row("products/dead", [])  # refreshed, nobody active
+            _row("products", ["parent-owner"])
+            _row("*", ["repo-regular"])
+
+        with patch("products.signals.backend.report_generation.resolve_reviewers._schedule_activity_rebuild"):
+            merged = _relevant_area_activity(team.id, "acme/app", ["products/dead/models.py"])
+
+        # the dead area walks up to its parent; repo-wide stays in reserve
+        assert set(merged) == {"parent-owner"}
+        assert merged["parent-owner"].area == "products"
+
+        with team_scope(team.id, canonical=True):
+            SignalRepositoryAreaActivity.objects.filter(area="products").update(contributors=[])
+        with patch("products.signals.backend.report_generation.resolve_reviewers._schedule_activity_rebuild"):
+            merged = _relevant_area_activity(team.id, "acme/app", ["products/dead/models.py"])
+
+        assert set(merged) == {"repo-regular"}
 
 
 @pytest.mark.django_db
