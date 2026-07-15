@@ -103,7 +103,7 @@ pub async fn apply_quota_limits(
             } else {
                 Some(EventInfo {
                     name: event.event_name(),
-                    has_product_tour_id: event.has_property("product_tour_id"),
+                    has_product_tour_id: event.has_property("$product_tour_id"),
                 })
             }
         })
