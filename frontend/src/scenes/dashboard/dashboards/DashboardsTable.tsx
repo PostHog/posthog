@@ -124,9 +124,14 @@ export function DashboardsTable({
                     <div className="min-w-[16rem]">
                         <LemonTableLink
                             to={urls.dashboard(id)}
+                            truncateTitle
                             title={
                                 <>
-                                    <span data-attr="dashboard-name">{name || 'Untitled'}</span>
+                                    <Tooltip title={name || 'Untitled'}>
+                                        <span data-attr="dashboard-name" className="truncate min-w-0">
+                                            {name || 'Untitled'}
+                                        </span>
+                                    </Tooltip>
                                     {is_shared && (
                                         <Tooltip title="This dashboard is shared publicly.">
                                             <IconShare className="ml-1 text-base text-link" />
