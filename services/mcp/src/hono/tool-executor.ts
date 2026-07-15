@@ -87,7 +87,7 @@ export class ToolExecutor {
             if (entry.name === EXECUTE_SQL_TOOL_NAME) {
                 return {
                     ...entry,
-                    description: this.instructionsBuilder.formatExecuteSqlDescription(),
+                    description: this.instructionsBuilder.formatExecuteSqlDescription(state.toolFeatureFlags),
                 }
             }
             return entry
@@ -398,7 +398,7 @@ export class ToolExecutor {
             tool.name === EXECUTE_SQL_TOOL_NAME
                 ? {
                       ...tool,
-                      description: this.instructionsBuilder.formatExecuteSqlDescription(),
+                      description: this.instructionsBuilder.formatExecuteSqlDescription(state.toolFeatureFlags),
                   }
                 : tool
         )

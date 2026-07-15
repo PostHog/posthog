@@ -1,11 +1,14 @@
 import { RESOURCE_URI_META_KEY } from '@modelcontextprotocol/ext-apps/server'
 import type { Tool as McpTool } from '@modelcontextprotocol/sdk/types.js'
 
+import { PRODUCT_DATA_CATALOG_FLAG } from '@/lib/constants'
 import type { QueryToolInfo } from '@/lib/instructions'
 import { type InstructionsContext, InstructionsFormatter } from '@/lib/instructions-formatter'
+import type { EvaluatedFlags } from '@/lib/posthog/flags'
 import { formatPrompt } from '@/lib/utils'
 import { RENDER_UI_RESOURCE_URI } from '@/resources/ui-apps.generated'
 import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
+import METRIC_DISCOVERY from '@/templates/sections/metric-discovery.md'
 import SCHEMA_DISCOVERY from '@/templates/sections/schema-discovery.md'
 import { ExecHelpCatalog } from '@/tools/exec-help'
 import {
@@ -133,10 +136,16 @@ export class InstructionsBuilder {
         return this.guidelines
     }
 
-    formatExecuteSqlDescription(): string {
+    formatExecuteSqlDescription(toolFeatureFlags?: EvaluatedFlags): string {
+        // Metric discovery is spliced into the same section so a flag-off render stays
+        // byte-identical to the un-gated prompt (no stray placeholder gaps).
+        const metricDiscoveryEnabled = toolFeatureFlags?.[PRODUCT_DATA_CATALOG_FLAG] === true
+        const schemaDiscovery = metricDiscoveryEnabled
+            ? `${SCHEMA_DISCOVERY.trim()}\n\n${METRIC_DISCOVERY.trim()}`
+            : SCHEMA_DISCOVERY.trim()
         return formatPrompt(EXECUTE_SQL_PROMPT, {
             guidelines: this.guidelines.trim(),
-            schema_discovery: SCHEMA_DISCOVERY.trim(),
+            schema_discovery: schemaDiscovery,
         })
     }
 }
