@@ -9,14 +9,15 @@
 //! unserializable, or unenqueueable warning is counted and dropped — the
 //! caller's hot path is never blocked or failed.
 //!
-//! The producer is a plain `common_kafka` `FutureProducer` (built by
-//! [`common_kafka::kafka_producer::create_kafka_producer`]) rather than a
-//! bespoke client: callers supply their own dedicated, warnings-tuned
+//! The producer is a `common_kafka` `ThreadedProducer` (built by
+//! [`common_kafka::kafka_producer::create_threaded_kafka_producer`]) rather
+//! than a bespoke client: callers supply their own dedicated, warnings-tuned
 //! [`common_kafka::config::KafkaConfig`] (fire-and-forget acks/retries, a
 //! small queue) so warnings never share tuning or a connection with a
-//! caller's main event producer. See
-//! `rust/personhog-writer/src/kafka.rs::WarningsProducer` for the reference
-//! shape this mirrors.
+//! caller's main event producer. Delivery reports are observed on the
+//! producer's own poll thread via [`observe_delivery`] (no per-message task);
+//! `emit` attaches the warning type/source as the delivery opaque so the
+//! async `delivered`/`delivery_failed` metric is attributed correctly.
 //!
 //! The envelope lands on the `client_ingestion_warning` topic, where the
 //! Node.js `clientwarnings` consumer resolves the token to a `team_id` and
@@ -32,11 +33,11 @@ pub mod throttle;
 use std::time::Duration;
 
 use chrono::Utc;
-use common_kafka::kafka_producer::KafkaContext;
+use common_kafka::kafka_producer::ThreadedKafkaContext;
 use metrics::{counter, gauge};
 use rdkafka::error::KafkaError;
 use rdkafka::message::OwnedHeaders;
-use rdkafka::producer::{FutureProducer, FutureRecord, Producer};
+use rdkafka::producer::{BaseRecord, DeliveryResult, Producer, ThreadedProducer};
 use rdkafka::types::RDKafkaErrorCode;
 use serde_json::{Map, Value};
 use tracing::warn;
@@ -105,19 +106,24 @@ pub trait WarningEmitter: Send + Sync {
 }
 
 /// Production emitter: per-(token, type) throttle in front of a
-/// `common_kafka` producer. Callers build the `FutureProducer` themselves
-/// (via `common_kafka::kafka_producer::create_kafka_producer` with a
-/// dedicated, fire-and-forget-tuned `KafkaConfig`) and hand it in — this
-/// type never constructs its own client, matching
-/// `rust/personhog-writer/src/kafka.rs::WarningsProducer`.
+/// `common_kafka` `ThreadedProducer`. Callers build the producer themselves
+/// (via `common_kafka::kafka_producer::create_threaded_kafka_producer` with a
+/// dedicated, fire-and-forget-tuned `KafkaConfig` and [`observe_delivery`] as
+/// the delivery callback) and hand it in — this type never constructs its own
+/// client. The producer's opaque is [`WarningDelivery`], so each message's
+/// delivery report carries the type/source needed to label the async outcome
+/// metric.
 pub struct KafkaWarningEmitter {
-    producer: FutureProducer<KafkaContext>,
+    producer: ThreadedProducer<ThreadedKafkaContext<WarningDelivery>>,
     topic: String,
     throttle: WarningThrottle,
 }
 
 impl KafkaWarningEmitter {
-    pub fn new(producer: FutureProducer<KafkaContext>, topic: impl Into<String>) -> Self {
+    pub fn new(
+        producer: ThreadedProducer<ThreadedKafkaContext<WarningDelivery>>,
+        topic: impl Into<String>,
+    ) -> Self {
         Self {
             producer,
             topic: topic.into(),
@@ -198,17 +204,19 @@ impl WarningEmitter for KafkaWarningEmitter {
             }
         };
 
-        let record = FutureRecord::to(&self.topic)
-            .key(&token)
-            .headers(headers)
-            .payload(&payload);
+        let record =
+            BaseRecord::with_opaque_to(&self.topic, Box::new(WarningDelivery { warning, source }))
+                .key(&token)
+                .headers(headers)
+                .payload(&payload);
 
-        // `send_result` enqueues and returns immediately; the `DeliveryFuture`
-        // is only awaited off the hot path by `spawn_delivery_observer`, never
-        // here. This is the personhog-writer fire-and-forget shape, not
-        // `common_kafka::send_*`, which awaits delivery inline.
-        match self.producer.send_result(record) {
-            Ok(delivery_future) => {
+        // `send` enqueues and returns immediately; the delivery report is
+        // handled off the hot path by the producer's poll thread, which calls
+        // [`observe_delivery`] via the threaded context. This is the
+        // fire-and-forget shape, not `common_kafka::send_*`, which awaits
+        // delivery inline.
+        match self.producer.send(record) {
+            Ok(()) => {
                 counter!(
                     INGESTION_WARNINGS_TOTAL,
                     "type" => warning.as_str(),
@@ -217,7 +225,6 @@ impl WarningEmitter for KafkaWarningEmitter {
                     "outcome" => "emitted",
                 )
                 .increment(1);
-                spawn_delivery_observer(warning, source, delivery_future);
             }
             Err((KafkaError::MessageProduction(RDKafkaErrorCode::QueueFull), _record)) => {
                 counter!(
@@ -250,40 +257,36 @@ impl WarningEmitter for KafkaWarningEmitter {
     }
 }
 
-/// Observe a message's delivery report off the hot path. `emitted` only
-/// proves the message entered the local queue; without this, a broken topic
-/// or broker at rollout looks healthy while nothing lands. Post-throttle
-/// volume is tiny (≤ affected tokens × types per pod per hour), so one
-/// detached task per message is cheap. Outside a tokio runtime (sync tests,
-/// exotic embedders) the future is dropped and delivery stays unobserved —
-/// never an error.
-fn spawn_delivery_observer(
-    warning: WarningType,
-    source: WarningSource,
-    delivery_future: rdkafka::producer::DeliveryFuture,
-) {
-    let Ok(handle) = tokio::runtime::Handle::try_current() else {
-        return;
+/// Per-message opaque carried through the threaded producer to its delivery
+/// callback, so each report can be attributed to the warning type and source
+/// that produced it. Passed via `BaseRecord::delivery_opaque` at `emit` and
+/// handed back to [`observe_delivery`] on the producer's poll thread.
+#[derive(Debug, Clone, Copy)]
+pub struct WarningDelivery {
+    pub warning: WarningType,
+    pub source: WarningSource,
+}
+
+/// Delivery-report callback for the warnings `ThreadedProducer`. Runs on
+/// rdkafka's poll thread for every produced message and ticks the
+/// `delivered`/`delivery_failed` outcome — the async half of the `emitted`
+/// counter, which alone only proves the message entered the local queue.
+/// Without this, a broken topic or broker at rollout looks healthy while
+/// nothing lands. Metric-only (no per-message log) since a broken topic at
+/// rollout would otherwise flood logs at post-throttle volume.
+pub fn observe_delivery(result: &DeliveryResult, delivery: WarningDelivery) {
+    let outcome = match result {
+        Ok(_) => "delivered",
+        Err(_) => "delivery_failed",
     };
-    handle.spawn(async move {
-        // Delivery outcome is reported via the `delivery_failed` metric tag
-        // only — no per-message log line, since a broken topic at rollout
-        // would otherwise flood logs at post-throttle volume.
-        let outcome = match delivery_future.await {
-            Ok(Ok(_partition_offset)) => "delivered",
-            Ok(Err(_)) => "delivery_failed",
-            // Producer dropped before the report arrived (shutdown).
-            Err(_canceled) => "delivery_failed",
-        };
-        counter!(
-            INGESTION_WARNINGS_TOTAL,
-            "type" => warning.as_str(),
-            "source" => source.service,
-            "path" => source.path,
-            "outcome" => outcome,
-        )
-        .increment(1);
-    });
+    counter!(
+        INGESTION_WARNINGS_TOTAL,
+        "type" => delivery.warning.as_str(),
+        "source" => delivery.source.service,
+        "path" => delivery.source.path,
+        "outcome" => outcome,
+    )
+    .increment(1);
 }
 
 #[cfg(test)]
@@ -304,21 +307,23 @@ mod tests {
         fn report_unhealthy(&self) {}
     }
 
-    /// Build a producer against an unreachable broker (TEST-NET-1) without
-    /// `create_kafka_producer`'s startup metadata fetch, so tests stay fast
-    /// and offline while still exercising the exact `FutureProducer<KafkaContext>`
-    /// type `KafkaWarningEmitter` holds in production.
+    /// Build a threaded producer against an unreachable broker (TEST-NET-1)
+    /// without `create_threaded_kafka_producer`'s startup metadata fetch, so
+    /// tests stay fast and offline while still exercising the exact
+    /// `ThreadedProducer<ThreadedKafkaContext<WarningDelivery>>` type
+    /// `KafkaWarningEmitter` holds in production. `observe_delivery` is wired
+    /// as the callback, matching the production path.
     fn unreachable_producer(
         message_timeout_ms: u32,
         linger_ms: u32,
-    ) -> FutureProducer<KafkaContext> {
+    ) -> ThreadedProducer<ThreadedKafkaContext<WarningDelivery>> {
         ClientConfig::new()
             .set("bootstrap.servers", "192.0.2.1:9092")
             .set("message.timeout.ms", message_timeout_ms.to_string())
             .set("linger.ms", linger_ms.to_string())
             .set("queue.buffering.max.messages", "10")
             .set("retries", "0")
-            .create_with_context(KafkaContext::new(AlwaysHealthy))
+            .create_with_context(ThreadedKafkaContext::new(AlwaysHealthy, observe_delivery))
             .expect("client config is valid, so creation cannot fail without a broker round-trip")
     }
 
@@ -354,27 +359,6 @@ mod tests {
         assert!(
             start.elapsed() < std::time::Duration::from_millis(500),
             "emit must be fire-and-forget"
-        );
-    }
-
-    #[tokio::test]
-    async fn emit_inside_a_runtime_spawns_delivery_observer_without_blocking() {
-        // Same unreachable broker, but inside a tokio runtime so the delivery
-        // observer task actually spawns; emit must still return immediately.
-        let emitter =
-            KafkaWarningEmitter::new(unreachable_producer(500, 5), "client_ingestion_warning");
-
-        let start = std::time::Instant::now();
-        emitter.emit(
-            "tok".to_string(),
-            CAPTURE_V1_ANALYTICS,
-            WarningType::MissingEventName,
-            Map::new(),
-            1,
-        );
-        assert!(
-            start.elapsed() < std::time::Duration::from_millis(500),
-            "emit must not await the delivery report"
         );
     }
 }

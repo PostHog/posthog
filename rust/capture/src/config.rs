@@ -355,27 +355,14 @@ pub struct Config {
     #[envconfig(default = "false")]
     pub capture_ingestion_warnings_enabled: bool,
 
-    // rdkafka "acks": "1" (leader ack only) trades durability for latency —
-    // appropriate for a best-effort warning nobody blocks on.
-    #[envconfig(default = "1")]
-    pub capture_ingestion_warnings_kafka_acks: String,
-
-    // rdkafka "retries": 0 — never retry a failed send; a warning is worth
-    // less than the memory/time cost of retrying it.
-    #[envconfig(default = "0")]
-    pub capture_ingestion_warnings_kafka_retries: u32,
-
+    // The producer's fire-and-forget policy (acks, retries, linger, queue
+    // depth in messages, message timeout) is fixed in code — see the
+    // `WARNINGS_KAFKA_*` constants in `setup.rs` — not env-configurable, since
+    // those define the "a warning is worth less than the cost of retrying it"
+    // contract rather than operator knobs. Only the two capacity/safety limits
+    // below stay tunable.
     #[envconfig(default = "16")]
     pub capture_ingestion_warnings_kafka_queue_mib: u32,
-
-    #[envconfig(default = "10000")]
-    pub capture_ingestion_warnings_kafka_queue_messages: u32,
-
-    #[envconfig(default = "5000")]
-    pub capture_ingestion_warnings_kafka_message_timeout_ms: u32,
-
-    #[envconfig(default = "100")]
-    pub capture_ingestion_warnings_kafka_linger_ms: u32,
 
     // rdkafka "message.max.bytes": a hard per-message ceiling, independent of
     // the main producer's, so an oversized warning envelope (e.g. built from
