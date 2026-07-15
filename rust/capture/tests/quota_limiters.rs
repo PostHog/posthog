@@ -345,8 +345,9 @@ async fn test_global_limit_takes_precedence_over_global_grace_period() {
     // Positive control: the global limit's drop-accounting pass in
     // `check_and_filter` does observe this request (it counts the event
     // toward `events_over_quota` even though the event survives via
-    // `retained_indices`), so `None` above provably means "suppressed by
-    // the grace-period logic", not "the recorder never saw this request".
+    // `retained_indices`), so the grace `None` assertion below provably means
+    // "suppressed by the grace-period logic", not "the recorder never saw
+    // this request".
     assert_eq!(
         dropped_events_count(&snapshotter, "events_over_quota"),
         Some(1)
