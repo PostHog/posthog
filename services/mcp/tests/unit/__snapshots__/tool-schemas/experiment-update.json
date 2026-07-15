@@ -2113,7 +2113,7 @@
             "description": "Exposure configuration including filter test accounts and custom exposure events."
         },
         "feature_flag": {
-            "description": "Variant split, rollout scope, payloads, and experience continuity for the linked feature flag, in the flag's own filters shape. This is the canonical input for flag config. Set filters.multivariate.variants (each with key and rollout_percentage; percentages must sum to 100, exactly one key must be the literal string 'control') to change the variant split. Set filters.groups to a single group [{\"properties\": [], \"rollout_percentage\": N}] (0-100) to change the overall rollout. Config this object omits is preserved from the flag's current state. On a running experiment this requires update_feature_flag_params=true (see rule 1: warn the user first).",
+            "description": "Variant split, rollout scope, payloads, and experience continuity for the linked feature flag, in the flag's own filters shape. This is the canonical input for flag config. Set filters.multivariate.variants (each with key and rollout_percentage; percentages must sum to 100; the analysis baseline defaults to the variant keyed 'control' when present, else the first variant — except web experiments, which must keep a variant keyed 'control') to change the variant split. Set filters.groups to a single group [{\"properties\": [], \"rollout_percentage\": N}] (0-100) to change the overall rollout. Config this object omits is preserved from the flag's current state. On a running experiment this requires update_feature_flag_params=true (see rule 1: warn the user first).",
             "properties": {
                 "ensure_experience_continuity": {
                     "anyOf": [
@@ -2127,7 +2127,7 @@
                     "description": "Whether the flag persists variant assignment across authentication steps."
                 },
                 "filters": {
-                    "description": "Flag config to apply: `multivariate.variants` (exactly one variant key must be the literal string 'control'), `groups` (a single group with `rollout_percentage` only; release conditions are not supported here, edit the feature flag directly), `aggregation_group_type_index`, and `payloads` (JSON-encoded strings keyed by variant key). On update, config this object omits is preserved from the linked flag's current state.",
+                    "description": "Flag config to apply: `multivariate.variants` (2 to 20 variants; the baseline defaults to the variant keyed 'control' when present, else the first variant), `groups` (a single group with `rollout_percentage` only; release conditions are not supported here, edit the feature flag directly), `aggregation_group_type_index`, and `payloads` (JSON-encoded strings keyed by variant key). On update, config this object omits is preserved from the linked flag's current state.",
                     "properties": {
                         "aggregation_group_type_index": {
                             "anyOf": [
@@ -2175,12 +2175,12 @@
                                     "description": "Multivariate config for the experiment's feature flag.",
                                     "properties": {
                                         "variants": {
-                                            "description": "Variant definitions. Exactly one variant key must be the literal string 'control'.",
+                                            "description": "Variant definitions (2 to 20). The baseline defaults to the variant keyed 'control' when present, else the first variant.",
                                             "items": {
                                                 "description": "A single multivariate variant. Extra per-variant keys are dropped.",
                                                 "properties": {
                                                     "key": {
-                                                        "description": "Unique variant key. Exactly one variant must use the key 'control' (the baseline).",
+                                                        "description": "Unique variant key. The baseline defaults to the variant keyed 'control' when present, else the first variant.",
                                                         "type": "string"
                                                     },
                                                     "name": {

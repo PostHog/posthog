@@ -12,9 +12,16 @@ terminal state.
   by reading the `NotebookNodeRun` row (one indexed query). No held connection,
   no busy-loop.
 - **Frontend:** the node polls that endpoint (~1s) while it has a `runId` and the
-  run is `running`; stops on `done`/`failed`. In-progress state is derived from
-  the run status, so it survives remounts and reloads. The poll timer lives in
-  `cache.disposables` (auto-cleanup + pause on hidden tab).
+  run is `running`; stops on `done`/`failed`/`interrupted`. In-progress state is
+  derived from the run status, so it survives remounts and reloads. The poll timer
+  lives in `cache.disposables` (auto-cleanup + pause on hidden tab).
+- **Interrupt (Journey 9):** `POST .../sql_v2/runs/<run_id>/interrupt` proxies a
+  run-scoped stop to the kernel-server; the terminal state (`interrupted`) still
+  arrives via the callback → run row → poll, keeping one source of truth. The
+  interrupted envelope carries the stdout/stderr captured before the stop, and the
+  result endpoint surfaces it like a `done` envelope. When no kernel is reachable
+  the endpoint marks the run `interrupted` itself, so a user can always break out
+  of a RUNNING-forever row (there is no backend watchdog yet).
 
 Chosen because the result is a **single terminal value**, not a live event stream.
 Polling a durable row is simpler than SSE and inherently resilient to connection
@@ -109,12 +116,18 @@ reads stay stateless.
 
 ## Where the full result lives
 
-**Now: a capped in-memory cache in the kernel-server.** A run fetches up to
+**Now: a capped in-memory cache in the kernel-server (hogql runs).** A run fetches up to
 `RESULT_CACHE_ROWS` (300) rows in one ClickHouse query; the kernel-server keeps
 them per run (LRU over the last 20 runs). `/page` requests within the cache are
 local slices — no ClickHouse work, no held backend workers. Paging beyond the
 cache, or after a kernel restart emptied it, falls back to a LIMIT/OFFSET
 re-query through the data plane.
+
+**Kernel runs (python/duckdb) page from the on-sandbox result store.** The kernel
+writes each produced frame to `/data/results/<result_id>.arrow`; `/page` requests
+carrying a `result_id` slice that file in the server process (`kernel/result_store.py`,
+pyarrow mmap). There is no data-plane fallback — the run's code is not a HogQL query —
+so a lost frame (sandbox death) means re-run, per the alive-only trade-off below.
 
 **Later: durable store** (object storage / Parquet / a results table). The
 sandbox materializes the full result at run time; `result_id` is the storage key.

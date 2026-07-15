@@ -19,7 +19,7 @@ import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
 
 import { AlertCalculationInterval, AlertState } from '~/queries/schema/schema-general'
-import { containsHogQLQuery, isFunnelsQuery, isInsightVizNode } from '~/queries/utils'
+import { isFunnelsQuery, isInsightVizNode } from '~/queries/utils'
 import { FunnelVizType, InsightLogicProps, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import { AlertAdvancedOptionsSection } from 'products/alerts/frontend/components/editAlertModal/AlertAdvancedOptionsSection'
@@ -29,7 +29,7 @@ import { AlertNotificationSection } from 'products/alerts/frontend/components/ed
 import { isSubDailyAlertInterval } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 
 import { SnoozeButton } from '../components/SnoozeButton'
-import { alertFormLogic, canCheckOngoingInterval } from '../logic/alertFormLogic'
+import { alertFormLogic, canCheckOngoingInterval, insightAlertKindForQuery } from '../logic/alertFormLogic'
 import { alertLogic } from '../logic/alertLogic'
 import { alertNotificationLogic } from '../logic/alertNotificationLogic'
 import { isNextPlannedEvaluationStale } from '../logic/alertSchedulingStale'
@@ -45,7 +45,9 @@ interface EditAlertModalProps {
     insightShortId: InsightShortId
     onEditSuccess: (alertId?: AlertType['id'] | undefined) => void
     onClose?: () => void
-    insightLogicProps?: InsightLogicProps
+    insightLogicProps: InsightLogicProps
+    defaultToAnomalyDetection?: boolean
+    insightName?: string | null
 }
 
 export function EditAlertModal({
@@ -56,6 +58,8 @@ export function EditAlertModal({
     onClose,
     onEditSuccess,
     insightLogicProps,
+    defaultToAnomalyDetection,
+    insightName,
 }: EditAlertModalProps): JSX.Element {
     const _alertLogic = alertLogic({ alertId })
     const { alert, alertLoading } = useValues(_alertLogic)
@@ -68,7 +72,7 @@ export function EditAlertModal({
         [onEditSuccess]
     )
 
-    const trendsLogic = trendsDataLogic({ dashboardItemId: insightShortId })
+    const trendsLogic = trendsDataLogic(insightLogicProps)
     const {
         alertSeries,
         isNonTimeSeriesDisplay,
@@ -77,10 +81,9 @@ export function EditAlertModal({
         interval: trendInterval,
     } = useValues(trendsLogic)
 
-    const { query } = useValues(insightVizDataLogic(insightLogicProps ?? { dashboardItemId: insightShortId }))
+    const { query } = useValues(insightVizDataLogic(insightLogicProps))
 
     const funnelSource = !!query && isInsightVizNode(query) && isFunnelsQuery(query.source) ? query.source : null
-    const isFunnelInsight = funnelSource !== null
     // Trends funnels alert on the overall conversion rate over time, so they skip the step picker and
     // the preview reads the latest period instead of a step snapshot. The backend dispatches on the
     // same viz type — see funnel_strategies.py.
@@ -88,11 +91,7 @@ export function EditAlertModal({
     const funnelStepLabels = (funnelSource?.series ?? []).map(
         (node, index) => getDisplayNameFromEntityNode(node) ?? `Step ${index + 1}`
     )
-    const insightAlertKind: 'hogql' | 'funnels' | 'trends' = containsHogQLQuery(query)
-        ? 'hogql'
-        : isFunnelInsight
-          ? 'funnels'
-          : 'trends'
+    const insightAlertKind = insightAlertKindForQuery(query)
 
     const formLogicProps = {
         alert,
@@ -101,6 +100,8 @@ export function EditAlertModal({
         insightVizDataLogicProps: insightLogicProps,
         insightInterval: trendInterval ?? undefined,
         insightAlertKind,
+        defaultToAnomalyDetection: !alertId && !isNonTimeSeriesDisplay && defaultToAnomalyDetection,
+        insightName,
         insightIsTrendsFunnel: isTrendsFunnel,
     }
     const formLogic = alertFormLogic(formLogicProps)
@@ -131,7 +132,6 @@ export function EditAlertModal({
 
     const { currentTeam } = useValues(teamLogic)
     const projectTimezone = currentTeam?.timezone ?? 'UTC'
-    const anomalyDetectionEnabled = useFeatureFlag('ALERTS_ANOMALY_DETECTION')
     const inlineNotificationsEnabled = useFeatureFlag('ALERTS_INLINE_NOTIFICATIONS')
     const investigationAgentEnabled = useFeatureFlag('ALERTS_INVESTIGATION_AGENT')
 
@@ -281,8 +281,8 @@ export function EditAlertModal({
                                             valueColumnOptions: hogqlValueColumnOptions,
                                             labelColumnOptions: hogqlLabelColumnOptions,
                                         }}
-                                        anomalyDetectionEnabled={
-                                            anomalyDetectionEnabled && supportsAnomalyDetection(alertForm.config)
+                                        supportsAnomalyDetection={
+                                            !isNonTimeSeriesDisplay && supportsAnomalyDetection(alertForm.config)
                                         }
                                         investigationAgentEnabled={investigationAgentEnabled}
                                         simulationResult={simulationResult}
@@ -376,7 +376,12 @@ export function EditAlertModal({
                             type="primary"
                             htmlType="submit"
                             loading={isAlertFormSubmitting}
-                            disabledReason={!alertFormChanged && !hasPendingNotifications && 'No changes to save'}
+                            disabledReason={
+                                !creatingNewAlert &&
+                                !alertFormChanged &&
+                                !hasPendingNotifications &&
+                                'No changes to save'
+                            }
                             onClick={() => setAlertFormSubmitAttempted()}
                         >
                             {creatingNewAlert ? 'Create alert' : 'Save'}

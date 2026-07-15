@@ -183,6 +183,7 @@ from .dixa.source import DixaSource
 from .dockerhub.source import DockerhubSource
 from .docuseal.source import DocusealSource
 from .docusign.source import DocusignSource
+from .dodopayments.source import DodoPaymentsSource
 from .doit.source import DoItSource
 from .dolibarr.source import DolibarrSource
 from .dremio.source import DremioSource
@@ -265,6 +266,7 @@ from .google_ad_manager.source import GoogleAdManagerSource
 from .google_ads.source import GoogleAdsSource
 from .google_analytics.source import GoogleAnalyticsSource
 from .google_calendar.source import GoogleCalendarSource
+from .google_chat.source import GoogleChatSource
 from .google_classroom.source import GoogleClassroomSource
 from .google_cloud_storage.source import GoogleCloudStorageSource
 from .google_directory.source import GoogleDirectorySource
@@ -346,6 +348,7 @@ from .kapa_ai.source import KapaAISource
 from .katana.source import KatanaSource
 from .keka.source import KekaSource
 from .kernel.source import KernelSource
+from .kickscale.source import KickscaleSource
 from .kisi.source import KisiSource
 from .kissmetrics.source import KissmetricsSource
 from .klarna.source import KlarnaSource
@@ -572,6 +575,7 @@ from .rocketlane.source import RocketlaneSource
 from .rollbar.source import RollbarSource
 from .rootly.source import RootlySource
 from .rss.source import RssSource
+from .rudderstack.source import RudderStackSource
 from .ruddr.source import RuddrSource
 from .runpod.source import RunPodSource
 from .safetyculture.source import SafetyCultureSource
@@ -582,6 +586,7 @@ from .salesflare.source import SalesflareSource
 from .salesforce.source import SalesforceSource
 from .salesforce_marketing_cloud.source import SalesforceMarketingCloudSource
 from .salesloft.source import SalesLoftSource
+from .salestrics.source import SalestricsSource
 from .sanity.source import SanitySource
 from .sap_concur.source import SapConcurSource
 from .sap_erp.source import SapErpSource
@@ -619,6 +624,7 @@ from .sim.source import SimSource
 from .simfin.source import SimFinSource
 from .simplecast.source import SimpleCastSource
 from .simplesat.source import SimplesatSource
+from .singular.source import SingularSource
 from .skyvern.source import SkyvernSource
 from .slack.source import SlackSource
 from .slash.source import SlashSource
@@ -645,12 +651,14 @@ from .strava.source import StravaSource
 from .streamelements.source import StreamElementsSource
 from .streamlabs.source import StreamlabsSource
 from .stripe.source import StripeSource
+from .sumsub.source import SumsubSource
 from .supabase.source import SupabaseSource
 from .superwall.source import SuperwallSource
 from .surveymonkey.source import SurveyMonkeySource
 from .surveysparrow.source import SurveySparrowSource
 from .survicate.source import SurvicateSource
 from .svix.source import SvixSource
+from .swonkie.source import SwonkieSource
 from .synthesia.source import SynthesiaSource
 from .systeme.source import SystemeSource
 from .taboola.source import TaboolaSource
@@ -741,6 +749,7 @@ from .youtube_analytics.source import YouTubeAnalyticsSource
 from .youtube_data.source import YoutubeDataSource
 from .zapier_supported_storage.source import ZapierSupportedStorageSource
 from .zapsign.source import ZapSignSource
+from .zellify.source import ZellifySource
 from .zendesk.source import ZendeskSource
 from .zendesk_sell.source import ZendeskSellSource
 from .zendesk_sunshine.source import ZendeskSunshineSource

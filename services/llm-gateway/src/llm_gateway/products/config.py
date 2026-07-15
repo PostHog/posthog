@@ -15,9 +15,9 @@ class CreditBucket(StrEnum):
 
     Values match (or, once created, will match) the Django quota resource keys
     (ee/billing/quota_limiting.py QuotaResource), which is what the gateway's
-    quota resolver checks against. Only AI_CREDITS has a QuotaResource and
-    gateway-side quota enforcement today; POSTHOG_CODE_CREDITS bills without
-    blocking until its resource lands.
+    quota resolver checks against. Both buckets have gateway-side quota
+    enforcement: an exhausted bucket blocks every caller of the product, the
+    same population the usage reporter counts into it.
     """
 
     AI_CREDITS = "ai_credits"
@@ -34,9 +34,8 @@ class ProductConfig:
     # Which customer credit bucket this product bills into. None = not billed: emitted
     # $ai_generation events are tagged $ai_billable=false and the usage reporter
     # (posthog/tasks/usage_report.py) ignores them. A bucket value tags events billable
-    # so the reporter rolls them into that bucket's credit counter, and requests are
-    # blocked when the bucket's quota is exhausted — currently only AI_CREDITS has
-    # gateway-side quota enforcement; other buckets bill without blocking.
+    # so the reporter rolls them into that bucket's credit counter, and every caller
+    # is blocked when the bucket's quota is exhausted.
     credit_bucket: CreditBucket | None = None
 
 
@@ -59,11 +58,11 @@ POSTHOG_AI_DEV_APP_ID = "019edb1a-cce4-0000-1f6d-682061862da9"
 # allowlist is identical.
 _POSTHOG_CODE_AGENT_MODELS: Final[frozenset[str]] = frozenset(
     {
+        "claude-fable-5",
         "claude-opus-4-5",
         "claude-opus-4-6",
         "claude-opus-4-7",
         "claude-opus-4-8",
-        "claude-fable-5",
         "claude-sonnet-4-5",
         "claude-sonnet-4-6",
         "claude-sonnet-5",
@@ -111,11 +110,11 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID, POSTHOG_CODE_DEV_APP_ID}),
         allowed_models=frozenset(
             {
+                "claude-fable-5",
                 "claude-opus-4-5",
                 "claude-opus-4-6",
                 "claude-opus-4-7",
                 "claude-opus-4-8",
-                "claude-fable-5",
                 "claude-sonnet-4-5",
                 "claude-sonnet-5",
                 "claude-haiku-4-5",
@@ -201,6 +200,13 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID, POSTHOG_CODE_DEV_APP_ID}),
         allowed_models=None,  # any model — the signals pipeline picks models per stage (haiku, sonnet, ...)
         allow_api_keys=True,
+        credit_bucket=None,
+    ),
+    "review_hog": ProductConfig(
+        allowed_application_ids=None,
+        allowed_models=None,  # any model — the one-shot chunking/dedup calls pin theirs in review_hog constants
+        allow_api_keys=True,
+        # Deliberately unbilled while ReviewHog is an internal alpha.
         credit_bucket=None,
     ),
     "subscriptions": ProductConfig(

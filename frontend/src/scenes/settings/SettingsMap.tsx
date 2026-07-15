@@ -101,6 +101,7 @@ import {
     LogsRetentionSettings,
 } from './environment/LogsCaptureSettings'
 import { LogsDistinctIdAttributeKey } from './environment/LogsDistinctIdAttributeKey'
+import { LogsSessionIdAttributeKeys } from './environment/LogsSessionIdAttributeKeys'
 import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
 import { MarketingAnalyticsSettingsWrapper } from './environment/MarketingAnalyticsSettingsWrapper'
 import MCPServerSettings from './environment/MCPServerSettings'
@@ -146,6 +147,7 @@ import { OrganizationPersonalAPIKeys } from './organization/OrganizationPersonal
 import { OrganizationSecuritySettings } from './organization/OrganizationSecuritySettings'
 import { OrganizationDisplayName } from './organization/OrgDisplayName'
 import { OrgIPAnonymizationDefault } from './organization/OrgIPAnonymizationDefault'
+import { OrganizationVariables } from './organization/OrgVariables'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
 import { ProjectDangerZone } from './project/ProjectDangerZone'
 import { ProjectMove } from './project/ProjectMove'
@@ -433,6 +435,10 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'environment-error-tracking',
         title: 'Error tracking',
         group: 'Products',
+        accessControl: {
+            resourceType: AccessControlResourceType.ErrorTracking,
+            minimumAccessLevel: AccessControlLevel.Viewer,
+        },
         settings: [
             {
                 id: 'banner',
@@ -464,6 +470,10 @@ export const SETTINGS_MAP: SettingSection[] = [
         title: 'Error tracking',
         group: 'Products',
         hideFromNavigation: true,
+        accessControl: {
+            resourceType: AccessControlResourceType.ErrorTracking,
+            minimumAccessLevel: AccessControlLevel.Viewer,
+        },
         settings: [
             {
                 id: 'error-tracking-exception-autocapture',
@@ -766,6 +776,23 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <LogsDistinctIdAttributeKey />,
                 flag: 'LOGS_SETTINGS',
                 keywords: ['log', 'person', 'distinct', 'attribute', 'pivot', 'profile', 'link'],
+            },
+            {
+                id: 'logs-session-id-attribute-keys',
+                title: 'Link to session',
+                description: (
+                    <>
+                        The log attributes PostHog reads to identify which session a log belongs to, checked in order
+                        with the first match winning. Defaults to <code>posthogSessionId</code>, the key the JavaScript
+                        and React Native SDKs auto-attach. Add keys only if your pipeline emits the session ID under
+                        different attributes.
+                    </>
+                ),
+                searchDescription:
+                    'The log attributes PostHog reads to identify which session a log belongs to, checked in order with the first match winning. Defaults to posthogSessionId, the key the JavaScript and React Native SDKs auto-attach. Add keys only if your pipeline emits the session ID under different attributes.',
+                component: <LogsSessionIdAttributeKeys />,
+                flag: 'LOGS_SETTINGS',
+                keywords: ['log', 'session', 'replay', 'attribute', 'link'],
             },
             {
                 id: 'logs-retention',
@@ -1139,7 +1166,14 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'conversations-imports',
-                title: 'Imports',
+                title: (
+                    <>
+                        Imports
+                        <LemonTag type="highlight" size="small" className="ml-1">
+                            Beta
+                        </LemonTag>
+                    </>
+                ),
                 description: 'Import historical support data from external tools into Conversations.',
                 component: <ZendeskImportSection />,
                 flag: 'PRODUCT_SUPPORT_IMPORT_TICKETS',
@@ -1568,6 +1602,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                     "Your organization's name and logo are shown across the PostHog interface. Click the avatar to upload a custom logo.",
                 component: <OrganizationDisplayName />,
                 keywords: ['name', 'rename', 'label', 'organization', 'logo', 'image', 'brand', 'icon', 'avatar'],
+            },
+            {
+                id: 'organization-id',
+                title: 'Organization ID',
+                description: "Your organization's unique identifier, used in the PostHog API.",
+                component: <OrganizationVariables />,
+                keywords: ['organization', 'id', 'uuid', 'identifier', 'copy'],
             },
             {
                 id: 'organization-ai-consent',

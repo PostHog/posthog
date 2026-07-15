@@ -7,10 +7,15 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { InsightLogicProps, InsightShortId } from '~/types'
+import { ChartDisplayType, InsightLogicProps, InsightShortId } from '~/types'
 
 import type { AlertType } from '../types'
-import { alertsUnsupportedReason, areAlertsSupportedForInsight, insightAlertsLogic } from './insightAlertsLogic'
+import {
+    alertsUnsupportedReason,
+    areAlertsSupportedForInsight,
+    areAnomalyAlertsSupportedForInsight,
+    insightAlertsLogic,
+} from './insightAlertsLogic'
 
 const Insight42 = '42' as InsightShortId
 
@@ -29,6 +34,12 @@ const FUNNEL_QUERY = {
         kind: NodeKind.FunnelsQuery,
         series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
     },
+}
+
+// Metrics insights persist their query as a bare MetricsQuery node — no InsightVizNode wrapper.
+const METRICS_QUERY = {
+    kind: NodeKind.MetricsQuery,
+    clauses: [{ name: 'a', metricName: 'queue.depth', aggregation: 'avg' }],
 }
 
 describe('insightAlertsLogic', () => {
@@ -215,12 +226,39 @@ describe('areAlertsSupportedForInsight', () => {
         expect(areAlertsSupportedForInsight(undefined)).toBe(false)
     })
 
-    it('returns true for trends insight viz with trendsFilter', () => {
-        expect(areAlertsSupportedForInsight(API_QUERY)).toBe(true)
+    it.each([
+        ['with trendsFilter', API_QUERY],
+        [
+            'without trendsFilter',
+            {
+                ...API_QUERY,
+                source: {
+                    ...API_QUERY.source,
+                    trendsFilter: undefined,
+                },
+            },
+        ],
+        [
+            'with null trendsFilter',
+            {
+                ...API_QUERY,
+                source: {
+                    ...API_QUERY.source,
+                    trendsFilter: null,
+                },
+            },
+        ],
+    ])('returns true for trends insight viz %s', (_name, query) => {
+        expect(areAlertsSupportedForInsight(query)).toBe(true)
     })
 
     it('returns false for funnel insight viz when the funnel flag is off', () => {
         expect(areAlertsSupportedForInsight(FUNNEL_QUERY)).toBe(false)
+    })
+
+    it('supports bare metrics query nodes only when metricsAlertsEnabled', () => {
+        expect(areAlertsSupportedForInsight(METRICS_QUERY, { metricsAlertsEnabled: true })).toBe(true)
+        expect(areAlertsSupportedForInsight(METRICS_QUERY)).toBe(false)
     })
 
     it('returns true for funnel insight viz when funnelAlertsEnabled', () => {
@@ -239,28 +277,39 @@ describe('areAlertsSupportedForInsight', () => {
         expect(areAlertsSupportedForInsight(withViz('flow'), opts)).toBe(false)
     })
 
-    it('returns false when trendsFilter is null', () => {
+    it.each<[string, ChartDisplayType | undefined, boolean]>([
+        ['line graph', ChartDisplayType.ActionsLineGraph, true],
+        ['default display', undefined, true],
+        ['bold number', ChartDisplayType.BoldNumber, false],
+        ['bar value', ChartDisplayType.ActionsBarValue, false],
+    ])('reports anomaly support for %s trends', (_name, display, expected) => {
         const query = {
             ...API_QUERY,
             source: {
                 ...API_QUERY.source,
-                trendsFilter: null,
+                trendsFilter: display ? { display } : null,
             },
         }
-        expect(areAlertsSupportedForInsight(query)).toBe(false)
+        expect(areAnomalyAlertsSupportedForInsight(query)).toBe(expected)
     })
 })
 
 describe('alertsUnsupportedReason', () => {
     it.each([
-        ['only trends (no flags)', {}, ['trends'], ['SQL', 'funnel']],
-        ['trends + SQL', { hogqlAlertsEnabled: true }, ['trends', 'SQL'], ['funnel']],
-        ['trends + funnel', { funnelAlertsEnabled: true }, ['trends', 'funnel'], ['SQL']],
-        ['all three', { hogqlAlertsEnabled: true, funnelAlertsEnabled: true }, ['trends', 'SQL', 'funnel'], []],
+        ['only trends (no flags)', {}, ['trends'], ['SQL', 'funnel', 'metrics']],
+        ['trends + SQL', { hogqlAlertsEnabled: true }, ['trends', 'SQL'], ['funnel', 'metrics']],
+        ['trends + funnel', { funnelAlertsEnabled: true }, ['trends', 'funnel'], ['SQL', 'metrics']],
+        ['trends + metrics', { metricsAlertsEnabled: true }, ['trends', 'metrics'], ['SQL', 'funnel']],
+        [
+            'all four',
+            { hogqlAlertsEnabled: true, funnelAlertsEnabled: true, metricsAlertsEnabled: true },
+            ['trends', 'SQL', 'funnel', 'metrics'],
+            [],
+        ],
     ])('lists only enabled types: %s', (_name, options, included, excluded) => {
         const reason = alertsUnsupportedReason(options)
-        included.forEach((type) => expect(reason).toContain(type))
-        excluded.forEach((type) => expect(reason).not.toContain(type))
+        expect(included.every((type) => reason.includes(type))).toBe(true)
+        expect(excluded.every((type) => !reason.includes(type))).toBe(true)
     })
 
     // A time-to-convert/flow funnel is itself a funnel, so the generic "funnel insights are supported"

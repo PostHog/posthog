@@ -63,9 +63,16 @@ DEFAULT_USER_COST_LIMITS: dict[str, "UserCostLimit"] = {
 }
 
 FREE_PLAN_COST_LIMIT = UserCostLimit(
-    burst_limit_usd=75.0,
+    burst_limit_usd=20.0,
     burst_window_seconds=86400,
-    sustained_limit_usd=75.0,
+    sustained_limit_usd=20.0,
+    sustained_window_seconds=2592000,
+)
+
+ORG_BILLED_USER_COST_LIMIT = UserCostLimit(
+    burst_limit_usd=float("inf"),
+    burst_window_seconds=86400,
+    sustained_limit_usd=float("inf"),
     sustained_window_seconds=2592000,
 )
 
@@ -164,6 +171,13 @@ class Settings(BaseSettings):
     # user's is_staff flag rather than team id, so it survives impersonation.
     # Combined with the team multiplier by taking the larger of the two.
     staff_rate_limit_multiplier: int = 10
+
+    # When true, PostHog staff (authenticated is_staff) bypass the per-user
+    # burst/sustained cost caps entirely, on every product. Spend is still
+    # recorded for observability — only enforcement and the reported usage
+    # status treat staff as unlimited. Set false to fall back to the
+    # elevated-but-finite `staff_rate_limit_multiplier` cap.
+    staff_unlimited_usage: bool = True
 
     product_cost_limits: dict[str, ProductCostLimit] = DEFAULT_PRODUCT_COST_LIMITS
 

@@ -176,14 +176,11 @@ export const getExternalDataSchemasCancelCreateUrl = (projectId: string, id: str
 export const externalDataSchemasCancelCreate = async (
     projectId: string,
     id: string,
-    externalDataSchemaApi?: NonReadonly<ExternalDataSchemaApi>,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getExternalDataSchemasCancelCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSchemaApi),
     })
 }
 
@@ -329,8 +326,8 @@ export const externalDataSourcesCreate = async (
     projectId: string,
     externalDataSourceCreateApi: ExternalDataSourceCreateApi,
     options?: RequestInit
-): Promise<ExternalDataSourceSerializersApi> => {
-    return apiMutator<ExternalDataSourceSerializersApi>(getExternalDataSourcesCreateUrl(projectId), {
+): Promise<ExternalDataSourceCreateApi> => {
+    return apiMutator<ExternalDataSourceCreateApi>(getExternalDataSourcesCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -951,7 +948,7 @@ export const getExternalDataSourcesOauthAccountsRetrieveUrl = (
 /**
  * List the accounts/properties a connected OAuth integration exposes, in the shared
  * IntegrationAccount shape. The logic lives in each source (via OAuthMixin.get_oauth_accounts);
- * this endpoint just routes by source type and serializes the result.
+ * this endpoint just routes by source type, applies the optional search filter, and serializes.
  */
 export const externalDataSourcesOauthAccountsRetrieve = async (
     projectId: string,

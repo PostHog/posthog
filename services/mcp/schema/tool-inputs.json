@@ -882,7 +882,7 @@
             "properties": {
                 "id": {
                     "type": "string",
-                    "description": "The workflow (HogFlow) id to edit. Draft only — active workflows are read-only via MCP."
+                    "description": "The workflow (HogFlow) id to edit."
                 },
                 "operations": {
                     "minItems": 1,

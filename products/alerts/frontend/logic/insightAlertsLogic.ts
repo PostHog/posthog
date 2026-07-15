@@ -2,7 +2,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -13,6 +13,7 @@ import {
     hasBreakdownFilter,
     isFunnelsQuery,
     isInsightVizNode,
+    isMetricsQuery,
     isTrendsQuery,
 } from '~/queries/utils'
 import { FunnelVizType, InsightLogicProps } from '~/types'
@@ -31,14 +32,21 @@ export interface InsightAlertsLogicProps {
     deferInitialAlertsLoad?: boolean
 }
 
+/** Per-kind feature-flag state threaded from call sites into the alert-support predicates. */
+export interface AlertSupportFlagOptions {
+    hogqlAlertsEnabled?: boolean
+    funnelAlertsEnabled?: boolean
+    metricsAlertsEnabled?: boolean
+}
+
 export const areAlertsSupportedForInsight = (
     query?: Record<string, any> | null,
-    options: { hogqlAlertsEnabled?: boolean; funnelAlertsEnabled?: boolean } = {}
+    options: AlertSupportFlagOptions = {}
 ): boolean => {
     if (!query) {
         return false
     }
-    if (isInsightVizNode(query) && isTrendsQuery(query.source) && query.source.trendsFilter !== null) {
+    if (isInsightVizNode(query) && isTrendsQuery(query.source)) {
         return true
     }
     if (options.funnelAlertsEnabled && isInsightVizNode(query) && isFunnelsQuery(query.source)) {
@@ -47,19 +55,41 @@ export const areAlertsSupportedForInsight = (
         const vizType = query.source.funnelsFilter?.funnelVizType
         return vizType !== FunnelVizType.TimeToConvert && vizType !== FunnelVizType.Flow
     }
+    // Metrics insights persist a bare MetricsQuery node (no InsightVizNode wrapper).
+    if (options.metricsAlertsEnabled && isMetricsQuery(query)) {
+        return true
+    }
     return !!options.hogqlAlertsEnabled && containsHogQLQuery(query)
+}
+
+export const areAnomalyAlertsSupportedForInsight = (
+    query?: Record<string, any> | null,
+    options: AlertSupportFlagOptions = {}
+): boolean => {
+    if (!areAlertsSupportedForInsight(query, options)) {
+        return false
+    }
+    if (query && isInsightVizNode(query) && isTrendsQuery(query.source)) {
+        const display = query.source.trendsFilter?.display
+        return !display || !NON_TIME_SERIES_DISPLAY_TYPES.includes(display)
+    }
+    return true
 }
 
 // List only the insight types this account can actually alert on — naming a flag-gated type the
 // user doesn't have would disclose an unreleased feature.
-const alertableInsightTypesLabel = (options: { hogqlAlertsEnabled?: boolean; funnelAlertsEnabled?: boolean }): string =>
-    ['trends', options.hogqlAlertsEnabled && 'SQL', options.funnelAlertsEnabled && 'funnel'].filter(Boolean).join(', ')
+const alertableInsightTypesLabel = (options: AlertSupportFlagOptions): string =>
+    [
+        'trends',
+        options.hogqlAlertsEnabled && 'SQL',
+        options.funnelAlertsEnabled && 'funnel',
+        options.metricsAlertsEnabled && 'metrics',
+    ]
+        .filter(Boolean)
+        .join(', ')
 
 export const alertsUnsupportedReason = (
-    options: {
-        hogqlAlertsEnabled?: boolean
-        funnelAlertsEnabled?: boolean
-    },
+    options: AlertSupportFlagOptions,
     query?: Record<string, any> | null
 ): string => {
     // A funnel on a viz type without a conversion-rate metric otherwise reads as a contradiction —

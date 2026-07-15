@@ -1,7 +1,7 @@
 import { match } from 'ts-pattern'
 
 import { getSeriesColor } from 'lib/colors'
-import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
+import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout, MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { uuid } from 'lib/utils/dom'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
@@ -52,6 +52,12 @@ import type {
 } from 'products/experiments/frontend/generated/api.schemas'
 
 import { EXPERIMENT_VARIANT_MULTIPLE } from './constants'
+import {
+    EXPOSURE_DEFAULT_EVENT,
+    EXPOSURE_FEATURE_FLAG_PROPERTY,
+    EXPOSURE_FEATURE_FLAG_RESPONSE_PROPERTY,
+    featureFlagVariantProperty,
+} from './exposureContract'
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 
 const MULTIPLE_VARIANT_WARNING_THRESHOLD = 0.5 // on the 0-100 scale (0.5 = 0.5%)
@@ -106,6 +112,24 @@ export function getFlagVariants(
     return flag?.filters?.multivariate?.variants ?? []
 }
 
+/**
+ * The effective baseline variant, mirroring the backend rule (get_baseline_variant_key):
+ * the configured stats_config.baseline_variant_key, else 'control' when the flag has one,
+ * else the flag's first variant. A control-less draft can lack the configured key until
+ * launch pins it, so callers must not assume 'control' exists.
+ */
+export function getBaselineVariantKey(experiment: Partial<Experiment> | null | undefined): string {
+    const configured = experiment?.stats_config?.baseline_variant_key
+    if (configured) {
+        return configured
+    }
+    const variants = getExperimentVariants(experiment)
+    if (variants.length === 0 || variants.some((variant) => variant.key === 'control')) {
+        return 'control'
+    }
+    return variants[0].key
+}
+
 export function formatUnitByQuantity(value: number, unit: string): string {
     return value === 1 ? unit : unit + 's'
 }
@@ -144,7 +168,7 @@ function seriesToFilterLegacy(
             type: 'events',
             properties: [
                 {
-                    key: `$feature/${featureFlagKey}`,
+                    key: featureFlagVariantProperty(featureFlagKey),
                     type: PropertyFilterType.Event,
                     value: [variantKey],
                     operator: PropertyOperator.Exact,
@@ -203,7 +227,7 @@ function createExposureFilter(
         properties: [
             ...(exposureConfig.properties || []),
             {
-                key: `$feature/${featureFlagKey}`,
+                key: featureFlagVariantProperty(featureFlagKey),
                 type: PropertyFilterType.Event,
                 value: [variantKey],
                 operator: PropertyOperator.Exact,
@@ -230,23 +254,23 @@ export function getViewRecordingFilters(
     const exposureCriteria = experiment.exposure_criteria?.exposure_config
     if (
         exposureCriteria &&
-        !(isEventExposureConfig(exposureCriteria) && exposureCriteria.event === '$feature_flag_called')
+        !(isEventExposureConfig(exposureCriteria) && exposureCriteria.event === EXPOSURE_DEFAULT_EVENT)
     ) {
         filters.push(createExposureFilter(exposureCriteria, experiment.feature_flag_key, variantKey))
     } else {
         filters.push({
-            id: '$feature_flag_called',
-            name: '$feature_flag_called',
+            id: EXPOSURE_DEFAULT_EVENT,
+            name: EXPOSURE_DEFAULT_EVENT,
             type: 'events',
             properties: [
                 {
-                    key: '$feature_flag_response',
+                    key: EXPOSURE_FEATURE_FLAG_RESPONSE_PROPERTY,
                     type: PropertyFilterType.Event,
                     value: [variantKey],
                     operator: PropertyOperator.Exact,
                 },
                 {
-                    key: '$feature_flag',
+                    key: EXPOSURE_FEATURE_FLAG_PROPERTY,
                     type: PropertyFilterType.Event,
                     value: experiment.feature_flag_key,
                     operator: PropertyOperator.Exact,
@@ -314,7 +338,7 @@ export function getViewRecordingFiltersLegacy(
                         type: 'events',
                         properties: [
                             {
-                                key: `$feature/${featureFlagKey}`,
+                                key: featureFlagVariantProperty(featureFlagKey),
                                 type: PropertyFilterType.Event,
                                 value: [variantKey],
                                 operator: PropertyOperator.Exact,
@@ -337,18 +361,18 @@ export function getViewRecordingFiltersLegacy(
             }
         } else {
             filters.push({
-                id: '$feature_flag_called',
-                name: '$feature_flag_called',
+                id: EXPOSURE_DEFAULT_EVENT,
+                name: EXPOSURE_DEFAULT_EVENT,
                 type: 'events',
                 properties: [
                     {
-                        key: `$feature_flag_response`,
+                        key: EXPOSURE_FEATURE_FLAG_RESPONSE_PROPERTY,
                         type: PropertyFilterType.Event,
                         value: [variantKey],
                         operator: PropertyOperator.Exact,
                     },
                     {
-                        key: '$feature_flag',
+                        key: EXPOSURE_FEATURE_FLAG_PROPERTY,
                         type: PropertyFilterType.Event,
                         value: featureFlagKey,
                         operator: PropertyOperator.Exact,
@@ -375,16 +399,16 @@ export function getViewRecordingFiltersLegacy(
     return filters
 }
 
+// Mirrors the backend eligibility rule (experiment_eligibility_error): multivariate with 2-20 variants
 export function featureFlagEligibleForExperiment(featureFlag: FeatureFlagType): true {
     const variants = getFlagVariants(featureFlag)
-    if (variants.length > 1) {
-        if (variants[0].key !== 'control') {
-            throw new Error('Feature flag must have control as the first variant.')
-        }
-        return true
+    if (variants.length < 2) {
+        throw new Error('Feature flag must have at least 2 variants (a baseline and at least one test variant).')
     }
-
-    throw new Error('Feature flag must use multiple variants with control as the first variant.')
+    if (variants.length > MAX_EXPERIMENT_VARIANTS) {
+        throw new Error(`Feature flag must have at most ${MAX_EXPERIMENT_VARIANTS} variants.`)
+    }
+    return true
 }
 
 /**

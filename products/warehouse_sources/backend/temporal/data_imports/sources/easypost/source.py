@@ -65,7 +65,6 @@ You can find your API keys in your [EasyPost account settings](https://www.easyp
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

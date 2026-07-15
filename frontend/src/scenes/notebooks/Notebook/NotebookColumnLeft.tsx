@@ -10,7 +10,7 @@ import { LemonWidget } from 'lib/lemon-ui/LemonWidget'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 
 import { notebookNodeLogic } from '../Nodes/notebookNodeLogic'
-import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
+import type { notebookNodeLogicType } from '../Nodes/notebookNodeLogic'
 import { isMarkdownNotebookContent } from './markdownNotebookV2'
 import { NotebookHistory } from './NotebookHistory'
 import { NotebookKernelInfo } from './NotebookKernelInfo'
@@ -83,7 +83,7 @@ export const NotebookNodeSettingsOffset = ({ logic }: { logic: BuiltLogic<notebo
         updateHeight()
 
         return () => clearInterval(interval)
-    }, [ref, offsetRef.current, height, isPageVisible])
+    }, [ref, height, isPageVisible])
 
     return (
         <div

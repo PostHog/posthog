@@ -34,6 +34,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     EXPIRY_BUFFER_SECONDS,
     NON_RETRYABLE_CLICKHOUSE_ERROR_CODES,
     PREAGGREGATION_INSERT_QUORUM,
+    PREAGGREGATION_INSERT_QUORUM_TIMEOUT_MS,
     LazyComputationExecutor,
     LazyComputationResult,
     LazyComputationTable,
@@ -1701,7 +1702,9 @@ class TestComputationExecutorExecute(BaseTest):
             ("beyond_grace", 9, False),
         ]
     )
-    def test_stale_ready_job_serve_stale_by_grace(self, _name: str, expired_hours_ago: int, served: bool) -> None:
+    def test_stale_ready_job_served_within_stale_while_revalidate(
+        self, _name: str, expired_hours_ago: int, served: bool
+    ) -> None:
         query_info, query_hash = self._make_query_info()
 
         stale_job = PreaggregationJob.objects.create(
@@ -1717,7 +1720,7 @@ class TestComputationExecutorExecute(BaseTest):
         )
 
         executor = LazyComputationExecutor(
-            ttl_schedule=TtlSchedule.from_seconds(60 * 60), serve_stale_grace_seconds=6 * 60 * 60
+            ttl_schedule=TtlSchedule.from_seconds(60 * 60), stale_while_revalidate_seconds=6 * 60 * 60
         )
         insert_count = [0]
 
@@ -1739,7 +1742,7 @@ class TestComputationExecutorExecute(BaseTest):
             assert stale_job.id not in result.job_ids
             assert insert_count[0] == 1
 
-    def test_serve_stale_rechecks_coverage_after_overlap_filtering(self):
+    def test_stale_while_revalidate_rechecks_coverage_after_overlap_filtering(self):
         query_info, query_hash = self._make_query_info()
 
         now = django_timezone.now()
@@ -1762,7 +1765,7 @@ class TestComputationExecutorExecute(BaseTest):
             PreaggregationJob.objects.filter(id=job.id).update(created_at=now - timedelta(hours=created_ago_h))
 
         executor = LazyComputationExecutor(
-            ttl_schedule=TtlSchedule.from_seconds(60 * 60), serve_stale_grace_seconds=6 * 60 * 60
+            ttl_schedule=TtlSchedule.from_seconds(60 * 60), stale_while_revalidate_seconds=6 * 60 * 60
         )
         insert_count = [0]
 
@@ -1778,11 +1781,11 @@ class TestComputationExecutorExecute(BaseTest):
         assert result.stale is False, "gappy filtered coverage must not be served as a stale hit"
         assert insert_count[0] > 0
 
-    def test_serve_stale_grace_must_stay_under_expiry_buffer(self):
+    def test_stale_while_revalidate_must_stay_under_expiry_buffer(self):
         # A grace at/above EXPIRY_BUFFER_SECONDS could return PG jobs whose ClickHouse
         # rows were already TTL-deleted — silent empty reads. Constructor must refuse.
         with self.assertRaises(ValueError):
-            LazyComputationExecutor(serve_stale_grace_seconds=EXPIRY_BUFFER_SECONDS)
+            LazyComputationExecutor(stale_while_revalidate_seconds=EXPIRY_BUFFER_SECONDS)
 
     def test_fresh_ready_job_is_reused(self):
         query_info, query_hash = self._make_query_info()
@@ -2833,6 +2836,9 @@ class TestInsertSettings(BaseTest):
         # must be set per-query — a missing value here means readers race the distribution queue.
         assert settings["insert_distributed_sync"] == 1
         assert settings["insert_quorum"] == PREAGGREGATION_INSERT_QUORUM
+        # Quorum breakage (dead replica, stale ZK registration) must fail fast and fall back,
+        # not hold the request for ClickHouse's 600s default quorum wait.
+        assert settings["insert_quorum_timeout"] == PREAGGREGATION_INSERT_QUORUM_TIMEOUT_MS
         assert settings["load_balancing"] == "in_order"
         assert settings["max_execution_time"] == HOGQL_INCREASED_MAX_EXECUTION_TIME
         assert "readonly" not in settings

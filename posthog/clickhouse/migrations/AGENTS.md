@@ -32,10 +32,6 @@ The main cluster is:
 
 Additionally, on k8s we have stateless nodes:
 
-## ShuffleHog nodes
-
-It shuffles data between Kafka partitions.
-
 ## Ingestion nodes
 
 It ingests data from Kafka to a proper ClickHouse shard.

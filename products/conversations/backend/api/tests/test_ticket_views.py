@@ -75,14 +75,47 @@ class TestTicketViewAPI(APIBaseTest):
         mock_report.assert_called_once()
         assert mock_report.call_args[0][1] == "ticket view deleted"
 
-    def test_update_not_allowed(self):
+    @patch("products.conversations.backend.api.ticket_views.report_user_action")
+    def test_update_name_keeps_short_id_and_filters(self, mock_report):
         created = self._create_via_api()
+        mock_report.reset_mock()
+
         response = self.client.patch(
             f"{self.base_url}{created['short_id']}/",
-            {"name": "Renamed"},
+            {"name": "Renamed", "short_id": "hijacked"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["name"] == "Renamed"
+        assert data["short_id"] == created["short_id"]
+        assert data["filters"] == created["filters"]
+
+        mock_report.assert_called_once()
+        assert mock_report.call_args[0][1] == "ticket view updated"
+
+    def test_put_not_allowed(self):
+        created = self._create_via_api()
+        response = self.client.put(
+            f"{self.base_url}{created['short_id']}/",
+            {"name": "Replaced"},
             format="json",
         )
         assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
+        assert TicketView.objects.get(pk=created["id"]).filters == created["filters"]
+
+    def test_update_filters_keeps_name(self):
+        created = self._create_via_api()
+
+        new_filters = {"status": ["resolved"], "assignee": {"type": "role", "id": "abc"}}
+        response = self.client.patch(
+            f"{self.base_url}{created['short_id']}/",
+            {"filters": new_filters},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["filters"] == new_filters
+        assert response.json()["name"] == created["name"]
 
     # --- Filters are optional ---
 
@@ -146,6 +179,15 @@ class TestTicketViewAPI(APIBaseTest):
 
         response = self.client.get(f"{self.base_url}{other_view.short_id}/")
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_cannot_update_other_teams_view(self):
+        team2 = Team.objects.create(organization=self.organization, name="Team 2")
+        other_view = TicketView.objects.create(team=team2, name="Other", created_by=self.user)
+
+        response = self.client.patch(f"{self.base_url}{other_view.short_id}/", {"name": "Hacked"}, format="json")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        other_view.refresh_from_db()
+        assert other_view.name == "Other"
 
     def test_cannot_delete_other_teams_view(self):
         team2 = Team.objects.create(organization=self.organization, name="Team 2")

@@ -162,6 +162,13 @@ export const ComparePrevious: Story = {
     },
 }
 
+// The "Detailed results" table below a chart (not the main insight view): current and previous
+// periods appear as separate rows, so each row needs its compare tag — including with a breakdown.
+export const ComparePreviousDetailedResults: Story = {
+    render: renderCompareInsightsTable,
+    args: {},
+}
+
 // A HogQL breakdown expression that is far too long to fit in a column. The header should be clipped
 // with an ellipsis rather than overflowing into neighbouring columns.
 const LONG_SQL_BREAKDOWN =

@@ -31,7 +31,6 @@ class TestJustCallSource:
         assert config.name.value == "JustCall"
         assert config.label == "JustCall"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.iconPath == "/static/services/justcall.png"
 
         field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]

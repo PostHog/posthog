@@ -53,7 +53,6 @@ class HubplannerSource(ResumableSource[HubplannerSourceConfig, HubPlannerResumeC
 Generate a **Read Only** API key in Hub Planner under **Settings → API** (admin access required).""",
             iconPath="/static/services/hubplanner.png",
             docsUrl="https://posthog.com/docs/cdp/sources/hubplanner",
-            unreleasedSource=True,
             releaseStatus=ReleaseStatus.ALPHA,
             fields=cast(
                 list[FieldType],
