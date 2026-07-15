@@ -380,6 +380,7 @@ the row lists both.
 | shopwired                 | HTTP                        | requests                                                        | ✅                          |
 | shortcut                  | HTTP                        | requests                                                        | ✅                          |
 | shortio                   | HTTP                        | requests                                                        | ✅                          |
+| signoz                    | HTTP                        | requests                                                        | ✅                          |
 | simplecast                | HTTP                        | requests                                                        | ✅                          |
 | simplesat                 | HTTP                        | requests                                                        | ✅                          |
 | skyvern                   | HTTP                        | requests                                                        | ✅                          |
@@ -863,7 +864,6 @@ doesn't conflict with concurrent PRs.
 - shutterstock
 - sigma_computing
 - signnow
-- signoz
 - sim
 - simfin
 - simplecast
