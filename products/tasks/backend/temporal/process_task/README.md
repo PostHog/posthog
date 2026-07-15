@@ -104,6 +104,18 @@ Environment variables consumed inside the sandbox:
    - For wizard cloud runs, the GitHub merge webhook sends the same signal with status `completed`, so the run ends at merge instead of riding out the sandbox TTL
 10. **cleanup_sandbox** — Sandbox destroyed
 
+## Sustained master CI remediation
+
+`.github/workflows/ci-alerts-devex.yml` keeps GitHub as the master-health detector and Slack as the incident state store. After it opens a sustained-breakage incident, it calls `POST /api/code/ci_remediation/trigger/` with a shared-secret bearer token. GitHub Actions sends only the incident context and holds no GitHub write token, PostHog personal API key, or model credential.
+
+The endpoint resolves a preconfigured `TaskAutomation`, its team, run user, GitHub integration, and Slack integration server-side. The automation must target `PostHog/posthog`; its schedule can remain disabled because incident reconciliation triggers it directly. Production requires:
+
+- `CI_REMEDIATION_TRIGGER_TOKEN`
+- `CI_REMEDIATION_AUTOMATION_ID`
+- `CI_REMEDIATION_SLACK_INTEGRATION_ID`
+
+The Slack incident ID is stored as `automation_trigger_workflow_id`. `run_task_automation` locks the automation row before looking up or creating the run, so repeated reconciliation calls return the same Task and TaskRun. The run state persists the incident prompt, `master` base branch, bot PR authorship, draft auto-publish flag, Slack context, and a `pending_dispatch` envelope for queued-run recovery. Task progress and the eventual PR link are posted to the incident thread.
+
 ## Data model
 
 ### Task

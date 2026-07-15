@@ -29,6 +29,8 @@
 // GitHub API rate-limit observability is handled by the separate
 // monitor-github-rate-limit workflow, which emits to PostHog as time series.
 
+const { randomUUID } = require('node:crypto')
+
 const SLACK_API = 'https://slack.com/api'
 const INCIDENT_EVENT_TYPE = 'master_ci_incident'
 // Per-workflow links point at the engineering analytics workflow-detail page (not GitHub), scoped
@@ -268,6 +270,29 @@ function defaultSlackClient(token, fetchImpl) {
     }
 }
 
+function defaultRemediationClient(token, endpoint, fetchImpl) {
+    const doFetch = fetchImpl || fetch
+    return {
+        trigger: async (payload) => {
+            if (!token || !endpoint) {throw new Error('CI remediation trigger is not configured')}
+            const response = await doFetch(endpoint, {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    'Content-Type': 'application/json; charset=utf-8',
+                },
+                body: JSON.stringify(payload),
+            })
+            if (!response.ok) {throw new Error(`CI remediation trigger failed with status ${response.status}`)}
+            const result = await response.json()
+            if (!result.task_id || !result.run_id || !result.task_url) {
+                throw new Error('CI remediation trigger returned an invalid response')
+            }
+            return result
+        },
+    }
+}
+
 // The bot's own open incident, identified purely by message metadata — no other
 // app sets this event_type, so it is unambiguous without knowing our bot id.
 async function findActiveIncident(slack, channel) {
@@ -387,17 +412,104 @@ function buildRecoveryReply(durationMins) {
     return `:white_check_mark: master green again — was red ${formatDuration(durationMins)}`
 }
 
+function buildRemediationStartedReply(taskUrl) {
+    return `PostHog Code investigation started: <${taskUrl}|view task>`
+}
+
+async function reconcileRemediation({
+    slack,
+    remediation,
+    core,
+    channel,
+    threadTs,
+    message,
+    eventPayload,
+    owner,
+    repo,
+    latestCommit,
+    blocking,
+}) {
+    let nextPayload = eventPayload
+    if (!nextPayload.remediation) {
+        if (!latestCommit?.sha) {
+            core.warning('PostHog Code remediation is waiting for a current master SHA')
+            return nextPayload
+        }
+
+        let triggered
+        try {
+            triggered = await remediation.trigger({
+                incident_id: nextPayload.incident_id,
+                repository: `${owner}/${repo}`,
+                latest_master_sha: latestCommit.sha,
+                incident_started_at: nextPayload.since,
+                failing_workflows: blocking.map((workflow) => ({
+                    name: workflow.name,
+                    run_url: workflow.run_url,
+                })),
+                slack_channel_id: channel,
+                slack_thread_ts: threadTs,
+            })
+        } catch (_error) {
+            core.warning('PostHog Code remediation trigger failed; the next reconciliation tick will retry')
+            return nextPayload
+        }
+
+        nextPayload = {
+            ...nextPayload,
+            remediation: {
+                task_id: triggered.task_id,
+                run_id: triggered.run_id,
+                task_url: triggered.task_url,
+            },
+            remediation_started_notified: false,
+        }
+        await slack.update({
+            channel,
+            ts: threadTs,
+            ...message,
+            metadata: { event_type: INCIDENT_EVENT_TYPE, event_payload: nextPayload },
+            unfurl_links: false,
+        })
+    }
+
+    if (!nextPayload.remediation_started_notified) {
+        await slack.postMessage({
+            channel,
+            thread_ts: threadTs,
+            text: buildRemediationStartedReply(nextPayload.remediation.task_url),
+            unfurl_links: false,
+        })
+        nextPayload = { ...nextPayload, remediation_started_notified: true }
+        await slack.update({
+            channel,
+            ts: threadTs,
+            ...message,
+            metadata: { event_type: INCIDENT_EVENT_TYPE, event_payload: nextPayload },
+            unfurl_links: false,
+        })
+    }
+
+    return nextPayload
+}
+
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
-module.exports = async ({ context, github, core }, { now: _now, slack: _slack, fetch: _fetch, sleep: _sleep } = {}) => {
+module.exports = async (
+    { context, github, core },
+    { now: _now, slack: _slack, remediation: _remediation, fetch: _fetch, sleep: _sleep } = {}
+) => {
     const now = _now || new Date()
     const sleep = _sleep || defaultSleep
     const owner = context.repo.owner
     const repo = context.repo.repo
     const channel = process.env.SLACK_CHANNEL
     const slack = _slack || defaultSlackClient(process.env.SLACK_BOT_TOKEN, _fetch)
+    const remediation =
+        _remediation ||
+        defaultRemediationClient(process.env.CI_REMEDIATION_TRIGGER_TOKEN, process.env.CI_REMEDIATION_ENDPOINT, _fetch)
 
     const workflowFiles = (process.env.GATING_WORKFLOWS || '').split(',').filter(Boolean)
     const workflowThreshold = parseInt(process.env.WORKFLOW_FAILURE_STREAK_THRESHOLD || '5', 10)
@@ -504,13 +616,25 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
             durationMins,
             allFailingRunsUrl,
         })
+        const incidentId =
+            active?.payload?.incident_id || (active ? `master-ci:${channel}:${active.ts}` : randomUUID())
+        const eventPayload = {
+            ...(active?.payload || {}),
+            status: 'active',
+            incident_id: incidentId,
+            since,
+            workflows,
+            commitActive,
+        }
         const metadata = {
             event_type: INCIDENT_EVENT_TYPE,
-            event_payload: { status: 'active', since, workflows, commitActive },
+            event_payload: eventPayload,
         }
+        let threadTs
 
         if (!active) {
             const posted = await slack.postMessage({ channel, ...message, metadata, unfurl_links: false })
+            threadTs = posted.ts
             await slack.postMessage({
                 channel,
                 thread_ts: posted.ts,
@@ -518,6 +642,7 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
             })
             action = 'create'
         } else {
+            threadTs = active.ts
             await slack.update({ channel, ts: active.ts, ...message, metadata, unfurl_links: false })
             // Diff against the previous set to decide whether the timeline moved.
             const prevWorkflows = normalizeWorkflows(active.payload?.workflows)
@@ -535,6 +660,20 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
             }
             action = 'update'
         }
+
+        await reconcileRemediation({
+            slack,
+            remediation,
+            core,
+            channel,
+            threadTs,
+            message,
+            eventPayload,
+            owner,
+            repo,
+            latestCommit,
+            blocking,
+        })
     } else if (active) {
         const since = active.payload?.since
         const durationMins = since ? Math.round((now.getTime() - new Date(since).getTime()) / 60000) : 0
@@ -544,7 +683,10 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
             channel,
             ts: active.ts,
             ...message,
-            metadata: { event_type: INCIDENT_EVENT_TYPE, event_payload: { status: 'resolved' } },
+            metadata: {
+                event_type: INCIDENT_EVENT_TYPE,
+                event_payload: { ...(active.payload || {}), status: 'resolved' },
+            },
             unfurl_links: false,
         })
         await slack.postMessage({ channel, thread_ts: active.ts, text: buildRecoveryReply(durationMins) })

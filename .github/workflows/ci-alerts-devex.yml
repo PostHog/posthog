@@ -10,7 +10,8 @@ name: Master CI Alerts
 # The script owns the whole flow: it recomputes master health from the GitHub
 # API every tick and reconciles a single Slack incident (Slack is the source of
 # truth — the open anchor is found via message metadata, so there is no cache
-# state to race or lose). See .github/scripts/ci-alerts-devex.js.
+# state to race or lose). A stable incident id also idempotently launches one
+# server-side PostHog Code remediation run. See .github/scripts/ci-alerts-devex.js.
 
 on:
     # Reconcile ~a minute after master CI finishes; GitHub throttles the cron below to ~hourly under
@@ -69,6 +70,8 @@ jobs:
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
               env:
                   SLACK_BOT_TOKEN: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
+                  CI_REMEDIATION_TRIGGER_TOKEN: ${{ secrets.CI_REMEDIATION_TRIGGER_TOKEN }}
+                  CI_REMEDIATION_ENDPOINT: ${{ vars.CI_REMEDIATION_ENDPOINT_URL || 'https://us.posthog.com/api/code/ci_remediation/trigger/' }}
               with:
                   script: |
                       const script = require('./.github/scripts/ci-alerts-devex.js')

@@ -151,6 +151,16 @@ REVIEWHOG_TRIGGER_TOKEN: str | None = os.getenv("REVIEWHOG_TRIGGER_TOKEN") or No
 REVIEWHOG_TEAM_ID: int | None = get_from_env("REVIEWHOG_TEAM_ID", optional=True, type_cast=int)
 REVIEWHOG_RUN_USER_ID: int | None = get_from_env("REVIEWHOG_RUN_USER_ID", optional=True, type_cast=int)
 
+# Sustained master CI remediation. GitHub Actions knows only the shared trigger token; the configured
+# TaskAutomation resolves the team, run user, GitHub integration, and PostHog/posthog repository on the
+# server. The Slack integration posts progress and the draft PR back to the incident thread. Unset
+# values fail closed outside local development and tests.
+CI_REMEDIATION_TRIGGER_TOKEN: str | None = os.getenv("CI_REMEDIATION_TRIGGER_TOKEN") or None
+CI_REMEDIATION_AUTOMATION_ID: str | None = os.getenv("CI_REMEDIATION_AUTOMATION_ID") or None
+CI_REMEDIATION_SLACK_INTEGRATION_ID: int | None = get_from_env(
+    "CI_REMEDIATION_SLACK_INTEGRATION_ID", optional=True, type_cast=int
+)
+
 # These are legacy values only kept around for backwards compatibility with self hosted versions
 SALT_KEY = get_list(os.getenv("SALT_KEY", "0123456789abcdefghijklmnopqrstuvwxyz"))
 # We provide a default as it is needed for hobby deployments. Each entry must be exactly 32 bytes

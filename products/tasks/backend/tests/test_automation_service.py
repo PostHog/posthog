@@ -53,7 +53,9 @@ class TestAutomationService(TestCase):
         self.assertEqual(TaskRun.objects.filter(task__origin_product=Task.OriginProduct.AUTOMATION).count(), 1)
         self.assertEqual(first_run.state["automation_id"], str(automation.id))
         self.assertEqual(first_run.state["automation_trigger_workflow_id"], "automation-workflow-123")
-        self.assertEqual(mock_execute_workflow.call_count, 2)
+        self.assertEqual(mock_execute_workflow.call_count, 1)
+        self.assertEqual(first_run.state["pending_dispatch"]["create_pr"], True)
+        self.assertEqual(first_run.state["pending_dispatch"]["posthog_mcp_scopes"], "read_only")
 
     @patch("products.tasks.backend.automation_service.execute_task_processing_workflow_for_automation")
     def test_run_task_automation_does_not_reuse_run_from_another_team(self, mock_execute_workflow):

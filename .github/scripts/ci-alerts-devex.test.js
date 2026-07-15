@@ -100,6 +100,10 @@ function makeSlack(history = []) {
     }
 }
 
+function makeRemediation(impl = () => Promise.reject(new Error('not configured'))) {
+    return { trigger: recordingFn(impl) }
+}
+
 // An open incident anchor as conversations.history would return it.
 const activeAnchor = (payload = {}) => ({
     ts: '999.000',
@@ -133,7 +137,7 @@ const commitsAt = (ageMins) => [
     },
 ]
 
-function run(github, { history = [], now = minutes(0), env = {} } = {}) {
+function run(github, { history = [], now = minutes(0), env = {}, remediation = makeRemediation() } = {}) {
     const outputs = {}
     const core = { setOutput: (k, v) => (outputs[k] = v), info: () => {}, warning: () => {} }
     const slack = makeSlack(history)
@@ -149,8 +153,8 @@ function run(github, { history = [], now = minutes(0), env = {} } = {}) {
     })
     return ciAlertsDevex(
         { context: { repo: { owner: 'PostHog', repo: 'posthog' } }, github, core },
-        { now, slack, sleep: () => Promise.resolve() }
-    ).then(() => ({ slack, outputs }))
+        { now, slack, remediation, sleep: () => Promise.resolve() }
+    ).then(() => ({ slack, remediation, outputs }))
 }
 
 describe('ci-alerts-devex', () => {
@@ -209,6 +213,99 @@ describe('ci-alerts-devex', () => {
         assert.equal(slack.update.calls[0][0].ts, '999.000')
         assert.equal(slack.update.calls[0][0].attachments[0].color, '#E01E5A')
         assert.equal(slack.update.calls[0][0].metadata.event_payload.status, 'active')
+    })
+
+    it('retries remediation after Slack incident creation without creating a second incident', async () => {
+        const commits = commitsAt(3)
+        commits[0].sha = 'a'.repeat(40)
+        const github = createGithubMock(
+            {
+                'ci-backend.yml': failingRuns('Backend CI', 5),
+                'ci-frontend.yml': runs('Frontend CI', ['success']),
+            },
+            { commits }
+        )
+        const failedRemediation = makeRemediation(() => Promise.reject(new Error('temporary failure')))
+        const first = await run(github, { remediation: failedRemediation })
+
+        assert.equal(first.outputs.action, 'create')
+        assert.equal(failedRemediation.trigger.calls.length, 1)
+        const openedAnchor = first.slack.postMessage.calls[0][0]
+        const incidentId = openedAnchor.metadata.event_payload.incident_id
+        assert.match(incidentId, /^[0-9a-f-]{36}$/)
+        assert.equal(openedAnchor.metadata.event_payload.remediation, undefined)
+
+        const successfulRemediation = makeRemediation(() =>
+            Promise.resolve({
+                task_id: '11111111-1111-1111-1111-111111111111',
+                run_id: '22222222-2222-2222-2222-222222222222',
+                task_url: 'https://us.posthog.com/project/2/tasks/111?runId=222',
+            })
+        )
+        const retry = await run(github, {
+            history: [{ ts: '111.222', metadata: openedAnchor.metadata }],
+            remediation: successfulRemediation,
+        })
+
+        assert.equal(retry.outputs.action, 'update')
+        assert.equal(successfulRemediation.trigger.calls.length, 1)
+        const request = successfulRemediation.trigger.calls[0][0]
+        assert.deepEqual(Object.keys(request).sort(), [
+            'failing_workflows',
+            'incident_id',
+            'incident_started_at',
+            'latest_master_sha',
+            'repository',
+            'slack_channel_id',
+            'slack_thread_ts',
+        ])
+        assert.equal(request.incident_id, incidentId)
+        assert.equal(request.repository, 'PostHog/posthog')
+        assert.equal(request.latest_master_sha, 'a'.repeat(40))
+        assert.equal(request.slack_thread_ts, '111.222')
+
+        const finalMetadata = retry.slack.update.calls.at(-1)[0].metadata.event_payload
+        assert.equal(finalMetadata.incident_id, incidentId)
+        assert.equal(finalMetadata.remediation.task_id, '11111111-1111-1111-1111-111111111111')
+        assert.equal(finalMetadata.remediation_started_notified, true)
+        assert.match(retry.slack.postMessage.calls[0][0].text, /PostHog Code investigation started/)
+    })
+
+    it('preserves remediation metadata and does not retrigger on ordinary incident updates', async () => {
+        const commits = commitsAt(3)
+        commits[0].sha = 'b'.repeat(40)
+        const github = createGithubMock(
+            {
+                'ci-backend.yml': failingRuns('Backend CI', 5),
+                'ci-frontend.yml': runs('Frontend CI', ['success']),
+            },
+            { commits }
+        )
+        const remediationState = {
+            task_id: '11111111-1111-1111-1111-111111111111',
+            run_id: '22222222-2222-2222-2222-222222222222',
+            task_url: 'https://us.posthog.com/project/2/tasks/111?runId=222',
+        }
+        const remediation = makeRemediation(() => Promise.reject(new Error('must not be called')))
+        const { slack, outputs } = await run(github, {
+            history: [
+                activeAnchor({
+                    incident_id: 'incident-stable',
+                    remediation: remediationState,
+                    remediation_started_notified: true,
+                    retained_marker: 'keep',
+                }),
+            ],
+            remediation,
+        })
+
+        assert.equal(outputs.action, 'update')
+        assert.equal(remediation.trigger.calls.length, 0)
+        assert.equal(slack.update.calls.length, 1)
+        assert.deepEqual(slack.update.calls[0][0].metadata.event_payload.remediation, remediationState)
+        assert.equal(slack.update.calls[0][0].metadata.event_payload.incident_id, 'incident-stable')
+        assert.equal(slack.update.calls[0][0].metadata.event_payload.retained_marker, 'keep')
+        assert.equal(slack.postMessage.calls.length, 0)
     })
 
     it('threads a reply when a new workflow joins the failing set', async () => {
