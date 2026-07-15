@@ -101,6 +101,37 @@ describe('notebookNodeStalenessLogic', () => {
         expect(stalenessLogic.values.chainQueue).toEqual([])
     })
 
+    it('a chain run picks up cells its own completion marked stale', async () => {
+        // The queue must be rebuilt as the chain advances: a's run marks b and c stale, and
+        // a snapshot taken at chain start would finish "successfully" while they stay flagged.
+        mountNode('a')
+        mountNode('b')
+        mountNode('c')
+        stalenessLogic.actions.markStaleNodeIds(['a'])
+
+        stalenessLogic.actions.runStaleChain(content)
+        await expectLogic(stalenessLogic).toFinishAllListeners()
+
+        expect(runSpy.mock.calls.map((call) => call[1].node_id)).toEqual(['a', 'b', 'c'])
+        expect(stalenessLogic.values.staleNodeIds).toEqual({})
+        expect(stalenessLogic.values.chainQueue).toEqual([])
+    })
+
+    it('skips a stale cell with no mounted logic instead of wedging the chain', async () => {
+        // A dispatch to an unmounted cell is picked up by nobody: without the mounted-cell
+        // filter the queue would sit at ['c'] forever, blocking any further stale-cell run.
+        mountNode('b')
+        stalenessLogic.actions.markStaleNodeIds(['b', 'c'])
+
+        stalenessLogic.actions.runStaleChain(content)
+        await expectLogic(stalenessLogic).toFinishAllListeners()
+
+        expect(runSpy.mock.calls.map((call) => call[1].node_id)).toEqual(['b'])
+        expect(stalenessLogic.values.chainQueue).toEqual([])
+        // The unmounted cell keeps its flag — it was never re-run.
+        expect(stalenessLogic.values.staleNodeIds).toEqual({ c: true })
+    })
+
     it('the chain stops when a cell does not finish successfully', async () => {
         mountNode('b')
         mountNode('c')
