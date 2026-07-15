@@ -16,7 +16,7 @@ import { PERSON_DISPLAY_NAME_COLUMN_NAME } from '~/lib/constants'
 import { CLOUD_HOSTNAMES } from '~/lib/constants'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
-import type { CommentType, PersonType } from '~/types'
+import type { Breadcrumb, CommentType, PersonType } from '~/types'
 import { PropertyFilterType, PropertyOperator, Region } from '~/types'
 
 import {
@@ -405,6 +405,14 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         ],
     }),
     selectors({
+        breadcrumbs: [
+            (s, p) => [s.ticket, p.id],
+            (ticket, id): Breadcrumb[] => {
+                const number = ticket?.ticket_number ?? id
+                const name = id === 'new' ? 'New ticket' : `Ticket #${number} detail`
+                return [{ key: ['SupportTicketDetail', id], name }]
+            },
+        ],
         emailReplyBlockedReason: [
             (s) => [s.ticket, s.currentTeam],
             (ticket, currentTeam): EmailReplyBlockedReason | null =>
