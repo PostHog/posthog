@@ -85,6 +85,9 @@ export type AIObservabilityTraceLogicProps = Record<string, never>
 export interface TraceGitMetadata {
     branch: string | null
     repo: string | null
+    /** The trace's capture time, threaded to resolve_branch so a reused branch name resolves to the PR
+     * that was active when the trace ran, not whichever PR is newest now. */
+    timestamp: string | null
 }
 
 /** A branch→PR resolution tagged with the request it resolved for, so a result left over from a
@@ -380,6 +383,7 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
                         matches = await engineeringAnalyticsResolveBranch(projectId(), {
                             branch,
                             repo: gitMetadata?.repo ?? undefined,
+                            timestamp: gitMetadata?.timestamp ?? undefined,
                         })
                     } catch {
                         matches = []

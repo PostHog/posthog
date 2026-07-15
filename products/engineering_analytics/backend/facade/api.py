@@ -49,6 +49,8 @@ from products.engineering_analytics.backend.facade.contracts import (
 )
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from posthog.rbac.user_access_control import UserAccessControl
 
     from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
@@ -126,15 +128,21 @@ def resolve_branch(
     team: Team,
     branch: str | None = None,
     repo: str | None = None,
+    timestamp: "datetime | None" = None,
     source_id: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> list[BranchPRMatch]:
     """Resolve a git branch to the pull request(s) it belongs to — the cross-product link seam
     (LLM analytics links a git branch to a PR detail page). ``branch`` is required; ``repo``
-    ('owner/name') optionally narrows to one repository.
+    ('owner/name') optionally narrows to one repository. ``timestamp`` (the trace's capture time)
+    prefers the PR that was active at that moment when a branch name was reused across PRs over
+    time — a ranking hint only, never a filter.
     """
     return logic.build_resolve_branch(
-        curated=_authorized_source(team, source_id, user_access_control, repo=repo), branch=branch, repo=repo
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
+        branch=branch,
+        repo=repo,
+        timestamp=timestamp,
     )
 
 

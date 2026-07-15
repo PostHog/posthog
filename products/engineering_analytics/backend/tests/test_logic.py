@@ -572,6 +572,14 @@ class TestResolveGitHubTables(BaseTest):
             pull_requests="myprefixgithub_pull_requests", workflow_runs="myprefixgithub_workflow_runs"
         )
 
+    def test_repo_scoped_resolution_survives_non_dict_job_inputs(self) -> None:
+        # job_inputs is an EncryptedJSONField that can hold any JSON value; the repo-first ordering
+        # must treat a non-dict as "no repository input", not crash the whole resolution.
+        source = self._connect(prefix="weird", schemas=self._BOTH_SYNCED)
+        ExternalDataSource.objects.filter(pk=source.pk).update(job_inputs=["not", "a", "dict"])
+        tables = resolve_github_tables(team=self.team, repo="PostHog/posthog")
+        assert tables.pull_requests == "weirdgithub_pull_requests"
+
     def test_raises_without_a_github_source(self) -> None:
         with self.assertRaises(GitHubSourceNotConnectedError):
             resolve_github_tables(team=self.team)
@@ -950,6 +958,26 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         assert [m.number for m in matches] == [61, 62]  # only feat/login PRs, open first
         # A branch matching no PR resolves to nothing (empty list, not an error).
         assert api.resolve_branch(team=self.team, branch="feat/nothing") == []
+
+    def test_resolve_branch_prefers_pr_active_at_timestamp(self) -> None:
+        # Same head ref reused across PRs over time: an old one merged months ago and a newer open one.
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [
+                _pr_row(
+                    70, "bob", "closed", 0, _ago(120), merged_at=_ago(110), head_sha="sha70", head_ref="feat/reuse"
+                ),
+                _pr_row(71, "alice", "open", 0, _ago(2), head_sha="sha71", head_ref="feat/reuse"),
+            ],
+        )
+        self._create_table("github_workflow_runs", _WORKFLOW_RUNS_COLUMNS, [])
+        # No timestamp: open PR wins on the open-first/recency fallback.
+        assert [m.number for m in api.resolve_branch(team=self.team, branch="feat/reuse")] == [71, 70]
+        # A timestamp inside the old PR's lifetime window ranks it first, even though the newer PR is open.
+        during_old = timezone.now() - timedelta(days=112)
+        matches = api.resolve_branch(team=self.team, branch="feat/reuse", timestamp=during_old)
+        assert [m.number for m in matches] == [70, 71]
 
     def test_workflow_health_aggregates(self) -> None:
         self._seed()
@@ -1699,6 +1727,17 @@ class TestPRLLMSpendWarehouse(_WarehouseMixin, BaseTest):
         flush_persons_and_events()
 
         cost = api.get_pr_cost(team=self.team, pr_number=84, repo="PostHog/posthog")
+        assert cost.llm_spend is None
+
+    def test_llm_spend_failure_degrades_to_none(self) -> None:
+        # The spend join is an optional enrichment; a query failure (e.g. a timeout on an AI-heavy
+        # team) must not take the whole cost summary down with it.
+        self._seed_pr(85, "feat/degrade")
+        with mock.patch(
+            "products.engineering_analytics.backend.logic.query_pr_llm_spend",
+            side_effect=Exception("clickhouse timeout"),
+        ):
+            cost = api.get_pr_cost(team=self.team, pr_number=85, repo="PostHog/posthog")
         assert cost.llm_spend is None
 
     def test_llm_spend_none_when_no_generations(self) -> None:

@@ -198,6 +198,9 @@ export function deriveTraceGitMetadata(trace: LLMTrace | undefined): TraceGitMet
     if (!trace) {
         return null
     }
+    // The trace's capture time scopes branch→PR resolution to the moment the work ran, so a reused
+    // branch name resolves to the PR active then rather than whichever PR is newest now.
+    const timestamp = nonEmptyStringProp(trace.createdAt)
     let first: TraceGitMetadata | null = null
     let lastFeature: TraceGitMetadata | null = null
     for (const event of trace.events) {
@@ -206,9 +209,9 @@ export function deriveTraceGitMetadata(trace: LLMTrace | undefined): TraceGitMet
         if (!branch && !repo) {
             continue
         }
-        first = first ?? { branch, repo }
+        first = first ?? { branch, repo, timestamp }
         if (branch && !DEFAULT_BRANCHES.has(branch)) {
-            lastFeature = { branch, repo }
+            lastFeature = { branch, repo, timestamp }
         }
     }
     return lastFeature ?? first
