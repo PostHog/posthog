@@ -9,8 +9,6 @@ from asgiref.sync import sync_to_async
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.hogql.errors import QueryError
-
 from posthog.errors import CHQueryErrorS3Error
 from posthog.slo.types import SloArea, SloConfig, SloOperation, SloOutcome
 from posthog.temporal.common.slo_interceptor import SloInterceptor
@@ -151,13 +149,6 @@ async def test_transient_error_retries_and_succeeds(
 @pytest.mark.parametrize(
     "error_factory,expected_exception_class,expected_error_msg,expected_call_count,expected_outcome",
     [
-        (
-            lambda: QueryError("Invalid HogQL query"),
-            "QueryError",
-            "QueryError: Invalid HogQL query",
-            1,
-            SloOutcome.SUCCESS,
-        ),
         (lambda: RuntimeError("Chrome crashed"), "RuntimeError", "RuntimeError: Chrome crashed", 1, SloOutcome.FAILURE),
         (
             lambda: CHQueryErrorS3Error("S3 error", code=499),
@@ -167,7 +158,7 @@ async def test_transient_error_retries_and_succeeds(
             SloOutcome.FAILURE,
         ),
     ],
-    ids=["non_retryable_user_error", "generic_runtime_error", "retryable_system_error"],
+    ids=["generic_runtime_error", "retryable_system_error"],
 )
 @patch("posthog.slo.events.posthoganalytics")
 @patch("posthog.temporal.exports.activities.exporter")
@@ -203,3 +194,32 @@ async def test_export_failure_emits_slo_outcome(
     assert props["error_type"] == expected_exception_class
     assert props["error_message"] == expected_error_msg
     assert "Traceback" in props["error_trace"]
+
+
+@patch("posthog.slo.events.posthoganalytics")
+@patch("posthog.temporal.exports.activities.exporter")
+async def test_user_error_records_failure_without_slo_breach(
+    mock_exporter: MagicMock,
+    mock_analytics: MagicMock,
+    team,
+):
+    asset = await sync_to_async(ExportedAsset.objects.create)(team=team, export_format=EXPORT_FORMAT)
+
+    # export_asset_direct records user-config failures on the asset and returns without raising, so
+    # the workflow completes: a bad user query must not count as an SLO breach (which would page the
+    # team) nor propagate an exception that floods error tracking.
+    def user_error_export(asset_obj, **kwargs):
+        asset_obj.failure_type = "user"
+        asset_obj.exception_type = "QueryError"
+        asset_obj.save(update_fields=["failure_type", "exception_type"])
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        await _run_export_workflow(env, asset, team, mock_exporter, user_error_export)
+
+    await sync_to_async(asset.refresh_from_db)()
+    assert not asset.has_content
+    assert asset.failure_type == "user"
+
+    props = _get_slo_completed_props(mock_analytics)
+    assert props["outcome"] == SloOutcome.SUCCESS
+    assert "error" not in props
