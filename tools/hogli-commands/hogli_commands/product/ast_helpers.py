@@ -381,7 +381,7 @@ def get_facade_reexports(backend_dir: Path) -> list[tuple[str, str, str]]:
     # and keying by name would check only one of them.
     candidates: list[tuple[str, str, Path | None]] = []
     for module in sorted(facade_dir.glob("*.py")):
-        if module.stem in {"__init__", "contracts", "enums"}:
+        if module.stem in {"contracts", "enums"}:
             continue
         for advertised, (original, source) in _module_reexports(module, backend_dir).items():
             candidates.append((advertised, original, source))

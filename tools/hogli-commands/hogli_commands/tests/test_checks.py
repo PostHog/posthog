@@ -226,6 +226,17 @@ class TestFacadeReexports:
             ("NodeType", "class", "backend/logic/other.py"),
         ]
 
+    def test_package_facade_init_is_scanned(self, tmp_path: Path) -> None:
+        backend_dir = _make_facade(
+            tmp_path,
+            api_source="",
+            logic_source="class Runner:\n    def run(self):\n        pass\n",
+        )
+        (backend_dir / "facade" / "__init__.py").write_text(
+            'from ..logic.matrix import Runner\n\n__all__ = ["Runner"]\n'
+        )
+        assert get_facade_reexports(backend_dir) == [("Runner", "class", "backend/logic/matrix.py")]
+
     def test_locally_defined_export_is_not_a_reexport(self, tmp_path: Path) -> None:
         backend_dir = _make_facade(
             tmp_path,
