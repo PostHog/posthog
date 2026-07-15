@@ -1,5 +1,6 @@
 from contextlib import nullcontext
 from datetime import timedelta
+from uuid import UUID
 
 from unittest.mock import patch
 
@@ -61,7 +62,7 @@ class LoopsAPITestCase(TestCase):
     def _loops_url(self) -> str:
         return f"/api/projects/{self.team.id}/loops/"
 
-    def _loop_url(self, loop_id: str) -> str:
+    def _loop_url(self, loop_id: str | UUID) -> str:
         return f"{self._loops_url()}{loop_id}/"
 
     def _valid_loop_payload(self, **overrides) -> dict:

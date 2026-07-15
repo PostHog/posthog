@@ -274,8 +274,10 @@ def _as_dict(raw: object) -> dict:
 
 
 def _coerce_int(value: object, default: int) -> int:
+    if not isinstance(value, (int, float, str)):
+        return default
     try:
-        return int(value)  # type: ignore[arg-type]
+        return int(value)
     except (TypeError, ValueError):
         return default
 

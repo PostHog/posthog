@@ -348,7 +348,8 @@ class LoopWriteSerializer(serializers.Serializer):
     triggers = LoopTriggerWriteSerializer(
         many=True,
         required=False,
-        max_length=loops_facade.MAX_TRIGGERS_PER_LOOP,
+        # drf-stubs types many=True against the child serializer and misses ListSerializer's max_length
+        max_length=loops_facade.MAX_TRIGGERS_PER_LOOP,  # type: ignore[call-arg]
         help_text=(
             "Full desired trigger list, id-stable: entries with a matching `id` are updated in place, "
             "entries without one are created, and existing triggers absent from this list are deleted. "
