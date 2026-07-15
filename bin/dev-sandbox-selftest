@@ -170,6 +170,7 @@ check_write_blocked() {
     fi
 }
 check_write_blocked "bin/.dev_sandbox_selftest_probe" "repo bin/"
+check_write_blocked ".codex/.dev_sandbox_selftest_probe" "repo .codex/"
 mkdir -p .git/hooks 2>/dev/null || true
 check_write_blocked ".git/hooks/.dev_sandbox_selftest_probe" ".git/hooks"
 if [[ -d "$HOME/.cargo/bin" ]]; then

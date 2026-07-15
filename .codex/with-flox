@@ -16,11 +16,12 @@ fi
 caller_cwd="$PWD"
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 env_file="$repo_root/.flox/cache/codex-env"
-fingerprint_file="$env_file.fingerprint"
 fingerprint_inputs=(
     "$repo_root/.codex/with-flox"
     "$repo_root/.flox/env/manifest.toml"
     "$repo_root/.flox/env/on-activate.sh"
+    "$repo_root/bin/dev-sandbox"
+    "$repo_root/bin/dev-sandbox.sb"
     "$repo_root/pnpm-lock.yaml"
     "$repo_root/uv.lock"
 )
@@ -30,11 +31,14 @@ done < <(find "$repo_root/tools/phrocs" -type f \( -name '*.go' -o -name 'go.mod
 
 toolchain_variables=(
     ACLOCAL_PATH
+    AGENT_PREVIEW_SECRET
     BUILDENV_NIX
     CARGO_TARGET_DIR
+    CLICKHOUSE_DATABASE
     CMAKE_PREFIX_PATH
     CPATH
     CPPFLAGS
+    DEBUG
     DIRENV_LOG_FORMAT
     DOTENV_FILE
     DYLD_FALLBACK_LIBRARY_PATH
@@ -50,6 +54,7 @@ toolchain_variables=(
     FLOX_PROMPT_ENVIRONMENTS
     FLOX_SENTRY_DSN
     FLOX_SENTRY_ENV
+    FLAGS_REDIS_URL
     GOCACHE
     GOMODCACHE
     GOPATH
@@ -68,6 +73,7 @@ toolchain_variables=(
     PATH
     PATH_LOCALE
     PKG_CONFIG_PATH
+    POSTHOG_SKIP_MIGRATION_CHECKS
     PROCESS_COMPOSE_BIN
     RUSTC_WRAPPER
     RUST_LOG
@@ -97,31 +103,46 @@ find_flox() {
 }
 
 is_dependency_change() {
-    local tool="${1##*/}"
-    shift
-    [[ "$tool" == "uv" || "$tool" == "pnpm" ]] || return 1
-
-    local argument
+    local argument tool_seen=0
     for argument in "$@"; do
-        case "$argument" in
-            add | i | install | lock | sync | up | update) return 0 ;;
+        case "${argument##*/}" in
+            pnpm | uv) tool_seen=1 ;;
+        esac
+        if [[ "$tool_seen" -eq 1 ]]; then
+            case "$argument" in
+                add | i | install | lock | sync | up | update) return 0 ;;
+            esac
+        fi
+        case " $argument " in
+            *" uv "* | *" pnpm "* | *"/uv "* | *"/pnpm "*)
+                case " $argument " in
+                    *" add "* | *" i "* | *" install "* | *" lock "* | *" sync "* | *" up "* | *" update "*) return 0 ;;
+                esac
+                ;;
         esac
     done
     return 1
 }
 
 is_stack_lifecycle() {
-    local tool="${1##*/}"
-    shift
-    if [[ "$tool" == "start" ]]; then
-        return 0
-    fi
-    [[ "$tool" == "hogli" ]] || return 1
-
-    local argument
+    local argument tool_seen=0
     for argument in "$@"; do
-        case "$argument" in
-            box:forward | down | restart | start | up | wait) return 0 ;;
+        case "${argument##*/}" in
+            hogli) tool_seen=1 ;;
+            start) return 0 ;;
+        esac
+        if [[ "$tool_seen" -eq 1 ]]; then
+            case "$argument" in
+                box:forward | down | restart | services:ready | start | start:* | stop | up | wait) return 0 ;;
+            esac
+        fi
+        case " $argument " in
+            *" bin/start "* | *"/bin/start "*) return 0 ;;
+            *" hogli "*)
+                case " $argument " in
+                    *" box:forward "* | *" down "* | *" restart "* | *" services:ready "* | *" start "* | *" start:"* | *" stop "* | *" up "* | *" wait "*) return 0 ;;
+                esac
+                ;;
         esac
     done
     return 1
@@ -158,20 +179,20 @@ if [[ -n "${CODEX_SANDBOX:-}" ]] && is_stack_lifecycle "$@"; then
 fi
 
 if [[ "$prepare" -eq 0 ]]; then
-    if [[ ! -f "$env_file" || ! -f "$fingerprint_file" ]]; then
-        echo "error: Codex environment is not prepared; run 'bash .codex/with-flox --prepare true'" >&2
-        exit 1
-    fi
-
-    if [[ "$(<"$fingerprint_file")" != "$(environment_fingerprint)" ]]; then
-        echo "error: Codex environment is stale; run 'bash .codex/with-flox --prepare true'" >&2
+    if [[ ! -f "$env_file" ]]; then
+        echo "error: Codex environment is not prepared; run 'bash $repo_root/.codex/with-flox --prepare true'" >&2
         exit 1
     fi
 
     runtime_env=(env -i)
+    cached_fingerprint=""
     cached_variables=0
     while IFS= read -r -d '' assignment; do
         name="${assignment%%=*}"
+        if [[ "$name" == "CODEX_ENV_FINGERPRINT" ]]; then
+            cached_fingerprint="${assignment#*=}"
+            continue
+        fi
         allowed=0
         for allowed_name in "${toolchain_variables[@]}"; do
             if [[ "$name" == "$allowed_name" ]]; then
@@ -186,8 +207,8 @@ if [[ "$prepare" -eq 0 ]]; then
         runtime_env+=("$assignment")
         cached_variables=$((cached_variables + 1))
     done < "$env_file"
-    if [[ "$cached_variables" -eq 0 ]]; then
-        echo "error: Codex environment is invalid; rerun setup" >&2
+    if [[ "$cached_variables" -eq 0 || "$cached_fingerprint" != "$(environment_fingerprint)" ]]; then
+        echo "error: Codex environment is stale; run 'bash $repo_root/.codex/with-flox --prepare true'" >&2
         exit 1
     fi
 
@@ -258,15 +279,17 @@ exec env -i \
         export PATH="$VIRTUAL_ENV/bin:$PATH"
         if [[ "$prepare" -eq 1 ]]; then
             umask 077
-            : > "$FLOX_ENV_CACHE/codex-env.tmp"
+            cache_tmp="$(mktemp "$FLOX_ENV_CACHE/codex-env.XXXXXX")"
+            trap "rm -f \"$cache_tmp\"" EXIT
+            printf "CODEX_ENV_FINGERPRINT=%s\0" "$fingerprint" > "$cache_tmp"
             while IFS= read -r name; do
                 if [[ -n "$name" ]] && declare -p "$name" >/dev/null 2>&1; then
-                    printf "%s=%s\0" "$name" "${!name}" >> "$FLOX_ENV_CACHE/codex-env.tmp"
+                    printf "%s=%s\0" "$name" "${!name}" >> "$cache_tmp"
                 fi
             done <<< "$variable_names"
-            printf "%s\n" "$fingerprint" > "$FLOX_ENV_CACHE/codex-env.fingerprint.tmp"
-            mv "$FLOX_ENV_CACHE/codex-env.tmp" "$FLOX_ENV_CACHE/codex-env"
-            mv "$FLOX_ENV_CACHE/codex-env.fingerprint.tmp" "$FLOX_ENV_CACHE/codex-env.fingerprint"
+            mv "$cache_tmp" "$FLOX_ENV_CACHE/codex-env"
+            rm -f "$FLOX_ENV_CACHE/codex-env.fingerprint"
+            trap - EXIT
         fi
         exec "$@"
     ' bash "$prepare" "$(environment_fingerprint)" "$(printf '%s\n' "${toolchain_variables[@]}")" "$@"
