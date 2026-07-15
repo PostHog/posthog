@@ -161,7 +161,7 @@ export const LinkPrimitive: React.FC<LinkPrimitiveProps & React.RefAttributes<HT
                 // (like a browser's "open in new tab") instead of a new window
                 if (isDesktopApp() && typeof to === 'string' && !externalLink && !disableClientSideRouting) {
                     event.preventDefault()
-                    newInternalTab(to)
+                    newInternalTab(to, { title: event.currentTarget.textContent?.trim() || undefined })
                 }
                 return
             }

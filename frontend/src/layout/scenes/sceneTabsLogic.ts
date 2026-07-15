@@ -262,7 +262,7 @@ export const sceneTabsLogic = kea<sceneTabsLogicType>([
         actions: [router, ['locationChanged']],
     })),
     actions({
-        newTab: (href?: string | null, options?: { activate?: boolean; source?: TabOpenSource }) => ({
+        newTab: (href?: string | null, options?: { activate?: boolean; source?: TabOpenSource; title?: string }) => ({
             href,
             options,
             tabId: generateTabId(),
@@ -303,6 +303,9 @@ export const sceneTabsLogic = kea<sceneTabsLogicType>([
                             pathname: addProjectIdIfMissing(pathname),
                             search,
                             hash,
+                            // A title hint (e.g. the link text) beats "New tab" until the scene
+                            // loads and reports its own title — background tabs never load at all
+                            ...(options?.title ? { title: options.title, iconType: 'blank' as const } : {}),
                         }),
                     ])
                 },
@@ -399,9 +402,19 @@ export const sceneTabsLogic = kea<sceneTabsLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
-        [NEW_INTERNAL_TAB]: (payload: { path?: string; source?: TabOpenSource }) => {
-            // Background tab, matching what cmd/ctrl+click does in a browser
-            actions.newTab(payload.path, { source: payload?.source ?? 'internal_link', activate: false })
+        [NEW_INTERNAL_TAB]: (payload: {
+            path?: string
+            source?: TabOpenSource
+            activate?: boolean
+            title?: string
+        }) => {
+            // Background tab by default, matching what cmd/ctrl+click does in a browser;
+            // explicit "open in new tab" menu items pass activate: true
+            actions.newTab(payload.path, {
+                source: payload?.source ?? 'internal_link',
+                activate: payload?.activate ?? false,
+                title: payload?.title,
+            })
         },
         newTab: ({ href, options, tabId }) => {
             const created = values.tabs.find((tab) => tab.id === tabId)

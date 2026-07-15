@@ -126,7 +126,12 @@ export function DesktopLinkContextMenu(): JSX.Element | null {
                             <ContextMenuItem asChild>
                                 <ButtonPrimitive
                                     menuItem
-                                    onClick={() => newInternalTab(target.internalPath ?? undefined)}
+                                    onClick={() =>
+                                        newInternalTab(target.internalPath ?? undefined, {
+                                            activate: true,
+                                            title: target.text || undefined,
+                                        })
+                                    }
                                 >
                                     <IconPlus /> Open in new tab
                                 </ButtonPrimitive>

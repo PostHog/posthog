@@ -214,7 +214,9 @@ export function Nav(): JSX.Element {
                         {trafficLightsBesidePicker && (
                             <div className="desktop-traffic-lights-spacer w-16 shrink-0 self-stretch" />
                         )}
-                        <NewAccountMenu isLayoutNavCollapsed={isLayoutNavCollapsed} />
+                        {/* Desktop app: the org/project switcher moves to the NavBarFooter (below
+                            "More"), leaving only the traffic lights and search up here */}
+                        {!isDesktopApp() && <NewAccountMenu isLayoutNavCollapsed={isLayoutNavCollapsed} />}
 
                         <NavSearchButton isLayoutNavCollapsed={isLayoutNavCollapsed} toggleCommand={toggleCommand} />
 
@@ -293,10 +295,10 @@ export function Nav(): JSX.Element {
                     onValueChange={(value) => {
                         posthog.capture('nav tab clicked', { tab: value })
                         setNavExperimentTab(value as NavExperimentTab)
-                        if (value === 'chat') {
+                        // In the desktop app, switching the sidepanel tab must not replace the
+                        // current scene tab's content — the panels are self-sufficient
+                        if (value === 'chat' && !isDesktopApp()) {
                             router.actions.push(urls.ai())
-                        } else if (value === 'code') {
-                            router.actions.push(urls.code())
                         }
                     }}
                     orientation={isLayoutNavCollapsed ? 'vertical' : 'horizontal'}

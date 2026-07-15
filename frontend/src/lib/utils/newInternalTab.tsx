@@ -6,6 +6,14 @@ import { isDesktopApp } from './isDesktopApp'
 
 export const NEW_INTERNAL_TAB = 'NEW_INTERNAL_TAB'
 
+export interface NewInternalTabOptions {
+    source?: 'internal_link' | 'unknown'
+    /** Desktop app only: focus the new tab immediately instead of opening it in the background */
+    activate?: boolean
+    /** Desktop app only: initial tab title (e.g. the link text) until the scene loads and reports its own */
+    title?: string
+}
+
 /**
  * Open a path in a new browser tab. Preserves project scoping for relative URLs.
  *
@@ -16,13 +24,21 @@ export const NEW_INTERNAL_TAB = 'NEW_INTERNAL_TAB'
  * In the desktop app (products/desktop) internal paths open as scene tabs in the
  * desktop tab strip instead: the NEW_INTERNAL_TAB action is picked up by sceneTabsLogic.
  */
-export function newInternalTab(path?: string, source: 'internal_link' | 'unknown' = 'internal_link'): void {
+export function newInternalTab(path?: string, options: NewInternalTabOptions = {}): void {
     if (!path) {
         return
     }
     const isExternal = /^(https?:|mailto:)/.test(path)
     if (isDesktopApp() && !isExternal) {
-        getContext().store.dispatch({ type: NEW_INTERNAL_TAB, payload: { path, source } })
+        getContext().store.dispatch({
+            type: NEW_INTERNAL_TAB,
+            payload: {
+                path,
+                source: options.source ?? 'internal_link',
+                activate: options.activate,
+                title: options.title,
+            },
+        })
         return
     }
     const href = isExternal ? path : addProjectIdIfMissing(path)
