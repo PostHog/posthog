@@ -35,6 +35,7 @@ from posthog.event_usage import groups
 from posthog.models import Team, User
 from posthog.models.integration import Integration
 
+from products.tasks.backend import ci_remediation
 from products.tasks.backend.constants import (
     MAX_CUSTOM_IMAGES_PER_TEAM,
     MAX_CUSTOM_IMAGES_PER_USER,
@@ -227,11 +228,7 @@ __all__ = [
 
 
 def is_ci_remediation_repository_allowed(repository: str) -> bool:
-    from products.tasks.backend.ci_remediation import (  # noqa: PLC0415 — keeps task automation's Temporal imports off the API path
-        ALLOWED_CI_REMEDIATION_REPOSITORIES,
-    )
-
-    return repository.lower() in ALLOWED_CI_REMEDIATION_REPOSITORIES
+    return repository.lower() in ci_remediation.ALLOWED_CI_REMEDIATION_REPOSITORIES
 
 
 def trigger_ci_remediation(
@@ -244,25 +241,20 @@ def trigger_ci_remediation(
     slack_channel_id: str,
     slack_thread_ts: str,
 ) -> contracts.CiRemediationRunDTO | None:
-    from products.tasks.backend.ci_remediation import (  # noqa: PLC0415 — keeps task automation's Temporal imports off the API path
-        CiRemediationConfigurationError,
-        CiRemediationIncident,
-        FailingWorkflow,
-        trigger_ci_remediation as trigger,
-    )
-
-    incident = CiRemediationIncident(
+    incident = ci_remediation.CiRemediationIncident(
         incident_id=incident_id,
         repository=repository,
         latest_master_sha=latest_master_sha,
         incident_started_at=incident_started_at,
-        failing_workflows=tuple(FailingWorkflow(name=name, run_url=run_url) for name, run_url in failing_workflows),
+        failing_workflows=tuple(
+            ci_remediation.FailingWorkflow(name=name, run_url=run_url) for name, run_url in failing_workflows
+        ),
         slack_channel_id=slack_channel_id,
         slack_thread_ts=slack_thread_ts,
     )
     try:
-        remediation_run = trigger(incident)
-    except CiRemediationConfigurationError:
+        remediation_run = ci_remediation.trigger_ci_remediation(incident)
+    except ci_remediation.CiRemediationConfigurationError:
         return None
 
     return contracts.CiRemediationRunDTO(

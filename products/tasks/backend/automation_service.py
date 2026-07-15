@@ -89,8 +89,7 @@ def run_task_automation(
         task_run: TaskRun | None = None
         if trigger_workflow_id:
             task_run = (
-                TaskRun.objects.select_related("task")
-                .filter(
+                TaskRun.objects.filter(
                     task__team_id=task.team_id,
                     task_id=task.id,
                     state__automation_id=automation_id,

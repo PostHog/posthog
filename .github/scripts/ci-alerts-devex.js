@@ -424,24 +424,23 @@ async function reconcileRemediation({
     threadTs,
     message,
     eventPayload,
-    owner,
-    repo,
-    latestCommit,
+    repository,
+    latestMasterSha,
     failingWorkflows,
 }) {
     let nextPayload = eventPayload
     if (!nextPayload.remediation) {
-        if (!latestCommit?.sha) {
+        if (!latestMasterSha) {
             core.warning('PostHog Code remediation is waiting for a current master SHA')
-            return nextPayload
+            return
         }
 
         let triggered
         try {
             triggered = await remediation.trigger({
                 incident_id: nextPayload.incident_id,
-                repository: `${owner}/${repo}`,
-                latest_master_sha: latestCommit.sha,
+                repository,
+                latest_master_sha: latestMasterSha,
                 incident_started_at: nextPayload.since,
                 failing_workflows: failingWorkflows.map((workflow) => ({
                     name: workflow.name,
@@ -452,7 +451,7 @@ async function reconcileRemediation({
             })
         } catch (_error) {
             core.warning('PostHog Code remediation trigger failed; the next reconciliation tick will retry')
-            return nextPayload
+            return
         }
 
         nextPayload = {
@@ -464,6 +463,7 @@ async function reconcileRemediation({
             },
             remediation_started_notified: false,
         }
+        // Persist the task before posting so a failed thread reply cannot retrigger it.
         await slack.update({
             channel,
             ts: threadTs,
@@ -489,8 +489,6 @@ async function reconcileRemediation({
             unfurl_links: false,
         })
     }
-
-    return nextPayload
 }
 
 // ---------------------------------------------------------------------------
@@ -669,9 +667,8 @@ module.exports = async (
             threadTs,
             message,
             eventPayload,
-            owner,
-            repo,
-            latestCommit,
+            repository: `${owner}/${repo}`,
+            latestMasterSha: latestCommit?.sha,
             failingWorkflows: Object.values(failing),
         })
     } else if (active) {

@@ -147,9 +147,9 @@ class CiRemediationTriggerViewSet(viewsets.ViewSet):
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
-        response = CiRemediationTriggerResponseSerializer(remediation_run).data
+        response_data = CiRemediationTriggerResponseSerializer(remediation_run).data
         logger.info(
             "ci_remediation_trigger_accepted",
             extra={"task_id": remediation_run.task_id, "run_id": remediation_run.run_id},
         )
-        return Response(response, status=status.HTTP_202_ACCEPTED)
+        return Response(response_data, status=status.HTTP_202_ACCEPTED)

@@ -72,7 +72,7 @@ def _configured_automation() -> TaskAutomation:
         raise CiRemediationConfigurationError("CI remediation automation is not configured")
 
     try:
-        automation = TaskAutomation.objects.filter(id=automation_id).first()
+        automation = TaskAutomation.objects.select_related("task__team").filter(id=automation_id).first()
     except (ValidationError, ValueError) as error:
         raise CiRemediationConfigurationError("CI remediation automation is invalid") from error
     if automation is None:
@@ -125,7 +125,7 @@ def trigger_ci_remediation(incident: CiRemediationIncident) -> CiRemediationRun:
     task = automation.task
     slack_integration = _configured_slack_integration(task.team_id)
     prompt = build_ci_remediation_prompt(incident)
-    incident_context = {
+    incident_state = {
         "incident_id": incident.incident_id,
         "repository": incident.repository,
         "latest_master_sha": incident.latest_master_sha,
@@ -143,11 +143,11 @@ def trigger_ci_remediation(incident: CiRemediationIncident) -> CiRemediationRun:
     }
 
     try:
-        task, task_run = run_task_automation(
+        _, task_run = run_task_automation(
             str(automation.id),
             trigger_workflow_id=incident.incident_id,
             run_state={
-                "ci_remediation_incident": incident_context,
+                "ci_remediation_incident": incident_state,
                 "ci_remediation_prompt": prompt,
                 "pending_user_message": prompt,
                 "pr_base_branch": CI_REMEDIATION_BASE_BRANCH,

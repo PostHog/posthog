@@ -42,7 +42,6 @@ class TaskWorkflowDispatchError(Exception):
 
 
 def _normalize_slack_context(slack_thread_context: SlackThreadContextInput | None) -> dict[str, Any] | None:
-    """Convert slack_thread_context to dict if needed."""
     if slack_thread_context is None:
         return None
     if isinstance(slack_thread_context, Mapping):
