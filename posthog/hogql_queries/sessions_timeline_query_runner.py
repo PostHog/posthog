@@ -64,22 +64,38 @@ class SessionsTimelineQueryRunner(AnalyticsQueryRunner[SessionsTimelineQueryResp
                         op=ast.CompareOperationOp.Eq,
                     )
                 )
+            # `$session_id` is aliased to the plain column `session_id` in the innermost subquery so that
+            # the `lagInFrame(...)` window function partitioned by `person_id` never references the raw
+            # dollar-prefixed virtual field. Partitioning by `person_id` pulls in the person-overrides lazy
+            # join, and referencing `$session_id` across that join makes ClickHouse fail to project the column
+            # ("Not found column $session_id in block"). Referencing the plain alias keeps it projected.
             select_query = parse_select(
                 """
                 SELECT
                     uuid,
-                    person_id AS person_id,
-                    timestamp AS timestamp,
+                    person_id,
+                    timestamp,
                     event,
                     properties,
                     distinct_id,
                     elements_chain,
-                    $session_id AS session_id,
-                    lagInFrame($session_id, 1) OVER (
+                    session_id,
+                    lagInFrame(session_id, 1) OVER (
                         PARTITION BY person_id ORDER BY timestamp
                     ) AS prev_session_id
-                FROM events
-                WHERE {event_conditions}
+                FROM (
+                    SELECT
+                        uuid,
+                        person_id AS person_id,
+                        timestamp AS timestamp,
+                        event,
+                        properties,
+                        distinct_id,
+                        elements_chain,
+                        $session_id AS session_id
+                    FROM events
+                    WHERE {event_conditions}
+                )
                 ORDER BY timestamp DESC
                 LIMIT {event_limit_with_more}""",
                 placeholders={
