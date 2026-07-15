@@ -126,6 +126,8 @@ class TestKeyRedaction:
         list(get_rows("bb_secret", "sessions", MagicMock()))
 
         assert mock_session_factory.call_args.kwargs["redact_values"] == ("bb_secret",)
+        # Response bodies carry arbitrary customer userMetadata the scrubbers can't recognise.
+        assert mock_session_factory.call_args.kwargs["capture"] is False
 
     @patch.object(browserbase, "make_tracked_session")
     def test_validate_credentials_redacts_key(self, mock_session_factory: MagicMock) -> None:
@@ -136,6 +138,7 @@ class TestKeyRedaction:
         validate_credentials("bb_secret")
 
         assert mock_session_factory.call_args.kwargs["redact_values"] == ("bb_secret",)
+        assert mock_session_factory.call_args.kwargs["capture"] is False
 
 
 class TestValidateCredentials:
