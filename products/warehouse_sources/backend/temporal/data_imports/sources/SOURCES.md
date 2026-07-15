@@ -85,6 +85,7 @@ the row lists both.
 | breezometer               | HTTP                        | requests                                                        | ✅                          |
 | brevo                     | HTTP                        | requests                                                        | ✅                          |
 | brex                      | HTTP                        | requests                                                        | ✅                          |
+| browser_use               | HTTP                        | requests                                                        | ✅                          |
 | browserbase               | HTTP                        | requests                                                        | ✅                          |
 | bugsnag                   | HTTP                        | requests                                                        | ✅                          |
 | buildbetter               | HTTP                        | requests                                                        | ✅                          |
@@ -243,6 +244,7 @@ the row lists both.
 | kernel                    | HTTP                        | requests                                                        | ✅                          |
 | klaviyo                   | HTTP                        | requests                                                        | ✅                          |
 | lago                      | HTTP                        | requests                                                        | ✅                          |
+| lambda_labs               | HTTP                        | requests                                                        | ✅                          |
 | langfuse                  | HTTP                        | requests                                                        | ✅                          |
 | launchdarkly              | HTTP                        | requests                                                        | ✅                          |
 | kustomer                  | HTTP                        | requests                                                        | ✅                          |
@@ -422,12 +424,14 @@ the row lists both.
 | typeform                  | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | ubidots                   | HTTP                        | requests                                                        | ✅                          |
 | unleash                   | HTTP                        | requests                                                        | ✅                          |
+| unstructured              | HTTP                        | requests                                                        | ✅                          |
 | upstash                   | HTTP                        | requests                                                        | ✅                          |
 | vantage                   | HTTP                        | requests                                                        | ✅                          |
 | vapi                      | HTTP                        | requests                                                        | ✅                          |
 | vellum                    | HTTP                        | requests                                                        | ✅                          |
 | vercel                    | HTTP                        | requests                                                        | ✅                          |
 | vitally                   | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| vultr                     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | webflow                   | HTTP                        | requests                                                        | ✅                          |
 | windmill                  | HTTP                        | requests                                                        | ✅                          |
 | woocommerce               | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -534,7 +538,6 @@ doesn't conflict with concurrent PRs.
 - branch
 - breezy_hr
 - browse_ai
-- browser_use
 - cal_com
 - campaign_manager_360
 - captain_data
@@ -930,7 +933,6 @@ doesn't conflict with concurrent PRs.
 - twitter
 - twitter_ads
 - tyntec_sms
-- unstructured
 - uppromote
 - uptick
 - uptimerobot
@@ -941,7 +943,6 @@ doesn't conflict with concurrent PRs.
 - veracode
 - vespa
 - visma_economic
-- vultr
 - vwo
 - waiteraid
 - wasabi

@@ -619,7 +619,7 @@ class BrowseAISourceConfig(config.Config):
 
 @config.config
 class BrowserUseSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2282,7 +2282,7 @@ class LagoSourceConfig(config.Config):
 
 @config.config
 class LambdaLabsSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -4349,7 +4349,8 @@ class UnleashSourceConfig(config.Config):
 
 @config.config
 class UnstructuredSourceConfig(config.Config):
-    pass
+    api_key: str
+    base_url: str | None = None
 
 
 @config.config
@@ -4437,7 +4438,7 @@ class VitallySourceConfig(config.Config):
 
 @config.config
 class VultrSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
