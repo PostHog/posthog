@@ -1944,6 +1944,8 @@ class ExternalDataSourceType(StrEnum):
     KICKSCALE = "Kickscale"
     ZELLIFY = "Zellify"
     RUDDER_STACK = "RudderStack"
+    DODO_PAYMENTS = "DodoPayments"
+    SALESTRICS = "Salestrics"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -2343,6 +2345,7 @@ class IntegrationKind(StrEnum):
     POSTGRESQL = "postgresql"
     AWS_S3 = "aws-s3"
     S3_COMPATIBLE = "s3-compatible"
+    SNOWFLAKE = "snowflake"
 
 
 class IntervalType(StrEnum):

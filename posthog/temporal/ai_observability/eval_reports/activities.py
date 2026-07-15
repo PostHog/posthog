@@ -10,7 +10,9 @@ from structlog import get_logger
 
 from posthog.hogql import ast
 
+from posthog.clickhouse.client.connection import Workload
 from posthog.sync import database_sync_to_async
+from posthog.temporal.ai_observability.eval_reports.output_types import get_outcome_definition
 from posthog.temporal.ai_observability.eval_reports.types import (
     CheckCountTriggeredEvalReportInput,
     CheckCountTriggeredEvalReportOutput,
@@ -50,7 +52,6 @@ async def fetch_due_eval_reports_activity(
             for pk in EvaluationReport.objects.deliverable()
             .filter(
                 next_delivery_date__lte=now_with_buffer,
-                evaluation__output_type="boolean",
             )
             .exclude(frequency=EvaluationReport.Frequency.EVERY_N)
             .values_list("id", flat=True)
@@ -110,7 +111,6 @@ def _fetch_count_triggered_eval_report_candidate_ids() -> list[str]:
         .filter(
             frequency=EvaluationReport.Frequency.EVERY_N,
             trigger_threshold__isnull=False,
-            evaluation__output_type="boolean",
         )
         .values_list("id", flat=True)
     ]
@@ -128,7 +128,6 @@ def _check_count_triggered_eval_report_sync(
             id=report_id,
             frequency=EvaluationReport.Frequency.EVERY_N,
             trigger_threshold__isnull=False,
-            evaluation__output_type="boolean",
         )
         .select_related("evaluation", "team")
         .first()
@@ -167,21 +166,26 @@ def _count_eval_results_for_report(report: "EvaluationReport", since: dt.datetim
     # as toDateTime64(..., 6, <team_tz>) with correct TZ alignment. A bare string
     # would be coerced in the team's timezone and silently shift the comparison
     # by the team's offset.
+    outcome_definition = get_outcome_definition(report.evaluation.output_type)
+    # nosemgrep: hogql-fstring-audit (the predicate comes from fixed internal output-type definitions)
     query = parse_select(
-        """
+        f"""
         SELECT count() as total
         FROM events
         WHERE event = '$ai_evaluation'
-            AND properties.$ai_evaluation_id = {evaluation_id}
-            AND timestamp >= {since}
+            AND properties.$ai_evaluation_id = {{evaluation_id}}
+            AND {outcome_definition.event_predicate}
+            AND timestamp >= {{since}}
         """,
         placeholders={
             "evaluation_id": ast.Constant(value=str(report.evaluation_id)),
             "since": ast.Constant(value=since),
         },
     )
+    # These count checks run every 5 minutes across all count-triggered reports, so keep them
+    # off the online cluster that serves user-facing queries — route to the offline replica.
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.ENRICHMENT, team_id=report.team_id):
-        result = execute_hogql_query(query=query, team=report.team)
+        result = execute_hogql_query(query=query, team=report.team, workload=Workload.OFFLINE)
     rows = result.results or []
     if not rows:
         return 0
@@ -193,6 +197,7 @@ def _find_nth_eval_timestamp(
     evaluation_id: str,
     n: int,
     before: dt.datetime,
+    output_type: str = "boolean",
 ) -> dt.datetime:
     """Find the timestamp of the Nth-most-recent eval result.
 
@@ -208,16 +213,19 @@ def _find_nth_eval_timestamp(
     team = Team.objects.get(id=team_id)
     # Pass `before` as a datetime so HogQL serializes it as toDateTime64(..., 6, <team_tz>)
     # instead of a bare string that would be coerced in the team's timezone.
+    outcome_definition = get_outcome_definition(output_type)
+    # nosemgrep: hogql-fstring-audit (the predicate comes from fixed internal output-type definitions)
     query = parse_select(
-        """
+        f"""
         SELECT min(ts) FROM (
             SELECT timestamp as ts
             FROM events
             WHERE event = '$ai_evaluation'
-                AND properties.$ai_evaluation_id = {evaluation_id}
-                AND timestamp <= {before}
+                AND properties.$ai_evaluation_id = {{evaluation_id}}
+                AND {outcome_definition.event_predicate}
+                AND timestamp <= {{before}}
             ORDER BY timestamp DESC
-            LIMIT {limit}
+            LIMIT {{limit}}
         )
         """,
         placeholders={
@@ -227,7 +235,7 @@ def _find_nth_eval_timestamp(
         },
     )
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.ENRICHMENT, team_id=team.pk):
-        result = execute_hogql_query(query=query, team=team)
+        result = execute_hogql_query(query=query, team=team, workload=Workload.OFFLINE)
     rows = result.results or []
     if rows and rows[0][0] is not None:
         ts = rows[0][0]
@@ -303,6 +311,7 @@ async def prepare_report_context_activity(
                     evaluation_id=str(evaluation.id),
                     n=report.trigger_threshold or 100,
                     before=now,
+                    output_type=evaluation.output_type,
                 )
             else:
                 period_start = now - _period_for_scheduled_report(report, now)
@@ -331,6 +340,7 @@ async def prepare_report_context_activity(
             evaluation_description=evaluation.description or "",
             evaluation_prompt=evaluation.evaluation_config.get("prompt", ""),
             evaluation_type=evaluation.evaluation_type,
+            output_type=evaluation.output_type,
             period_start=period_start.isoformat(),
             period_end=period_end.isoformat(),
             previous_period_start=previous_period_start.isoformat(),
@@ -364,6 +374,7 @@ async def run_eval_report_agent_activity(
                 evaluation_description=inputs.evaluation_description,
                 evaluation_prompt=inputs.evaluation_prompt,
                 evaluation_type=inputs.evaluation_type,
+                output_type=inputs.output_type,
                 period_start=inputs.period_start,
                 period_end=inputs.period_end,
                 previous_period_start=inputs.previous_period_start,
@@ -392,14 +403,17 @@ async def store_report_run_activity(
 
         from posthog.models.event.util import create_event
         from posthog.models.team import Team
+        from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (  # noqa: PLC0415 -- keeps report agent dependencies off the activity import path
+            EvalReportMetrics,
+            normalize_report_content_payload,
+        )
 
         from products.ai_observability.backend.models.evaluation_reports import EvaluationReportRun
 
-        # Mirror content.metrics into the legacy `metadata` JSONField so existing
-        # consumers that read from it (e.g. the UI's run preview before Commit 2's
-        # frontend refresh) still work.
-        content = inputs.content or {}
+        # Mirror content.metrics into the legacy `metadata` JSONField for consumers that still read it.
+        content = normalize_report_content_payload(inputs.content or {})
         metrics = content.get("metrics", {}) or {}
+        parsed_metrics = EvalReportMetrics.from_dict(metrics)
 
         run = EvaluationReportRun.objects.create(
             report_id=inputs.report_id,
@@ -423,20 +437,30 @@ async def store_report_run_activity(
             "$ai_report_title": content.get("title", ""),
             "$ai_report_period_start": inputs.period_start,
             "$ai_report_period_end": inputs.period_end,
-            # Metrics for querying/alerting (flattened from content.metrics)
-            "$ai_report_total_runs": metrics.get("total_runs", 0),
-            "$ai_report_pass_count": metrics.get("pass_count", 0),
-            "$ai_report_fail_count": metrics.get("fail_count", 0),
-            "$ai_report_na_count": metrics.get("na_count", 0),
-            "$ai_report_pass_rate": metrics.get("pass_rate", 0.0),
-            "$ai_report_previous_pass_rate": metrics.get("previous_pass_rate"),
-            "$ai_report_previous_total_runs": metrics.get("previous_total_runs"),
+            "$ai_report_output_type": parsed_metrics.output_type,
+            "$ai_report_result_counts": parsed_metrics.result_counts,
+            "$ai_report_result_rates": parsed_metrics.result_rates,
+            "$ai_report_previous_result_counts": parsed_metrics.previous_result_counts,
+            "$ai_report_previous_result_rates": parsed_metrics.previous_result_rates,
+            "$ai_report_total_runs": parsed_metrics.total_runs,
+            "$ai_report_previous_total_runs": parsed_metrics.previous_total_runs,
             # Structured content + citations for downstream consumption
             "$ai_report_content": content,
             "$ai_report_citations": citations,
             "$ai_report_referenced_generation_ids": all_referenced_ids,
             "$ai_report_section_count": len(content.get("sections", [])),
         }
+        if parsed_metrics.output_type == "boolean":
+            # Preserve the original flat properties for existing boolean-report consumers.
+            properties.update(
+                {
+                    "$ai_report_pass_count": parsed_metrics.result_counts["pass"],
+                    "$ai_report_fail_count": parsed_metrics.result_counts["fail"],
+                    "$ai_report_na_count": parsed_metrics.result_counts["na"],
+                    "$ai_report_pass_rate": parsed_metrics.pass_rate,
+                    "$ai_report_previous_pass_rate": parsed_metrics.previous_pass_rate,
+                }
+            )
 
         create_event(
             event_uuid=uuid.uuid4(),

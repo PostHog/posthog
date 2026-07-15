@@ -183,6 +183,7 @@ from .dixa.source import DixaSource
 from .dockerhub.source import DockerhubSource
 from .docuseal.source import DocusealSource
 from .docusign.source import DocusignSource
+from .dodopayments.source import DodoPaymentsSource
 from .doit.source import DoItSource
 from .dolibarr.source import DolibarrSource
 from .dremio.source import DremioSource
@@ -585,6 +586,7 @@ from .salesflare.source import SalesflareSource
 from .salesforce.source import SalesforceSource
 from .salesforce_marketing_cloud.source import SalesforceMarketingCloudSource
 from .salesloft.source import SalesLoftSource
+from .salestrics.source import SalestricsSource
 from .sanity.source import SanitySource
 from .sap_concur.source import SapConcurSource
 from .sap_erp.source import SapErpSource

@@ -12,7 +12,8 @@ from langgraph.prebuilt import create_react_agent
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 
 from posthog.llm.gateway_client import resolve_ai_gateway_config
-from posthog.temporal.ai_observability.eval_reports.report_agent.prompts import EVAL_REPORT_SYSTEM_PROMPT
+from posthog.temporal.ai_observability.eval_reports.output_types import get_outcome_definition
+from posthog.temporal.ai_observability.eval_reports.report_agent.prompts import build_eval_report_system_prompt
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     MAX_REPORT_SECTIONS,
     MIN_REPORT_SECTIONS,
@@ -24,7 +25,7 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.state import Ev
 from posthog.temporal.ai_observability.eval_reports.report_agent.tools import (
     EVAL_REPORT_TOOLS,
     _ch_ts,
-    _fetch_period_counts,
+    _fetch_period_summary,
 )
 from posthog.temporal.ai_observability.llm_endpoint import build_langchain_chat_client
 
@@ -37,6 +38,7 @@ def _compute_metrics(
     period_start: str,
     period_end: str,
     previous_period_start: str,
+    output_type: str = "boolean",
 ) -> EvalReportMetrics:
     """Compute report metrics directly via HogQL (independent of agent state).
 
@@ -44,33 +46,27 @@ def _compute_metrics(
     with zero counts and logs the exception. The agent cannot fabricate numbers
     because this function is the sole source of truth for `content.metrics`.
     """
-    empty = EvalReportMetrics(period_start=period_start, period_end=period_end)
+    empty = EvalReportMetrics(output_type=output_type, period_start=period_start, period_end=period_end)
 
     try:
         ts_start = _ch_ts(period_start)
         ts_end = _ch_ts(period_end)
         ts_prev_start = _ch_ts(previous_period_start)
+        definition = get_outcome_definition(output_type)
 
-        pass_count, fail_count, na_count, total = _fetch_period_counts(team_id, evaluation_id, ts_start, ts_end)
-        prev_pass, prev_fail, _prev_na, prev_total = _fetch_period_counts(
-            team_id, evaluation_id, ts_prev_start, ts_start
+        result_counts, total = _fetch_period_summary(team_id, evaluation_id, ts_start, ts_end, definition)
+        previous_result_counts, previous_total = _fetch_period_summary(
+            team_id, evaluation_id, ts_prev_start, ts_start, definition
         )
 
-        applicable = pass_count + fail_count
-        pass_rate = round(pass_count / applicable * 100, 2) if applicable > 0 else 0.0
-        prev_applicable = prev_pass + prev_fail
-        previous_pass_rate = round(prev_pass / prev_applicable * 100, 2) if prev_applicable > 0 else None
-
         return EvalReportMetrics(
+            output_type=output_type,
             total_runs=total,
-            pass_count=pass_count,
-            fail_count=fail_count,
-            na_count=na_count,
-            pass_rate=pass_rate,
+            result_counts=result_counts,
             period_start=period_start,
             period_end=period_end,
-            previous_total_runs=prev_total,
-            previous_pass_rate=previous_pass_rate,
+            previous_total_runs=previous_total,
+            previous_result_counts=previous_result_counts,
         )
     except Exception:
         logger.exception("llma_eval_reports_metrics_computation_failed")
@@ -90,7 +86,7 @@ def _fallback_content(evaluation_name: str, metrics: EvalReportMetrics, reason: 
             f"Check that the evaluation is enabled and that `$ai_generation` events "
             f"are being ingested."
         )
-    else:
+    elif metrics.output_type == "boolean":
         trend = ""
         if metrics.previous_pass_rate is not None:
             diff = metrics.pass_rate - metrics.previous_pass_rate
@@ -103,8 +99,29 @@ def _fallback_content(evaluation_name: str, metrics: EvalReportMetrics, reason: 
 
         summary = (
             f"**Pass rate: {metrics.pass_rate}%**{trend} across {metrics.total_runs} runs. "
-            f"{metrics.pass_count} passed, {metrics.fail_count} failed, {metrics.na_count} N/A."
+            f"{metrics.result_counts['pass']} passed, {metrics.result_counts['fail']} failed, "
+            f"{metrics.result_counts['na']} N/A."
         )
+    else:
+        positive_rate = metrics.result_rates["positive"]
+        trend = ""
+        previous_positive_rate = (
+            metrics.previous_result_rates.get("positive") if metrics.previous_result_rates is not None else None
+        )
+        if previous_positive_rate is not None:
+            diff = positive_rate - previous_positive_rate
+            if diff > 1:
+                trend = f"; Positive is up from {previous_positive_rate}%"
+            elif diff < -1:
+                trend = f"; Positive is down from {previous_positive_rate}%"
+            else:
+                trend = f"; Positive is stable vs {previous_positive_rate}%"
+
+        distribution = ", ".join(
+            f"{label} {metrics.result_rates[outcome]}% ({metrics.result_counts[outcome]} {outcome})"
+            for outcome, label in (("positive", "Positive"), ("neutral", "Neutral"), ("negative", "Negative"))
+        )
+        summary = f"**Outcome distribution:** {distribution}{trend}, across {metrics.total_runs} runs."
 
     return EvalReportContent(
         title=f"Automated fallback report for {evaluation_name}",
@@ -166,6 +183,7 @@ def run_eval_report_agent(
     period_end: str,
     previous_period_start: str,
     report_prompt_guidance: str = "",
+    output_type: str = "boolean",
 ) -> EvalReportContent:
     """Run the evaluation report agent and return the generated content.
 
@@ -181,31 +199,26 @@ def run_eval_report_agent(
 
     # Compute metrics first — we need them for both the final content AND the
     # fallback path, so guarantee they're ready before the agent even runs.
-    metrics = _compute_metrics(team_id, evaluation_id, period_start, period_end, previous_period_start)
+    metrics = _compute_metrics(
+        team_id,
+        evaluation_id,
+        period_start,
+        period_end,
+        previous_period_start,
+        output_type=output_type,
+    )
 
     llm = build_langchain_chat_client(EVAL_REPORT_AGENT_MODEL, EVAL_REPORT_AGENT_TIMEOUT, ai_product="aio_eval_reports")
 
-    description_section = f"Description: {evaluation_description}\n" if evaluation_description else ""
-    prompt_section = f"Evaluation prompt/criteria:\n```\n{evaluation_prompt}\n```\n" if evaluation_prompt else ""
-    guidance_section = ""
-    if report_prompt_guidance and report_prompt_guidance.strip():
-        guidance_section = (
-            "\n## Additional guidance from the user (per-report)\n\n"
-            "The user provided the following custom guidance for this specific report. "
-            "Treat it as a steer on focus / scope / section choices, not as a replacement "
-            "for the core instructions above.\n\n"
-            f"```\n{report_prompt_guidance.strip()}\n```\n"
-        )
-
-    system_prompt = EVAL_REPORT_SYSTEM_PROMPT.format(
+    system_prompt = build_eval_report_system_prompt(
         evaluation_name=evaluation_name,
-        evaluation_description_section=description_section,
+        evaluation_description=evaluation_description,
         evaluation_type=evaluation_type,
-        evaluation_prompt_section=prompt_section,
+        evaluation_prompt=evaluation_prompt,
+        output_type=output_type,
         period_start=period_start,
         period_end=period_end,
-        report_prompt_guidance_section=guidance_section,
-        max_sections=MAX_REPORT_SECTIONS,
+        report_prompt_guidance=report_prompt_guidance,
     )
 
     agent = create_react_agent(
@@ -226,6 +239,7 @@ def run_eval_report_agent(
         "evaluation_description": evaluation_description,
         "evaluation_prompt": evaluation_prompt,
         "evaluation_type": evaluation_type,
+        "output_type": output_type,
         "period_start": period_start,
         "period_end": period_end,
         "previous_period_start": previous_period_start,

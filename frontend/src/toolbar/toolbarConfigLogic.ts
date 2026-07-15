@@ -15,6 +15,7 @@ import {
     OAUTH_LOCALSTORAGE_KEY,
     PKCE_STORAGE_KEY,
     readToolbarAuthHash,
+    safeFetch,
 } from './utils'
 
 export type ApiHostSource = 'posthog_api_host' | 'api_url' | 'fallback_rejected' | 'fallback_absent'
@@ -635,7 +636,7 @@ function verifyUiHostReachability(
     }
 
     const checkStart = Date.now()
-    void fetch(`${values.uiHost}/toolbar_oauth/check`, {
+    void safeFetch(`${values.uiHost}/toolbar_oauth/check`, {
         method: 'HEAD',
         mode: 'cors',
         signal: AbortSignal.timeout(5000),
@@ -657,13 +658,17 @@ function verifyUiHostReachability(
         })
         .catch((error: unknown) => {
             actions.setAuthStatus('error')
-            captureToolbarException(error, 'ui_host_check', {
-                error_type: classifyFetchError(error),
-            })
+            const errorType = classifyFetchError(error)
+            // Timeouts, network/CORS failures, and HTTP errors are expected on customer
+            // pages (offline, ad blockers, CSP, misconfigured uiHost) - the capture event
+            // below tracks them. Only an unclassifiable error hints at a toolbar bug.
+            if (errorType === 'unknown') {
+                captureToolbarException(error, 'ui_host_check', { error_type: errorType })
+            }
             toolbarPosthogJS.capture('toolbar ui host check', {
                 ...checkBaseProps,
                 status: 'error',
-                error_type: classifyFetchError(error),
+                error_type: errorType,
                 duration_ms: Date.now() - checkStart,
             })
 
@@ -738,14 +743,17 @@ async function exchangeCodeForTokens(
         code_verifier: pkceData.verifier,
     })
 
+    // Every failure in the exchange is an expected request outcome (stale/reused code,
+    // expired PKCE, network hiccup, proxy error page) - tracked via the capture events
+    // and logs, never reported to error tracking.
     const startTime = performance.now()
     try {
-        const res = await fetch(tokenEndpoint, {
+        const res = await safeFetch(tokenEndpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
             body: body.toString(),
         })
-        const data = await res.json()
+        const data = await res.json().catch(() => null)
         const access = asNonEmptyString(data?.access_token)
         const refresh = asNonEmptyString(data?.refresh_token)
         if (access && refresh) {
@@ -760,19 +768,18 @@ async function exchangeCodeForTokens(
         toolbarPosthogJS.capture('toolbar oauth exchange', {
             status: 'error',
             error: errorString,
+            http_status: res.status,
             duration_ms: Math.round(performance.now() - startTime),
         })
-        toolbarLogger.error('auth', 'Token exchange failed', { error: errorString })
-        captureToolbarException(new Error(`Token exchange failed: ${errorString}`), 'token_exchange')
+        toolbarLogger.error('auth', 'Token exchange failed', { error: errorString, status: res.status })
         lemonToast.error('Authentication failed. Please try again.')
         return false
-    } catch (err) {
+    } catch {
         toolbarPosthogJS.capture('toolbar oauth exchange', {
             status: 'network_error',
             duration_ms: Math.round(performance.now() - startTime),
         })
         toolbarLogger.error('auth', 'Token exchange network error')
-        captureToolbarException(err, 'token_exchange_network')
         lemonToast.error('Authentication failed due to a network error. Please try again.')
         return false
     } finally {

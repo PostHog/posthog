@@ -1,7 +1,7 @@
 import json
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 
 from requests import PreparedRequest, Response
 
@@ -409,6 +409,25 @@ def test_sample_payload_preserves_json_body_keys():
     assert parsed["response"]["body"]["email"] != "alice@example.com"
     # The non-PII id field passes through unchanged.
     assert parsed["request"]["body"]["id"] == 42
+
+
+def test_sample_payload_omits_streamed_response_body():
+    # A streamed (stream=True) body hasn't been read yet; sampling it would force a potentially
+    # unbounded, source-controlled body into memory and consume the stream. The sample must record
+    # the omission without ever touching response.text.
+    request = _make_request(url="https://formbricks.example.com/api/v2/management/responses")
+    response = _make_response(status=200)
+    with patch.object(type(response), "text", new_callable=PropertyMock) as mock_text:
+        mock_text.side_effect = AssertionError("streamed response body must not be read for a sample")
+        payload = _build_sample_payload(
+            request=request,
+            response=response,
+            record=_make_record(),
+            ctx=_make_ctx(),
+            streamed=True,
+        )
+    parsed = json.loads(payload)
+    assert parsed["response"]["body"] == sampling._STREAMED_BODY_OMITTED
 
 
 # ---------------------------------------------------------------------------
