@@ -659,7 +659,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
         except Exception as e:
             message = str(e)[:_MAX_ERROR_MESSAGE_LENGTH]
             error_type = classify_experiment_query_error(e)
-            is_permanent = error_type in NON_RETRYABLE_ERROR_TYPES
+            is_permanent = error_type in NON_RETRYABLE_ERROR_TYPES or isinstance(e, ValueError)
             capture_exception(
                 e,
                 additional_properties={

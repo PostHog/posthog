@@ -496,6 +496,7 @@ class TestCalculateActivity(BaseTest):
             ("out_of_memory", ClickHouseQueryMemoryLimitExceeded(), "out_of_memory"),
             ("byte_limit", ServerException("too many bytes", code=307), "byte_limit"),
             ("validation_error", ValidationError("bad metric config"), "validation_error"),
+            ("config_value_error", ValueError("No control variant found"), "server_error"),
         ]
     )
     def test_permanent_error_fails_non_retryable_and_persists_on_first_attempt(
