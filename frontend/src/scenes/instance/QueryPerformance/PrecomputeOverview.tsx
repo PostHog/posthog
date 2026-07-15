@@ -25,6 +25,7 @@ const SKIP_REASON_LABELS: Record<string, string> = {
     min_runtime: 'Experiment <12h old',
     override_direct: 'Forced direct (query override)',
     data_warehouse: 'Data warehouse metric',
+    group_aggregation: 'Group-aggregated experiment',
 }
 
 const formatMs = (ms: number | null): string => {

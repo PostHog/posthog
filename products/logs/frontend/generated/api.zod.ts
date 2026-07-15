@@ -1471,6 +1471,8 @@ export const LogsSparklineCreateBody = /* @__PURE__ */ zod.object({
 
 export const logsViewsCreateBodyNameMax = 400
 
+export const logsViewsCreateBodyColumnsItemWidthMax = 2000
+
 export const LogsViewsCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(logsViewsCreateBodyNameMax),
     filters: zod
@@ -1479,10 +1481,54 @@ export const LogsViewsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.'
         ),
+    columns: zod
+        .array(
+            zod.object({
+                id: zod
+                    .string()
+                    .describe(
+                        'Client-generated stable identity for list operations (React keys, reorder). Never interpreted by the server.'
+                    ),
+                type: zod
+                    .enum(['timestamp', 'level', 'source', 'trace_id', 'span_id', 'message', 'custom'])
+                    .describe(
+                        '\* `timestamp` - timestamp\n\* `level` - level\n\* `source` - source\n\* `trace_id` - trace_id\n\* `span_id` - span_id\n\* `message` - message\n\* `custom` - custom'
+                    )
+                    .describe(
+                        'Column type. Built-in types resolve client-side from log row fields; `custom` columns are computed server-side from `expression`.\n\n\* `timestamp` - timestamp\n\* `level` - level\n\* `source` - source\n\* `trace_id` - trace_id\n\* `span_id` - span_id\n\* `message` - message\n\* `custom` - custom'
+                    ),
+                name: zod
+                    .string()
+                    .optional()
+                    .describe(
+                        "Header label override. Defaults to the built-in type's label, or to the expression for custom columns."
+                    ),
+                expression: zod
+                    .string()
+                    .optional()
+                    .describe(
+                        "Only meaningful for `type: custom`: a source-prefixed shorthand (`attributes.<key>`, `resource_attributes.<key>`, `body.<json.path>`) or a scalar HogQL expression, sent verbatim in the logs query's `customColumns`."
+                    ),
+                width: zod
+                    .number()
+                    .min(1)
+                    .max(logsViewsCreateBodyColumnsItemWidthMax)
+                    .optional()
+                    .describe(
+                        'Column width in pixels (1–2000). Omitted for the default width; ignored for the flex message column.'
+                    ),
+            })
+        )
+        .nullish()
+        .describe(
+            'Ordered column configuration for the logs table (LogsColumnConfig[]). Order is array index. Null means the view has no column preference and the client renders its default column set. Omitting the field on update leaves the saved configuration unchanged; send null to clear it.'
+        ),
     pinned: zod.boolean().optional(),
 })
 
 export const logsViewsUpdateBodyNameMax = 400
+
+export const logsViewsUpdateBodyColumnsItemWidthMax = 2000
 
 export const LogsViewsUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(logsViewsUpdateBodyNameMax),
@@ -1492,10 +1538,54 @@ export const LogsViewsUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.'
         ),
+    columns: zod
+        .array(
+            zod.object({
+                id: zod
+                    .string()
+                    .describe(
+                        'Client-generated stable identity for list operations (React keys, reorder). Never interpreted by the server.'
+                    ),
+                type: zod
+                    .enum(['timestamp', 'level', 'source', 'trace_id', 'span_id', 'message', 'custom'])
+                    .describe(
+                        '\* `timestamp` - timestamp\n\* `level` - level\n\* `source` - source\n\* `trace_id` - trace_id\n\* `span_id` - span_id\n\* `message` - message\n\* `custom` - custom'
+                    )
+                    .describe(
+                        'Column type. Built-in types resolve client-side from log row fields; `custom` columns are computed server-side from `expression`.\n\n\* `timestamp` - timestamp\n\* `level` - level\n\* `source` - source\n\* `trace_id` - trace_id\n\* `span_id` - span_id\n\* `message` - message\n\* `custom` - custom'
+                    ),
+                name: zod
+                    .string()
+                    .optional()
+                    .describe(
+                        "Header label override. Defaults to the built-in type's label, or to the expression for custom columns."
+                    ),
+                expression: zod
+                    .string()
+                    .optional()
+                    .describe(
+                        "Only meaningful for `type: custom`: a source-prefixed shorthand (`attributes.<key>`, `resource_attributes.<key>`, `body.<json.path>`) or a scalar HogQL expression, sent verbatim in the logs query's `customColumns`."
+                    ),
+                width: zod
+                    .number()
+                    .min(1)
+                    .max(logsViewsUpdateBodyColumnsItemWidthMax)
+                    .optional()
+                    .describe(
+                        'Column width in pixels (1–2000). Omitted for the default width; ignored for the flex message column.'
+                    ),
+            })
+        )
+        .nullish()
+        .describe(
+            'Ordered column configuration for the logs table (LogsColumnConfig[]). Order is array index. Null means the view has no column preference and the client renders its default column set. Omitting the field on update leaves the saved configuration unchanged; send null to clear it.'
+        ),
     pinned: zod.boolean().optional(),
 })
 
 export const logsViewsPartialUpdateBodyNameMax = 400
+
+export const logsViewsPartialUpdateBodyColumnsItemWidthMax = 2000
 
 export const LogsViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(logsViewsPartialUpdateBodyNameMax).optional(),
@@ -1504,6 +1594,48 @@ export const LogsViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.'
+        ),
+    columns: zod
+        .array(
+            zod.object({
+                id: zod
+                    .string()
+                    .describe(
+                        'Client-generated stable identity for list operations (React keys, reorder). Never interpreted by the server.'
+                    ),
+                type: zod
+                    .enum(['timestamp', 'level', 'source', 'trace_id', 'span_id', 'message', 'custom'])
+                    .describe(
+                        '\* `timestamp` - timestamp\n\* `level` - level\n\* `source` - source\n\* `trace_id` - trace_id\n\* `span_id` - span_id\n\* `message` - message\n\* `custom` - custom'
+                    )
+                    .describe(
+                        'Column type. Built-in types resolve client-side from log row fields; `custom` columns are computed server-side from `expression`.\n\n\* `timestamp` - timestamp\n\* `level` - level\n\* `source` - source\n\* `trace_id` - trace_id\n\* `span_id` - span_id\n\* `message` - message\n\* `custom` - custom'
+                    ),
+                name: zod
+                    .string()
+                    .optional()
+                    .describe(
+                        "Header label override. Defaults to the built-in type's label, or to the expression for custom columns."
+                    ),
+                expression: zod
+                    .string()
+                    .optional()
+                    .describe(
+                        "Only meaningful for `type: custom`: a source-prefixed shorthand (`attributes.<key>`, `resource_attributes.<key>`, `body.<json.path>`) or a scalar HogQL expression, sent verbatim in the logs query's `customColumns`."
+                    ),
+                width: zod
+                    .number()
+                    .min(1)
+                    .max(logsViewsPartialUpdateBodyColumnsItemWidthMax)
+                    .optional()
+                    .describe(
+                        'Column width in pixels (1–2000). Omitted for the default width; ignored for the flex message column.'
+                    ),
+            })
+        )
+        .nullish()
+        .describe(
+            'Ordered column configuration for the logs table (LogsColumnConfig[]). Order is array index. Null means the view has no column preference and the client renders its default column set. Omitting the field on update leaves the saved configuration unchanged; send null to clear it.'
         ),
     pinned: zod.boolean().optional(),
 })

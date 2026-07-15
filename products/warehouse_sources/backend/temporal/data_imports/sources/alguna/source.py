@@ -69,7 +69,6 @@ You can create an API key in your Alguna dashboard under Settings > Credentials.
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

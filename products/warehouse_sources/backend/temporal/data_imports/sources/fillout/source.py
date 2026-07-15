@@ -84,7 +84,6 @@ You can generate an API key in your Fillout account under **Settings → Develop
                     ),
                 ],
             ),
-            unreleasedSource=True,
             releaseStatus=ReleaseStatus.ALPHA,
         )
 

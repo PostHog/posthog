@@ -107,11 +107,12 @@ def soft_delete_all_alert_destinations(*, team_id: int, alert_id: str, allowed_e
 
 
 def _allowed_event_filter(allowed_event_ids: Collection[str]) -> Q:
+    if not allowed_event_ids:
+        raise ValueError("allowed_event_ids must not be empty")
+
     event_filter = Q()
     for event_id in allowed_event_ids:
         event_filter |= Q(filters__events__contains=[{"id": event_id, "type": "events"}])
-    if not event_filter:
-        raise ValueError("allowed_event_ids must not be empty")
     return event_filter
 
 

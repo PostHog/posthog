@@ -47,8 +47,6 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog import settings
 from posthog.api.test.dashboards import DashboardAPI
-from posthog.caching.insight_cache import update_cache
-from posthog.caching.insight_caching_state import TargetCacheAge
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.query_runner import SHARED_FORCE_BLOCKING_STALENESS_WINDOW, ExecutionMode
 from posthog.models import Filter, OrganizationMembership, SharingConfiguration, Team, User
@@ -56,12 +54,11 @@ from posthog.models.project import Project
 from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.persons import create_person
 
-from products.alerts.backend.models.alert import AlertConfiguration
+from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
 from products.product_analytics.backend.models.insight import Insight, InsightViewed
-from products.product_analytics.backend.models.insight_caching_state import InsightCachingState
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 from ee.models.rbac.access_control import AccessControl
@@ -1081,6 +1078,51 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             assert len(ctx.captured_queries) == baseline_query_count, (
                 f"n={n}: {len(ctx.captured_queries)} queries vs baseline {baseline_query_count}; "
                 f"adding insights should not grow the per-request query count."
+            )
+
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
+    def test_listing_insights_with_alerts_does_not_nplus1(self) -> None:
+        url = f"/api/projects/{self.team.id}/insights/?saved=true&limit=30"
+
+        def _create_insight_with_alerts(short_id: str) -> None:
+            insight_id, _ = self.dashboard_api.create_insight(
+                data={"short_id": short_id, "filters": {"events": [{"id": "$pageview"}]}}
+            )
+            threshold = Threshold.objects.create(
+                team=self.team,
+                insight_id=insight_id,
+                created_by=self.user,
+                configuration={"type": "absolute", "bounds": {"upper": 1}},
+            )
+            # one threshold alert and one detector alert — AlertSerializer emits threshold and
+            # subscribed_users per alert, the two relations that regress to per-alert queries
+            for alert_threshold in (threshold, None):
+                alert = AlertConfiguration.objects.create(
+                    team=self.team,
+                    insight_id=insight_id,
+                    created_by=self.user,
+                    name="alert",
+                    threshold=alert_threshold,
+                    condition={"type": "absolute_value"},
+                    config={"type": "TrendsAlertConfig", "series_index": 0},
+                    detector_config=None if alert_threshold else {"type": "zscore", "threshold": 3},
+                )
+                AlertSubscription.objects.create(user=self.user, alert_configuration=alert, created_by=self.user)
+
+        _create_insight_with_alerts("first")
+        with capture_db_queries() as ctx:
+            assert self.client.get(url).status_code == status.HTTP_200_OK
+        baseline = len(ctx.captured_queries)
+
+        for n in range(2, 5):
+            _create_insight_with_alerts(f"insight-{n}")
+            with capture_db_queries() as ctx:
+                response = self.client.get(url)
+                assert response.status_code == status.HTTP_200_OK
+                assert len(response.json()["results"]) == n
+            assert len(ctx.captured_queries) == baseline, (
+                f"n={n}: {len(ctx.captured_queries)} queries vs baseline {baseline}; "
+                f"adding insights with alerts should not grow the per-request query count."
             )
 
     def test_listing_insights_shows_legacy_and_hogql_ones(self) -> None:
@@ -2131,159 +2173,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     0.0,
                 ],
             )
-
-    @patch(
-        "posthog.caching.insight_caching_state.calculate_target_age_insight",
-        # The tested insight normally wouldn't satisfy the criteria for being refreshed in the background,
-        # this patch means it will be treated as if it did satisfy them
-        return_value=TargetCacheAge.MID_PRIORITY,
-    )
-    def test_insight_refreshing_legacy_with_background_update(self, spy_calculate_target_age_insight) -> None:
-        with freeze_time("2012-01-14T03:21:34.000Z"):
-            _create_event(
-                team=self.team,
-                event="$pageview",
-                distinct_id="1",
-                properties={"prop": "val"},
-            )
-            _create_event(
-                team=self.team,
-                event="$pageview",
-                distinct_id="2",
-                properties={"prop": "another_val"},
-            )
-            _create_event(
-                team=self.team,
-                event="$pageview",
-                distinct_id="2",
-                properties={"prop": "val", "another": "never_return_this"},
-            )
-            flush_persons_and_events()
-
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/insights",
-                data={
-                    "filters": {
-                        "events": [{"id": "$pageview"}],
-                        "properties": [
-                            {
-                                "key": "another",
-                                "value": "never_return_this",
-                                "operator": "is_not",
-                            }
-                        ],
-                    },
-                },
-            ).json()
-            self.assertNotIn("code", response)  # Watching out for an error code
-            self.assertEqual(response["last_refresh"], None)
-            insight_id = response["id"]
-
-            response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=true").json()
-            self.assertNotIn("code", response)
-            self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 0])
-            self.assertEqual(response["last_refresh"], "2012-01-15T04:01:34Z")
-            self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")
-            self.assertFalse(response["is_cached"])
-
-        with freeze_time("2012-01-17T05:01:34.000Z"):
-            update_cache(InsightCachingState.objects.get(insight_id=insight_id).id)
-
-        with freeze_time("2012-01-17T06:01:34.000Z"):
-            response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=false").json()
-            self.assertNotIn("code", response)
-            self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 2, 0, 0, 0])
-            self.assertEqual(response["last_refresh"], "2012-01-17T05:01:34Z")  # Got refreshed with `update_cache`!
-            self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")
-            self.assertTrue(response["is_cached"])
-
-    @parameterized.expand(
-        [
-            [  # Property group filter, which is what's actually used these days
-                PropertyGroupFilter(
-                    type=FilterLogicalOperator.AND_,
-                    values=[
-                        PropertyGroupFilterValue(
-                            type=FilterLogicalOperator.OR_,
-                            values=[EventPropertyFilter(key="another", value="never_return_this", operator="is_not")],
-                        )
-                    ],
-                )
-            ],
-            [  # Classic list of filters
-                [EventPropertyFilter(key="another", value="never_return_this", operator="is_not")]
-            ],
-        ]
-    )
-    @patch("posthog.hogql_queries.insights.trends.trends_query_runner.execute_hogql_query", wraps=execute_hogql_query)
-    @patch(
-        "posthog.caching.insight_caching_state.calculate_target_age_insight",
-        # The tested insight normally wouldn't satisfy the criteria for being refreshed in the background,
-        # this patch means it will be treated as if it did satisfy them
-        return_value=TargetCacheAge.MID_PRIORITY,
-    )
-    def test_insight_refreshing_query_with_background_update(
-        self, properties_filter, spy_execute_hogql_query, spy_calculate_target_age_insight
-    ) -> None:
-        with freeze_time("2012-01-14T03:21:34.000Z"):
-            _create_event(
-                team=self.team,
-                event="$pageview",
-                distinct_id="1",
-                properties={"prop": "val"},
-            )
-            _create_event(
-                team=self.team,
-                event="$pageview",
-                distinct_id="2",
-                properties={"prop": "another_val"},
-            )
-            _create_event(
-                team=self.team,
-                event="$pageview",
-                distinct_id="2",
-                properties={"prop": "val", "another": "never_return_this"},
-            )
-            flush_persons_and_events()
-
-        query_dict = TrendsQuery(
-            series=[
-                EventsNode(
-                    event="$pageview",
-                )
-            ],
-            properties=properties_filter,
-        ).model_dump()
-
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            response = self.client.post(f"/api/projects/{self.team.id}/insights", data={"query": query_dict}).json()
-            self.assertNotIn("code", response)  # Watching out for an error code
-            self.assertEqual(response["last_refresh"], None)
-            insight_id = response["id"]
-
-            response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=true").json()
-            self.assertNotIn("code", response)
-
-            self.assertEqual(spy_execute_hogql_query.call_count, 1)
-
-            self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 0])
-            self.assertEqual(response["last_refresh"], "2012-01-15T04:01:34Z")
-            self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")
-            self.assertFalse(response["is_cached"])
-
-        with freeze_time("2012-01-17T05:01:34.000Z"):
-            update_cache(InsightCachingState.objects.get(insight_id=insight_id).id)
-
-        with freeze_time("2012-01-17T06:01:34.000Z"):
-            call_count_before = spy_execute_hogql_query.call_count
-            response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=false").json()
-            self.assertNotIn("code", response)
-            self.assertEqual(spy_execute_hogql_query.call_count, call_count_before)
-            self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 2, 0, 0, 0])
-            self.assertEqual(response["last_refresh"], "2012-01-17T05:01:34Z")  # Got refreshed with `update_cache`!
-            self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")
-            self.assertTrue(response["is_cached"])
 
     @parameterized.expand(
         [

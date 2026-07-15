@@ -2,6 +2,8 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
 
+from parameterized import parameterized
+
 from posthog.models.group_type_mapping import (
     GROUP_TYPES_CACHE_KEY_PREFIX,
     GROUP_TYPES_CONFIRMED_EMPTY_CACHE_KEY_PREFIX,
@@ -118,6 +120,14 @@ class TestGetGroupTypesForProject(SimpleTestCase):
 
         assert result == stale_data
 
+    def test_unconfigured_client_falls_back_instead_of_raising(self):
+        # Worker without PERSONHOG_ADDR: require_personhog_client() raises RuntimeError.
+        # It must reach the DatabaseError fallback, not escape and crash the caller.
+        with patch(_CLIENT_PATCH, return_value=None):
+            result = get_group_types_for_project(self.project_id)
+
+        assert result == []
+
 
 class TestGetGroupTypesForTeam(SimpleTestCase):
     def setUp(self):
@@ -150,6 +160,12 @@ class TestGetGroupTypesForTeam(SimpleTestCase):
         mock_fetch_personhog.side_effect = RuntimeError("grpc timeout")
 
         result = get_group_types_for_team(self.team_id)
+
+        assert result == []
+
+    def test_unconfigured_client_returns_empty_instead_of_raising(self):
+        with patch(_CLIENT_PATCH, return_value=None):
+            result = get_group_types_for_team(self.team_id)
 
         assert result == []
 
@@ -240,6 +256,109 @@ class TestGetGroupTypesForProjects(SimpleTestCase):
             2: [],
             3: [],
         }
+
+
+class TestGetGroupTypesForProjectsReplicaReconfirm(SimpleTestCase):
+    """The batch fetch reads at eventual consistency; a lagging or inconsistent replica
+    can return an empty mapping for a project that authoritatively has group types. That
+    silent empty is what drove the flag-cache write to try to erase a populated mapping.
+    get_group_types_for_projects must re-confirm such empties against the primary — but
+    only when a populated last-known-good exists, so the common no-groups path stays off
+    the primary.
+    """
+
+    def setUp(self):
+        self.populated_pid = 7001
+        self.empty_pid = 7002
+        self.project_ids = [self.populated_pid, self.empty_pid]
+        for pid in self.project_ids:
+            _clear_cache(pid)
+        self._client_patcher = patch(_CLIENT_PATCH, return_value=MagicMock())
+        self._client_patcher.start()
+
+    def tearDown(self):
+        self._client_patcher.stop()
+        for pid in self.project_ids:
+            _clear_cache(pid)
+
+    def _set_stale(self, pid: int) -> None:
+        safe_cache_set(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{pid}", PERSONHOG_SUCCESS_DATA, 3600)
+
+    def _patch_fetch(self, *, replica: dict, primary: dict):
+        def fetch(client, project_ids, *, consistency="eventual"):
+            source = primary if consistency == "strong" else replica
+            return {pid: source.get(pid, []) for pid in project_ids}
+
+        return patch(
+            "posthog.models.group_type_mapping._fetch_group_types_for_projects_via_personhog",
+            side_effect=fetch,
+        )
+
+    def test_replica_empty_with_stale_is_reconfirmed_from_primary(self):
+        # The replica silently dropped populated_pid; the primary still has its rows.
+        self._set_stale(self.populated_pid)
+        rows = [{"group_type": "organization", "group_type_index": 0}]
+
+        with self._patch_fetch(
+            replica={self.populated_pid: [], self.empty_pid: []},
+            primary={self.populated_pid: rows},
+        ) as mock_fetch:
+            result = get_group_types_for_projects(self.project_ids)
+
+        assert result[self.populated_pid] == rows
+        # empty_pid has no last-known-good, so it is trusted as genuinely empty.
+        assert result[self.empty_pid] == []
+
+        strong_calls = [c for c in mock_fetch.call_args_list if c.kwargs.get("consistency") == "strong"]
+        assert len(strong_calls) == 1
+        assert strong_calls[0].args[1] == [self.populated_pid]
+
+    def test_replica_empty_without_stale_is_not_reconfirmed(self):
+        # No last-known-good for either project → the primary is never probed and the
+        # empties are trusted (the common no-group-types path must stay cheap).
+        with self._patch_fetch(
+            replica={self.populated_pid: [], self.empty_pid: []},
+            primary={self.populated_pid: [{"group_type": "organization", "group_type_index": 0}]},
+        ) as mock_fetch:
+            result = get_group_types_for_projects(self.project_ids)
+
+        assert result == {self.populated_pid: [], self.empty_pid: []}
+        assert [c for c in mock_fetch.call_args_list if c.kwargs.get("consistency") == "strong"] == []
+
+    def test_replica_empty_with_stale_but_primary_empty_stays_empty(self):
+        # The last group type was genuinely deleted: the primary confirms empty, so we
+        # trust it rather than resurrecting the (now outdated) last-known-good.
+        self._set_stale(self.populated_pid)
+
+        with self._patch_fetch(
+            replica={self.populated_pid: [], self.empty_pid: []},
+            primary={self.populated_pid: []},
+        ):
+            result = get_group_types_for_projects(self.project_ids)
+
+        assert result[self.populated_pid] == []
+        # The now-outdated last-known-good is cleared so it can't resurrect the deleted
+        # group types on a later personhog outage, and so this project stops being
+        # flagged as a suspect on every subsequent read.
+        assert get_safe_cache(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{self.populated_pid}") is None
+
+    def test_primary_reconfirm_failure_serves_stale_not_empty(self):
+        # If the primary confirmation itself fails, serve the last-known-good rather than
+        # handing back the replica's unconfirmed empty.
+        self._set_stale(self.populated_pid)
+
+        def fetch(client, project_ids, *, consistency="eventual"):
+            if consistency == "strong":
+                raise RuntimeError("primary unavailable")
+            return {pid: [] for pid in project_ids}
+
+        with patch(
+            "posthog.models.group_type_mapping._fetch_group_types_for_projects_via_personhog",
+            side_effect=fetch,
+        ):
+            result = get_group_types_for_projects(self.project_ids)
+
+        assert result[self.populated_pid] == PERSONHOG_SUCCESS_DATA
 
 
 class TestGetGroupTypesForProjectCacheBehavior(SimpleTestCase):
@@ -369,6 +488,12 @@ class TestCountGroupTypeMappingsPerTeam(SimpleTestCase):
         self._mock_client.count_group_type_mappings.side_effect = RuntimeError("grpc timeout")
 
         result = count_group_type_mappings_per_team()
+
+        assert result == []
+
+    def test_unconfigured_client_returns_empty_instead_of_raising(self):
+        with patch(_CLIENT_PATCH, return_value=None):
+            result = count_group_type_mappings_per_team()
 
         assert result == []
 
@@ -744,6 +869,36 @@ class TestProjectHasGroupTypesAuthoritatively(SimpleTestCase):
         invalidate_group_types_cache(888)
 
         assert get_safe_cache(marker_key) is None
+
+
+# Missing client (PERSONHOG_ADDR unset) raises RuntimeError; read paths must recover
+# like a DatabaseError instead of letting it escape and 500 the caller.
+class TestUnconfiguredClientDegradesGracefully(SimpleTestCase):
+    def setUp(self):
+        self.project_id = 314159
+        _clear_cache(self.project_id)
+        safe_cache_delete(f"{GROUP_TYPES_CONFIRMED_EMPTY_CACHE_KEY_PREFIX}{self.project_id}")
+        self._client_patcher = patch(_CLIENT_PATCH, return_value=None)
+        self._client_patcher.start()
+
+    def tearDown(self):
+        self._client_patcher.stop()
+        _clear_cache(self.project_id)
+        safe_cache_delete(f"{GROUP_TYPES_CONFIRMED_EMPTY_CACHE_KEY_PREFIX}{self.project_id}")
+
+    @parameterized.expand(
+        [
+            ("project", lambda self: get_group_types_for_project(self.project_id)),
+            ("team", lambda self: get_group_types_for_team(42)),
+            ("count", lambda self: count_group_type_mappings_per_team()),
+        ]
+    )
+    def test_read_path_returns_empty(self, _name, call):
+        assert call(self) == []
+
+    def test_project_has_group_types_fails_closed(self):
+        # Unconfirmable state must not be treated as "safe to empty" — fail closed to True.
+        assert project_has_group_types_authoritatively(self.project_id) is True
 
 
 class TestDictToGroupTypeMappingModel(SimpleTestCase):

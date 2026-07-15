@@ -7082,8 +7082,9 @@ export const OrganizationsProjectsGenerateConversationsPublicTokenCreateBody = /
 
 /**
  * Manage logs product configuration for this project's canonical environment.
- * Mirrors the env-router action so /api/projects/:id/logs_config/ resolves
- * alongside the legacy /api/environments/:id/logs_config/ alias.
+ * Members can read; writing requires project admin, matching the admin-only
+ * settings UI. Mirrors the env-router action so /api/projects/:id/logs_config/
+ * resolves alongside the legacy /api/environments/:id/logs_config/ alias.
  */
 export const organizationsProjectsLogsConfigPartialUpdateBodyNameMax = 200
 

@@ -81,7 +81,6 @@ Create an API user in [Smaily](https://smaily.com) under **Account preferences â
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     @property

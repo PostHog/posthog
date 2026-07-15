@@ -5,6 +5,8 @@ Deterministic safety gates first, then Claude reviews for showstoppers.
 
 > [!NOTE]
 > This directory (together with `.stamphog/`) is vendored into other repos — e.g. [MLHog](https://github.com/PostHog/MLHog/tree/master/tools/pr-approval-agent) — each documenting its intentional local changes in its own copy of this README. When you change the engine or policy format here, those copies stay stale until someone re-syncs them, so give the owning teams a heads-up (or re-sync yourself: diff, re-copy, re-apply their documented local changes).
+> A policy that declares a `hogli-resolver` ownership source additionally needs the sibling `tools/owners` package vendored.
+> The legacy `gh-codeowners` / `ph-product` ownership formats were removed together with the `CODEOWNERS-soft` migration, so a vendored copy whose policy still declares them must migrate to `hogli-resolver` (adopting `owners.yaml` + `tools/owners`) as part of the re-sync — or skip the re-sync and keep its previous engine until it's ready. The policy loader rejects unknown formats loudly at startup, so a missed migration fails closed rather than silently skipping the ownership source.
 
 ## Usage
 
@@ -208,12 +210,13 @@ If the check hasn't completed yet when stamphog runs, stamphog refuses with a me
 
 Ownership context for the LLM (not a hard gate). The sources are declared in
 `.stamphog/policy.yml` under `ownership:` and read from the master checkout: a
-`gh-codeowners` source (`.github/CODEOWNERS-soft`, last-match-wins) plus a
-`ph-product` source (`products/*/product.yaml` owners). A file's owning teams
-are the union across all sources, so stamphog sees the same merged view the
-reviewer auto-assigner builds. Cross-team typo/test/comment fixes are fine, as
-are small well-tested behavioral fixes (T1a/T1b) with no outstanding reviewer
-concerns; API contract, data model, and larger behavioral changes get escalated.
+`hogli-resolver` source that resolves ownership through the shared hogli
+resolver over the distributed `owners.yaml` / `product.yaml` files. A file's
+owning teams are the union across all sources, so stamphog sees the same merged
+view the reviewer auto-assigner builds. Cross-team typo/test/comment fixes are
+fine, as are small well-tested behavioral fixes (T1a/T1b) with no outstanding
+reviewer concerns; API contract, data model, and larger behavioral changes get
+escalated.
 
 ## Versioning
 

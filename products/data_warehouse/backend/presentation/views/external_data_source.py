@@ -43,8 +43,9 @@ from posthog.hogql.direct_sql.capability import direct_capable_source_types
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.event_usage import EventSource, get_event_source, report_user_action
+from posthog.event_usage import EventSource, get_event_source, is_wizard_self_driving_program, report_user_action
 from posthog.exceptions_capture import capture_exception
+from posthog.models.integration import Integration
 from posthog.models.user import User
 from posthog.permissions import (
     AccessControlPermission,
@@ -159,6 +160,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     draft_manifest_sync,
     fetch_docs_text,
     filter_dwh_columns_by_enabled_columns,
+    filter_integration_accounts,
     get_cdc_adapter,
     get_primary_key_columns,
     manifest_request_hosts,
@@ -237,6 +239,30 @@ def get_sensitive_field_names(fields: list[FieldType]) -> set[str]:
                 if option.fields:
                     sensitive.update(get_sensitive_field_names(option.fields))
     return sensitive
+
+
+def get_oauth_integration_kinds(fields: list[FieldType]) -> set[str]:
+    """The integration kinds a source connects with, declared by its `oauth` fields (`kind`) and its
+    `oauth-account-select` fields (`integrationKind`). Every OAuth account listing is served by one
+    endpoint that takes an integration id from the caller, so this is what the endpoint checks that id
+    against — a Google integration id must not be able to route its token into the LinkedIn Ads client
+    just because both rows belong to the caller's team.
+
+    Both field types are read because a source can list accounts without rendering a picker: GitHub
+    serves repositories to its own component off a plain `oauth` field."""
+    kinds: set[str] = set()
+    for field in fields:
+        if isinstance(field, SourceFieldOauthAccountSelectConfig):
+            kinds.add(field.integrationKind)
+        elif isinstance(field, SourceFieldOauthConfig):
+            kinds.add(field.kind)
+        elif isinstance(field, SourceFieldSwitchGroupConfig):
+            kinds.update(get_oauth_integration_kinds(field.fields))
+        elif isinstance(field, SourceFieldSelectConfig):
+            for option in field.options:
+                if option.fields:
+                    kinds.update(get_oauth_integration_kinds(option.fields))
+    return kinds
 
 
 def _add_name_variants(target: set[str], name: str) -> None:
@@ -773,7 +799,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         help_text=(
             "How this source was created. Defaults to `api` on create when omitted. "
             "`web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, "
-            "`wizard` for the setup wizard (derived server-side from the wizard's user agent). "
+            "`wizard` for the setup wizard and `self_driving` for the PostHog Code app "
+            "(both derived server-side from the caller's user agent). "
             "Ignored on update."
         ),
     )
@@ -1279,9 +1306,10 @@ class ExternalDataSourceCreateSerializer(serializers.Serializer):
         help_text="Connection mode: 'warehouse' (import) or 'direct' (live query).",
     )
     created_via = serializers.ChoiceField(
-        # `wizard` is intentionally omitted: it is never accepted from a caller (that would let any
-        # client self-label as wizard-created). It is derived server-side by upgrading a
-        # machine-injected `mcp` value when the request comes from the wizard transport.
+        # `wizard` and `self_driving` are intentionally omitted: they are never accepted from a
+        # caller (that would let any client self-label as wizard- or self-driving-created). They
+        # are derived server-side by upgrading a machine-injected `mcp` value based on the request
+        # transport (the wizard, PostHog Code, or the wizard's self-driving program).
         choices=[
             ExternalDataSource.CreatedVia.WEB,
             ExternalDataSource.CreatedVia.API,
@@ -1291,8 +1319,8 @@ class ExternalDataSourceCreateSerializer(serializers.Serializer):
         default=ExternalDataSource.CreatedVia.API,
         help_text=(
             "Where the request came from: `web` for the in-app UI, `api` for direct API callers, "
-            "`mcp` for agent/MCP tool calls. `wizard` cannot be set directly — it is derived "
-            "server-side for wizard-driven MCP calls. Defaults to `api`."
+            "`mcp` for agent/MCP tool calls. `wizard` and `self_driving` cannot be set directly — "
+            "they are derived server-side for wizard- and PostHog Code-driven MCP calls. Defaults to `api`."
         ),
     )
     direct_query_enabled = serializers.BooleanField(
@@ -1807,6 +1835,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 required=True,
                 description="The OAuth integration id whose accounts should be listed.",
             ),
+            OpenApiParameter(
+                name="search",
+                type=str,
+                required=False,
+                description="Optional case-insensitive filter over account name/value, for sources whose "
+                "resource list is large (e.g. GitHub repositories).",
+            ),
         ],
         responses={200: IntegrationAccountsResponseSerializer},
     )
@@ -1814,9 +1849,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     def oauth_accounts(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """List the accounts/properties a connected OAuth integration exposes, in the shared
         IntegrationAccount shape. The logic lives in each source (via OAuthMixin.get_oauth_accounts);
-        this endpoint just routes by source type and serializes the result."""
+        this endpoint just routes by source type, applies the optional search filter, and serializes."""
         source_type = request.query_params.get("source_type")
         integration_id = request.query_params.get("integration_id")
+        search = request.query_params.get("search") or None
         if not source_type or not integration_id:
             raise ValidationError("source_type and integration_id are required")
 
@@ -1833,13 +1869,30 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         if not isinstance(source, OAuthMixin):
             raise ValidationError(f"Source type {source_type} does not support listing OAuth accounts")
 
-        cache_key = f"oauth_accounts/{self.team_id}/{source_type}/{integration_id_int}"
+        # The integration id is caller-supplied and each source looks it up by (id, team_id) only, so
+        # without this a same-team integration of a different provider would be accepted here and its
+        # OAuth token handed to this source's provider. Pin it to the kind(s) the source's picker
+        # declares before any of that runs.
+        expected_kinds = get_oauth_integration_kinds(source.get_source_config.fields)
+        if not expected_kinds:
+            raise ValidationError(f"Source type {source_type} does not support listing OAuth accounts")
+        if not Integration.objects.filter(
+            id=integration_id_int, team_id=self.team_id, kind__in=expected_kinds
+        ).exists():
+            # One message for "gone" and "wrong kind" alike: from the UI both mean the picker is holding
+            # a connection this source can't use, and neither tells the caller anything about ids it
+            # isn't already allowed to see.
+            raise ValidationError(
+                f"No {source_type} connection was found for this integration. Please reconnect the integration."
+            )
+
+        cache_key = f"oauth_accounts/{self.team_id}/{source_type}/{integration_id_int}/{search or ''}"
         cached = cache.get(cache_key)
         if cached is not None:
             return Response(cached)
 
         try:
-            accounts = source.get_oauth_accounts(integration_id_int, self.team_id)
+            accounts = source.get_oauth_accounts(integration_id_int, self.team_id, search=search)
         except NotImplementedError:
             # An OAuth source that hasn't implemented account listing yet (passes the isinstance check).
             raise ValidationError(f"Source type {source_type} does not support listing OAuth accounts")
@@ -1849,6 +1902,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             # ValueError from an internal bug) stays uncaught and becomes a 500 so monitors see it.
             raise ValidationError(str(e))
 
+        # Belt-and-suspenders: sources that support server-side search already return matching results;
+        # this filters sources that returned a full list and ignored `search`.
+        accounts = filter_integration_accounts(accounts, search)
         response_data = {"accounts": IntegrationAccountSerializer(accounts, many=True).data}
         # Don't cache an empty result: a transient provider hiccup that returns [] without raising would
         # otherwise poison the picker for 60s for every admin on the team.
@@ -1892,12 +1948,21 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # It avoids a second live credential round-trip — and the confusing failure mode where the
         # first check passes but a transient blip fails the second, leaving nothing created.
 
-        # The setup wizard drives creation through the MCP tools, which inject `created_via=mcp`
-        # before the request reaches us — the agent can't set the field itself. Upgrade that
-        # machine-injected value to `wizard` when the transport identifies the wizard, so wizard
+        # The setup wizard and PostHog Code drive creation through the MCP tools, which inject
+        # `created_via=mcp` before the request reaches us — the agent can't set the field itself.
+        # Upgrade that machine-injected value when the transport identifies one of them, so their
         # runs are distinguishable from other MCP clients. Explicit `web`/`api` values are left alone.
-        if created_via == ExternalDataSource.CreatedVia.MCP and get_event_source(request) == EventSource.WIZARD:
-            created_via = ExternalDataSource.CreatedVia.WIZARD
+        if created_via == ExternalDataSource.CreatedVia.MCP:
+            transport_created_via = {
+                EventSource.WIZARD: ExternalDataSource.CreatedVia.WIZARD,
+                EventSource.POSTHOG_CODE: ExternalDataSource.CreatedVia.SELF_DRIVING,
+            }
+            created_via = transport_created_via.get(get_event_source(request), created_via)
+            # The wizard's `self-driving` onboarding program shares the generic `posthog/wizard`
+            # transport but marks its UA distinctly — attribute its sources as self_driving too, so
+            # a source connected during a self-driving run isn't lumped in with plain wizard setups.
+            if created_via == ExternalDataSource.CreatedVia.WIZARD and is_wizard_self_driving_program(request):
+                created_via = ExternalDataSource.CreatedVia.SELF_DRIVING
         is_direct_query = access_method == ExternalDataSource.AccessMethod.DIRECT
         is_direct_mysql = is_direct_query and source_type == ExternalDataSourceType.MYSQL
         is_direct_snowflake = is_direct_query and source_type == ExternalDataSourceType.SNOWFLAKE
@@ -2481,11 +2546,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             managed_viewset.sync_views()
             ensure_person_join(self.team.pk, new_source_model.prefix)
 
-        # `source` (web/api/mcp/wizard) is derived from the request by report_user_action; `created_via`
-        # is the caller's explicit intent (with one exception: the machine-injected `mcp` is upgraded
-        # to `wizard` above when the transport identifies the wizard). They usually agree but are kept
-        # separate so a transport change (e.g. a new wrapper UA) doesn't silently rewrite historical
-        # attribution.
+        # `source` (web/api/mcp/wizard/posthog_code) is derived from the request by report_user_action;
+        # `created_via` is the caller's explicit intent (with one exception: the machine-injected `mcp`
+        # is upgraded above when the transport identifies the wizard or PostHog Code). They usually
+        # agree but are kept separate so a transport change (e.g. a new wrapper UA) doesn't silently
+        # rewrite historical attribution.
         report_user_action(
             cast(User, request.user),
             "data warehouse source created",
@@ -4101,7 +4166,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     )
     @action(methods=["GET"], detail=False)
     def wizard(self, request: Request, *arg: Any, **kwargs: Any):
-        configs = build_source_configs()
+        # The documented-tables catalog is only consumed by the posthog.com docs build (via the
+        # public endpoint) — skipping it here cuts ~40% off an already >1 MB response.
+        configs = build_source_configs(include_tables=False)
 
         requested = request.query_params.get("source_type")
         if requested:
