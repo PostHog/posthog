@@ -272,9 +272,7 @@ class TestFreeTierModelListing:
         get_settings.cache_clear()
 
     def test_anonymous_caller_gets_full_unrestricted_list(self, client: TestClient):
-        # Shipped desktop builds fetch the listing with no credentials; an
-        # unidentifiable caller may be a billed org, so nothing is marked.
-        # Enforcement, which requires auth, is the gate.
+        # an unidentifiable caller may be a billed org; never mark for those
         response = client.get("/posthog_code/v1/models")
         assert response.status_code == 200
         models = response.json()["data"]
@@ -297,17 +295,13 @@ class TestFreeTierModelListing:
         assert response.status_code == 200
         body = response.json()
         by_id = {m["id"]: m for m in body["data"]}
-        # Restricted models stay visible - marked, not omitted - so clients can
-        # render them disabled with an upgrade prompt.
         premium = by_id["claude-opus-4-5"]
         assert premium["allowed"] is False
         assert premium["restriction_reason"] == "paid_plan_required"
-        assert "claude-opus-4-5" in premium["restriction_message"]
-        # Exact, not subset: the default free model must survive both the
-        # product allowlist and the annotation, or free-tier callers are left
-        # with no usable model.
+        # exact, not subset: the default free model must survive the allowlist
+        # and the annotation, or free-tier callers have no usable model
         assert {m["id"] for m in body["data"] if m["allowed"]} == {"@cf/zai-org/glm-5.2"}
-        # codex reads the `models` mirror; the annotations must be there too.
+        # codex reads the `models` mirror; the marks must be there too
         assert body["models"] == body["data"]
 
     def test_billed_org_sees_full_list(self, app, mock_db_pool):
@@ -331,8 +325,7 @@ class TestFreeTierModelListing:
     def test_auth_resolution_failure_serves_full_unrestricted_list(self, app, mock_db_pool):
         from unittest.mock import AsyncMock
 
-        # A transient auth outage must not mark a possibly-billed caller's
-        # models as restricted; enforcement still gates actual usage.
+        # an auth outage must not mark a possibly-billed caller's models
         mock_db_pool.acquire = AsyncMock(side_effect=RuntimeError("db down"))
 
         with TestClient(app) as c:

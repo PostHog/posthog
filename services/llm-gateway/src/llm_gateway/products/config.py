@@ -296,19 +296,7 @@ def _model_matches_product_allowlist(
     )
 
 
-# Machine-readable reason for the /models listing annotation; clients key
-# upgrade UI off this rather than parsing the message.
 FREE_TIER_RESTRICTION_REASON: Final[str] = "paid_plan_required"
-
-
-def free_tier_restriction_message(model: str) -> str:
-    """Copy shared by the free-tier enforcement 403 and the /models listing
-    annotation, so the two surfaces can't drift."""
-    available = ", ".join(sorted(get_settings().posthog_code_free_tier_models))
-    return (
-        f"Model '{model}' needs a paid PostHog plan. Models available on the free tier: {available}. "
-        "Add a payment method to your organization to unlock all models."
-    )
 
 
 def check_free_tier_model_access(
@@ -323,9 +311,7 @@ def check_free_tier_model_access(
         return True, None
     if resolve_product_alias(product) != "posthog_code":
         return True, None
-    # model=None passes only because every route requires a model at request
-    # validation (JSON schemas and the transcription Form field alike), so such
-    # a request 422s at the endpoint before any upstream call.
+    # model=None is safe: every route requires a model at validation, so the request 422s
     if code_usage_billed or usage_unlimited or model is None:
         return True, None
 
@@ -333,12 +319,15 @@ def check_free_tier_model_access(
     if _model_matches_product_allowlist(model, free_models, provider=provider, settings=settings):
         return True, None
 
-    return False, free_tier_restriction_message(model)
+    available = ", ".join(sorted(free_models))
+    return False, (
+        f"Model '{model}' needs a paid PostHog plan. Models available on the free tier: {available}. "
+        "Add a payment method to your organization to unlock all models."
+    )
 
 
 def filter_to_free_tier_models(model_ids: list[str]) -> list[str]:
-    """Subset of model_ids available on the posthog_code free tier (see
-    check_free_tier_model_access)."""
+    """Subset of model_ids on the posthog_code free tier."""
     settings = get_settings()
     free_models = frozenset(settings.posthog_code_free_tier_models)
     return [m for m in model_ids if _model_matches_product_allowlist(m, free_models, settings=settings)]

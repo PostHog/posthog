@@ -88,26 +88,15 @@ async def get_request_json(request: Request) -> dict[str, Any] | None:
 
 
 async def get_model_from_request(request: Request) -> str | None:
-    """Extract model name from the request body (JSON or form-encoded) if present.
-
-    The transcription endpoints take `model` as a multipart form field, so a
-    JSON-only read would let form requests through every model check with
-    model=None while the handler routes the caller-chosen form value upstream.
-    Starlette caches the parsed form on the request, so the endpoint's own
-    Form()/File() parameters reuse it rather than re-reading the stream.
-
-    A None return is safe for the checks that allow a missing model: every
-    route declares `model` required (JSON schemas and the transcription Form
-    field alike), so such a request fails the endpoint's own validation
-    instead of reaching an upstream with a model nobody checked.
-    """
+    """Extract the model from the request body (JSON, or form for the
+    transcription routes). None is safe: every route requires a model at
+    validation, so such a request never reaches an upstream."""
     content_type = request.headers.get("content-type", "").lower()
     if content_type.startswith(("multipart/form-data", "application/x-www-form-urlencoded")):
         try:
             form = await request.form()
         except Exception:
-            # Malformed form bodies fail the endpoint's own parsing too, so
-            # nothing model-bearing gets upstream without passing back through here.
+            # malformed forms fail the endpoint's own parsing too
             return None
         model = form.get("model")
         return model if isinstance(model, str) else None

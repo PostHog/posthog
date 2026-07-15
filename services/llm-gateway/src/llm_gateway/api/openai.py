@@ -245,8 +245,7 @@ async def audio_transcriptions(
     user: RateLimitedUser,
     request: Request,
     file: Annotated[UploadFile, File()],
-    # Required, like OpenAI's API: a server-side default would fill in a model
-    # the access checks never saw (they read the form before binding).
+    # required, like OpenAI's API: a server default would bypass the model access checks
     model: Annotated[str, Form()],
     language: Annotated[str | None, Form()] = None,
 ) -> dict[str, Any]:

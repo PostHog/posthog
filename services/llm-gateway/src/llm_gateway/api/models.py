@@ -10,7 +10,6 @@ from llm_gateway.products.config import (
     FREE_TIER_RESTRICTION_REASON,
     CreditBucket,
     filter_to_free_tier_models,
-    free_tier_restriction_message,
     validate_product,
 )
 from llm_gateway.rate_limiting.throttles import is_usage_unlimited
@@ -53,12 +52,9 @@ class ModelObject(BaseModel):
     truncation_policy: TruncationPolicyConfig = TruncationPolicyConfig()
     supports_parallel_tool_calls: bool = True
     experimental_supported_tools: list[str] = []
-    # Free-tier gate annotations (posthog_code only): the listing returns the
-    # full catalog and marks models the caller can't use instead of omitting
-    # them, so clients can render them disabled with an upgrade prompt.
+    # Free-tier gate (posthog_code): restricted models are marked, not omitted.
     allowed: bool = True
     restriction_reason: str | None = None
-    restriction_message: str | None = None
 
 
 class ModelsResponse(BaseModel):
@@ -85,20 +81,10 @@ def _build_response(product: str) -> ModelsResponse:
 
 
 async def _caller_confirmed_free_tier(request: Request) -> bool:
-    """Whether the caller is positively identified as free-tier (authenticated,
-    non-staff, org not billed for Code usage).
-
-    Only such callers get restriction annotations; the listing always returns
-    the full catalog, so a wrong answer here at worst mismarks a model —
-    enforcement stays the gate. Anonymous callers and auth failures (the
-    except below) get no annotations: shipped desktop builds fetch the listing
-    with no credentials, and an unidentifiable caller may well be a billed
-    org. Quota-fetch failures annotate as restricted: resolve_quota_status
-    never raises — on upstream failure it reports the team's last-known
-    billing bit, False when there is none — and enforcement 403s premium
-    models off that same bit in that same state, so the marks match what
-    requests will actually do.
-    """
+    """Caller is authenticated, non-staff, and their org isn't billed for Code
+    usage. Unidentifiable callers (anonymous, auth failure) are never marked;
+    quota-fetch failures read the same last-known billing bit as enforcement,
+    so marks match what requests would do. Enforcement stays the gate."""
     try:
         user = await get_auth_service().authenticate_request(request, request.app.state.db_pool)
         if user is None:
@@ -106,8 +92,7 @@ async def _caller_confirmed_free_tier(request: Request) -> bool:
         if is_usage_unlimited(user):
             return False
         if user.team_id is None:
-            # No team to bill against: enforcement's quota bit reads unbilled
-            # for this caller too, so the filtered list matches what it serves.
+            # no team to bill: enforcement reads this caller as unbilled too
             return True
         quota_status = await resolve_quota_status(request, user.team_id, CreditBucket.POSTHOG_CODE_CREDITS.value)
         return not quota_status.code_usage_billing_active
@@ -135,13 +120,7 @@ async def list_models_for_product(product: str, request: Request) -> ModelsRespo
     annotated = [
         m
         if m.id in free_ids
-        else m.model_copy(
-            update={
-                "allowed": False,
-                "restriction_reason": FREE_TIER_RESTRICTION_REASON,
-                "restriction_message": free_tier_restriction_message(m.id),
-            }
-        )
+        else m.model_copy(update={"allowed": False, "restriction_reason": FREE_TIER_RESTRICTION_REASON})
         for m in response.data
     ]
     return ModelsResponse(data=annotated, models=annotated)

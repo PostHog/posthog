@@ -454,8 +454,7 @@ class TestCheckFreeTierModelAccess:
         get_settings.cache_clear()
 
     def test_gate_disabled_by_default_allows_premium_models(self, monkeypatch: pytest.MonkeyPatch):
-        # Constraint on the cutover: this deploys inert - behavior only changes
-        # once the env flag flips.
+        # the PR deploys inert: behavior changes only when the env flag flips
         from llm_gateway.config import get_settings
 
         monkeypatch.delenv("LLM_GATEWAY_POSTHOG_CODE_MODEL_GATE_ENABLED", raising=False)

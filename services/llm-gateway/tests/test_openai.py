@@ -631,10 +631,8 @@ class TestAudioTranscriptionsEndpoint:
         authenticated_client: TestClient,
         path: str,
     ) -> None:
-        # `model` must stay a required form field. A server-side default used to
-        # fill in gpt-4o-transcribe AFTER the access checks ran with model=None,
-        # routing a model upstream that neither the product allowlist nor the
-        # free-tier gate ever saw.
+        # a server-side default would route a model upstream that the access
+        # checks never saw (they run before form binding)
         response = authenticated_client.post(
             path,
             files={"file": ("a.mp3", b"audio-bytes", "audio/mpeg")},

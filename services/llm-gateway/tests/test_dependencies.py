@@ -48,8 +48,7 @@ _TRANSCRIPTION_MULTIPART_BODY = (
 
 
 def _make_form_request(body: bytes, content_type: str, path: str) -> Request:
-    # A real Request (not a mock): these tests must exercise starlette's actual
-    # form parsing, which is what the JSON-only extraction used to miss.
+    # real Request, not a mock: these tests exercise starlette's actual form parsing
     scope = {
         "type": "http",
         "method": "POST",
@@ -278,18 +277,13 @@ class TestGetModelFromRequest:
         ],
     )
     async def test_reads_model_from_form_bodies(self, body: bytes, content_type: str) -> None:
-        # The transcription routes take `model` as a form field; a JSON-only
-        # read would run every model check with model=None while the handler
-        # sends the caller-chosen form value upstream.
         request = _make_form_request(body, content_type, "/posthog_code/v1/audio/transcriptions")
         assert await get_model_from_request(request) == "gpt-4o-transcribe"
 
     @pytest.mark.asyncio
     async def test_form_parse_leaves_the_upload_readable_for_the_endpoint(self) -> None:
-        # The dependency parses the form before FastAPI binds the endpoint's
-        # Form()/File() params from the same request. If that parse consumed the
-        # stream without caching, or left the upload's cursor at the end, every
-        # legitimate transcription request would fail or send empty audio.
+        # a parse that consumed the stream or left the upload cursor at the end
+        # would make every legitimate transcription send empty audio
         body = (
             b"--boundary\r\n"
             b'Content-Disposition: form-data; name="model"\r\n\r\ngpt-4o-transcribe\r\n'
@@ -313,9 +307,7 @@ class TestGetModelFromRequest:
 class TestFreeTierModelGateWiring:
     @pytest.mark.asyncio
     async def test_multipart_transcription_model_is_gated(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        # The bypass this pins: an unbilled code caller posting multipart to the
-        # transcription route used to reach litellm with a premium model because
-        # the gate only saw JSON bodies.
+        # the gate must see form-encoded models, not just JSON ones
         from llm_gateway.config import get_settings
 
         monkeypatch.setenv("LLM_GATEWAY_POSTHOG_CODE_MODEL_GATE_ENABLED", "true")
@@ -342,9 +334,7 @@ class TestFreeTierModelGateWiring:
 
     @pytest.mark.asyncio
     async def test_gated_model_is_rejected_on_the_enforcement_path(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        # The gate decision lives in products.config; this pins that
-        # enforce_throttles actually consults it on the request path (with the
-        # quota bit failing closed when unresolved).
+        # pins that enforce_throttles actually consults the gate on the request path
         from llm_gateway.config import get_settings
 
         monkeypatch.setenv("LLM_GATEWAY_POSTHOG_CODE_MODEL_GATE_ENABLED", "true")
