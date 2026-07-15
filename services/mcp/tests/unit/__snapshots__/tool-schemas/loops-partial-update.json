@@ -48,6 +48,56 @@
             },
             "type": "object"
         },
+        "context_target": {
+            "anyOf": [
+                {
+                    "properties": {
+                        "folder_id": {
+                            "description": "Desktop folder id of the context this loop is attached to.",
+                            "type": "string"
+                        },
+                        "name": {
+                            "description": "Context (channel) name, used to file runs into its feed.",
+                            "maxLength": 128,
+                            "type": "string"
+                        },
+                        "outputs": {
+                            "description": "What the loop maintains in this context each run.",
+                            "properties": {
+                                "canvas_id": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "Id of a canvas in this context the loop keeps up to date each run, or null to maintain none."
+                                },
+                                "post_to_feed": {
+                                    "default": false,
+                                    "description": "Whether each run is filed into the context's feed as a card (sets the run's channel).",
+                                    "type": "boolean"
+                                },
+                                "update_context": {
+                                    "default": false,
+                                    "description": "Whether each run reads and republishes the context's context.md to reflect the latest state.",
+                                    "type": "boolean"
+                                }
+                            },
+                            "type": "object"
+                        }
+                    },
+                    "required": ["folder_id", "name"],
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Context (channel) this loop is attached to, or null to detach. Drives feed placement and the context.md / canvas it keeps up to date."
+        },
         "description": {
             "description": "Free-form description of what this loop does.",
             "type": "string"
@@ -216,8 +266,12 @@
             ],
             "description": "Sandbox environment carrying encrypted env vars and the network allowlist into every run."
         },
+        "take_ownership": {
+            "description": "On a team loop, claim ownership as part of this update so you can edit identity-bearing config (instructions, model, triggers, ...) that only the owner may change. Ignored on personal loops and on create.",
+            "type": "boolean"
+        },
         "triggers": {
-            "description": "Full desired trigger list, id-stable: entries with a matching `id` are updated in place, entries without one are created, and existing triggers absent from this list are deleted. Omit the field entirely to leave triggers untouched.",
+            "description": "Full desired trigger list, id-stable: entries with a matching `id` are updated in place, entries without one are created, and existing triggers absent from this list are deleted. Omit the field entirely to leave triggers untouched. At most 25 triggers per loop.",
             "items": {
                 "properties": {
                     "config": {
