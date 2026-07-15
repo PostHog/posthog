@@ -864,6 +864,35 @@ class TestHandleFollowupInFlightTracking:
         release_fallback.set()
         await workflow._finish_active_followup()
 
+    async def test_completion_waits_for_declined_steer_fallback(self, monkeypatch, silent_workflow_logger):
+        workflow = ExecuteSandboxWorkflow()
+        workflow._context = _build_context()
+        release_steer = asyncio.Event()
+        deliveries: list[tuple[str | None, bool]] = []
+
+        async def fake_send_followup(*, message, artifact_ids, steer=False):
+            deliveries.append((message, steer))
+            if steer:
+                await release_steer.wait()
+                return STEER_DECLINED_OUTCOME
+            return None
+
+        monkeypatch.setattr(workflow, "_send_followup_to_sandbox", fake_send_followup)
+        monkeypatch.setattr(workflow, "_flush_pending_outbound", AsyncMock())
+        monkeypatch.setattr(execute_sandbox_workflow_module.workflow, "patched", Mock(return_value=True))
+
+        await workflow.send_steer_message("ack-steer", "finish in green")
+        assert await workflow._dispatch_next_followup() is True
+        await asyncio.sleep(0)
+
+        await workflow.complete_task("ack-complete")
+        release_steer.set()
+        await workflow._finish_active_followup()
+
+        assert deliveries == [("finish in green", True), ("finish in green", False)]
+        assert workflow._pending_followups == []
+        assert "ack-steer" in workflow._acked_ids
+
     async def test_parent_attached_replay_only_re_acks(self, silent_workflow_logger):
         workflow = ExecuteSandboxWorkflow()
         workflow._parent_workflow_id = "original-parent"

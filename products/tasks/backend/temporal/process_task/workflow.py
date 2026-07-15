@@ -361,11 +361,20 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             )
 
     async def _finish_active_followup(self) -> None:
-        if self._active_followup_task is None:
-            return
-        task = self._active_followup_task
-        self._active_followup_task = None
-        await task
+        while True:
+            if self._active_followup_task is not None:
+                task = self._active_followup_task
+                self._active_followup_task = None
+                await task
+
+            if self._pending_followup is None and not self._pending_followups:
+                return
+            if not workflow.patched(_PATCH_ID_CONCURRENT_FOLLOWUP_STEERING):
+                return
+
+            followup = self._pop_next_followup()
+            if followup is not None:
+                await self._dispatch_followup(followup)
 
     async def _wait_for_inactivity(self, timeout: timedelta = INACTIVITY_TIMEOUT):
         await workflow.sleep(timeout.total_seconds())

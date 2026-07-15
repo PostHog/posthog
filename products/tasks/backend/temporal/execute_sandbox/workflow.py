@@ -355,11 +355,20 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         return True
 
     async def _finish_active_followup(self) -> None:
-        if self._active_followup_task is None:
-            return
-        task = self._active_followup_task
-        self._active_followup_task = None
-        await task
+        while True:
+            if self._active_followup_task is not None:
+                task = self._active_followup_task
+                self._active_followup_task = None
+                await task
+
+            if not self._pending_followups:
+                return
+            if not workflow.patched(_PATCH_ID_CONCURRENT_FOLLOWUP_STEERING):
+                return
+
+            followup = self._pop_next_followup()
+            if followup is not None:
+                await self._handle_followup(followup)
 
     async def _wait_for_inactivity(self) -> SandboxEvent:
         await workflow.sleep(self.context.inactivity_timeout().total_seconds())
