@@ -134,13 +134,14 @@ describe('InsightDetails', () => {
     })
 
     describe('getEffectiveFilterOverrides', () => {
-        it('captures a dashboard filter the tile shadows as overriddenByTile, out of the dashboard group', () => {
+        it('captures a dashboard filter the tile contradicts as overriddenByTile, out of the dashboard group', () => {
             const result = getEffectiveFilterOverrides(
                 { properties: [browserSafari, countryUS] } as any,
                 { properties: [browserChrome] } as any
             )
 
-            // The dashboard's $browser lost to the tile's $browser — surfaced separately, not in the group.
+            // The dashboard's $browser=Safari can't coexist with the tile's $browser=Chrome — surfaced
+            // separately, not in the group.
             expect(result.overriddenByTile).toEqual([browserSafari])
             expect(result.propertyGroups).toEqual([
                 { properties: [countryUS], source: 'dashboard' },
@@ -158,6 +159,21 @@ describe('InsightDetails', () => {
             expect(result.propertyGroups).toEqual([
                 { properties: [countryUS], source: 'dashboard' },
                 { properties: [browserChrome], source: 'tile' },
+            ])
+        })
+
+        it('stacks a dashboard filter that is compatible with the tile on the same key', () => {
+            const browserIsSet = { key: '$browser', type: 'event', operator: 'is_set' }
+            const result = getEffectiveFilterOverrides(
+                { properties: [browserChrome] } as any,
+                { properties: [browserIsSet] } as any
+            )
+
+            // $browser=Chrome and $browser is set describe a valid set, so both apply — nothing overridden.
+            expect(result.overriddenByTile).toEqual([])
+            expect(result.propertyGroups).toEqual([
+                { properties: [browserChrome], source: 'dashboard' },
+                { properties: [browserIsSet], source: 'tile' },
             ])
         })
     })

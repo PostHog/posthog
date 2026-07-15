@@ -47,8 +47,9 @@ class TestMergeFiltersByPriority(SimpleTestCase):
 
         assert merged["properties"] == [dashboard_prop, tile_prop]
 
-    def test_tile_property_replaces_dashboard_property_on_same_key(self):
-        # Same (type, key): the tile wins outright rather than AND-ing (which would zero out results).
+    def test_tile_property_replaces_dashboard_property_when_they_contradict(self):
+        # Disjoint exact sets on the same key can never both match, so the tile wins outright rather than
+        # AND-ing (which would zero out results).
         dashboard_prop = {"key": "$browser", "value": ["Chrome", "Safari"], "type": "event", "operator": "exact"}
         tile_prop = {"key": "$browser", "value": ["Firefox"], "type": "event", "operator": "exact"}
 
@@ -58,6 +59,19 @@ class TestMergeFiltersByPriority(SimpleTestCase):
         )
 
         assert merged["properties"] == [tile_prop]
+
+    def test_compatible_properties_on_same_key_stack_instead_of_replacing(self):
+        # `utm_source = google` and `utm_source is set` describe a valid combined set, so both apply
+        # rather than the tile dropping the dashboard's filter.
+        dashboard_prop = {"key": "utm_source", "value": ["google"], "type": "event", "operator": "exact"}
+        tile_prop = {"key": "utm_source", "type": "event", "operator": "is_set"}
+
+        merged = merge_filters_by_priority(
+            {"properties": [dashboard_prop]},
+            {"properties": [tile_prop]},
+        )
+
+        assert merged["properties"] == [dashboard_prop, tile_prop]
 
     def test_date_range_treated_as_a_unit_when_tile_sets_a_bound(self):
         # Tile sets only date_from, so the dashboard's date_to must not leak through.
@@ -108,8 +122,8 @@ class TestMergeFiltersByPriority(SimpleTestCase):
 
         assert merged["properties"] == [dashboard_prop, tile_prop]
 
-    def test_tile_property_with_unhashable_key_does_not_raise(self):
-        # `key` comes from unvalidated client JSON and can be a list; must not crash the set-building.
+    def test_tile_property_with_non_string_key_does_not_raise(self):
+        # `key` comes from unvalidated client JSON and can be a list; contradiction detection must not crash.
         merged = merge_filters_by_priority(
             {"properties": [{"key": "browser", "type": "event", "value": "x"}]},
             {"properties": [{"key": ["a", "b"], "type": "event", "value": "y"}]},
@@ -121,7 +135,7 @@ class TestRemoveQueryPropertiesOverriddenBy(SimpleTestCase):
     def _query(self, properties):
         return {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "properties": properties}}
 
-    def test_strips_insight_property_the_tile_overrides_on_same_key(self):
+    def test_strips_insight_property_the_tile_contradicts(self):
         query = self._query(
             [
                 {"key": "$browser", "value": "Chrome", "type": "event"},
@@ -133,6 +147,14 @@ class TestRemoveQueryPropertiesOverriddenBy(SimpleTestCase):
         stripped = remove_query_properties_overridden_by(query, tile)
 
         assert stripped["source"]["properties"] == [{"key": "$country", "value": "US", "type": "event"}]
+
+    def test_keeps_insight_property_compatible_with_the_override(self):
+        # Insight `utm_source = google` and dashboard `utm_source is set` combine into a valid set, so the
+        # insight's own filter is kept to stack rather than dropped.
+        query = self._query([{"key": "utm_source", "value": "google", "type": "event", "operator": "exact"}])
+        overriding = {"properties": [{"key": "utm_source", "type": "event", "operator": "is_set"}]}
+
+        assert remove_query_properties_overridden_by(query, overriding) == query
 
     def test_no_op_when_tile_has_no_properties(self):
         query = self._query([{"key": "$browser", "value": "Chrome", "type": "event"}])

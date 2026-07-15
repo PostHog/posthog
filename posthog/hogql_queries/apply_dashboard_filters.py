@@ -1,41 +1,29 @@
-import json
 from typing import Any
 
 from posthog.schema import DashboardFilter, HogQLVariable, NodeKind
 
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import get_query_runner
+from posthog.hogql_queries.utils.dashboard_filter_conflicts import filters_contradict
 from posthog.models import Team
 
 WRAPPER_NODE_KINDS = [NodeKind.DATA_TABLE_NODE, NodeKind.DATA_VISUALIZATION_NODE, NodeKind.INSIGHT_VIZ_NODE]
 
 # Fields where the higher-priority (override) layer replaces the lower-priority (base) value outright
-# when set. Property filters are handled separately (merged per key).
+# when set. Property filters are handled separately (stacked unless they contradict).
 _SCALAR_OVERRIDE_FIELDS = ["breakdown_filter", "interval", "filterTestAccounts"]
-
-
-def _property_identity(prop: dict) -> tuple[str, Any, Any]:
-    """The (type, group_type_index, key) a property filter targets — the unit at which one layer takes
-    precedence over another. `type` defaults to "event" to match how untyped property filters are
-    interpreted downstream. `group_type_index` keeps two group types with the same key distinct, so a
-    tile override on one group type doesn't shadow the same key on another. `key` is coerced to a hashable
-    form since it comes from unvalidated client JSON and must be usable in a set/dict — an unhashable key
-    (e.g. a list) would otherwise raise TypeError."""
-    key = prop.get("key")
-    if isinstance(key, (list, dict)):
-        key = json.dumps(key, sort_keys=True)
-    return (prop.get("type") or "event", prop.get("group_type_index"), key)
 
 
 def merge_filters_by_priority(base_filters: dict | None, override_filters: dict | None) -> dict:
     """Merge two filter layers, with `override_filters` taking priority over `base_filters`.
 
     The override wins per field. Scalars (breakdown, interval, test-account filtering) are replaced
-    outright when the override sets them. Property filters merge per (type, key): an override property
-    replaces the base's filter on the same key, while non-overlapping keys from both layers are kept and
-    AND-combined. The date range is treated as one unit — an override that sets either bound supplies
-    both bounds and explicitDate, so an override date_from is never paired with a stale base date_to or
-    a stale base explicitDate.
+    outright when the override sets them. Property filters stack (AND-combine) by default, since two
+    filters on the same key can still describe a valid set (e.g. `utm_source = google` and
+    `utm_source is set`). A base property is dropped only when an override property provably contradicts
+    it — ANDing them could never match — in which case the override wins. The date range is treated as
+    one unit — an override that sets either bound supplies both bounds and explicitDate, so an override
+    date_from is never paired with a stale base date_to or a stale base explicitDate.
 
     Callers today use this for the dashboard/tile layer pair (dashboard as base, tile as override), but
     the algorithm itself is generic priority merging and isn't tied to that pairing.
@@ -67,64 +55,71 @@ def merge_filters_by_priority(base_filters: dict | None, override_filters: dict 
 
     override_props = override_filters.get("properties") or []
     base_props = base_filters.get("properties") or []
-    override_keys = {_property_identity(p) for p in override_props}
-    combined_properties = [p for p in base_props if _property_identity(p) not in override_keys] + override_props
+    surviving_base = [p for p in base_props if not any(filters_contradict(p, o) for o in override_props)]
+    combined_properties = surviving_base + override_props
     if combined_properties:
         merged["properties"] = combined_properties
 
     return merged
 
 
-def _without_keys(properties: Any, keys: set[tuple[str, Any, Any]]) -> Any:
-    """Drop leaf property filters whose (type, key) is in `keys` from a query's `properties`, which is
-    either a flat list of leaves or a `PropertyGroupFilter` dict (a group of `PropertyGroupFilterValue`
-    subgroups, themselves arbitrarily nested — AND of ORs of ANDs, etc). Recurses into every nested
-    subgroup rather than stopping at one level, since leaves can sit at any depth. Emptied subgroups
-    are pruned."""
+def _without_contradicted(properties: Any, overriding_props: list[dict]) -> Any:
+    """Drop leaf property filters that any `overriding_props` filter provably contradicts from a query's
+    `properties`, which is either a flat list of leaves or a `PropertyGroupFilter` dict (a group of
+    `PropertyGroupFilterValue` subgroups, themselves arbitrarily nested — AND of ORs of ANDs, etc).
+    Recurses into every nested subgroup rather than stopping at one level, since leaves can sit at any
+    depth. Emptied subgroups are pruned."""
+
+    def is_contradicted(leaf: Any) -> bool:
+        return isinstance(leaf, dict) and any(filters_contradict(leaf, o) for o in overriding_props)
+
     if isinstance(properties, list):
-        return [p for p in properties if _property_identity(p) not in keys]
+        return [p for p in properties if not is_contradicted(p)]
     if isinstance(properties, dict) and isinstance(properties.get("values"), list):
         new_values = []
         for value in properties["values"]:
             if isinstance(value, dict) and isinstance(value.get("values"), list):
-                pruned = _without_keys(value, keys)
+                pruned = _without_contradicted(value, overriding_props)
                 if pruned["values"]:
                     new_values.append(pruned)
-            elif not (isinstance(value, dict) and _property_identity(value) in keys):
+            elif not is_contradicted(value):
                 new_values.append(value)
         return {**properties, "values": new_values}
     return properties
 
 
-def _strip_query_properties(query: dict, keys: set[tuple[str, Any, Any]]) -> dict:
+def _strip_query_properties(query: dict, overriding_props: list[dict]) -> dict:
     if query.get("kind") in WRAPPER_NODE_KINDS:
-        return {**query, "source": _strip_query_properties(query["source"], keys)}
+        return {**query, "source": _strip_query_properties(query["source"], overriding_props)}
     if query.get("properties") is not None:
-        query = {**query, "properties": _without_keys(query["properties"], keys)}
+        query = {**query, "properties": _without_contradicted(query["properties"], overriding_props)}
     filters = query.get("filters")
     if isinstance(filters, dict) and filters.get("properties") is not None:
-        query = {**query, "filters": {**filters, "properties": _without_keys(filters["properties"], keys)}}
+        query = {
+            **query,
+            "filters": {**filters, "properties": _without_contradicted(filters["properties"], overriding_props)},
+        }
     return query
 
 
 def remove_query_properties_overridden_by(query: dict, overriding_filters: dict | None) -> dict:
-    """Drop the insight's own property filters that `overriding_filters` replaces on the same (type, key),
-    so the higher-priority layers take precedence over the insight's base filter instead of merely AND-ing
-    with it (which could AND a contradiction into an empty result). Callers pass the effective dashboard +
-    tile filter set, so both layers override the insight's own filter on a shared key."""
+    """Drop the insight's own property filters that an `overriding_filters` property provably contradicts,
+    so the higher-priority layers take precedence over the insight's base filter instead of AND-ing a
+    contradiction into an empty result. Compatible filters on the same key are left in place to stack.
+    Callers pass the effective dashboard + tile filter set, so both layers can override the insight's own
+    filter."""
     overriding_props = (overriding_filters or {}).get("properties") or []
-    keys = {_property_identity(p) for p in overriding_props}
-    if not keys:
+    if not overriding_props:
         return query
-    return _strip_query_properties(query, keys)
+    return _strip_query_properties(query, overriding_props)
 
 
 def resolve_effective_dashboard_filters(
     query: dict, base_filters: dict | None, tile_filters_override: dict | None
 ) -> tuple[dict, dict]:
     """Combine the dashboard-level `base_filters` with a tile's `tile_filters_override` into the filter set
-    that actually applies, and strip any of the insight's own property filters that set replaces on a
-    shared key. Both the "compute the query" and "reconstruct it for display" call sites need this same
+    that actually applies, and strip any of the insight's own property filters that set provably
+    contradicts. Both the "compute the query" and "reconstruct it for display" call sites need this same
     dashboard+tile+insight precedence resolved identically, so it lives here once rather than being
     re-derived at each call site.
 

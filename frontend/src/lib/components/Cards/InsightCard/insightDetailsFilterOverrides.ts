@@ -11,49 +11,98 @@ export type OverrideSource = 'dashboard' | 'tile'
 export interface EffectiveFilterOverrides {
     // Non-overlapping keys from both layers contribute; dashboard first to match backend order.
     propertyGroups: { properties: AnyPropertyFilter[]; source: OverrideSource }[]
-    // Dashboard property filters the tile shadows on the same key — they don't apply, but we surface them
+    // Dashboard property filters the tile contradicts — they don't apply, but we surface them
     // struck-through so the precedence is visible rather than silently dropped.
     overriddenByTile: AnyPropertyFilter[]
     breakdown: { breakdownFilter: NonNullable<DashboardFilter['breakdown_filter']>; source: OverrideSource } | null
 }
 
-// Deterministic stringify with sorted object keys, matching the backend's `json.dumps(key, sort_keys=True)`
-// so an object-valued property key is compared by value rather than collapsing to "[object Object]".
-function stableStringify(value: unknown): string {
-    if (Array.isArray(value)) {
-        return `[${value.map(stableStringify).join(',')}]`
+// Property filters stack (AND-combine) by default; a tile filter only replaces the dashboard's when the
+// two provably contradict. Mirrors backend `filters_contradict` in dashboard_filter_conflicts.py — keep
+// the two in step.
+const POSITIVE_EXACT_OPERATORS = new Set(['exact', 'in'])
+const NEGATIVE_EXACT_OPERATORS = new Set(['is_not', 'not_in'])
+// Operators that can never match an unset value; only these conflict with is_not_set.
+const MATCHES_ONLY_SET_VALUES = new Set(['exact', 'in', 'icontains', 'regex', 'is_set'])
+const INCOMPARABLE_FILTER_TYPES = new Set(['cohort', 'hogql'])
+
+function canonicalizeValue(value: unknown): string {
+    if (typeof value === 'boolean') {
+        return value ? 'true' : 'false'
     }
-    if (value && typeof value === 'object') {
-        return `{${Object.entries(value as Record<string, unknown>)
-            .sort(([a], [b]) => a.localeCompare(b))
-            .map(([key, nested]) => `${JSON.stringify(key)}:${stableStringify(nested)}`)
-            .join(',')}}`
-    }
-    return JSON.stringify(value)
+    return String(value)
 }
 
-// The (type, group_type_index, key) a property filter targets — the unit at which a tile takes precedence.
-// Mirrors backend `_property_identity`; group_type_index is included so a tile override on one group type
-// doesn't shadow the same key on a different group type.
-function propertyIdentity(property: AnyPropertyFilter): string {
-    const type = 'type' in property ? property.type : 'event'
-    const groupTypeIndex = 'group_type_index' in property ? property.group_type_index : undefined
-    const rawKey = 'key' in property ? property.key : ''
-    const key = rawKey && typeof rawKey === 'object' ? stableStringify(rawKey) : String(rawKey)
-    return `${type}::${groupTypeIndex ?? ''}::${key}`
+function normalizedValues(value: unknown): string[] | null {
+    if (value == null) {
+        return null
+    }
+    const values = Array.isArray(value) ? value : [value]
+    return values.length === 0 ? null : values.map(canonicalizeValue)
 }
 
-// Property filters merge per key: a tile filter replaces the dashboard's on the same key.
+function operatorAndValues(filter: AnyPropertyFilter): [string, string[] | null] {
+    const operator = ('operator' in filter && filter.operator) || 'exact'
+    return [operator, normalizedValues('value' in filter ? filter.value : undefined)]
+}
+
+function sameProperty(a: AnyPropertyFilter, b: AnyPropertyFilter): boolean {
+    for (const f of [a, b]) {
+        if (f.key == null || INCOMPARABLE_FILTER_TYPES.has((f.type as string) ?? '')) {
+            return false
+        }
+    }
+    const groupTypeIndex = (f: AnyPropertyFilter): unknown => ('group_type_index' in f ? f.group_type_index : undefined)
+    return a.key === b.key && a.type === b.type && groupTypeIndex(a) === groupTypeIndex(b)
+}
+
+function contradictsOneWay(opA: string, valuesA: string[] | null, opB: string, valuesB: string[] | null): boolean {
+    if (opB === 'is_not_set' && MATCHES_ONLY_SET_VALUES.has(opA)) {
+        return opA === 'is_set' || valuesA !== null
+    }
+    if (valuesA === null || valuesB === null) {
+        return false
+    }
+    const setA = new Set(valuesA)
+    const setB = new Set(valuesB)
+    if (POSITIVE_EXACT_OPERATORS.has(opA)) {
+        if (NEGATIVE_EXACT_OPERATORS.has(opB)) {
+            return [...setA].every((v) => setB.has(v))
+        }
+        if (POSITIVE_EXACT_OPERATORS.has(opB)) {
+            return ![...setA].some((v) => setB.has(v))
+        }
+    }
+    if (opA === 'icontains' && opB === 'not_icontains') {
+        const positive = valuesA.map((v) => v.toLowerCase())
+        const negative = valuesB.map((v) => v.toLowerCase())
+        return positive.every((p) => negative.some((n) => p.includes(n)))
+    }
+    if (opA === 'regex' && opB === 'not_regex') {
+        return valuesA.length === 1 && valuesB.length === 1 && valuesA[0] === valuesB[0]
+    }
+    return false
+}
+
+// Whether two filters on the same property provably contradict, so ANDing them could never match.
+function filtersContradict(a: AnyPropertyFilter, b: AnyPropertyFilter): boolean {
+    if (!sameProperty(a, b)) {
+        return false
+    }
+    const [opA, valuesA] = operatorAndValues(a)
+    const [opB, valuesB] = operatorAndValues(b)
+    return contradictsOneWay(opA, valuesA, opB, valuesB) || contradictsOneWay(opB, valuesB, opA, valuesA)
+}
+
 export function getEffectiveFilterOverrides(
     filtersOverride: DashboardFilter | undefined,
     tileFiltersOverride: TileFilters | null | undefined
 ): EffectiveFilterOverrides {
     const tileProperties = tileFiltersOverride?.properties ?? []
-    const tileKeys = new Set(tileProperties.map(propertyIdentity))
     const dashboardProperties: AnyPropertyFilter[] = []
     const overriddenByTile: AnyPropertyFilter[] = []
     for (const property of filtersOverride?.properties ?? []) {
-        if (tileKeys.has(propertyIdentity(property))) {
+        if (tileProperties.some((tile) => filtersContradict(property, tile))) {
             overriddenByTile.push(property)
         } else {
             dashboardProperties.push(property)
