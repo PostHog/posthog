@@ -45,8 +45,8 @@ describe('ScatterChart', () => {
             { x: 90, y: 1, label: 'B' },
             { x: 10, y: 2, label: 'A' },
         ]
-        const { container } = renderHogChart(<ScatterChart points={points} theme={THEME} />, { nativeTooltip: true })
-        hoverAtIndex(container, 0, points.length)
+        const { chart } = renderHogChart(<ScatterChart points={points} theme={THEME} />, { nativeTooltip: true })
+        hoverAtIndex(chart.element, 0, points.length)
         const tooltip = await waitForHogChartTooltip()
         expect(tooltip.textContent).toContain('A')
         expect(tooltip.textContent).not.toContain('B')
@@ -57,8 +57,8 @@ describe('ScatterChart', () => {
         // rather than the rounded Number() form.
         // x is the value Number() rounds 9007199254740993 to; xDisplay carries the exact digits.
         const points: ScatterChartPoint[] = [{ x: 9007199254740992, y: 5, label: 'Big', xDisplay: '9007199254740993' }]
-        const { container } = renderHogChart(<ScatterChart points={points} theme={THEME} />, { nativeTooltip: true })
-        hoverAtIndex(container, 0, points.length)
+        const { chart } = renderHogChart(<ScatterChart points={points} theme={THEME} />, { nativeTooltip: true })
+        hoverAtIndex(chart.element, 0, points.length)
         const tooltip = await waitForHogChartTooltip()
         expect(tooltip.textContent).toContain('9007199254740993')
     })
