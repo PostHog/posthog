@@ -163,7 +163,7 @@ class TestGetRows:
 
     def test_full_page_without_has_next_fetches_until_empty_page(self, monkeypatch: Any) -> None:
         # An exact-multiple total with no has_next only stops on the following empty page.
-        responses = [
+        responses: list[dict] = [
             {"secrets": [{"id": str(i)} for i in range(PAGE_SIZE)]},
             {"secrets": []},
         ]
