@@ -445,6 +445,7 @@ the row lists both.
 | zendesk                   | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | zendesk_sell              | HTTP                        | requests                                                        | ✅                          |
 | zenloop                   | HTTP                        | requests                                                        | ✅                          |
+| zep                       | HTTP                        | requests                                                        | ✅                          |
 | zonka_feedback            | HTTP                        | requests                                                        | ✅                          |
 | zoom                      | HTTP                        | requests                                                        | ✅                          |
 | zuora                     | HTTP                        | requests                                                        | ✅                          |
@@ -971,7 +972,6 @@ doesn't conflict with concurrent PRs.
 - zenduty
 - zenefits
 - zenloop
-- zep
 - zoho_analytics
 - zoho_bigin
 - zoho_billing
