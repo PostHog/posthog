@@ -1,6 +1,10 @@
-from django.contrib import admin
-from django.urls import reverse
+from django.conf import settings
+from django.contrib import admin, messages
+from django.shortcuts import redirect
+from django.template.loader import render_to_string
+from django.urls import path, reverse
 from django.utils.html import format_html
+from django.utils.safestring import mark_safe
 
 from posthog.admin.inlines.organization_member_for_related_inline import OrganizationMemberForRelatedInline
 from posthog.admin.inlines.team_inline import TeamInline
@@ -25,7 +29,24 @@ class ProjectAdmin(admin.ModelAdmin):
         "organization__name",
     )
     autocomplete_fields = ["organization"]
-    readonly_fields = ["created_at"]
+    readonly_fields = ["id", "created_at", "updated_at", "trigger_deletion_display"]
+    fieldsets = (
+        (
+            None,
+            {
+                "fields": (
+                    "id",
+                    "name",
+                    "organization",
+                    "product_description",
+                    "is_pending_deletion",
+                    "created_at",
+                    "updated_at",
+                )
+            },
+        ),
+        ("Danger zone", {"fields": ("trigger_deletion_display",)}),
+    )
     inlines = [OrganizationMemberForRelatedInline, TeamInline]
 
     def organization_link(self, project: Project):
@@ -34,3 +55,84 @@ class ProjectAdmin(admin.ModelAdmin):
             reverse("admin:posthog_organization_change", args=[project.organization.pk]),
             project.organization.name,
         )
+
+    @admin.display(description="Danger zone")
+    def trigger_deletion_display(self, project: Project):
+        if not project.pk:
+            return "-"
+        # No csrf_token needed in the partial: the button posts the surrounding admin change
+        # form (which carries the token) to the action URL via formaction.
+        # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
+        return mark_safe(
+            render_to_string(
+                "admin/deletion_button.html",
+                {
+                    "action_url": reverse("admin:project_trigger_deletion", args=[project.pk]),
+                    "button_label": "Trigger deletion",
+                    "confirm_message": (
+                        f'Trigger deletion for project "{project.name}" ({project.pk})? '
+                        "This starts an irreversible Temporal workflow that deletes the project and all its data."
+                    ),
+                    "notice": (
+                        "Before triggering, make sure no Temporal deletion workflow is already running for this "
+                        "project. Starting a second one while another is mid-flight can cause clashing deletes."
+                    ),
+                },
+            )
+        )
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "<path:project_id>/trigger-deletion/",
+                self.admin_site.admin_view(self.trigger_deletion_view),
+                name="project_trigger_deletion",
+            ),
+        ]
+        return custom_urls + urls
+
+    def trigger_deletion_view(self, request, project_id):
+        from temporalio.exceptions import WorkflowAlreadyStartedError
+
+        from posthog.temporal.delete_teams.dispatch import start_delete_project_data_workflow
+
+        change_url = reverse("admin:posthog_project_change", args=[project_id])
+
+        try:
+            project = Project.objects.get(id=project_id)
+        except Project.DoesNotExist:
+            messages.error(request, f"Project with id {project_id} not found.")
+            return redirect(reverse("admin:posthog_project_changelist"))
+
+        if request.method != "POST":
+            return redirect(change_url)
+
+        if settings.DISABLE_BULK_DELETES:
+            messages.error(
+                request, "Bulk deletes are temporarily disabled during a database migration. Try again later."
+            )
+            return redirect(change_url)
+
+        team_ids = list(project.teams.values_list("id", flat=True))
+
+        try:
+            start_delete_project_data_workflow(
+                team_ids=team_ids,
+                project_id=project.pk,
+                user_id=request.user.id,
+                project_name=project.name,
+            )
+        except WorkflowAlreadyStartedError:
+            messages.error(
+                request, f"A deletion workflow is already running for project {project.name} ({project.pk})."
+            )
+            return redirect(change_url)
+        except Exception as e:
+            messages.error(request, f"Failed to start deletion workflow: {e}")
+            return redirect(change_url)
+
+        project.is_pending_deletion = True
+        project.save(update_fields=["is_pending_deletion"])
+        messages.success(request, f"Started deletion workflow for project {project.name} ({project.pk}).")
+        return redirect(change_url)

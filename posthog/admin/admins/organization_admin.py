@@ -148,6 +148,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         "is_ai_training_opted_in",
         "is_ai_training_locked",
         "is_ai_training_cta_shown",
+        "trigger_deletion_display",
     ]
     inlines = [
         ProjectInline,
@@ -167,6 +168,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         "customer_trust_scores",
         "bulk_delete_data_display",
         "sync_to_billing_display",
+        "trigger_deletion_display",
     ]
     search_fields = ("name", "members__email", "team__api_token")
     list_display = (
@@ -322,6 +324,82 @@ class OrganizationAdmin(admin.ModelAdmin):
             )
         )
 
+    @admin.display(description="Danger zone")
+    def trigger_deletion_display(self, organization: Organization):
+        if not organization.pk:
+            return "-"
+        request = getattr(self, "_current_request", None)
+        # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
+        return mark_safe(
+            render_to_string(
+                "admin/deletion_button.html",
+                {
+                    "action_url": reverse("admin:organization_trigger_deletion", args=[organization.pk]),
+                    "button_label": "Trigger deletion",
+                    "confirm_message": (
+                        f'Trigger deletion for organization "{organization.name}" ({organization.pk})? '
+                        "This starts an irreversible Temporal workflow that deletes the organization and all its data."
+                    ),
+                    "notice": (
+                        "Before triggering, make sure no Temporal deletion workflow is already running for this "
+                        "organization. Starting a second one while another is mid-flight can cause clashing deletes."
+                    ),
+                },
+                request=request,
+            )
+        )
+
+    def trigger_deletion_view(self, request, organization_id):
+        from temporalio.exceptions import WorkflowAlreadyStartedError
+
+        from posthog.temporal.delete_teams.dispatch import start_delete_organization_workflow
+
+        change_url = reverse("admin:posthog_organization_change", args=[organization_id])
+
+        try:
+            organization = Organization.objects.get(id=organization_id)
+        except Organization.DoesNotExist:
+            messages.error(request, f"Organization with id {organization_id} not found.")
+            return redirect(reverse("admin:posthog_organization_changelist"))
+
+        if request.method != "POST":
+            return redirect(change_url)
+
+        if settings.DISABLE_BULK_DELETES:
+            messages.error(
+                request, "Bulk deletes are temporarily disabled during a database migration. Try again later."
+            )
+            return redirect(change_url)
+
+        teams = list(organization.teams.only("id", "name").all())
+        team_ids = [team.pk for team in teams]
+        project_names = [team.name for team in teams]
+
+        try:
+            start_delete_organization_workflow(
+                team_ids=team_ids,
+                organization_id=str(organization.pk),
+                user_id=request.user.id,
+                organization_name=organization.name,
+                project_names=project_names,
+            )
+        except WorkflowAlreadyStartedError:
+            messages.error(
+                request,
+                f"A deletion workflow is already running for organization {organization.name} ({organization.pk}).",
+            )
+            return redirect(change_url)
+        except Exception as e:
+            messages.error(request, f"Failed to start deletion workflow: {e}")
+            return redirect(change_url)
+
+        organization.is_pending_deletion = True
+        organization.save(update_fields=["is_pending_deletion"])
+        messages.success(
+            request, f"Started deletion workflow for organization {organization.name} ({organization.pk})."
+        )
+        return redirect(change_url)
+
     def sync_to_billing_view(self, request, organization_id):
         from posthog.tasks.sync_billing import sync_members_to_billing
 
@@ -406,6 +484,11 @@ class OrganizationAdmin(admin.ModelAdmin):
                 "<path:organization_id>/sync-to-billing/",
                 self.admin_site.admin_view(self.sync_to_billing_view),
                 name="organization_sync_to_billing",
+            ),
+            path(
+                "<path:organization_id>/trigger-deletion/",
+                self.admin_site.admin_view(self.trigger_deletion_view),
+                name="organization_trigger_deletion",
             ),
         ]
         return custom_urls + urls
