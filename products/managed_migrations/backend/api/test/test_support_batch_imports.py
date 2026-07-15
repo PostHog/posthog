@@ -113,14 +113,28 @@ class TestBatchImportSupportAPI(APIBaseTest):
         detail_response = self.client.get(f"/api/managed_migrations_support/{batch_import.id}/")
         self.assertEqual(detail_response.status_code, status.HTTP_200_OK)
 
+    def test_query_string_api_key_is_rejected(self):
+        # The paginator rebuilds next/previous links from the full request URL, so a
+        # query-string key would be reflected into the response body - this endpoint
+        # accepts personal API keys via the Authorization header only.
+        token = self._create_pat(scopes=["batch_import_support:read"])
+        self.client.logout()
+
+        response = self.client.get(f"/api/managed_migrations_support/?personal_api_key={token}")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED, response.content)
+
     def test_audit_log_never_contains_credentials(self):
-        # PersonalAPIKeyAuthentication accepts `?personal_api_key=...` - the audit log
-        # must allowlist query params or it writes the plaintext staff key to logs.
+        # The audit log must allowlist query params so credential-bearing params
+        # (e.g. `personal_api_key`, which the base auth class reads from the query
+        # string) can never reach centralized logs.
         token = self._create_pat(scopes=["batch_import_support:read"])
         self.client.logout()
 
         with structlog.testing.capture_logs() as logs:
-            response = self.client.get(f"/api/managed_migrations_support/?personal_api_key={token}&status=paused")
+            response = self.client.get(
+                "/api/managed_migrations_support/?status=paused&unexpected_param=sensitive",
+                headers={"authorization": f"Bearer {token}"},
+            )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         audit_logs = [log for log in logs if log.get("event") == "batch_import_support_api_request"]
