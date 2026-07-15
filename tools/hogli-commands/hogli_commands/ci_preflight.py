@@ -106,7 +106,8 @@ DIFF_CHECKS: list[DiffCheck] = [
         key="type-check",
         label="Python type checking (mypy)",
         triggers=["*.py", "*.pyi"],
-        # ty already runs in lint-staged; use mypy without inheriting unrelated repo-wide failures.
+        # ty already runs in lint-staged. Standard incremental mypy avoids unrelated repo-wide
+        # failures without dmypy's stale Django registry risk.
         verify=["mypy"],
         takes_files=True,
     ),
