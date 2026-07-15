@@ -104,6 +104,20 @@ def increment_user_errors(error_type: str, *, provider: str | None = None) -> No
     counter.add(1)
 
 
+def increment_sentiment_defaulted(reason: str) -> None:
+    """Track sentiment evals that fell back to the neutral default instead of classifying real text.
+
+    `reason` is `no_user_messages` or `no_classifications`. This is a guardrail: defaulted runs are
+    stored with a neutral label, so without this signal they hide inside the real neutral rate and
+    quietly inflate the neutral baseline. Safe to call outside Temporal context (no-ops).
+    """
+    if not activity.in_activity() and not workflow.in_workflow():
+        return
+    meter = get_metric_meter({"reason": reason})
+    counter = meter.create_counter("llma_eval_sentiment_defaulted", "Sentiment evals defaulted to neutral")
+    counter.add(1)
+
+
 def increment_eval_signal_outcome(outcome: str) -> None:
     """Track eval signal activity outcomes (skipped_config_disabled, skipped_org_not_approved, skipped_low_significance, emitted, summarization_failed)."""
     meter = get_metric_meter({"outcome": outcome})

@@ -381,6 +381,7 @@ def build_evaluation_event_properties(
         properties["$ai_sentiment_scores"] = result.get("sentiment_scores")
         properties["$ai_sentiment_messages"] = result.get("sentiment_messages")
         properties["$ai_sentiment_message_count"] = result.get("sentiment_message_count")
+        properties["$ai_sentiment_defaulted"] = result.get("sentiment_defaulted", False)
     else:
         properties["$ai_evaluation_allows_na"] = allows_na
         if allows_na:

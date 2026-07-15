@@ -7,6 +7,8 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io
 from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
+from posthog.temporal.ai_observability.metrics import increment_sentiment_defaulted
+from posthog.temporal.ai_observability.sentiment.constants import SENTIMENT_EVAL_REASONING_SNIPPET_CHARS
 from posthog.temporal.ai_observability.sentiment.extraction import extract_sentiment_eval_messages
 from posthog.temporal.ai_observability.sentiment.schema import PendingClassification, SentimentResult
 from posthog.temporal.ai_observability.sentiment.utils import build_generation_result
@@ -21,7 +23,20 @@ def _neutral_sentiment_activity_result(reasoning: str) -> EvaluationActivityResu
         "sentiment_scores": {"positive": 0.0, "neutral": 0.0, "negative": 0.0},
         "sentiment_messages": {},
         "sentiment_message_count": 0,
+        "sentiment_defaulted": True,
     }
+
+
+def _reasoning_snippet(text: str) -> str:
+    """Collapse whitespace and bound a classified message for the reasoning string.
+
+    Echoing the classified text lets a reviewer audit a sentiment label without pulling the
+    source trace.
+    """
+    collapsed = " ".join(text.split())
+    if len(collapsed) <= SENTIMENT_EVAL_REASONING_SNIPPET_CHARS:
+        return collapsed
+    return collapsed[:SENTIMENT_EVAL_REASONING_SNIPPET_CHARS].rstrip() + "…"
 
 
 def _build_sentiment_activity_result(
@@ -50,14 +65,20 @@ def _build_sentiment_activity_result(
     label = generation_result["label"]
     message_count = generation_result["message_count"]
 
+    plural = "s" if message_count != 1 else ""
+    snippet = _reasoning_snippet(user_messages[-1][1])
+    reasoning = f"Classified {message_count} user message{plural} as {label}"
+    reasoning = f'{reasoning}: "{snippet}"' if snippet else f"{reasoning}."
+
     return {
         "result_type": "sentiment",
-        "reasoning": f"Classified {message_count} user message{'s' if message_count != 1 else ''} as {label}.",
+        "reasoning": reasoning,
         "sentiment_label": label,
         "sentiment_score": generation_result["score"],
         "sentiment_scores": generation_result["scores"],
         "sentiment_messages": generation_result["messages"],
         "sentiment_message_count": message_count,
+        "sentiment_defaulted": False,
     }
 
 
@@ -96,6 +117,7 @@ async def execute_sentiment_eval_activity(
     trace_id = properties.get("$ai_trace_id", event_uuid)
     user_messages = extract_sentiment_eval_messages(input_raw)
     if not user_messages:
+        increment_sentiment_defaulted("no_user_messages")
         return _neutral_sentiment_activity_result("No user messages found; sentiment defaults to neutral.")
 
     texts = [text for _message_index, text in user_messages]
@@ -103,4 +125,7 @@ async def execute_sentiment_eval_activity(
     from posthog.temporal.ai_observability.sentiment.model import classify  # noqa: PLC0415 -- loads ONNX deps lazily
 
     classification_results = await asyncio.to_thread(classify, texts)
-    return _build_sentiment_activity_result(event_uuid, trace_id, user_messages, classification_results)
+    result = _build_sentiment_activity_result(event_uuid, trace_id, user_messages, classification_results)
+    if result.get("sentiment_defaulted"):
+        increment_sentiment_defaulted("no_classifications")
+    return result

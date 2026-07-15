@@ -482,6 +482,7 @@ class TestRunEvaluationWorkflow:
         assert props["$ai_sentiment_label"] == "positive"
         assert props["$ai_sentiment_score"] == 0.9
         assert props["$ai_sentiment_message_count"] == 1
+        assert props["$ai_sentiment_defaulted"] is False
         assert "$ai_evaluation_result" not in props
         assert "$ai_evaluation_allows_na" not in props
         assert "$ai_model" not in props
@@ -1757,6 +1758,9 @@ class TestExecuteSentimentEvalActivity:
         assert result["sentiment_label"] == "negative"
         assert result["sentiment_message_count"] == 1
         assert result["sentiment_messages"]["2"]["label"] == "negative"
+        assert result["sentiment_defaulted"] is False
+        # the classified text is echoed into the reasoning so a label can be audited without the source trace
+        assert "I am really frustrated." in result["reasoning"]
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
@@ -1783,6 +1787,8 @@ class TestExecuteSentimentEvalActivity:
         assert "verdict" not in result
         assert result["sentiment_label"] == "neutral"
         assert result["sentiment_message_count"] == 0
+        # the neutral default is flagged so it can be excluded from the real neutral rate
+        assert result["sentiment_defaulted"] is True
 
 
 class TestEvalResultModels:
