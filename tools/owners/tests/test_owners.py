@@ -54,7 +54,7 @@ def resolver_repo(tmp_path: Path) -> Path:
     _write(
         tmp_path,
         "posthog/owners.yaml",
-        "version: 1\nowners: [team-a]\ncontact:\n  slack: '#custom'\n"
+        "version: 1\nowners: [team-a]\n"
         "rules:\n  - match: '/vendor/**'\n    owners: null\n  - match: legacy.py\n    owners: [team-legacy]\n",
     )
     _write(tmp_path, "posthog/sub/owners.yaml", "version: 1\nowners: [team-b]\n")
@@ -87,7 +87,7 @@ def test_resolver_precedence(resolver_repo: Path, path: str, owners: list[str] |
 
 
 def test_rule_level_inherit_false_cuts_ancestors_for_matching_paths_only(tmp_path: Path) -> None:
-    _write(tmp_path, "a/owners.yaml", "version: 1\nowners: [team-a]\ncontact:\n  slack: '#custom'\n")
+    _write(tmp_path, "a/owners.yaml", "version: 1\nowners: [team-a]\n")
     _write(
         tmp_path,
         "a/b/owners.yaml",
@@ -95,11 +95,9 @@ def test_rule_level_inherit_false_cuts_ancestors_for_matching_paths_only(tmp_pat
     )
     resolver = OwnersResolver(repo_root=tmp_path)
     cut = resolver.resolve("a/b/cut/x.py")
-    assert cut.owners == ["team-b"]
-    assert cut.slack == "#team-b"  # ancestor contact.slack cut, falls back to derived
+    assert cut.owners == ["team-b"]  # rule-level inherit:false + own owners win
     other = resolver.resolve("a/b/other.py")
-    assert other.owners == ["team-a"]
-    assert other.slack == "#custom"
+    assert other.owners == ["team-a"]  # non-matching path still inherits the ancestor
 
 
 def test_invalid_rule_glob_is_a_schema_error_not_a_crash(tmp_path: Path) -> None:
@@ -117,6 +115,55 @@ def test_invalid_rule_glob_is_a_schema_error_not_a_crash(tmp_path: Path) -> None
     assert OwnersResolver(repo_root=tmp_path).resolve("a/x.py").owners == ["team-a"]
 
 
+def test_multi_match_explodes_to_one_rule_per_pattern(tmp_path: Path) -> None:
+    # A list `match:` becomes one OwnersRule per pattern, in order, each carrying the
+    # rule's shared owners/status — so resolver/fmt/lint keep seeing single-pattern rules.
+    text = (
+        "version: 1\nowners: [team-a]\n"
+        "rules:\n  - match: [Dockerfile, 'docker-compose*.yml']\n    owners: [team-infra]\n    status: generated\n"
+    )
+    parsed, errors = parse_owners_file(text, path=tmp_path / "owners.yaml", directory="")
+    assert errors == []
+    assert parsed is not None
+    assert [r.match for r in parsed.rules] == ["Dockerfile", "docker-compose*.yml"]
+    assert all(r.owners == ["team-infra"] and r.status == "generated" for r in parsed.rules)
+
+
+@pytest.mark.parametrize(
+    "rules_yaml,needle",
+    [
+        ("rules:\n  - match: []\n    owners: [team-b]\n", "non-empty list of strings"),
+        ("rules:\n  - match: ['ok', '']\n    owners: [team-b]\n", "each 'match' pattern must be a non-empty string"),
+        ("rules:\n  - match: ['ok', 123]\n    owners: [team-b]\n", "each 'match' pattern must be a non-empty string"),
+        ("rules:\n  - match: ['ok', 'a***b']\n    owners: [team-b]\n", "invalid match pattern 'a***b'"),
+    ],
+)
+def test_multi_match_validation_errors_drop_the_rule(tmp_path: Path, rules_yaml: str, needle: str) -> None:
+    # A malformed element anywhere in a list `match:` is a schema error that drops the
+    # whole rule, leaving the file usable (never a rule the resolver could crash on).
+    text = "version: 1\nowners: [team-a]\n" + rules_yaml
+    parsed, errors = parse_owners_file(text, path=tmp_path / "owners.yaml", directory="")
+    assert any(needle in e for e in errors)
+    assert parsed is not None and parsed.rules == []
+
+
+def test_multi_match_rule_wins_and_loses_under_last_match(tmp_path: Path) -> None:
+    # The exploded patterns take part in last-match-wins like any rule: the later
+    # multi-match rule overrides the earlier `*.yml` for its patterns only.
+    _write(
+        tmp_path,
+        "owners.yaml",
+        "version: 1\nowners: [team-a]\n"
+        "rules:\n  - match: '*.yml'\n    owners: [team-yaml]\n"
+        "  - match: [Dockerfile, 'docker-compose*.yml']\n    owners: [team-infra]\n",
+    )
+    resolver = OwnersResolver(repo_root=tmp_path)
+    assert resolver.resolve("Dockerfile").owners == ["team-infra"]
+    assert resolver.resolve("docker-compose.dev.yml").owners == ["team-infra"]  # beats earlier *.yml
+    assert resolver.resolve("other.yml").owners == ["team-yaml"]  # only *.yml matches
+    assert resolver.resolve("main.py").owners == ["team-a"]  # no rule matches
+
+
 def test_resolver_no_contribution_is_unowned_not_exempt(tmp_path: Path) -> None:
     _write(tmp_path, "posthog/owners.yaml", "version: 1\nowners: [team-a]\n")
     resolver = OwnersResolver(repo_root=tmp_path)
@@ -129,8 +176,8 @@ def test_resolver_no_contribution_is_unowned_not_exempt(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     "path,slack",
     [
-        ("posthog/x.py", "#custom"),
-        ("posthog/sub/y.py", "#custom"),
+        ("posthog/x.py", "#team-a"),
+        ("posthog/sub/y.py", "#team-b"),
         ("posthog/noinherit/z.py", "#team-c"),
         ("products/foo/thing.py", "#team-foo"),
     ],
@@ -149,16 +196,6 @@ def registry_repo(tmp_path: Path) -> Path:
         "  team-silent:\n    slack: false\n",
     )
     _write(tmp_path, "reg/owners.yaml", "version: 1\nowners: [team-registry]\n")
-    _write(
-        tmp_path,
-        "reg/override/owners.yaml",
-        "version: 1\nowners: [team-registry]\ncontact:\n  slack: '#override'\n",
-    )
-    _write(
-        tmp_path,
-        "reg/off/owners.yaml",
-        "version: 1\nowners: [team-registry]\ncontact:\n  slack: false\n",
-    )
     _write(tmp_path, "silent/owners.yaml", "version: 1\nowners: [team-silent]\n")
     _write(tmp_path, "derive/owners.yaml", "version: 1\nowners: [team-nonreg]\n")
     _write(tmp_path, "indiv/owners.yaml", "version: 1\nowners: ['@alice', team-registry]\n")
@@ -168,11 +205,9 @@ def registry_repo(tmp_path: Path) -> Path:
 @pytest.mark.parametrize(
     "path,slack",
     [
-        ("reg/x.py", "#registry-chan"),  # registry hit beats derived
-        ("reg/override/x.py", "#override"),  # contact.slack beats registry
-        ("reg/off/x.py", None),  # contact.slack false suppresses everything
+        ("reg/x.py", "#registry-chan"),  # registry hit for the primary owner beats derived
         ("silent/x.py", None),  # registry false suppresses derivation
-        ("derive/x.py", "#team-nonreg"),  # no registry entry: derive from primary owner
+        ("derive/x.py", "#team-nonreg"),  # no registry entry: derive #<primary owner>
         ("indiv/x.py", None),  # primary owner is an @handle: registry ignored, no derive
     ],
 )
@@ -276,12 +311,12 @@ def _fmt_plan(tmp_path: Path, files: dict[str, str]) -> CanonicalPlan:
 
 
 def test_fmt_folds_dedicated_child_into_pinned_parent(tmp_path: Path) -> None:
-    # `a` is a pinned carrier (non-simple, has a contact); `a/b` is a dedicated
+    # `a` is a pinned carrier (non-simple, carries a status); `a/b` is a dedicated
     # single-statement file. Canonical folds b's statement into a and drops the file.
     plan = _fmt_plan(
         tmp_path,
         {
-            "a/owners.yaml": "version: 1\nowners: [team-a]\ncontact:\n  slack: '#a'\n",
+            "a/owners.yaml": "version: 1\nowners: [team-a]\nstatus: deprecated\n",
             "a/f.py": "x",
             "a/b/owners.yaml": "version: 1\nowners: [team-b]\n",
             "a/b/g.py": "x",
@@ -299,7 +334,7 @@ def test_fmt_splits_when_carrier_exceeds_capacity(tmp_path: Path, monkeypatch: p
     # dedicated child facility under the shared prefix to absorb the overflow.
     monkeypatch.setattr(fmt_module, "MAX_RULES", 3)
     files = {
-        "P/owners.yaml": "version: 1\nowners: [team-p]\ncontact:\n  slack: '#p'\n",
+        "P/owners.yaml": "version: 1\nowners: [team-p]\nstatus: deprecated\n",
         "P/f.py": "x",
         "r1.py": "x",
         "r2.py": "x",
@@ -316,7 +351,7 @@ def test_fmt_never_exiles_singleton_rules_on_overflow(tmp_path: Path, monkeypatc
     # per-dir single-purpose files fmt exists to remove — the cap is soft instead.
     monkeypatch.setattr(fmt_module, "MAX_RULES", 3)
     files = {
-        "P/owners.yaml": "version: 1\nowners: [team-p]\ncontact:\n  slack: '#p'\n",
+        "P/owners.yaml": "version: 1\nowners: [team-p]\nstatus: deprecated\n",
         "P/f.py": "x",
         "r1.py": "x",
         "r2.py": "x",
@@ -383,7 +418,7 @@ def test_fmt_pins_files_with_rule_level_metadata(tmp_path: Path) -> None:
     plan = _fmt_plan(
         tmp_path,
         {
-            "a/owners.yaml": "version: 1\nowners: [team-a]\ncontact:\n  slack: '#a'\n",
+            "a/owners.yaml": "version: 1\nowners: [team-a]\nstatus: deprecated\n",
             "a/f.py": "x",
             "a/b/owners.yaml": (
                 "version: 1\nowners: [team-b]\nrules:\n  - match: '/gen/'\n    owners: [team-b]\n    status: generated\n"
@@ -402,7 +437,7 @@ def test_fmt_is_idempotent_on_canonical_layout(tmp_path: Path) -> None:
     plan = _fmt_plan(
         tmp_path,
         {
-            "a/owners.yaml": "version: 1\nowners: [team-a]\ncontact:\n  slack: '#a'\n"
+            "a/owners.yaml": "version: 1\nowners: [team-a]\nstatus: deprecated\n"
             "rules:\n  - match: '/b/'\n    owners: [team-b]\n",
             "a/f.py": "x",
             "a/b/g.py": "x",

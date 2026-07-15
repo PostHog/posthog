@@ -71,15 +71,10 @@ version: 1
 # The one required field, same key and semantics as product.yaml.
 # Ordered, mixed list of GitHub team slugs (minus @PostHog/) and
 # '@handles'; the first entry is the primary owner, used for defaults
-# like the derived Slack channel. Owners are tagged for review
-# (non-blocking) and are the answer to "who owns this path".
+# like the derived Slack channel (see the `teams:` registry below).
+# Owners are tagged for review (non-blocking) and are the answer to
+# "who owns this path".
 owners: [team-error-tracking, '@pauldambra']
-
-# Routing metadata (Chromium DIR_METADATA role) — never affects review gates.
-# contact.slack defaults to '#<primary owner>' by convention, so this whole
-# block is usually omitted; set a string to override, or `slack: false`.
-contact:
-  slack: '#support-error-tracking'
 
 # Lifecycle of the code under this directory.
 # active (default) | deprecated | generated | vendored
@@ -91,15 +86,15 @@ inherit: true
 
 # Per-path overrides inside this directory, evaluated last-match-wins
 # *within this file only*. owners, status, and inherit can be overridden
-# per rule; contact is file-scoped (a nested owners.yaml covers the rare
-# per-subtree contact case).
+# per rule. `match` is one glob or a list of globs (each is its own
+# boundary — the list is just shorthand for repeating owners/status).
 rules:
   - match: 'generated/**'
     status: generated
   - match: 'vendor/**'
     status: vendored
     owners: null # explicit reset: unowned-by-design, lint-exempt
-  - match: 'migrations/**'
+  - match: ['migrations/**', 'legacy/**']
     owners: [team-error-tracking, team-data-modeling]
 ```
 
@@ -129,12 +124,12 @@ Checked all 31 team slugs in use (CODEOWNERS + soft + product.yaml) against live
 - 3/31 (`clickhouse`, `conversations`, `batch-exports`): slug lacks the `team-` prefix but `#team-<slug>` exists — slug hygiene to fix during migration, not an override case.
 - 4/31 need an explicit value: `team-posthog-code` → `#team-code`, `team-wizard` → `#team-wizard-and-docs`, `team-data-stack` → `#group-data-stack`, and `hogql`/`logs` have no team channel at all (`slack: false`).
 
-So the derived default is right for ~87% of teams and the rest write one line. Guarding against a derived channel that doesn't exist is lint's job, not a per-file flag: `owners:lint` gets an opt-in Slack-API check mirroring the existing opt-in live GitHub-team validation.
+So the derived default is right for ~87% of teams and the rest add one line to the root `teams:` registry (below). Guarding against a derived channel that doesn't exist is lint's job, not a per-file flag: `owners:lint` gets an opt-in Slack-API check mirroring the existing opt-in live GitHub-team validation.
 
 #### The `teams:` registry (repo-root only)
 
-A team that owns paths across many files would otherwise repeat its `contact.slack` override in each.
-Instead, the **repo-root** `owners.yaml` may carry a `teams:` registry — a mapping of team slug to a single `slack` value, validated exactly like `contact.slack` (a string starting with `#`, or `false` to mean "no channel, don't derive"):
+The channel-to-team mapping is declared **once**, at the root, never per file — a team that owns paths across many directories should not restate its channel in each.
+The **repo-root** `owners.yaml` may carry a `teams:` registry — a mapping of team slug to a single `slack` value (a string starting with `#`, or `false` to mean "no channel, don't derive"):
 
 ```yaml
 # owners.yaml (repo root only)
@@ -148,13 +143,13 @@ teams:
 ```
 
 `teams:` in any non-root `owners.yaml` is a schema error, and `product.yaml` aliases never carry it.
+There is no per-path or per-file Slack override — the registry (plus the derived default) is the only way a channel is set.
 
 The effective Slack channel for a path is resolved by this precedence chain, first match wins:
 
-1. the resolved per-path/per-file `contact.slack` (including an explicit `false`, which suppresses the channel);
-2. the registry entry for the **primary owner** (`owners[0]`), but only when it is a team slug (not an `@handle`) — a `false` entry suppresses derivation;
-3. the derived `#<owners[0]>` when the primary owner is a team slug;
-4. otherwise `None`.
+1. the registry entry for the **primary owner** (`owners[0]`), but only when it is a team slug (not an `@handle`) — a `false` entry suppresses derivation;
+2. the derived `#<owners[0]>` when the primary owner is a team slug;
+3. otherwise `None`.
 
 The registry only changes how the resolver computes the channel; the wire format is unchanged — `slack` still flows through as the final string or `null`.
 
@@ -165,7 +160,7 @@ There is no `OWNERS_ALIASES` file. `owners:` takes GitHub team slugs or `@handle
 ### Design choices, argued
 
 - **Distributed, not central.** The repo already voted: `product.yaml` is per-directory and the soft file's own header pushes ownership toward it. Central files are what we're escaping (ordering bugs, merge conflicts on one hot file). The audit story ("show me everything") is a tool's job (`hogli owners:map`), not a file layout's.
-- **Nearest-file-wins with per-field fallthrough, not ancestor union.** Kubernetes unions approvers up the tree because its bar is "someone must approve"; our soft model is "tag the right team, don't spam five". Union inheritance would tag `posthog/` owners on every deep PR. Override semantics also match what the ownership skill already implements (product.yaml beats CODEOWNERS). Fallthrough is per field: a child file that only sets `owners` still inherits `contact` and `status` from its ancestor.
+- **Nearest-file-wins with per-field fallthrough, not ancestor union.** Kubernetes unions approvers up the tree because its bar is "someone must approve"; our soft model is "tag the right team, don't spam five". Union inheritance would tag `posthog/` owners on every deep PR. Override semantics also match what the ownership skill already implements (product.yaml beats CODEOWNERS). Fallthrough is per field: a child file that only sets `owners` still inherits `status` from its ancestor.
 - **`rules:` are file-local.** Cross-file glob interactions are the CODEOWNERS footgun; here a glob can only override its own directory's defaults, so reading one file plus its ancestors fully explains any path.
 - **`owners: null` is explicit, not absent.** Unowned must be a decision (vendored code, scratch dirs), never a default. The coverage check treats missing resolution as an error and `owners: null` as an exemption with a paper trail.
 - **One `owners` list, no role split.** A `team`-vs-`reviewers` distinction (Kubernetes-style) was considered and dropped: with blocking out of scope, "who is responsible" and "who gets tagged" are the same set, and product.yaml already speaks `owners`. Ordering carries the only extra signal needed — first entry is the primary owner. A blocking role, if ever needed, is a new field later, not a split now.
@@ -249,7 +244,7 @@ Safety properties of the atomic switch:
 
 ## 7. Open questions for maintainers
 
-1. **`contact.oncall`**: resolved — dropped from v1. `contact.slack` costs nothing (derived from the team slug by convention, override or `slack: false` only when needed), but nothing consumes an oncall reference, so it is not carried. Re-adding it is additive once a consumer exists.
+1. **Oncall routing**: resolved — dropped from v1. The Slack channel costs nothing (derived from the team slug by convention, with the root `teams:` registry overriding or setting `slack: false` where needed), but nothing consumes an oncall reference, so it is not carried. Re-adding it is additive once a consumer exists.
 2. **Resolver ownership**: resolved — the resolver package is covered by the hard `CODEOWNERS` (see §5).
 3. **Coverage gating cadence**: how soon after the PR to flip `owners:lint` coverage from warn to fail — immediately for _new_ directories (ratchet), or only once the whole tree is clean?
 4. **Hard-CODEOWNERS future** (explicitly out of scope now): if blocking gates ever move into the schema, approver inheritance should probably union up the tree rather than nearest-wins — parked until `team-security` wants to revisit.

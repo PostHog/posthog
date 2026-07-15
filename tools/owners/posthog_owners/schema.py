@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TypeGuard
 
 import yaml
 
@@ -19,9 +20,8 @@ CHANGEME_SLUG = "team-CHANGEME"
 
 # Top-level keys allowed in owners.yaml. Rules allow the same set minus `version`
 # and `rules`, plus the required `match`. `teams` is root-only (see parse).
-_TOP_LEVEL_KEYS = {"version", "owners", "contact", "status", "inherit", "rules", "teams"}
+_TOP_LEVEL_KEYS = {"version", "owners", "status", "inherit", "rules", "teams"}
 _RULE_KEYS = {"match", "owners", "status", "inherit"}
-_CONTACT_KEYS = {"slack"}
 _TEAMS_ENTRY_KEYS = {"slack"}
 
 
@@ -61,7 +61,6 @@ class OwnersFile:
     directory: str  # repo-relative posix dir containing the file ("" for repo root)
     owners: list[str] | None  # required; None = explicit unowned-by-design; [] = no contribution
     version: int = 1
-    slack: str | bool | _Unset = UNSET
     status: str | _Unset = UNSET
     inherit: bool = True
     rules: list[OwnersRule] = field(default_factory=list)
@@ -87,26 +86,15 @@ def _validate_owners_value(value: object, where: str, errors: list[str]) -> list
     return normalize_product_owners([str(x) for x in value])
 
 
-def _validate_contact(value: object, where: str, errors: list[str]) -> str | bool | _Unset:
-    slack: str | bool | _Unset = UNSET
-    if not isinstance(value, dict):
-        errors.append(f"{where}: 'contact' must be a mapping")
-        return slack
-    for key in value:
-        if key not in _CONTACT_KEYS:
-            errors.append(f"{where}: unknown contact field '{key}'")
-    if "slack" in value:
-        raw = value["slack"]
-        if raw is False or (isinstance(raw, str) and raw.startswith("#")):
-            slack = raw
-        else:
-            errors.append(f"{where}: 'contact.slack' must be a string starting with '#' or false")
-    return slack
+def _is_valid_slack(raw: object) -> TypeGuard[str | bool]:
+    """A Slack channel value is a string starting with '#', or ``false`` for "no
+    channel". Shared by the ``teams:`` registry — the only place a channel is set."""
+    return raw is False or (isinstance(raw, str) and raw.startswith("#"))
 
 
 def _validate_teams(value: object, errors: list[str]) -> dict[str, str | bool]:
     """Validate the root-only ``teams:`` registry — a mapping of team slug to a
-    single ``slack`` value, validated exactly like ``contact.slack``."""
+    single ``slack`` value."""
     registry: dict[str, str | bool] = {}
     if not isinstance(value, dict):
         errors.append("'teams' must be a mapping of team slug to {slack: ...}")
@@ -127,7 +115,7 @@ def _validate_teams(value: object, errors: list[str]) -> dict[str, str | bool]:
                 errors.append(f"{where}: unknown field '{key}'")
         if "slack" in entry:
             raw = entry["slack"]
-            if raw is False or (isinstance(raw, str) and raw.startswith("#")):
+            if _is_valid_slack(raw):
                 registry[slug] = raw
             else:
                 errors.append(f"{where}: 'slack' must be a string starting with '#' or false")
@@ -148,34 +136,55 @@ def _validate_inherit(value: object, where: str, errors: list[str]) -> bool | _U
     return UNSET
 
 
-def _parse_rule(raw: object, index: int, errors: list[str]) -> OwnersRule | None:
+def _rule_match_patterns(raw_match: object, where: str, errors: list[str]) -> list[str]:
+    """A rule's ``match`` may be one non-empty string or a non-empty list of them.
+    Returns every compiling pattern in order; on any malformed or uncompilable entry
+    it appends a schema error and returns ``[]`` so the whole rule is dropped (lint
+    reports a normal error and the resolver never sees a rule that would crash)."""
+    if isinstance(raw_match, str):
+        candidates: list[object] = [raw_match]
+    elif isinstance(raw_match, list) and raw_match:
+        candidates = list(raw_match)
+    else:
+        errors.append(f"{where}: 'match' is required and must be a non-empty string or a non-empty list of strings")
+        return []
+
+    patterns: list[str] = []
+    ok = True
+    for candidate in candidates:
+        if not isinstance(candidate, str) or not candidate:
+            errors.append(f"{where}: each 'match' pattern must be a non-empty string")
+            ok = False
+            continue
+        try:
+            compile_pattern(candidate)
+        except ValueError as exc:
+            errors.append(f"{where}: invalid match pattern '{candidate}': {exc}")
+            ok = False
+            continue
+        patterns.append(candidate)
+    return patterns if ok else []
+
+
+def _parse_rule(raw: object, index: int, errors: list[str]) -> list[OwnersRule]:
+    """Parse one physical rule entry into one ``OwnersRule`` per ``match`` pattern
+    (a list ``match`` explodes here so resolver/fmt/lint keep seeing single-pattern
+    rules). Returns ``[]`` on a schema error."""
     where = f"rules[{index}]"
     if not isinstance(raw, dict):
         errors.append(f"{where}: each rule must be a mapping")
-        return None
+        return []
     for key in raw:
         if key not in _RULE_KEYS:
             errors.append(f"{where}: unknown field '{key}'")
-    match = raw.get("match")
-    if not isinstance(match, str) or not match:
-        errors.append(f"{where}: 'match' is required and must be a non-empty string")
-        return None
-    try:
-        compile_pattern(match)
-    except ValueError as exc:
-        # Reject uncompilable globs at parse time so lint reports a normal schema
-        # error and the resolver never sees a rule that would crash mid-resolve.
-        errors.append(f"{where}: invalid match pattern '{match}': {exc}")
-        return None
+    patterns = _rule_match_patterns(raw.get("match"), where, errors)
+    if not patterns:
+        return []
 
-    rule = OwnersRule(match=match)
-    if "owners" in raw:
-        rule.owners = _validate_owners_value(raw["owners"], where, errors)
-    if "status" in raw:
-        rule.status = _validate_status(raw["status"], where, errors)
-    if "inherit" in raw:
-        rule.inherit = _validate_inherit(raw["inherit"], where, errors)
-    return rule
+    owners = _validate_owners_value(raw["owners"], where, errors) if "owners" in raw else UNSET
+    status = _validate_status(raw["status"], where, errors) if "status" in raw else UNSET
+    inherit = _validate_inherit(raw["inherit"], where, errors) if "inherit" in raw else UNSET
+    return [OwnersRule(match=pattern, owners=owners, status=status, inherit=inherit) for pattern in patterns]
 
 
 def parse_owners_file(text: str, *, path: Path, directory: str) -> tuple[OwnersFile | None, list[str]]:
@@ -208,8 +217,6 @@ def parse_owners_file(text: str, *, path: Path, directory: str) -> tuple[OwnersF
 
     file = OwnersFile(path=path, directory=directory, owners=owners)
 
-    if "contact" in data:
-        file.slack = _validate_contact(data["contact"], "contact", errors)
     if "status" in data:
         file.status = _validate_status(data["status"], "status", errors)
     if "inherit" in data:
@@ -230,9 +237,7 @@ def parse_owners_file(text: str, *, path: Path, directory: str) -> tuple[OwnersF
             errors.append("'rules' must be a list")
         else:
             for i, raw_rule in enumerate(raw_rules):
-                rule = _parse_rule(raw_rule, i, errors)
-                if rule is not None:
-                    file.rules.append(rule)
+                file.rules.extend(_parse_rule(raw_rule, i, errors))
 
     # A missing version or owners makes the file unusable for resolution.
     if data.get("version") != 1 or "owners" not in data:
@@ -265,7 +270,7 @@ def match_is_glob(match: str) -> bool:
 def is_simple_owners_file(parsed: OwnersFile | None, *, allow_anchored_rules: bool = False) -> bool:
     """Whether a file is "simple" — mechanically relocatable, nothing but ownership.
 
-    Both callers agree that contact/status/``inherit: false`` (and being a
+    Both callers agree that status/``inherit: false`` (and being a
     ``product.yaml`` alias) disqualify a file. So does a ``teams:`` registry:
     it is root-only content relocation would strand. So does any rule carrying
     more than match+owners: relocation only preserves owners, so rule-level
@@ -278,7 +283,7 @@ def is_simple_owners_file(parsed: OwnersFile | None, *, allow_anchored_rules: bo
     """
     if parsed is None or parsed.is_alias:
         return False
-    if parsed.inherit is False or parsed.status is not UNSET or parsed.slack is not UNSET or parsed.teams:
+    if parsed.inherit is False or parsed.status is not UNSET or parsed.teams:
         return False
     if any(r.status is not UNSET or r.inherit is not UNSET for r in parsed.rules):
         return False

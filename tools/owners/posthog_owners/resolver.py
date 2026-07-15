@@ -75,7 +75,6 @@ class ParsedOwnershipFile:
 @dataclass
 class _Merged:
     owners: list[str] | None | _Unset = UNSET
-    slack: str | bool | _Unset = UNSET
     status: str | _Unset = UNSET
     source: str | None = None
 
@@ -168,7 +167,6 @@ class OwnersResolver:
             path=f.path,
             directory=f.directory,
             owners=f.owners,
-            slack=f.slack,
             status=f.status,
             inherit=f.inherit,
             is_alias=f.is_alias,
@@ -204,8 +202,6 @@ class OwnersResolver:
                 merged.owners = list(contrib.owners)
                 merged.source = self._rel(contrib.path)
 
-            if not isinstance(contrib.slack, _Unset):
-                merged.slack = contrib.slack
             if not isinstance(contrib.status, _Unset):
                 merged.status = contrib.status
 
@@ -219,13 +215,10 @@ class OwnersResolver:
             self._teams_cache = dict(root.teams) if root is not None else {}
         return self._teams_cache
 
-    def _effective_slack(self, value: str | bool | _Unset, owners: list[str] | None) -> str | None:
-        # An explicit per-path/per-file contact.slack (string or `false`) wins outright.
-        if not isinstance(value, _Unset):
-            # Schema only admits `slack: false`; any bool means "no channel".
-            return None if isinstance(value, bool) else value
-        # Unset: consult the registry for the primary owner, then derive `#<slug>`.
-        # Only a team slug (not an `@handle`) carries a channel.
+    def _effective_slack(self, owners: list[str] | None) -> str | None:
+        """The Slack channel for a path: the registry entry for the primary owner
+        (team slugs only), then the derived ``#<slug>``, else None. Only a team slug
+        (not an ``@handle``) carries a channel."""
         if owners and not owners[0].startswith("@"):
             primary = owners[0]
             registry = self._teams_registry()
@@ -242,7 +235,7 @@ class OwnersResolver:
 
         status = "active" if isinstance(merged.status, _Unset) else merged.status
 
-        slack = self._effective_slack(merged.slack, owners)
+        slack = self._effective_slack(owners)
 
         return Resolution(
             path=path,

@@ -193,7 +193,7 @@ class CanonicalPlacer:
         alias_dirs).
 
         Pinned carriers (``product.yaml`` with owners, or a non-simple owners.yaml
-        with contact/status/inherit) absorb statements for free. Frozen dirs host a
+        with status/inherit) absorb statements for free. Frozen dirs host a
         glob-bearing file — crosscutting, untouched, never a carrier. Alias dirs are
         the product.yaml subset of pinned: the manifest provides its dir's owners but
         physically cannot hold rules (only its ``owners:`` list is read), so
