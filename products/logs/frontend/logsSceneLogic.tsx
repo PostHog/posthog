@@ -13,7 +13,9 @@ import { Params } from 'scenes/sceneTypes'
 
 import {
     DEFAULT_ORDER_BY,
+    DEFAULT_VIEW_MODE,
     logsViewerConfigLogic,
+    LogsViewerViewMode,
 } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
 import { LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
 import {
@@ -40,6 +42,8 @@ export const getLogsSqlEditorTabId = (id: string): string => `logs-sql-editor-${
 // A static id would persist across projects in the same browser, leaking one project's pinned log payloads into another.
 export const LOGS_SCENE_VIEWER_ID = `logs-scene-${window.POSTHOG_APP_CONTEXT?.current_team?.id ?? 'unknown'}`
 
+const VALID_VIEW_MODES: LogsViewerViewMode[] = ['logs', 'patterns', 'group']
+
 export type LogsSceneActiveTab = 'viewer' | 'services' | 'alerts' | 'sql' | 'configuration'
 const VALID_ACTIVE_TABS: LogsSceneActiveTab[] = ['viewer', 'services', 'alerts', 'sql', 'configuration']
 export const DEFAULT_ACTIVE_TAB: LogsSceneActiveTab = 'viewer'
@@ -63,7 +67,7 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             logsFilterHistoryLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['pushToFilterHistory'],
             logsViewerConfigLogic({ id: LOGS_SCENE_VIEWER_ID }),
-            ['setOrderBy'],
+            ['setOrderBy', 'setViewMode'],
             logsViewerDataLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['setInitialLogsLimit', 'fetchLogsSuccess', 'handleQueryChange'],
             logsViewerLogic({ id: LOGS_SCENE_VIEWER_ID }),
@@ -77,7 +81,7 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             logsViewerFiltersLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['filters', 'utcDateRange'],
             logsViewerConfigLogic({ id: LOGS_SCENE_VIEWER_ID }),
-            ['orderBy'],
+            ['orderBy', 'viewMode'],
             logsViewerDataLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['initialLogsLimit'],
             logsViewerLogic({ id: LOGS_SCENE_VIEWER_ID }),
@@ -160,6 +164,15 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             // Non-filter params handled separately
             if (params.orderBy && !equal(params.orderBy, values.orderBy)) {
                 actions.setOrderBy(params.orderBy)
+            }
+            // The Logs⇄Patterns⇄Group lens. Absent or unrecognised param means the default —
+            // a shared link with a flag-gated lens stays safe because the viewer double-gates
+            // rendering on the flag, so an unreachable mode just shows the Logs table.
+            const viewMode: LogsViewerViewMode = VALID_VIEW_MODES.includes(params.viewMode as LogsViewerViewMode)
+                ? (params.viewMode as LogsViewerViewMode)
+                : DEFAULT_VIEW_MODE
+            if (viewMode !== values.viewMode) {
+                actions.setViewMode(viewMode)
             }
             if (params.initialLogsLimit != null && +params.initialLogsLimit !== values.initialLogsLimit) {
                 actions.setInitialLogsLimit(+params.initialLogsLimit)
@@ -256,6 +269,15 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             )
         }
 
+        const syncViewMode = (): ReturnType<typeof syncSearchParams> => {
+            return withUrlSyncGuard(() =>
+                syncSearchParams(router, (params: Params) => {
+                    updateSearchParams(params, 'viewMode', values.viewMode, DEFAULT_VIEW_MODE)
+                    return params
+                })
+            )
+        }
+
         return {
             // initialLogsLimit is a one-shot override from "copy link to log" URLs.
             // It ensures the first fetch loads enough logs to include the linked log,
@@ -265,6 +287,7 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             clearLinkToLogId: () => clearLinkToLogId(),
             syncUrl: () => syncUrl(),
             setActiveTab: () => syncActiveTab(),
+            setViewMode: () => syncViewMode(),
         }
     }),
 
