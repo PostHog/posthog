@@ -15,6 +15,12 @@ fi
 
 caller_cwd="$PWD"
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+if [[ "$prepare" -eq 1 && -n "${CODEX_SANDBOX:-}" ]]; then
+    echo "error: Codex environment setup requires elevated execution for Flox network access" >&2
+    exit 77
+fi
+
 env_file="$repo_root/.flox/cache/codex-env"
 fingerprint_inputs=(
     "$repo_root/.codex/with-flox"
