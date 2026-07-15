@@ -40,6 +40,16 @@ locals {
       slo     = 99.95 # error budget = 0.05%
       regions = ["US", "EU"]
     }
+    billing_status = {
+      name    = "GET /api/billing"
+      slo     = 99.95 # error budget = 0.05%
+      regions = ["US"]
+    }
+    usage_report_ingest = {
+      name    = "Usage reports v2 intake"
+      slo     = 99.95 # error budget = 0.05%
+      regions = ["US", "EU"]
+    }
     query_service = {
       name    = "Query service"
       slo     = 99.95 # error budget = 0.05%
