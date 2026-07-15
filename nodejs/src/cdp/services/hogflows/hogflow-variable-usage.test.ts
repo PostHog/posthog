@@ -21,6 +21,12 @@ describe('findMissingVariableReferences', () => {
             expected: ['my-var'],
         },
         {
+            name: 'bracket-form reference with whitespace',
+            config: { inputs: { body: { value: '{{ variables [ "spaced" ] }}' } } },
+            variables: {},
+            expected: ['spaced'],
+        },
+        {
             name: 'reference nested inside object and array input values',
             config: {
                 inputs: {

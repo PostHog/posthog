@@ -19,7 +19,8 @@ const counterMissingVariableReference = new Counter({
 // never matches (it stores 'variables' and the key as separate string constants), so scanning a
 // whole config is safe.
 const DOT_REFERENCE_REGEX = /\bvariables\.([A-Za-z_$][A-Za-z0-9_$]*)/g
-const BRACKET_REFERENCE_REGEX = /\bvariables\[['"]([^'"\]]+)['"]\]/g
+// Whitespace allowed around the brackets and quotes - liquid accepts `variables[ 'x' ]`
+const BRACKET_REFERENCE_REGEX = /\bvariables\s*\[\s*['"]([^'"\]]+)['"]\s*\]/g
 
 const collectReferences = (value: unknown, into: Set<string>): void => {
     if (typeof value === 'string') {
