@@ -335,15 +335,10 @@ class HoglandBackend(PreviewBackend):
                 self._delete_pen_if_current_box(self._box_id)
                 return
             except ConflictError:
-                timing.stage("teardown skipped: preview was replaced by a newer run")
+                self._delete_explicit_box()
                 return
             except NotFoundError:
-                try:
-                    self._client.get(self._box_id).delete()
-                except NotFoundError:
-                    pass
-                except Exception as e:
-                    timing.stage(f"warn: couldn't delete explicit box during teardown: {e}")
+                self._delete_explicit_box()
                 return
 
         # Name-only cleanup is an authoritative teardown for a closed or
@@ -353,7 +348,12 @@ class HoglandBackend(PreviewBackend):
         except NotFoundError:
             return
         if not pen.current_box_id:
-            timing.stage("teardown skipped: preview has no current box")
+            try:
+                self._delete_pen()
+            except NotFoundError:
+                pass
+            except Exception as e:
+                timing.stage(f"warn: couldn't delete empty pen during teardown: {e}")
             return
         try:
             self._delete_pen_if_current_box(pen.current_box_id)
@@ -371,6 +371,18 @@ class HoglandBackend(PreviewBackend):
             params={"expected_current_box_id": expected_box_id},
         )
         raise_for_status(response)
+
+    def _delete_pen(self) -> None:
+        response = self._client._http.delete(f"/v1/pens/{quote(self.name, safe='')}")
+        raise_for_status(response)
+
+    def _delete_explicit_box(self) -> None:
+        try:
+            self._client.get(self._box_id).delete()
+        except NotFoundError:
+            pass
+        except Exception as e:
+            timing.stage(f"warn: couldn't delete explicit box during teardown: {e}")
 
     # --- pen: the stable identity over the box lifecycle ---------------------
     def _ensure_pen(self) -> None:

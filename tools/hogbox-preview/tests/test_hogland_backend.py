@@ -172,13 +172,26 @@ class DestroyReleasesPenTest(unittest.TestCase):
         self.assertTrue(box.deleted)
         backend._delete_pen_if_current_box.assert_called_once_with(box.id)
 
-    def test_name_only_teardown_skips_empty_pen_pointer(self):
-        backend = _make_backend(_FakeClient(get_pen=_FakePen(current_box_id=None)))
-        backend._delete_pen_if_current_box = unittest.mock.Mock()
+    def test_explicit_box_is_deleted_when_pen_was_replaced(self):
+        from hogland import ConflictError
+
+        box = _FakeBox(box_id="box-explicit")
+        backend = _make_backend(_FakeClient(get=box))
+        backend._box_id = box.id
+        backend._delete_pen_if_current_box = unittest.mock.Mock(side_effect=ConflictError("pen moved", status_code=409))
 
         backend.destroy()
 
-        backend._delete_pen_if_current_box.assert_not_called()
+        self.assertTrue(box.deleted)
+        backend._delete_pen_if_current_box.assert_called_once_with(box.id)
+
+    def test_name_only_teardown_deletes_empty_pen(self):
+        backend = _make_backend(_FakeClient(get_pen=_FakePen(current_box_id=None)))
+        backend._delete_pen = unittest.mock.Mock()
+
+        backend.destroy()
+
+        backend._delete_pen.assert_called_once_with()
 
 
 @unittest.skipUnless(HAVE_SDK, "posthog-hogland SDK not installed")
