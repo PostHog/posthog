@@ -1,7 +1,7 @@
 import '../ErrorTrackingIssueScene/ErrorTrackingIssueScene.scss'
 
 import clsx from 'clsx'
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect, useRef } from 'react'
 
@@ -32,6 +32,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, ReplayTabs } from '~/types'
 
 import { PostHogSDKIssueBanner } from '../../components/Banners/PostHogSDKIssueBanner'
+import { breakdownFiltersLogic } from '../../components/Breakdowns/breakdownFiltersLogic'
 import { BreakdownsChart } from '../../components/Breakdowns/BreakdownsChart'
 import { BreakdownsSearchBar } from '../../components/Breakdowns/BreakdownsSearchBar'
 import { MiniBreakdowns } from '../../components/Breakdowns/MiniBreakdowns'
@@ -74,6 +75,12 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     const isMobile = isWindowLessThan('md')
     const sceneMenuBarEnabled = useFeatureFlag('SCENE_MENU_BAR')
     const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
+
+    // breakdownFiltersLogic is a keyless singleton that miniBreakdownsLogic connects to. Mounting it here ties its
+    // lifecycle to the scene (the stable parent), so it is torn down after the keyed miniBreakdownsLogic below rather
+    // than mid-cascade — otherwise its store path can vanish while miniBreakdownsLogic's connected selectors still
+    // re-evaluate, throwing "Can not find path breakdownFiltersLogic".
+    useMountedLogic(breakdownFiltersLogic)
 
     useEffect(() => {
         const utmSource = new URLSearchParams(window.location.search).get('utm_source')
