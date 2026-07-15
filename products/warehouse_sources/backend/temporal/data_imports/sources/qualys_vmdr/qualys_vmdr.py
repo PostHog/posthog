@@ -4,6 +4,8 @@ from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 from urllib.parse import urlencode, urlsplit, urlunsplit
+
+# nosemgrep: python.lang.security.use-defused-xml.use-defused-xml (Element is only the node type for annotations — all parsing goes through defusedxml below)
 from xml.etree.ElementTree import Element
 
 import requests
