@@ -1,9 +1,14 @@
+from typing import TYPE_CHECKING
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 
 from rest_framework import status
+
+if TYPE_CHECKING:
+    from rest_framework.response import _MonkeyPatchedResponse
 
 from posthog.models.organization import Organization
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -21,7 +26,7 @@ class TestDashboardSubscribeNudge(APIBaseTest):
         cache.clear()
         self.dashboard = Dashboard.objects.create(team=self.team, name="Key metrics", created_by=self.user)
 
-    def _post_nudge(self, dashboard_id: int) -> "object":
+    def _post_nudge(self, dashboard_id: int) -> "_MonkeyPatchedResponse":
         return self.client.post(f"/api/environments/{self.team.id}/dashboards/{dashboard_id}/subscribe_nudge/")
 
     def test_creates_notification_for_requesting_user(self, mock_create_notification: MagicMock) -> None:

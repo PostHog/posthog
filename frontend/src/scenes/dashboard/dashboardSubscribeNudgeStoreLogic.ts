@@ -1,12 +1,11 @@
 import { actions, kea, path, reducers } from 'kea'
 
-import type { dashboardViewLogLogicType } from './dashboardViewLogLogicType'
+import type { dashboardSubscribeNudgeStoreLogicType } from './dashboardSubscribeNudgeStoreLogicType'
 
 export const DASHBOARD_VIEW_LOG_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
 // dashboardLogic dispatches reportDashboardViewed more than once per real page view (on mount and
 // again after the API load); dispatches this close together are the same visit and count once.
 export const DASHBOARD_VIEW_DEDUPE_WINDOW_MS = 60 * 1000
-export const MAX_SUPPRESSED_DASHBOARDS = 100
 export const MAX_TRACKED_DASHBOARDS = 100
 
 /** Per-dashboard view timestamps within the trailing window, keyed by dashboard id. */
@@ -21,27 +20,33 @@ export function freshTimestamps(timestamps: number[], now: number): number[] {
 // Shared shape for the persisted per-dashboard marker lists: append-once, bounded to the
 // most recent entries.
 function appendCapped(state: number[], { dashboardId }: { dashboardId: number }): number[] {
-    return state.includes(dashboardId) ? state : [...state, dashboardId].slice(-MAX_SUPPRESSED_DASHBOARDS)
+    return state.includes(dashboardId) ? state : [...state, dashboardId].slice(-MAX_TRACKED_DASHBOARDS)
 }
 
-// Prunes stale timestamps across the whole map and drops dashboards left with none,
-// so the persisted entry stays bounded no matter how many dashboards were ever viewed.
+// Prunes stale timestamps across the whole map and drops dashboards left with none, so the
+// persisted entry stays bounded no matter how many dashboards were ever viewed. Returns the
+// original reference untouched when nothing was stale, so a no-op dedupe skips a redundant
+// persist of the whole map.
 function pruneViewLog(log: DashboardViewLog, now: number): DashboardViewLog {
     const pruned: DashboardViewLog = {}
+    let changed = false
     for (const [dashboardId, timestamps] of Object.entries(log)) {
         const fresh = freshTimestamps(timestamps, now)
         if (fresh.length > 0) {
             pruned[dashboardId] = fresh
         }
+        if (fresh.length !== timestamps.length) {
+            changed = true
+        }
     }
-    return pruned
+    return changed ? pruned : log
 }
 
 // Singleton store behind the dashboard subscribe nudge: one persisted map of recent views for
 // all dashboards (instead of a localStorage entry per dashboard ever viewed), plus the set of
 // dashboards permanently excluded from the nudge.
-export const dashboardViewLogLogic = kea<dashboardViewLogLogicType>([
-    path(['scenes', 'dashboard', 'dashboardViewLogLogic']),
+export const dashboardSubscribeNudgeStoreLogic = kea<dashboardSubscribeNudgeStoreLogicType>([
+    path(['scenes', 'dashboard', 'dashboardSubscribeNudgeStoreLogic']),
     actions({
         recordDashboardView: (dashboardId: number) => ({ dashboardId }),
         suppressDashboardNudge: (dashboardId: number) => ({ dashboardId }),
@@ -59,6 +64,8 @@ export const dashboardViewLogLogic = kea<dashboardViewLogLogicType>([
                     const lastView = existing[existing.length - 1]
                     if (lastView !== undefined && now - lastView < DASHBOARD_VIEW_DEDUPE_WINDOW_MS) {
                         // Same real visit re-reported (remount, post-load re-dispatch) — count it once.
+                        // pruneViewLog hands back the original reference when nothing was stale, so this
+                        // no-op path leaves state identity intact and skips a redundant full-map write.
                         return pruned
                     }
                     const next: DashboardViewLog = { ...pruned, [dashboardId]: [...existing, now] }

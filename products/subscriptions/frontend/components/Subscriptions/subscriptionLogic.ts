@@ -263,7 +263,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                         subscription_id: updatedSub.id,
                         target_type: updatedSub.target_type,
                         // True when the nudge flow's deferred AI-summary default was applied to this form.
-                        ai_summary_prefilled: !!cache.aiSummaryDefaultApplied,
+                        ai_summary_prefilled: cache.prefillBaseline?.summary_enabled === true,
                     })
                 }
 
@@ -309,15 +309,16 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             if (
                 props.id !== 'new' ||
                 !cache.prefillBaseline ||
-                cache.aiSummaryDefaultApplied ||
+                cache.prefillBaseline.summary_enabled === true ||
                 summaryQuota?.at_limit ||
                 !values.currentOrganization?.is_ai_data_processing_approved ||
                 values.subscription?.summary_enabled
             ) {
                 return
             }
-            cache.aiSummaryDefaultApplied = true
             actions.setSubscriptionValue('summary_enabled', true)
+            // Folding the default into the baseline both keeps the untouched-form navigation
+            // suppression matching and serves as the applied-once guard on later quota reloads.
             cache.prefillBaseline = { ...cache.prefillBaseline, summary_enabled: true }
         },
         selectAiExamplePrompt: ({ prompt, label, window }) => {

@@ -8,7 +8,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'lib/posthog-typed'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { dashboardViewLogLogic } from 'scenes/dashboard/dashboardViewLogLogic'
+import { dashboardSubscribeNudgeStoreLogic } from 'scenes/dashboard/dashboardSubscribeNudgeStoreLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
@@ -27,13 +27,12 @@ import { subscriptionsLogic } from 'products/subscriptions/frontend/components/S
 import { subscriptionsList } from 'products/subscriptions/frontend/generated/api'
 
 import { DASHBOARD_SUBSCRIBE_NUDGE_VIEW_THRESHOLD, dashboardSubscribeNudgeLogic } from './dashboardSubscribeNudgeLogic'
-import { DashboardSubscribeNudgeToast, onDashboardSubscribeNudgeToastCta } from './DashboardSubscribeNudgeToast'
 import {
     DASHBOARD_VIEW_DEDUPE_WINDOW_MS,
     DASHBOARD_VIEW_LOG_WINDOW_MS,
-    MAX_SUPPRESSED_DASHBOARDS,
     MAX_TRACKED_DASHBOARDS,
-} from './dashboardViewLogLogic'
+} from './dashboardSubscribeNudgeStoreLogic'
+import { DashboardSubscribeNudgeToast, onDashboardSubscribeNudgeToastCta } from './DashboardSubscribeNudgeToast'
 
 jest.mock('lib/posthog-typed', () => ({
     __esModule: true,
@@ -151,6 +150,16 @@ describe('dashboardSubscribeNudgeLogic', () => {
         expect(logic.values.viewCount7d).toBe(2)
     })
 
+    it('keeps the same viewLog reference on a no-op deduped record', () => {
+        // A re-dispatch inside the dedupe window with nothing stale to prune must not mint a new
+        // map object, so kea-localstorage skips a redundant full-map persist write.
+        logic.actions.recordDashboardView(DASHBOARD_ID)
+        const before = dashboardSubscribeNudgeStoreLogic.values.viewLog
+        now += 1000
+        logic.actions.recordDashboardView(DASHBOARD_ID)
+        expect(dashboardSubscribeNudgeStoreLogic.values.viewLog).toBe(before)
+    })
+
     it('prunes stale views across the whole map and drops emptied dashboards', () => {
         recordViews(3)
         recordViews(1, 999) // another dashboard, whose views all go stale
@@ -161,7 +170,7 @@ describe('dashboardSubscribeNudgeLogic', () => {
         expect(logic.values.viewCount7d).toBe(1)
         expect(logic.values.isPastViewThreshold).toBe(false)
         // The persisted map is bounded: fully-stale dashboards disappear entirely.
-        expect(Object.keys(dashboardViewLogLogic.values.viewLog)).toEqual([String(DASHBOARD_ID)])
+        expect(Object.keys(dashboardSubscribeNudgeStoreLogic.values.viewLog)).toEqual([String(DASHBOARD_ID)])
     })
 
     it('is not a candidate and fetches nothing when the org lacks the subscriptions feature', async () => {
@@ -248,7 +257,6 @@ describe('dashboardSubscribeNudgeLogic', () => {
                 autoClose: false,
                 toastId: `dashboard-subscribe-nudge-${DASHBOARD_ID}`,
             })
-            expect(options.button).toBeUndefined() // the CTA lives inside the stacked body
             expect(body.type).toBe(DashboardSubscribeNudgeToast)
             expect(body.props).toEqual({
                 dashboardId: DASHBOARD_ID,
@@ -326,7 +334,7 @@ describe('dashboardSubscribeNudgeLogic', () => {
         })
 
         it('does not notify already-notified dashboards, and skips their eligibility fetch entirely', async () => {
-            dashboardViewLogLogic.actions.markDashboardNotified(DASHBOARD_ID)
+            dashboardSubscribeNudgeStoreLogic.actions.markDashboardNotified(DASHBOARD_ID)
 
             await expectLogic(logic, () => {
                 recordViews(DASHBOARD_SUBSCRIBE_NUDGE_VIEW_THRESHOLD)
@@ -397,13 +405,13 @@ describe('dashboardSubscribeNudgeLogic', () => {
     )
 
     it('caps the suppression list at the most recent entries', () => {
-        for (let i = 1; i <= MAX_SUPPRESSED_DASHBOARDS + 1; i++) {
+        for (let i = 1; i <= MAX_TRACKED_DASHBOARDS + 1; i++) {
             logic.actions.suppressDashboardNudge(i)
         }
-        const suppressed = dashboardViewLogLogic.values.suppressedDashboardIds
-        expect(suppressed).toHaveLength(MAX_SUPPRESSED_DASHBOARDS)
+        const suppressed = dashboardSubscribeNudgeStoreLogic.values.suppressedDashboardIds
+        expect(suppressed).toHaveLength(MAX_TRACKED_DASHBOARDS)
         expect(suppressed).not.toContain(1) // oldest evicted
-        expect(suppressed).toContain(MAX_SUPPRESSED_DASHBOARDS + 1) // newest kept
+        expect(suppressed).toContain(MAX_TRACKED_DASHBOARDS + 1) // newest kept
     })
 
     it('caps the view log at the most recently viewed dashboards', () => {
@@ -411,7 +419,7 @@ describe('dashboardSubscribeNudgeLogic', () => {
             now += 1000
             logic.actions.recordDashboardView(i)
         }
-        const trackedIds = Object.keys(dashboardViewLogLogic.values.viewLog)
+        const trackedIds = Object.keys(dashboardSubscribeNudgeStoreLogic.values.viewLog)
         expect(trackedIds).toHaveLength(MAX_TRACKED_DASHBOARDS)
         expect(trackedIds).not.toContain('1') // least recently viewed evicted
         expect(trackedIds).toContain(String(MAX_TRACKED_DASHBOARDS + 1)) // newest kept

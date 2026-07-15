@@ -11,7 +11,6 @@ from enum import StrEnum
 from typing import Any, Optional, TypedDict, cast
 
 from django.conf import settings
-from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import URLValidator
 from django.db import IntegrityError, transaction
@@ -85,7 +84,13 @@ from posthog.slo.context import SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation
 from posthog.sync import database_sync_to_async
 from posthog.user_permissions import UserPermissionsSerializerMixin
-from posthog.utils import filters_override_requested_by_client, str_to_bool, variables_override_requested_by_client
+from posthog.utils import (
+    filters_override_requested_by_client,
+    safe_cache_add,
+    safe_cache_delete,
+    str_to_bool,
+    variables_override_requested_by_client,
+)
 
 from products.ai_observability.backend.dashboard_templates import get_ai_observability_default_template
 from products.alerts.backend.models.alert import AlertConfiguration
@@ -2192,6 +2197,13 @@ class DashboardsViewSet(
         assert self.team.project_id is not None
         queryset = self.queryset.filter(team__project_id=self.team.project_id)
 
+        # subscribe_nudge only reads the dashboard's pk and name, so skip the detail prefetch
+        # cascade (tiles → insights → their dashboards) and the folder/last-viewed annotations.
+        # Team scoping is preserved by the filter above; the CanEditDashboard object permission
+        # still gates the write.
+        if self.action == "subscribe_nudge":
+            return queryset.exclude(deleted=True)
+
         if self.request.user.is_authenticated:
             queryset = queryset.alias(
                 recent_dashboard_views=FilteredRelation(
@@ -3289,7 +3301,7 @@ class DashboardsViewSet(
         user = cast(User, request.user)
 
         dedupe_key = f"dashboard_subscribe_nudge:{user.pk}:{dashboard.pk}"
-        if not cache.add(dedupe_key, "1", timeout=SUBSCRIBE_NUDGE_DEDUPE_TTL_SECONDS):
+        if not safe_cache_add(dedupe_key, "1", timeout=SUBSCRIBE_NUDGE_DEDUPE_TTL_SECONDS):
             return Response({"created": False}, status=status.HTTP_200_OK)
 
         event = create_notification(
@@ -3310,7 +3322,7 @@ class DashboardsViewSet(
             # Notifications disabled or no recipients resolved — report honestly so the caller
             # doesn't treat this as a delivered nudge, and release the sentinel so the nudge isn't
             # silently burned for 30 days once the condition clears.
-            cache.delete(dedupe_key)
+            safe_cache_delete(dedupe_key)
             return Response({"created": False}, status=status.HTTP_200_OK)
 
         return Response({"created": True}, status=status.HTTP_201_CREATED)
