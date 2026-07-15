@@ -181,7 +181,7 @@
         description:
           "All ingestion consumer groups sorted by outstanding messages. Drill into a group, then analyze what a lagging partition contains.",
         timers: [],
-        selectedGroup: null,
+        selectedTarget: null,
         currentJobId: null,
         unmount() {
           this.timers.forEach(clearInterval);
@@ -230,7 +230,7 @@
                         el("td", { class: "mono" }, row.group),
                         el("td", { class: "mono" }, row.topic),
                         el("td", { colspan: "4" }, el("span", { class: "pill bad", title: row.error }, "scan failed")))
-                    : el("tr", { class: `clickable ${row.group === this.selectedGroup ? "selected" : ""}`, onclick: () => this.selectGroup(row.group) },
+                    : el("tr", { class: `clickable ${this.selectedTarget && row.group === this.selectedTarget.group && row.topic === this.selectedTarget.topic ? "selected" : ""}`, onclick: () => this.selectTarget(row) },
                         el("td", { class: "mono" }, row.group),
                         el("td", { class: "mono" }, row.topic),
                         el("td", { class: "mono" }, fmtInt(row.partitions)),
@@ -249,19 +249,19 @@
           }
         },
 
-        selectGroup(group) {
-          this.selectedGroup = group;
+        selectTarget(target) {
+          this.selectedTarget = { group: target.group, topic: target.topic };
           this.refreshOverview();
           this.refreshPartitions();
         },
 
         async refreshPartitions() {
           const { partitionsTitle, partitionsBody } = this.ui;
-          if (!this.selectedGroup) return;
-          partitionsTitle.textContent = `Partitions — ${this.selectedGroup}`;
+          if (!this.selectedTarget) return;
+          partitionsTitle.textContent = `Partitions — ${this.selectedTarget.group} (${this.selectedTarget.topic})`;
           partitionsBody.replaceChildren(el("div", { class: "empty" }, "Scanning…"));
           try {
-            const data = await fetchJSON(`api/lag?group=${encodeURIComponent(this.selectedGroup)}`);
+            const data = await fetchJSON(`api/lag?group=${encodeURIComponent(this.selectedTarget.group)}&topic=${encodeURIComponent(this.selectedTarget.topic)}`);
             const maxLag = Math.max(1, ...data.partitions.map((p) => p.lag));
             partitionsBody.replaceChildren(
               el("table", {},
@@ -300,7 +300,7 @@
             const resp = await fetchJSON("api/analyses", {
               method: "POST",
               headers: { "content-type": "application/json" },
-              body: JSON.stringify({ group: this.selectedGroup, partition, mode }),
+              body: JSON.stringify({ ...this.selectedTarget, partition, mode }),
             });
             this.currentJobId = resp.job_id;
             this.pollJob();

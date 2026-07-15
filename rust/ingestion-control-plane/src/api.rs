@@ -12,7 +12,7 @@ use uuid::Uuid;
 use k8s_awareness::DiscoveredPod;
 
 use crate::jobs::{AnalysisRequest, JobView};
-use crate::kafka::lag::{self, GroupLag, GroupLagSummary};
+use crate::kafka::lag::{self, ConsumerTarget, GroupLag, GroupLagSummary};
 use crate::proxy;
 use crate::state::AppState;
 use crate::ui;
@@ -65,22 +65,52 @@ impl IntoResponse for ApiError {
     }
 }
 
-async fn get_lag_overview(State(state): State<AppState>) -> Json<Vec<GroupLagSummary>> {
-    Json(lag::scan_all_groups(&state.config).await)
+/// Targets are discovered from the cluster, so the API only accepts groups
+/// and topics inside the configured prefixes — the tool must not become a
+/// generic Kafka browser.
+fn validated_target(
+    state: &AppState,
+    group: &str,
+    topic: &str,
+) -> Result<ConsumerTarget, ApiError> {
+    if !group.starts_with(&state.config.group_prefix) {
+        return Err(ApiError::bad_request(format!(
+            "group '{group}' is outside the '{}' prefix",
+            state.config.group_prefix
+        )));
+    }
+    if !topic.starts_with(&state.config.topic_prefix) {
+        return Err(ApiError::bad_request(format!(
+            "topic '{topic}' is outside the '{}' prefix",
+            state.config.topic_prefix
+        )));
+    }
+    Ok(ConsumerTarget {
+        group: group.to_string(),
+        topic: topic.to_string(),
+    })
+}
+
+async fn get_lag_overview(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<GroupLagSummary>>, ApiError> {
+    let summaries = lag::scan_all_groups(&state.config)
+        .await
+        .map_err(|e| ApiError::upstream(format!("target discovery failed: {e:#}")))?;
+    Ok(Json(summaries))
 }
 
 #[derive(Deserialize)]
 struct LagQuery {
     group: String,
+    topic: String,
 }
 
 async fn get_lag(
     State(state): State<AppState>,
     Query(query): Query<LagQuery>,
 ) -> Result<Json<GroupLag>, ApiError> {
-    let target = state.config.target_for_group(&query.group).ok_or_else(|| {
-        ApiError::bad_request(format!("unknown consumer group '{}'", query.group))
-    })?;
+    let target = validated_target(&state, &query.group, &query.topic)?;
 
     let group_lag = lag::scan_group_lag(&state.config, &target)
         .await
@@ -93,12 +123,7 @@ async fn create_analysis(
     State(state): State<AppState>,
     Json(request): Json<AnalysisRequest>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
-    let target = state
-        .config
-        .target_for_group(&request.group)
-        .ok_or_else(|| {
-            ApiError::bad_request(format!("unknown consumer group '{}'", request.group))
-        })?;
+    let target = validated_target(&state, &request.group, &request.topic)?;
     if request.partition < 0 {
         return Err(ApiError::bad_request("partition must be non-negative"));
     }

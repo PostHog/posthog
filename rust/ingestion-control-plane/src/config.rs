@@ -27,15 +27,6 @@ impl FromStr for PodDiscoveryMode {
     }
 }
 
-/// A consumer group and the topic it consumes, as configured via
-/// `CONSUMER_TARGETS` (`group=topic` pairs). Groups and topics differ per
-/// ingestion lane, so they must be configured together.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ConsumerTarget {
-    pub group: String,
-    pub topic: String,
-}
-
 #[derive(Envconfig, Clone)]
 pub struct Config {
     #[envconfig(from = "BIND_HOST", default = "0.0.0.0")]
@@ -53,10 +44,15 @@ pub struct Config {
     #[envconfig(from = "KAFKA_CLIENT_RACK")]
     pub kafka_client_rack: Option<String>,
 
-    /// Comma-separated `group=topic` pairs, e.g.
-    /// `ingestion-analytics-main=ingestion-analytics-main-1024,ingestion-analytics-async=ingestion-analytics-async-8`.
-    #[envconfig(default = "events-ingestion-consumer=events_plugin_ingestion")]
-    pub consumer_targets: String,
+    /// Topics and consumer groups are discovered from the cluster by prefix
+    /// instead of being configured per environment; a group is associated
+    /// with a topic when it has committed offsets on it. The prefixes also
+    /// bound which groups/topics the API may scan.
+    #[envconfig(default = "ingestion-")]
+    pub topic_prefix: String,
+
+    #[envconfig(default = "ingestion-")]
+    pub group_prefix: String,
 
     /// Read-replica Postgres URL for token -> team_id resolution. When unset,
     /// resolution is disabled and analyses report `team_id: null`.
@@ -128,14 +124,6 @@ impl Config {
         Self::init_from_env()
     }
 
-    pub fn targets(&self) -> Vec<ConsumerTarget> {
-        parse_targets(&self.consumer_targets)
-    }
-
-    pub fn target_for_group(&self, group: &str) -> Option<ConsumerTarget> {
-        self.targets().into_iter().find(|t| t.group == group)
-    }
-
     pub fn pod_targets(&self) -> Vec<PodTarget> {
         self.pod_label_selectors
             .split(',')
@@ -176,22 +164,6 @@ fn is_valid_namespace(s: &str) -> bool {
 pub struct PodTarget {
     pub namespace: String,
     pub selector: String,
-}
-
-fn parse_targets(raw: &str) -> Vec<ConsumerTarget> {
-    raw.split(',')
-        .filter_map(|pair| {
-            let (group, topic) = pair.trim().split_once('=')?;
-            let (group, topic) = (group.trim(), topic.trim());
-            if group.is_empty() || topic.is_empty() {
-                return None;
-            }
-            Some(ConsumerTarget {
-                group: group.to_string(),
-                topic: topic.to_string(),
-            })
-        })
-        .collect()
 }
 
 #[cfg(test)]
@@ -237,26 +209,6 @@ mod tests {
                 PodTarget {
                     namespace: "my-ns".to_string(),
                     selector: "app.kubernetes.io/name=consumer".to_string(),
-                },
-            ]
-        );
-    }
-
-    #[test]
-    fn parses_group_topic_pairs_and_skips_malformed_entries() {
-        let targets = parse_targets(
-            "ingestion-analytics-main=ingestion-analytics-main-1024, ingestion-analytics-async=ingestion-analytics-async-8,bad-entry,=no-group,no-topic=",
-        );
-        assert_eq!(
-            targets,
-            vec![
-                ConsumerTarget {
-                    group: "ingestion-analytics-main".to_string(),
-                    topic: "ingestion-analytics-main-1024".to_string(),
-                },
-                ConsumerTarget {
-                    group: "ingestion-analytics-async".to_string(),
-                    topic: "ingestion-analytics-async-8".to_string(),
                 },
             ]
         );

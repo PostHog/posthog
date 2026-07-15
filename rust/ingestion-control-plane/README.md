@@ -8,7 +8,7 @@ Internal web tool for the ingestion team. Single binary serving an embedded UI, 
 
 ### Lagging partitions
 
-Scans every configured consumer group (committed offsets vs watermarks) and sorts by total outstanding messages. Drilling into a group shows per-partition lag; from there an analysis job reads a slice of the partition and aggregates **message headers only** (payloads are dropped, only their size is recorded):
+Discovers ingestion topics and consumer groups from the cluster by prefix (a group maps to the topics it has committed offsets on — no per-environment target config), scans committed offsets vs watermarks, and sorts by total outstanding messages. Drilling into a group shows per-partition lag; from there an analysis job reads a slice of the partition and aggregates **message headers only** (payloads are dropped, only their size is recorded):
 
 - `head` mode starts at the group's committed offset — what the consumer is stuck on.
 - `tail` mode samples the newest messages before the high watermark — what's arriving now.
@@ -26,7 +26,8 @@ Lists live ingestion-consumer pods and serves the consumer's routing debug UI pe
 | `BIND_HOST` / `BIND_PORT` | `0.0.0.0` / `3305` | Single listener: UI, API, `/_liveness`, `/_readiness`, `/metrics` |
 | `KAFKA_HOSTS` | `localhost:19092` | |
 | `KAFKA_TLS` | `false` | |
-| `CONSUMER_TARGETS` | `events-ingestion-consumer=events_plugin_ingestion` | Comma list of `group=topic` pairs |
+| `TOPIC_PREFIX` | `ingestion-` | Topics are discovered from cluster metadata by prefix |
+| `GROUP_PREFIX` | `ingestion-` | Consumer groups are discovered by prefix; a group maps to the topics it has committed offsets on |
 | `DATABASE_URL` | empty | Read replica; empty disables token → team resolution |
 | `ANALYSIS_MESSAGE_COUNT` | `10000` | Messages per analysis |
 | `ANALYSIS_DEADLINE_SECS` | `120` | |
@@ -45,9 +46,10 @@ DATABASE_URL=postgres://posthog:posthog@db:5432/posthog \
     KAFKA_HOSTS=localhost:9092 \
     cargo run -p ingestion-control-plane --example seed_lag
 
-# Run the service against it, with a locally running ingestion-consumer on :3401:
+# Run the service against it, with a locally running ingestion-consumer on :3401.
+# The seeded ingestion-lag-demo topic/group are picked up by the default
+# `ingestion-` discovery prefixes:
 BIND_PORT=3305 KAFKA_HOSTS=localhost:9092 \
-    CONSUMER_TARGETS="test-group=icp-test-topic" \
     DATABASE_URL=postgres://posthog:posthog@db:5432/posthog \
     POD_DISCOVERY_MODE=static STATIC_PODS="local-consumer=127.0.0.1:3401" \
     cargo run -p ingestion-control-plane
