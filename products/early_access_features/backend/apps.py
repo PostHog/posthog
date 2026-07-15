@@ -1,5 +1,7 @@
 from django.apps import AppConfig
 
+from products.feature_flags.backend.facade.filters import set_feature_enrollment
+
 
 class EarlyAccessFeaturesConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
@@ -35,13 +37,17 @@ class EarlyAccessFeaturesConfig(AppConfig):
         def _pre_delete(context, feature):
             feature_flag = getattr(feature, "feature_flag", None)
             if feature_flag:
-                # Deferred: the api module imports the feature_flag -> dashboard -> error_tracking
+                # Deferred: facade.api imports the feature_flag -> dashboard -> error_tracking
                 # query-runner chain (-> scipy) at module scope. This hook only runs on actual
                 # deletion, so importing it here keeps that chain off AppConfig.ready() / startup.
-                from products.early_access_features.backend.api import _set_enrollment_filters  # noqa: PLC0415
+                from products.feature_flags.backend.facade.api import update_flag  # noqa: PLC0415
 
-                feature_flag.filters = _set_enrollment_filters(dict(feature_flag.filters or {}), enrolled=None)
-                feature_flag.save(update_fields=["filters"])
+                update_flag(
+                    feature_flag,
+                    {"filters": set_feature_enrollment(feature_flag.get_filters() or {}, None)},
+                    team=feature_flag.team,
+                    user=None,
+                )
 
         def _post_delete(context, feature):
             organization = context.organization

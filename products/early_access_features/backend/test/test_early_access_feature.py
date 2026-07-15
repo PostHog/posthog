@@ -1,4 +1,5 @@
 import json
+from copy import deepcopy
 from typing import TYPE_CHECKING, cast
 
 import unittest
@@ -13,6 +14,8 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.test.test_personal_api_keys import PersonalAPIKeysBaseTest
+from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.file_system.file_system import FileSystem
 from posthog.models.team.team_caching import set_team_in_cache
 from posthog.models.user import User
 from posthog.test.persons import create_person
@@ -1788,3 +1791,108 @@ class TestComingSoonWaitlistSurvey(APIBaseTest):
         assert mock_capture.call_args.kwargs["distinct_id"] == "did-new"
         assert mock_capture.call_args.kwargs["properties"]["$survey_response"] == "new@example.com"
         assert mock_capture.call_args.kwargs["properties"]["$survey_id"] == str(survey.id)
+
+
+class TestEarlyAccessFeatureFlagFacadeWrites(APIBaseTest):
+    LEGACY_FLAG_FILTERS = {
+        "groups": [{"properties": [{"key": "xyz", "value": "ok", "type": "person"}], "rollout_percentage": 50}],
+        "payloads": {"true": '"round-trip"'},
+        "feature_enrollment": True,
+        "super_groups": [
+            {
+                "properties": [
+                    {
+                        "key": "$feature_enrollment/legacy-feature",
+                        "type": "person",
+                        "value": ["true"],
+                        "operator": "exact",
+                    }
+                ],
+                "rollout_percentage": 100,
+            }
+        ],
+    }
+
+    def _create_feature_with_legacy_flag(self, stage: str = "concept") -> tuple[FeatureFlag, str]:
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="legacy-feature",
+            created_by=self.user,
+            filters=deepcopy(self.LEGACY_FLAG_FILTERS),
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/early_access_feature/",
+            data={"name": "Legacy feature", "stage": stage, "feature_flag_id": flag.id},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        return flag, response.json()["id"]
+
+    @parameterized.expand(
+        [
+            ("promote_to_beta", {"stage": "beta"}, True, LEGACY_FLAG_FILTERS["groups"]),
+            ("demote_to_archived", {"stage": "archived"}, None, LEGACY_FLAG_FILTERS["groups"]),
+            (
+                "ga_rollout_to_all",
+                {"stage": "general-availability", "rollout_to_all": True},
+                None,
+                [{"properties": [], "rollout_percentage": 100}],
+            ),
+        ]
+    )
+    def test_stage_transitions_round_trip_legacy_flag_filters(
+        self, _name, patch_data, expected_enrollment, expected_groups
+    ):
+        flag, feature_id = self._create_feature_with_legacy_flag()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/early_access_feature/{feature_id}",
+            data=patch_data,
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        flag.refresh_from_db()
+        assert flag.filters["feature_enrollment"] == expected_enrollment
+        assert "super_groups" not in flag.filters
+        assert flag.filters["payloads"] == self.LEGACY_FLAG_FILTERS["payloads"]
+        groups = [
+            {key: value for key, value in group.items() if key != "aggregation_group_type_index"}
+            for group in flag.filters["groups"]
+        ]
+        assert groups == expected_groups
+
+    def test_file_system_deletion_clears_enrollment_and_logs_system_activity(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="hook-feature",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 0}], "feature_enrollment": True},
+        )
+        feature = EarlyAccessFeature.objects.create(
+            team=self.team,
+            name="Hook feature",
+            stage=EarlyAccessFeature.Stage.BETA,
+            feature_flag=flag,
+        )
+        fs_entry = FileSystem.objects.filter(team=self.team, type="early_access_feature", ref=str(feature.id)).first()
+        if fs_entry is None:
+            fs_entry = FileSystem.objects.create(
+                team=self.team,
+                path=f"Unfiled/{feature.name}",
+                depth=2,
+                type="early_access_feature",
+                ref=str(feature.id),
+                created_by=self.user,
+            )
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{fs_entry.pk}/")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert not EarlyAccessFeature.objects.filter(id=feature.id).exists()
+        flag.refresh_from_db()
+        assert flag.filters["feature_enrollment"] is None
+        log = ActivityLog.objects.get(scope="FeatureFlag", item_id=str(flag.id), activity="updated")
+        assert log.is_system is True
+        assert log.user is None
