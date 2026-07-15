@@ -1,7 +1,12 @@
 from django.core.management.base import BaseCommand
 
-from products.customer_analytics.backend.logic.person_property_update_consumer import PersonPropertyUpdateConsumer
-from products.warehouse_sources.backend.facade.pipelines import HealthState, start_health_server
+from products.warehouse_sources.backend.temporal.data_imports.person_property_update_consumer import (
+    PersonPropertyUpdateConsumer,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.health import (
+    HealthState,
+    start_health_server,
+)
 
 
 class Command(BaseCommand):

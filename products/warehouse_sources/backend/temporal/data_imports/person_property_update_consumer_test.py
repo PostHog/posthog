@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.customer_analytics.backend.logic.person_property_update_consumer import (
+from products.warehouse_sources.backend.temporal.data_imports.person_property_update_consumer import (
     _DEFAULT_RATE_PER_SEC,
     DLQ,
     RETRY,
@@ -16,7 +16,9 @@ from products.customer_analytics.backend.logic.person_property_update_consumer i
     build_capture_kwargs,
 )
 
-_SETTING = "products.customer_analytics.backend.logic.person_property_update_consumer.get_instance_setting"
+_SETTING = (
+    "products.warehouse_sources.backend.temporal.data_imports.person_property_update_consumer.get_instance_setting"
+)
 
 
 class TestBuildCaptureKwargs:
@@ -168,7 +170,7 @@ class TestProcessRecord:
         # A poison-heavy partition must not resolve a new producer per message; the routed singleton
         # is fetched lazily on first use and cached.
         with patch(
-            "products.customer_analytics.backend.logic.person_property_update_consumer.get_producer"
+            "products.warehouse_sources.backend.temporal.data_imports.person_property_update_consumer.get_producer"
         ) as get_producer:
             c = PersonPropertyUpdateConsumer(capture_fn=MagicMock(), grant_fn=lambda: True)
             c.process_record(b"not json")
