@@ -3,8 +3,12 @@ import { DateTime } from 'luxon'
 import { ConsoleLogLevel, RRWebEventType } from '~/ingestion/pipelines/sessionreplay/rrweb-types'
 import { MessageWithTeam } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
-import { SessionConsoleLogRecorder } from './session-console-log-recorder'
+import { SessionConsoleLogRecorder, extractConsoleLogs } from './session-console-log-recorder'
 import { SessionConsoleLogStore } from './session-console-log-store'
+
+// Extracts the message's console logs and folds them into the recorder, as the reduce steps do in production.
+const recordMessage = (recorder: SessionConsoleLogRecorder, message: MessageWithTeam): Promise<void> =>
+    recorder.recordSessionLogs(extractConsoleLogs(message))
 
 describe('SessionConsoleLogRecorder', () => {
     let recorder: SessionConsoleLogRecorder
@@ -85,7 +89,7 @@ describe('SessionConsoleLogRecorder', () => {
                 consoleErrorCount: 3,
             }
 
-            await recorder.recordMessage(message)
+            await recordMessage(recorder, message)
             const result = recorder.end()
 
             expect(result).toEqual({ consoleLogCount: 2, consoleWarnCount: 1, consoleErrorCount: 3 })
@@ -103,7 +107,7 @@ describe('SessionConsoleLogRecorder', () => {
             ]
             const message = createMessage('window1', events)
 
-            await recorder.recordMessage(message)
+            await recordMessage(recorder, message)
             const result = recorder.end()
 
             expect(result.consoleLogCount).toBe(1)
@@ -121,7 +125,7 @@ describe('SessionConsoleLogRecorder', () => {
             ]
             const message = createMessage('window1', events)
 
-            await recorder.recordMessage(message)
+            await recordMessage(recorder, message)
             const result = recorder.end()
 
             expect(result.consoleLogCount).toBe(0)
@@ -139,7 +143,7 @@ describe('SessionConsoleLogRecorder', () => {
             ]
             const message = createMessage('window1', events)
 
-            await recorder.recordMessage(message)
+            await recordMessage(recorder, message)
             const result = recorder.end()
 
             expect(result.consoleLogCount).toBe(0)
@@ -172,7 +176,7 @@ describe('SessionConsoleLogRecorder', () => {
             ]
             const message = createMessage('window1', events)
 
-            await recorder.recordMessage(message)
+            await recordMessage(recorder, message)
             const result = recorder.end()
 
             expect(result.consoleLogCount).toBe(2)
@@ -201,7 +205,7 @@ describe('SessionConsoleLogRecorder', () => {
             ]
             const message = createMessage('window1', events)
 
-            await recorder.recordMessage(message)
+            await recordMessage(recorder, message)
             const result = recorder.end()
 
             expect(result.consoleLogCount).toBe(0)
@@ -219,7 +223,7 @@ describe('SessionConsoleLogRecorder', () => {
             ]
             const message = createMessage('window1', events)
 
-            await recorder.recordMessage(message)
+            await recordMessage(recorder, message)
             const result = recorder.end()
 
             expect(result.consoleLogCount).toBe(1)
@@ -253,8 +257,8 @@ describe('SessionConsoleLogRecorder', () => {
                 distinctId: 'distinct_id_2',
             })
 
-            await recorder.recordMessage(message1)
-            await recorder.recordMessage(message2)
+            await recordMessage(recorder, message1)
+            await recordMessage(recorder, message2)
 
             expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenNthCalledWith(1, [
                 {
@@ -304,7 +308,7 @@ describe('SessionConsoleLogRecorder', () => {
             ]
             const message = createMessage('window1', events)
 
-            await recorder.recordMessage(message)
+            await recordMessage(recorder, message)
 
             expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenCalledWith([
                 {
@@ -331,10 +335,10 @@ describe('SessionConsoleLogRecorder', () => {
                 }),
             ])
 
-            await recorder.recordMessage(message)
+            await recordMessage(recorder, message)
             recorder.end()
 
-            await expect(recorder.recordMessage(message)).rejects.toThrow(
+            await expect(recordMessage(recorder, message)).rejects.toThrow(
                 'Cannot record message after end() has been called'
             )
         })
@@ -348,7 +352,7 @@ describe('SessionConsoleLogRecorder', () => {
                 }),
             ])
 
-            await recorder.recordMessage(message)
+            await recordMessage(recorder, message)
             recorder.end()
 
             expect(() => recorder.end()).toThrow('end() has already been called')
@@ -373,8 +377,8 @@ describe('SessionConsoleLogRecorder', () => {
                 }),
             ])
 
-            await recorder.recordMessage(message1)
-            await recorder.recordMessage(message2)
+            await recordMessage(recorder, message1)
+            await recordMessage(recorder, message2)
             const result = recorder.end()
 
             expect(result.consoleLogCount).toBe(1)
@@ -412,7 +416,8 @@ describe('SessionConsoleLogRecorder', () => {
                 timestamp: new Date('2025-01-01T10:00:00.000Z').getTime(),
             })
 
-            await recorder.recordMessage(
+            await recordMessage(
+                recorder,
                 createMessage('window1', [event], {
                     sessionId: `session_level_${input}`,
                     distinctId: 'user_level_mapper',
@@ -443,7 +448,8 @@ describe('SessionConsoleLogRecorder', () => {
                     timestamp: new Date('2025-01-01T10:00:00.000Z').getTime(),
                 })
 
-                await recorder.recordMessage(
+                await recordMessage(
+                    recorder,
                     createMessage('window1', [event], {
                         sessionId: `session_edge_${String(level)}`,
                         distinctId: 'user_edge_cases',
@@ -475,7 +481,8 @@ describe('SessionConsoleLogRecorder', () => {
                 }),
             ]
 
-            await recorder.recordMessage(
+            await recordMessage(
+                recorder,
                 createMessage('window1', events, { sessionId: 'session_dedup_1', distinctId: 'user_10' })
             )
 
@@ -507,7 +514,8 @@ describe('SessionConsoleLogRecorder', () => {
                 }),
             ]
 
-            await recorder.recordMessage(
+            await recordMessage(
+                recorder,
                 createMessage('window1', events, { sessionId: 'session_dedup_2', distinctId: 'user_11' })
             )
 
@@ -550,7 +558,7 @@ describe('SessionConsoleLogRecorder', () => {
                 }),
             ]
 
-            await recorder.recordMessage(message)
+            await recordMessage(recorder, message)
 
             expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenCalledTimes(1)
             expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenCalledWith([
@@ -595,7 +603,8 @@ describe('SessionConsoleLogRecorder', () => {
                 }),
             ]
 
-            await recorder.recordMessage(
+            await recordMessage(
+                recorder,
                 createMessage('window1', events, { sessionId: 'session_dedup_4', distinctId: 'user_13' })
             )
             const result = recorder.end()
@@ -640,7 +649,8 @@ describe('SessionConsoleLogRecorder', () => {
                 }),
             ]
 
-            await recorder.recordMessage(
+            await recordMessage(
+                recorder,
                 createMessage('window1', events, { sessionId: 'session_dedup_5', distinctId: 'user_14' })
             )
 
@@ -681,7 +691,7 @@ describe('SessionConsoleLogRecorder', () => {
                 { consoleLogIngestionEnabled: false }
             )
 
-            await recorder.recordMessage(message)
+            await recordMessage(recorder, message)
             expect(mockConsoleLogStore.storeSessionConsoleLogs).not.toHaveBeenCalled()
 
             const result = recorder.end()

@@ -15,6 +15,7 @@ import {
     recordSessionsFlushed,
     recordSessionsRateLimited,
 } from '~/ingestion/pipelines/sessionreplay/otel-metrics'
+import { SessionBlockMetadata } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
 
 export class SessionBatchMetrics {
     private static readonly batchesFlushed = new Counter({
@@ -169,6 +170,32 @@ export class SessionBatchMetrics {
         help: 'Per-session staleness at flush: wall clock minus the newest flushed event timestamp',
         buckets: E2E_LAG_BOUNDARIES,
     })
+
+    /**
+     * Records the flush counters (batches/sessions/events/bytes) for one flushed batch, from the
+     * write step's block metadata. Called by the record-metrics flush step after the commit step,
+     * so a cycle that fails to commit (and will be reprocessed) is not counted. A batch with no
+     * written blocks is a no-op.
+     */
+    public static recordFlushedBatch(blockMetadata: SessionBlockMetadata[]): void {
+        if (blockMetadata.length === 0) {
+            return
+        }
+        this.incrementBatchesFlushed()
+        this.incrementSessionsFlushed(blockMetadata.length)
+        this.incrementEventsFlushed(blockMetadata.reduce((sum, block) => sum + block.eventCount, 0))
+        this.incrementBytesWritten(blockMetadata.reduce((sum, block) => sum + block.blockLength, 0))
+        const flushedAtMillis = Date.now()
+        for (const block of blockMetadata) {
+            const endMillis = block.endDateTime.toMillis()
+            // endDateTime falls back to epoch 0 when a block somehow has no timestamped
+            // events; skip those rather than record a nonsense multi-year lag. Clock skew
+            // can put an event timestamp slightly in the future, hence the clamp.
+            if (endMillis > 0) {
+                this.observeE2eLag(Math.max(0, (flushedAtMillis - endMillis) / 1000))
+            }
+        }
+    }
 
     public static incrementBatchesFlushed(): void {
         this.batchesFlushed.inc()

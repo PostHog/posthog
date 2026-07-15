@@ -5,13 +5,17 @@ import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, OVERFLOW_OUTPUT } from '~/common
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
 import { parseJSON } from '~/common/utils/json-parse'
-import { logger } from '~/common/utils/logger'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '~/ingestion/common/steps/event-preprocessing'
 import { TopHogRegistry } from '~/ingestion/framework/extensions/tophog'
-import { ok } from '~/ingestion/framework/results'
-import { runSessionReplayPipeline } from '~/ingestion/pipelines/sessionreplay'
+import { createOkContext } from '~/ingestion/framework/helpers'
+import { isOkResult, ok } from '~/ingestion/framework/results'
 import { defaultAllowLists } from '~/ingestion/pipelines/sessionreplay/anonymize/default-dict'
+import {
+    ReplayCycleState,
+    createFoldOffsetsStep,
+    createRecordToStateStep,
+} from '~/ingestion/pipelines/sessionreplay/replay-cycle-state'
 import { SessionBatchRecorder } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-recorder'
 import { SessionFilter } from '~/ingestion/pipelines/sessionreplay/sessions/session-filter'
 import { SessionTracker } from '~/ingestion/pipelines/sessionreplay/sessions/session-tracker'
@@ -35,19 +39,6 @@ jest.mock('~/ingestion/common/steps/event-preprocessing', () => ({
 const mockCreateParseHeadersStep = createParseHeadersStep as jest.Mock
 const mockCreateApplyEventRestrictionsStep = createApplyEventRestrictionsStep as jest.Mock
 
-// The pipeline's parse+anonymize step runs inside the native addon; scrub-dependent tests need it built.
-let rustAddon: typeof import('@posthog/replay-anonymizer') | null = null
-try {
-    rustAddon = require('@posthog/replay-anonymizer')
-    rustAddon!.initAnonymizer(defaultAllowLists().entries())
-} catch (e) {
-    if (process.env.CI) {
-        throw new Error(`replay-anonymizer addon failed to load; pipeline tests cannot run in CI: ${String(e)}`)
-    }
-    logger.warn('🙈', 'replay_anonymizer_addon_not_built_skipping_pipeline_scrub_tests')
-}
-const itAddon = rustAddon ? it : it.skip
-
 function createMockTopHog(): TopHogRegistry {
     const recorder = { record: jest.fn() }
     return {
@@ -57,15 +48,29 @@ function createMockTopHog(): TopHogRegistry {
     } as unknown as TopHogRegistry
 }
 
+let rustAddon: typeof import('@posthog/replay-anonymizer') | null = null
+try {
+    rustAddon = require('@posthog/replay-anonymizer')
+    // The addon scrubs nothing until it gets its allow-lists — the server does this at startup.
+    rustAddon!.initAnonymizer(defaultAllowLists().entries())
+} catch (e) {
+    if (process.env.CI) {
+        throw new Error(`replay-anonymizer addon failed to load; pipeline tests cannot run in CI: ${String(e)}`)
+    }
+}
+// Scrub-content tests need the native anonymizer addon; skip them locally when it isn't built.
+const itAddon = rustAddon ? it : it.skip
+
 describe('ml-mirror-pipeline', () => {
     let recordMock: jest.Mock
-    let mockBatchRecorder: jest.Mocked<SessionBatchRecorder>
+    let recorder: jest.Mocked<SessionBatchRecorder>
     let mockTeamService: TeamService
     let topHog: TopHogRegistry
     let promiseScheduler: PromiseScheduler
     let outputs: jest.Mocked<
         IngestionOutputs<typeof DLQ_OUTPUT | typeof OVERFLOW_OUTPUT | typeof INGESTION_WARNINGS_OUTPUT>
     >
+    const now = DateTime.now()
 
     // Resolves every session to 30d so messages flow through to recording.
     const retentionService = {
@@ -94,7 +99,6 @@ describe('ml-mirror-pipeline', () => {
         isBlocked: jest.fn().mockResolvedValue(new SessionSet()),
     } as unknown as SessionFilter
     const keyStore = createMockKeyStore()
-    const now = DateTime.now()
 
     const team = (aiTrainingOptedIn: boolean): TeamForReplay => ({
         teamId: 1,
@@ -107,10 +111,12 @@ describe('ml-mirror-pipeline', () => {
         jest.clearAllMocks()
         outputs = createMockIngestionOutputs()
 
-        recordMock = jest.fn().mockResolvedValue(undefined)
-        mockBatchRecorder = {
-            record: recordMock,
-            getRetention: jest.fn().mockReturnValue(undefined),
+        recordMock = jest.fn().mockReturnValue({ accepted: true, bytesWritten: 1 })
+        recorder = {
+            recordSessionData: recordMock,
+            recordSessionLogs: jest.fn().mockResolvedValue(undefined),
+            recordSessionFeatures: jest.fn(),
+            size: 0,
         } as unknown as jest.Mocked<SessionBatchRecorder>
 
         topHog = createMockTopHog()
@@ -141,8 +147,35 @@ describe('ml-mirror-pipeline', () => {
             keyStore,
             sessionKeyResolutionMaxConcurrency: 20,
             topHog,
-            isDebugLoggingEnabled: () => false,
         })
+    }
+
+    // Feeds messages through the inner pipeline, drains it, and folds every drained result through
+    // the replay reduce steps (as the accumulating pipeline does) — which record OK results into
+    // the state's (mock) recorder.
+    async function runPipeline(
+        pipeline: ReturnType<typeof createMlMirrorReplayPipeline>,
+        messages: Message[]
+    ): Promise<void> {
+        pipeline.feed(messages.map((message) => createOkContext({ message }, { message })))
+        const foldOffsets = createFoldOffsetsStep()
+        const recordToState = createRecordToStateStep({ topHog, isDebugLoggingEnabled: () => false })
+        let state: ReplayCycleState = { sessionBatchRecorder: recorder, offsets: new Map() }
+        let batch = await pipeline.next()
+        while (batch !== null) {
+            for (const element of batch) {
+                const folded = await foldOffsets({ state, element })
+                if (!isOkResult(folded)) {
+                    throw new Error('foldOffsets returned non-ok result')
+                }
+                const reduced = await recordToState(folded.value)
+                if (!isOkResult(reduced)) {
+                    throw new Error('recordToState returned non-ok result')
+                }
+                state = reduced.value
+            }
+            batch = await pipeline.next()
+        }
     }
 
     function message(sessionId: string): Message {
@@ -226,9 +259,10 @@ describe('ml-mirror-pipeline', () => {
         } as unknown as Message
     }
 
-    // The fused step emits pre-serialized JSONL lines of [windowId, event].
+    // The fused step emits pre-serialized JSONL lines of [windowId, event]; the serialize reduce
+    // step passes them through as the session data's single chunk.
     function recordedEvents(): [string, any][] {
-        const lines: Buffer = recordMock.mock.calls[0][0].message.preSerialized.lines
+        const lines: Buffer = recordMock.mock.calls[0][1].chunks[0]
         return lines
             .toString()
             .split('\n')
@@ -242,7 +276,7 @@ describe('ml-mirror-pipeline', () => {
             getRetentionPeriodByTeamId: jest.fn().mockResolvedValue(30),
         } as unknown as TeamService
 
-        await runSessionReplayPipeline(buildPipeline(), [message('sess-1')], mockBatchRecorder, promiseScheduler)
+        await runPipeline(buildPipeline(), [message('sess-1')])
 
         expect(recordMock).toHaveBeenCalledTimes(1)
         const [windowId, event] = recordedEvents()[0]
@@ -257,7 +291,7 @@ describe('ml-mirror-pipeline', () => {
             getRetentionPeriodByTeamId: jest.fn().mockResolvedValue(30),
         } as unknown as TeamService
 
-        await runSessionReplayPipeline(buildPipeline(), [message('sess-2')], mockBatchRecorder, promiseScheduler)
+        await runPipeline(buildPipeline(), [message('sess-2')])
 
         expect(recordMock).not.toHaveBeenCalled()
     })
@@ -268,12 +302,7 @@ describe('ml-mirror-pipeline', () => {
             getRetentionPeriodByTeamId: jest.fn().mockResolvedValue(30),
         } as unknown as TeamService
 
-        await runSessionReplayPipeline(
-            buildPipeline(),
-            [fullSnapshotMessage('sess-3')],
-            mockBatchRecorder,
-            promiseScheduler
-        )
+        await runPipeline(buildPipeline(), [fullSnapshotMessage('sess-3')])
 
         expect(recordMock).toHaveBeenCalledTimes(1)
         const node = recordedEvents()[0][1].data.node.childNodes[0]

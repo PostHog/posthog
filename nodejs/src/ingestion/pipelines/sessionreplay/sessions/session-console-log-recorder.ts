@@ -4,7 +4,7 @@ import { sanitizeForUTF8 } from '~/common/utils/strings'
 import { castTimestampOrNow } from '~/common/utils/utils'
 import { ConsoleLogLevel, RRWebEventType } from '~/ingestion/pipelines/sessionreplay/rrweb-types'
 import { MessageWithTeam } from '~/ingestion/pipelines/sessionreplay/teams/types'
-import { TimestampFormat } from '~/types'
+import { ClickHouseTimestamp, TimestampFormat } from '~/types'
 
 import { ConsoleLogEntry, SessionConsoleLogStore } from './session-console-log-store'
 
@@ -37,6 +37,81 @@ function payloadToSafeString(payload: unknown[]): string {
         .filter((item: unknown): item is string => !!item && typeof item === 'string')
         .map((item) => sanitizeForUTF8(item.substring(0, 2999)))
         .join(' ')
+}
+
+/** One console log event extracted from a message, not yet tied to a session or batch. */
+export interface ExtractedConsoleLog {
+    level: ConsoleLogLevel
+    message: string
+    /** ClickHouse-formatted timestamp of the console event. */
+    timestamp: ClickHouseTimestamp
+}
+
+/**
+ * Per-message console log data, precomputed by the serialize reduce step (business logic).
+ * Counts include duplicates; the recorder dedupes entries only for storage.
+ */
+export interface ExtractedConsoleLogs {
+    consoleLogCount: number
+    consoleWarnCount: number
+    consoleErrorCount: number
+    entries: ExtractedConsoleLog[]
+}
+
+/**
+ * Extracts the console log events from one parsed message: the level counts plus the entries to
+ * store. Respects the team's console log ingestion setting and handles the native anonymizer's
+ * pre-serialized fast path, which carries level counts in its metadata and no entries.
+ */
+export function extractConsoleLogs(message: MessageWithTeam): ExtractedConsoleLogs {
+    const extracted: ExtractedConsoleLogs = {
+        consoleLogCount: 0,
+        consoleWarnCount: 0,
+        consoleErrorCount: 0,
+        entries: [],
+    }
+
+    if (!message.team.consoleLogIngestionEnabled) {
+        return extracted
+    }
+
+    if (message.message.preSerialized) {
+        const { consoleLogCount, consoleWarnCount, consoleErrorCount } = message.message.preSerialized
+        extracted.consoleLogCount = consoleLogCount
+        extracted.consoleWarnCount = consoleWarnCount
+        extracted.consoleErrorCount = consoleErrorCount
+        return extracted
+    }
+
+    for (const events of Object.values(message.message.eventsByWindowId)) {
+        for (const event of events) {
+            const eventData = event.data as
+                | { plugin?: unknown; payload?: { payload?: unknown; level?: unknown } }
+                | undefined
+            if (event.type === RRWebEventType.Plugin && eventData?.plugin === 'rrweb/console@1') {
+                const timestamp = DateTime.fromMillis(event.timestamp)
+                const level = safeLevel(eventData?.payload?.level)
+                const maybePayload = eventData?.payload?.payload
+                const payload: unknown[] = Array.isArray(maybePayload) ? maybePayload : []
+
+                if (level === ConsoleLogLevel.Info) {
+                    extracted.consoleLogCount++
+                } else if (level === ConsoleLogLevel.Warn) {
+                    extracted.consoleWarnCount++
+                } else if (level === ConsoleLogLevel.Error) {
+                    extracted.consoleErrorCount++
+                }
+
+                extracted.entries.push({
+                    level,
+                    message: payloadToSafeString(payload),
+                    timestamp: castTimestampOrNow(timestamp, TimestampFormat.ClickHouse),
+                })
+            }
+        }
+    }
+
+    return extracted
 }
 
 function deduplicateConsoleLogEntries(consoleLogEntries: ConsoleLogEntry[]): ConsoleLogEntry[] {
@@ -83,71 +158,36 @@ export class SessionConsoleLogRecorder {
     ) {}
 
     /**
-     * Records a message containing events for this session
-     * Events are buffered until end() is called
+     * Aggregates one message's precomputed console log data ({@link extractConsoleLogs}) into the
+     * session: folds the counts in and stores the entries, stamped with this session's identifiers.
      *
-     * @param message - Message containing events for one or more windows
      * @throws If called after end()
      */
-    public async recordMessage(message: MessageWithTeam): Promise<void> {
+    public async recordSessionLogs(logs: ExtractedConsoleLogs): Promise<void> {
         if (this.ended) {
             throw new Error('Cannot record message after end() has been called')
         }
 
-        if (!message.team.consoleLogIngestionEnabled) {
+        this.consoleLogCount += logs.consoleLogCount
+        this.consoleWarnCount += logs.consoleWarnCount
+        this.consoleErrorCount += logs.consoleErrorCount
+
+        if (logs.entries.length === 0) {
             return
         }
 
-        // Pre-serialized messages (native ml-mirror anonymizer) carry level counts in their metadata;
-        // no log entries are collected for storage — the ml-mirror console-log store is disabled, the
-        // counts only feed the block metadata.
-        if (message.message.preSerialized) {
-            const { consoleLogCount, consoleWarnCount, consoleErrorCount } = message.message.preSerialized
-            this.consoleLogCount += consoleLogCount
-            this.consoleWarnCount += consoleWarnCount
-            this.consoleErrorCount += consoleErrorCount
-            return
-        }
+        const logsToStore: ConsoleLogEntry[] = logs.entries.map((entry) => ({
+            team_id: this.teamId,
+            message: entry.message,
+            level: entry.level,
+            log_source: 'session_replay',
+            log_source_id: this.sessionId,
+            instance_id: null,
+            timestamp: entry.timestamp,
+            batch_id: this.batchId,
+        }))
 
-        const logsToStore: ConsoleLogEntry[] = []
-
-        for (const events of Object.values(message.message.eventsByWindowId)) {
-            for (const event of events) {
-                const eventData = event.data as
-                    | { plugin?: unknown; payload?: { payload?: unknown; level?: unknown } }
-                    | undefined
-                if (event.type === RRWebEventType.Plugin && eventData?.plugin === 'rrweb/console@1') {
-                    const timestamp = DateTime.fromMillis(event.timestamp)
-                    const level = safeLevel(eventData?.payload?.level)
-                    const maybePayload = eventData?.payload?.payload
-                    const payload: unknown[] = Array.isArray(maybePayload) ? maybePayload : []
-                    const message = payloadToSafeString(payload)
-
-                    if (level === ConsoleLogLevel.Info) {
-                        this.consoleLogCount++
-                    } else if (level === ConsoleLogLevel.Warn) {
-                        this.consoleWarnCount++
-                    } else if (level === ConsoleLogLevel.Error) {
-                        this.consoleErrorCount++
-                    }
-
-                    logsToStore.push({
-                        team_id: this.teamId,
-                        message,
-                        level,
-                        log_source: 'session_replay',
-                        log_source_id: this.sessionId,
-                        instance_id: null,
-                        timestamp: castTimestampOrNow(timestamp, TimestampFormat.ClickHouse),
-                        batch_id: this.batchId,
-                    })
-                }
-            }
-        }
-
-        if (logsToStore.length > 0) {
-            await this.store.storeSessionConsoleLogs(deduplicateConsoleLogEntries(logsToStore))
-        }
+        await this.store.storeSessionConsoleLogs(deduplicateConsoleLogEntries(logsToStore))
     }
 
     /**

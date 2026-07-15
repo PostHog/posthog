@@ -1,3 +1,4 @@
+import { AccumulatingPipeline, ReduceInput } from '~/ingestion/framework/accumulating-pipeline'
 import {
     AfterBatchInput,
     AfterBatchOutput,
@@ -8,6 +9,7 @@ import {
     BeforeBatchOutput,
 } from '~/ingestion/framework/batching-pipeline'
 import { BufferingChunkPipeline } from '~/ingestion/framework/buffering-chunk-pipeline'
+import { ChunkPipeline } from '~/ingestion/framework/chunk-pipeline.interface'
 
 import { ChunkPipelineBuilder } from './chunk-pipeline-builders'
 import { PipelineBuilder, StartPipelineBuilder } from './pipeline-builders'
@@ -72,4 +74,58 @@ export function newBatchingPipeline<
     ).build()
 
     return new BatchingPipeline(subPipeline, beforePipeline, afterPipeline, options)
+}
+
+/**
+ * Builder-style constructor for AccumulatingPipeline, mirroring newBatchingPipeline: `flush` is a
+ * builder callback that gets `.build()`-ed for you. The record `pipeline` is passed pre-built,
+ * since deployments choose it (e.g. the default vs ML-mirror session replay pipeline).
+ */
+export function newAccumulatingPipeline<
+    TRecordIn, // element fed in per message
+    TRecordOut, // element out of the per-message pipeline; reduced into the cycle state
+    CRecordIn, // per-message pipeline context in
+    CRecordOut, // per-message pipeline context out (readable in the reducer, then let go)
+    TState, // cycle state: the one accumulator everything folds into
+    TFlushOut, // element out of the flush pipeline
+    CFlushOut = Record<string, never>, // flush-pipeline context out
+    R extends string = never, // redirect output names this pipeline can emit
+>(config: {
+    /** Maximum age of a cycle in milliseconds before the timer flushes it */
+    maxCycleAgeMs: number
+    /** Mints the cycle state — lazily for the cycle's first drained result, and again after every flush */
+    onNewCycle: () => TState | Promise<TState>
+    /** Pre-built record pipeline (a plain chunk pipeline); it never sees the cycle */
+    pipeline: ChunkPipeline<TRecordIn, TRecordOut, CRecordIn, CRecordOut, R>
+    /**
+     * Builds the reduce pipeline that folds every drained record result into the cycle state: it
+     * takes a {@link ReduceInput} and its last step returns the new state.
+     */
+    reduce: (
+        builder: StartPipelineBuilder<ReduceInput<TState, TRecordOut, CRecordOut, R>, Record<string, never>>
+    ) => PipelineBuilder<ReduceInput<TState, TRecordOut, CRecordOut, R>, TState, Record<string, never>>
+    /** Size predicate: returns true when the current cycle should flush */
+    shouldFlush: (state: TState) => boolean
+    /**
+     * Builds the flush pipeline run on the size or age trigger. It receives one element: the cycle
+     * state.
+     */
+    flush: (
+        builder: ChunkPipelineBuilder<TState, TState, Record<string, never>>
+    ) => ChunkPipelineBuilder<TState, TFlushOut, Record<string, never>, CFlushOut, R>
+}): AccumulatingPipeline<TRecordIn, TRecordOut, CRecordIn, CRecordOut, TState, TFlushOut, CFlushOut, R> {
+    const reduce = config
+        .reduce(new StartPipelineBuilder<ReduceInput<TState, TRecordOut, CRecordOut, R>, Record<string, never>>())
+        .build()
+    const flushPipeline = config
+        .flush(new ChunkPipelineBuilder(new BufferingChunkPipeline<TState, Record<string, never>>()))
+        .build()
+    return new AccumulatingPipeline<TRecordIn, TRecordOut, CRecordIn, CRecordOut, TState, TFlushOut, CFlushOut, R>({
+        maxCycleAgeMs: config.maxCycleAgeMs,
+        onNewCycle: config.onNewCycle,
+        pipeline: config.pipeline,
+        reduce,
+        shouldFlush: config.shouldFlush,
+        flushPipeline,
+    })
 }

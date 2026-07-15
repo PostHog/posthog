@@ -6,4 +6,4 @@ export {
 } from './chunk-pipeline-builders'
 export type { RetryOptions } from '~/ingestion/framework/retry'
 export { BranchingPipelineBuilder, PipelineBuilder, StartPipelineBuilder } from './pipeline-builders'
-export { newChunkPipelineBuilder, newBatchingPipeline, newPipelineBuilder } from './helpers'
+export { newAccumulatingPipeline, newChunkPipelineBuilder, newBatchingPipeline, newPipelineBuilder } from './helpers'

@@ -27,7 +27,6 @@ import { DateTime } from 'luxon'
 import snappy from 'snappy'
 
 import { parseJSON } from '~/common/utils/json-parse'
-import { KafkaOffsetManager } from '~/ingestion/pipelines/sessionreplay/kafka/offset-manager'
 import {
     SessionBatchFileStorage,
     SessionBatchFileWriter,
@@ -35,6 +34,7 @@ import {
 } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-file-storage'
 import { SessionBatchRecorder } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-recorder'
 import { SessionConsoleLogStore } from '~/ingestion/pipelines/sessionreplay/sessions/session-console-log-store'
+import { serializeSessionData } from '~/ingestion/pipelines/sessionreplay/sessions/snappy-session-recorder'
 import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
 import { SessionBlockMetadata } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
 import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
@@ -97,7 +97,6 @@ const enum EventType {
 
 describe('session recording integration', () => {
     let recorder: SessionBatchRecorder
-    let mockOffsetManager: jest.Mocked<KafkaOffsetManager>
     let mockStorage: jest.Mocked<SessionBatchFileStorage>
     let mockWriter: jest.Mocked<SessionBatchFileWriter>
     let mockMetadataStore: jest.Mocked<SessionMetadataStore>
@@ -134,12 +133,6 @@ describe('session recording integration', () => {
             checkHealth: jest.fn().mockResolvedValue(true),
         } as jest.Mocked<SessionBatchFileStorage>
 
-        mockOffsetManager = {
-            trackOffset: jest.fn(),
-            discardPartition: jest.fn(),
-            commit: jest.fn(),
-        } as unknown as jest.Mocked<KafkaOffsetManager>
-
         mockMetadataStore = {
             storeSessionBlocks: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<SessionMetadataStore>
@@ -156,7 +149,6 @@ describe('session recording integration', () => {
         mockEncryptor = createMockEncryptor()
 
         recorder = new SessionBatchRecorder(
-            mockOffsetManager,
             mockStorage,
             mockMetadataStore,
             mockConsoleLogStore,
@@ -243,7 +235,16 @@ describe('session recording integration', () => {
 
         // Record all messages
         for (const message of messages) {
-            await recorder.record(message, '30d', createMockSessionKey())
+            recorder.recordSessionData(
+                {
+                    teamId: message.team.teamId,
+                    sessionId: message.message.session_id,
+                    partition: message.message.metadata.partition,
+                    retentionPeriod: '30d',
+                    sessionKey: createMockSessionKey(),
+                },
+                serializeSessionData(message.message)
+            )
         }
 
         // Flush and get metadata
@@ -271,7 +272,6 @@ describe('session recording integration', () => {
 
         // Verify the batch was properly finalized
         expect(mockWriter.finish).toHaveBeenCalled()
-        expect(mockOffsetManager.commit).toHaveBeenCalled()
         expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalledWith(metadata)
     })
 })

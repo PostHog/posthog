@@ -397,6 +397,20 @@ describe('BatchingPipeline', () => {
             expect(allResults).toHaveLength(1)
             expect(afterBatchStep).toHaveBeenCalledTimes(1)
         })
+
+        // afterBatch may retype elements but must not filter them: every fed
+        // message must surface exactly once downstream (non-OK results flow
+        // through as results, not by removal). A count change is a broken
+        // framework invariant, so next() throws.
+        it('throws when afterBatch changes the element count', async () => {
+            afterBatchStep.mockImplementationOnce((input: any) =>
+                Promise.resolve(ok({ ...input, elements: input.elements.slice(1) }))
+            )
+            const collector = createCollector({ concurrentBatches: 1 })
+
+            await collector.feed(makeBatch([1, 2]))
+            await expect(collector.next()).rejects.toThrow('afterBatch changed element count (2 -> 1)')
+        })
     })
 
     describe('concurrentBatches', () => {

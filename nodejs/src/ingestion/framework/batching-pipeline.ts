@@ -39,7 +39,9 @@ export interface AfterBatchInput<TOutput, COutput, CBatch, R extends string = ne
  * What an afterBatch pipeline produces. Structurally the same as
  * `AfterBatchInput` — extending it means a passthrough step (one that
  * returns its input untouched) satisfies the afterBatch contract without
- * needing an explicit Input→Output transformer in front. The runtime
+ * needing an explicit Input→Output transformer in front. afterBatch may
+ * enrich elements but must not change their count (count changes throw);
+ * non-OK results flow through as results, not by removal. The runtime
  * downstream of `afterPipeline.process(...)` only reads `elements`, so
  * carrying `batchId` through is harmless.
  */
@@ -331,6 +333,16 @@ export class BatchingPipeline<
 
                     if (!isOkResult(afterResult.result)) {
                         throw new Error(`batching_pipeline afterBatch hook returned non-ok result for batch ${batchId}`)
+                    }
+
+                    // afterBatch may enrich elements but must not change the element count: every fed
+                    // message must surface exactly once downstream (non-OK results flow through as
+                    // results, not by removal). Mirrors the beforeBatch count-mismatch throw.
+                    const afterElements = afterResult.result.value.elements
+                    if (afterElements.length !== orderedResults.length) {
+                        throw new Error(
+                            `batching_pipeline afterBatch changed element count (${orderedResults.length} -> ${afterElements.length}) for batch ${batchId}`
+                        )
                     }
 
                     const afterSideEffects = afterResult.context.sideEffects

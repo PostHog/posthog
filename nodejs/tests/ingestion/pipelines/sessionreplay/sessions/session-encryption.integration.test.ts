@@ -3,14 +3,15 @@ import { DateTime } from 'luxon'
 import snappy from 'snappy'
 
 import { parseJSON } from '~/common/utils/json-parse'
-import { KafkaOffsetManager } from '~/ingestion/pipelines/sessionreplay/kafka/offset-manager'
 import {
     SessionBatchFileStorage,
     SessionBatchFileWriter,
     WriteSessionData,
 } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-file-storage'
-import { SessionBatchRecorder } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-recorder'
+import { SessionBatchRecorder, SessionRef } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-recorder'
+import { extractConsoleLogs } from '~/ingestion/pipelines/sessionreplay/sessions/session-console-log-recorder'
 import { SessionConsoleLogStore } from '~/ingestion/pipelines/sessionreplay/sessions/session-console-log-store'
+import { serializeSessionData } from '~/ingestion/pipelines/sessionreplay/sessions/snappy-session-recorder'
 import { RetentionPeriod, RetentionPeriodToDaysMap } from '~/ingestion/pipelines/sessionreplay/shared/constants'
 import { SodiumRecordingDecryptor, SodiumRecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/crypto'
 import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
@@ -78,7 +79,6 @@ describe('session recording encryption integration', () => {
     let keyStore: MemoryKeyStore
     let encryptor: SodiumRecordingEncryptor
     let decryptor: SodiumRecordingDecryptor
-    let mockOffsetManager: jest.Mocked<KafkaOffsetManager>
     let mockStorage: jest.Mocked<SessionBatchFileStorage>
     let mockWriter: jest.Mocked<SessionBatchFileWriter>
     let mockMetadataStore: jest.Mocked<SessionMetadataStore>
@@ -91,7 +91,8 @@ describe('session recording encryption integration', () => {
     let seenSessions: Set<string>
 
     // Resolves the session's key the way the pre-record step would (generate once, then get) and
-    // records it, since the recorder no longer resolves keys itself.
+    // records the serialized message, following the reduce steps' call order: session data first,
+    // then logs and features only when the data was accepted.
     const recordMessage = async (
         message: MessageWithTeam,
         retentionPeriod: RetentionPeriod = '30d'
@@ -103,7 +104,19 @@ describe('session recording encryption integration', () => {
             ? await keyStore.getKey(sessionId, teamId)
             : await keyStore.generateKey(sessionId, teamId, RetentionPeriodToDaysMap[retentionPeriod])
         seenSessions.add(cacheKey)
-        return recorder.record(message, retentionPeriod, sessionKey)
+        const session: SessionRef = {
+            teamId,
+            sessionId,
+            partition: message.message.metadata.partition,
+            retentionPeriod,
+            sessionKey,
+        }
+        const { accepted, bytesWritten } = recorder.recordSessionData(session, serializeSessionData(message.message))
+        if (accepted) {
+            await recorder.recordSessionLogs(session, extractConsoleLogs(message))
+            recorder.recordSessionFeatures(session, message.message)
+        }
+        return bytesWritten
     }
 
     beforeAll(async () => {
@@ -147,12 +160,6 @@ describe('session recording encryption integration', () => {
             checkHealth: jest.fn().mockResolvedValue(true),
         } as jest.Mocked<SessionBatchFileStorage>
 
-        mockOffsetManager = {
-            trackOffset: jest.fn(),
-            discardPartition: jest.fn(),
-            commit: jest.fn(),
-        } as unknown as jest.Mocked<KafkaOffsetManager>
-
         mockMetadataStore = {
             storeSessionBlocks: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<SessionMetadataStore>
@@ -167,7 +174,6 @@ describe('session recording encryption integration', () => {
         } as unknown as jest.Mocked<SessionFeatureStore>
 
         recorder = new SessionBatchRecorder(
-            mockOffsetManager,
             mockStorage,
             mockMetadataStore,
             mockConsoleLogStore,
@@ -284,7 +290,6 @@ describe('session recording encryption integration', () => {
         currentOffset = 0
 
         recorder = new SessionBatchRecorder(
-            mockOffsetManager,
             mockStorage,
             mockMetadataStore,
             mockConsoleLogStore,
