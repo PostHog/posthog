@@ -50,15 +50,12 @@ class TestBillableCreditThrottle:
 
     @pytest.mark.asyncio
     async def test_denies_posthog_code_when_its_bucket_is_exhausted(self) -> None:
-        # `posthog_code` bills into posthog_code_credits, scoped to seatless
-        # users; the dependency layer resolves exhaustion for that bucket, so the
-        # throttle blocks a seatless user on it — with the Code-specific
-        # message, not the PostHog AI one.
+        # `posthog_code` bills into posthog_code_credits; the dependency layer
+        # resolves exhaustion for that bucket, so the throttle blocks on it —
+        # with the Code-specific message, not the PostHog AI one.
         throttle = BillableCreditThrottle()
 
-        result = await throttle.allow_request(
-            _make_context(product="posthog_code", credits_exhausted=True, seat_missing=True)
-        )
+        result = await throttle.allow_request(_make_context(product="posthog_code", credits_exhausted=True))
 
         assert result.allowed is False
         assert result.status_code == 429
@@ -66,22 +63,24 @@ class TestBillableCreditThrottle:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        ("seat_missing", "code_usage_billed", "expected_allowed"),
+        ("seat_missing", "code_usage_billed"),
         [
-            # Seatless in a paying org: the org's billing limit surfaced as
-            # exhaustion is the only ceiling (the per-user cap is lifted) - it
-            # must block, or usage runs past the org's configured limit.
-            (True, True, False),
+            # Seatless in a paying org: the org's billing limit is the only
+            # ceiling (the per-user cap is lifted) - exhaustion must block, or
+            # usage runs past the org's configured limit.
+            (True, True),
             # Seatless in a non-paying org: the free plan's monthly allocation
             # surfaces the same way and must block the same way.
-            (True, False, False),
-            # Seat holder: seat-covered usage is excluded from the org's
-            # counter, so its exhaustion must not take the product away.
-            (False, True, True),
+            (True, False),
+            # Every generation is counted into the bucket regardless of seat
+            # state, so a seat-based carve-out would let the exempted callers
+            # burn past the limit their own spend is filling.
+            (False, True),
+            (False, False),
         ],
     )
-    async def test_bucket_blocks_seatless_callers_only(
-        self, seat_missing: bool, code_usage_billed: bool, expected_allowed: bool
+    async def test_bucket_blocks_regardless_of_seat_or_billing_state(
+        self, seat_missing: bool, code_usage_billed: bool
     ) -> None:
         throttle = BillableCreditThrottle()
 
@@ -94,26 +93,7 @@ class TestBillableCreditThrottle:
             )
         )
 
-        assert result.allowed is expected_allowed
-
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize(
-        "plan_key",
-        ["posthog-code-pro-200-20260301", "posthog-code-free-20260301", None],
-    )
-    async def test_allows_posthog_code_seat_covered_plans_even_when_exhausted(self, plan_key: str | None) -> None:
-        # `posthog_code`'s bucket is scoped to seatless users: seat-covered
-        # (pro/free/alpha) users' generations are excluded from the org's usage
-        # counter at the usage-report layer, so the org's usage limit must not
-        # block them either — including when the plan can't be resolved at all
-        # (seat_missing is only set on a definitive no-seat response).
-        throttle = BillableCreditThrottle()
-
-        result = await throttle.allow_request(
-            _make_context(product="posthog_code", credits_exhausted=True, plan_key=plan_key)
-        )
-
-        assert result.allowed is True
+        assert result.allowed is False
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("product", ["slack_app", "slack_app_routing", "posthog_code"])
@@ -138,29 +118,13 @@ class TestBillableCreditThrottle:
         assert result.retry_after == 60
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("plan_key", ["posthog-code-pro-200-20260301", "posthog-code-free-20260301", None])
-    async def test_denies_all_users_scope_product_regardless_of_plan_key(self, plan_key: str | None) -> None:
-        # `slack_app` bills AI_CREDITS with the default `credit_bucket_scope="all_users"`:
-        # unlike posthog_code, every user counts against the bucket limit, so exhaustion
-        # blocks the request no matter what plan (or lack of one) the caller is on.
-        throttle = BillableCreditThrottle()
-
-        result = await throttle.allow_request(
-            _make_context(product="slack_app", credits_exhausted=True, plan_key=plan_key)
-        )
-
-        assert result.allowed is False
-
-    @pytest.mark.asyncio
     async def test_unmapped_bucket_falls_back_to_generic_detail(self) -> None:
         # A bucket added to the enum without a detail entry must still deny
         # with a 429, not blow up with a KeyError.
         throttle = BillableCreditThrottle()
 
         with patch.dict("llm_gateway.rate_limiting.billable_credits_throttle._BUCKET_EXHAUSTED_DETAIL", clear=True):
-            result = await throttle.allow_request(
-                _make_context(product="posthog_code", credits_exhausted=True, seat_missing=True)
-            )
+            result = await throttle.allow_request(_make_context(product="posthog_code", credits_exhausted=True))
 
         assert result.allowed is False
         assert result.status_code == 429

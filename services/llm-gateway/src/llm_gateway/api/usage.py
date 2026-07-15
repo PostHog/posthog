@@ -93,9 +93,8 @@ async def get_usage(
     # The product's own credit bucket (resolve_plan_and_quota resolves per bucket;
     # always unlimited for unbilled products), reported under the legacy `ai_credits`
     # response field — clients read `ai_credits.exhausted` regardless of bucket. Run
-    # through the same credit_bucket_scope check as the request-path throttle: clients
-    # gate on this response, so reporting the raw bucket state would disable the product
-    # for seat-covered users the gateway itself would allow.
+    # through the same decision as the request-path throttle: clients gate on this
+    # response, so it must never disagree with what enforcement would do.
     credits_exhausted = bucket_block_applies(context)
 
     burst_status: CostLimitStatus | None = None

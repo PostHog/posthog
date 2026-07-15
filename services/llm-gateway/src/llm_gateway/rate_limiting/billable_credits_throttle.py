@@ -35,25 +35,17 @@ def bucket_block_applies(context: ThrottleContext) -> bool:
     The single source of truth for the bucket-block decision, shared by the
     request-path throttle and the usage endpoint so what's reported always
     matches what's enforced. Unbilled products (``credit_bucket=None``) are
-    never blocked. For a bucket scoped to seatless users (see
-    ``ProductConfig.credit_bucket_scope``), seat holders are exempt — their
-    usage is excluded from the org's usage counter at the usage-report layer,
-    so the org's limit must not take the product away from them because of
-    other users' spend. Seatless callers count against the bucket whether or
-    not the org pays for the usage: a free org's monthly allocation and a
-    paying org's billing limit both surface here as exhaustion. A caller whose
-    seat state can't be resolved reads as seated (``seat_missing`` is only set
-    on a definitive no-seat response), i.e. not blocked — consistent with the
-    quota resolver's fail-open posture.
+    never blocked. For billed products, exhaustion blocks every caller — the
+    usage reporter counts every generation into the bucket regardless of who
+    made it, so the blocked population must match or exempted callers burn
+    past the limit they're filling. A free org's monthly allocation and a
+    paying org's billing limit both surface here as exhaustion; ``limited``
+    fails open on resolution errors, so a quota blip never spuriously blocks.
     """
     config = get_product_config(context.product)
     if not (config and config.credit_bucket is not None):
         return False
-    if not context.credits_exhausted:
-        return False
-    if config.credit_bucket_scope == "seatless_users" and not context.seat_missing:
-        return False
-    return True
+    return context.credits_exhausted
 
 
 class BillableCreditThrottle(Throttle):

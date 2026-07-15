@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Final, Literal
+from typing import Final
 
 from fastapi import HTTPException
 
@@ -16,10 +16,8 @@ class CreditBucket(StrEnum):
     Values match (or, once created, will match) the Django quota resource keys
     (ee/billing/quota_limiting.py QuotaResource), which is what the gateway's
     quota resolver checks against. Both buckets have gateway-side quota
-    enforcement; which users are blocked when a bucket is exhausted depends on
-    ``ProductConfig.credit_bucket_scope`` — AI_CREDITS blocks all users of the
-    product, POSTHOG_CODE_CREDITS blocks only seatless users (see
-    ``credit_bucket_scope`` below).
+    enforcement: an exhausted bucket blocks every caller of the product, the
+    same population the usage reporter counts into it.
     """
 
     AI_CREDITS = "ai_credits"
@@ -36,19 +34,9 @@ class ProductConfig:
     # Which customer credit bucket this product bills into. None = not billed: emitted
     # $ai_generation events are tagged $ai_billable=false and the usage reporter
     # (posthog/tasks/usage_report.py) ignores them. A bucket value tags events billable
-    # so the reporter rolls them into that bucket's credit counter, and requests are
-    # blocked when the bucket's quota is exhausted — see credit_bucket_scope below for
-    # which users that block applies to.
+    # so the reporter rolls them into that bucket's credit counter, and every caller
+    # is blocked when the bucket's quota is exhausted.
     credit_bucket: CreditBucket | None = None
-    # Which users a bucket's exhausted-limit should block, once credit_bucket is set.
-    # "all_users" (default): every user of a billable product counts against the bucket
-    # limit — appropriate when all of the product's usage is billable (e.g. AI_CREDITS).
-    # "seatless_users": only users without a seat count against the bucket limit.
-    # Seat-covered (free/pro/alpha) usage is excluded from the org's usage counter at
-    # the usage-report layer, so seat holders must not be blocked by it either; a
-    # seatless caller's usage counts whether or not the org pays for it (a free org's
-    # monthly allocation and a paying org's billing limit both surface as `limited`).
-    credit_bucket_scope: Literal["all_users", "seatless_users"] = "all_users"
 
 
 BEDROCK_MODELS = BEDROCK_MODEL_IDS
@@ -112,10 +100,6 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         # Bills as posthog_code credits (pass-through model costs, no markup) — see
         # get_teams_with_posthog_code_credits_used_in_period in posthog/tasks/usage_report.py.
         credit_bucket=CreditBucket.POSTHOG_CODE_CREDITS,
-        # Seat-covered usage is excluded at the usage-report layer, so seat holders
-        # must not be blocked when the org's usage limit is reached; every seatless
-        # user's generations count against the org's bucket, so they are.
-        credit_bucket_scope="seatless_users",
     ),
     # PostHog-initiated internal task runs (Task.internal=True without a more specific
     # origin route — e.g. the repo-selection agent). Deliberately unbilled: this is
