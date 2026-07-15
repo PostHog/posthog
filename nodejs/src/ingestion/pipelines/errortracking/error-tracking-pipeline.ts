@@ -36,11 +36,10 @@ import { IngestionOverflowMode } from '~/ingestion/config'
 import { BatchingContext, BatchingPipeline } from '~/ingestion/framework/batching-pipeline'
 import { TopHogRegistry, count, countOk, createTopHogWrapper } from '~/ingestion/framework/extensions/tophog'
 import { createBatch } from '~/ingestion/framework/helpers'
-import { ok } from '~/ingestion/framework/results'
-import { ProcessingStep } from '~/ingestion/framework/steps'
 import { PluginEvent } from '~/plugin-scaffold'
 import { Team } from '~/types'
 
+import { createAttachMessageBytesStep } from './attach-message-bytes-step'
 import { createCymbalProcessingStep } from './cymbal-processing-step'
 import { CymbalClient } from './cymbal/client'
 import { ErrorTrackingHogTransformer } from './error-tracking-consumer'
@@ -119,18 +118,6 @@ export interface PostCymbalRateLimiterInput {
     team: { id: number }
     event: PluginEvent
     errorTrackingSettings?: ErrorTrackingSettings | null
-}
-
-/**
- * Carry the Kafka message byte size on the value, for Cymbal batch chunking.
- */
-function createAttachMessageBytesStep<T extends { message: Message }>(): ProcessingStep<
-    T,
-    T & { messageBytes: number }
-> {
-    return function attachMessageBytesStep(input) {
-        return Promise.resolve(ok({ ...input, messageBytes: input.message.value?.length ?? 0 }))
-    }
 }
 
 /**
