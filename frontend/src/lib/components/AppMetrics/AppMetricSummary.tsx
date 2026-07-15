@@ -1,8 +1,17 @@
 import { useMemo } from 'react'
 
-import { IconArrowRight } from '@posthog/icons'
-import { LemonLabel, LemonSkeleton, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
-import { MetricCard, type MetricChange } from '@posthog/quill-charts'
+import { IconArrowRight, IconInfo } from '@posthog/icons'
+import { Card, CardContent, Skeleton, Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/quill'
+import {
+    Metric,
+    type MetricChange,
+    MetricDelta,
+    MetricHeader,
+    MetricSparkline,
+    MetricSubtitle,
+    MetricTitle,
+    MetricValue,
+} from '@posthog/quill-components/metric'
 
 import { useChartTheme } from 'lib/charts/hooks'
 import { getColorVar } from 'lib/colors'
@@ -36,6 +45,20 @@ function sumSeries(timeSeries: AppMetricsTimeSeriesResponse | null | undefined):
         return 0
     }
     return timeSeries.series.reduce((acc, curr) => acc + curr.values.reduce((acc, curr) => acc + curr, 0), 0)
+}
+
+function TitleWithInfo({ name, description }: { name: string; description: string }): JSX.Element {
+    return (
+        <span className="inline-flex items-center gap-1">
+            {name}
+            <Tooltip>
+                <TooltipTrigger render={<span className="inline-flex cursor-default" />}>
+                    <IconInfo className="text-sm opacity-60" />
+                </TooltipTrigger>
+                <TooltipContent className="max-w-60">{description}</TooltipContent>
+            </Tooltip>
+        </span>
+    )
 }
 
 export function AppMetricSummary({
@@ -83,6 +106,7 @@ export function AppMetricSummary({
     const chartColor = total === 0 ? colorIfZero : color
     const resolvedGoodDirection =
         goodDirection ?? (color === getColorVar('danger') || color === getColorVar('warning') ? 'down' : 'up')
+    const hasSparkline = !loading && data.length > 0
 
     // Hide component if hideIfZero is true and there's no data
     if (hideIfZero && !loading && total === 0 && totalPreviousPeriod === 0) {
@@ -90,18 +114,19 @@ export function AppMetricSummary({
     }
 
     return (
-        <div
-            className={
-                onClick
-                    ? 'flex flex-1 flex-col relative border rounded p-3 bg-surface-primary min-w-[16rem] cursor-pointer transition-colors hover:border-primary'
-                    : 'flex flex-1 flex-col relative border rounded p-3 bg-surface-primary min-w-[16rem]'
-            }
+        <Card
+            size="sm"
+            flush={hasSparkline}
+            className={cn(
+                'flex-1 min-w-[16rem]',
+                onClick && 'cursor-pointer transition-transform hover:-translate-y-0.5'
+            )}
             role={onClick ? 'button' : undefined}
             tabIndex={onClick ? 0 : undefined}
             onClick={onClick}
             onKeyDown={
                 onClick
-                    ? (e) => {
+                    ? (e: React.KeyboardEvent) => {
                           if (e.key === 'Enter' || e.key === ' ') {
                               e.preventDefault()
                               onClick()
@@ -111,52 +136,58 @@ export function AppMetricSummary({
             }
         >
             {loading ? (
-                <>
-                    <div className="flex flex-row justify-between items-start">
-                        <LemonLabel info={description}>{name}</LemonLabel>
-                        <LemonSkeleton className="w-20 h-6 mb-2" />
-                    </div>
-                    <div className="flex-1 mt-2 h-[10rem]">
-                        <SpinnerOverlay />
-                    </div>
-                </>
+                <CardContent className="flex flex-col gap-2">
+                    <Skeleton className="h-3 w-16" />
+                    <Skeleton className="h-7 w-20" />
+                </CardContent>
             ) : !timeSeries ? (
-                <>
-                    <LemonLabel info={description}>{name}</LemonLabel>
-                    <div className="flex-1 flex items-center justify-center h-[10rem]">
-                        <LemonLabel>No data</LemonLabel>
-                    </div>
-                </>
+                <CardContent className="flex flex-col gap-2">
+                    <TitleWithInfo name={name} description={description} />
+                    <div className="text-sm opacity-60">No data</div>
+                </CardContent>
             ) : (
-                <MetricCard
-                    title={
-                        <span className="flex items-center gap-1">
-                            <LemonLabel info={description}>{name}</LemonLabel>
-                            {onClick ? (
-                                <Tooltip title={onClickTooltip ?? 'View matching invocations'}>
-                                    <IconArrowRight className="text-base text-muted" />
-                                </Tooltip>
-                            ) : null}
-                        </span>
-                    }
+                <Metric
+                    className="px-3 text-primary"
                     value={total}
-                    data={data}
-                    labels={labels}
+                    data={hasSparkline ? data : undefined}
+                    labels={hasSparkline ? labels : undefined}
                     theme={theme}
                     color={chartColor}
-                    sparklineHeight={160}
+                    goodDirection={resolvedGoodDirection}
                     formatValue={humanFriendlyNumber}
                     change={change}
-                    goodDirection={resolvedGoodDirection}
                     changeTooltip="Compared to the previous period"
                     // '' suppresses the resting subtitle (a null would fall back to the last
                     // bucket's date, misleading under a period-total headline)
                     restingSubtitle={
                         previousPeriodTimeSeries ? `vs. ${humanFriendlyNumber(totalPreviousPeriod)} prior` : ''
                     }
-                />
+                    sparklineHeight={60}
+                >
+                    <MetricHeader>
+                        <MetricTitle>
+                            <span className="inline-flex items-center gap-1">
+                                <TitleWithInfo name={name} description={description} />
+                                {onClick ? (
+                                    <Tooltip>
+                                        <TooltipTrigger render={<span className="inline-flex" />}>
+                                            <IconArrowRight className="text-sm opacity-60" />
+                                        </TooltipTrigger>
+                                        <TooltipContent>{onClickTooltip ?? 'View matching invocations'}</TooltipContent>
+                                    </Tooltip>
+                                ) : null}
+                            </span>
+                        </MetricTitle>
+                        <MetricDelta />
+                    </MetricHeader>
+                    <MetricValue className="mt-2" />
+                    <MetricSubtitle className="mt-1" />
+                    <MetricSparkline className="mt-3 -mx-3" />
+                </Metric>
             )}
-            {footer ? <div className="mt-2 text-xs text-center">{footer}</div> : null}
-        </div>
+            {footer ? (
+                <div className={cn('mt-2 text-xs text-center', hasSparkline && 'px-3 pb-3')}>{footer}</div>
+            ) : null}
+        </Card>
     )
 }
