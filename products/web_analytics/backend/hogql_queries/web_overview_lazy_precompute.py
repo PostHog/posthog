@@ -27,6 +27,7 @@ from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute 
     check_common_eligible,
     events_session_id_expr,
     floor_utc_day,
+    is_constant_true,
     test_account_filter_expr,
     user_filter_expr,
 )
@@ -170,10 +171,7 @@ def ensure_web_overview_precomputed(
         "pad_minutes": ast.Constant(value=SESSION_FORWARD_PAD_MINUTES),
     }
 
-    is_unfiltered = all(
-        isinstance(placeholders[key], ast.Constant) and placeholders[key].value is True
-        for key in ("user_filter", "test_account_filter")
-    )
+    is_unfiltered = all(is_constant_true(placeholders[key]) for key in ("user_filter", "test_account_filter"))
 
     return web_ensure_precomputed(
         team=runner.team,

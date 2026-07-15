@@ -34,6 +34,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     LazyComputationResult,
     LazyComputationTable,
 )
+from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import is_constant_true
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     LAZY_TTL_SECONDS,
     SESSION_FORWARD_PAD_MINUTES,
@@ -497,12 +498,8 @@ def ensure_web_stats_paths_precomputed(
     # session-start hour via the UUIDv7 session id; bounce comes from the sessions
     # table). INITIAL_PAGE needs the join for persons-per-entry-path, and filtered
     # keys need it because the sessions side can't evaluate event/person filters.
-    use_no_join = (
-        runner.query.breakdownBy == WebStatsBreakdown.PAGE
-        and isinstance(placeholders["user_filter"], ast.Constant)
-        and placeholders["user_filter"].value is True
-        and isinstance(placeholders["test_account_filter"], ast.Constant)
-        and placeholders["test_account_filter"].value is True
+    use_no_join = runner.query.breakdownBy == WebStatsBreakdown.PAGE and all(
+        is_constant_true(placeholders[key]) for key in ("user_filter", "test_account_filter")
     )
     if use_no_join:
         placeholders["entry_breakdown_value_sessions_expr"] = _entry_breakdown_value_sessions_expr(runner)
