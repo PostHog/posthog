@@ -1766,30 +1766,36 @@ def get_teams_with_exceptions_captured_in_period(
     lib_expression, _ = get_property_string_expr("events", "$lib", "'$lib'", "properties")
 
     with tags_context(product=Product.ERROR_TRACKING, feature=Feature.USAGE_REPORT):
+        # The library mapping lives in an inner subquery so the outer GROUP BY references a real
+        # column rather than the multiIf alias. Under the analyzer (which rewrites the distributed
+        # `events` table to `__table1`) grouping through the alias fails to resolve the expression
+        # and throws NotFoundColumnInBlock.
         # nosemgrep: clickhouse-fstring-param-audit - lib_expression from internal materialized column helper
         results = sync_execute(
             f"""
-            SELECT
-                team_id,
-                multiIf(
-                    {lib_expression} = 'web', 'web',
-                    {lib_expression} = 'js', 'web_lite',
-                    {lib_expression} = 'posthog-node', 'node',
-                    {lib_expression} = 'posthog-edge', 'node',
-                    {lib_expression} = 'posthog-android', 'android',
-                    {lib_expression} = 'posthog-flutter', 'flutter',
-                    {lib_expression} = 'posthog-ios', 'ios',
-                    {lib_expression} = 'posthog-go', 'go',
-                    {lib_expression} = 'posthog-java', 'java',
-                    {lib_expression} = 'posthog-server', 'java',
-                    {lib_expression} = 'posthog-react-native', 'react_native',
-                    {lib_expression} = 'posthog-ruby', 'ruby',
-                    {lib_expression} = 'posthog-python', 'python',
-                    'unknown'
-                ) AS library,
-                count(1) as total
-            FROM events
-            WHERE event = '$exception' AND timestamp >= %(begin)s AND timestamp < %(end)s
+            SELECT team_id, library, count(1) as total
+            FROM (
+                SELECT
+                    team_id,
+                    multiIf(
+                        {lib_expression} = 'web', 'web',
+                        {lib_expression} = 'js', 'web_lite',
+                        {lib_expression} = 'posthog-node', 'node',
+                        {lib_expression} = 'posthog-edge', 'node',
+                        {lib_expression} = 'posthog-android', 'android',
+                        {lib_expression} = 'posthog-flutter', 'flutter',
+                        {lib_expression} = 'posthog-ios', 'ios',
+                        {lib_expression} = 'posthog-go', 'go',
+                        {lib_expression} = 'posthog-java', 'java',
+                        {lib_expression} = 'posthog-server', 'java',
+                        {lib_expression} = 'posthog-react-native', 'react_native',
+                        {lib_expression} = 'posthog-ruby', 'ruby',
+                        {lib_expression} = 'posthog-python', 'python',
+                        'unknown'
+                    ) AS library
+                FROM events
+                WHERE event = '$exception' AND timestamp >= %(begin)s AND timestamp < %(end)s
+            )
             GROUP BY team_id, library
         """,
             {"begin": begin, "end": end},
