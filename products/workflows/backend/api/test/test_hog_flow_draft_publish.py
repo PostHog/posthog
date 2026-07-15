@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
+from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
@@ -389,3 +390,18 @@ class TestHogFlowDraftPublish(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert response.json()["draft"] is not None
         assert response.json()["draft_updated_at"] is not None
+
+    @patch(FLAG_PATH, return_value=True)
+    def test_draft_contents_are_masked_in_activity_log(self, _flag):
+        flow_id = self._create_active_flow()
+        self._stage_draft(flow_id)
+
+        entry = ActivityLog.objects.filter(scope="HogFlow", item_id=flow_id).order_by("-created_at").first()
+        assert entry is not None
+        draft_changes = [c for c in entry.detail["changes"] if c["field"] == "draft"]
+        assert draft_changes, entry.detail["changes"]
+        for change in draft_changes:
+            # Draft snapshots carry action inputs (auth headers, API keys) — contents must never
+            # land in team-readable activity rows, only the fact that the draft changed.
+            assert change.get("before") in (None, "masked")
+            assert change.get("after") in (None, "masked")
