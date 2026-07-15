@@ -536,6 +536,18 @@ export const AgentApplicationsRevisionsNewDraftCreateBody = /* @__PURE__ */ zod
     )
 
 /**
+ * Registers the durable Slack connector that the PostHog Slack app provisions.
+ */
+export const agentApplicationsSlackConnectorsCreateBodySlackWorkspaceIdMax = 32
+
+export const AgentApplicationsSlackConnectorsCreateBody = /* @__PURE__ */ zod.object({
+    slack_workspace_id: zod
+        .string()
+        .max(agentApplicationsSlackConnectorsCreateBodySlackWorkspaceIdMax)
+        .describe('Slack workspace ID that the dedicated agent app will be installed into, for example `T01234567`.'),
+})
+
+/**
  * Agent applications — the deployable unit of the platform.
  *
  * URLs:

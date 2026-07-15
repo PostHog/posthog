@@ -47,6 +47,7 @@ from drf_spectacular.utils import (
     inline_serializer,
 )
 from rest_framework import (
+    mixins,
     renderers,
     serializers as drf_serializers,
     status,
@@ -87,12 +88,14 @@ from ..logic.skill_editing import (
 )
 from ..logic.skill_resolution import assert_skill_refs_readable, resolve_skill_ref, stamp_skill_provenance
 from ..logic.spec_schema import missing_required_secrets
-from ..models import AgentApplication, AgentIdentityCredential, AgentRevision
+from ..models import AgentApplication, AgentIdentityCredential, AgentRevision, AgentSlackConnector
 from .serializers import (
     MAX_SKILL_REFS,
     AgentApplicationSerializer,
     AgentRevisionSerializer,
+    AgentSlackConnectorSerializer,
     CloneFromRequestSerializer,
+    CreateAgentSlackConnectorRequestSerializer,
     DecideApprovalRequestSerializer,
     DryRunToolRequestSerializer,
     ImportBundleRequestSerializer,
@@ -1714,6 +1717,58 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
 
 @extend_schema(tags=["agent_platform"])
+class AgentSlackConnectorViewSet(
+    TeamAndOrgViewSetMixin,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    viewsets.GenericViewSet,
+):
+    """Registers the durable Slack connector that the PostHog Slack app provisions."""
+
+    scope_object = "agents"
+    scope_object_write_actions = ["create"]
+    scope_object_read_actions = ["list", "retrieve"]
+    serializer_class = AgentSlackConnectorSerializer
+    queryset = AgentSlackConnector.all_teams.all()
+
+    def _should_skip_parents_filter(self) -> bool:
+        return True
+
+    def get_application(self) -> AgentApplication:
+        application = _resolve_application(
+            AgentApplication.all_teams.filter(team_id=self.team_id, archived=False),
+            self.kwargs.get("parent_lookup_application_id") or self.kwargs.get("application_id"),
+        )
+        if application is None:
+            raise NotFound("Application not found")
+        return application
+
+    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
+        return queryset.filter(team_id=self.team_id, application=self.get_application()).order_by("created_at")
+
+    @extend_schema(
+        request=CreateAgentSlackConnectorRequestSerializer,
+        responses={
+            200: AgentSlackConnectorSerializer,
+            201: AgentSlackConnectorSerializer,
+        },
+    )
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        body = CreateAgentSlackConnectorRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        application = self.get_application()
+        connector, created = AgentSlackConnector.objects.for_team(self.team_id).get_or_create(
+            application=application,
+            slack_workspace_id=body.validated_data["slack_workspace_id"],
+            defaults={
+                "team_id": self.team_id,
+                "created_by_id": request.user.id,
+            },
+        )
+        response = AgentSlackConnectorSerializer(connector, context=self.get_serializer_context())
+        return Response(response.data, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+
+
 class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """Revisions of an agent. Created in `draft`, promoted through
     `ready → live` once the bundle has been uploaded + frozen.
