@@ -175,6 +175,7 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
         model = SignalTeamConfig
         fields = [
             "id",
+            "autostart_enabled",
             "default_autostart_priority",
             "default_slack_notification_channel",
             "autostart_base_branches",
@@ -183,6 +184,13 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
         extra_kwargs = {
+            "autostart_enabled": {
+                "help_text": (
+                    "Master switch for autonomous inbox PRs. Null (never set) leaves autostart on; set "
+                    "false to opt out, so actionable reports still generate and notify but the team "
+                    "never auto-starts an implementation task or opens a PR — reviewers open PRs manually."
+                )
+            },
             "default_slack_notification_channel": {
                 "help_text": (
                     "Default Slack channel for this team's signal inbox notifications, in the same "
