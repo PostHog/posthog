@@ -254,7 +254,7 @@ def _message_row(message: dict[str, Any]) -> dict[str, Any]:
     row = dict(message.get("map", {}))
     raw_time = row.get("_messagetime")
     try:
-        row["message_time"] = datetime.fromtimestamp(int(raw_time) / 1000, tz=UTC)
+        row["message_time"] = datetime.fromtimestamp(int(raw_time) / 1000, tz=UTC) if raw_time is not None else None
     except (TypeError, ValueError):
         row["message_time"] = None
     return row
