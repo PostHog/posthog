@@ -1399,6 +1399,68 @@ class TestSQLV2KernelPackage(SimpleTestCase):
         # The run must be unregistered once finished: a later interrupt is unknown.
         self.assertFalse(kernel_runner.request_interrupt("r-int-1"))
 
+    def test_real_error_racing_the_interrupt_keeps_its_message(self):
+        # A genuine failure that completes just as the user cancels must not be
+        # relabeled `interrupted` — the UI would lose the actual error.
+        payload = {
+            "run_id": "r-int-3",
+            "code": "select 1",
+            "callback_url": "http://backend/cb",
+            "callback_token": "cbt",
+            "data_plane_url": "http://backend/dp",
+            "data_plane_token": "dpt",
+        }
+        delivered: dict = {}
+
+        def fail_after_interrupt(*args, **kwargs):
+            kernel_runner.request_interrupt("r-int-3")
+            raise DataPlaneError("no such table")
+
+        with (
+            patch.object(kernel_runner, "_post_callback", side_effect=lambda url, token, env: delivered.update(env)),
+            patch(
+                "products.notebooks.backend.sandbox.kernel.data_plane.fetch_query_page",
+                side_effect=fail_after_interrupt,
+            ),
+        ):
+            kernel_runner.execute_run(payload)
+        self.assertEqual(delivered["status"], "error")
+        self.assertEqual(delivered["error"], "no such table")
+
+    def test_duplicate_run_for_an_in_flight_run_is_dropped(self):
+        # A backend /run retry while the first thread still runs must not clobber the
+        # cancel state: the duplicate posts no callback and the original stays interruptible.
+        payload = {
+            "run_id": "r-dup-1",
+            "code": "select 1",
+            "callback_url": "http://backend/cb",
+            "callback_token": "cbt",
+            "data_plane_url": "http://backend/dp",
+            "data_plane_token": "dpt",
+        }
+        callbacks: list[dict] = []
+        dispatched: list[bool] = []
+
+        def fetch_with_duplicate_dispatch(*args, **kwargs):
+            if not dispatched:
+                dispatched.append(True)
+                kernel_runner.execute_run(dict(payload))  # the retry, arriving mid-run
+                self.assertTrue(kernel_runner.request_interrupt("r-dup-1"))  # original still registered
+            raise DataPlaneInterrupted("Run interrupted.")
+
+        with (
+            patch.object(kernel_runner, "_post_callback", side_effect=lambda url, token, env: callbacks.append(env)),
+            patch(
+                "products.notebooks.backend.sandbox.kernel.data_plane.fetch_query_page",
+                side_effect=fetch_with_duplicate_dispatch,
+            ),
+        ):
+            kernel_runner.execute_run(payload)
+        self.assertEqual(len(callbacks), 1)
+        self.assertEqual(callbacks[0]["status"], "interrupted")
+        # The finished run is unregistered — a fresh retry may now run.
+        self.assertFalse(kernel_runner.request_interrupt("r-dup-1"))
+
     def test_completed_run_stays_ok_when_the_interrupt_races_it(self):
         # An interrupt that lands as the fetch completes must not discard a real result.
         payload = {

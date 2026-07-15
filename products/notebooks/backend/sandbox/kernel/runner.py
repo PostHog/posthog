@@ -69,15 +69,21 @@ def execute_run(payload: dict[str, Any]) -> None:
     is_kernel_node = node.get("type") in ("python", "duckdb")
     cancel_event = threading.Event()
     with _cancel_states_lock:
+        # A retried /run for a run still in flight must not clobber its cancel state (the
+        # interrupt would target the retry, and the first thread's exit would unregister it).
+        # The in-flight thread owns the run and delivers its callback; drop the duplicate.
+        if run_id in _cancel_states:
+            logger.warning("nb_kernel ignoring duplicate /run for in-flight run %s", run_id)
+            return
         _cancel_states[run_id] = {"event": cancel_event, "kernel": is_kernel_node}
     try:
+        # Interrupt-caused failures are labeled at the source (DataPlaneInterrupted, a
+        # SIGINT'd cell), so a real failure that merely raced the cancel keeps its error —
+        # and a completed run stays ok: the result is real.
         if is_kernel_node:
             result = _run_kernel_node(payload, cancel_event)
         else:
             result = _build_envelope(payload, cancel_event)
-        # A completed run stays ok even if the interrupt raced it: the result is real.
-        if cancel_event.is_set() and result.get("status") != "ok":
-            result = envelope.as_interrupted(result)
     finally:
         with _cancel_states_lock:
             _cancel_states.pop(run_id, None)
@@ -162,6 +168,8 @@ def _build_envelope(payload: dict[str, Any], cancel_event: threading.Event | Non
             result["types"],
             has_more=result["has_more"] or len(rows) > page_limit,
         )
+    except data_plane.DataPlaneInterrupted:
+        return envelope.as_interrupted(envelope.from_error(envelope.INTERRUPTED_MESSAGE))
     except data_plane.DataPlaneError as exc:
         return envelope.from_error(str(exc))
     except Exception as exc:  # noqa: BLE001 — any failure must still produce a callback
