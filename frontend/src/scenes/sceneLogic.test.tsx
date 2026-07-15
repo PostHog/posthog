@@ -187,5 +187,22 @@ describe('sceneLogic', () => {
             expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(expectedPathname)
             expect(router.values.hashParams).toEqual({ panel: 'max:what is my dau' })
         })
+
+        // A configured homepage can carry its own hash (e.g. a dashboard tab). Forwarding the
+        // incoming hash must merge over that, not replace it — so an empty incoming hash keeps the
+        // configured one, and a `#panel` hash is added alongside it.
+        it.each([
+            ['no incoming hash', {}, { tab: 'configured' }],
+            ['an incoming #panel hash', { panel: 'max:hi' }, { tab: 'configured', panel: 'max:hi' }],
+        ])(
+            'keeps a configured homepage hash across the / redirect with %s',
+            async (_desc, incomingHash, expectedHash) => {
+                logic.actions.setHomepage({ ...dashboardHomepage, hash: '#tab=configured' })
+                router.actions.push('/', {}, incomingHash)
+                await expectLogic(logic).delay(1)
+                expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.dashboard(42))
+                expect(router.values.hashParams).toEqual(expectedHash)
+            }
+        )
     })
 })
