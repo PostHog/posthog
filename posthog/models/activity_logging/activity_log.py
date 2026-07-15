@@ -451,9 +451,10 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         # FeatureFlag/Subscription exclude theirs).
         "team",
         "sandbox_environment",
-        # Reverse FK to LoopTrigger: reading it goes through LoopTrigger's own fail-closed
-        # TeamScopedManager with no ambient team scope at signal-handling time.
+        # Reverse FKs (LoopTrigger, LoopFire): reading them goes through those models' own
+        # fail-closed TeamScopedManagers with no ambient team scope at signal-handling time.
         "triggers",
+        "fires",
         # Run bookkeeping, not user-meaningful config.
         "last_run_at",
         "last_run_status",

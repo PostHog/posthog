@@ -749,7 +749,9 @@ def fire_loop_api(
 ) -> LoopFireResult | None:
     """External fire (`loops/:id/trigger/`, PSAK auth). PSAK scopes are project-wide by design,
     so this bypasses the personal/team visibility split entirely (see LOOPS.md "API trigger auth")."""
-    loop = Loop.objects.filter(team_id=team_id, deleted=False, pk=loop_id).first()
+    # `internal=False`: internal loops are driven by their backend flow, never externally
+    # firable, even though a PSAK is project-wide (mirrors the read/write API surface).
+    loop = Loop.objects.filter(team_id=team_id, deleted=False, internal=False, pk=loop_id).first()
     if loop is None:
         return None
 

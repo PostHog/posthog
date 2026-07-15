@@ -169,6 +169,30 @@ def pause_loop_schedules(loop: Loop) -> None:
             logger.exception("loop_schedule_pause_failed", extra={"loop_trigger_id": str(trigger.id)})
 
 
+def signal_loop_run_cancelled(workflow_id: str) -> None:
+    """Best-effort: tell a displaced loop run's workflow to wind down its sandbox.
+
+    The run's DB row is already CANCELLED; this signals the live workflow so the sandbox
+    stops instead of running to completion under the loop owner's credentials. Mirrors
+    `facade.api.signal_workflow_completion`, kept here so the logic layer never imports the
+    facade. Swallows errors: a missing/finished workflow just means nothing to stop.
+    """
+    import asyncio  # noqa: PLC0415 — only needed when signalling
+
+    from products.tasks.backend.temporal.process_task.workflow import (  # noqa: PLC0415 — keep temporalio off the module import path
+        ProcessTaskWorkflow,
+    )
+
+    try:
+        client = sync_connect()
+        handle = client.get_workflow_handle(workflow_id)
+        asyncio.run(
+            handle.signal(ProcessTaskWorkflow.complete_task, args=["cancelled", "Superseded by a newer loop run"])
+        )
+    except Exception:
+        logger.exception("loop_run_cancel_signal_failed", extra={"workflow_id": workflow_id})
+
+
 def resume_loop_schedules(loop: Loop) -> None:
     """Unpause (or recreate, if missing) every enabled schedule trigger's Temporal Schedule."""
     triggers = LoopTrigger.objects.for_team(loop.team_id, canonical=True).filter(

@@ -17,6 +17,8 @@ from products.tasks.backend.temporal.observability import log_with_activity_cont
 # error_message so a normal completion never reads as a failure.
 TIMED_OUT_INACTIVITY_STATE_KEY = "timed_out_inactivity"
 
+_TERMINAL_STATUSES = (TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED)
+
 
 @dataclass
 class UpdateTaskRunStatusInput:
@@ -48,6 +50,18 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
         return
 
     old_status = task_run.status
+    # Terminal statuses are final. A run cancelled out of band (a loop's cancel_previous overlap
+    # policy, owner deactivation) must not be resurrected to completed/failed by its own workflow
+    # finishing afterward, which would both lie in the audit trail and undo the cancellation.
+    if old_status in _TERMINAL_STATUSES and input.status != old_status:
+        log_with_activity_context(
+            "Skipping terminal status overwrite",
+            run_id=input.run_id,
+            old_status=old_status,
+            new_status=input.status,
+        )
+        return
+
     task_run.status = input.status
 
     if input.error_message:

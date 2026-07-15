@@ -9,12 +9,12 @@ and the overlap policy are enforced once, in one order, regardless of caller.
 import re
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any
 from uuid import UUID
 
-from django.db import IntegrityError, connection, transaction
+from django.db import connection, transaction
 from django.utils import timezone as django_timezone
 
 from posthog.models import User
@@ -22,7 +22,7 @@ from posthog.temporal.oauth import PosthogMcpScopes, resolve_scopes
 
 from products.tasks.backend.logic.services.code_usage_gate import cloud_usage_limit_response
 from products.tasks.backend.loop_notifications import dispatch_loop_event
-from products.tasks.backend.loop_service import pause_loop_schedules
+from products.tasks.backend.loop_service import pause_loop_schedules, signal_loop_run_cancelled
 from products.tasks.backend.metrics import observe_loop_auto_paused, observe_loop_fire
 from products.tasks.backend.models import Channel, Loop, LoopFire, LoopTrigger, Task, TaskRun
 from products.tasks.backend.temporal.process_task.utils import get_default_model_for_runtime_adapter
@@ -204,6 +204,16 @@ def _render_payload_trigger_context(trigger_type: str, payload: dict | None) -> 
     return "\n".join(lines)
 
 
+@dataclass
+class _FireDecision:
+    reason: str
+    created: bool
+    is_replay: bool
+    task_id: UUID | None = None
+    task_run_id: UUID | None = None
+    cancelled_workflow_ids: list[str] = field(default_factory=list)
+
+
 def fire_loop(
     loop: Loop,
     trigger: LoopTrigger | None,
@@ -211,46 +221,90 @@ def fire_loop(
     trigger_context: str,
     actor: User | None = None,
 ) -> LoopFireResult:
-    """Fire a loop: dedup, gate, rate-cap, apply overlap policy, then spawn a run.
+    """Fire a loop: gate, dedup, rate-cap, apply overlap policy, then spawn a run.
 
     Every trigger path (schedule workflow, GitHub webhook handler, API endpoint,
     manual "run now") calls this and only this, so the guardrails apply once,
-    in one order, regardless of caller.
+    in one order, regardless of caller. Dedup, rate-cap and overlap all run inside a
+    single team-scoped advisory-locked transaction so concurrent fires are race-free
+    and a failed run creation rolls back its dedup record (a retry recreates cleanly
+    rather than being silently swallowed).
     """
     if not loop.enabled or loop.deleted:
         return LoopFireResult(created=False, reason="disabled", task_id=None, task_run_id=None)
 
-    if trigger is not None:
-        try:
-            with transaction.atomic():
-                LoopFire.objects.for_team(loop.team_id, canonical=True).create(
-                    team_id=loop.team_id, loop_trigger=trigger, fire_key=fire_key
-                )
-        except IntegrityError:
-            return LoopFireResult(created=False, reason="deduped", task_id=None, task_run_id=None)
-        LoopTrigger.objects.for_team(loop.team_id, canonical=True).filter(id=trigger.id).update(
-            last_fired_at=django_timezone.now()
-        )
+    # A disabled trigger whose schedule pause hasn't propagated (or whose occurrence was
+    # already dispatched) must not still fire.
+    if trigger is not None and not trigger.enabled:
+        return LoopFireResult(created=False, reason="disabled", task_id=None, task_run_id=None)
 
+    # Usage gate first, outside the lock: it makes an external call, so holding the team
+    # advisory lock across it would stall every other fire for the team.
     if _usage_gate_blocked(loop):
         _increment_consecutive_failures_and_maybe_pause(loop, error="cloud usage limit exceeded")
         observe_loop_fire(reason="gate_blocked")
         dispatch_loop_event(loop, "needs_attention", {"reason": "gate_blocked"})
         return LoopFireResult(created=False, reason="gate_blocked", task_id=None, task_run_id=None)
 
-    if _rate_capped(loop):
-        observe_loop_fire(reason="rate_capped")
-        dispatch_loop_event(loop, "needs_attention", {"reason": "rate_capped"})
-        return LoopFireResult(created=False, reason="rate_capped", task_id=None, task_run_id=None)
+    decision = _fire_loop_committed(loop, trigger, fire_key, trigger_context)
 
-    if _team_rate_capped(loop):
-        observe_loop_fire(reason="team_rate_capped")
-        dispatch_loop_event(loop, "needs_attention", {"reason": "team_rate_capped"})
-        return LoopFireResult(created=False, reason="team_rate_capped", task_id=None, task_run_id=None)
+    # Side effects run after the transaction commits. A replay (a retry that deduped against an
+    # existing fire) skips them: the original fire already emitted them.
+    if not decision.is_replay:
+        observe_loop_fire(reason=decision.reason)
+        if decision.reason in ("rate_capped", "team_rate_capped"):
+            dispatch_loop_event(loop, "needs_attention", {"reason": decision.reason})
+        if decision.created:
+            logger.info(
+                "loop_fire_created",
+                extra={
+                    "loop_id": str(loop.id),
+                    "loop_trigger_id": str(trigger.id) if trigger is not None else None,
+                    "task_id": str(decision.task_id),
+                    "task_run_id": str(decision.task_run_id),
+                    "actor_id": actor.id if actor is not None else None,
+                },
+            )
+    for workflow_id in decision.cancelled_workflow_ids:
+        signal_loop_run_cancelled(workflow_id)
 
+    return LoopFireResult(
+        created=decision.created,
+        reason=decision.reason,
+        task_id=decision.task_id,
+        task_run_id=decision.task_run_id,
+    )
+
+
+def _fire_loop_committed(loop: Loop, trigger: LoopTrigger | None, fire_key: str, trigger_context: str) -> _FireDecision:
     with transaction.atomic():
+        # Team-scoped advisory lock: serialize all of a team's fires so dedup detection, both
+        # rate caps and the overlap check see a consistent, race-free view.
         with connection.cursor() as cursor:
-            cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", [str(loop.id)])
+            cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", [f"loop-team:{loop.team_id}"])
+
+        existing = _existing_fire(loop, trigger, fire_key)
+        if existing is not None:
+            return _FireDecision(
+                reason=existing.outcome_reason or "deduped",
+                created=False,
+                is_replay=True,
+                task_id=existing.outcome_task_id,
+                task_run_id=existing.outcome_task_run_id,
+            )
+
+        fire = LoopFire.objects.for_team(loop.team_id, canonical=True).create(
+            team_id=loop.team_id, loop=loop, loop_trigger=trigger, fire_key=fire_key
+        )
+        if trigger is not None:
+            LoopTrigger.objects.for_team(loop.team_id, canonical=True).filter(id=trigger.id).update(
+                last_fired_at=django_timezone.now()
+            )
+
+        if _rate_capped(loop):
+            return _record_fire_outcome(fire, "rate_capped")
+        if _team_rate_capped(loop):
+            return _record_fire_outcome(fire, "team_rate_capped")
 
         active_runs = list(
             TaskRun.objects.select_for_update().filter(
@@ -259,14 +313,15 @@ def fire_loop(
                 status__in=_NON_TERMINAL_TASK_RUN_STATUSES,
             )
         )
+        cancelled_workflow_ids: list[str] = []
         if active_runs:
             if loop.overlap_policy == Loop.OverlapPolicy.SKIP:
-                observe_loop_fire(reason="overlap_skipped")
-                return LoopFireResult(created=False, reason="overlap_skipped", task_id=None, task_run_id=None)
+                return _record_fire_outcome(fire, "overlap_skipped")
             if loop.overlap_policy == Loop.OverlapPolicy.CANCEL_PREVIOUS:
-                # Displaces the previous run(s) at the DB layer only; it does not
-                # signal the live sandbox, which winds down on its own once the
-                # workflow next observes the cancelled status.
+                # Cancel at the DB layer AND signal each workflow (after commit) so the sandbox
+                # actually winds down. The terminal-status guard in update_task_run_status keeps
+                # a late natural completion from resurrecting the cancelled status.
+                cancelled_workflow_ids = [run.workflow_id for run in active_runs]
                 now = django_timezone.now()
                 TaskRun.objects.filter(id__in=[run.id for run in active_runs]).update(
                     status=TaskRun.Status.CANCELLED, completed_at=now, updated_at=now
@@ -274,19 +329,31 @@ def fire_loop(
             # ALLOW falls through and creates a new run alongside the active ones.
 
         task, task_run = _create_loop_task_and_run(loop, trigger, trigger_context)
+        fire.outcome_reason = "created"
+        fire.outcome_task_id = task.id
+        fire.outcome_task_run_id = task_run.id
+        fire.save(update_fields=["outcome_reason", "outcome_task_id", "outcome_task_run_id"])
+        return _FireDecision(
+            reason="created",
+            created=True,
+            is_replay=False,
+            task_id=task.id,
+            task_run_id=task_run.id,
+            cancelled_workflow_ids=cancelled_workflow_ids,
+        )
 
-    logger.info(
-        "loop_fire_created",
-        extra={
-            "loop_id": str(loop.id),
-            "loop_trigger_id": str(trigger.id) if trigger is not None else None,
-            "task_id": str(task.id),
-            "task_run_id": str(task_run.id),
-            "actor_id": actor.id if actor is not None else None,
-        },
-    )
-    observe_loop_fire(reason="created")
-    return LoopFireResult(created=True, reason="created", task_id=task.id, task_run_id=task_run.id)
+
+def _existing_fire(loop: Loop, trigger: LoopTrigger | None, fire_key: str) -> LoopFire | None:
+    qs = LoopFire.objects.for_team(loop.team_id, canonical=True)
+    if trigger is not None:
+        return qs.filter(loop_trigger=trigger, fire_key=fire_key).first()
+    return qs.filter(loop=loop, loop_trigger__isnull=True, fire_key=fire_key).first()
+
+
+def _record_fire_outcome(fire: LoopFire, reason: str) -> _FireDecision:
+    fire.outcome_reason = reason
+    fire.save(update_fields=["outcome_reason"])
+    return _FireDecision(reason=reason, created=False, is_replay=False)
 
 
 def _usage_gate_blocked(loop: Loop) -> bool:
@@ -298,9 +365,7 @@ def _usage_gate_blocked(loop: Loop) -> bool:
 def _rate_capped(loop: Loop) -> bool:
     since = django_timezone.now() - timedelta(hours=24)
     fire_count = (
-        LoopFire.objects.for_team(loop.team_id, canonical=True)
-        .filter(loop_trigger__loop=loop, created_at__gte=since)
-        .count()
+        LoopFire.objects.for_team(loop.team_id, canonical=True).filter(loop=loop, created_at__gte=since).count()
     )
     return fire_count >= LOOP_RATE_CAP_PER_DAY
 

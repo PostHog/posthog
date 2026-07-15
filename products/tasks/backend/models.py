@@ -1143,6 +1143,9 @@ class Loop(ModelActivityMixin, TeamScopedRootMixin):
     last_run_status = models.CharField(max_length=32, null=True, blank=True)
     last_error = models.TextField(null=True, blank=True)
     consecutive_failures = models.PositiveIntegerField(default=0)
+    # Why a loop is currently paused when it wasn't the owner who paused it, so the UI can explain
+    # it and a reactivation flow can clear it. Null for a normal owner pause. See loop_lifecycle.py.
+    disabled_reason = models.CharField(max_length=64, null=True, blank=True)
     deleted = models.BooleanField(default=False)
     created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
@@ -1231,27 +1234,54 @@ class LoopTrigger(TeamScopedRootMixin):
 
 
 class LoopFire(TeamScopedRootMixin):
-    """Per-fire dedup record, unique on (trigger, fire key), so schedule replays,
-    webhook redeliveries and API retries never double-spawn a run. The fire key is
-    the Temporal workflow id, the X-GitHub-Delivery GUID or the client idempotency
-    key depending on trigger type."""
+    """Per-fire dedup record, so schedule replays, webhook redeliveries, API retries and
+    double-clicked manual runs never double-spawn a run. Trigger fires dedup on
+    (loop_trigger, fire_key); manual "run now" fires have no trigger and dedup on
+    (loop, fire_key). The fire key is the Temporal workflow id, the X-GitHub-Delivery GUID
+    or the client idempotency key depending on path. The created run's ids and terminal
+    reason are recorded so a dedup hit (a retry) returns the original outcome instead of a
+    bare "deduped"."""
 
     # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     # db_constraint=False on the team FK: same hot-table rationale as Loop above.
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
-    loop_trigger = models.ForeignKey(LoopTrigger, on_delete=models.CASCADE, related_name="fires")
+    # Always set. Direct FK (not just via loop_trigger) so manual fires have a dedup scope and so
+    # the per-loop rate-cap and retention queries hit an index instead of joining through trigger.
+    loop = models.ForeignKey(Loop, on_delete=models.CASCADE, related_name="fires", null=True, db_constraint=False)
+    # Null for manual "run now" fires, which have no trigger.
+    loop_trigger = models.ForeignKey(LoopTrigger, on_delete=models.CASCADE, related_name="fires", null=True, blank=True)
     fire_key = models.CharField(max_length=512)
+    # Outcome of the fire, for returning to a retry that dedups against this row.
+    outcome_reason = models.CharField(max_length=64, null=True, blank=True)
+    outcome_task_id = models.UUIDField(null=True, blank=True)
+    outcome_task_run_id = models.UUIDField(null=True, blank=True)
     created_at = models.DateTimeField(default=django_timezone.now)
 
     class Meta:
         db_table = "posthog_task_loop_fire"
         constraints = [
-            models.UniqueConstraint(fields=["loop_trigger", "fire_key"], name="task_loop_fire_trigger_key_unique")
+            # Trigger fires: unique per (trigger, key). Partial so manual fires (null trigger)
+            # don't all collide on a shared NULL.
+            models.UniqueConstraint(
+                fields=["loop_trigger", "fire_key"],
+                name="task_loop_fire_trigger_key_unique",
+                condition=models.Q(loop_trigger__isnull=False),
+            ),
+            # Manual fires: unique per (loop, key) when there's no trigger.
+            models.UniqueConstraint(
+                fields=["loop", "fire_key"],
+                name="task_loop_fire_loop_key_unique",
+                condition=models.Q(loop_trigger__isnull=True),
+            ),
+        ]
+        indexes = [
+            # Per-loop rate-cap window and retention pruning.
+            models.Index(fields=["loop", "created_at"], name="task_loop_fire_loop_ct_idx"),
         ]
 
     def __str__(self):
-        return f"Fire {self.fire_key} on trigger {self.loop_trigger_id}"
+        return f"Fire {self.fire_key} on loop {self.loop_id}"
 
 
 class TaskRun(models.Model):

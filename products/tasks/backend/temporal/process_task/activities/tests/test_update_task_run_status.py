@@ -39,6 +39,19 @@ class TestUpdateTaskRunStatusActivity:
             assert test_task_run.completed_at is None
 
     @pytest.mark.django_db(transaction=True)
+    def test_cancelled_run_is_not_resurrected_by_a_late_workflow_completion(self, activity_environment, test_task_run):
+        # A run cancelled out of band (loop cancel_previous overlap, owner deactivation) must stay
+        # cancelled even if its own workflow finishes and reports completed afterward.
+        test_task_run.status = TaskRun.Status.CANCELLED
+        test_task_run.save(update_fields=["status"])
+
+        input_data = UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=TaskRun.Status.COMPLETED)
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+
+        test_task_run.refresh_from_db()
+        assert test_task_run.status == TaskRun.Status.CANCELLED
+
+    @pytest.mark.django_db(transaction=True)
     def test_updates_error_message(self, activity_environment, test_task_run):
         error_msg = "Something went wrong"
         input_data = UpdateTaskRunStatusInput(

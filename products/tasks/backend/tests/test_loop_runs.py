@@ -80,6 +80,11 @@ class LoopRunsTestCase(TestCase):
         gate = patch(f"{LOOP_RUNS_MODULE}.cloud_usage_limit_response", return_value=None)
         gate.start()
         self.addCleanup(gate.stop)
+        # Cancelling a displaced run signals its Temporal workflow; mock it so tests neither hit
+        # Temporal nor depend on it. Exposed so the cancel_previous test can assert on it.
+        cancel_signal = patch(f"{LOOP_RUNS_MODULE}.signal_loop_run_cancelled")
+        self.mock_signal_cancel = cancel_signal.start()
+        self.addCleanup(cancel_signal.stop)
 
     def create_loop(self, **overrides) -> Loop:
         defaults = {
@@ -133,7 +138,7 @@ class TestFireLoopGuardrails(LoopRunsTestCase):
         self.assertEqual(result.reason, "disabled")
         self.assertEqual(Task.objects.filter(team=self.team).count(), 0)
 
-    def test_same_fire_key_on_a_trigger_is_deduped_to_a_single_run(self):
+    def test_same_fire_key_on_a_trigger_dedups_and_returns_the_original_run(self):
         loop = self.create_loop()
         trigger = self.create_trigger(loop)
 
@@ -142,8 +147,24 @@ class TestFireLoopGuardrails(LoopRunsTestCase):
 
         self.assertTrue(first.created)
         self.assertFalse(second.created)
-        self.assertEqual(second.reason, "deduped")
+        # A retry recovers the original run's ids instead of a bare "deduped" with nulls.
+        self.assertEqual(second.reason, "created")
+        self.assertEqual(second.task_id, first.task_id)
+        self.assertEqual(second.task_run_id, first.task_run_id)
         self.assertEqual(LoopFire.objects.unscoped().filter(loop_trigger=trigger).count(), 1)
+        self.assertEqual(Task.objects.filter(team=self.team, origin_product=Task.OriginProduct.LOOP).count(), 1)
+
+    def test_manual_fire_dedups_on_the_idempotency_key(self):
+        # Manual "run now" has no trigger; a double-click with the same Idempotency-Key must
+        # still dedup (on the loop), not spawn two runs.
+        loop = self.create_loop()
+
+        first = fire_loop(loop, None, "idem-1", "ctx")
+        second = fire_loop(loop, None, "idem-1", "ctx")
+
+        self.assertTrue(first.created)
+        self.assertFalse(second.created)
+        self.assertEqual(second.task_run_id, first.task_run_id)
         self.assertEqual(Task.objects.filter(team=self.team, origin_product=Task.OriginProduct.LOOP).count(), 1)
 
     @patch(f"{LOOP_RUNS_MODULE}.dispatch_loop_event")
@@ -191,7 +212,7 @@ class TestFireLoopGuardrails(LoopRunsTestCase):
         trigger_b = self.create_trigger(loop)
         LoopFire.objects.for_team(self.team.id, canonical=True).bulk_create(
             [
-                LoopFire(team=self.team, loop_trigger=trigger_a, fire_key=f"seed-{i}")
+                LoopFire(team=self.team, loop=loop, loop_trigger=trigger_a, fire_key=f"seed-{i}")
                 for i in range(LOOP_RATE_CAP_PER_DAY)
             ]
         )
@@ -214,7 +235,7 @@ class TestFireLoopGuardrails(LoopRunsTestCase):
         fresh_trigger = self.create_trigger(fresh)
         LoopFire.objects.for_team(self.team.id, canonical=True).bulk_create(
             [
-                LoopFire(team=self.team, loop_trigger=noisy_trigger, fire_key=f"team-seed-{i}")
+                LoopFire(team=self.team, loop=noisy, loop_trigger=noisy_trigger, fire_key=f"team-seed-{i}")
                 for i in range(LOOP_TEAM_RATE_CAP_PER_DAY)
             ]
         )
@@ -264,6 +285,8 @@ class TestFireLoopGuardrails(LoopRunsTestCase):
             self.assertEqual(active_run.status, TaskRun.Status.CANCELLED)
             self.assertIsNotNone(active_run.completed_at)
             self.assertEqual(self.active_run_count(loop), 1)
+            # The displaced run's workflow is signalled so its sandbox actually stops.
+            self.mock_signal_cancel.assert_called_once_with(active_run.workflow_id)
 
 
 class TestFireLoopCreatesRun(LoopRunsTestCase):
