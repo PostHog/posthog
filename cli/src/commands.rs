@@ -38,7 +38,14 @@ pub struct Cli {
     /// Load PostHog credentials from this dotenv-style file when not present in the process
     /// environment. Prefer this over the `--env-file` alias: the npm package runs the binary
     /// through a `node` wrapper, and Node's own built-in `--env-file` flag intercepts that spelling.
-    #[arg(long = "dotenv-file", alias = "env-file", value_name = "PATH")]
+    /// Also settable as `POSTHOG_CLI_DOTENV_FILE`, for callers that control the environment but
+    /// not the command line (e.g. an Xcode build phase invoking the iOS SDK's upload-symbols.sh).
+    #[arg(
+        long = "dotenv-file",
+        alias = "env-file",
+        value_name = "PATH",
+        env = "POSTHOG_CLI_DOTENV_FILE"
+    )]
     env_file: Option<PathBuf>,
 
     /// Skip artifact processing and upload (sourcemap, dSYM, hermes, proguard) without contacting
@@ -517,6 +524,19 @@ mod tests {
         assert_eq!(
             arg.get_env(),
             Some(std::ffi::OsStr::new("POSTHOG_CLI_DRY_RUN"))
+        );
+    }
+
+    #[test]
+    fn env_file_flag_is_wired_to_env_var() {
+        let cmd = Cli::command();
+        let arg = cmd
+            .get_arguments()
+            .find(|a| a.get_id().as_str() == "env_file")
+            .expect("env_file arg should exist");
+        assert_eq!(
+            arg.get_env(),
+            Some(std::ffi::OsStr::new("POSTHOG_CLI_DOTENV_FILE"))
         );
     }
 
