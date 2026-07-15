@@ -149,6 +149,12 @@ def get_endpoint_permissions(
     except DbtHostNotAllowedError as e:
         return dict.fromkeys(endpoints, str(e))
 
+    # These probes are separate outbound requests from credential validation, so re-check the host
+    # here too — otherwise a custom host could be re-pointed at an internal address after validation.
+    host_ok, host_err = _check_host_safety(base_url, custom_base_url, team_id)
+    if not host_ok:
+        return dict.fromkeys(endpoints, host_err or HOST_NOT_ALLOWED_ERROR)
+
     session = make_tracked_session()
     headers = _get_headers(api_token)
     results: dict[str, str | None] = {}

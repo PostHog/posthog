@@ -50,9 +50,9 @@ class TestDbtSource:
         assert custom_url_field.required is False
 
     def test_connection_host_fields_cover_host_determining_fields(self):
-        # Both fields retarget where the stored token is sent; missing one lets an editor
-        # exfiltrate the preserved credential by pointing it at their own server.
-        assert self.source.connection_host_fields == ["region", "custom_base_url"]
+        # These fields retarget where the stored token is sent (host and account path); missing one
+        # lets an editor point the preserved credential at their own server or another account.
+        assert self.source.connection_host_fields == ["region", "custom_base_url", "account_id"]
 
     @pytest.mark.parametrize("expected_key", ["401 Client Error", "403 Client Error"])
     def test_non_retryable_errors(self, expected_key):

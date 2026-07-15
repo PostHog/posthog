@@ -104,9 +104,10 @@ Your account ID is the number after `/deploy/` in your dbt URL. If your account 
 
     @property
     def connection_host_fields(self) -> list[str]:
-        # Both fields determine which host the stored API token is sent to; retargeting either
-        # must re-require the token.
-        return ["region", "custom_base_url"]
+        # region and custom_base_url pick the host; account_id is the path the token is sent to.
+        # Retargeting any of them must re-require the token so a preserved credential can't be
+        # pointed at another host or another account authorized by that same token.
+        return ["region", "custom_base_url", "account_id"]
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.backend.temporal.data_imports.sources.dbt.canonical_descriptions import (

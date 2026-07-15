@@ -210,6 +210,26 @@ class TestGetEndpointPermissions:
 
         assert result["projects"] is None
 
+    def test_unsafe_custom_host_is_rejected_without_probing(self):
+        # The probes are separate outbound requests, so an internal custom host must be blocked
+        # here too — not just in validate_credentials — before any request goes out (SSRF).
+        with (
+            mock.patch(f"{MODULE}._is_host_safe", return_value=(False, "Host not allowed")),
+            mock.patch(f"{MODULE}.make_tracked_session") as mock_session,
+        ):
+            result = get_endpoint_permissions(
+                api_token="token",
+                account_id="12345",
+                region="us",
+                custom_base_url="https://internal.local",
+                team_id=1,
+                endpoints=["projects", "users"],
+            )
+
+        mock_session.return_value.get.assert_not_called()
+        assert result["projects"] is not None
+        assert result["users"] is not None
+
 
 class TestGetRows:
     def _get_rows(self, session: mock.MagicMock, manager: mock.MagicMock, endpoint: str, **kwargs: Any) -> list[Any]:
