@@ -5,6 +5,8 @@ import { LemonDialog } from '@posthog/lemon-ui'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 
+import { reportFeatureFlagArchived } from './featureFlagArchiveDialog'
+
 export type FeatureFlagDisableDialogSource = 'feature-flags-list' | 'feature-flag-detail'
 
 export type FeatureFlagDisableDialogOption = 'disable' | 'disable_and_archive' | 'cancel'
@@ -19,7 +21,8 @@ export function reportFeatureFlagDisableDialogOptionSelected(
 /**
  * Opens the disable confirmation dialog for a feature flag. The test variant of the
  * disable-and-archive experiment gets "Disable and archive" as the primary CTA alongside a
- * "Disable only" option; control keeps each caller's pre-existing dialog. The experiment flag is
+ * "Disable only" option; control keeps each caller's pre-existing dialog, with this dialog's own
+ * option-selected telemetry wrapped around the caller's confirm/cancel. The experiment flag is
  * read here rather than at render so the exposure lines up with the dialog actually opening.
  */
 export function openFeatureFlagDisableDialog({
@@ -31,8 +34,10 @@ export function openFeatureFlagDisableDialog({
     source: FeatureFlagDisableDialogSource
     onDisable: () => void
     onDisableAndArchive: () => void
-    /** The pre-experiment dialog, shown to the control variant */
-    openControlDialog: () => void
+    /** The pre-experiment dialog, shown to the control variant. Called with confirm/cancel
+     *  callbacks that already report the selected option — the caller only needs to wire them
+     *  into its own dialog's primary/secondary buttons. */
+    openControlDialog: (onConfirm?: () => void, onCancel?: () => void) => void
 }): void {
     const inTestVariant =
         enabledFeaturesLogic.findMounted()?.values.featureFlags[
@@ -41,8 +46,19 @@ export function openFeatureFlagDisableDialog({
 
     posthog.capture('feature flag disable confirmation shown', { source })
 
+    const selectDisable = (): void => {
+        reportFeatureFlagDisableDialogOptionSelected(source, 'disable')
+        onDisable()
+    }
+    const selectCancel = (): void => reportFeatureFlagDisableDialogOptionSelected(source, 'cancel')
+    const selectDisableAndArchive = (): void => {
+        reportFeatureFlagDisableDialogOptionSelected(source, 'disable_and_archive')
+        reportFeatureFlagArchived('disable-confirmation')
+        onDisableAndArchive()
+    }
+
     if (!inTestVariant) {
-        openControlDialog()
+        openControlDialog(selectDisable, selectCancel)
         return
     }
 
@@ -54,28 +70,19 @@ export function openFeatureFlagDisableDialog({
             children: 'Disable and archive',
             type: 'primary',
             size: 'small',
-            onClick: () => {
-                reportFeatureFlagDisableDialogOptionSelected(source, 'disable_and_archive')
-                posthog.capture('feature flag archived', { via: 'disable-confirmation' })
-                onDisableAndArchive()
-            },
+            onClick: selectDisableAndArchive,
         },
         secondaryButton: {
             children: 'Disable only',
             type: 'secondary',
             size: 'small',
-            onClick: () => {
-                reportFeatureFlagDisableDialogOptionSelected(source, 'disable')
-                onDisable()
-            },
+            onClick: selectDisable,
         },
         tertiaryButton: {
             children: 'Cancel',
             type: 'tertiary',
             size: 'small',
-            onClick: () => {
-                reportFeatureFlagDisableDialogOptionSelected(source, 'cancel')
-            },
+            onClick: selectCancel,
         },
     })
 }

@@ -6,7 +6,7 @@ import { FeatureFlagType } from '~/types'
 
 import { openConfirmationModal } from './ConfirmationModal'
 import type { featureFlagConfirmationLogicType } from './featureFlagConfirmationLogicType'
-import { openFeatureFlagDisableDialog, reportFeatureFlagDisableDialogOptionSelected } from './featureFlagDisableDialog'
+import { openFeatureFlagDisableDialog } from './featureFlagDisableDialog'
 import { DependentFlag } from './featureFlagLogic'
 
 /**
@@ -140,34 +140,26 @@ export function checkFeatureFlagConfirmation(
     }
 
     if (requireStatusConfirmation && originalFlag?.active !== updatedFlag.active) {
+        const openStatusConfirmationModal = (onConfirmModal: () => void, onCancelModal?: () => void): void =>
+            openConfirmationModal({
+                featureFlag: updatedFlag,
+                type: 'flag-status',
+                activeNewValue: updatedFlag.active,
+                onConfirm: onConfirmModal,
+                onCancel: onCancelModal,
+            })
+
         // Disabling can offer "Disable and archive" behind the disable-and-archive experiment
         if (!updatedFlag.active && onDisableAndArchive) {
             openFeatureFlagDisableDialog({
                 source: 'feature-flag-detail',
                 onDisable: onConfirm,
                 onDisableAndArchive,
-                openControlDialog: () =>
-                    openConfirmationModal({
-                        featureFlag: updatedFlag,
-                        type: 'flag-status',
-                        activeNewValue: updatedFlag.active,
-                        onConfirm: () => {
-                            reportFeatureFlagDisableDialogOptionSelected('feature-flag-detail', 'disable')
-                            onConfirm()
-                        },
-                        onCancel: () => {
-                            reportFeatureFlagDisableDialogOptionSelected('feature-flag-detail', 'cancel')
-                        },
-                    }),
+                openControlDialog: openStatusConfirmationModal,
             })
             return true
         }
-        openConfirmationModal({
-            featureFlag: updatedFlag,
-            type: 'flag-status',
-            activeNewValue: updatedFlag.active,
-            onConfirm,
-        })
+        openStatusConfirmationModal(onConfirm)
         return true
     }
 

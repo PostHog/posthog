@@ -62,7 +62,7 @@ import { BulkCopyFlagsModal, BulkCopyToProjectsButton } from './BulkCopyFlagsMod
 import { BulkDeleteResultsModal } from './BulkDeleteResultsModal'
 import { openFeatureFlagArchiveDialog } from './featureFlagArchiveDialog'
 import { openFeatureFlagDeleteDialog } from './featureFlagDeleteDialog'
-import { openFeatureFlagDisableDialog, reportFeatureFlagDisableDialogOptionSelected } from './featureFlagDisableDialog'
+import { openFeatureFlagDisableDialog } from './featureFlagDisableDialog'
 import { FeatureFlagFiltersSection } from './FeatureFlagFilters'
 import { FLAGS_PER_PAGE, FeatureFlagsTab, featureFlagsLogic, flagMatchesType } from './featureFlagsLogic'
 import { flagSelectionLogic } from './flagSelectionLogic'
@@ -209,38 +209,23 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                                     const applyUpdate = (payload: Partial<FeatureFlagType>): void => {
                                         featureFlag.id && updateFeatureFlag({ id: featureFlag.id, payload })
                                     }
-                                    const openControlDialog = (): void => {
+                                    const openControlDialog = (onConfirm?: () => void, onCancel?: () => void): void => {
                                         LemonDialog.open({
-                                            title: `${newValue === true ? 'Enable' : 'Disable'} this flag?`,
+                                            title: `${newValue ? 'Enable' : 'Disable'} this flag?`,
                                             description: `This flag will be immediately ${
-                                                newValue === true ? 'rolled out to' : 'rolled back from'
+                                                newValue ? 'rolled out to' : 'rolled back from'
                                             } the users matching the release conditions.`,
                                             primaryButton: {
                                                 children: 'Confirm',
                                                 type: 'primary',
-                                                onClick: () => {
-                                                    if (!newValue) {
-                                                        reportFeatureFlagDisableDialogOptionSelected(
-                                                            'feature-flags-list',
-                                                            'disable'
-                                                        )
-                                                    }
-                                                    applyUpdate({ active: newValue })
-                                                },
+                                                onClick: onConfirm ?? (() => applyUpdate({ active: newValue })),
                                                 size: 'small',
                                             },
                                             secondaryButton: {
                                                 children: 'Cancel',
                                                 type: 'tertiary',
                                                 size: 'small',
-                                                onClick: () => {
-                                                    if (!newValue) {
-                                                        reportFeatureFlagDisableDialogOptionSelected(
-                                                            'feature-flags-list',
-                                                            'cancel'
-                                                        )
-                                                    }
-                                                },
+                                                onClick: onCancel,
                                             },
                                         })
                                     }
