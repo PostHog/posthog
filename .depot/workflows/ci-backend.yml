@@ -360,6 +360,9 @@ jobs:
                         - 'products/tasks/backend/temporal/**/*'
                       product_yamls:
                         - 'products/*/product.yaml'
+                        - '**/owners.yaml'
+                        # Resolver changes must re-run the owners.yaml lint too.
+                        - 'tools/owners/**'
                       openapi_types:
                         # Generated OpenAPI types - validate they match schema
                         - 'frontend/src/generated/**/*'
@@ -821,7 +824,8 @@ jobs:
     # Consolidates checks that previously each spun up their own runner.
     repo-checks:
         needs: [changes]
-        if: needs.changes.outputs.backend == 'true' && github.event_name != 'push'
+        # product_yamls: ownership-only PRs still need the owners.yaml lint below.
+        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.product_yamls == 'true') && github.event_name != 'push'
         timeout-minutes: 10
         permissions:
             contents: read
@@ -844,6 +848,12 @@ jobs:
               run: ./bin/hogli product:bootstrap spline_reticulator --non-interactive
             - name: Lint product structure
               run: ./bin/hogli product:lint --all
+            # Distributed owners.yaml tree: schema, product.yaml/owners.yaml
+            # conflicts, dead rule globs, coverage (warn-only). No --live, so no
+            # secrets — fork PRs get validated too (the --live slug check runs in
+            # the fork-gated validate-product-yamls job instead).
+            - name: Lint owners.yaml files
+              run: ./bin/hogli owners:lint
             - name: Check version specifiers
               run: python .github/scripts/check-version-specifiers.py
             - name: Check IDOR model coverage
@@ -909,6 +919,10 @@ jobs:
                     exit 0
                   fi
                   ./bin/hogli product:lint:owners "${existing[@]}"
+            - name: Validate owners.yaml identities against GitHub
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+              run: ./bin/hogli owners:lint --live
 
     # Migration validation and OpenAPI type generation.
     # This job needs Docker + DB — it checks out master first to run baseline
