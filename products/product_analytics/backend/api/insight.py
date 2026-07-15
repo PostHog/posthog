@@ -75,9 +75,7 @@ from posthog.hogql_queries.apply_dashboard_filters import (
     WRAPPER_NODE_KINDS,
     apply_dashboard_filters_to_dict,
     apply_dashboard_variables_to_dict,
-    merge_filters_by_priority,
-    remove_query_properties_overridden_by,
-    tile_filter_merge_enabled,
+    resolve_effective_dashboard_filters,
 )
 from posthog.hogql_queries.legacy_compatibility.feature_flag import get_query_method
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
@@ -1013,18 +1011,11 @@ class InsightSerializer(InsightBasicSerializer):
                     if dashboard
                     else {}
                 )
-                merge_enabled = tile_filter_merge_enabled(instance.team)
-                if tile_filters_override and not merge_enabled:
-                    # Flag off: tile filters replace dashboard filters wholesale (pre-merge behavior).
-                    effective_filters = tile_filters_override
-                elif tile_filters_override:
-                    effective_filters = merge_filters_by_priority(base_filters, tile_filters_override)
-                else:
-                    effective_filters = base_filters or {}
-                if merge_enabled and effective_filters:
-                    # The higher-priority layers (dashboard + tile) replace the insight's own filter on a
-                    # shared key, so the returned query matches what the compute path computed.
-                    query = remove_query_properties_overridden_by(query, effective_filters)
+                # Same dashboard+tile+insight precedence the compute path applies in calculate_results.py,
+                # so the returned query matches what the cached result was actually computed with.
+                query, effective_filters = resolve_effective_dashboard_filters(
+                    query, base_filters, tile_filters_override
+                )
                 query = apply_dashboard_filters_to_dict(
                     query,
                     effective_filters,

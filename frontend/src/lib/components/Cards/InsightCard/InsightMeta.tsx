@@ -108,18 +108,10 @@ interface InsightMetaProps extends Pick<
 // Tile and dashboard overrides merge (backend `merge_filters_by_priority`); the date range is a
 // unit, so the tile's range wins only when the tile sets a bound, otherwise the dashboard's range applies.
 // `!= null` (not truthiness) matches the backend's `is not None`, so an explicit empty-string bound counts.
-// `mergeEnabled` mirrors the `DASHBOARD_TILE_FILTER_MERGE` flag — off, any tile override (even
-// properties-only) wins wholesale, so a tile override with no dates falls back to no dates at all
-// rather than the dashboard's (pre-merge behavior).
 export function getEffectiveDateOverride(
     filtersOverride: DashboardFilter | undefined,
-    tileFiltersOverride: TileFilters | undefined,
-    mergeEnabled: boolean
+    tileFiltersOverride: TileFilters | undefined
 ): { dateFromOverride: string | null | undefined; dateToOverride: string | null | undefined } {
-    if (!mergeEnabled) {
-        const source = Object.keys(tileFiltersOverride ?? {}).length > 0 ? tileFiltersOverride : filtersOverride
-        return { dateFromOverride: source?.date_from, dateToOverride: source?.date_to }
-    }
     const tileHasDate = tileFiltersOverride?.date_from != null || tileFiltersOverride?.date_to != null
     const source = tileHasDate ? tileFiltersOverride : filtersOverride
     return { dateFromOverride: source?.date_from, dateToOverride: source?.date_to }
@@ -206,11 +198,7 @@ export function InsightMeta({
     const showCompactHeading = !showCompactTile || !isSqlInsight
 
     const hasTileOverrides = Object.keys(tileFiltersOverride ?? {}).length > 0
-    const dateOverride = getEffectiveDateOverride(
-        filtersOverride,
-        tileFiltersOverride,
-        !!featureFlags[FEATURE_FLAGS.DASHBOARD_TILE_FILTER_MERGE]
-    )
+    const dateOverride = getEffectiveDateOverride(filtersOverride, tileFiltersOverride)
     const topHeadingProps = {
         query: insight.query,
         lastRefresh: insight.last_refresh,

@@ -65,7 +65,7 @@ describe('InsightDetails', () => {
                 expected: { source: 'tile', dateFrom: '-7d', dateTo: undefined, replaced: undefined },
             },
         ])('$label', ({ insightDateRange, filtersOverride, tileFiltersOverride, expected }) => {
-            expect(getDateRangeOverrideDisplay(insightDateRange, filtersOverride, tileFiltersOverride, true)).toEqual(
+            expect(getDateRangeOverrideDisplay(insightDateRange, filtersOverride, tileFiltersOverride)).toEqual(
                 expected
             )
         })
@@ -133,8 +133,7 @@ describe('InsightDetails', () => {
         it('captures a dashboard filter the tile shadows as overriddenByTile, out of the dashboard group', () => {
             const result = getEffectiveFilterOverrides(
                 { properties: [browserSafari, countryUS] } as any,
-                { properties: [browserChrome] } as any,
-                true
+                { properties: [browserChrome] } as any
             )
 
             // The dashboard's $browser lost to the tile's $browser — surfaced separately, not in the group.
@@ -148,8 +147,7 @@ describe('InsightDetails', () => {
         it('keeps non-overlapping dashboard filters in the group with nothing overridden', () => {
             const result = getEffectiveFilterOverrides(
                 { properties: [countryUS] } as any,
-                { properties: [browserChrome] } as any,
-                true
+                { properties: [browserChrome] } as any
             )
 
             expect(result.overriddenByTile).toEqual([])

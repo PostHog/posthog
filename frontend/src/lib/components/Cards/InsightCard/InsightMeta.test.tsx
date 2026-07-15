@@ -11,39 +11,28 @@ describe('InsightMeta', () => {
                 label: 'tile override with dates → uses tile dates, ignores dashboard',
                 filtersOverride: { date_from: '-30d' },
                 tileFiltersOverride: { date_from: '-7d' },
-                mergeEnabled: true,
                 expected: { dateFromOverride: '-7d', dateToOverride: undefined },
             },
             {
                 label: 'tile override without dates (properties-only) → keeps dashboard dates (merge)',
                 filtersOverride: { date_from: '-30d' },
                 tileFiltersOverride: { properties: [] },
-                mergeEnabled: true,
                 expected: { dateFromOverride: '-30d', dateToOverride: undefined },
             },
             {
                 label: 'no tile override → uses dashboard override dates',
                 filtersOverride: { date_from: '-30d' },
                 tileFiltersOverride: undefined,
-                mergeEnabled: true,
                 expected: { dateFromOverride: '-30d', dateToOverride: undefined },
             },
             {
                 label: 'no overrides at all → no date override',
                 filtersOverride: undefined,
                 tileFiltersOverride: undefined,
-                mergeEnabled: true,
                 expected: { dateFromOverride: undefined, dateToOverride: undefined },
             },
-            {
-                label: 'flag off: tile override without dates (properties-only) → falls back to insight, not dashboard',
-                filtersOverride: { date_from: '-30d' },
-                tileFiltersOverride: { properties: [] },
-                mergeEnabled: false,
-                expected: { dateFromOverride: undefined, dateToOverride: undefined },
-            },
-        ])('$label', ({ filtersOverride, tileFiltersOverride, mergeEnabled, expected }) => {
-            expect(getEffectiveDateOverride(filtersOverride, tileFiltersOverride, mergeEnabled)).toEqual(expected)
+        ])('$label', ({ filtersOverride, tileFiltersOverride, expected }) => {
+            expect(getEffectiveDateOverride(filtersOverride, tileFiltersOverride)).toEqual(expected)
         })
     })
 

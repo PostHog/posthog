@@ -1,8 +1,6 @@
 import json
 from typing import Any
 
-import posthoganalytics
-
 from posthog.schema import DashboardFilter, HogQLVariable, NodeKind
 
 from posthog.exceptions_capture import capture_exception
@@ -14,20 +12,6 @@ WRAPPER_NODE_KINDS = [NodeKind.DATA_TABLE_NODE, NodeKind.DATA_VISUALIZATION_NODE
 # Fields where the higher-priority (override) layer replaces the lower-priority (base) value outright
 # when set. Property filters are handled separately (merged per key).
 _SCALAR_OVERRIDE_FIELDS = ["breakdown_filter", "interval", "filterTestAccounts"]
-
-TILE_FILTER_MERGE_FLAG = "dashboard-tile-filter-merge"
-
-
-def tile_filter_merge_enabled(team: Team) -> bool:
-    """Gates the tile-filters-merge-with-dashboard-filters behavior (`merge_filters_by_priority`).
-    Off, tile overrides replace dashboard filters wholesale, matching pre-merge behavior."""
-    return bool(
-        posthoganalytics.feature_enabled(
-            TILE_FILTER_MERGE_FLAG,
-            str(team.uuid),
-            groups={"organization": str(team.organization_id), "project": str(team.id)},
-        )
-    )
 
 
 def _property_identity(prop: dict) -> tuple[str, Any]:
@@ -131,6 +115,28 @@ def remove_query_properties_overridden_by(query: dict, overriding_filters: dict 
     if not keys:
         return query
     return _strip_query_properties(query, keys)
+
+
+def resolve_effective_dashboard_filters(
+    query: dict, base_filters: dict | None, tile_filters_override: dict | None
+) -> tuple[dict, dict]:
+    """Combine the dashboard-level `base_filters` with a tile's `tile_filters_override` into the filter set
+    that actually applies, and strip any of the insight's own property filters that set replaces on a
+    shared key. Both the "compute the query" and "reconstruct it for display" call sites need this same
+    dashboard+tile+insight precedence resolved identically, so it lives here once rather than being
+    re-derived at each call site.
+
+    Returns `(query, effective_filters)` — callers still apply `effective_filters` to the query themselves
+    via `apply_dashboard_filters_to_dict`.
+    """
+    effective_filters = (
+        merge_filters_by_priority(base_filters, tile_filters_override) if tile_filters_override else base_filters or {}
+    )
+
+    if effective_filters:
+        query = remove_query_properties_overridden_by(query, effective_filters)
+
+    return query, effective_filters
 
 
 # Apply the filters from the django-style Dashboard object

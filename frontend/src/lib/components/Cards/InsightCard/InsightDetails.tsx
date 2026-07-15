@@ -19,7 +19,6 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { convertPropertiesToPropertyGroup } from 'lib/components/PropertyFilters/utils'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconCalculate } from 'lib/lemon-ui/icons'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
@@ -126,38 +125,20 @@ function propertyIdentity(property: AnyPropertyFilter): string {
 
 // Tile and dashboard overrides merge per field (matches backend `merge_filters_by_priority`).
 // Property filters merge per key: a tile filter replaces the dashboard's on the same key.
-// `mergeEnabled` mirrors the `DASHBOARD_TILE_FILTER_MERGE` flag gating the backend behavior — off, a
-// tile override replaces the dashboard's wholesale (pre-merge behavior), matching what was computed.
 export function getEffectiveFilterOverrides(
     filtersOverride: DashboardFilter | undefined,
-    tileFiltersOverride: TileFilters | null | undefined,
-    mergeEnabled: boolean
+    tileFiltersOverride: TileFilters | null | undefined
 ): EffectiveFilterOverrides {
-    if (!mergeEnabled) {
-        const override =
-            tileFiltersOverride && Object.keys(tileFiltersOverride).length > 0
-                ? { override: tileFiltersOverride, source: 'tile' as const }
-                : filtersOverride && Object.keys(filtersOverride).length > 0
-                  ? { override: filtersOverride, source: 'dashboard' as const }
-                  : null
-        return {
-            propertyGroups:
-                override && override.override.properties && override.override.properties.length > 0
-                    ? [{ properties: override.override.properties, source: override.source }]
-                    : [],
-            overriddenByTile: [],
-            breakdown: override?.override.breakdown_filter
-                ? { breakdownFilter: override.override.breakdown_filter, source: override.source }
-                : null,
-        }
-    }
-
     const tileProperties = tileFiltersOverride?.properties ?? []
     const tileKeys = new Set(tileProperties.map(propertyIdentity))
     const dashboardProperties: AnyPropertyFilter[] = []
     const overriddenByTile: AnyPropertyFilter[] = []
     for (const property of filtersOverride?.properties ?? []) {
-        ;(tileKeys.has(propertyIdentity(property)) ? overriddenByTile : dashboardProperties).push(property)
+        if (tileKeys.has(propertyIdentity(property))) {
+            overriddenByTile.push(property)
+        } else {
+            dashboardProperties.push(property)
+        }
     }
     const propertyGroups: EffectiveFilterOverrides['propertyGroups'] = []
     if (dashboardProperties.length > 0) {
@@ -205,22 +186,16 @@ function hasDateBound(source: DateRangeSource | null | undefined): boolean {
 export function getDateRangeOverrideDisplay(
     insightDateRange: DateRangeSource | undefined,
     filtersOverride: DashboardFilter | undefined,
-    tileFiltersOverride: TileFilters | null | undefined,
-    mergeEnabled: boolean
+    tileFiltersOverride: TileFilters | null | undefined
 ): EffectiveDateOverride | null {
-    const tileWins = mergeEnabled
-        ? hasDateBound(tileFiltersOverride)
-        : Object.keys(tileFiltersOverride ?? {}).length > 0
-    const dashboardWins = mergeEnabled ? hasDateBound(filtersOverride) : Object.keys(filtersOverride ?? {}).length > 0
-
     let winner: {
         source: OverrideSource
         dateFrom: string | null | undefined
         dateTo: string | null | undefined
     } | null = null
-    if (tileWins) {
+    if (hasDateBound(tileFiltersOverride)) {
         winner = { source: 'tile', dateFrom: tileFiltersOverride?.date_from, dateTo: tileFiltersOverride?.date_to }
-    } else if (dashboardWins) {
+    } else if (hasDateBound(filtersOverride)) {
         winner = { source: 'dashboard', dateFrom: filtersOverride?.date_from, dateTo: filtersOverride?.date_to }
     }
     if (!winner) {
@@ -228,7 +203,7 @@ export function getDateRangeOverrideDisplay(
     }
 
     let replaced: EffectiveDateOverride['replaced']
-    if (winner.source === 'tile' && mergeEnabled && hasDateBound(filtersOverride)) {
+    if (winner.source === 'tile' && hasDateBound(filtersOverride)) {
         replaced = { source: 'dashboard', dateFrom: filtersOverride?.date_from, dateTo: filtersOverride?.date_to }
     } else if (hasDateBound(insightDateRange)) {
         replaced = { source: 'insight', dateFrom: insightDateRange?.date_from, dateTo: insightDateRange?.date_to }
@@ -846,19 +821,13 @@ export const InsightDetails = React.memo(
         { query, footerInfo, variablesOverride, filtersOverride, tileFiltersOverride, hasDataWarehouseSeries },
         ref
     ): JSX.Element {
-        const mergeEnabled = useFeatureFlag('DASHBOARD_TILE_FILTER_MERGE')
         const {
             propertyGroups,
             overriddenByTile,
             breakdown: overrideBreakdown,
-        } = getEffectiveFilterOverrides(filtersOverride, tileFiltersOverride, mergeEnabled)
+        } = getEffectiveFilterOverrides(filtersOverride, tileFiltersOverride)
         const insightDateRange = isInsightVizNode(query) ? query.source.dateRange : undefined
-        const dateOverride = getDateRangeOverrideDisplay(
-            insightDateRange,
-            filtersOverride,
-            tileFiltersOverride,
-            mergeEnabled
-        )
+        const dateOverride = getDateRangeOverrideDisplay(insightDateRange, filtersOverride, tileFiltersOverride)
         const overrideBreakdownFilter = overrideBreakdown?.breakdownFilter
         const hasPropertyOverrides = propertyGroups.length > 0
         const hasIgnoredBreakdownOverrides =

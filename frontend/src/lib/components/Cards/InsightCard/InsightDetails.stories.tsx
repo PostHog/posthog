@@ -1,7 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-
 import { DashboardFilter, TileFilters } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator, QueryBasedInsightModel } from '~/types'
 
@@ -171,9 +169,6 @@ export const TileFilterOverrides: Story = {
 
 // Both layers present: the tile breakdown wins over the dashboard's, per the merge semantics.
 export const MergedFilterOverrides: Story = {
-    parameters: {
-        featureFlags: [FEATURE_FLAGS.DASHBOARD_TILE_FILTER_MERGE],
-    },
     args: {
         insight: __trendsLine as any,
         filtersOverride: {
@@ -189,9 +184,6 @@ export const MergedFilterOverrides: Story = {
 // Tile date range takes precedence over the dashboard's — the popup shows the tile range with the
 // overridden dashboard range struck-through so the precedence is visible.
 export const TileDateOverridesDashboard: Story = {
-    parameters: {
-        featureFlags: [FEATURE_FLAGS.DASHBOARD_TILE_FILTER_MERGE],
-    },
     args: {
         insight: __trendsLine as any,
         filtersOverride: {
@@ -206,9 +198,6 @@ export const TileDateOverridesDashboard: Story = {
 // Tile and dashboard both filter the same property — the tile wins and the dashboard's shadowed filter
 // is shown de-emphasized (struck-through, no layer tag) as no longer applied.
 export const TilePropertyOverridesDashboard: Story = {
-    parameters: {
-        featureFlags: [FEATURE_FLAGS.DASHBOARD_TILE_FILTER_MERGE],
-    },
     args: {
         insight: __trendsLine as any,
         filtersOverride: {

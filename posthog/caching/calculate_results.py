@@ -10,11 +10,7 @@ from posthog.hogql.constants import LimitContext
 from posthog.api.services.query import ExecutionMode, process_query_dict
 from posthog.clickhouse.query_tagging import get_team_query_tags, tag_queries
 from posthog.event_usage import AnalyticsProps
-from posthog.hogql_queries.apply_dashboard_filters import (
-    merge_filters_by_priority,
-    remove_query_properties_overridden_by,
-    tile_filter_merge_enabled,
-)
+from posthog.hogql_queries.apply_dashboard_filters import resolve_effective_dashboard_filters
 from posthog.hogql_queries.query_runner import get_query_runner_or_none, response_results_contain_models
 from posthog.models import Team, User
 from posthog.schema_migrations.upgrade_manager import upgrade_query
@@ -107,24 +103,13 @@ def calculate_for_query_based_insight(
         variables_override if variables_override is not None else dashboard.variables if dashboard is not None else None
     )
 
-    merge_enabled = tile_filter_merge_enabled(team)
-    if tile_filters_override:
-        if merge_enabled:
-            # Tile filters merge on top of dashboard filters — tile wins per field, properties merge per key.
-            dashboard_filters_json = merge_filters_by_priority(dashboard_filters_json, tile_filters_override)
-        else:
-            # Flag off: tile filters replace dashboard filters wholesale (pre-merge behavior).
-            dashboard_filters_json = tile_filters_override
-
     query_json: dict | None = query_override if query_override is not None else insight.query
     if query_json is None:
         raise ValueError("Insight has no query and no query_override was provided")
 
-    # The higher-priority layers (dashboard + tile) take precedence over the insight's own filter on a
-    # shared key — drop the insight's so they replace it rather than AND-ing (which could zero out results).
-    # Flag off preserves the old behavior where dashboard/tile filters stack onto the insight.
-    if merge_enabled and dashboard_filters_json:
-        query_json = remove_query_properties_overridden_by(query_json, dashboard_filters_json)
+    query_json, dashboard_filters_json = resolve_effective_dashboard_filters(
+        query_json, dashboard_filters_json, tile_filters_override
+    )
 
     process_response = process_query_dict(
         team,
