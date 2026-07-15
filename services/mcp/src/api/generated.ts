@@ -14713,6 +14713,34 @@ export namespace Schemas {
       name?: string;
     }
 
+    export interface CopyFlagsDependencyRequirementsRequest {
+      /** Key of the feature flag to check */
+      feature_flag_key: string;
+      /** Source project ID to copy the flag from */
+      from_project: number;
+      /**
+         * List of target project IDs to check dependency copy eligibility for
+         * @minItems 1
+         * @maxItems 50
+         */
+      target_project_ids: number[];
+    }
+
+    export interface CopyFlagsDependencyRequirementsResponse {
+      /** Whether dependencies can be automatically copied */
+      can_copy_dependencies: boolean;
+      /** Total number of transitive source dependency flags */
+      dependency_count: number;
+      /** Dependency flag keys that would be copied because they are missing from a target project */
+      copied_dependency_keys: string[];
+      /** Dependency flag keys that already have an active same-key flag in every target project */
+      reused_dependency_keys: string[];
+      /** Reasons dependency copying is unavailable or needs user attention */
+      warnings: string[];
+      /** Primary human-readable eligibility result */
+      reason: string;
+    }
+
     export interface CopyFlagsRequest {
       /** Key of the feature flag to copy */
       feature_flag_key: string;
@@ -14720,6 +14748,7 @@ export namespace Schemas {
       from_project: number;
       /**
          * List of target project IDs to copy the flag to
+         * @minItems 1
          * @maxItems 50
          */
       target_project_ids: number[];
@@ -14727,6 +14756,8 @@ export namespace Schemas {
       copy_schedule?: boolean;
       /** Whether to force the copied flag to be disabled in target projects, ignoring the source flag's enabled status */
       disable_copied_flag?: boolean;
+      /** Whether to also copy missing feature flags that this flag depends on */
+      copy_dependencies?: boolean;
     }
 
     export interface CopyFlagsSuccessItem {
@@ -14744,8 +14775,12 @@ export namespace Schemas {
       updated_existing: boolean;
       /** Warnings for flag dependencies that were dropped because no matching active flag exists in the target project */
       flag_dependency_warnings?: string[];
-      /** Warning emitted when the flag was copied but its scheduled changes failed to copy */
+      /** Warning emitted when schedules failed to copy or existing target schedules may affect the copied flag */
       schedule_copy_warning?: string;
+      /** Dependency flag keys that were copied before this flag */
+      copied_dependency_keys?: string[];
+      /** Warnings emitted while copying dependency flags */
+      dependency_copy_warnings?: string[];
     }
 
     export interface CopyFlagsResult {
