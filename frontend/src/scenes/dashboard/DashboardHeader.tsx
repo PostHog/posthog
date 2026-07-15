@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 
 import { FullScreen } from 'lib/components/FullScreen'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
@@ -57,7 +56,7 @@ export function DashboardHeader(): JSX.Element | null {
                 isLoading={dashboardLoading}
                 saveOnBlur
                 renameDebounceMs={0}
-                maxButtonLabelFeatureFlag={FEATURE_FLAGS.DASHBOARD_POSTHOG_AI_BUTTON_LABEL}
+                maxButtonLabelFeatureFlag="DASHBOARD_POSTHOG_AI_BUTTON_LABEL"
                 maxToolProps={
                     dashboard && canEditDashboard
                         ? {

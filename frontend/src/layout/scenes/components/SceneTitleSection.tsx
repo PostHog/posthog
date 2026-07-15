@@ -18,9 +18,10 @@ import { Tooltip } from '@posthog/lemon-ui'
 import { ProductSetupButton } from 'lib/components/ProductSetup'
 import { RenderKeybind } from 'lib/components/Shortcuts/ShortcutMenu'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
-import { FEATURE_FLAGS, type FeatureFlagKey } from 'lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive, buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
 import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
@@ -45,7 +46,7 @@ export function SceneTitlePanelButton({
 }: {
     maxToolProps?: Omit<UseMaxToolOptions, 'active'>
     buttonClassName?: string
-    maxButtonLabelFeatureFlag?: FeatureFlagKey
+    maxButtonLabelFeatureFlag?: keyof typeof FEATURE_FLAGS
 }): JSX.Element | null {
     const { scenePanelIsPresent } = useValues(sceneLayoutLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
@@ -56,6 +57,10 @@ export function SceneTitlePanelButton({
 
     const { featureFlags } = useValues(featureFlagLogic)
     const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
+    const showMaxButtonLabel = useFeatureFlag(maxButtonLabelFeatureFlag, 'test', {
+        deferUntilResolved: true,
+        enabled: !sceneMenuBarEnabled && !sidePanelOpen,
+    })
 
     // Open Info tab if scene has panel content, otherwise default to PostHog AI
     const defaultTab = scenePanelIsPresent ? SidePanelTab.Info : SidePanelTab.Max
@@ -64,16 +69,7 @@ export function SceneTitlePanelButton({
         return null
     }
 
-    const featureFlagsWithSnapshot = featureFlags as FeatureFlagsSet & { toJSON?: () => FeatureFlagsSet }
-    const rawFeatureFlags = featureFlagsWithSnapshot.toJSON?.() ?? featureFlags
-    const maxButtonLabelVariant = maxButtonLabelFeatureFlag ? rawFeatureFlags[maxButtonLabelFeatureFlag] : undefined
-    const maxButtonLabel =
-        !sceneMenuBarEnabled &&
-        maxButtonLabelFeatureFlag &&
-        maxButtonLabelVariant !== undefined &&
-        featureFlags[maxButtonLabelFeatureFlag] === 'test'
-            ? 'PostHog AI'
-            : undefined
+    const maxButtonLabel = showMaxButtonLabel ? 'PostHog AI' : undefined
 
     return (
         <>
@@ -231,7 +227,7 @@ type SceneMainTitleProps = {
      */
     maxToolProps?: Omit<UseMaxToolOptions, 'active'>
     /** Optional feature flag that labels the PostHog AI button for its test variant. */
-    maxButtonLabelFeatureFlag?: FeatureFlagKey
+    maxButtonLabelFeatureFlag?: keyof typeof FEATURE_FLAGS
     /** Max character length for the description field */
     descriptionMaxLength?: number
 }
