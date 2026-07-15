@@ -8,6 +8,7 @@ import {
     IconArrowLeft,
     IconBook,
     IconBuilding,
+    IconChevronDown,
     IconFolder,
     IconGear,
     IconGraduationCap,
@@ -20,6 +21,7 @@ import {
 import { LemonButton, LemonSkeleton, LemonTag, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { liveUserCountLogic } from 'lib/components/LiveUserCount'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -132,7 +134,7 @@ function LiveUsersRightNow(): JSX.Element | null {
         <Link
             to={urls.webAnalyticsLive()}
             onClick={() => captureQuickstartAction('view_live_users')}
-            className="ml-auto flex items-center gap-2 text-sm text-secondary hover:text-primary"
+            className="flex items-center gap-1.5 text-xs text-tertiary hover:text-primary"
             data-attr="quickstart-live-users"
         >
             <span className="relative flex items-center justify-center shrink-0">
@@ -169,11 +171,33 @@ function HeroImageCycler(): JSX.Element {
     )
 }
 
-function ProjectToken(): JSX.Element | null {
+function ProjectToken({ inline = false }: { inline?: boolean }): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
 
     if (!currentTeam?.api_token) {
         return null
+    }
+
+    // Once data is flowing the token is reference material, not a setup step, so it
+    // collapses to a quiet single line
+    if (inline) {
+        return (
+            <div
+                className="flex items-center gap-1.5 text-xs text-tertiary min-w-0"
+                onClick={() => captureQuickstartAction('copy_project_token')}
+                data-attr="quickstart-copy-project-token"
+            >
+                <span className="whitespace-nowrap">Project token</span>
+                <CopyToClipboardInline
+                    explicitValue={currentTeam.api_token}
+                    description="project token"
+                    iconSize="xsmall"
+                    className="font-mono min-w-0"
+                >
+                    {currentTeam.api_token}
+                </CopyToClipboardInline>
+            </div>
+        )
     }
 
     return (
@@ -220,14 +244,42 @@ function UsageThisPeriod(): JSX.Element | null {
         <Link
             to={urls.organizationBilling()}
             onClick={() => captureQuickstartAction('view_billing_usage')}
-            className="flex items-center gap-1.5 text-sm text-secondary hover:text-primary"
+            className="flex items-center gap-1 text-xs text-tertiary hover:text-primary"
             data-attr="quickstart-billing-usage"
         >
-            <span className="text-base leading-none">
-                <IconReceipt />
-            </span>
+            <IconReceipt />
             <span>{label}</span>
         </Link>
+    )
+}
+
+/** Workspace chrome: where you are, what it costs, what's happening right now */
+function WorkspaceStrip(): JSX.Element {
+    const { currentOrganization } = useValues(organizationLogic)
+    const { currentTeam } = useValues(teamLogic)
+
+    return (
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-xs text-tertiary">
+            <div className="flex flex-wrap items-center gap-x-1.5 min-w-0">
+                {currentOrganization?.name ? (
+                    <span className="flex items-center gap-1">
+                        <IconBuilding />
+                        {currentOrganization.name}
+                    </span>
+                ) : null}
+                {currentOrganization?.name && currentTeam?.name ? <span>/</span> : null}
+                {currentTeam?.name ? (
+                    <span className="flex items-center gap-1">
+                        <IconFolder />
+                        {currentTeam.name}
+                    </span>
+                ) : null}
+            </div>
+            <div className="flex flex-wrap items-center gap-x-3">
+                <UsageThisPeriod />
+                <LiveUsersRightNow />
+            </div>
+        </div>
     )
 }
 
@@ -300,8 +352,16 @@ function InstallHeroCard(): JSX.Element {
                     </LemonButton>
                 </div>
             </div>
+            {/* Installing is the token's moment: every manual guide asks for it */}
+            <div className="mt-6">
+                <ProjectToken />
+            </div>
         </LemonCard>
     )
+}
+
+function SubsectionHeader({ title }: { title: string }): JSX.Element {
+    return <h3 className="text-sm font-semibold mb-3">{title}</h3>
 }
 
 function ProductStatusTag({ status }: { status: QuickstartProduct['status'] }): JSX.Element {
@@ -775,8 +835,7 @@ function PublicationsSection(): JSX.Element | null {
     }
 
     return (
-        <section className="flex flex-col gap-4">
-            <SectionHeader title="Fresh from PostHog" subtitle="What we've been shipping and writing about." />
+        <div className="flex flex-col gap-6">
             <PublicationRail
                 feed="blog"
                 title="From the blog"
@@ -799,19 +858,18 @@ function PublicationsSection(): JSX.Element | null {
                 hasMore={publicationsHasMore.newsletter}
                 onLoadMore={loadMoreNewsletterPublications}
             />
-        </section>
+        </div>
     )
 }
 
 export function Quickstart(): JSX.Element {
     const { user } = useValues(userLogic)
     const { featuredProducts, moreProducts, activeProductCount, totalProductCount } = useValues(quickstartLogic)
-    const { currentOrganization } = useValues(organizationLogic)
-    const { currentTeam } = useValues(teamLogic)
     const { showInviteModal } = useActions(inviteLogic)
     const { showConfigureHomeModal } = useActions(navigationLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const installationComplete = useInstallationComplete('ingested_event')
+    const [showAllTools, setShowAllTools] = useState(false)
 
     const quickstartVariant = featureFlags[FEATURE_FLAGS.QUICKSTART_HOMEPAGE]
     useEffect(() => {
@@ -831,179 +889,170 @@ export function Quickstart(): JSX.Element {
         // Capped and centered like onboarding's product selection: full-width reads stretched
         // and empty on large monitors, a ~72rem column keeps the page dense
         <SceneContent className="gap-y-8 py-4 w-full max-w-6xl mx-auto">
-            <section className="flex items-center justify-between gap-8">
-                <div className="flex flex-col gap-4 min-w-0 flex-1">
-                    <div>
-                        {/* Workspace context reads as an eyebrow, separate from the usage numbers below
-                            (grouping by domain, not by shape) */}
-                        {currentOrganization?.name || currentTeam?.name ? (
-                            <div className="flex flex-wrap items-center gap-x-1.5 text-xs text-tertiary mb-2">
-                                {currentOrganization?.name ? (
-                                    <span className="flex items-center gap-1">
-                                        <IconBuilding />
-                                        {currentOrganization.name}
-                                    </span>
-                                ) : null}
-                                {currentOrganization?.name && currentTeam?.name ? <span>/</span> : null}
-                                {currentTeam?.name ? (
-                                    <span className="flex items-center gap-1">
-                                        <IconFolder />
-                                        {currentTeam.name}
-                                    </span>
-                                ) : null}
-                            </div>
-                        ) : null}
-                        <h1 className="text-2xl @2xl/main-content:text-3xl font-bold mb-1">
-                            Welcome to PostHog{user?.first_name ? `, ${user.first_name}` : ''} 👋
-                        </h1>
-                        <p className="text-secondary mb-0 max-w-140">
-                            Every tool here runs on the same events. Get data flowing once, then turn things on as you
-                            need them. No extra installs.
-                        </p>
+            {/* Workspace chrome hugs the hero: tighter within the zone than between zones */}
+            <div className="flex flex-col gap-4">
+                <WorkspaceStrip />
+                <section className="flex items-center justify-between gap-8">
+                    <div className="flex flex-col gap-4 min-w-0 flex-1">
+                        <div>
+                            <h1 className="text-2xl @2xl/main-content:text-3xl font-bold mb-1">
+                                Welcome to PostHog{user?.first_name ? `, ${user.first_name}` : ''} 👋
+                            </h1>
+                            <p className="text-secondary mb-0 max-w-140">
+                                Every tool here runs on the same events. Get data flowing once, then turn things on as
+                                you need them. No extra installs.
+                            </p>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                icon={<IconSparkles />}
+                                to={urls.projectHomepage()}
+                                onClick={() => captureQuickstartAction('ask_posthog_ai_header')}
+                                data-attr="quickstart-header-ask-posthog-ai"
+                            >
+                                Ask PostHog AI
+                            </LemonButton>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                icon={<IconPeople />}
+                                onClick={() => {
+                                    captureQuickstartAction('invite_teammate_header')
+                                    showInviteModal()
+                                }}
+                                data-attr="quickstart-header-invite"
+                            >
+                                Invite teammates
+                            </LemonButton>
+                            <LemonButton
+                                size="small"
+                                icon={<IconGear />}
+                                tooltip="Choose what your Home button opens"
+                                onClick={() => {
+                                    captureQuickstartAction('configure_homepage')
+                                    showConfigureHomeModal()
+                                }}
+                                data-attr="quickstart-header-configure-home"
+                            >
+                                Change homepage
+                            </LemonButton>
+                        </div>
+                        {installationComplete && <ProjectToken inline />}
                     </div>
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                        <HeaderStat icon={<IconApps />}>
-                            {activeProductCount} of {totalProductCount} tools active
-                        </HeaderStat>
-                        <UsageThisPeriod />
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                        <LemonButton
-                            type="primary"
-                            size="small"
-                            icon={<IconSparkles />}
-                            to={urls.projectHomepage()}
-                            onClick={() => captureQuickstartAction('ask_posthog_ai_header')}
-                            data-attr="quickstart-header-ask-posthog-ai"
-                        >
-                            Ask PostHog AI
-                        </LemonButton>
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            icon={<IconPeople />}
-                            onClick={() => {
-                                captureQuickstartAction('invite_teammate_header')
-                                showInviteModal()
-                            }}
-                            data-attr="quickstart-header-invite"
-                        >
-                            Invite teammates
-                        </LemonButton>
-                        <LemonButton
-                            size="small"
-                            icon={<IconGear />}
-                            tooltip="Choose what your Home button opens"
-                            onClick={() => {
-                                captureQuickstartAction('configure_homepage')
-                                showConfigureHomeModal()
-                            }}
-                            data-attr="quickstart-header-configure-home"
-                        >
-                            Change homepage
-                        </LemonButton>
-                        <LiveUsersRightNow />
-                    </div>
-                    <ProjectToken />
-                </div>
-                <HeroImageCycler />
-            </section>
+                    <HeroImageCycler />
+                </section>
+            </div>
 
             {!installationComplete && <InstallHeroCard />}
 
             <section>
-                <SectionHeader
-                    title="Turn on your tools"
-                    subtitle="What most teams start with. Active tools are collecting data. Ready tools are set up and waiting for their first signal."
-                />
+                <div className="flex flex-wrap items-start justify-between gap-x-8">
+                    <SectionHeader
+                        title="Turn on your tools"
+                        subtitle="What most teams start with. Active tools are collecting data. Ready tools are set up and waiting for their first signal."
+                    />
+                    <HeaderStat icon={<IconApps />}>
+                        {activeProductCount} of {totalProductCount} active
+                    </HeaderStat>
+                </div>
                 <div className="grid grid-cols-1 @2xl/main-content:grid-cols-2 @5xl/main-content:grid-cols-3 gap-4">
                     {featuredProducts.map((product) => (
                         <ProductCard key={product.key} product={product} />
                     ))}
                 </div>
-            </section>
-
-            <section>
-                <SectionHeader
-                    title="Explore the rest of the platform"
-                    subtitle="More tools that work on the same data, whenever you're ready for them."
-                />
-                <div className="grid grid-cols-1 @2xl/main-content:grid-cols-2 @5xl/main-content:grid-cols-4 gap-4">
-                    {moreProducts.map((product) => (
-                        <ProductCard key={product.key} product={product} />
-                    ))}
+                {showAllTools && (
+                    <div className="grid grid-cols-1 @2xl/main-content:grid-cols-2 @5xl/main-content:grid-cols-4 gap-4 mt-4">
+                        {moreProducts.map((product) => (
+                            <ProductCard key={product.key} product={product} />
+                        ))}
+                    </div>
+                )}
+                <div className="mt-4">
+                    <LemonButton
+                        size="small"
+                        icon={<IconChevronDown className={showAllTools ? 'rotate-180' : undefined} />}
+                        onClick={() => {
+                            captureQuickstartAction('toggle_more_tools')
+                            setShowAllTools(!showAllTools)
+                        }}
+                        data-attr="quickstart-toggle-more-tools"
+                    >
+                        {showAllTools ? 'Show fewer tools' : `Show ${moreProducts.length} more tools`}
+                    </LemonButton>
                 </div>
             </section>
 
             <section>
-                <SectionHeader title="Learn the ropes" />
-                <div className="grid grid-cols-1 @3xl/main-content:grid-cols-3 gap-4">
-                    <LearnCard
-                        icon={<IconSparkles />}
-                        title="Ask PostHog AI anything"
-                        description='Once events are flowing, ask PostHog AI questions in plain English, like "What are my most visited pages this week?"'
-                        buttonLabel="Ask PostHog AI"
-                        to={urls.projectHomepage()}
-                        action="ask_posthog_ai"
-                    />
-                    <LearnCard
-                        icon={<IconBook />}
-                        title="Read the docs"
-                        description="Guides for every tool, SDK, and framework, from first install to advanced setups."
-                        buttonLabel="Open docs"
-                        to="https://posthog.com/docs"
-                        targetBlank
-                        action="open_docs_home"
-                    />
-                    <LearnCard
-                        icon={<IconGraduationCap />}
-                        title="Follow a tutorial"
-                        description="Step-by-step walkthroughs of real setups: funnels, feature flags, A/B tests, and more."
-                        buttonLabel="Browse tutorials"
-                        to="https://posthog.com/tutorials"
-                        targetBlank
-                        action="open_tutorials"
-                    />
+                <SectionHeader title="Go further" subtitle="Guides, companion apps, and what's new from PostHog." />
+                <div className="flex flex-col gap-6">
+                    <div>
+                        <SubsectionHeader title="Learn the ropes" />
+                        <div className="grid grid-cols-1 @3xl/main-content:grid-cols-3 gap-4">
+                            <LearnCard
+                                icon={<IconSparkles />}
+                                title="Ask PostHog AI anything"
+                                description='Once events are flowing, ask PostHog AI questions in plain English, like "What are my most visited pages this week?"'
+                                buttonLabel="Ask PostHog AI"
+                                to={urls.projectHomepage()}
+                                action="ask_posthog_ai"
+                            />
+                            <LearnCard
+                                icon={<IconBook />}
+                                title="Read the docs"
+                                description="Guides for every tool, SDK, and framework, from first install to advanced setups."
+                                buttonLabel="Open docs"
+                                to="https://posthog.com/docs"
+                                targetBlank
+                                action="open_docs_home"
+                            />
+                            <LearnCard
+                                icon={<IconGraduationCap />}
+                                title="Follow a tutorial"
+                                description="Step-by-step walkthroughs of real setups: funnels, feature flags, A/B tests, and more."
+                                buttonLabel="Browse tutorials"
+                                to="https://posthog.com/tutorials"
+                                targetBlank
+                                action="open_tutorials"
+                            />
+                        </div>
+                    </div>
+                    <div>
+                        <SubsectionHeader title="PostHog, wherever you work" />
+                        <div className="grid grid-cols-1 @3xl/main-content:grid-cols-3 gap-4">
+                            <LearnCard
+                                icon={<IconLogomark />}
+                                title="PostHog Code"
+                                description="An AI coding agent that knows your product data. Fix errors, ship features, and query PostHog straight from your editor or terminal."
+                                buttonLabel="Get PostHog Code"
+                                to="https://posthog.com/code"
+                                targetBlank
+                                action="open_posthog_code"
+                            />
+                            <LearnCard
+                                icon={<IconSlack />}
+                                title="Slack app"
+                                description="Ask PostHog AI questions and get insights, alerts, and replies without leaving Slack."
+                                buttonLabel="Add to Slack"
+                                to="https://posthog.com/slack"
+                                targetBlank
+                                action="open_slack_app"
+                            />
+                            <LearnCard
+                                icon={<IconTerminal />}
+                                title="MCP server"
+                                description="Connect Claude, Cursor, and other AI assistants to your PostHog data with a single command."
+                                buttonLabel="Set up MCP"
+                                to="https://posthog.com/docs/model-context-protocol"
+                                targetBlank
+                                action="open_mcp_docs"
+                            />
+                        </div>
+                    </div>
+                    <PublicationsSection />
                 </div>
             </section>
-
-            <section>
-                <SectionHeader
-                    title="PostHog, wherever you work"
-                    subtitle="Bring your data into the tools you already use."
-                />
-                <div className="grid grid-cols-1 @3xl/main-content:grid-cols-3 gap-4">
-                    <LearnCard
-                        icon={<IconLogomark />}
-                        title="PostHog Code"
-                        description="An AI coding agent that knows your product data. Fix errors, ship features, and query PostHog straight from your editor or terminal."
-                        buttonLabel="Get PostHog Code"
-                        to="https://posthog.com/code"
-                        targetBlank
-                        action="open_posthog_code"
-                    />
-                    <LearnCard
-                        icon={<IconSlack />}
-                        title="Slack app"
-                        description="Ask PostHog AI questions and get insights, alerts, and replies without leaving Slack."
-                        buttonLabel="Add to Slack"
-                        to="https://posthog.com/slack"
-                        targetBlank
-                        action="open_slack_app"
-                    />
-                    <LearnCard
-                        icon={<IconTerminal />}
-                        title="MCP server"
-                        description="Connect Claude, Cursor, and other AI assistants to your PostHog data with a single command."
-                        buttonLabel="Set up MCP"
-                        to="https://posthog.com/docs/model-context-protocol"
-                        targetBlank
-                        action="open_mcp_docs"
-                    />
-                </div>
-            </section>
-
-            <PublicationsSection />
 
             <ToolSetupModal installationComplete={installationComplete} />
         </SceneContent>
