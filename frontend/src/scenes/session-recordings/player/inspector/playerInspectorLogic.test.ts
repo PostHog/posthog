@@ -5,6 +5,9 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { playerInspectorLogic } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { sessionRecordingExperimentContextLogic } from 'scenes/session-recordings/player/player-meta/sessionRecordingExperimentContextLogic'
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
+import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+
+import { SessionRecordingType } from '~/types'
 
 import { setupSessionRecordingTest } from '../__mocks__/test-setup'
 
@@ -233,6 +236,46 @@ describe('playerInspectorLogic', () => {
                 .toMatchValues({
                     trackedWindow: 1,
                 })
+        })
+    })
+
+    describe('matching events', () => {
+        it('waits for the recording start before seeking to the first matching event', async () => {
+            const matchingProps = {
+                sessionRecordingId: '1',
+                playerKey: 'matching-event',
+                skipToFirstMatchingEvent: true,
+                matchingEventsMatchType: {
+                    matchType: 'uuid' as const,
+                    matchedEvents: [
+                        {
+                            uuid: 'matching-event',
+                            timestamp: '2025-01-01T00:00:10.000Z',
+                            session_id: '1',
+                            window_id: '1',
+                        },
+                    ],
+                },
+            }
+            const playerLogic = sessionRecordingPlayerLogic(matchingProps)
+            const matchingLogic = playerInspectorLogic(matchingProps)
+            playerLogic.mount()
+            matchingLogic.mount()
+
+            await expectLogic(matchingLogic).toDispatchActions(['loadMatchingEventsSuccess'])
+            await expectLogic(playerLogic).toNotHaveDispatchedActions(['seekToTime'])
+
+            dataLogic.actions.loadRecordingMetaSuccess({
+                id: '1',
+                start_time: '2025-01-01T00:00:00.000Z',
+                end_time: '2025-01-01T00:01:00.000Z',
+                recording_duration: 60,
+            } as SessionRecordingType)
+
+            await expectLogic(playerLogic).toDispatchActions([playerLogic.actionCreators.seekToTime(9000)])
+
+            matchingLogic.unmount()
+            playerLogic.unmount()
         })
     })
 

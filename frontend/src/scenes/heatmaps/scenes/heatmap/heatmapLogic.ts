@@ -2,7 +2,6 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { DEFAULT_HEATMAP_WIDTH } from 'lib/components/IframedToolbarBrowser/utils'
@@ -10,12 +9,53 @@ import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { heatmapsBrowserLogic, isUrlPattern } from 'scenes/heatmaps/components/heatmapsBrowserLogic'
 import { heatmapsSceneLogic } from 'scenes/heatmaps/scenes/heatmaps/heatmapsSceneLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { HeatmapStatus, HeatmapType } from '~/types'
+
+import {
+    getHeatmapScreenshotsContentRetrieveUrl,
+    savedCreate,
+    savedPartialUpdate,
+    savedRegenerateCreate,
+    savedRetrieve,
+} from 'products/web_analytics/frontend/generated/api'
+import type { SavedHeatmapRequestApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
 import type { heatmapLogicType } from './heatmapLogicType'
 
 const DEFAULT_HEATMAP_NAME = 'Untitled heatmap'
+
+export interface HeatmapCreationContext {
+    creation_flow: 'wizard'
+    capture_enabled: boolean
+    has_matching_data: boolean | null
+    page_access: 'public'
+    background_type: HeatmapType
+}
+
+function getApiErrorMessage(error: unknown, fallback: string): string {
+    if (typeof error === 'object' && error !== null && 'detail' in error && typeof error.detail === 'string') {
+        return error.detail
+    }
+    return fallback
+}
+
+function getCreationFailureCategory(error: unknown): 'validation' | 'permission' | 'rate_limit' | 'unknown' {
+    if (typeof error !== 'object' || error === null || !('status' in error) || typeof error.status !== 'number') {
+        return 'unknown'
+    }
+    if (error.status === 400) {
+        return 'validation'
+    }
+    if (error.status === 401 || error.status === 403) {
+        return 'permission'
+    }
+    if (error.status === 429) {
+        return 'rate_limit'
+    }
+    return 'unknown'
+}
 
 function isValidPageUrl(url: string | null): boolean {
     if (!url) {
@@ -41,7 +81,14 @@ export function resolveHeatmapExportUrl(
     origin: string = window.location.origin
 ): string {
     if (type === 'screenshot') {
-        return screenshotUrl ? new URL(screenshotUrl, origin).toString() : ''
+        if (!screenshotUrl) {
+            return ''
+        }
+        try {
+            return new URL(screenshotUrl, origin).toString()
+        } catch {
+            return ''
+        }
     }
     return displayUrl ?? ''
 }
@@ -53,7 +100,9 @@ export const heatmapLogic = kea<heatmapLogicType>([
     connect(() => ({
         values: [
             heatmapsBrowserLogic,
-            ['dataUrl', 'displayUrl', 'isBrowserUrlAuthorized'],
+            ['dataUrl', 'displayUrl', 'isBrowserUrlAuthorized', 'isBrowserUrlValid'],
+            teamLogic,
+            ['currentTeamIdStrict'],
             heatmapDataLogic({ context: 'in-app' }),
             [
                 'heatmapFilters',
@@ -78,7 +127,8 @@ export const heatmapLogic = kea<heatmapLogicType>([
     })),
     actions({
         load: true,
-        createHeatmap: true,
+        createHeatmap: (context: HeatmapCreationContext | null = null) => ({ context }),
+        creationCompleted: (shortId: string) => ({ shortId }),
         updateHeatmap: true,
         setLoading: (loading: boolean) => ({ loading }),
         setType: (type: HeatmapType) => ({ type }),
@@ -88,8 +138,8 @@ export const heatmapLogic = kea<heatmapLogicType>([
         setScreenshotUrl: (url: string | null) => ({ url }),
         setScreenshotError: (error: string | null) => ({ error }),
         setGeneratingScreenshot: (generating: boolean) => ({ generating }),
-        pollScreenshotStatus: (id: number, width?: number) => ({ id, width }),
-        setHeatmapId: (id: number | null) => ({ id }),
+        pollScreenshotStatus: (width?: number) => ({ width }),
+        setHeatmapId: (id: string | null) => ({ id }),
         setScreenshotLoaded: (screenshotLoaded: boolean) => ({ screenshotLoaded }),
         regenerateScreenshot: true,
         exportHeatmap: true,
@@ -111,7 +161,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
         generatingScreenshot: [false, { setGeneratingScreenshot: (_, { generating }) => generating }],
         // expose a screenshotLoading alias for UI compatibility
         screenshotLoading: [false as boolean, { setScreenshotUrl: () => false }],
-        heatmapId: [null as number | null, { setHeatmapId: (_, { id }) => id }],
+        heatmapId: [null as string | null, { setHeatmapId: (_, { id }) => id }],
         screenshotLoaded: [false, { setScreenshotLoaded: (_, { screenshotLoaded }) => screenshotLoaded }],
         containerWidth: [null as number | null, { setContainerWidth: (_, { containerWidth }) => containerWidth }],
         savedDisplayUrl: [null as string | null, { snapshotSavedDisplayUrl: (_, { displayUrl }) => displayUrl }],
@@ -125,7 +175,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values, props, cache }) => ({
         changeCaptureMethod: async ({ type }) => {
             actions.setType(type)
             if (type !== 'screenshot') {
@@ -145,16 +195,16 @@ export const heatmapLogic = kea<heatmapLogicType>([
             }
             actions.setLoading(true)
             try {
-                const item = await api.savedHeatmaps.get(props.id)
+                const item = await savedRetrieve(String(values.currentTeamIdStrict), String(props.id))
                 actions.setHeatmapId(item.id)
-                actions.setName(item.name)
+                actions.setName(item.name ?? DEFAULT_HEATMAP_NAME)
                 actions.setDataUrlUserTouched(true)
                 actions.setDisplayUrl(item.url)
-                actions.setDataUrl(item.data_url)
+                actions.setDataUrl(item.data_url ?? null)
                 actions.snapshotSavedDisplayUrl(item.url ?? null)
                 actions.setBlockConsentModals(item.block_consent_modals ?? false)
                 actions.snapshotSavedBlockConsentModals(item.block_consent_modals ?? false)
-                actions.setType(item.type)
+                actions.setType(item.type ?? 'screenshot')
                 posthog.capture('in-app heatmap viewed', {
                     heatmap_type: item.type,
                     heatmap_status: item.status,
@@ -163,7 +213,9 @@ export const heatmapLogic = kea<heatmapLogicType>([
                     const desiredWidth = values.widthOverride
                     if (item.status === 'completed' && item.has_content) {
                         actions.setScreenshotUrl(
-                            `/api/environments/${window.POSTHOG_APP_CONTEXT?.current_team?.id}/heatmap_screenshots/${item.id}/content/?width=${desiredWidth}`
+                            getHeatmapScreenshotsContentRetrieveUrl(String(values.currentTeamIdStrict), item.id, {
+                                width: desiredWidth,
+                            })
                         )
                         // trigger heatmap overlay load
                         actions.loadHeatmap()
@@ -171,7 +223,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
                         actions.setScreenshotError(item.exception || 'Screenshot generation failed')
                     } else {
                         actions.setScreenshotError(null)
-                        actions.pollScreenshotStatus(item.id, desiredWidth)
+                        actions.pollScreenshotStatus(desiredWidth)
                     }
                 }
             } finally {
@@ -186,10 +238,12 @@ export const heatmapLogic = kea<heatmapLogicType>([
             const w = widthOverride ?? DEFAULT_HEATMAP_WIDTH
             actions.setScreenshotError(null)
             actions.setScreenshotUrl(
-                `/api/environments/${window.POSTHOG_APP_CONTEXT?.current_team?.id}/heatmap_screenshots/${values.heatmapId}/content/?width=${w}`
+                getHeatmapScreenshotsContentRetrieveUrl(String(values.currentTeamIdStrict), values.heatmapId, {
+                    width: w,
+                })
             )
         },
-        pollScreenshotStatus: async ({ id, width }, breakpoint) => {
+        pollScreenshotStatus: async ({ width }, breakpoint) => {
             let attempts = 0
             actions.setGeneratingScreenshot(true)
             // Multi-width renders open one Browserless session per width and can take a few minutes,
@@ -199,36 +253,26 @@ export const heatmapLogic = kea<heatmapLogicType>([
             while (attempts < maxAttempts) {
                 await breakpoint(pollIntervalMs)
                 try {
-                    const contentResponse = await api.heatmapScreenshots.getContent(id)
-                    if (contentResponse.success) {
+                    const screenshot = await savedRetrieve(String(values.currentTeamIdStrict), String(props.id))
+                    if (screenshot.status === 'completed' && screenshot.has_content) {
                         const w = width ?? DEFAULT_HEATMAP_WIDTH
                         actions.setScreenshotUrl(
-                            `/api/environments/${window.POSTHOG_APP_CONTEXT?.current_team?.id}/heatmap_screenshots/${id}/content/?width=${w}`
+                            getHeatmapScreenshotsContentRetrieveUrl(String(values.currentTeamIdStrict), screenshot.id, {
+                                width: w,
+                            })
                         )
                         actions.loadHeatmap()
                         actions.setGeneratingScreenshot(false)
                         break
-                    } else {
-                        const screenshot = contentResponse.data
-                        if (screenshot.status === 'completed' && screenshot.has_content) {
-                            const w = width ?? DEFAULT_HEATMAP_WIDTH
-                            actions.setScreenshotUrl(
-                                `/api/environments/${window.POSTHOG_APP_CONTEXT?.current_team?.id}/heatmap_screenshots/${screenshot.id}/content/?width=${w}`
-                            )
-                            actions.loadHeatmap()
-                            actions.setGeneratingScreenshot(false)
-                            break
-                        } else if (screenshot.status === 'failed') {
-                            actions.setScreenshotError(
-                                screenshot.exception || (screenshot as any).error || 'Screenshot generation failed'
-                            )
-                            actions.setGeneratingScreenshot(false)
-                            break
-                        }
+                    } else if (screenshot.status === 'failed') {
+                        actions.setScreenshotError(screenshot.exception || 'Screenshot generation failed')
+                        actions.setGeneratingScreenshot(false)
+                        break
                     }
                     attempts++
                 } catch (e) {
                     actions.setScreenshotError('Failed to check screenshot status')
+                    actions.setGeneratingScreenshot(false)
                     console.error(e)
                     break
                 }
@@ -236,7 +280,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
 
             if (attempts >= maxAttempts) {
                 actions.setGeneratingScreenshot(false)
-                actions.setScreenshotError('Screenshot is still generating — refresh to check, or try fewer widths.')
+                actions.setScreenshotError('Screenshot is still generating. Refresh to check, or try fewer widths.')
             }
         },
         regenerateScreenshot: async () => {
@@ -247,30 +291,38 @@ export const heatmapLogic = kea<heatmapLogicType>([
             actions.setScreenshotUrl(null)
             actions.setScreenshotLoaded(false)
             try {
-                await api.savedHeatmaps.regenerate(props.id)
-                actions.pollScreenshotStatus(values.heatmapId, values.widthOverride)
-            } catch (error: any) {
-                actions.setScreenshotError(error.detail || 'Failed to regenerate screenshot')
+                await savedRegenerateCreate(String(values.currentTeamIdStrict), String(props.id))
+                actions.pollScreenshotStatus(values.widthOverride)
+            } catch (error: unknown) {
+                actions.setScreenshotError(getApiErrorMessage(error, 'Failed to regenerate screenshot'))
             }
         },
-        createHeatmap: async () => {
+        createHeatmap: async ({ context }) => {
+            if (cache.creatingHeatmap) {
+                return
+            }
+            cache.creatingHeatmap = true
             actions.setLoading(true)
             try {
-                const data = {
+                const data: SavedHeatmapRequestApi = {
                     name: values.name || DEFAULT_HEATMAP_NAME,
                     url: values.displayUrl || '',
                     data_url: values.dataUrl,
                     type: values.type,
                     block_consent_modals: values.blockConsentModals,
                 }
-                const created = await api.savedHeatmaps.create(data)
-                posthog.capture('in-app heatmap created', { heatmap_type: values.type })
+                const created = await savedCreate(String(values.currentTeamIdStrict), data)
+                posthog.capture('in-app heatmap created', { heatmap_type: values.type, ...context })
+                actions.creationCompleted(created.short_id)
                 actions.loadSavedHeatmaps()
-                // Navigate to the created heatmap detail page
                 router.actions.push(`/heatmaps/${created.short_id}`)
-            } catch (error: any) {
-                lemonToast.error(error.detail || 'Failed to create heatmap')
+            } catch (error: unknown) {
+                posthog.capture('in-app heatmap creation failed', {
+                    failure_category: getCreationFailureCategory(error),
+                })
+                lemonToast.error(getApiErrorMessage(error, 'Failed to create heatmap'))
             } finally {
+                cache.creatingHeatmap = false
                 actions.setLoading(false)
             }
         },
@@ -279,14 +331,14 @@ export const heatmapLogic = kea<heatmapLogicType>([
             const previousSavedUrl = values.savedDisplayUrl
             const previousBlockConsentModals = values.savedBlockConsentModals
             try {
-                const data = {
+                const data: SavedHeatmapRequestApi = {
                     name: values.name || DEFAULT_HEATMAP_NAME,
                     url: values.displayUrl || '',
                     data_url: values.dataUrl,
                     type: values.type,
                     block_consent_modals: values.blockConsentModals,
                 }
-                const updated = await api.savedHeatmaps.update(props.id, data)
+                const updated = await savedPartialUpdate(String(values.currentTeamIdStrict), String(props.id), data)
                 actions.snapshotSavedDisplayUrl(updated.url ?? null)
                 actions.snapshotSavedBlockConsentModals(updated.block_consent_modals ?? false)
                 const renderInputChanged =
@@ -297,14 +349,14 @@ export const heatmapLogic = kea<heatmapLogicType>([
                     actions.setScreenshotLoaded(false)
                     actions.setScreenshotError(null)
                     if (values.heatmapId) {
-                        actions.pollScreenshotStatus(values.heatmapId, values.widthOverride)
+                        actions.pollScreenshotStatus(values.widthOverride)
                     }
                 }
-            } catch (error: any) {
+            } catch (error: unknown) {
                 if (values.displayUrl !== previousSavedUrl) {
                     actions.setDisplayUrl(previousSavedUrl)
                 }
-                lemonToast.error(error.detail || 'Failed to update heatmap')
+                lemonToast.error(getApiErrorMessage(error, 'Failed to update heatmap'))
             } finally {
                 actions.setLoading(false)
             }
