@@ -275,12 +275,54 @@ class TestCreateWebhook:
     )
     @patch(MOCK_PATH)
     def test_http_errors_return_friendly_result(self, _name, status_code, expected_fragment, mock_request):
-        mock_request.return_value = MockResponse({"error": "denied"}, status_code=status_code)
+        mock_request.return_value = MockResponse({"error": {"code": "denied"}}, status_code=status_code)
 
         result = create_webhook("key", "live", WEBHOOK_URL)
 
         assert result.success is False
         assert result.error is not None and expected_fragment in result.error
+
+    @patch(MOCK_PATH)
+    def test_error_surfaces_paddle_detail_and_code(self, mock_request):
+        # A generic "Paddle API error (400)" hides why the call failed (e.g. account at its
+        # notification-settings cap) — the structured detail must reach the user.
+        mock_request.return_value = MockResponse(
+            {
+                "error": {
+                    "code": "notification_maximum_active_settings_reached",
+                    "detail": "Maximum number of notification settings reached",
+                }
+            },
+            status_code=400,
+        )
+
+        result = create_webhook("key", "live", WEBHOOK_URL)
+
+        assert result.success is False
+        assert result.error is not None
+        assert "Maximum number of notification settings reached" in result.error
+        assert "notification_maximum_active_settings_reached" in result.error
+
+    @patch(MOCK_PATH)
+    def test_error_surfaces_invalid_field_messages(self, mock_request):
+        # Paddle returns per-field validation errors under `errors`; a bad event name must
+        # tell the user which value was rejected, not just "400".
+        mock_request.return_value = MockResponse(
+            {
+                "error": {
+                    "code": "invalid_field",
+                    "detail": "Invalid request",
+                    "errors": [{"field": "subscribed_events", "message": "transaction.bogus is not a valid event"}],
+                }
+            },
+            status_code=400,
+        )
+
+        result = create_webhook("key", "live", WEBHOOK_URL)
+
+        assert result.success is False
+        assert result.error is not None
+        assert "subscribed_events: transaction.bogus is not a valid event" in result.error
 
 
 class TestUpdateWebhookEvents:

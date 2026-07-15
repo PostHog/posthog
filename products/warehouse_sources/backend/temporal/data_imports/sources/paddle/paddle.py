@@ -289,21 +289,57 @@ def validate_credentials(api_key: str, table_name: Optional[str] = None, environ
     return True
 
 
+def _paddle_error_detail(response: Optional[requests.Response]) -> Optional[str]:
+    """Pull Paddle's structured error out of a response body.
+
+    Paddle returns `{"error": {"code": ..., "detail": ..., "errors": [{"field", "message"}]}}`.
+    Surfacing `detail`/`code` (and per-field messages) turns an opaque status code into an
+    actionable message, e.g. "Maximum number of notification settings reached" or the exact
+    invalid `subscribed_events` value.
+    """
+    if response is None:
+        return None
+    try:
+        error = (response.json() or {}).get("error") or {}
+    except (ValueError, requests.exceptions.JSONDecodeError):
+        return None
+
+    parts: list[str] = []
+    if error.get("detail"):
+        parts.append(str(error["detail"]))
+    field_errors = error.get("errors")
+    if isinstance(field_errors, list):
+        for field_error in field_errors:
+            if isinstance(field_error, dict) and field_error.get("field") and field_error.get("message"):
+                parts.append(f"{field_error['field']}: {field_error['message']}")
+
+    joined = "; ".join(parts)
+    code = error.get("code")
+    if joined and code:
+        return f"{joined} ({code})"
+    return joined or code or None
+
+
 def _format_http_error(error: requests.HTTPError) -> str:
     response = error.response
     status_code = response.status_code if response is not None else None
+    detail = _paddle_error_detail(response)
+
     if status_code == 401:
-        return (
+        base = (
             "Paddle rejected the API key (401). Check that the key is valid and matches the "
             "selected environment (live vs sandbox)."
         )
-    if status_code == 403:
-        return "Paddle denied the request (403). The API key needs write permission for notification settings."
-    if status_code == 404:
-        return "Paddle could not find the notification destination (404)."
-    if status_code == 429:
-        return "Paddle rate-limited the request (429). Try again in a few seconds."
-    return f"Paddle API error ({status_code})."
+    elif status_code == 403:
+        base = "Paddle denied the request (403). The API key needs write permission for notification settings."
+    elif status_code == 404:
+        base = "Paddle could not find the notification destination (404)."
+    elif status_code == 429:
+        base = "Paddle rate-limited the request (429). Try again in a few seconds."
+    else:
+        base = f"Paddle API error ({status_code})."
+
+    return f"{base} {detail}" if detail else base
 
 
 def _list_notification_settings(session: requests.Session, base_url: str) -> list[dict[str, Any]]:
