@@ -1,4 +1,33 @@
-import { personInitialAndUTMProperties } from '~/common/utils/db/utils'
+import { personInitialAndUTMProperties, timeoutGuard } from '~/common/utils/db/utils'
+import * as posthog from '~/common/utils/posthog'
+
+describe('timeoutGuard()', () => {
+    let captureExceptionSpy: jest.SpyInstance
+
+    beforeEach(() => {
+        jest.useFakeTimers()
+        captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => {})
+    })
+
+    afterEach(() => {
+        jest.useRealTimers()
+        captureExceptionSpy.mockRestore()
+    })
+
+    it('reports a real Error (not a bare string) so timeouts group by origin', () => {
+        // A bare string forces posthog-node to synthesize a stack from the timer callback, collapsing
+        // every timeout into one mislabeled issue. Passing an Error keeps a meaningful stack.
+        const timeout = timeoutGuard('Redis call startup-ping delayed. Waiting over 30 seconds.', undefined, 30_000)
+
+        jest.advanceTimersByTime(30_000)
+        clearTimeout(timeout)
+
+        expect(captureExceptionSpy).toHaveBeenCalledTimes(1)
+        const reported = captureExceptionSpy.mock.calls[0][0]
+        expect(reported).toBeInstanceOf(Error)
+        expect((reported as Error).message).toBe('Redis call startup-ping delayed. Waiting over 30 seconds.')
+    })
+})
 
 describe('personInitialAndUTMProperties()', () => {
     it('adds initial and utm properties', () => {
