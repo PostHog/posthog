@@ -51,10 +51,17 @@ def list_advertisers(access_token: str) -> list[dict]:
     `oauth2/advertiser/get` returns `advertiser_id` + `advertiser_name` only — richer fields would
     need `advertiser/info`, which our granted scope can't read.
     """
-    session = make_tracked_session(headers={"Access-Token": access_token, "Content-Type": "application/json"})
+    # Mask the app secret (a query param) and the access token (a header) so neither lands in
+    # request telemetry / captured samples. `timeout` guards the oauth_accounts web worker: TikTok
+    # has no default timeout, so a hung connection would otherwise pin the worker indefinitely.
+    session = make_tracked_session(
+        headers={"Access-Token": access_token, "Content-Type": "application/json"},
+        redact_values=(settings.TIKTOK_ADS_CLIENT_SECRET, access_token),
+    )
     response = session.get(
         f"{BASE_URL}/oauth2/advertiser/get/",
         params={"app_id": settings.TIKTOK_ADS_CLIENT_ID, "secret": settings.TIKTOK_ADS_CLIENT_SECRET},
+        timeout=10,
     )
     # A proxy/gateway failure answers with a non-2xx and an HTML body, which `.json()` can't parse.
     response.raise_for_status()

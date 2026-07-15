@@ -843,6 +843,9 @@ class TestListAdvertisers:
         assert result == [{"advertiser_id": "1", "advertiser_name": "Acme"}]
         # app_id + secret go as query params alongside the user's Access-Token header
         assert session.get.call_args.kwargs["params"] == {"app_id": "app", "secret": "secret"}
+        # A timeout must be set — this call runs in the oauth_accounts web worker and a hung
+        # TikTok connection would otherwise pin the worker indefinitely.
+        assert session.get.call_args.kwargs["timeout"] == 10
 
     @override_settings(TIKTOK_ADS_CLIENT_ID="app", TIKTOK_ADS_CLIENT_SECRET="secret")
     def test_non_zero_code_raises_with_api_code(self):

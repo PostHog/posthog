@@ -1,6 +1,6 @@
 from typing import Optional, cast
 
-from requests.exceptions import HTTPError
+from requests.exceptions import HTTPError, RequestException
 
 from posthog.schema import (
     DataWarehouseSourceCategory,
@@ -143,6 +143,11 @@ class TikTokAdsSource(ResumableSource[TikTokAdsSourceConfig, TikTokAdsResumeConf
             status_code = e.response.status_code if e.response is not None else None
             if status_code is None or (status_code < 500 and status_code != 429):
                 raise
+            raise IntegrationAccountListingError(TIKTOK_TRANSIENT_ERROR_MESSAGE) from e
+        except RequestException as e:
+            # DNS failure, connection reset, or timeout (no HTTP response at all). These raise a
+            # bare RequestException — not HTTPError — so they'd otherwise escape as a generic 500.
+            # Transient and TikTok/network-side: map to the same actionable "try again" message.
             raise IntegrationAccountListingError(TIKTOK_TRANSIENT_ERROR_MESSAGE) from e
         except TikTokAdsAPIError as e:
             if e.api_code in TIKTOK_AUTH_ERROR_CODES:
