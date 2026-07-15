@@ -10,7 +10,9 @@ from django.test import override_settings
 import psycopg
 from parameterized import parameterized
 
+from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.schema.duckdb_table_functions import is_dangerous_table_function
 from posthog.hogql.direct_sql.postgres_adapter import (
     LenientDirectPostgresDateLoader,
@@ -23,6 +25,7 @@ from posthog.hogql.direct_sql.postgres_adapter import (
 from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement
 from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.escape_sql import escape_postgres_identifier
+from posthog.hogql.printer.postgres import PostgresPrinter
 from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.models import Team
@@ -56,6 +59,19 @@ class TestDirectPostgresQuery(APIBaseTest):
     )
     def test_parse_lenient_direct_postgres_date(self, _name: str, value: str, expected: date):
         self.assertEqual(parse_lenient_direct_postgres_date(value), expected)
+
+    @parameterized.expand(
+        [
+            ("global_in", ast.CompareOperationOp.GlobalIn, "(x IN (SELECT session_id FROM sessions))"),
+            ("global_not_in", ast.CompareOperationOp.GlobalNotIn, "(x NOT IN (SELECT session_id FROM sessions))"),
+        ]
+    )
+    def test_postgres_printer_maps_global_in_operators(self, _name: str, op: ast.CompareOperationOp, expected_sql: str):
+        # The resolver rewrites sessions/events IN subqueries to GlobalIn/GlobalNotIn; Postgres has no
+        # distributed GLOBAL concept, so the printer must emit a plain IN/NOT IN rather than crashing.
+        printer = PostgresPrinter(context=HogQLContext(team_id=self.team.pk))
+
+        self.assertEqual(printer._get_compare_op(op, "x", "(SELECT session_id FROM sessions)"), expected_sql)
 
     def test_direct_postgres_session_setup_sql_uses_search_path_for_postgres(self):
         self.assertEqual(
@@ -259,6 +275,49 @@ class TestDirectPostgresQuery(APIBaseTest):
         self.assertIn("ph3.posthog_activitylog", sql)
         self.assertIn("activitylog", sql)
         self.assertEqual(executor.direct_source_id, str(source.id))
+
+    def test_modulo_renders_as_mod_function(self):
+        # A bare `%` in the printed SQL is read by psycopg as a client-side parameter
+        # placeholder and blows up before the query runs, so modulo must render as MOD(a, b).
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "ph3",
+            },
+        )
+
+        DataWarehouseTable.objects.create(
+            name="orders",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            url_pattern="",
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
+        )
+
+        executor = HogQLQueryExecutor(
+            query="SELECT id % 2 FROM orders",
+            team=self.team,
+            connection_id=str(source.id),
+        )
+
+        sql, _context = executor.generate_clickhouse_sql()
+
+        self.assertIn("MOD(", sql)
+        # Assert the modulo *operator* isn't rendered as a bare `%`; a plain `assertNotIn("%", sql)`
+        # would be too broad since bound values legitimately use `%(hogql_val_*)s` placeholders.
+        self.assertNotIn(" % ", sql)
 
     def test_generate_sql_for_direct_postgres_table_inside_cte(self):
         source = ExternalDataSource.objects.create(

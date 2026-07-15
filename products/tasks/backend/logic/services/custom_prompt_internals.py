@@ -32,7 +32,7 @@ OutputFn = Callable[[str], object] | None
 
 # Sandbox logs polling from S3
 POLL_INTERVAL_SECONDS = 10
-MAX_POLL_SECONDS = 30 * 60  # 30 minutes (matches sandbox TTL)
+MAX_POLL_SECONDS = 30 * 60  # default per-turn budget; callers with longer turns pass max_poll_seconds
 MAX_CONSECUTIVE_STORAGE_ERRORS = 3
 # Continuous log silence required before salvaging a dropped-finalization turn — one SSE read window
 # (SSE_READ_TIMEOUT_SECONDS). The null-cost finalization fingerprint (_ended_on_pending_finalization)

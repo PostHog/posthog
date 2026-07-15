@@ -46,7 +46,7 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
             name="Shared Insight",
             team=self.team,
             created_by=self.user,
-            query={"kind": "TrendsQuery", "series": [{"event": "test_event"}]},
+            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "test_event"}]},
         )
         self.dashboard.tiles.create(
             insight=insight,
@@ -84,7 +84,7 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
             name="Shared Insight",
             team=self.team,
             created_by=self.user,
-            query={"kind": "TrendsQuery", "series": [{"event": "test_event"}]},
+            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "test_event"}]},
         )
         self.dashboard.tiles.create(
             insight=insight,
@@ -144,7 +144,7 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
             created_by=self.user,
             query={
                 "kind": "TrendsQuery",
-                "series": [{"event": "test_event"}],
+                "series": [{"kind": "EventsNode", "event": "test_event"}],
             },
         )
 
@@ -155,7 +155,7 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
             created_by=self.user,
             query={
                 "kind": "TrendsQuery",
-                "series": [{"event": "secret_event"}],
+                "series": [{"kind": "EventsNode", "event": "secret_event"}],
             },
         )
 
@@ -201,7 +201,7 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
             created_by=self.user,
             query={
                 "kind": "TrendsQuery",
-                "series": [{"event": "original_event"}],
+                "series": [{"kind": "EventsNode", "event": "original_event"}],
                 "dateRange": {"date_from": "-7d"},
             },
         )
@@ -337,7 +337,7 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
             created_by=self.user,
             query={
                 "kind": "TrendsQuery",
-                "series": [{"event": "other_team_event"}],
+                "series": [{"kind": "EventsNode", "event": "other_team_event"}],
             },
         )
 
@@ -367,14 +367,14 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
             name="On Dashboard",
             team=self.team,
             created_by=self.user,
-            query={"kind": "TrendsQuery", "series": [{"event": "dashboard_event"}]},
+            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "dashboard_event"}]},
         )
 
         insight_not_on_dashboard = Insight.objects.create(
             name="Not on Dashboard",
             team=self.team,
             created_by=self.user,
-            query={"kind": "TrendsQuery", "series": [{"event": "secret_event"}]},
+            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "secret_event"}]},
         )
 
         # Add only one to the dashboard
@@ -419,7 +419,7 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
             f"/api/environments/{self.team.id}/insights/?sharing_access_token={sharing_config.access_token}",
             {
                 "name": "Malicious Insight",
-                "query": {"kind": "TrendsQuery", "series": [{"event": "malicious_event"}]},
+                "query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "malicious_event"}]},
             },
         )
         assert response.status_code in [401, 403], (
@@ -431,7 +431,7 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
             f"/api/environments/{self.team.id}/insights/",
             {
                 "name": "Malicious Insight",
-                "query": {"kind": "TrendsQuery", "series": [{"event": "malicious_event"}]},
+                "query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "malicious_event"}]},
                 "sharing_access_token": sharing_config.access_token,
             },
         )
@@ -468,7 +468,7 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
             name="Shared Insight",
             team=self.team,
             created_by=self.user,
-            query={"kind": "TrendsQuery", "series": [{"event": "test_event"}]},
+            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "test_event"}]},
         )
         self.dashboard.tiles.create(
             insight=insight,
@@ -538,7 +538,7 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
             name="Shared Insight",
             team=self.team,
             created_by=self.user,
-            query={"kind": "TrendsQuery", "series": [{"event": "test_event"}]},
+            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "test_event"}]},
         )
         self.dashboard.tiles.create(
             insight=insight,
