@@ -10,7 +10,7 @@ the PRs to the run. A Slack failure leaves the PRs unlinked so the next day retr
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from django.db import router, transaction
 from django.utils import timezone
@@ -36,6 +36,21 @@ STALE_PENDING_RUN_MINUTES = 60
 
 
 @shared_task(ignore_result=True)
+def _previous_run_slot(now: datetime) -> datetime:
+    """The weekday 07:00 UTC digest slot before the current one.
+
+    Monday's run reaches back to Friday's slot (weekends have no slot), so a channel's first
+    digest never covers more than one cadence period.
+    """
+    slot = now.replace(hour=7, minute=0, second=0, microsecond=0)
+    if slot > now:
+        slot -= timedelta(days=1)
+    slot -= timedelta(days=1)
+    while slot.weekday() >= 5:
+        slot -= timedelta(days=1)
+    return slot
+
+
 def send_digest_for_channel(digest_channel_id: str, team_id: int) -> None:
     """Build and post the digest for one channel, then link the included PRs to the run."""
     channel = DigestChannel.objects.for_team(team_id).filter(id=digest_channel_id).first()
@@ -43,14 +58,14 @@ def send_digest_for_channel(digest_channel_id: str, team_id: int) -> None:
         logger.info("stamphog_digest_channel_missing_or_disabled", digest_channel_id=digest_channel_id)
         return
 
-    # Bound the claim to the lookback window: audience_key + digest_run__isnull=True marks a PR
-    # digest-eligible-and-not-yet-posted, but without a merged_at floor a channel created (or
+    # Bound the claim by a merged_at floor: audience_key + digest_run__isnull=True marks a PR
+    # digest-eligible-and-not-yet-posted, but without a floor a channel created (or re-enabled, or
     # auto-provisioned) long after merges started being captured would claim the whole backlog and
-    # flood its first digest. merged_at >= now - DIGEST_LOOKBACK_DAYS keeps that first digest to
-    # recent merges — the same window send_daily_digests uses to discover audiences, so claim and
-    # discovery agree. The trade-off: a PR whose post keeps failing for the whole window ages out
-    # and stops being retried. That's acceptable — daily digests plus the hourly stale-run reclaim
-    # give it a full week of retries first, and a silently-dropped stale PR beats a backlog flood.
+    # flood its first digest. A channel's FIRST digest covers only the natural cadence window — back
+    # to the previous weekday slot, exactly what it would have received had it existed one run
+    # earlier. An established channel keeps the wide DIGEST_LOOKBACK_DAYS floor instead: linkage
+    # already prevents duplicates there, and the wide floor lets PRs from a failed or missed run be
+    # picked up for a week before aging out.
     # Already-linked PRs are untouched by this floor: once digest_run is set this query excludes
     # them, and the reclaim/finalize paths key off digest_run_id (not merged_at), so a posted PR
     # older than the window still finalizes instead of being re-sent.
@@ -64,12 +79,16 @@ def send_digest_for_channel(digest_channel_id: str, team_id: int) -> None:
     # Bind every atomic block below to the model's routed DB (stamphog_db_writer when the product DB is
     # configured, else default) — a bare atomic() opens on the default connection, so the
     # select_for_update lock and writes would run outside any transaction on the product DB.
-    lookback_start = timezone.now() - timedelta(days=DIGEST_LOOKBACK_DAYS)
+    now = timezone.now()
+    if DigestRun.objects.for_team(team_id).filter(digest_channel=channel).exists():
+        claim_floor = now - timedelta(days=DIGEST_LOOKBACK_DAYS)
+    else:
+        claim_floor = _previous_run_slot(now)
     write_db = router.db_for_write(PullRequest)
     with transaction.atomic(using=write_db):
         prs = list(
             PullRequest.objects.for_team(team_id)
-            .filter(audience_key=channel.audience_key, digest_run__isnull=True, merged_at__gte=lookback_start)
+            .filter(audience_key=channel.audience_key, digest_run__isnull=True, merged_at__gte=claim_floor)
             .select_for_update(of=("self",))
             .select_related("repo_config")
             .order_by("merged_at")

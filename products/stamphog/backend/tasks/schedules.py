@@ -8,5 +8,6 @@ the product owns its schedule definition; scheduled.py imports it.
 
 from celery.schedules import crontab
 
-# Daily digest fan-out, 07:00 UTC.
-DAILY_DIGEST_CRONTAB = crontab(hour="7", minute="0")
+# Weekday digest fan-out, 07:00 UTC Mon-Fri. No weekend runs: Monday's digest covers
+# everything since Friday's slot.
+DAILY_DIGEST_CRONTAB = crontab(hour="7", minute="0", day_of_week="mon-fri")

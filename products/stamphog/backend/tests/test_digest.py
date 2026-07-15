@@ -1,9 +1,10 @@
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from freezegun import freeze_time
 from unittest.mock import patch
 
 from django.utils import timezone
@@ -16,6 +17,7 @@ from products.stamphog.backend.models import DigestChannel, DigestRun, PullReque
 from products.stamphog.backend.tasks.digest import (
     DIGEST_LOOKBACK_DAYS,
     STALE_PENDING_RUN_MINUTES,
+    _previous_run_slot,
     _reclaim_stale_pending_runs,
     send_digest_for_channel,
 )
@@ -139,12 +141,38 @@ def test_failed_slack_post_leaves_prs_retryable_next_run(team) -> None:
         assert PullRequest.objects.filter(digest_run=completed).count() == 2  # retry picked them up
 
 
+@pytest.mark.parametrize(
+    "now,expected",
+    [
+        # Wednesday 08:00 -> previous slot is Tuesday 07:00
+        ("2026-07-15T08:00:00+00:00", "2026-07-14T07:00:00+00:00"),
+        # Monday 08:00 -> previous slot is Friday 07:00 (weekend has no slot)
+        ("2026-07-13T08:00:00+00:00", "2026-07-10T07:00:00+00:00"),
+        # before today's slot -> current slot is yesterday's, previous the day before
+        ("2026-07-15T06:00:00+00:00", "2026-07-13T07:00:00+00:00"),
+    ],
+    ids=["midweek", "monday_covers_weekend", "before_todays_slot"],
+)
+def test_previous_run_slot(now: str, expected: str) -> None:
+    assert _previous_run_slot(datetime.fromisoformat(now)) == datetime.fromisoformat(expected)
+
+
+@pytest.mark.parametrize(
+    "has_history,claimed_offset,unclaimed_offset",
+    [
+        # first digest: only the previous cadence slot onward — a day-old backlog PR is out
+        (False, timedelta(hours=19), timedelta(hours=43)),
+        # established channel: wide floor for failed-run resilience, but a week+ old PR is out
+        (True, timedelta(hours=43), timedelta(days=DIGEST_LOOKBACK_DAYS + 1)),
+    ],
+    ids=["first_digest_cadence_window", "established_channel_week_floor"],
+)
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_first_digest_claims_only_prs_within_lookback_window(team) -> None:
-    # A channel created (or auto-provisioned) long after merges started being captured must not dump
-    # the whole backlog into its first digest. The claim query bounds by merged_at >= now - lookback,
-    # so a merge older than the window is never claimed while a recent one is. Without the floor both
-    # would be claimed and the digest would flood.
+@freeze_time("2026-07-15T08:00:00+00:00")  # a Wednesday; previous slot = Tue 07:00 UTC
+def test_digest_claim_floor(team, has_history: bool, claimed_offset: timedelta, unclaimed_offset: timedelta) -> None:
+    # A channel's first digest must cover only the natural cadence window (what it would have
+    # received had it existed one run earlier), never an arbitrary backlog; an established channel
+    # keeps the wide week floor so merges from a failed run are retried instead of aging out fast.
     with team_scope(team.id):
         repo_config = StamphogRepoConfig.objects.for_team(team.id).create(
             team_id=team.id, repository=REPO, installation_id="9001"
@@ -152,19 +180,23 @@ def test_first_digest_claims_only_prs_within_lookback_window(team) -> None:
         channel = DigestChannel.objects.for_team(team.id).create(
             team_id=team.id, audience_key=AUDIENCE, slack_integration_id=1, slack_channel_id="C1"
         )
+        if has_history:
+            DigestRun.objects.for_team(team.id).create(
+                team_id=team.id, digest_channel=channel, status=DigestRunStatus.COMPLETED
+            )
         recent = PullRequest.objects.for_team(team.id).create(
             team_id=team.id,
             repo_config=repo_config,
             pr_number=1,
             audience_key=AUDIENCE,
-            merged_at=timezone.now() - timedelta(days=1),
+            merged_at=timezone.now() - claimed_offset,
         )
         old = PullRequest.objects.for_team(team.id).create(
             team_id=team.id,
             repo_config=repo_config,
             pr_number=2,
             audience_key=AUDIENCE,
-            merged_at=timezone.now() - timedelta(days=DIGEST_LOOKBACK_DAYS + 1),
+            merged_at=timezone.now() - unclaimed_offset,
         )
 
     with (
