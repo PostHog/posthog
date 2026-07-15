@@ -74381,6 +74381,25 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type ReviewHogReviewsListParams = {
+    /**
+     * Whose reviews to list: `mine` for reviews of the requesting user's pull requests (the default), `everyone` for every review on this project.
+     *
+     * * `mine` - mine
+     * * `everyone` - everyone
+     * @minLength 1
+     */
+    scope?: ReviewHogReviewsListScope;
+    };
+
+    export type ReviewHogReviewsListScope = typeof ReviewHogReviewsListScope[keyof typeof ReviewHogReviewsListScope];
+
+
+    export const ReviewHogReviewsListScope = {
+      Mine: 'mine',
+      Everyone: 'everyone',
+    } as const;
+
     export type SandboxCustomImagesListParams = {
     /**
      * Number of results to return per page.
