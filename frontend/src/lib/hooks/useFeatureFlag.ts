@@ -6,19 +6,14 @@ import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 
 type UseFeatureFlagOptions = {
     deferUntilResolved?: boolean
-    enabled?: boolean
 }
 
 export const useFeatureFlag = (
-    flag: keyof typeof FEATURE_FLAGS | undefined,
+    flag: keyof typeof FEATURE_FLAGS,
     match?: string,
     options?: UseFeatureFlagOptions
 ): boolean => {
     const { featureFlags } = useValues(featureFlagLogic)
-
-    if (!flag || options?.enabled === false) {
-        return false
-    }
 
     const featureFlagKey = FEATURE_FLAGS[flag]
 

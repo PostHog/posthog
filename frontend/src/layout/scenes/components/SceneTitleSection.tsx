@@ -19,7 +19,6 @@ import { ProductSetupButton } from 'lib/components/ProductSetup'
 import { RenderKeybind } from 'lib/components/Shortcuts/ShortcutMenu'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive, buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
@@ -42,11 +41,11 @@ import { SceneBreadcrumbBackButton } from './SceneBreadcrumbs'
 export function SceneTitlePanelButton({
     maxToolProps,
     buttonClassName = 'size-[33px]',
-    maxButtonLabelFeatureFlag,
+    maxButtonLabel,
 }: {
     maxToolProps?: Omit<UseMaxToolOptions, 'active'>
     buttonClassName?: string
-    maxButtonLabelFeatureFlag?: keyof typeof FEATURE_FLAGS
+    maxButtonLabel?: string
 }): JSX.Element | null {
     const { scenePanelIsPresent } = useValues(sceneLayoutLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
@@ -57,10 +56,6 @@ export function SceneTitlePanelButton({
 
     const { featureFlags } = useValues(featureFlagLogic)
     const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
-    const showMaxButtonLabel = useFeatureFlag(maxButtonLabelFeatureFlag, 'test', {
-        deferUntilResolved: true,
-        enabled: !sceneMenuBarEnabled && !sidePanelOpen,
-    })
 
     // Open Info tab if scene has panel content, otherwise default to PostHog AI
     const defaultTab = scenePanelIsPresent ? SidePanelTab.Info : SidePanelTab.Max
@@ -68,8 +63,6 @@ export function SceneTitlePanelButton({
     if (sidePanelOpen) {
         return null
     }
-
-    const maxButtonLabel = showMaxButtonLabel ? 'PostHog AI' : undefined
 
     return (
         <>
@@ -226,8 +219,8 @@ type SceneMainTitleProps = {
      * the AI button in the title section registers the tool with Max
      */
     maxToolProps?: Omit<UseMaxToolOptions, 'active'>
-    /** Optional feature flag that labels the PostHog AI button for its test variant. */
-    maxButtonLabelFeatureFlag?: keyof typeof FEATURE_FLAGS
+    /** Optional label for the PostHog AI button. */
+    maxButtonLabel?: string
     /** Max character length for the description field */
     descriptionMaxLength?: number
 }
@@ -253,7 +246,7 @@ export function SceneTitleSection({
     onGenerateMetadata,
     isGeneratingMetadata,
     maxToolProps,
-    maxButtonLabelFeatureFlag,
+    maxButtonLabel,
     descriptionMaxLength,
 }: SceneMainTitleProps): JSX.Element | null {
     const { breadcrumbs } = useValues(breadcrumbsLogic)
@@ -403,10 +396,7 @@ export function SceneTitleSection({
                             )}
                         >
                             {effectiveActions}
-                            <SceneTitlePanelButton
-                                maxToolProps={maxToolProps}
-                                maxButtonLabelFeatureFlag={maxButtonLabelFeatureFlag}
-                            />
+                            <SceneTitlePanelButton maxToolProps={maxToolProps} maxButtonLabel={maxButtonLabel} />
                         </div>
                     )}
                 </div>

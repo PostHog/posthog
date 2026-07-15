@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { FullScreen } from 'lib/components/FullScreen'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
@@ -23,6 +24,9 @@ export function DashboardHeader(): JSX.Element | null {
     const { dashboard, dashboardLoading, dashboardMode, canEditDashboard } = useValues(dashboardLogic)
     const { setDashboardMode, loadDashboard } = useActions(dashboardLogic)
     const { updateDashboard } = useActions(dashboardsModel)
+    const showPostHogAIButtonLabel = useFeatureFlag('DASHBOARD_POSTHOG_AI_BUTTON_LABEL', 'test', {
+        deferUntilResolved: true,
+    })
 
     if (!dashboard && !dashboardLoading) {
         return null
@@ -56,7 +60,7 @@ export function DashboardHeader(): JSX.Element | null {
                 isLoading={dashboardLoading}
                 saveOnBlur
                 renameDebounceMs={0}
-                maxButtonLabelFeatureFlag="DASHBOARD_POSTHOG_AI_BUTTON_LABEL"
+                maxButtonLabel={showPostHogAIButtonLabel ? 'PostHog AI' : undefined}
                 maxToolProps={
                     dashboard && canEditDashboard
                         ? {
