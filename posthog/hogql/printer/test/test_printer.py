@@ -714,7 +714,7 @@ class TestPrinter(BaseTest):
         materialize("events", "$browser")
         self.assertEqual(
             self._expr("properties['$browser']"),
-            "nullIf(nullIf(events.`mat_$browser`, ''), 'null')",
+            "nullIf(nullIf(events.mat_$browser, ''), 'null')",
         )
 
         materialize("events", "withoutdollar")
@@ -726,13 +726,13 @@ class TestPrinter(BaseTest):
         materialize("events", "$browser and string")
         self.assertEqual(
             self._expr("properties['$browser and string']"),
-            "nullIf(nullIf(events.`mat_$browser_and_string`, ''), 'null')",
+            "nullIf(nullIf(events.mat_$browser_and_string, ''), 'null')",
         )
 
         materialize("events", "$browser%%%#@!@")
         self.assertEqual(
             self._expr("properties['$browser%%%#@!@']"),
-            "nullIf(nullIf(events.`mat_$browser_______`, ''), 'null')",
+            "nullIf(nullIf(events.mat_$browser_______, ''), 'null')",
         )
 
         materialize("events", "nullable_property", is_nullable=True)
@@ -2667,7 +2667,7 @@ class TestPrinter(BaseTest):
         # Find the placeholder that holds our value (index varies with number of joins)
         trace_param_key = next((k for k, v in context.values.items() if v == "trace123"), None)
         self.assertIsNotNone(trace_param_key, "Expected 'trace123' to be recorded as a parameter value")
-        self.assertIn(f"equals(events.`mat_$ai_trace_id`, %({trace_param_key})s)", sql)
+        self.assertIn(f"equals(events.mat_$ai_trace_id, %({trace_param_key})s)", sql)
         # Verify the equals for $ai_trace_id is NOT wrapped in ifNull (it appears directly in WHERE clause)
         self.assertIn("WHERE and(equals(events.team_id,", sql)
 
@@ -2677,7 +2677,7 @@ class TestPrinter(BaseTest):
 
         # Should be: events.mat_$ai_trace_id
         # NOT: nullIf(nullIf(events.mat_$ai_trace_id, ''), 'null')
-        self.assertEqual(sql.strip(), "events.`mat_$ai_trace_id`")
+        self.assertEqual(sql.strip(), "events.mat_$ai_trace_id")
         self.assertNotIn("nullIf", sql)
 
         # IN operations - no ifNull wrapping
@@ -2689,7 +2689,7 @@ class TestPrinter(BaseTest):
         assert trace1_param_key is not None, "Expected 'trace1' to be recorded as a parameter value"
         trace2_param_key = next((k for k, v in context.values.items() if v == "trace2"), None)
         assert trace2_param_key is not None, "Expected 'trace2' to be recorded as a parameter value"
-        self.assertIn(f"in(events.`mat_$ai_trace_id`, tuple(%({trace1_param_key})s, %({trace2_param_key})s))", sql)
+        self.assertIn(f"in(events.mat_$ai_trace_id, tuple(%({trace1_param_key})s, %({trace2_param_key})s))", sql)
         self.assertNotIn("ifNull(in", sql)
 
         # NOT IN operations - no ifNull wrapping
@@ -2700,7 +2700,7 @@ class TestPrinter(BaseTest):
         assert trace1_param_key is not None, "Expected 'trace1' to be recorded as a parameter value"
         trace2_param_key = next((k for k, v in context.values.items() if v == "trace2"), None)
         assert trace2_param_key is not None, "Expected 'trace2' to be recorded as a parameter value"
-        self.assertIn(f"notIn(events.`mat_$ai_trace_id`, tuple(%({trace1_param_key})s, %({trace2_param_key})s))", sql)
+        self.assertIn(f"notIn(events.mat_$ai_trace_id, tuple(%({trace1_param_key})s, %({trace2_param_key})s))", sql)
         self.assertNotIn("ifNull(notIn", sql)
 
         # Verify other properties still get normal treatment
@@ -2743,7 +2743,7 @@ class TestPrinter(BaseTest):
         # Find the placeholder that holds our value (index varies with number of joins)
         session_param_key = next((k for k, v in context.values.items() if v == "session123"), None)
         assert session_param_key is not None, "Expected 'session123' to be recorded as a parameter value"
-        self.assertIn(f"equals(events.`mat_$ai_session_id`, %({session_param_key})s)", sql)
+        self.assertIn(f"equals(events.mat_$ai_session_id, %({session_param_key})s)", sql)
         # Verify the equals for $ai_session_id is NOT wrapped in ifNull (it appears directly in WHERE clause)
         self.assertIn("WHERE and(equals(events.team_id,", sql)
 
@@ -2753,7 +2753,7 @@ class TestPrinter(BaseTest):
 
         # Should be: events.mat_$ai_session_id
         # NOT: nullIf(nullIf(events.mat_$ai_session_id, ''), 'null')
-        self.assertEqual(sql.strip(), "events.`mat_$ai_session_id`")
+        self.assertEqual(sql.strip(), "events.mat_$ai_session_id")
         self.assertNotIn("nullIf", sql)
 
         # IN operations - no ifNull wrapping
@@ -2765,9 +2765,7 @@ class TestPrinter(BaseTest):
         assert session1_param_key is not None, "Expected 'session1' to be recorded as a parameter value"
         session2_param_key = next((k for k, v in context.values.items() if v == "session2"), None)
         assert session2_param_key is not None, "Expected 'session2' to be recorded as a parameter value"
-        self.assertIn(
-            f"in(events.`mat_$ai_session_id`, tuple(%({session1_param_key})s, %({session2_param_key})s))", sql
-        )
+        self.assertIn(f"in(events.mat_$ai_session_id, tuple(%({session1_param_key})s, %({session2_param_key})s))", sql)
         self.assertNotIn("ifNull(in", sql)
 
     @patch("posthog.hogql.transforms.clickhouse_property_resolution.get_materialized_column_for_property")
@@ -3212,7 +3210,7 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             printed,
-            f"SELECT `$browser` AS `$browser` FROM (SELECT nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS `$browser` "
+            f"SELECT `$browser` AS `$browser` FROM (SELECT nullIf(nullIf(events.mat_$browser, ''), 'null') AS `$browser` "
             f"FROM events WHERE equals(events.team_id, {self.team.pk})) LIMIT {MAX_SELECT_RETURNED_ROWS} "
             f"SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
         )
@@ -3232,8 +3230,8 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             printed,
-            f"SELECT `$browser` AS `$browser` FROM (SELECT nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS `$browser`, "
-            f"nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS `$browser` "
+            f"SELECT `$browser` AS `$browser` FROM (SELECT nullIf(nullIf(events.mat_$browser, ''), 'null') AS `$browser`, "
+            f"nullIf(nullIf(events.mat_$browser, ''), 'null') AS `$browser` "
             f"FROM events WHERE equals(events.team_id, {self.team.pk})) LIMIT {MAX_SELECT_RETURNED_ROWS} "
             f"SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
         )

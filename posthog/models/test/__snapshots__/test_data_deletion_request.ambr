@@ -3,5 +3,5 @@
   'and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, %(hogql_val_0)s), \'\'), \'null\'), \'^"|"$\', \'\'), %(hogql_val_1)s), 0), equals(event, %(hogql_val_2)s))'
 # ---
 # name: test_compile_hogql_predicate_emits_unqualified_materialized_column
-  'like(`mat_$current_url`, %(hogql_val_0)s)'
+  'like(mat_$current_url, %(hogql_val_0)s)'
 # ---

@@ -33,7 +33,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS breakdown_value,
+            nullIf(nullIf(events.mat_$browser, ''), 'null') AS breakdown_value,
             events__session.session_id AS session_id,
             any(events__session.`$is_bounce`) AS is_bounce,
             min(events__session.`$start_timestamp`) AS start_timestamp
@@ -109,7 +109,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS breakdown_value,
+            nullIf(nullIf(events.mat_$browser, ''), 'null') AS breakdown_value,
             events__session.session_id AS session_id,
             any(events__session.`$is_bounce`) AS is_bounce,
             min(events__session.`$start_timestamp`) AS start_timestamp
@@ -185,7 +185,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS breakdown_value,
+            nullIf(nullIf(events.mat_$browser, ''), 'null') AS breakdown_value,
             events__session.session_id AS session_id,
             any(events__session.`$is_bounce`) AS is_bounce,
             min(events__session.`$start_timestamp`) AS start_timestamp
@@ -261,7 +261,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS breakdown_value,
+            nullIf(nullIf(events.mat_$browser, ''), 'null') AS breakdown_value,
             events__session.session_id AS session_id,
             any(events__session.`$is_bounce`) AS is_bounce,
             min(events__session.`$start_timestamp`) AS start_timestamp
@@ -337,7 +337,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS breakdown_value,
+            nullIf(nullIf(events.mat_$browser, ''), 'null') AS breakdown_value,
             events__session.session_id AS session_id,
             any(events__session.`$is_bounce`) AS is_bounce,
             min(events__session.`$start_timestamp`) AS start_timestamp
@@ -413,7 +413,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS breakdown_value,
+            nullIf(nullIf(events.mat_$browser, ''), 'null') AS breakdown_value,
             events__session.session_id AS session_id,
             any(events__session.`$is_bounce`) AS is_bounce,
             min(events__session.`$start_timestamp`) AS start_timestamp
@@ -489,7 +489,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS breakdown_value,
+            nullIf(nullIf(events.mat_$browser, ''), 'null') AS breakdown_value,
             events__session.session_id AS session_id,
             any(events__session.`$is_bounce`) AS is_bounce,
             min(events__session.`$start_timestamp`) AS start_timestamp
@@ -565,7 +565,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS breakdown_value,
+            nullIf(nullIf(events.mat_$browser, ''), 'null') AS breakdown_value,
             events__session.session_id AS session_id,
             any(events__session.`$is_bounce`) AS is_bounce,
             min(events__session.`$start_timestamp`) AS start_timestamp
@@ -641,7 +641,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS breakdown_value,
+            nullIf(nullIf(events.mat_$browser, ''), 'null') AS breakdown_value,
             events__session.session_id AS session_id,
             any(events__session.`$is_bounce`) AS is_bounce,
             min(events__session.`$start_timestamp`) AS start_timestamp
@@ -717,7 +717,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS breakdown_value,
+            nullIf(nullIf(events.mat_$browser, ''), 'null') AS breakdown_value,
             events__session.session_id AS session_id,
             any(events__session.`$is_bounce`) AS is_bounce,
             min(events__session.`$start_timestamp`) AS start_timestamp
@@ -793,7 +793,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS breakdown_value,
+            nullIf(nullIf(events.mat_$browser, ''), 'null') AS breakdown_value,
             events__session.session_id AS session_id,
             any(events__session.`$is_bounce`) AS is_bounce,
             min(events__session.`$start_timestamp`) AS start_timestamp
@@ -869,7 +869,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS breakdown_value,
+            nullIf(nullIf(events.mat_$browser, ''), 'null') AS breakdown_value,
             events__session.session_id AS session_id,
             any(events__session.`$is_bounce`) AS is_bounce,
             min(events__session.`$start_timestamp`) AS start_timestamp
@@ -945,7 +945,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS breakdown_value,
+            nullIf(nullIf(events.mat_$browser, ''), 'null') AS breakdown_value,
             events__session.session_id AS session_id,
             any(events__session.`$is_bounce`) AS is_bounce,
             min(events__session.`$start_timestamp`) AS start_timestamp
@@ -1021,7 +1021,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS breakdown_value,
+            nullIf(nullIf(events.mat_$browser, ''), 'null') AS breakdown_value,
             events__session.session_id AS session_id,
             any(events__session.`$is_bounce`) AS is_bounce,
             min(events__session.`$start_timestamp`) AS start_timestamp
@@ -1097,7 +1097,7 @@
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
-            nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS breakdown_value,
+            nullIf(nullIf(events.mat_$browser, ''), 'null') AS breakdown_value,
             events__session.session_id AS session_id,
             any(events__session.`$is_bounce`) AS is_bounce,
             min(events__session.`$start_timestamp`) AS start_timestamp

@@ -60,7 +60,7 @@
             persons.properties___phone AS phone,
             persons.properties___address AS address,
             persons.properties___metadata AS metadata,
-            persons.`properties___$geoip_country_name` AS country,
+            persons.properties___$geoip_country_name AS country,
             formatDateTime(toStartOfMonth(persons.created_at), '%Y-%m') AS cohort,
             NULL AS initial_coupon,
             NULL AS initial_coupon_id
@@ -71,7 +71,7 @@
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'phone'), ''), 'null'), '^"|"$', '') AS properties___phone,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'address'), ''), 'null'), '^"|"$', '') AS properties___address,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'metadata'), ''), 'null'), '^"|"$', '') AS properties___metadata,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$geoip_country_name'), ''), 'null'), '^"|"$', '') AS `properties___$geoip_country_name`,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$geoip_country_name'), ''), 'null'), '^"|"$', '') AS properties___$geoip_country_name,
                toTimeZone(person.created_at, 'UTC') AS created_at
         FROM person
         WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
@@ -237,7 +237,7 @@
             persons.properties___phone AS phone,
             persons.properties___address AS address,
             persons.properties___metadata AS metadata,
-            persons.`properties___$geoip_country_name` AS country,
+            persons.properties___$geoip_country_name AS country,
             formatDateTime(toStartOfMonth(persons.created_at), '%Y-%m') AS cohort,
             NULL AS initial_coupon,
             NULL AS initial_coupon_id
@@ -248,7 +248,7 @@
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'phone'), ''), 'null'), '^"|"$', '') AS properties___phone,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'address'), ''), 'null'), '^"|"$', '') AS properties___address,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'metadata'), ''), 'null'), '^"|"$', '') AS properties___metadata,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$geoip_country_name'), ''), 'null'), '^"|"$', '') AS `properties___$geoip_country_name`,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$geoip_country_name'), ''), 'null'), '^"|"$', '') AS properties___$geoip_country_name,
                toTimeZone(person.created_at, 'UTC') AS created_at
         FROM person
         WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
@@ -505,7 +505,7 @@
             persons.properties___phone AS phone,
             persons.properties___address AS address,
             persons.properties___metadata AS metadata,
-            persons.`properties___$geoip_country_name` AS country,
+            persons.properties___$geoip_country_name AS country,
             formatDateTime(toStartOfMonth(persons.created_at), '%Y-%m') AS cohort,
             NULL AS initial_coupon,
             NULL AS initial_coupon_id
@@ -516,7 +516,7 @@
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'phone'), ''), 'null'), '^"|"$', '') AS properties___phone,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'address'), ''), 'null'), '^"|"$', '') AS properties___address,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'metadata'), ''), 'null'), '^"|"$', '') AS properties___metadata,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$geoip_country_name'), ''), 'null'), '^"|"$', '') AS `properties___$geoip_country_name`,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$geoip_country_name'), ''), 'null'), '^"|"$', '') AS properties___$geoip_country_name,
                toTimeZone(person.created_at, 'UTC') AS created_at
         FROM person
         WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
@@ -773,7 +773,7 @@
             persons.properties___phone AS phone,
             persons.properties___address AS address,
             persons.properties___metadata AS metadata,
-            persons.`properties___$geoip_country_name` AS country,
+            persons.properties___$geoip_country_name AS country,
             formatDateTime(toStartOfMonth(persons.created_at), '%Y-%m') AS cohort,
             NULL AS initial_coupon,
             NULL AS initial_coupon_id
@@ -784,7 +784,7 @@
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'phone'), ''), 'null'), '^"|"$', '') AS properties___phone,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'address'), ''), 'null'), '^"|"$', '') AS properties___address,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'metadata'), ''), 'null'), '^"|"$', '') AS properties___metadata,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$geoip_country_name'), ''), 'null'), '^"|"$', '') AS `properties___$geoip_country_name`,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$geoip_country_name'), ''), 'null'), '^"|"$', '') AS properties___$geoip_country_name,
                toTimeZone(person.created_at, 'UTC') AS created_at
         FROM person
         WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
@@ -1041,7 +1041,7 @@
             persons.properties___phone AS phone,
             persons.properties___address AS address,
             persons.properties___metadata AS metadata,
-            persons.`properties___$geoip_country_name` AS country,
+            persons.properties___$geoip_country_name AS country,
             formatDateTime(toStartOfMonth(persons.created_at), '%Y-%m') AS cohort,
             NULL AS initial_coupon,
             NULL AS initial_coupon_id
@@ -1052,7 +1052,7 @@
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'phone'), ''), 'null'), '^"|"$', '') AS properties___phone,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'address'), ''), 'null'), '^"|"$', '') AS properties___address,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'metadata'), ''), 'null'), '^"|"$', '') AS properties___metadata,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$geoip_country_name'), ''), 'null'), '^"|"$', '') AS `properties___$geoip_country_name`,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$geoip_country_name'), ''), 'null'), '^"|"$', '') AS properties___$geoip_country_name,
                toTimeZone(person.created_at, 'UTC') AS created_at
         FROM person
         WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
@@ -1313,7 +1313,7 @@
             persons.properties___phone AS phone,
             persons.properties___address AS address,
             persons.properties___metadata AS metadata,
-            persons.`properties___$geoip_country_name` AS country,
+            persons.properties___$geoip_country_name AS country,
             formatDateTime(toStartOfMonth(persons.created_at), '%Y-%m') AS cohort,
             NULL AS initial_coupon,
             NULL AS initial_coupon_id
@@ -1324,7 +1324,7 @@
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'phone'), ''), 'null'), '^"|"$', '') AS properties___phone,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'address'), ''), 'null'), '^"|"$', '') AS properties___address,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'metadata'), ''), 'null'), '^"|"$', '') AS properties___metadata,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$geoip_country_name'), ''), 'null'), '^"|"$', '') AS `properties___$geoip_country_name`,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$geoip_country_name'), ''), 'null'), '^"|"$', '') AS properties___$geoip_country_name,
                toTimeZone(person.created_at, 'UTC') AS created_at
         FROM person
         WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
@@ -1581,7 +1581,7 @@
             persons.properties___phone AS phone,
             persons.properties___address AS address,
             persons.properties___metadata AS metadata,
-            persons.`properties___$geoip_country_name` AS country,
+            persons.properties___$geoip_country_name AS country,
             formatDateTime(toStartOfMonth(persons.created_at), '%Y-%m') AS cohort,
             NULL AS initial_coupon,
             NULL AS initial_coupon_id
@@ -1592,7 +1592,7 @@
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'phone'), ''), 'null'), '^"|"$', '') AS properties___phone,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'address'), ''), 'null'), '^"|"$', '') AS properties___address,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'metadata'), ''), 'null'), '^"|"$', '') AS properties___metadata,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$geoip_country_name'), ''), 'null'), '^"|"$', '') AS `properties___$geoip_country_name`,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$geoip_country_name'), ''), 'null'), '^"|"$', '') AS properties___$geoip_country_name,
                toTimeZone(person.created_at, 'UTC') AS created_at
         FROM person
         WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
@@ -1850,7 +1850,7 @@
             persons.properties___phone AS phone,
             persons.properties___address AS address,
             persons.properties___metadata AS metadata,
-            persons.`properties___$geoip_country_name` AS country,
+            persons.properties___$geoip_country_name AS country,
             formatDateTime(toStartOfMonth(persons.created_at), '%Y-%m') AS cohort,
             NULL AS initial_coupon,
             NULL AS initial_coupon_id
@@ -1861,7 +1861,7 @@
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'phone'), ''), 'null'), '^"|"$', '') AS properties___phone,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'address'), ''), 'null'), '^"|"$', '') AS properties___address,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'metadata'), ''), 'null'), '^"|"$', '') AS properties___metadata,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$geoip_country_name'), ''), 'null'), '^"|"$', '') AS `properties___$geoip_country_name`,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$geoip_country_name'), ''), 'null'), '^"|"$', '') AS properties___$geoip_country_name,
                toTimeZone(person.created_at, 'UTC') AS created_at
         FROM person
         WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
@@ -2118,7 +2118,7 @@
             persons.properties___phone AS phone,
             persons.properties___address AS address,
             persons.properties___metadata AS metadata,
-            persons.`properties___$geoip_country_name` AS country,
+            persons.properties___$geoip_country_name AS country,
             formatDateTime(toStartOfMonth(persons.created_at), '%Y-%m') AS cohort,
             NULL AS initial_coupon,
             NULL AS initial_coupon_id
@@ -2129,7 +2129,7 @@
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'phone'), ''), 'null'), '^"|"$', '') AS properties___phone,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'address'), ''), 'null'), '^"|"$', '') AS properties___address,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'metadata'), ''), 'null'), '^"|"$', '') AS properties___metadata,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$geoip_country_name'), ''), 'null'), '^"|"$', '') AS `properties___$geoip_country_name`,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$geoip_country_name'), ''), 'null'), '^"|"$', '') AS properties___$geoip_country_name,
                toTimeZone(person.created_at, 'UTC') AS created_at
         FROM person
         WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
@@ -2386,7 +2386,7 @@
             persons.properties___phone AS phone,
             persons.properties___address AS address,
             persons.properties___metadata AS metadata,
-            persons.`properties___$geoip_country_name` AS country,
+            persons.properties___$geoip_country_name AS country,
             formatDateTime(toStartOfMonth(persons.created_at), '%Y-%m') AS cohort,
             NULL AS initial_coupon,
             NULL AS initial_coupon_id
@@ -2397,7 +2397,7 @@
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'phone'), ''), 'null'), '^"|"$', '') AS properties___phone,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'address'), ''), 'null'), '^"|"$', '') AS properties___address,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'metadata'), ''), 'null'), '^"|"$', '') AS properties___metadata,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$geoip_country_name'), ''), 'null'), '^"|"$', '') AS `properties___$geoip_country_name`,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$geoip_country_name'), ''), 'null'), '^"|"$', '') AS properties___$geoip_country_name,
                toTimeZone(person.created_at, 'UTC') AS created_at
         FROM person
         WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),

@@ -260,9 +260,9 @@ def test_compile_hogql_predicate_emits_unqualified_materialized_column(team, sna
         )
     )
     sql, _ = compile_hogql_predicate(request)
-    assert "events.`mat_$current_url`" not in sql
-    assert "sharded_events.`mat_$current_url`" not in sql
-    assert "`mat_$current_url`" in sql
+    assert "events.mat_$current_url" not in sql
+    assert "sharded_events.mat_$current_url" not in sql
+    assert "mat_$current_url" in sql
     assert sql == snapshot
 
 

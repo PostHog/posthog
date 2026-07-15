@@ -29,6 +29,7 @@ _ROUNDTRIP_IDENTIFIER_SAMPLES = [
     "`a\\`b`",
     "with space",
     "a.b.c",
+    "mat_$geoip_country_name",
 ]
 
 
@@ -61,6 +62,11 @@ class TestPrintString(BaseTest):
         self.assertEqual(escape_clickhouse_identifier("a.b.c"), "`a.b.c`")
         self.assertEqual(escape_clickhouse_identifier("a-b-c"), "`a-b-c`")
         self.assertEqual(escape_clickhouse_identifier("a#$#"), "`a#$#`")
+        # A `$` after the first character stays bare so materialized columns don't get quoted: a
+        # backtick-quoted `mat_$…` column crashes distributed queries under the new ClickHouse analyzer.
+        self.assertEqual(escape_clickhouse_identifier("mat_$geoip_country_name"), "mat_$geoip_country_name")
+        self.assertEqual(escape_clickhouse_identifier("pmat_$browser"), "pmat_$browser")
+        self.assertEqual(escape_clickhouse_identifier("foo$bar"), "foo$bar")
         self.assertEqual(escape_clickhouse_identifier("back`tick"), "`back``tick`")
         self.assertEqual(escape_clickhouse_identifier("single'quote"), "`single'quote`")
         self.assertEqual(escape_clickhouse_identifier('double"quote'), '`double"quote`')

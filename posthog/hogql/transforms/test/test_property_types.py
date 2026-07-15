@@ -616,7 +616,7 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
         assert "mat_$browser" in sql, sql
         # Rewritten call goes through the standard property-access path, so the mat
         # column is wrapped in nullIf(nullIf(col, ''), 'null') — same as properties.$x.
-        assert "nullIf(nullIf(events.`mat_$browser`" in sql, sql
+        assert "nullIf(nullIf(events.mat_$browser" in sql, sql
         assert values == {"set": "Chrome", "empty": None, "null_str": None, "json_null": None, "unset": None}
 
     def test_rewrite_value_semantics_nullable_mat_column(self):

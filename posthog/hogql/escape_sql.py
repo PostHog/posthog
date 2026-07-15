@@ -296,10 +296,17 @@ def _quote_postgres_wire_identifier(v: str, extra_reserved_keywords: set[str] | 
 
 
 # Copied from clickhouse_driver.util.escape, adapted from single quotes to backquotes.
+# `$` is allowed in non-leading positions so materialized columns like `mat_$geoip_country_name`
+# render bare rather than backtick-quoted. ClickHouse's lexer accepts `$` inside an identifier, and
+# under the new analyzer it serializes such a column bare (via backQuoteIfNeed) when producing a
+# distributed shard's block header — while the initiator echoes the original, backtick-quoted, query
+# text for the same column. The two spellings don't match, so merging the shard result fails with
+# `NOT_FOUND_COLUMN_IN_BLOCK`. Emitting the identifier bare makes both sides agree. A leading `$`
+# stays quoted: it can be ambiguous with a `$$...$$` dollar-quoted string literal in some positions.
 def escape_clickhouse_identifier(identifier: str) -> str:
     if "%" in identifier:
         raise QueryError(f'The HogQL identifier "{identifier}" is not permitted as it contains the "%" character')
-    if re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", identifier):
+    if re.match(r"^[A-Za-z_][A-Za-z0-9_$]*$", identifier):
         return identifier
     return "`{}`".format("".join(backquote_escape_chars_map.get(c, c) for c in identifier))
 
