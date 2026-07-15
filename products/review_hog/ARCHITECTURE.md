@@ -654,6 +654,30 @@ payload into Python) from the turn's working-state artefacts, preferring the sna
   must not masquerade as another skill card. Hidden until data exists. In-progress row label format:
   "Step k/4 · <stage> · NN%" (stages fetching/chunking/reviewing/validating numbered 1-4).
 
+#### ✅ BUILT 2026-07-15 — "For you / Entire project" scope on the recent-reviews block
+
+Mirrors the Inbox scope switch: the block can now list every review on the project, not just the requesting user's.
+
+- **`GET review_hog/reviews/?scope=mine|everyone`** (`ReviewsListParamsSerializer`, default `mine`):
+  `everyone` drops the `acting_user` filter; everything else (running-first ordering, 5-row cap, DB-side enrichment) is unchanged.
+  Bad values 400 via `is_valid(raise_exception=True)`.
+  The `scope` ChoiceField's enum stays inline in the OpenAPI query parameter, so no `ScopeEnum` component collision (verified with `--fail-on-warn`).
+- **`retrieve` is now project-wide** (queries with `SCOPE_EVERYONE` internally) so any listed review opens;
+  another team's report id still 404s (`for_team`), garbage ids still 404.
+  `perspective_stats` stays personal — it describes _your_ reviewers' effectiveness.
+- **Index:** `(team, -last_run_at)` `reviewhog_rpt_team_recent_idx` (migration 0016, `SafeAddIndexConcurrently`) serves the everyone-scope completed slice;
+  the mine slice keeps the 0011 `(team, acting_user, -last_run_at)` index.
+- **UI/logic:** `LemonSegmentedButton` "For you / Entire project" on the section header;
+  `reviewsScope` + `hasUserChosenReviewsScope` persisted reducers in `reviewHogSettingsLogic`;
+  **auto-default** — an empty first mine-scope load flips to Entire project via `applyDefaultReviewsScope`, which is _not_ marked as a user choice so a later explicit pick wins (both directions jest-tested);
+  an explicit pick is mirrored to `?reviews_scope=` — the auto-default never writes the URL, since hydrating from a link counts as an explicit choice and would make the fallback permanent;
+  the loader takes a `breakpoint()` after the fetch so a scope flip mid-flight drops the stale response;
+  rows show `by <pr_author>` in everyone scope only;
+  an empty mine-scope shows an empty state instead of hiding the section (the toggle must stay reachable) — loaded-and-empty hides the section only in everyone scope.
+- Tests: everyone-scope list (teammate rows in, cross-team rows out, bad scope 400s as the params-serializer wiring guard);
+  retrieve contract flip (teammate's review 200, other team's 404);
+  2 jest tests for the auto-default rule.
+
 #### ✅ BUILT 2026-07-02 — authoring guide moved to a canonical skill (`review-hog-authoring`)
 
 The "Create your own …" frontend prompts were fat, self-describing instruction sets — an
@@ -2068,7 +2092,7 @@ pipeline just built + hardened).
 
 ```text
 reviewhog label on a non-fork PostHog/posthog PR
-  └─ .github/workflows/review-hog.yml   (gates: label==reviewhog, head.repo==base.repo, non-bot, concurrency; drafts allowed)
+  └─ .github/workflows/review-hog.yml   (gates: label==reviewhog by a human, head.repo==base.repo, concurrency; any author)
        └─ one authenticated curl  →  POST /api/review_hog/trigger  {repo, pr_number}   (Authorization: Bearer <secret>)
             └─ endpoint: verify shared secret · validate repo allowlist (forks blocked upstream by the Action
                  + downstream by the fetch activity) · resolve team-2 integration + run user
@@ -2134,8 +2158,9 @@ github-actions[bot] trick), and its Action carries **one** secret (no Anthropic 
    authoritative in the **fetch activity** (`PRMetadata.is_fork`, non-retryable `ApplicationError` before the report
    row is created).
 4. ✅ **The Action:** `.github/workflows/review-hog.yml` — `on: pull_request [labeled]`,
-   `permissions: {}`, per-PR concurrency, `if:` gates (label + non-fork + non-bot; drafts allowed), one `curl` with the
-   bearer secret. `pull_request` (not `pull_request_target`) ⇒ forks get no secret ⇒ can't trigger.
+   `permissions: {}`, per-PR concurrency, `if:` gates (human-applied label + non-fork; any author — unmapped authors
+   resolve via the acting-user fallback), one `curl` with the bearer secret. `pull_request` (not
+   `pull_request_target`) ⇒ forks get no secret ⇒ can't trigger.
    **2026-07-14 update:** `synchronize` dropped (ADR 0002) — pushes no longer re-trigger; re-review = re-add the
    label (or mark an already-labeled draft ready).
 5. ⏳ **Later (v2):** label lifecycle (strip-on-non-approval / keep-on-error / dismiss-stale-on-push). (`synchronize` /
