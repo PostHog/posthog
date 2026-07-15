@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { SignalNode } from 'scenes/debug/signals/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -65,6 +66,31 @@ const ACTIVE_STATUSES: SignalReportStatus[] = [
 
 const REPORT_TASKS_POLL_INTERVAL_MS = 5000
 
+/** Generic fallback shown when the branch diff can't be loaded and the backend gave no clean message. */
+const DIFF_UNAVAILABLE_FALLBACK = "Couldn't load the diff — the branch may have been merged, deleted, or rewritten."
+
+/**
+ * The branch diff is a best-effort read against the team's GitHub integration, so several backend
+ * responses are expected "no diff to show" states rather than code bugs: a 404 (no connected
+ * integration can access the repo, or the branch was merged/deleted away), a 400 (the artefact isn't
+ * a diffable commit), or a 502 (GitHub couldn't produce the diff). We degrade these to a quiet inline
+ * message instead of letting them bubble up as a handled frontend exception (which error tracking
+ * would capture as noise). Genuinely unexpected errors still propagate.
+ */
+const EXPECTED_DIFF_FAILURE_STATUSES = [400, 404, 502]
+
+function isExpectedDiffFailure(error: unknown): boolean {
+    return (
+        error instanceof ApiError && error.status !== undefined && EXPECTED_DIFF_FAILURE_STATUSES.includes(error.status)
+    )
+}
+
+/** Prefer the backend's `{ error }` explanation for the inline hint, falling back to the generic message. */
+function diffUnavailableMessage(error: unknown): string {
+    const detail = error instanceof ApiError ? error.data?.error : null
+    return typeof detail === 'string' && detail.trim() ? detail : DIFF_UNAVAILABLE_FALLBACK
+}
+
 /** Extract the PR url from a task's latest run output, if present. Mirrors desktop `getTaskPrUrl`. */
 export function getTaskPrUrl(task: Task): string | null {
     const prUrl = task.latest_run?.output?.pr_url
@@ -114,9 +140,12 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         setSelectedTaskId: (taskId: string | null) => ({ taskId }),
         // Inline-expand a linked task's run log within the report detail's Runs section.
         toggleExpandedTask: (taskId: string) => ({ taskId }),
+        // Record an expected diff failure as a quiet inline message (the loader swallowed it, so no
+        // `loadReportDiffFailure` fires) rather than surfacing it as a captured frontend exception.
+        setReportDiffUnavailable: (message: string) => ({ message }),
     }),
 
-    loaders(({ props, values }) => ({
+    loaders(({ props, values, actions }) => ({
         reportArtefacts: [
             null as SignalReportArtefact[] | null,
             {
@@ -218,7 +247,17 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                     if (!teamId) {
                         return null
                     }
-                    return await signalsReportArtefactsDiff(String(teamId), props.reportId, artefactId)
+                    try {
+                        return await signalsReportArtefactsDiff(String(teamId), props.reportId, artefactId)
+                    } catch (error) {
+                        // Expected "no diff to show" responses degrade to a quiet inline message so they
+                        // don't feed error tracking. Anything else propagates as a genuine failure.
+                        if (isExpectedDiffFailure(error)) {
+                            actions.setReportDiffUnavailable(diffUnavailableMessage(error))
+                            return null
+                        }
+                        throw error
+                    }
                 },
             },
         ],
@@ -264,10 +303,12 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         reportDiffError: [
             null as string | null,
             {
+                // Each load starts by clearing the prior error; the success reset is deliberately absent
+                // so `setReportDiffUnavailable` (dispatched from the loader just before it resolves with
+                // null) survives the trailing `loadReportDiffSuccess`.
                 loadReportDiff: () => null,
-                loadReportDiffSuccess: () => null,
-                loadReportDiffFailure: () =>
-                    "Couldn't load the diff — the branch may have been merged, deleted, or rewritten.",
+                setReportDiffUnavailable: (_, { message }) => message,
+                loadReportDiffFailure: () => DIFF_UNAVAILABLE_FALLBACK,
             },
         ],
         // The commit artefact the current `reportDiff` was loaded for, so the artefact poll re-fetches
