@@ -663,4 +663,58 @@ describe('dataNodeLogic', () => {
             'posthog_ai'
         )
     })
+
+    it('keeps the previous response and surfaces the error when a reload fails with keepDataOnError', async () => {
+        const results = [{ ...commonResult }]
+        mockedQuery.mockResolvedValueOnce({ results })
+        logic = dataNodeLogic({
+            key: testUniqueKey,
+            query: setLatestVersionsOnQuery({ kind: NodeKind.EventsQuery, select: ['*', 'event', 'timestamp'] }),
+            keepDataOnError: true,
+        })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadDataSuccess'])
+
+        // a failing reload should keep the stale rows and set responseError instead of blanking the table
+        mockedQuery.mockRejectedValueOnce(new Error('ClickHouse error while executing query'))
+        await expectLogic(logic, () => {
+            dataNodeLogic({
+                key: testUniqueKey,
+                query: setLatestVersionsOnQuery({
+                    kind: NodeKind.EventsQuery,
+                    select: ['*', 'event', 'timestamp', 'person'],
+                }),
+                keepDataOnError: true,
+            })
+        }).toDispatchActions(['loadDataFailure'])
+        expect(logic.values.responseLoading).toBe(false)
+        expect(logic.values.response).toMatchObject({ results })
+        expect(logic.values.responseError).not.toBeNull()
+    })
+
+    it('blanks the response on failure without keepDataOnError', async () => {
+        const results = [{ ...commonResult }]
+        mockedQuery.mockResolvedValueOnce({ results })
+        logic = dataNodeLogic({
+            key: testUniqueKey,
+            query: setLatestVersionsOnQuery({ kind: NodeKind.EventsQuery, select: ['*', 'event', 'timestamp'] }),
+        })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadDataSuccess'])
+
+        // without opting in, a failed reload clears the results so the full error state is shown
+        mockedQuery.mockRejectedValueOnce(new Error('ClickHouse error while executing query'))
+        await expectLogic(logic, () => {
+            dataNodeLogic({
+                key: testUniqueKey,
+                query: setLatestVersionsOnQuery({
+                    kind: NodeKind.EventsQuery,
+                    select: ['*', 'event', 'timestamp', 'person'],
+                }),
+            })
+        }).toDispatchActions(['loadDataFailure'])
+        expect(logic.values.responseLoading).toBe(false)
+        expect(logic.values.response).toBeNull()
+        expect(logic.values.responseError).not.toBeNull()
+    })
 })

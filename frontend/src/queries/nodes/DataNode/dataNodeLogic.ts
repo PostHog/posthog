@@ -116,6 +116,10 @@ export interface DataNodeLogicProps {
 
     /** Whether to automatically load data when the query changes. Used for manual override in SQL editor */
     autoLoad?: boolean
+    /** Keep the previous results visible when a query fails instead of blanking the view. Table surfaces
+     * (Activity explore, person events) opt in so a failed reload doesn't blank the feed and swap in a
+     * full-screen error banner, causing a jarring layout shift. The error is surfaced non-blockingly instead. */
+    keepDataOnError?: boolean
     /** Override the maximum pagination limit. */
     maxPaginationLimit?: number
     /** Limit context sent to the /query endpoint */
@@ -650,8 +654,13 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             },
         ],
         response: {
-            // Clear the response if a failure to avoid showing inconsistencies in the UI
-            loadDataFailure: () => null,
+            // Keep the previous results on failure when the surface opts into `keepDataOnError` (table
+            // surfaces like Activity explore / person events), so a failed reload doesn't blank the feed
+            // and swap in a full-screen error state - the error is surfaced as an inline banner instead.
+            // Otherwise clear it so the error state shows and we don't present stale data as if it were fresh.
+            // Note: superseded in-flight requests never reach here (kea's breakpoint swallows them), so this
+            // only fires for genuine failures, timeouts, and explicit cancellations.
+            loadDataFailure: (state) => (props.keepDataOnError ? state : null),
         },
         responseErrorObject: [
             null as Record<string, any> | null,
