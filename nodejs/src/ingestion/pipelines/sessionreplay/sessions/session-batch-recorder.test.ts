@@ -182,6 +182,7 @@ jest.mock('./metrics', () => ({
         incrementEventsRateLimited: jest.fn(),
         incrementNewSessionsDetected: jest.fn(),
         incrementNewSessionsRateLimited: jest.fn(),
+        observeE2eLag: jest.fn(),
     },
 }))
 

@@ -1605,9 +1605,9 @@ export function defineExecModeTests(
 
         it('lists the exec umbrella tool in cli mode', async () => {
             const { tools } = await client.listTools()
-            // The sibling `render-ui` tool is gated behind the `mcp-render-ui` flag,
-            // which is off in this environment (analytics client disabled), so the
-            // cli-mode roster collapses to just `exec`.
+            // The sibling `render-ui` tool only advertises to MCP Apps hosts (Claude
+            // web/desktop); this generic test client isn't one, so the cli-mode roster
+            // collapses to just `exec`.
             expect(tools.map((t) => t.name).sort()).toEqual(['exec'])
         })
 

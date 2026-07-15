@@ -3,6 +3,9 @@
 AI-assisted PR approval for PostHog.
 Deterministic safety gates first, then Claude reviews for showstoppers.
 
+> [!NOTE]
+> This directory (together with `.stamphog/`) is vendored into other repos — e.g. [MLHog](https://github.com/PostHog/MLHog/tree/master/tools/pr-approval-agent) — each documenting its intentional local changes in its own copy of this README. When you change the engine or policy format here, those copies stay stale until someone re-syncs them, so give the owning teams a heads-up (or re-sync yourself: diff, re-copy, re-apply their documented local changes).
+
 ## Usage
 
 Add the `stamphog` label to a non-draft PR.
@@ -136,6 +139,8 @@ Final verdict → GitHub review (approve) or sticky comment (everything else)
 
 The bot never posts request-changes.
 Approvals are posted as real PR reviews (they must count toward branch protection).
+An approval is posted once, as the Stamphog app (`stamphog[bot]`), carrying the review body.
+This identity was confirmed to satisfy branch protection, so the earlier bodyless `github-actions[bot]` fallback approval has been dropped and every stamphog action now runs under the app token.
 Every other verdict (REFUSED, ESCALATE, WAIT, ERROR) goes into a single sticky comment that is updated in place on each run, with a counter of how many verdicts the comment has carried (failure notes append without bumping it) — repeated refusals don't stack up as separate review comments on the PR.
 
 ## Tiers

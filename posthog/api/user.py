@@ -78,7 +78,11 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailNormalizer, validate_display_name
 from posthog.helpers.session_cache import SessionCache
 from posthog.helpers.two_factor_session import has_passkeys, set_two_factor_verified_in_session
-from posthog.middleware import get_impersonated_session_expires_at, is_read_only_impersonation
+from posthog.middleware import (
+    IMPERSONATION_REASON_SESSION_KEY,
+    get_impersonated_session_expires_at,
+    is_read_only_impersonation,
+)
 from posthog.models import OrganizationInvite, Team, User, UserScenePersonalisation
 from posthog.models.onboarding_delegation import cancel_pending_delegation, clear_delegation_state
 from posthog.models.organization import Organization, OrganizationMembership
@@ -196,6 +200,9 @@ class UserSerializer(serializers.ModelSerializer):
     is_impersonated = serializers.SerializerMethodField()
     is_impersonated_until = serializers.SerializerMethodField()
     is_impersonated_read_only = serializers.SerializerMethodField()
+    is_impersonated_reason = serializers.SerializerMethodField(
+        help_text="The reason the operator gave when the current impersonation session started (or was last up/downgraded). Null when not impersonating."
+    )
     sensitive_session_expires_at = serializers.SerializerMethodField()
     is_2fa_enabled = serializers.SerializerMethodField()
     has_social_auth = serializers.SerializerMethodField()
@@ -277,6 +284,7 @@ class UserSerializer(serializers.ModelSerializer):
             "is_impersonated",
             "is_impersonated_until",
             "is_impersonated_read_only",
+            "is_impersonated_reason",
             "sensitive_session_expires_at",
             "team",
             "organization",
@@ -321,6 +329,7 @@ class UserSerializer(serializers.ModelSerializer):
             "is_impersonated",
             "is_impersonated_until",
             "is_impersonated_read_only",
+            "is_impersonated_reason",
             "sensitive_session_expires_at",
             "team",
             "organization",
@@ -371,6 +380,11 @@ class UserSerializer(serializers.ModelSerializer):
         if not is_impersonated_session(self.context["request"]):
             return None
         return is_read_only_impersonation(self.context["request"])
+
+    def get_is_impersonated_reason(self, _) -> Optional[str]:
+        if "request" not in self.context or not is_impersonated_session(self.context["request"]):
+            return None
+        return self.context["request"].session.get(IMPERSONATION_REASON_SESSION_KEY) or None
 
     def get_sensitive_session_expires_at(self, instance: User) -> Optional[str]:
         if "request" not in self.context:
@@ -1812,6 +1826,7 @@ def redirect_to_website(request):
                 "lastName": request.user.last_name,
             },
             headers={"Content-Type": "application/json"},
+            timeout=10,
         )
 
         if response.status_code == 200:

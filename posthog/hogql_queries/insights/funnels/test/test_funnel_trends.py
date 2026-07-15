@@ -10,7 +10,6 @@ from posthog.test.base import (
     _create_person,
     snapshot_clickhouse_queries,
 )
-from unittest.mock import patch
 
 from django.test import override_settings
 
@@ -3452,6 +3451,155 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
 
 
 @override_settings(IN_UNIT_TESTING=True)
+class TestFunnelTrendsDaysOfWeekUDF(ClickhouseTestMixin, APIBaseTest):
+    maxDiff = None
+
+    def _build_query(self, days_of_week: Optional[list[int]]) -> FunnelsQuery:
+        return FunnelsQuery(
+            dateRange=DateRange(
+                date_from="2021-06-07 00:00:00",  # Monday
+                date_to="2021-06-13 23:59:59",  # Sunday
+                daysOfWeek=days_of_week,
+            ),
+            interval="day",
+            series=[EventsNode(event="step one"), EventsNode(event="step two")],
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelWindowInterval=7,
+                funnelWindowIntervalUnit="day",
+            ),
+        )
+
+    def _create_days_of_week_journeys(self):
+        journeys_for(
+            {
+                # enters and converts on Monday
+                "user_monday": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 7, 10)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 7, 11)},
+                ],
+                # enters on Monday, converts on Tuesday
+                "user_cross": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 7, 12)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 8, 12)},
+                ],
+                # enters and converts on Saturday
+                "user_saturday": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 12, 10)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 12, 11)},
+                ],
+            },
+            self.team,
+        )
+
+    @parameterized.expand(
+        [
+            # the filter applies to every funnel event, so user_cross's Tuesday step two is
+            # dropped (entered but not converted) and user_saturday's entrance doesn't count
+            ("mondays_only", [1], (2, 1), (0, 0)),
+            ("empty_means_unfiltered", [], (2, 2), (1, 1)),
+        ]
+    )
+    def test_days_of_week_filters_entrances_and_conversions(
+        self, _name, days_of_week, expected_monday, expected_saturday
+    ):
+        self._create_days_of_week_journeys()
+
+        results = (
+            FunnelsQueryRunner(query=self._build_query(days_of_week), team=self.team, just_summarize=True)
+            .calculate()
+            .results
+        )
+
+        self.assertEqual(len(results), 7)
+        monday, saturday = results[0], results[5]
+        self.assertEqual(
+            (monday["reached_from_step_count"], monday["reached_to_step_count"]),
+            expected_monday,
+        )
+        self.assertEqual(
+            (saturday["reached_from_step_count"], saturday["reached_to_step_count"]),
+            expected_saturday,
+        )
+
+    @parameterized.expand(
+        [
+            ("monday_filter_includes_it", [1], 1),
+            ("sunday_filter_excludes_it", [7], 0),
+        ]
+    )
+    def test_days_of_week_uses_project_timezone(self, _name, days_of_week, expected_entrants):
+        self.team.timezone = "Asia/Tokyo"
+        self.team.save()
+        # 20:00 UTC Sunday = 05:00 Monday June 7th in Asia/Tokyo
+        journeys_for(
+            {
+                "user_boundary": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 6, 20)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 6, 21)},
+                ],
+            },
+            self.team,
+        )
+
+        results = (
+            FunnelsQueryRunner(query=self._build_query(days_of_week), team=self.team, just_summarize=True)
+            .calculate()
+            .results
+        )
+
+        self.assertEqual(sum(row["reached_from_step_count"] for row in results), expected_entrants)
+
+    def test_days_of_week_actors_match_chart(self):
+        self._create_days_of_week_journeys()
+        query = self._build_query([1])
+
+        converted = get_actors(
+            query,
+            self.team,
+            funnel_trends_entrance_period_start="2021-06-07 00:00:00",
+            funnel_trends_drop_off=False,
+        )
+        dropped_off = get_actors(
+            query,
+            self.team,
+            funnel_trends_entrance_period_start="2021-06-07 00:00:00",
+            funnel_trends_drop_off=True,
+        )
+
+        # user_monday converted within the selected days; user_cross's Tuesday conversion is
+        # filtered, so they show as dropped off; user_saturday never entered
+        self.assertEqual(len(converted), 1)
+        self.assertEqual(len(dropped_off), 1)
+
+    def test_days_of_week_does_not_affect_steps_viz(self):
+        # A regular (steps) funnel must ignore daysOfWeek until dropping mid-sequence
+        # events gets defined semantics there
+        journeys_for(
+            {
+                "user_saturday": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 12, 10)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 12, 11)},
+                ],
+            },
+            self.team,
+        )
+
+        query = FunnelsQuery(
+            dateRange=DateRange(
+                date_from="2021-06-07 00:00:00",
+                date_to="2021-06-13 23:59:59",
+                daysOfWeek=[1],
+            ),
+            series=[EventsNode(event="step one"), EventsNode(event="step two")],
+        )
+        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+        self.assertEqual(results[0]["count"], 1)
+        self.assertEqual(results[1]["count"], 1)
+
+
+@override_settings(IN_UNIT_TESTING=True)
 class TestFunnelTrendsCompareUDF(ClickhouseTestMixin, APIBaseTest):
     """Compare-to-previous on funnel TRENDS viz. Tagged-row contract that later viz modes will reuse."""
 
@@ -3463,9 +3611,10 @@ class TestFunnelTrendsCompareUDF(ClickhouseTestMixin, APIBaseTest):
         date_to: str = "2021-06-13 23:59:59",
         compare: bool = True,
         compare_to: Optional[str] = None,
+        days_of_week: Optional[list[int]] = None,
     ) -> FunnelsQuery:
         return FunnelsQuery(
-            dateRange=DateRange(date_from=date_from, date_to=date_to),
+            dateRange=DateRange(date_from=date_from, date_to=date_to, daysOfWeek=days_of_week),
             interval="day",
             series=[EventsNode(event="step one"), EventsNode(event="step two")],
             funnelsFilter=FunnelsFilter(
@@ -3476,8 +3625,7 @@ class TestFunnelTrendsCompareUDF(ClickhouseTestMixin, APIBaseTest):
             compareFilter=CompareFilter(compare=compare, compare_to=compare_to),
         )
 
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_compare_default_previous_period_tags_rows(self, _feature_enabled):
+    def test_compare_default_previous_period_tags_rows(self):
         # Current period 2021-06-07 .. 2021-06-13. Default previous is the prior 7-day window
         # (2021-05-31 .. 2021-06-06). One conversion lands in each window.
         journeys_for(
@@ -3515,8 +3663,37 @@ class TestFunnelTrendsCompareUDF(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(current_series["days"][0], "2021-06-07")
         self.assertEqual(previous_series["days"][0], "2021-05-31")
 
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_compare_with_custom_offset_shifts_previous_window(self, _feature_enabled):
+    def test_days_of_week_filters_previous_period_too(self):
+        # The previous-period clone must keep the daysOfWeek filter, or the comparison
+        # series silently reverts to unfiltered data
+        journeys_for(
+            {
+                "current_monday_user": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 7, 10)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 7, 11)},
+                ],
+                "previous_monday_user": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 31, 10)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 31, 11)},
+                ],
+                "previous_saturday_user": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 5, 10)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 5, 11)},
+                ],
+            },
+            self.team,
+        )
+
+        results = FunnelsQueryRunner(query=self._build_query(days_of_week=[1]), team=self.team).calculate().results
+
+        previous_series = next(r for r in results if r["compare_label"] == "previous")
+        # Monday 2021-05-31 converts; Saturday 2021-06-05 must be filtered out of the
+        # previous period as well (index 5, conversion rate would be 100.0 unfiltered)
+        self.assertEqual(previous_series["days"][0], "2021-05-31")
+        self.assertEqual(previous_series["data"][0], 100.0)
+        self.assertEqual(previous_series["data"][5], 0.0)
+
+    def test_compare_with_custom_offset_shifts_previous_window(self):
         # Custom offset `-30d` puts the previous window 30 days before the current window's start
         # regardless of the current window's length.
         journeys_for(
@@ -3549,8 +3726,7 @@ class TestFunnelTrendsCompareUDF(ClickhouseTestMixin, APIBaseTest):
         # The 2021-06-01 conversion (default-previous window) does NOT contribute here.
         self.assertEqual(previous_series["data"].count(100.0), 1)
 
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_compare_with_empty_previous_period(self, _feature_enabled):
+    def test_compare_with_empty_previous_period(self):
         # Only the current period has events; previous-period series must still be returned (zeroed).
         journeys_for(
             {
@@ -3573,8 +3749,7 @@ class TestFunnelTrendsCompareUDF(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(previous_series["days"]), 7)
         self.assertEqual(set(previous_series["data"]), {0.0})
 
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_compare_holds_funnel_window_constant(self, _feature_enabled):
+    def test_compare_holds_funnel_window_constant(self):
         # The previous-period sub-runner must use the same funnel window as the current-period one.
         # Only the date range shifts when compare is on; funnelWindowInterval / funnelWindowIntervalUnit
         # stay put. This is what keeps current and previous comparable.
@@ -3588,28 +3763,7 @@ class TestFunnelTrendsCompareUDF(ClickhouseTestMixin, APIBaseTest):
         # Sanity: previous query's dateRange differs from current.
         self.assertNotEqual(previous_funnel.context.query.dateRange, runner.query.dateRange)
 
-    @patch("posthoganalytics.feature_enabled", return_value=False)
-    def test_compare_feature_flag_off_returns_single_period(self, _feature_enabled):
-        # When the `funnels-compare` flag is off, the runner ignores compareFilter and behaves
-        # as if compare=False — saved-funnel safety.
-        journeys_for(
-            {
-                "u": [
-                    {"event": "step one", "timestamp": datetime(2021, 6, 8, 10)},
-                    {"event": "step two", "timestamp": datetime(2021, 6, 8, 11)},
-                ],
-            },
-            self.team,
-        )
-
-        results = FunnelsQueryRunner(query=self._build_query(), team=self.team).calculate().results
-
-        # Single-period response: one summarized series, no compare_label tagging.
-        self.assertEqual(len(results), 1)
-        self.assertNotIn("compare_label", results[0])
-
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_compare_with_all_time_date_range(self, _feature_enabled):
+    def test_compare_with_all_time_date_range(self):
         # When date_from='all', mirror trends' behavior: the runner does not reject the query;
         # the previous period is whatever QueryPreviousPeriodDateRange resolves to and rows are
         # tagged accordingly. The frontend toggle hides "compare" when date_from='all', but the

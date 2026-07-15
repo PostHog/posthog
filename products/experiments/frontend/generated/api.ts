@@ -19,9 +19,11 @@ import type {
     ExperimentMetricsRecalculationApi,
     ExperimentSavedMetricApi,
     ExperimentSavedMetricsListParams,
+    ExperimentSessionContextResponseApi,
     ExperimentWriteApi,
     ExperimentsListParams,
     ExperimentsPromptTemplatesRetrieve200Item,
+    ExperimentsSessionContextRetrieveParams,
     ExperimentsTimeseriesResultsRetrieveParams,
     PaginatedExperimentBasicListApi,
     PaginatedExperimentHoldoutListApi,
@@ -997,22 +999,34 @@ export const experimentsPromptTemplatesRetrieve = async (
     )
 }
 
-export const getExperimentsRequiresFlagImplementationRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/experiments/requires_flag_implementation/`
+export const getExperimentsSessionContextRetrieveUrl = (
+    projectId: string,
+    params: ExperimentsSessionContextRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/experiments/session_context/?${stringifiedParams}`
+        : `/api/projects/${projectId}/experiments/session_context/`
 }
 
 /**
- * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
- *
- * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
- * decorator on serializer methods and converts them into the same responses the viewset path
- * produces (see decorators._result_to_response), so both paths share one contract.
+ * Resolve which experiments (and variants) a session recording saw. Variants come from the session's $feature_flag_called events and stamped $feature/<key> event properties — flag evaluation, which may differ from an experiment's exposure criteria.
  */
-export const experimentsRequiresFlagImplementationRetrieve = async (
+export const experimentsSessionContextRetrieve = async (
     projectId: string,
+    params: ExperimentsSessionContextRetrieveParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExperimentsRequiresFlagImplementationRetrieveUrl(projectId), {
+): Promise<ExperimentSessionContextResponseApi> => {
+    return apiMutator<ExperimentSessionContextResponseApi>(getExperimentsSessionContextRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

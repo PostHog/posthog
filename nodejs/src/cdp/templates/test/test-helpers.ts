@@ -175,6 +175,11 @@ export class TemplateTester {
 
     public mockFetch = jest.fn()
     public mockPrint = jest.fn()
+    // Async functions (postHogGetAccount, postHogGetTicket, ...) resolve the team to read
+    // its secret_api_token — stub it so templates built on them are testable.
+    public mockTeamManager = {
+        getTeam: jest.fn().mockResolvedValue({ id: 1, secret_api_token: 'test-secret-token' }),
+    }
     constructor(private _template: HogFunctionTemplate) {
         this.template = {
             ..._template,
@@ -189,7 +194,8 @@ export class TemplateTester {
 
     private createHogExecutor(): HogExecutorService {
         const config = this.mockHub
-        const hogInputsService = new HogInputsService(undefined as any, config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
+        const recipientTokensService = new RecipientTokensService(config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
+        const hogInputsService = new HogInputsService(undefined as any, recipientTokensService, undefined as any)
         const emailService = new EmailService(
             {
                 sesAccessKeyId: config.SES_ACCESS_KEY_ID,
@@ -203,7 +209,6 @@ export class TemplateTester {
             config.SITE_URL,
             new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL)
         )
-        const recipientTokensService = new RecipientTokensService(config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
         return new HogExecutorService(
             {
                 hogCostTimingUpperMs: config.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
@@ -211,12 +216,12 @@ export class TemplateTester {
                 fetchRetries: config.CDP_FETCH_RETRIES,
                 fetchBackoffBaseMs: config.CDP_FETCH_BACKOFF_BASE_MS,
                 fetchBackoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
-                selfLoopGuardMode: config.CDP_SELF_LOOP_GUARD_MODE,
             },
-            { teamManager: undefined as any, siteUrl: config.SITE_URL },
+            { teamManager: this.mockTeamManager as any, siteUrl: config.SITE_URL },
             hogInputsService,
             emailService,
-            recipientTokensService
+            recipientTokensService,
+            undefined as any
         )
     }
 
@@ -363,7 +368,7 @@ export class TemplateTester {
 
     async invokeFetchResponse(
         invocation: CyclotronJobInvocationHogFunction,
-        response: { status: number; body: Record<string, any> }
+        response: { status: number; body: unknown }
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         const modifiedInvocation = cloneInvocation(invocation)
 

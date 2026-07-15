@@ -126,7 +126,7 @@ describe('Resolved mode is preserved across pooled-transport vendor flips', () =
 
         // Client caches the tools payload at init. cli mode collapses the wire
         // roster to the single `exec` umbrella tool (the sibling `render-ui` tool
-        // is gated behind the `mcp-render-ui` flag, which is off in tests).
+        // only advertises to MCP Apps hosts; Claude Code isn't one).
         const cachedTools = await clientA.listTools()
         expect(cachedTools.tools.map((t) => t.name).sort()).toEqual(['exec'])
 

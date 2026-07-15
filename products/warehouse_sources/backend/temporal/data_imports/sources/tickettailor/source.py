@@ -68,7 +68,6 @@ You can create an API key under **Settings → API** in your [Ticket Tailor](htt
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

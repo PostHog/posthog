@@ -31,6 +31,7 @@ actions_that_require_current_team = [
     "experiments_config",
     "default_evaluation_contexts",
     "evaluation_context_suggestions",
+    "logs_config",
 ]
 
 
@@ -59,7 +60,6 @@ def _delete_misc_small_tables_for_teams(team_ids: list[int]) -> None:
 
     from products.data_modeling.backend.facade.models import Edge, Node
     from products.early_access_features.backend.models import EarlyAccessFeature
-    from products.product_analytics.backend.models.insight_caching_state import InsightCachingState
 
     error_tracking_fingerprint = apps.get_model("error_tracking", "ErrorTrackingIssueFingerprintV2")
 
@@ -72,7 +72,6 @@ def _delete_misc_small_tables_for_teams(team_ids: list[int]) -> None:
     _raw_delete_batch(error_tracking_fingerprint.objects.filter(team_id__in=team_ids))
     # FeatureFlagHashKeyOverride references Person, so it must go before persons are deleted.
     _delete_hash_key_overrides_for_teams(team_ids)
-    _raw_delete_batch(InsightCachingState.objects.filter(team_id__in=team_ids))
     _delete_llm_evaluations_for_teams(team_ids)
 
 

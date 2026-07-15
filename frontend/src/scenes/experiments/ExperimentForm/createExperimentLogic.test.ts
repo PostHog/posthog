@@ -237,57 +237,38 @@ describe('createExperimentLogic', () => {
                 })
         })
 
-        it('setExperimentValue updates parameters object', async () => {
-            const parameters = {
-                feature_flag_variants: [
-                    { key: 'control', rollout_percentage: 50 },
-                    { key: 'test', rollout_percentage: 50 },
-                ],
-                ensure_experience_continuity: true,
-            }
-
+        it('setFeatureFlagConfig writes variants, rollout, and continuity into the draft flag config', async () => {
             await expectLogic(logic, () => {
-                logic.actions.setExperimentValue('parameters', parameters)
-            })
-                .toDispatchActions(['setExperimentValue'])
-                .toMatchValues({
-                    experiment: partial({
-                        parameters: partial({
-                            feature_flag_variants: expect.arrayContaining([
-                                partial({ key: 'control', rollout_percentage: 50 }),
-                                partial({ key: 'test', rollout_percentage: 50 }),
-                            ]),
-                            ensure_experience_continuity: true,
-                        }),
-                    }),
-                })
-        })
-
-        it('merges parameters when updating variants', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.setExperimentValue('parameters', {
-                    feature_flag_variants: [
+                logic.actions.setFeatureFlagConfig({
+                    variants: [
                         { key: 'control', rollout_percentage: 33 },
                         { key: 'test', rollout_percentage: 33 },
                         { key: 'test-2', rollout_percentage: 34 },
                     ],
+                    rollout_percentage: 80,
+                    ensure_experience_continuity: true,
                 })
             })
-                .toDispatchActions(['setExperimentValue'])
+                .toDispatchActions(['setFeatureFlagConfig'])
                 .toMatchValues({
                     experiment: partial({
-                        parameters: partial({
-                            feature_flag_variants: expect.arrayContaining([
-                                partial({ key: 'control' }),
-                                partial({ key: 'test' }),
-                                partial({ key: 'test-2' }),
-                            ]),
-                        }),
+                        feature_flag_config: {
+                            filters: {
+                                multivariate: {
+                                    variants: [
+                                        { key: 'control', rollout_percentage: 33 },
+                                        { key: 'test', rollout_percentage: 33 },
+                                        { key: 'test-2', rollout_percentage: 34 },
+                                    ],
+                                },
+                                groups: [{ properties: [], rollout_percentage: 80 }],
+                            },
+                            ensure_experience_continuity: true,
+                        },
                     }),
                 })
 
-            // Verify we have exactly 3 variants
-            expect(logic.values.experiment.parameters?.feature_flag_variants).toHaveLength(3)
+            expect(logic.values.experiment.feature_flag_config?.filters?.multivariate?.variants).toHaveLength(3)
         })
     })
 
@@ -581,11 +562,15 @@ describe('createExperimentLogic', () => {
                     name: 'Test Experiment',
                     description: 'Test hypothesis',
                     feature_flag_key: 'test-flag',
-                    parameters: {
-                        feature_flag_variants: [
-                            { key: 'control', rollout_percentage: 50 },
-                            { key: 'treatment', rollout_percentage: 50 },
-                        ],
+                    feature_flag_config: {
+                        filters: {
+                            multivariate: {
+                                variants: [
+                                    { key: 'control', rollout_percentage: 50 },
+                                    { key: 'treatment', rollout_percentage: 50 },
+                                ],
+                            },
+                        },
                     },
                 })
                 logic.actions.saveExperiment()
@@ -599,11 +584,16 @@ describe('createExperimentLogic', () => {
                     name: 'Test Experiment',
                     description: 'Test hypothesis',
                     feature_flag_key: 'test-experiment',
-                    parameters: {
-                        feature_flag_variants: [
-                            { key: 'control', rollout_percentage: 50 },
-                            { key: 'test', rollout_percentage: 50 },
-                        ],
+                    feature_flag_config: {
+                        filters: {
+                            multivariate: {
+                                variants: [
+                                    { key: 'control', rollout_percentage: 50 },
+                                    { key: 'test', rollout_percentage: 50 },
+                                ],
+                            },
+                        },
+                        ensure_experience_continuity: true,
                     },
                 })
                 logic.actions.saveExperiment()

@@ -370,10 +370,12 @@ class TestProcessBatchPersistentRetry:
 
         assert call_order == ["increment", "process"]
 
+    # The in-process retry loop sleeps its real exponential backoff between attempts; skip it.
+    @patch("time.sleep", return_value=None)
     @patch(f"{RETRY_TRACKER_PATH}.update_retry_error_type")
     @patch(f"{RETRY_TRACKER_PATH}.increment_retry_count", return_value=RetryInfo(count=1))
     @patch(f"{RETRY_TRACKER_PATH}.get_retry_info", return_value=RetryInfo(count=0))
-    def test_transient_error_classified_correctly(self, mock_get, mock_inc, mock_update):
+    def test_transient_error_classified_correctly(self, mock_get, mock_inc, mock_update, _sleep):
         process_fn = MagicMock(side_effect=ConnectionError("reset"))
         service = self._setup_service(process_message=process_fn)
         msg = _make_message()

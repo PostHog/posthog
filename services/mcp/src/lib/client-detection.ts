@@ -27,7 +27,7 @@
  *
  * - `isClaudeUiHost()` matches Claude web/desktop and Cowork — MCP Apps hosts
  *   that render interactive UI (iframes). Used to advertise the `render-ui`
- *   tool to them, gated behind the `mcp-render-ui` flag.
+ *   tool to them.
  *
  * - `isClaudeChatHost()` matches Claude web/desktop only — the chat surfaces that
  *   report `supportsInstructions` but never surface the `instructions` payload to

@@ -24,6 +24,7 @@ from posthog.hogql.printer.duckdb import DuckDBPrinter
 from posthog.hogql.printer.hogql import HogQLPrinter
 from posthog.hogql.printer.mysql import MySQLPrinter
 from posthog.hogql.printer.postgres import PostgresPrinter
+from posthog.hogql.printer.redshift import RedshiftPrinter
 from posthog.hogql.printer.snowflake import SnowflakePrinter
 from posthog.hogql.resolver import ResolverFactory, resolve_types
 from posthog.hogql.transforms.clickhouse_property_resolution import clickhouse_property_resolution
@@ -56,6 +57,7 @@ PRINTER_CLASSES: dict[HogQLDialect, type[BasePrinter]] = {
     "duckdb": DuckDBPrinter,
     "mysql": MySQLPrinter,
     "snowflake": SnowflakePrinter,
+    "redshift": RedshiftPrinter,
     "hogql": HogQLPrinter,
 }
 
@@ -155,10 +157,12 @@ def prepare_ast_for_printing(
     # sources, which carry no restrictable event/person properties, so they need no enforcement here.
     if context.team_id is not None and context.restricted_properties is None:
         with context.timings.measure("load_restricted_properties"):
-            context.restricted_properties = get_restricted_properties_for_team(
-                team_id=context.team_id,
-                user=context.user,
-            )
+            if context.team is not None and context.team.pk == context.team_id:
+                context.restricted_properties = get_restricted_properties_for_team(user=context.user, team=context.team)
+            else:
+                context.restricted_properties = get_restricted_properties_for_team(
+                    user=context.user, team_id=context.team_id
+                )
 
     if context.modifiers.inCohortVia == InCohortVia.LEFTJOIN_CONJOINED:
         with context.timings.measure("resolve_in_cohorts_conjoined"):

@@ -38,7 +38,7 @@ from products.metrics.backend.facade.contracts import (
     MetricQueryClause,
     MetricQueryRequest,
 )
-from products.metrics.backend.facade.enums import AttributeScope, FilterOp, MetricAggregation
+from products.metrics.backend.facade.enums import AttributeScope, FilterOp, MetricAggregation, MetricType
 
 __all__ = ["MetricsViewSet"]
 
@@ -86,6 +86,12 @@ class _MetricClauseSerializer(serializers.Serializer):
         max_length=255,
         help_text="Exact metric name this clause queries.",
     )
+    metricType = serializers.ChoiceField(
+        choices=[t.value for t in MetricType],
+        required=False,
+        allow_null=True,
+        help_text="Constrain the query to one metric type. A name can exist as several types (e.g. a counter and a gauge); without this, rows of every type sharing the name are blended into one aggregate. Get the type from 'metric-names-list'.",
+    )
     aggregation = serializers.ChoiceField(
         choices=["sum", "avg", "count", "p95", "rate", "increase", "histogram_quantile"],
         default="sum",
@@ -117,6 +123,12 @@ class _MetricQueryBodySerializer(serializers.Serializer):
         max_length=255,
         required=False,
         help_text="Exact metric name to query (e.g. 'http.server.duration'). Single-clause shorthand — mutually exclusive with 'clauses'.",
+    )
+    metricType = serializers.ChoiceField(
+        choices=[t.value for t in MetricType],
+        required=False,
+        allow_null=True,
+        help_text="Constrain the query to one metric type. A name can exist as several types (e.g. a counter and a gauge); without this, rows of every type sharing the name are blended into one aggregate. Get the type from 'metric-names-list'.",
     )
     aggregation = serializers.ChoiceField(
         choices=["sum", "avg", "count", "p95", "rate", "increase", "histogram_quantile"],
@@ -176,6 +188,10 @@ class _MetricQueryBodySerializer(serializers.Serializer):
             raise serializers.ValidationError("Provide exactly one of 'metricName' or 'clauses'.")
         if attrs.get("formula") and not has_clauses:
             raise serializers.ValidationError("'formula' requires 'clauses'.")
+        if has_clauses and attrs.get("metricType"):
+            raise serializers.ValidationError(
+                "'metricType' applies to the single-clause shorthand; set it per clause instead."
+            )
         return attrs
 
 
@@ -196,11 +212,13 @@ def _build_clause(data: dict, *, name: str) -> MetricQueryClause:
     else:
         aggregation = MetricAggregation(aggregation_raw)
 
+    metric_type_raw = data.get("metricType")
     return MetricQueryClause(
         name=name,
         metric_name=data["metricName"],
         aggregation=aggregation,
         quantile=quantile,
+        metric_type=MetricType(metric_type_raw) if metric_type_raw else None,
         filters=tuple(
             MetricFilter(key=f["key"], op=FilterOp(f["op"]), value=f["value"], scope=AttributeScope(f["scope"]))
             for f in data.get("filters") or []
@@ -473,7 +491,7 @@ class _MetricSamplesBodySerializer(serializers.Serializer):
         required=False,
         allow_blank=True,
         max_length=255,
-        help_text="Restrict to emissions on this trace — the reverse metric->trace pivot. Omit for all traces.",
+        help_text="Restrict to emissions on this trace (hex trace id, as the tracing product uses) — the reverse metric->trace pivot. Omit for all traces.",
     )
     limit = serializers.IntegerField(
         required=False,
@@ -507,9 +525,9 @@ class _MetricEventSampleSerializer(serializers.Serializer):
     is_monotonic = serializers.BooleanField(help_text="True for monotonically increasing counters.")
     service_name = serializers.CharField(help_text="Service that emitted the metric.")
     trace_id = serializers.CharField(
-        help_text="Trace this emission belongs to; empty if none. Use it to pivot to the trace.",
+        help_text="Trace this emission belongs to (hex, same form the tracing product uses); empty if none. Use it to pivot to the trace.",
     )
-    span_id = serializers.CharField(help_text="Span this emission belongs to; empty if none.")
+    span_id = serializers.CharField(help_text="Span this emission belongs to (hex); empty if none.")
     attributes = serializers.DictField(
         child=serializers.CharField(),
         help_text="Per-emission attributes (high-cardinality labels on the data point).",
