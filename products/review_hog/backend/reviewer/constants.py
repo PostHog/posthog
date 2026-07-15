@@ -42,6 +42,13 @@ MAX_CONCURRENT_SANDBOXES = 10
 # (a total wipeout — e.g. the sandbox layer down — must not look like a clean PR).
 FAN_OUT_FAILURE_FLOOR = 0.70
 
+# The ratio floor only carries a systemic-outage signal on a large-enough fan-out. Below this many
+# units a >floor failure is indistinguishable from a couple of independent flaky sandbox turns —
+# a single-chunk PR fans out to just one blind-spot unit, so 1/1 would otherwise always trip the
+# floor and hard-fail a run designed to degrade best-effort. A small fan-out is also cheaply
+# re-runnable, so it always degrades best-effort rather than raising.
+FAN_OUT_FAILURE_FLOOR_MIN_UNITS = 3
+
 # Attempts for a chunk's warm validation session. Retries are cheap — skip-resume re-validates only
 # issues without a persisted verdict. On the final attempt a failed turn is skipped, not raised.
 VALIDATION_MAX_ATTEMPTS = 2
