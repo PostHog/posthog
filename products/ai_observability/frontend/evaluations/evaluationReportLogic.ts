@@ -257,11 +257,12 @@ export async function persistReportDraft(
     }
 
     const targets = buildDeliveryTargets(draft)
-    if (activeReport) {
+    const report = activeReport ?? (await loadReportsForEvaluation(teamId, evaluationId))[0]
+    if (report) {
         await llmAnalyticsEvaluationReportsPartialUpdate(
             teamId.toString(),
-            activeReport.id,
-            buildReportUpdatePayload(draft, activeReport, targets) as EvaluationReportPatchBody
+            report.id,
+            buildReportUpdatePayload(draft, report, targets) as EvaluationReportPatchBody
         )
         return true
     }
@@ -425,9 +426,7 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                 loadReportRuns: async (reportId: string) => {
                     const teamId = requireCurrentTeamId(values.currentTeamId)
                     const response = await llmAnalyticsEvaluationReportsRunsList(teamId.toString(), reportId)
-                    // The runs endpoint is paginated (DRF envelope); unwrap results so the
-                    // reducer gets an array rather than the {count, next, previous, results} object.
-                    return (response?.results || []) as unknown as EvaluationReportRun[]
+                    return response?.results || []
                 },
             },
         ],
