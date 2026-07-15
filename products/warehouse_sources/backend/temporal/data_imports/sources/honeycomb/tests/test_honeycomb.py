@@ -245,7 +245,7 @@ class TestRecipientCredentialScrubbing:
     anyone with warehouse query access, so lock in the redaction behavior."""
 
     def test_recipient_details_are_allow_listed(self, monkeypatch: Any) -> None:
-        lists = {
+        lists: dict[str, list[dict[str, Any]]] = {
             f"{US}/1/recipients": [
                 {"id": "r1", "type": "email", "details": {"email_address": "oncall@example.com"}},
                 {
@@ -281,7 +281,7 @@ class TestRecipientCredentialScrubbing:
     def test_embedded_trigger_recipients_redact_credential_targets(self, monkeypatch: Any) -> None:
         # Triggers (and burn alerts) embed abbreviated recipients whose `target` holds the same
         # credentials for non-address types; only email/slack targets are plain addresses.
-        lists = {
+        lists: dict[str, list[dict[str, Any]]] = {
             f"{US}/1/datasets": [{"slug": "prod"}],
             f"{US}/1/triggers/prod": [
                 {
