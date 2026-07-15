@@ -284,6 +284,16 @@ export type Setting = {
     allowForTeam?: (team: TeamType | TeamPublicType | null) => boolean
 
     /**
+     * Hide the setting unless the user meets this access level for the resource. Use it for settings
+     * whose data endpoints are RBAC-gated: without it, the component mounts for a user who lacks
+     * access and its loader gets a 403, which posthog-js captures as an unhandled exception.
+     */
+    accessControl?: {
+        resourceType: AccessControlResourceType
+        minimumAccessLevel: AccessControlLevel
+    }
+
+    /**
      * If true, this setting will be hidden when viewing all settings (no specific section selected),
      * but will still appear when viewing its specific section directly
      */
