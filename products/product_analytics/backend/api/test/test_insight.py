@@ -4367,6 +4367,35 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         browser_values = self._collect_property_values(response["query"]["source"].get("properties"), "$browser")
         assert browser_values == [["Firefox"]], f"Tile $browser should replace all others. Got: {browser_values}"
 
+    def test_dashboard_property_override_replaces_insight_on_same_key(self) -> None:
+        # Insight and dashboard both filter $browser, no tile. The dashboard must win on that key —
+        # over the insight's own filter — instead of AND-ing (Chrome AND Safari would return nothing).
+        insight = Insight.objects.create(
+            query={
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"event": "$pageview", "kind": "EventsNode"}],
+                    "properties": [{"key": "$browser", "type": "event", "operator": "exact", "value": ["Chrome"]}],
+                },
+            },
+            team=self.team,
+        )
+        dashboard = Dashboard.objects.create(team=self.team, name="dashboard 1", created_by=self.user)
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+        dashboard_filters = {
+            "properties": [{"key": "$browser", "type": "event", "operator": "exact", "value": ["Safari"]}]
+        }
+
+        with self._tile_filter_merge_flag_on():
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/insights/{insight.pk}",
+                data={"from_dashboard": str(dashboard.pk), "filters_override": json.dumps(dashboard_filters)},
+            ).json()
+
+        browser_values = self._collect_property_values(response["query"]["source"].get("properties"), "$browser")
+        assert browser_values == [["Safari"]], f"Dashboard $browser should replace the insight's. Got: {browser_values}"
+
     @staticmethod
     def _collect_property_values(properties: object, key: str) -> list:
         """Flatten a query's properties (flat list or nested PropertyGroupFilter) to the values set for one key."""

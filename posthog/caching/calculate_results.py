@@ -107,9 +107,9 @@ def calculate_for_query_based_insight(
         variables_override if variables_override is not None else dashboard.variables if dashboard is not None else None
     )
 
-    merge_tile_filters = tile_filters_override and tile_filter_merge_enabled(team)
+    merge_enabled = tile_filter_merge_enabled(team)
     if tile_filters_override:
-        if merge_tile_filters:
+        if merge_enabled:
             # Tile filters merge on top of dashboard filters — tile wins per field, properties merge per key.
             dashboard_filters_json = merge_filters_by_priority(dashboard_filters_json, tile_filters_override)
         else:
@@ -120,10 +120,11 @@ def calculate_for_query_based_insight(
     if query_json is None:
         raise ValueError("Insight has no query and no query_override was provided")
 
-    # A tile property filter takes precedence over the insight's own filter on the same key — drop the
-    # insight's so the merged tile filter replaces it rather than AND-ing (which could zero out results).
-    if merge_tile_filters:
-        query_json = remove_query_properties_overridden_by(query_json, tile_filters_override)
+    # The higher-priority layers (dashboard + tile) take precedence over the insight's own filter on a
+    # shared key — drop the insight's so they replace it rather than AND-ing (which could zero out results).
+    # Flag off preserves the old behavior where dashboard/tile filters stack onto the insight.
+    if merge_enabled and dashboard_filters_json:
+        query_json = remove_query_properties_overridden_by(query_json, dashboard_filters_json)
 
     process_response = process_query_dict(
         team,

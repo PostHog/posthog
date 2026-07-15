@@ -1013,16 +1013,18 @@ class InsightSerializer(InsightBasicSerializer):
                     if dashboard
                     else {}
                 )
-                if tile_filters_override and tile_filter_merge_enabled(instance.team):
-                    effective_filters = merge_filters_by_priority(base_filters, tile_filters_override)
-                    # A tile property filter replaces the insight's own filter on the same key (not just
-                    # the dashboard's), so the returned query matches what the compute path computed.
-                    query = remove_query_properties_overridden_by(query, tile_filters_override)
-                elif tile_filters_override:
+                merge_enabled = tile_filter_merge_enabled(instance.team)
+                if tile_filters_override and not merge_enabled:
                     # Flag off: tile filters replace dashboard filters wholesale (pre-merge behavior).
                     effective_filters = tile_filters_override
+                elif tile_filters_override:
+                    effective_filters = merge_filters_by_priority(base_filters, tile_filters_override)
                 else:
                     effective_filters = base_filters or {}
+                if merge_enabled and effective_filters:
+                    # The higher-priority layers (dashboard + tile) replace the insight's own filter on a
+                    # shared key, so the returned query matches what the compute path computed.
+                    query = remove_query_properties_overridden_by(query, effective_filters)
                 query = apply_dashboard_filters_to_dict(
                     query,
                     effective_filters,

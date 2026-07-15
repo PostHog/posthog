@@ -123,9 +123,9 @@ def _strip_query_properties(query: dict, keys: set[tuple[str, Any]]) -> dict:
 
 def remove_query_properties_overridden_by(query: dict, overriding_filters: dict | None) -> dict:
     """Drop the insight's own property filters that `overriding_filters` replaces on the same (type, key),
-    so the higher-priority layer takes precedence over the insight's base filter instead of merely AND-ing
-    with it. Only the layer passed here gets this precedence — a lower-priority layer (e.g. dashboard-level
-    filters when the caller passes the tile layer) still stacks onto the insight as usual."""
+    so the higher-priority layers take precedence over the insight's base filter instead of merely AND-ing
+    with it (which could AND a contradiction into an empty result). Callers pass the effective dashboard +
+    tile filter set, so both layers override the insight's own filter on a shared key."""
     overriding_props = (overriding_filters or {}).get("properties") or []
     keys = {_property_identity(p) for p in overriding_props}
     if not keys:
