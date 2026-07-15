@@ -29,8 +29,9 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-def _ingress_base() -> str | None:
-    return settings.AGENT_INGRESS_PUBLIC_URL.rstrip("/") if settings.AGENT_INGRESS_PUBLIC_URL else None
+def _identity_callback_base() -> str | None:
+    callback_base = settings.AGENT_IDENTITY_CALLBACK_BASE_URL
+    return callback_base.rstrip("/") if callback_base else None
 
 
 def _ensure_oauth_app(
@@ -86,7 +87,7 @@ def provision_posthog_identity_apps(
         return False
 
     organization = Team.objects.get(pk=application.team_id).organization
-    base = _ingress_base()
+    base = _identity_callback_base()
 
     if not base:
         mutated = False

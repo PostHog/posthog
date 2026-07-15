@@ -137,6 +137,7 @@ async function main(): Promise<void> {
         domainSuffix: config.domainSuffix,
         pathPrefix: config.pathPrefix,
         publicBaseUrl: config.publicUrl,
+        identityCallbackBaseUrl: config.identityCallbackBaseUrl,
         slackSigningSecretResolver: secretResolver,
         internalSigningKey: config.internalSigningKey,
         authProvider,
@@ -155,9 +156,10 @@ async function main(): Promise<void> {
             {
                 port: config.port,
                 bus: bus.constructor.name,
-                // Only surfaced when set. Domain-mode agent routes do not need it,
-                // but root-level OAuth identity callbacks do.
                 ...(config.publicUrl ? { public_url: config.publicUrl } : {}),
+                ...(config.identityCallbackBaseUrl
+                    ? { identity_callback_base_url: config.identityCallbackBaseUrl }
+                    : {}),
             },
             config.publicUrl ? `listening — reachable at ${config.publicUrl}` : 'listening'
         )

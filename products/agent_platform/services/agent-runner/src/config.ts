@@ -319,7 +319,7 @@ const ENV_KEY_MAP = extendEnvKeyMap<AgentRunnerConfig>(PLATFORM_ENV_KEY_MAP, {
     SANDBOX_OUTBOUND_CIDR_ALLOWLIST: 'sandboxOutboundCidrAllowlist',
     MODAL_APP_NAME: 'modalAppName',
     MODAL_REGION: 'modalRegion',
-    AGENT_INGRESS_PUBLIC_URL: 'linkRedirectBaseUrl',
+    AGENT_IDENTITY_CALLBACK_BASE_URL: 'linkRedirectBaseUrl',
     AGENT_WEB_SEARCH_PROVIDER: 'webSearchProvider',
     AGENT_WEB_SEARCH_FALLBACKS: 'webSearchFallbacks',
     EXA_API_KEY: 'exaApiKey',

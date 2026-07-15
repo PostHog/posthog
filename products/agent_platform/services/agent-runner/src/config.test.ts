@@ -52,6 +52,15 @@ describe('loadAgentRunnerConfig', () => {
         expect(cfg.useAiGateway).toBe(true)
         expect(cfg.aiGatewayUrl).toBe('http://localhost:8080/v1')
         expect(cfg.posthogAiGatewayKey).toBe(DEV_GATEWAY_PHS)
+        expect(cfg.linkRedirectBaseUrl).toBe('http://localhost:3030')
+    })
+
+    it('uses the dedicated identity callback base instead of the trigger ingress URL', () => {
+        const cfg = loadAgentRunnerConfig({
+            AGENT_IDENTITY_CALLBACK_BASE_URL: 'https://identity.example.com',
+            AGENT_INGRESS_PUBLIC_URL: 'https://agents.example.com',
+        })
+        expect(cfg.linkRedirectBaseUrl).toBe('https://identity.example.com')
     })
 
     it('defaults sandboxBackend to docker in dev so bin/start works without configuration', () => {

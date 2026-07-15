@@ -28,15 +28,15 @@ export interface AdmissionDepsBundle {
     envEncryption: EncryptedFields
     http: HttpFetcher
     posthogApiBaseUrl?: string
-    publicBaseUrl?: string
+    identityCallbackBaseUrl?: string
 }
 
 /** The ingress's own OAuth callback URL for a provider. */
-export function admissionRedirectUri(publicBaseUrl: string | undefined, providerId: string): string {
-    if (!publicBaseUrl) {
+export function admissionRedirectUri(identityCallbackBaseUrl: string | undefined, providerId: string): string {
+    if (!identityCallbackBaseUrl) {
         throw new Error('identity_callback_url_unconfigured')
     }
-    const base = publicBaseUrl.replace(/\/+$/, '')
+    const base = identityCallbackBaseUrl.replace(/\/+$/, '')
     return `${base}/link/${providerId}/callback`
 }
 
@@ -59,6 +59,6 @@ export function buildAdmission(deps: AdmissionDepsBundle, revision: AgentRevisio
         identities: deps.identities,
         bindings: deps.transportBindings,
         credentials: deps.identityCredentials,
-        redirectUriFor: (p) => admissionRedirectUri(deps.publicBaseUrl, p),
+        redirectUriFor: (p) => admissionRedirectUri(deps.identityCallbackBaseUrl, p),
     })
 }
