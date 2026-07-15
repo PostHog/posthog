@@ -6,7 +6,7 @@ module holds the DB-touching ``_*_sync`` implementations plus the pure helpers t
 
 import time
 import dataclasses
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from django.db import close_old_connections, transaction
@@ -19,6 +19,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.schema import ExperimentQuery
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
@@ -38,6 +39,7 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.temporal.metric_resolution import build_metric, find_metric_dict
 from products.experiments.backend.temporal.models import (
+    CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS,
     METRIC_CALC_MAX_EXECUTION_TIME_SECONDS,
     ExperimentMetricToRecalculate,
     MetricRecalculationResult,
@@ -610,6 +612,50 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 trigger=state.trigger,
             )
             return _fail(recalculation_id, metric_uuid, "calculation", message)
+
+        except ConcurrencyLimitExceeded as e:
+            # The org's ClickHouse app-query quota is saturated: backpressure, not a fault. No exception
+            # capture, and the exponential retry schedule is overridden with a flat delay long enough for the
+            # org's earlier runs to release query slots. Persisted only on the final attempt, so the metric
+            # stays in its loading state while it waits for quota.
+            message = str(e)[:_MAX_ERROR_MESSAGE_LENGTH]
+            if is_final_attempt:
+                _store_result(
+                    experiment_id=experiment_id,
+                    metric_uuid=metric_uuid,
+                    recalc_fp=recalc_fp,
+                    query_from=experiment.start_date,
+                    query_to=query_to_dt,
+                    status=ExperimentMetricResult.Status.FAILED,
+                    result=None,
+                    error_message=message,
+                    query_id=client_query_id,
+                )
+                _record_failure(recalculation_id, metric_uuid, "calculation", message)
+                _capture_experiment_metric_event(
+                    experiment,
+                    metric_uuid,
+                    metric_type,
+                    metric_dict,
+                    "experiment metric error",
+                    {
+                        "duration_ms": round((time.perf_counter() - calc_started_at) * 1000),
+                        "error_type": classify_experiment_query_error(e),
+                        "error_message": message,
+                    },
+                    trigger=state.trigger,
+                )
+            logger.warning(
+                "Experiment metric recalculation deferred by org concurrency limit",
+                experiment_id=experiment_id,
+                metric_uuid=metric_uuid,
+                is_final_attempt=is_final_attempt,
+            )
+            raise ApplicationError(
+                message,
+                type="ConcurrencyLimitExceeded",
+                next_retry_delay=timedelta(seconds=CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS),
+            ) from e
 
         except Exception as e:
             # Could be transient (ClickHouse connection blip, network glitch, or other infrastructure issue).

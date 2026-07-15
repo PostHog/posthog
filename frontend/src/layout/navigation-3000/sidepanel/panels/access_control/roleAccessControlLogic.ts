@@ -11,25 +11,9 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import {
-    APIScopeObject,
-    AccessControlResponseType,
-    AccessControlTypeRole,
-    OrganizationMemberType,
-    RoleType,
-} from '~/types'
+import { AccessControlResponseType, RoleType } from '~/types'
 
 import type { roleAccessControlLogicType } from './roleAccessControlLogicType'
-
-export type DefaultResourceAccessControls = {
-    accessControlByResource: Record<APIScopeObject, AccessControlTypeRole>
-}
-export type MemberResourceAccessControls = DefaultResourceAccessControls & {
-    organization_member?: OrganizationMemberType
-}
-export type RoleResourceAccessControls = DefaultResourceAccessControls & {
-    role?: RoleType
-}
 
 export const roleAccessControlLogic = kea<roleAccessControlLogicType>([
     path(['scenes', 'accessControl', 'roleAccessControlLogic']),

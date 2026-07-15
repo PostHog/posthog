@@ -457,7 +457,7 @@ function ConditionSection({ scannerId }: { scannerId: string }): JSX.Element {
                         options={WINDOW_OPTIONS}
                         data-attr="vision-action-alert-window"
                     />
-                    <span className="text-sm">reaches</span>
+                    <span className="text-sm">is at least</span>
                     <LemonInput
                         type="number"
                         size="small"

@@ -1,7 +1,3 @@
-// Side-effect: registers Max's product-specific tool renderers (insight/dashboard/recordings/etc.) into
-// the shared toolRegistry. Imported here so they're registered whenever the Max thread renders.
-import './messages/adapters/registerMaxToolRenderers'
-
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
@@ -66,7 +62,7 @@ import {
 } from '~/queries/schema/schema-assistant-messages'
 import { DataVisualizationNode, InsightVizNode } from '~/queries/schema/schema-general'
 import { isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
-import { PendingApproval, Region } from '~/types'
+import { PendingApproval, RecordingUniversalFilters, Region } from '~/types'
 
 import { getThinkingMessageFromResponse, runStreamLogic } from 'products/posthog_ai/frontend/api/logics'
 import {
@@ -75,6 +71,7 @@ import {
     MarkdownMessage,
     MessageTemplate,
     ReasoningAnswer,
+    RecordingsWidget,
     ResourcesBar,
     ThreadView,
 } from 'products/posthog_ai/frontend/api/primitives'
@@ -94,7 +91,7 @@ import { maxThreadLogic } from './maxThreadLogic'
 import { MultiQuestionFormRecap } from './messages/MultiQuestionForm'
 import { NotebookArtifactAnswer } from './messages/NotebookArtifactAnswer'
 import { SessionSummarizationProgress } from './messages/SessionSummarizationProgress'
-import { RecordingsWidget, isRenderableUIPayloadTool } from './messages/UIPayloadAnswer'
+import { isRenderableUIPayloadTool } from './messages/UIPayloadAnswer'
 import { VisualizationArtifact } from './messages/VisualizationArtifact'
 import { MAX_SLASH_COMMANDS, SlashCommandName } from './slash-commands'
 import { TicketPrompt } from './TicketPrompt'
@@ -305,6 +302,7 @@ function LegacyThread({ showTrailers }: { showTrailers: boolean }): JSX.Element 
                                         conversationId={conversationId}
                                         traceId={traceId}
                                         summary={ticketSummaryData.summary}
+                                        targetArea={ticketSummaryData.targetArea}
                                     />
                                 ))}
                         </React.Fragment>
@@ -1019,6 +1017,7 @@ interface ToolCallsAnswerProps {
 }
 
 function ToolCallsAnswer({ toolCalls, registeredToolMap }: ToolCallsAnswerProps): JSX.Element {
+    const { onAcceptSessionFilters } = useValues(maxLogic)
     // Separate todo_write tool calls from regular tool calls
     const todoWriteToolCalls = toolCalls.filter((tc) => tc.name === 'todo_write')
     const regularToolCalls = toolCalls.filter((tc) => tc.name !== 'todo_write')
@@ -1045,7 +1044,7 @@ function ToolCallsAnswer({ toolCalls, registeredToolMap }: ToolCallsAnswerProps)
                     {regularToolCalls.map((toolCall) => {
                         const definition = getToolDefinitionFromToolCall(toolCall)
                         const [description, widgetDef] = getToolCallDescriptionAndWidgetDef(toolCall, registeredToolMap)
-                        const widget = renderToolCallWidget(widgetDef, toolCall.id)
+                        const widget = renderToolCallWidget(widgetDef, toolCall.id, onAcceptSessionFilters)
                         return (
                             <LangGraphActivity
                                 key={toolCall.id}
@@ -1428,10 +1427,21 @@ function SuccessActions({
     )
 }
 
-function renderToolCallWidget(widgetDef: ToolCallWidgetDef | null, toolCallId: string): JSX.Element | null {
+function renderToolCallWidget(
+    widgetDef: ToolCallWidgetDef | null,
+    toolCallId: string,
+    onAcceptSessionFilters?: ((filters: RecordingUniversalFilters) => void) | null
+): JSX.Element | null {
     switch (widgetDef?.widget) {
         case 'recordings':
-            return <RecordingsWidget toolCallId={toolCallId} filters={widgetDef.args} embedded />
+            return (
+                <RecordingsWidget
+                    toolCallId={toolCallId}
+                    filters={widgetDef.args}
+                    embedded
+                    onAcceptFilters={onAcceptSessionFilters}
+                />
+            )
         case 'session_summarization':
             return <SessionSummarizationProgress updates={widgetDef.args.updates} />
         default:

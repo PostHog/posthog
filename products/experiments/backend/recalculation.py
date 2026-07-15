@@ -9,6 +9,7 @@ Module-level free functions (not methods on ExperimentService) so the API view c
   the run id).
 """
 
+import asyncio
 from datetime import timedelta
 from uuid import UUID
 
@@ -26,6 +27,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.scoping import get_current_team_id, team_scope
 from posthog.models.user import User
 from posthog.settings import CLICKHOUSE_CLUSTER
+from posthog.temporal.common.client import sync_connect
 
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
@@ -202,6 +204,22 @@ def build_job_payload(
     return payload
 
 
+def _cancel_superseded_workflows(recalculation_ids: list[str]) -> None:
+    """Best-effort cancellation of workflows whose rows were force-failed by the staleness cleanup."""
+    try:
+        temporal = sync_connect()
+    except Exception as e:
+        capture_exception(e)
+        return
+    for recalculation_id in recalculation_ids:
+        try:
+            handle = temporal.get_workflow_handle(f"experiment-metrics-recalculation-{recalculation_id}")
+            asyncio.run(handle.cancel())
+        except Exception:
+            # Expected for rows whose workflow never started (Temporal connect failure) or already finished.
+            pass
+
+
 def request_recalculation(experiment: Experiment, user: User, trigger: str = "manual") -> dict:
     """Create an idempotent batch recalculation request for all experiment metrics.
 
@@ -240,16 +258,23 @@ def request_recalculation(experiment: Experiment, user: User, trigger: str = "ma
 
         # No fresh active row, but stale tombstones might still hold the per-experiment uniqueness constraint
         # (unique_active_metrics_recalculation_per_experiment). Mark them FAILED so the constraint releases
-        # and the new row can land. Status reflects reality — these workflows are not coming back.
-        cleaned_count = ExperimentMetricsRecalculation.objects.filter(
-            experiment=experiment,
-            status__in=[
-                ExperimentMetricsRecalculation.Status.PENDING,
-                ExperimentMetricsRecalculation.Status.IN_PROGRESS,
-            ],
-        ).update(status=ExperimentMetricsRecalculation.Status.FAILED, completed_at=timezone.now())
-        if cleaned_count:
-            _recalculation_stale_cleanup_counter.inc(cleaned_count)
+        # and the new row can land, and cancel their workflows after commit — a superseded run that is still
+        # executing would otherwise keep burning worker slots and ClickHouse quota alongside its replacement.
+        stale_ids = list(
+            ExperimentMetricsRecalculation.objects.filter(
+                experiment=experiment,
+                status__in=[
+                    ExperimentMetricsRecalculation.Status.PENDING,
+                    ExperimentMetricsRecalculation.Status.IN_PROGRESS,
+                ],
+            ).values_list("id", flat=True)
+        )
+        if stale_ids:
+            ExperimentMetricsRecalculation.objects.filter(
+                team=experiment.team, experiment=experiment, id__in=stale_ids
+            ).update(status=ExperimentMetricsRecalculation.Status.FAILED, completed_at=timezone.now())
+            _recalculation_stale_cleanup_counter.inc(len(stale_ids))
+            transaction.on_commit(lambda: _cancel_superseded_workflows([str(stale_id) for stale_id in stale_ids]))
 
         # Set total_metrics up front from the experiment definition so the client can show progress
         # ("N of M") immediately, before the workflow's discovery activity confirms the same count.

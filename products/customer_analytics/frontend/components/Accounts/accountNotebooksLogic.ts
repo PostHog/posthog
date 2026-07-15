@@ -139,7 +139,7 @@ export const accountNotebooksLogic = kea<accountNotebooksLogicType>([
                 return
             }
             posthog.capture(AccountsEvents.NoteCreated, { notebook_short_id: createdNote.short_id })
-            actions.selectNotebook(createdNote.short_id, { autofocus: 'end' })
+            actions.selectNotebook(createdNote.short_id)
             // A new note sorts to page 1 (default -created_at); reset there so it's visible in the table.
             actions.setPage(1)
         },
