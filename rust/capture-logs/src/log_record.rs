@@ -39,6 +39,9 @@ pub struct KafkaLogRow {
     pub event_name: String,
     pub attributes: HashMap<String, String>,
     pub bytes_uncompressed: Option<i64>,
+    // Per-row retention in days. capture-logs always writes None — the Node consumer stamps
+    // this from team retention rules. Null lets ClickHouse fall back to the batch header.
+    pub retention_days: Option<i32>,
 }
 
 /// Sum byte lengths of the row's string and map content. Fixed-width fields
@@ -175,6 +178,7 @@ impl KafkaLogRow {
             service_name,
             attributes,
             bytes_uncompressed: None,
+            retention_days: None,
         }
         .with_computed_bytes();
         debug!("log: {:?}", log_row);
@@ -390,6 +394,7 @@ mod tests {
             event_name: "evt".to_string(),
             attributes,
             bytes_uncompressed: None,
+            retention_days: None,
         }
     }
 
@@ -484,6 +489,37 @@ mod tests {
             }
         }
         assert_eq!(found_long, Some(expected));
+    }
+
+    #[test]
+    fn test_retention_days_serialises_into_avro_payload() {
+        use apache_avro::types::Value;
+
+        let mut row = sample_row();
+        row.retention_days = Some(30);
+
+        let schema = Schema::parse_str(AVRO_SCHEMA).expect("schema parses");
+        let mut writer = Writer::with_codec(&schema, Vec::new(), Codec::Null);
+        writer.append_ser(&row).expect("append_ser ok");
+        let payload = writer.into_inner().expect("flush ok");
+
+        let reader = Reader::new(payload.as_slice()).expect("reader ok");
+        let mut found_int: Option<i32> = None;
+        for value in reader {
+            let value = value.expect("decode ok");
+            if let Value::Record(fields) = value {
+                for (name, field_value) in fields {
+                    if name == "retention_days" {
+                        if let Value::Union(_, inner) = field_value {
+                            if let Value::Int(v) = *inner {
+                                found_int = Some(v);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert_eq!(found_int, Some(30));
     }
 
     #[test]
