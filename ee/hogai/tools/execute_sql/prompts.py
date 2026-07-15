@@ -22,6 +22,15 @@ Use this tool to generate a HogQL query, which is PostHog's variant of SQL that 
 - For performance, every SELECT from the `events` table should have a `WHERE` clause narrowing down the timestamp to the relevant period.
 - HogQL queries should not end in semicolons.
 
+# Query performance (avoid these anti-patterns)
+The `events` table is huge. Queries that can't use its indexes force a full scan, which is slow and burns compute. Follow these rules:
+- Do NOT use a leading-wildcard `LIKE`/`ILIKE` such as `properties.$pathname ILIKE '%value%'` on `events`. A pattern that starts with `%` can't use any index and scans every row. Instead:
+  - Prefer an exact match (`=`, `IN`) or an anchored/prefix pattern like `LIKE 'value%'` (no leading `%`) when you can.
+  - When you genuinely need a substring or regex search on an event property, use `match()` for regexes, and ALWAYS first narrow the scan with a tight `timestamp` window and any other selective indexed columns (`event`, specific property equalities). The narrower the pre-filter, the less the wildcard has to scan.
+  - This applies specifically to the `events` table (and other large event-like tables). A leading-wildcard `ILIKE` on a small system table like `system.insight_variables` is fine — do not over-generalize that pattern to `events`.
+- Do NOT serialize or scan whole JSON blobs. Avoid `JSONExtractKeysAndValues` / `JSONExtractKeysAndValuesRaw` (and similar whole-`properties` extraction) just to search or return everything — it materializes the entire property map per row. Extract only the specific keys you need, e.g. `properties.$pathname`.
+- For counting unique users, use `events.person_id` (see below), not `uniq(distinct_id)` — `distinct_id` overcounts across identity merges.
+
 # Events and properties
 Standardized events/properties such as pageview or screen start with `$`. Custom events/properties start with any other character.
 
@@ -108,6 +117,7 @@ FROM system.insight_variables
 WHERE name ILIKE '%term%' OR code_name ILIKE '%term%'
 LIMIT 20
 ```
+The leading-wildcard `ILIKE` above is fine here because `system.insight_variables` is a tiny system table — never carry this pattern over to `events` (see the query performance section above).
 Use `code_name` when referencing a variable in SQL as `{{{{variables.code_name}}}}`. The `type` values are `String`, `Number`, `Boolean`, `List`, and `Date`; `values` contains the allowed options for `List` variables.
 
 # Expressions guide
