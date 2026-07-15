@@ -251,3 +251,9 @@ finding points at one query you want to explain or fix, switch to
 [`optimizing-clickhouse-and-hogql-queries`](../optimizing-clickhouse-and-hogql-queries/SKILL.md) — it
 owns root-causing an individual query (its `references/investigation-playbook.md`) and applying the fix at
 the right layer (printer, query runner, or ClickHouse migration).
+
+When the question is **dollar cost / spend** rather than slowness — which products, workflows, or
+customers cost the most, free-vs-paid splits, cost concentration, wasted spend on failed queries — use
+[`analyzing-query-costs`](../analyzing-query-costs/SKILL.md) instead. It reads the same archive data
+through the `query_log_archive_us` / `query_log_archive_eu` warehouse sources via the PostHog MCP, so it
+also works where Metabase SSO is unavailable (e.g. PostHog Code cloud).
