@@ -24,7 +24,7 @@ import {
 } from '~/scenes/experiments/ExperimentForm/VariantDistributionEditor'
 import { experimentLogic } from '~/scenes/experiments/experimentLogic'
 import { modalsLogic } from '~/scenes/experiments/modalsLogic'
-import { getExperimentVariants } from '~/scenes/experiments/utils'
+import { getBaselineVariantKey, getExperimentVariants } from '~/scenes/experiments/utils'
 import { MultivariateFlagVariant } from '~/types'
 
 import { HoldoutSelector } from './HoldoutSelector'
@@ -113,11 +113,7 @@ export function DistributionTable(): JSX.Element {
 
     const excludedVariantsEnabled = useFeatureFlag('EXPERIMENTS_EXCLUDED_VARIANTS')
 
-    /**
-     * This is future-proofing to match the experiment query runner backend, that uses
-     * the baseline variant key to determine the baseline variant.
-     */
-    const baselineKey = experiment.stats_config?.baseline_variant_key || 'control'
+    const baselineKey = getBaselineVariantKey(experiment)
     const variants = getExperimentVariants(experiment)
 
     /**

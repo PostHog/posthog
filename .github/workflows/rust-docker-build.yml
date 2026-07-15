@@ -168,6 +168,9 @@ jobs:
                     - release: ingestion-consumer
                       digest_key: ingestion-consumer
                       values_key: image
+                    - release: ingestion-control-plane
+                      digest_key: ingestion-control-plane
+                      values_key: image
                     - release: kafka-deduplicator
                       digest_key: kafka-deduplicator
                       values_key: image
