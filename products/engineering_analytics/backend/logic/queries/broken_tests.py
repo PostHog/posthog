@@ -81,7 +81,10 @@ _FINGERPRINTS_SELECT = """
         count() AS occurrences,
         uniqExactIf(branch, branch != '') AS branches,
         countIf(branch IN {default_branches}) AS master_hits,
-        any(repo) AS repo,
+        -- Aliased away from `repo`: HogQL binds a WHERE identifier to a matching SELECT alias, so
+        -- `any(repo) AS repo` would make the `lower(repo)` filter below resolve to this aggregate and
+        -- 500 with "aggregate function found in WHERE". Keep the alias distinct from the filtered column.
+        any(repo) AS repo_name,
         argMax(run_id, timestamp) AS latest_run_id,
         argMax(branch, timestamp) AS latest_branch,
         argMax(workflow_name, timestamp) AS workflow_name,

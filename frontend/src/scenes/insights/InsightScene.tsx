@@ -12,8 +12,17 @@ import { urls } from 'scenes/urls'
 import { NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { ItemMode } from '~/types'
 
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+
 export function InsightScene(): JSX.Element {
     const { insightId, insight, insightLogicRef, insightMode, dashboardId } = useValues(insightSceneLogic)
+
+    useAttachedContext(
+        insight?.short_id && insight?.query
+            ? [{ type: 'insight', key: insight.short_id, label: insight.name || insight.derived_name || undefined }]
+            : null
+    )
+
     useEffect(() => {
         // Redirect data viz nodes to the sql editor
         if (insightId && insight?.query?.kind === NodeKind.DataVisualizationNode && insightMode === ItemMode.Edit) {
