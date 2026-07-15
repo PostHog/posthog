@@ -187,6 +187,10 @@ from products.conversations.backend.temporal import (
     ACTIVITIES as CONVERSATIONS_ACTIVITIES,
     WORKFLOWS as CONVERSATIONS_WORKFLOWS,
 )
+from products.customer_analytics.backend.temporal.temporal_settings import (
+    PERSON_PROPERTY_SYNC_ACTIVITIES,
+    PERSON_PROPERTY_SYNC_WORKFLOWS,
+)
 from products.engineering_analytics.backend.facade.temporal import JOB_LOGS_ACTIVITIES, JOB_LOGS_WORKFLOWS
 from products.error_tracking.backend.facade.temporal import (
     ACTIVITIES as ERROR_TRACKING_ACTIVITIES,
@@ -374,12 +378,14 @@ _task_queue_specs = [
         + DATA_IMPORT_EMIT_SIGNALS_WORKFLOWS
         + BUSINESS_KNOWLEDGE_WORKFLOWS
         + CONVERSATIONS_WORKFLOWS
-        + REVIEW_HOG_WORKFLOWS,
+        + REVIEW_HOG_WORKFLOWS
+        + PERSON_PROPERTY_SYNC_WORKFLOWS,
         SIGNALS_PRODUCT_ACTIVITIES
         + DATA_IMPORT_EMIT_SIGNALS_ACTIVITIES
         + BUSINESS_KNOWLEDGE_ACTIVITIES
         + CONVERSATIONS_ACTIVITIES
-        + REVIEW_HOG_ACTIVITIES,
+        + REVIEW_HOG_ACTIVITIES
+        + PERSON_PROPERTY_SYNC_ACTIVITIES,
     ),
     (
         settings.SESSION_REPLAY_TASK_QUEUE,

@@ -35,7 +35,10 @@ from products.data_warehouse.backend.facade.api import (
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, update_should_sync
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import EmitSignalsActivityInputs
+from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
+    EmitSignalsActivityInputs,
+    PersonPropertySyncActivityInputs,
+)
 from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     get_data_import_finished_metric,
     get_v3_lock_skipped_metric,
@@ -410,6 +413,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 schema_name, last_synced_at, emit_signals_enabled = None, None, False
                 enrichment_needed = False
                 statistics_needed = False
+                person_property_sync_enabled = False
             else:
                 job_id = create_job_result.job_id
                 incremental_or_append = create_job_result.incremental_or_append
@@ -419,6 +423,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 emit_signals_enabled = create_job_result.emit_signals_enabled
                 enrichment_needed = create_job_result.enrichment_needed
                 statistics_needed = create_job_result.statistics_needed
+                person_property_sync_enabled = create_job_result.person_property_sync_enabled
             update_inputs.job_id = str(job_id) if job_id is not None else None
 
             # Check billing limits
@@ -560,6 +565,28 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     # Let the child workflow finish even if the parent completes or fails
                     parent_close_policy=ParentClosePolicy.ABANDON,
                     execution_timeout=dt.timedelta(hours=2),
+                )
+
+            # Upsert warehouse columns onto person properties for any enabled person-target source.
+            # Fire-and-forget, started by registered name so warehouse_sources doesn't import
+            # customer_analytics. Gated up front (like signals) to avoid a no-op child per sync.
+            if source_type is not None and schema_name is not None and person_property_sync_enabled:
+                await workflow.start_child_workflow(
+                    "sync-warehouse-person-properties",
+                    PersonPropertySyncActivityInputs(
+                        team_id=inputs.team_id,
+                        schema_id=inputs.external_data_schema_id,
+                        source_id=inputs.external_data_source_id,
+                        job_id=job_id,
+                        source_type=source_type,
+                        schema_name=schema_name,
+                        last_synced_at=last_synced_at,
+                    ),
+                    id=f"sync-warehouse-person-properties-{job_id}",
+                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                    task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                    parent_close_policy=ParentClosePolicy.ABANDON,
+                    execution_timeout=dt.timedelta(hours=6),
                 )
 
             # Generate semantic descriptions for the synced table. Gated up front on actual need

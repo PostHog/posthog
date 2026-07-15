@@ -11,7 +11,9 @@ on the startup path does not drag the whole pipeline onto every process boot.
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
     EmitSignalsActivityInputs,
     PersonPropertySourceProjection,
+    PersonPropertySyncActivityInputs,
     person_property_projection_for,
+    person_property_sync_enabled_for,
     register_emit_signals_gate,
     register_engineering_analytics_view_sync,
     register_person_property_projection,
@@ -21,7 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
 __all__ = [
     "EmitSignalsActivityInputs",
     "PersonPropertySourceProjection",
+    "PersonPropertySyncActivityInputs",
     "person_property_projection_for",
+    "person_property_sync_enabled_for",
     "register_emit_signals_gate",
     "register_engineering_analytics_view_sync",
     "register_person_property_projection",

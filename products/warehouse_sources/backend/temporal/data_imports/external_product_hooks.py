@@ -135,3 +135,35 @@ def person_property_projection_for(
     if _person_property_projection_resolver is None:
         return None
     return _person_property_projection_resolver(team_id, schema_id)
+
+
+def person_property_sync_enabled_for(team_id: int, schema_id: "uuid.UUID") -> bool:
+    """Gate for starting the person-property sync child workflow: true when the schema feeds at
+    least one enabled person-target source (i.e. there are columns to stage/upsert)."""
+    return person_property_projection_for(team_id, schema_id) is not None
+
+
+@dataclasses.dataclass(frozen=True)
+class PersonPropertySyncActivityInputs:
+    """Payload the import workflow sends to the person-property sync child workflow. Lives here so
+    the workflow can construct it without importing customer_analytics; that product imports it
+    downward (customer_analytics -> warehouse_sources), which is allowed."""
+
+    team_id: int
+    schema_id: uuid.UUID
+    source_id: uuid.UUID
+    job_id: str
+    source_type: str
+    schema_name: str
+    last_synced_at: str | None
+
+    @property
+    def properties_to_log(self) -> dict[str, Any]:
+        return {
+            "team_id": self.team_id,
+            "schema_id": str(self.schema_id),
+            "source_id": str(self.source_id),
+            "job_id": self.job_id,
+            "source_type": self.source_type,
+            "schema_name": self.schema_name,
+        }

@@ -793,6 +793,19 @@ from = [
     "products.experiments",
 ]
 
+# customer_analytics registers a Temporal workflow (person-property sync, driven off warehouse
+# imports). Narrowly expose the registration symbols core's worker imports, alongside its canonical
+# facade/presentation surface above.
+
+[[interfaces]]
+expose = [
+    "backend\\.temporal\\.temporal_settings\\.PERSON_PROPERTY_SYNC_ACTIVITIES",
+    "backend\\.temporal\\.temporal_settings\\.PERSON_PROPERTY_SYNC_WORKFLOWS",
+]
+from = [
+    "products.customer_analytics",
+]
+
 # user_interviews exposes Vapi webhook handlers that are routed directly from posthog/urls.py.
 
 [[interfaces]]
