@@ -1511,6 +1511,66 @@ class TestAnthropicCircuitBreakerIntegration:
         assert mock_anthropic.call_args_list[1].kwargs["model"] == "bedrock/us.anthropic.claude-opus-4-8"
 
     @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_fallback_ineligible_model_raises_original_anthropic_error(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        install_breaker,
+    ) -> None:
+        """Fable 5 requires the Bedrock `provider_data_share` retention mode, which the
+        account doesn't have yet — a fallback attempt is a guaranteed second failure, so
+        the caller must get the genuine Anthropic error and Bedrock must not be called.
+        """
+        request_body = {"model": "claude-fable-5", "messages": [{"role": "user", "content": "Hi"}]}
+        breaker = install_breaker(bypass=False)
+        error = Exception("rate limited")
+        error.status_code = 429  # type: ignore[attr-defined]
+        error.message = "rate limited"  # type: ignore[attr-defined]
+        error.type = "rate_limit_error"  # type: ignore[attr-defined]
+        mock_anthropic.side_effect = [error]
+
+        response = authenticated_client.post(
+            "/v1/messages",
+            json=request_body,
+            headers={
+                "Authorization": "Bearer phx_test_key",
+                "X-PostHog-Use-Bedrock-Fallback": "true",
+            },
+        )
+
+        assert response.status_code == 429
+        assert mock_anthropic.call_count == 1
+        assert mock_anthropic.call_args.kwargs["model"] == "anthropic/claude-fable-5"
+        breaker.record_outcome.assert_awaited_with(success=False)
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_open_breaker_does_not_bypass_for_fallback_ineligible_model(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        install_breaker,
+        mock_response_dict: dict,
+    ) -> None:
+        request_body = {"model": "claude-fable-5", "messages": [{"role": "user", "content": "Hi"}]}
+        breaker = install_breaker(bypass=True)
+        mock_response = MagicMock()
+        mock_response.model_dump = MagicMock(return_value=mock_response_dict)
+        mock_anthropic.return_value = mock_response
+
+        response = authenticated_client.post(
+            "/v1/messages",
+            json=request_body,
+            headers={
+                "Authorization": "Bearer phx_test_key",
+                "X-PostHog-Use-Bedrock-Fallback": "true",
+            },
+        )
+
+        assert response.status_code == 200
+        assert mock_anthropic.call_args.kwargs["model"] == "anthropic/claude-fable-5"
+        breaker.evaluate.assert_not_called()
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
     def test_anthropic_only_param_stripped_before_bedrock_fallback(
         self,
         mock_anthropic: MagicMock,

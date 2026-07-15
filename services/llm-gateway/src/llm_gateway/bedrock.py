@@ -101,6 +101,25 @@ BEDROCK_MODEL_IDS: Final[frozenset[str]] = frozenset(
 )
 
 
+# Models whose Bedrock fallback is known-broken until an AWS account-level
+# prerequisite is met. Fable 5 requires the Bedrock data-retention mode
+# `provider_data_share` (set via the Bedrock Data Retention API; accounts
+# default to `default`), otherwise every invocation is rejected with
+# HTTP 400 "data retention mode 'default' is not available for this model" —
+# during an Anthropic 429 burst, every fallback that reached Bedrock failed on
+# exactly that. Until the account setting is flipped, failing fast with the
+# original Anthropic error beats a guaranteed second failure and a false
+# "fallback broken" page. Remove a model from this set once its retention
+# prerequisite is verified in the account the gateway runs in.
+BEDROCK_FALLBACK_INELIGIBLE_MODELS: Final[frozenset[str]] = frozenset({"claude-fable-5"})
+
+
+def is_bedrock_fallback_ineligible(model: str) -> bool:
+    # Match dated variants too (e.g. "claude-fable-5-20260101"): eligibility is a
+    # property of the model family's Bedrock prerequisites, not the snapshot date.
+    return any(model == entry or model.startswith(f"{entry}-") for entry in BEDROCK_FALLBACK_INELIGIBLE_MODELS)
+
+
 def is_bedrock_model_id(model: str) -> bool:
     return model.startswith(BEDROCK_ANTHROPIC_MODEL_PREFIXES)
 

@@ -24,6 +24,7 @@ from llm_gateway.bedrock import (
     count_tokens_with_bedrock,
     count_tokens_with_bedrock_mantle,
     ensure_bedrock_configured,
+    is_bedrock_fallback_ineligible,
     map_to_bedrock_model,
 )
 from llm_gateway.circuit_breaker import AnthropicCircuitBreaker
@@ -280,7 +281,7 @@ async def _maybe_bypass_anthropic(
     """Bypass requires the caller to have opted in via `use_bedrock_fallback`; without that
     we never silently change the upstream provider, even if Anthropic looks unhealthy.
     """
-    if breaker is None or not use_bedrock_fallback:
+    if breaker is None or not use_bedrock_fallback or is_bedrock_fallback_ineligible(model):
         return False
 
     decision = await breaker.evaluate()
@@ -439,7 +440,11 @@ async def _handle_anthropic_messages(
         billing_block = _is_anthropic_billing_block(exc)
         fallback_eligible = billing_block or not _is_breaker_success(exc.status_code)
         await _record_anthropic_outcome(breaker, success=not fallback_eligible)
-        if not use_bedrock_fallback or not fallback_eligible:
+        # Ineligible models (unmet Bedrock account prerequisites — see
+        # BEDROCK_FALLBACK_INELIGIBLE_MODELS) surface the genuine Anthropic error
+        # instead of a guaranteed second failure on Bedrock. Checked after the
+        # breaker outcome is recorded so breaker accounting is unchanged.
+        if not use_bedrock_fallback or not fallback_eligible or is_bedrock_fallback_ineligible(body.model):
             raise
 
         error_type = "billing_block" if billing_block else _anthropic_error_type(exc)
