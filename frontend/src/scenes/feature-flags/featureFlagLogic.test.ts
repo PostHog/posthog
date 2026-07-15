@@ -289,106 +289,106 @@ describe('featureFlagLogic', () => {
     })
 
     describe('setMultivariateEnabled functionality', () => {
-it('adds default variants when enabling multivariate', async () => {
-    await expectLogic(logic).toMatchValues({
-        featureFlag: partial({
-            filters: partial({
-                groups: [
-                    partial({
-                        properties: [],
-                        variant: null,
+        it('adds default variants when enabling multivariate', async () => {
+            await expectLogic(logic).toMatchValues({
+                featureFlag: partial({
+                    filters: partial({
+                        groups: [
+                            partial({
+                                properties: [],
+                                variant: null,
+                            }),
+                        ],
                     }),
-                ],
-            }),
-        }),
-        variants: [],
-    })
-    await expectLogic(logic, () => {
-        logic.actions.setMultivariateEnabled(true)
-    })
-        .toDispatchActions(['setMultivariateEnabled', 'setMultivariateOptions'])
-        .toMatchValues({
-            variants: [
-                {
-                    key: 'control',
-                    name: '',
-                    rollout_percentage: 50,
-                },
-                {
-                    key: 'test',
-                    name: '',
-                    rollout_percentage: 50,
-                },
-            ],
-        })
-})
-
-it('resets the variants and group variant keys when disabling multivariate', async () => {
-    const MOCK_MULTIVARIATE_FEATURE_FLAG: FeatureFlagType = {
-        ...logic.values.featureFlag,
-        filters: {
-            groups: [
-                {
-                    variant: 'control1',
-                    properties: [
+                }),
+                variants: [],
+            })
+            await expectLogic(logic, () => {
+                logic.actions.setMultivariateEnabled(true)
+            })
+                .toDispatchActions(['setMultivariateEnabled', 'setMultivariateOptions'])
+                .toMatchValues({
+                    variants: [
                         {
-                            key: '$browser',
-                            type: PropertyFilterType.Person,
-                            value: 'Chrome',
-                            operator: PropertyOperator.Regex,
+                            key: 'control',
+                            name: '',
+                            rollout_percentage: 50,
+                        },
+                        {
+                            key: 'test',
+                            name: '',
+                            rollout_percentage: 50,
                         },
                     ],
-                    rollout_percentage: 100,
-                },
-            ],
-            payloads: {
-                control1: '{"key": "value"}',
-            },
-            multivariate: {
-                variants: [
-                    {
-                        key: 'control1',
-                        name: 'Control 1',
-                        rollout_percentage: 30,
-                    },
-                    {
-                        key: 'control2',
-                        name: 'Control 2',
-                        rollout_percentage: 70,
-                    },
-                ],
-            },
-        },
-    }
-
-    await expectLogic(logic, () => {
-        logic.actions.setFeatureFlag(MOCK_MULTIVARIATE_FEATURE_FLAG)
-    })
-        .toDispatchActions(['setFeatureFlag'])
-        .toMatchValues({
-            featureFlag: MOCK_MULTIVARIATE_FEATURE_FLAG,
+                })
         })
 
-    await expectLogic(logic, () => {
-        logic.actions.setMultivariateEnabled(false)
-    })
-        .toDispatchActions(['setMultivariateEnabled', 'setMultivariateOptions'])
-        .toMatchValues({
-            featureFlag: partial({
-                filters: partial({
+        it('resets the variants and group variant keys when disabling multivariate', async () => {
+            const MOCK_MULTIVARIATE_FEATURE_FLAG: FeatureFlagType = {
+                ...logic.values.featureFlag,
+                filters: {
                     groups: [
                         {
-                            ...MOCK_MULTIVARIATE_FEATURE_FLAG.filters.groups[0],
-                            variant: null,
+                            variant: 'control1',
+                            properties: [
+                                {
+                                    key: '$browser',
+                                    type: PropertyFilterType.Person,
+                                    value: 'Chrome',
+                                    operator: PropertyOperator.Regex,
+                                },
+                            ],
+                            rollout_percentage: 100,
                         },
                     ],
-                    payloads: {},
-                }),
-            }),
-            variants: [],
+                    payloads: {
+                        control1: '{"key": "value"}',
+                    },
+                    multivariate: {
+                        variants: [
+                            {
+                                key: 'control1',
+                                name: 'Control 1',
+                                rollout_percentage: 30,
+                            },
+                            {
+                                key: 'control2',
+                                name: 'Control 2',
+                                rollout_percentage: 70,
+                            },
+                        ],
+                    },
+                },
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlag(MOCK_MULTIVARIATE_FEATURE_FLAG)
+            })
+                .toDispatchActions(['setFeatureFlag'])
+                .toMatchValues({
+                    featureFlag: MOCK_MULTIVARIATE_FEATURE_FLAG,
+                })
+
+            await expectLogic(logic, () => {
+                logic.actions.setMultivariateEnabled(false)
+            })
+                .toDispatchActions(['setMultivariateEnabled', 'setMultivariateOptions'])
+                .toMatchValues({
+                    featureFlag: partial({
+                        filters: partial({
+                            groups: [
+                                {
+                                    ...MOCK_MULTIVARIATE_FEATURE_FLAG.filters.groups[0],
+                                    variant: null,
+                                },
+                            ],
+                            payloads: {},
+                        }),
+                    }),
+                    variants: [],
+                })
         })
-})
-})
+    })
 
     describe('applyTemplate', () => {
         const EXPECTED_VARIANTS = partial({
