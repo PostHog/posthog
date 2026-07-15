@@ -132,6 +132,7 @@ the row lists both.
 | convertkit                | HTTP                        | requests                                                        | ✅                          |
 | convex                    | HTTP                        | requests                                                        | ✅                          |
 | copper                    | HTTP                        | requests                                                        | ✅                          |
+| coralogix                 | HTTP                        | requests                                                        | ✅                          |
 | coupa                     | HTTP                        | requests                                                        | ✅                          |
 | crunchbase                | HTTP                        | requests                                                        | ✅                          |
 | culture_amp               | HTTP                        | requests                                                        | ✅                          |
@@ -559,7 +560,6 @@ doesn't conflict with concurrent PRs.
 - confluent_cloud
 - constant_contact
 - copper
-- coralogix
 - cosmosdb
 - couchbase
 - coveralls
