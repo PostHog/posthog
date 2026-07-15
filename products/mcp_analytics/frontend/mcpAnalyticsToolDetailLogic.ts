@@ -8,6 +8,7 @@ import { dateFilterToText, dateStringToDayJs } from 'lib/utils/dateFilters'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
+    DateRange,
     MCPHarnessBreakdownItem,
     MCPToolDailyStatItem,
     MCPToolDescriptionItem,
@@ -110,16 +111,11 @@ export interface DateFilter {
 // default to the last 30 days.
 const DEFAULT_DATE_FILTER: DateFilter = { dateFrom: '-30d', dateTo: null }
 
-export interface QueryDateRange {
-    date_from: string
-    date_to: string
-}
-
 // Tools most often called immediately before/after this one within the same conversation.
 async function neighborRows(
     toolName: string,
     direction: 'before' | 'after',
-    dateRange: QueryDateRange
+    dateRange: DateRange
 ): Promise<ResultRows> {
     const response = (await api.query({
         kind: NodeKind.MCPToolNeighborsQuery,
@@ -321,11 +317,12 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
             (dailyStats: DailyToolStat[]): DailyChartData => buildDailyChartData(dailyStats),
         ],
 
-        // Resolve the selected window to an absolute from/to once, so every section queries the
-        // exact same window. A relative '-Nd' would re-resolve per section and drift after midnight.
+        // Resolve the `dateFilter` state (camelCase, nullable, may be relative like '-30d') into the
+        // absolute snake_case `DateRange` the query API takes. Done once so every section queries the
+        // exact same window — a relative '-Nd' would re-resolve per section and drift after midnight.
         dateRange: [
             (s) => [s.dateFilter, teamLogic.selectors.timezone],
-            (dateFilter: DateFilter, timezone: string): QueryDateRange => {
+            (dateFilter: DateFilter, timezone: string): DateRange => {
                 const to = dateFilter.dateTo ? dayjs(dateFilter.dateTo) : dayjs().tz(timezone)
                 const from =
                     dateStringToDayJs(dateFilter.dateFrom, timezone) ?? dayjs().tz(timezone).subtract(30, 'day')
