@@ -45162,7 +45162,7 @@ export namespace Schemas {
       cache_read_cost_usd: number;
       /** Cost of prompt-cache writes in USD (sum of `$ai_cache_creation_cost_usd`). A spike here with near-zero cache reads is the signature of a cold session being revived: the full conversation context is re-written to the cache at the cache-write rate instead of being read back cheaply. */
       cache_creation_cost_usd: number;
-      /** Sum of uncached `$ai_input_tokens` in this bucket. */
+      /** Sum of `$ai_input_tokens` in this bucket. Whether cached tokens are included follows the provider's reporting (`$ai_cache_reporting_exclusive`): Anthropic-style events exclude them, OpenAI-style events include them, so don't stack this with the cache token sums. */
       input_tokens: number;
       /** Sum of `$ai_output_tokens` in this bucket. */
       output_tokens: number;
