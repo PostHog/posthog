@@ -803,6 +803,8 @@ class ExternalDataSourceType(models.TextChoices):
     KICKSCALE = "Kickscale", "Kickscale"
     ZELLIFY = "Zellify", "Zellify"
     RUDDERSTACK = "RudderStack", "RudderStack"
+    DODOPAYMENTS = "DodoPayments", "DodoPayments"
+    SALESTRICS = "Salestrics", "Salestrics"
 
 
 # Maps a source type to the direct-SQL engine that can query it live. A source type is only
