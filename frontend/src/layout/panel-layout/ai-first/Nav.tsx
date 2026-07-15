@@ -5,7 +5,7 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { Suspense, useEffect, useRef } from 'react'
 
-import { IconApps, IconChat, IconChevronRight, IconPlusSmall } from '@posthog/icons'
+import { IconApps, IconChat, IconChevronRight, IconPlusSmall, IconTerminal } from '@posthog/icons'
 
 import { NewAccountMenu } from 'lib/components/Account/NewAccountMenu'
 import { commandLogic } from 'lib/components/Command/commandLogic'
@@ -21,7 +21,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from 'lib/ui/D
 import { Label } from 'lib/ui/Label/Label'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
-import { isDesktopAppMac } from 'lib/utils/isDesktopApp'
+import { isDesktopApp, isDesktopAppMac } from 'lib/utils/isDesktopApp'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { urls } from 'scenes/urls'
@@ -41,6 +41,7 @@ import { NavBarFooter } from '../NavBarFooter'
 import { PanelLayoutPanels } from './PanelLayoutPanels'
 import { NavTabBrowse } from './tabs/NavTabBrowse'
 const NavTabChat = lazyWithRetry(() => import('./tabs/NavTabChat').then((m) => ({ default: m.NavTabChat })))
+const NavTabCode = lazyWithRetry(() => import('./tabs/NavTabCode').then((m) => ({ default: m.NavTabCode })))
 
 const navBarStyles = cva({
     base: 'flex flex-col max-h-screen min-h-screen bg-surface-tertiary z-[var(--z-layout-navbar)] relative border-r lg:border-r-transparent',
@@ -102,6 +103,8 @@ export function PanelIndicatorIcon(): JSX.Element | null {
 const TAB_CONFIG: { id: NavExperimentTab; label: string; icon: JSX.Element }[] = [
     { id: 'home', label: 'Browse', icon: <IconApps /> },
     { id: 'chat', label: 'Chat', icon: <IconChat className="text-ai" /> },
+    // The Code tab (PostHog Code demo) only ships in the desktop app
+    { id: 'code', label: 'Code', icon: <IconTerminal /> },
 ]
 
 // Keeps newDashboardLogic mounted while the Create button is visible, so the "Start from scratch"
@@ -157,6 +160,9 @@ export function Nav(): JSX.Element {
     // otherwise (collapsed or narrow) the reserved space goes above it
     const trafficLightsSpace = isDesktopAppMac()
     const trafficLightsBesidePicker = trafficLightsSpace && !isLayoutNavCollapsed && openWidth >= 200
+
+    // The Code tab (PostHog Code demo) only ships in the desktop app
+    const visibleTabs = TAB_CONFIG.filter((tab) => tab.id !== 'code' || isDesktopApp())
 
     useShortcut({
         name: 'ToggleLeftNav',
@@ -283,26 +289,31 @@ export function Nav(): JSX.Element {
 
                 <Tabs.Root
                     className="z-[var(--z-main-nav)] flex flex-col flex-1 overflow-hidden"
-                    value={isLayoutNavCollapsed && navExperimentActiveTab === 'chat' ? 'home' : navExperimentActiveTab}
+                    value={isLayoutNavCollapsed && navExperimentActiveTab !== 'home' ? 'home' : navExperimentActiveTab}
                     onValueChange={(value) => {
                         posthog.capture('nav tab clicked', { tab: value })
                         setNavExperimentTab(value as NavExperimentTab)
                         if (value === 'chat') {
                             router.actions.push(urls.ai())
+                        } else if (value === 'code') {
+                            router.actions.push(urls.code())
                         }
                     }}
                     orientation={isLayoutNavCollapsed ? 'vertical' : 'horizontal'}
                 >
                     <div className={cn('p-1', isLayoutNavCollapsed && 'hidden')}>
                         <Tabs.List className="relative flex items-center gap-1 shrink-0 z-0 p-1 rounded-lg bg-(--color-bg-fill-highlight-50) dark:bg-surface-primary">
-                            {TAB_CONFIG.map((tab) => (
+                            {visibleTabs.map((tab) => (
                                 <Tabs.Tab
                                     key={tab.id}
                                     value={tab.id}
                                     render={(props) => (
                                         <ButtonPrimitive
                                             {...props}
-                                            className="group data-[composite-item-active]:bg-surface-tertiary w-1/2 justify-center"
+                                            className={cn(
+                                                'group data-[composite-item-active]:bg-surface-tertiary justify-center',
+                                                visibleTabs.length > 2 ? 'w-1/3' : 'w-1/2'
+                                            )}
                                             data-attr={`nav-tab-${tab.id}`}
                                         >
                                             <span
@@ -358,6 +369,29 @@ export function Nav(): JSX.Element {
                                     }
                                 >
                                     <NavTabChat />
+                                </Suspense>
+                            </Tabs.Panel>
+                        )}
+                        {/* Same lazy pattern as chat: mounted on first visit, kept mounted after */}
+                        {isDesktopApp() && visitedNavTabs.includes('code') && (
+                            <Tabs.Panel
+                                value="code"
+                                className="absolute inset-0 flex flex-col"
+                                keepMounted
+                                tabIndex={-1}
+                            >
+                                <Suspense
+                                    fallback={
+                                        <div className="flex flex-col gap-px px-1 pt-2">
+                                            {Array.from({ length: 15 }).map((_, index) => (
+                                                <WrappingLoadingSkeleton fullWidth key={index}>
+                                                    <ButtonPrimitive aria-hidden inert menuItem />
+                                                </WrappingLoadingSkeleton>
+                                            ))}
+                                        </div>
+                                    }
+                                >
+                                    <NavTabCode />
                                 </Suspense>
                             </Tabs.Panel>
                         )}

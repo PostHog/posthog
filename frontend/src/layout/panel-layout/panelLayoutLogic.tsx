@@ -16,7 +16,7 @@ export type PanelLayoutNavIdentifier =
     | 'DataAndPeople'
     | 'Chat'
     | 'Notifications'
-export type NavExperimentTab = 'home' | 'chat'
+export type NavExperimentTab = 'home' | 'chat' | 'code'
 export type PanelLayoutMainContentRef = React.RefObject<HTMLElement> | null
 export const PANEL_LAYOUT_DEFAULT_WIDTH: number = 245
 export const PANEL_LAYOUT_MIN_WIDTH: number = 160

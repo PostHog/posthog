@@ -11,6 +11,8 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneTab } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import type { InsightShortId } from '~/types'
+
 import type { sceneTabsLogicType } from './sceneTabsLogicType'
 
 /**
@@ -111,43 +113,139 @@ const getPersistedTabs = (): DesktopSceneTab[] | null => {
     return null
 }
 
-const NOTEBOOK_TAB_PATHNAME = /\/notebooks\/([^/?#]+)/
+interface TabKeepAliveEntry {
+    /** Prefix for the keep-alive cache key */
+    name: string
+    /** Matched against the tab pathname; capture group 1 (when present) is the resource id */
+    pattern: RegExp
+    /** Skip transient ids like 'new' */
+    skip?: (id: string) => boolean
+    /** Lazy-imports the scene chunk and mounts the logic with the same key the scene builds; returns the unmount fn */
+    mount: (id: string) => Promise<() => void>
+}
 
 /**
- * Tab-aware notebooks: keep a notebookLogic mounted for every open notebook tab, so notebook
- * state (loaded content, local edits, editor sync state) survives switching to another tab and
- * back — the scene itself remounts, but re-attaches to the still-mounted logic. Lazy-imports the
- * notebooks chunk only when a notebook tab actually exists.
+ * Tab-aware scenes: for every open tab that points at one of these resources, keep the scene's
+ * root logic mounted, so its state (loaded data, local edits, filters) survives switching to
+ * another tab and back — the scene itself remounts, but re-attaches to the still-mounted logic.
+ * Chunks are lazy-imported only when a matching tab actually exists. Note: two tabs on the same
+ * resource share one logic; state is per-resource, not per-tab.
  */
-const syncNotebookKeepAlive = (cache: Record<string, any>, tabs: DesktopSceneTab[]): void => {
-    const keepAlive: Map<string, () => void> = (cache.notebookKeepAlive ??= new Map())
-    const openShortIds = new Set<string>()
+const TAB_KEEP_ALIVE: TabKeepAliveEntry[] = [
+    {
+        name: 'notebook',
+        pattern: /\/notebooks\/([^/?#]+)$/,
+        skip: (id) => id === 'new',
+        mount: async (shortId) => {
+            const [{ notebookLogic }, { NotebookTarget }] = await Promise.all([
+                import('scenes/notebooks/Notebook/notebookLogic'),
+                import('scenes/notebooks/types'),
+            ])
+            return notebookLogic({ shortId, target: NotebookTarget.Scene }).mount()
+        },
+    },
+    {
+        name: 'insight',
+        pattern: /\/insights\/([^/?#]+)/,
+        skip: (id) => id === 'new' || id.startsWith('new-'),
+        mount: async (shortId) => {
+            const { insightLogic } = await import('scenes/insights/insightLogic')
+            // Bare dashboardItemId yields the same kea key the insight scene builds (no tabId/dashboardId)
+            return insightLogic({ dashboardItemId: shortId as InsightShortId }).mount()
+        },
+    },
+    {
+        name: 'dashboard',
+        pattern: /\/dashboard\/(\d+)/,
+        mount: async (id) => {
+            const { dashboardLogic } = await import('scenes/dashboard/dashboardLogic')
+            return dashboardLogic({ id: parseInt(id) }).mount()
+        },
+    },
+    {
+        name: 'feature-flag',
+        pattern: /\/feature_flags\/(\d+)/,
+        mount: async (id) => {
+            const { featureFlagLogic } = await import('scenes/feature-flags/featureFlagLogic')
+            return featureFlagLogic({ id: parseInt(id) }).mount()
+        },
+    },
+    {
+        name: 'experiment',
+        pattern: /\/experiments\/(\d+)/,
+        mount: async (id) => {
+            const { experimentLogic } = await import('scenes/experiments/experimentLogic')
+            return experimentLogic({ experimentId: parseInt(id) }).mount()
+        },
+    },
+    // List scenes are singleton logics: keeping them mounted preserves filters and loaded results
+    {
+        name: 'insights-list',
+        pattern: /\/insights\/?$/,
+        mount: async () => (await import('scenes/saved-insights/savedInsightsLogic')).savedInsightsLogic.mount(),
+    },
+    {
+        name: 'dashboards-list',
+        pattern: /\/dashboard\/?$/,
+        mount: async () => (await import('scenes/dashboard/dashboards/dashboardsLogic')).dashboardsLogic.mount(),
+    },
+    {
+        name: 'feature-flags-list',
+        pattern: /\/feature_flags\/?$/,
+        mount: async () => (await import('scenes/feature-flags/featureFlagsLogic')).featureFlagsLogic.mount(),
+    },
+    {
+        name: 'experiments-list',
+        pattern: /\/experiments\/?$/,
+        mount: async () => (await import('scenes/experiments/experimentsLogic')).experimentsLogic.mount(),
+    },
+    {
+        name: 'notebooks-list',
+        pattern: /\/notebooks\/?$/,
+        mount: async () =>
+            (await import('scenes/notebooks/NotebooksTable/notebooksTableLogic')).notebooksTableLogic.mount(),
+    },
+]
+
+const syncTabKeepAlive = (cache: Record<string, any>, tabs: DesktopSceneTab[]): void => {
+    const keepAlive: Map<string, () => void> = (cache.tabKeepAlive ??= new Map())
+    const wanted = new Map<string, { entry: TabKeepAliveEntry; id: string }>()
     for (const tab of tabs) {
-        const shortId = tab.pathname.match(NOTEBOOK_TAB_PATHNAME)?.[1]
-        if (shortId && shortId !== 'new') {
-            openShortIds.add(shortId)
+        for (const entry of TAB_KEEP_ALIVE) {
+            const match = tab.pathname.match(entry.pattern)
+            if (!match) {
+                continue
+            }
+            const id = match[1] ?? ''
+            if (!entry.skip?.(id)) {
+                wanted.set(`${entry.name}:${id}`, { entry, id })
+            }
+            break
         }
     }
-    for (const [shortId, unmount] of keepAlive) {
-        if (!openShortIds.has(shortId)) {
-            keepAlive.delete(shortId)
+    for (const [key, unmount] of keepAlive) {
+        if (!wanted.has(key)) {
+            keepAlive.delete(key)
             unmount()
         }
     }
-    for (const shortId of openShortIds) {
-        if (!keepAlive.has(shortId)) {
+    for (const [key, { entry, id }] of wanted) {
+        if (!keepAlive.has(key)) {
             const placeholder = (): void => {}
-            keepAlive.set(shortId, placeholder)
-            void Promise.all([import('scenes/notebooks/Notebook/notebookLogic'), import('scenes/notebooks/types')])
-                .then(([{ notebookLogic }, { NotebookTarget }]) => {
-                    // Only mount if the tab is still open and no newer sync raced us here
-                    if (keepAlive.get(shortId) === placeholder) {
-                        keepAlive.set(shortId, notebookLogic({ shortId, target: NotebookTarget.Scene }).mount())
+            keepAlive.set(key, placeholder)
+            void entry
+                .mount(id)
+                .then((unmount) => {
+                    // Only keep the mount if the tab is still open and no newer sync raced us here
+                    if (keepAlive.get(key) === placeholder) {
+                        keepAlive.set(key, unmount)
+                    } else {
+                        unmount()
                     }
                 })
                 .catch(() => {
-                    if (keepAlive.get(shortId) === placeholder) {
-                        keepAlive.delete(shortId)
+                    if (keepAlive.get(key) === placeholder) {
+                        keepAlive.delete(key)
                     }
                 })
         }
@@ -396,12 +494,12 @@ export const sceneTabsLogic = kea<sceneTabsLogicType>([
                 persistTabs(tabs)
             }
             if (isDesktopApp()) {
-                syncNotebookKeepAlive(cache, tabs)
+                syncTabKeepAlive(cache, tabs)
             }
         },
     })),
     beforeUnmount(({ cache }) => {
-        const keepAlive: Map<string, () => void> | undefined = cache.notebookKeepAlive
+        const keepAlive: Map<string, () => void> | undefined = cache.tabKeepAlive
         if (keepAlive) {
             for (const unmount of keepAlive.values()) {
                 unmount()
@@ -491,5 +589,8 @@ export const sceneTabsLogic = kea<sceneTabsLogicType>([
                     : { ...tab, active: false }
             )
         )
+        // Scenes with static breadcrumbs finish before this lazy chunk mounts, so titleAndIcon
+        // may never change again — seed it here or the tab stays "Loading..." forever
+        seedTitle()
     }),
 ])
