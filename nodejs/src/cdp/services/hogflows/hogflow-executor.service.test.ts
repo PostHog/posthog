@@ -230,6 +230,33 @@ describe('Hogflow Executor', () => {
             expect(result.logs.map((log) => log.message)).not.toContain('Executing action [Action:function_id_1]')
         })
 
+        it('resuming a rerun onto an action removed by a later flow edit fails safe without re-running anything', async () => {
+            // #70792 restores currentAction on rerun. If the flow was edited after the run
+            // recorded its globals and the resume-point action was deleted, ensureCurrentAction
+            // can't find the id. The safe outcome is a finished, errored result — never a
+            // restart from the trigger (which would re-send) and never a hang.
+            const invocation = createExampleHogFlowInvocation(hogFlow, {
+                event: {
+                    ...createHogExecutionGlobals().event,
+                    properties: {
+                        name: 'John Doe',
+                    },
+                },
+            })
+            invocation.state.currentAction = {
+                id: 'action_removed_by_edit',
+                startedAtTimestamp: DateTime.now().toMillis(),
+            }
+
+            const result = await executor.execute(invocation)
+
+            expect(result.finished).toBe(true)
+            expect(result.error).toContain('action_removed_by_edit')
+            // Nothing already done gets re-run: the fetch-doing action never executes.
+            expect(mockFetch).toHaveBeenCalledTimes(0)
+            expect(result.logs.map((log) => log.message)).not.toContain('Executing action [Action:function_id_1]')
+        })
+
         it('can execute a simple hogflow', async () => {
             const invocation = createExampleHogFlowInvocation(hogFlow, {
                 event: {
