@@ -12,6 +12,7 @@ from langgraph.prebuilt import create_react_agent
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 
 from posthog.llm.gateway_client import resolve_ai_gateway_config
+from posthog.temporal.ai_observability.eval_reports.output_types import get_outcome_definition
 from posthog.temporal.ai_observability.eval_reports.report_agent.prompts import build_eval_report_system_prompt
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     MAX_REPORT_SECTIONS,
@@ -51,10 +52,11 @@ def _compute_metrics(
         ts_start = _ch_ts(period_start)
         ts_end = _ch_ts(period_end)
         ts_prev_start = _ch_ts(previous_period_start)
+        definition = get_outcome_definition(output_type)
 
-        result_counts, total = _fetch_period_summary(team_id, evaluation_id, ts_start, ts_end, output_type=output_type)
+        result_counts, total = _fetch_period_summary(team_id, evaluation_id, ts_start, ts_end, definition)
         previous_result_counts, previous_total = _fetch_period_summary(
-            team_id, evaluation_id, ts_prev_start, ts_start, output_type=output_type
+            team_id, evaluation_id, ts_prev_start, ts_start, definition
         )
 
         return EvalReportMetrics(

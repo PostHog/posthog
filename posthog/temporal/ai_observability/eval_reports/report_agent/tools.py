@@ -61,10 +61,9 @@ _WIDENED_TS_START_SENTINEL = "2020-01-01T00:00:00+00:00"
 _WIDENED_TS_END_SENTINEL = "2099-01-01T00:00:00+00:00"
 
 
-def _normalize_output_type(output_type: str | None) -> str:
+def _resolve_output_type(output_type: str | None) -> tuple[str, EvaluationReportOutcomeDefinition]:
     normalized_output_type = output_type or "boolean"
-    get_outcome_definition(normalized_output_type)
-    return normalized_output_type
+    return normalized_output_type, get_outcome_definition(normalized_output_type)
 
 
 def _summary_select_sql(definition: EvaluationReportOutcomeDefinition) -> str:
@@ -186,10 +185,9 @@ def _fetch_period_summary(
     evaluation_id: str,
     ts_start: datetime,
     ts_end: datetime,
-    output_type: str = "boolean",
+    definition: EvaluationReportOutcomeDefinition,
 ) -> tuple[dict[str, int], int]:
     """Fetch trusted outcome counts and total runs for one time window."""
-    definition = get_outcome_definition(output_type)
     rows = _execute_hogql(
         team_id,
         f"""
@@ -245,11 +243,11 @@ def get_summary_metrics(
     ts_start = _ch_ts(state["period_start"])
     ts_end = _ch_ts(state["period_end"])
     ts_prev_start = _ch_ts(state["previous_period_start"])
-    output_type = _normalize_output_type(state.get("output_type"))
+    output_type, definition = _resolve_output_type(state.get("output_type"))
 
-    result_counts, total = _fetch_period_summary(team_id, evaluation_id, ts_start, ts_end, output_type=output_type)
+    result_counts, total = _fetch_period_summary(team_id, evaluation_id, ts_start, ts_end, definition)
     previous_result_counts, previous_total = _fetch_period_summary(
-        team_id, evaluation_id, ts_prev_start, ts_start, output_type=output_type
+        team_id, evaluation_id, ts_prev_start, ts_start, definition
     )
 
     result = {
@@ -278,8 +276,7 @@ def get_result_distribution_over_time(
     evaluation_id = state["evaluation_id"]
     ts_start = _ch_ts(state["period_start"])
     ts_end = _ch_ts(state["period_end"])
-    output_type = _normalize_output_type(state.get("output_type"))
-    definition = get_outcome_definition(output_type)
+    output_type, definition = _resolve_output_type(state.get("output_type"))
 
     # Whitelisted truncation function — `bucket` is an LLM-controlled arg, so pick
     # from a fixed set rather than interpolating arbitrary identifiers into SQL.
@@ -337,8 +334,7 @@ def list_all_eval_results(
     evaluation_id = state["evaluation_id"]
     ts_start = _ch_ts(state["period_start"])
     ts_end = _ch_ts(state["period_end"])
-    output_type = _normalize_output_type(state.get("output_type"))
-    definition = get_outcome_definition(output_type)
+    output_type, definition = _resolve_output_type(state.get("output_type"))
 
     shared_placeholders = {
         "evaluation_id": ast.Constant(value=evaluation_id),
@@ -425,8 +421,7 @@ def sample_eval_results(
     evaluation_id = state["evaluation_id"]
     ts_start = _ch_ts(state["period_start"])
     ts_end = _ch_ts(state["period_end"])
-    output_type = _normalize_output_type(state.get("output_type"))
-    definition = get_outcome_definition(output_type)
+    output_type, definition = _resolve_output_type(state.get("output_type"))
 
     # Whitelisted filter fragment: outcome predicates come only from the trusted
     # outcome definition, never directly from the LLM-controlled argument.
@@ -966,8 +961,7 @@ def get_top_outcome_reasons(
     evaluation_id = state["evaluation_id"]
     ts_start = _ch_ts(state["period_start"])
     ts_end = _ch_ts(state["period_end"])
-    output_type = _normalize_output_type(state.get("output_type"))
-    definition = get_outcome_definition(output_type)
+    output_type, definition = _resolve_output_type(state.get("output_type"))
     selected_outcome = outcome or ("negative" if output_type == "sentiment" else "fail")
     outcome_predicate = definition.outcome_predicates.get(selected_outcome)
     if outcome_predicate is None:

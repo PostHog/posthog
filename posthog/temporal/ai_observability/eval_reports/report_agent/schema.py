@@ -13,6 +13,7 @@ analysis rather than number formatting.
 """
 
 from dataclasses import dataclass, field
+from typing import Literal, overload
 
 from posthog.temporal.ai_observability.eval_reports.output_types import get_outcome_definition
 
@@ -40,6 +41,18 @@ def calculate_result_rates(
     if result_count == 0:
         return None if empty_as_none else dict.fromkeys(normalized_counts, 0.0)
     return {outcome: round(count / result_count * 100, 2) for outcome, count in normalized_counts.items()}
+
+
+@overload
+def calculate_boolean_pass_rate(counts: dict[str, int], *, empty_as_none: Literal[False] = False) -> float: ...
+
+
+@overload
+def calculate_boolean_pass_rate(counts: dict[str, int], *, empty_as_none: Literal[True]) -> float | None: ...
+
+
+@overload
+def calculate_boolean_pass_rate(counts: dict[str, int], *, empty_as_none: bool) -> float | None: ...
 
 
 def calculate_boolean_pass_rate(counts: dict[str, int], *, empty_as_none: bool = False) -> float | None:
@@ -153,7 +166,7 @@ class EvalReportMetrics:
             }
 
         if self.output_type == "boolean":
-            self.pass_rate = calculate_boolean_pass_rate(self.result_counts) or 0.0
+            self.pass_rate = calculate_boolean_pass_rate(self.result_counts)
             if self.previous_result_counts is not None:
                 self.previous_pass_rate = calculate_boolean_pass_rate(self.previous_result_counts, empty_as_none=True)
         else:
