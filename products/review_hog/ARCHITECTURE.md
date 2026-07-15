@@ -669,7 +669,7 @@ is the canonical **`review-hog-authoring`** skill at `products/review_hog/skills
   (iterate with `skill-update`; never `skill-duplicate` a canonical — seeded metadata rides along and
   the sync may overwrite/prune the copy). Activation stays a human step in the tab (per-user
   enablement; the config API is INTERNAL-scoped, deliberately not agent-writable — the one divergence
-  from scouts' `signals-scout-config-create`).
+  from scouts' `scout-config-create`).
 - **Seeding:** `REVIEW_HOG_AUTHORING_PREFIX`/`_SKILL_NAME` (`skill_loader.py`),
   `discover_canonical_authoring` + `sync_canonical_authoring` (`lazy_seed.py` — same
   prefix-and-category reconcile), synced in two moments: the run path (`_sync_review_skills`,
