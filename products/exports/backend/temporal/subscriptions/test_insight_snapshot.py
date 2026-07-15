@@ -79,7 +79,8 @@ def test_serialize_insight_result_strips_null_bytes():
     # serializes it to a unicode escape that Postgres text/jsonb reject, failing the whole
     # subscription delivery write. The NUL must be stripped while the rest of the string survives.
     result = _build_insight_result(
-        result=[["Success?\x00 Yes: Env", "clean value"], ["\x00leading", "trailing\x00"]],
+        # A Map(String, …) column deserializes to a dict, so NUL can land in a key too.
+        result=[["Success?\x00 Yes: Env", {"la\x00bel": "val\x00ue"}], ["\x00leading", "trailing\x00"]],
         columns=["label\x00", "value"],
         types=["String", "String"],
     )
@@ -88,7 +89,7 @@ def test_serialize_insight_result_strips_null_bytes():
 
     # Round-trip through stdlib json (what JSONField uses) must not raise and must be NUL-free.
     reparsed = json.loads(json.dumps(serialized))
-    assert reparsed["result"] == [["Success? Yes: Env", "clean value"], ["leading", "trailing"]]
+    assert reparsed["result"] == [["Success? Yes: Env", {"label": "value"}], ["leading", "trailing"]]
     assert reparsed["columns"] == ["label", "value"]
     assert "\x00" not in json.dumps(serialized)
 

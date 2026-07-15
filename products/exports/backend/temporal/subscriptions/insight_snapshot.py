@@ -50,7 +50,9 @@ def strip_null_bytes(value: Any) -> Any:
     if isinstance(value, list):
         return [strip_null_bytes(v) for v in value]
     if isinstance(value, dict):
-        return {k: strip_null_bytes(v) for k, v in value.items()}
+        # Strip keys too: a Map(String, …) column can produce data-derived keys carrying NUL,
+        # and Postgres rejects it in a jsonb key just as it does in a value.
+        return {strip_null_bytes(k): strip_null_bytes(v) for k, v in value.items()}
     return value
 
 
