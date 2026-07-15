@@ -655,7 +655,7 @@ Mirrors the Inbox scope switch: the block can now list every review on the proje
 - **UI/logic:** `LemonSegmentedButton` "For you / Entire project" on the section header;
   `reviewsScope` + `hasUserChosenReviewsScope` persisted reducers in `reviewHogSettingsLogic`;
   **auto-default** — an empty first mine-scope load flips to Entire project via `applyDefaultReviewsScope`, which is _not_ marked as a user choice so a later explicit pick wins (both directions jest-tested);
-  scope mirrored to `?reviews_scope=` (hydrating from a shared link counts as an explicit choice);
+  an explicit pick is mirrored to `?reviews_scope=` — the auto-default never writes the URL, since hydrating from a link counts as an explicit choice and would make the fallback permanent;
   the loader takes a `breakpoint()` after the fetch so a scope flip mid-flight drops the stale response;
   rows show `by <pr_author>` in everyone scope only;
   an empty mine-scope shows an empty state instead of hiding the section (the toggle must stay reachable) — loaded-and-empty hides the section only in everyone scope.

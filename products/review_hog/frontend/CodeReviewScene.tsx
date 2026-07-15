@@ -318,6 +318,9 @@ function progressLabel(review: ReviewRecentReviewApi): string {
 
 /** A first review still running: no findings to expand into yet, just the live stage. */
 function RunningReviewRow({ review }: { review: ReviewRecentReviewApi }): JSX.Element {
+    const { reviewsScope } = useValues(reviewHogSettingsLogic)
+    // On the Entire project scope, whose PR it is matters at a glance; on For you it's always yours.
+    const showAuthor = reviewsScope === ReviewHogReviewsListScope.Everyone && !!review.pr_author
     return (
         <div className="flex items-center gap-3 px-4 py-3">
             <span className="flex w-6 shrink-0 justify-center">
@@ -329,6 +332,12 @@ function RunningReviewRow({ review }: { review: ReviewRecentReviewApi }): JSX.El
                     <span className="whitespace-nowrap font-mono text-tertiary">
                         {review.repository}#{review.pr_number ?? review.head_branch}
                     </span>
+                    {showAuthor && (
+                        <>
+                            <span className="text-tertiary">·</span>
+                            <span className="whitespace-nowrap">by {review.pr_author}</span>
+                        </>
+                    )}
                     <span className="text-tertiary">·</span>
                     <span className="whitespace-nowrap font-medium text-warning">{progressLabel(review)}</span>
                 </div>

@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
@@ -54,6 +55,9 @@ describe('reviewHogSettingsLogic', () => {
                 hasUserChosenReviewsScope: false,
             })
         expect(logic.values.recentReviews).toHaveLength(1)
+        // The auto-default must not write the URL: hydrating `?reviews_scope=` from a link marks
+        // the scope as explicitly chosen, so mirroring the fallback would make it permanent.
+        expect(router.values.searchParams.reviews_scope).toBeUndefined()
     })
 
     it('respects an explicit scope choice even when that scope is empty', async () => {

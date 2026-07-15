@@ -479,10 +479,12 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
         },
     })),
 
-    // The scope is mirrored to the URL (`?reviews_scope=everyone`) so a specific view can be
-    // shared via a link; the default scope keeps the URL clean.
-    actionToUrl(({ values }) => {
-        const toUrl = (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] => [
+    // An explicit scope pick is mirrored to the URL (`?reviews_scope=everyone`) so a specific view
+    // can be shared via a link; the default scope keeps the URL clean. The auto-default deliberately
+    // does NOT write the URL: hydrating from a link marks the scope as chosen (below), so mirroring
+    // the fallback would silently upgrade it into a permanent explicit choice on reload.
+    actionToUrl(({ values }) => ({
+        setReviewsScope: (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] => [
             router.values.location.pathname,
             {
                 ...router.values.searchParams,
@@ -490,12 +492,8 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
             },
             router.values.hashParams,
             { replace: true },
-        ]
-        return {
-            setReviewsScope: toUrl,
-            applyDefaultReviewsScope: toUrl,
-        }
-    }),
+        ],
+    })),
 
     urlToAction(({ actions, values }) => ({
         [urls.codeReview()]: (_, searchParams) => {
