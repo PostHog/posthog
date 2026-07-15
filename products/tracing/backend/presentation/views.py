@@ -211,10 +211,6 @@ class _TracingTimeseriesQueryBodySerializer(serializers.Serializer):
     )
 
 
-class _TracingTimeseriesRequestSerializer(serializers.Serializer):
-    query = _TracingTimeseriesQueryBodySerializer(help_text="The sparkline / duration-histogram query to execute.")
-
-
 class _TracingDurationHistogramQueryBodySerializer(_TracingTimeseriesQueryBodySerializer):
     rootSpans = serializers.BooleanField(
         required=False,
@@ -944,13 +940,28 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         except (ValidationError, ValueError, ParseError):
             filter_group = None
 
+        root_spans = query_data.get("rootSpans", True)
         response = run_duration_histogram_query(
             team=self.team,
             date_range=date_range,
             service_names=query_data.get("serviceNames", None),
             status_codes=query_data.get("statusCodes", None),
             filter_group=filter_group,
-            root_spans=query_data.get("rootSpans", True),
+            root_spans=root_spans,
+        )
+
+        report_user_action(
+            request.user,
+            "tracing duration histogram queried",
+            {
+                "buckets_count": len(response.results),
+                "root_spans": root_spans,
+                "has_filter_group": bool(query_data.get("filterGroup")),
+                "service_names_count": len(query_data.get("serviceNames") or []),
+                "status_codes_count": len(query_data.get("statusCodes") or []),
+            },
+            team=self.team,
+            request=request,
         )
 
         return Response({"results": response.results}, status=status.HTTP_200_OK)
@@ -985,6 +996,19 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             compare_filter=compare_filter,
             filter_group=filter_group,
             service_names=query_data.get("serviceNames", None),
+        )
+
+        report_user_action(
+            request.user,
+            "tracing aggregation queried",
+            {
+                "results_count": len(response.results),
+                "has_compare": bool(query_data.get("compareFilter")),
+                "has_filter_group": bool(query_data.get("filterGroup")),
+                "service_names_count": len(query_data.get("serviceNames") or []),
+            },
+            team=self.team,
+            request=request,
         )
 
         return Response(
@@ -1187,6 +1211,19 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         # Self-time needs a span's children present. On a paged (truncated) trace it overstates for
         # spans whose children fall on a later page — an accepted bound, same as the prior 2000 cap.
         annotate_self_time(results)
+
+        report_user_action(
+            request.user,
+            "tracing trace fetched",
+            {
+                "spans_count": len(results),
+                "has_more": has_more,
+                "is_paginated": offset > 0,
+                "has_filter_group": bool(query_data.get("filterGroup")),
+            },
+            team=self.team,
+            request=request,
+        )
 
         return Response(
             {
