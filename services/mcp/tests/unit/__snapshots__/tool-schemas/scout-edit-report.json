@@ -12,6 +12,17 @@
             ],
             "description": "Optional free-form note to append to the report's work log (attributed to this scout)."
         },
+        "metadata": {
+            "additionalProperties": {
+                "maxLength": 1000,
+                "type": "string"
+            },
+            "description": "Optional flat string-valued annotations for this action (e.g. `{\"kind\": \"self-improvement\"}`), recorded alongside `tags` on the run's per-action bookkeeping — never shown on the report. At most 20 entries; keys up to 100 chars, values up to 1000. Your skill body may name specific keys to set; otherwise omit it.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
+        },
         "report_id": {
             "description": "Id of the report to edit (must belong to this project).",
             "type": "string"
@@ -50,6 +61,15 @@
                 }
             ],
             "description": "Optional new summary. Markdown is supported (headings, lists, code, links; images are not rendered); lead with one plain declarative sentence — it becomes the inbox card headline. The pipeline may later re-research and overwrite it."
+        },
+        "tags": {
+            "description": "Optional category slugs for this action (lowercase kebab-case, e.g. `cost-spike`, `self-improvement`) — the same tag vocabulary you maintain for signal findings, extended to the report channel. Recorded on the run's per-action bookkeeping (never shown on the report itself); near-miss formats are normalized to slugs.",
+            "items": {
+                "maxLength": 50,
+                "type": "string"
+            },
+            "maxItems": 10,
+            "type": "array"
         },
         "title": {
             "anyOf": [
