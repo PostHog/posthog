@@ -157,6 +157,10 @@ jobs:
                         - conftest.py # Root conftest loads for every pytest run
                         - .test_durations # Used for pytest-split sharding
                         - .test_quarantine.json # Un-quarantining must re-run the affected tests
+                        # turbo-discover reads the module graph for the dependent
+                        # cascade, and `tach check` validates it — a graph-only PR
+                        # must still dispatch both.
+                        - tach.toml
                         # generates posthog/schema.py
                         - frontend/src/queries/schema.json
                         # Operator parity check
@@ -268,10 +272,14 @@ jobs:
                       tasks_temporal:
                         - 'products/tasks/backend/temporal/**/*'
                       product_yamls:
-                        # Validates owner team slugs against PostHog/posthog collaborator teams.
-                        # Costs one GitHub API call; gated here so we only pay it when ownership
-                        # actually changes. Drives the validate-product-yamls job below.
+                        # Validates owner team slugs against PostHog/posthog collaborator teams,
+                        # and lints the distributed owners.yaml files (schema, conflicts, dead
+                        # globs, coverage). Costs one GitHub API call; gated here so we only pay
+                        # it when ownership actually changes. Drives the validate-product-yamls job.
                         - 'products/*/product.yaml'
+                        - '**/owners.yaml'
+                        # Resolver changes must re-run the owners.yaml lint too.
+                        - 'tools/owners/**'
                       openapi_types:
                         # Generated OpenAPI types - validate they match schema
                         - 'frontend/src/generated/**/*'
@@ -900,7 +908,8 @@ jobs:
     # Consolidates checks that previously each spun up their own runner.
     repo-checks:
         needs: [changes]
-        if: needs.changes.outputs.backend == 'true'
+        # product_yamls: ownership-only PRs still need the owners.yaml lint below.
+        if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.product_yamls == 'true'
         timeout-minutes: 10
         outputs:
             deterministic_failure: ${{ steps.deterministic-failure.outputs.deterministic_failure || 'false' }}
@@ -966,6 +975,13 @@ jobs:
 
             - name: Lint product structure
               run: ./bin/hogli product:lint --all
+
+            # Distributed owners.yaml tree: schema, product.yaml/owners.yaml
+            # conflicts, dead rule globs, coverage (warn-only). No --live, so no
+            # secrets — fork PRs get validated too (the --live slug check runs in
+            # the fork-gated validate-product-yamls job instead).
+            - name: Lint owners.yaml files
+              run: ./bin/hogli owners:lint
 
             - name: Check version specifiers
               run: python .github/scripts/check-version-specifiers.py
@@ -1072,9 +1088,14 @@ jobs:
                   names=$(for n in $names; do [ -f "products/$n/product.yaml" ] && printf '%s ' "$n"; done | xargs)
                   if [ -z "$names" ]; then
                     echo "No existing product.yaml files in diff after filtering"
-                    exit 0
+                  else
+                    ./bin/hogli product:lint:owners $names
                   fi
-                  ./bin/hogli product:lint:owners $names
+
+            - name: Validate owners.yaml identities against GitHub
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+              run: ./bin/hogli owners:lint --live
 
     # Migration validation.
     # This job needs Docker + DB — it checks out master first to run baseline

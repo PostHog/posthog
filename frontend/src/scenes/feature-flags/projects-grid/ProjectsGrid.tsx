@@ -1,8 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconCopy } from '@posthog/icons'
-import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
@@ -13,8 +12,8 @@ import { urls } from 'scenes/urls'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { OrganizationFeatureFlag, OrganizationFeatureFlagRow } from '~/types'
 
-import { BulkCopyFlagsModal } from '../BulkCopyFlagsModal'
-import { BULK_COPY_MAX_FLAGS, flagSelectionLogic } from '../flagSelectionLogic'
+import { BulkCopyFlagsModal, BulkCopyToProjectsButton } from '../BulkCopyFlagsModal'
+import { flagSelectionLogic } from '../flagSelectionLogic'
 import { confirmFlagActiveToggleInProject, flagToggleKey } from '../updateFlagActiveInProject'
 import { CellState, ProjectsGridCell } from './ProjectsGridCell'
 import { projectsGridLogic } from './projectsGridLogic'
@@ -184,26 +183,17 @@ export function ProjectsGrid(): JSX.Element {
                     noun: ['flag', 'flags'],
                     barPortalTarget: bulkBarTarget,
                     renderActions: (ctx) => (
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            icon={<IconCopy />}
-                            data-attr="projects-grid-bulk-copy-button"
-                            disabledReason={
-                                ctx.selectedCount > BULK_COPY_MAX_FLAGS
-                                    ? `Bulk copy supports up to ${BULK_COPY_MAX_FLAGS} flags at once`
-                                    : undefined
-                            }
-                            onClick={() => {
+                        <BulkCopyToProjectsButton
+                            dataAttr="projects-grid-bulk-copy-button"
+                            selectedCount={ctx.selectedCount}
+                            onOpen={() =>
                                 openBulkCopyModal({
                                     sourceProjectId: currentTeamId,
                                     flagKeys: ctx.selectedKeys.map(String),
                                     sourceSelectable: true,
                                 })
-                            }}
-                        >
-                            Copy to projects
-                        </LemonButton>
+                            }
+                        />
                     ),
                 }}
             />

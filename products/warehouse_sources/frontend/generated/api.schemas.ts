@@ -7079,6 +7079,10 @@ export type ExternalDataSchemasListParams = {
     search?: string
 }
 
+export type ExternalDataSchemasCancelCreate400 = {
+    detail?: string
+}
+
 export type ExternalDataSchemasLogsRetrieveParams = {
     /**
      * Only return entries after this ISO 8601 timestamp.

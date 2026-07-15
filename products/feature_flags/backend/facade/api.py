@@ -18,6 +18,8 @@ ChangeRequest. Run gated writes before/outside any transaction wrapping your own
 
 from typing import Any
 
+from rest_framework.exceptions import ValidationError
+
 from posthog.api.utils import ServiceRequest
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -114,6 +116,98 @@ def unarchive_flag(flag: FeatureFlag, *, team: Team, user: Any, request: Any | N
     (``set_flag_active``).
     """
     return update_flag(flag, {"archived": False}, team=team, user=user, request=request)
+
+
+def _roll_out_variant(
+    current_filters: dict,
+    variant_key: str,
+    *,
+    release_to_everyone: bool = False,
+    release_condition_description: str | None = None,
+) -> dict:
+    """Rewrite flag filters so the selected variant gets 100% of the variant distribution.
+
+    When ``release_to_everyone`` is False (default), existing release conditions on
+    the flag are preserved untouched: the variant is served only to users who
+    already match them, and any per-user variant overrides keep applying.
+
+    When ``release_to_everyone`` is True, a catch-all release condition is prepended
+    that rolls the variant out to 100% of users — note that under top-down
+    first-match evaluation this overrides any existing release conditions and
+    per-user variant overrides below it. ``release_condition_description`` is set as
+    the description of that catch-all condition, so callers can say why it was added;
+    it has no effect unless ``release_to_everyone`` is True.
+    """
+    groups = list(current_filters.get("groups", []))
+    if release_to_everyone:
+        catch_all: dict[str, Any] = {"properties": [], "rollout_percentage": 100}
+        if release_condition_description is not None:
+            catch_all["description"] = release_condition_description
+        groups = [catch_all, *groups]
+
+    return {
+        "aggregation_group_type_index": current_filters.get("aggregation_group_type_index"),
+        "payloads": current_filters.get("payloads", {}),
+        "multivariate": {
+            "variants": [
+                {
+                    "key": v["key"],
+                    "rollout_percentage": 100 if v["key"] == variant_key else 0,
+                    **({"name": v["name"]} if v.get("name") else {}),
+                }
+                for v in current_filters.get("multivariate", {}).get("variants", [])
+            ],
+        },
+        "groups": groups,
+    }
+
+
+def ship_variant(
+    flag: FeatureFlag,
+    variant_key: str,
+    *,
+    team: Team,
+    user: Any,
+    request: Any | None = None,
+    release_to_everyone: bool = False,
+    release_condition_description: str | None = None,
+    base_filters: dict | None = None,
+) -> FeatureFlag:
+    """Roll ``variant_key`` out at 100% of the flag's variant distribution, through the gated write.
+
+    By default (``release_to_everyone=False``) existing release conditions on the flag
+    are preserved untouched — the variant is served only to users who already match
+    them. Pass ``release_to_everyone=True`` to also prepend a catch-all release
+    condition that rolls the variant out to 100% of users (overrides any existing
+    release conditions and per-user variant overrides), with
+    ``release_condition_description`` as its description — that parameter has no
+    effect unless ``release_to_everyone`` is True.
+
+    ``base_filters`` lets a caller fold companion adjustments it already computed from
+    the flag's current filters into the same gated write; defaults to the flag's
+    current filters. ``variant_key`` is validated against ``base_filters`` (not
+    ``flag.filters``), so its ``multivariate.variants`` must match the flag's own.
+    The parameter is transitional: it exists so the experiments-side freeze-strip
+    folds into a single gated write, and goes away once that strip moves flag-side.
+
+    Raises ValidationError when the variant doesn't exist on the flag, and
+    ApprovalRequired when a policy gates the write — the flag is left untouched
+    in both cases.
+    """
+    filters = base_filters if base_filters is not None else (flag.filters or {})
+
+    # Validate variant_key exists on the flag
+    variants = filters.get("multivariate", {}).get("variants", [])
+    if not any(v["key"] == variant_key for v in variants):
+        raise ValidationError(f"Variant '{variant_key}' not found on feature flag.")
+
+    new_filters = _roll_out_variant(
+        filters,
+        variant_key,
+        release_to_everyone=release_to_everyone,
+        release_condition_description=release_condition_description,
+    )
+    return update_flag(flag, {"filters": new_filters}, team=team, user=user, request=request)
 
 
 def user_can_edit_flag(flag: FeatureFlag, *, team: Team, user: Any) -> bool:

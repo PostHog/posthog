@@ -254,6 +254,21 @@ describe('Cyclotron V2', () => {
             }
         )
 
+        it('countInFlightJobs counts available and running jobs for one team and function', async () => {
+            const functionId = uuidv7()
+            const otherFunctionId = uuidv7()
+            await manager.createJob({ teamId: 1, queueName: QUEUE, functionId })
+            const runningId = await manager.createJob({ teamId: 1, queueName: QUEUE, functionId })
+            await assertPool.query(`UPDATE cyclotron_jobs SET status = 'running' WHERE id = $1`, [runningId])
+            // Not counted: terminal status, other function, other team
+            const completedId = await manager.createJob({ teamId: 1, queueName: QUEUE, functionId })
+            await assertPool.query(`UPDATE cyclotron_jobs SET status = 'completed' WHERE id = $1`, [completedId])
+            await manager.createJob({ teamId: 1, queueName: QUEUE, functionId: otherFunctionId })
+            await manager.createJob({ teamId: 2, queueName: QUEUE, functionId })
+
+            expect(await manager.countInFlightJobs(1, functionId)).toBe(2)
+        })
+
         it('backpressure throws when queue depth exceeds limit', async () => {
             const smallManager = createManager({ depthLimit: 2, depthCheckIntervalMs: 0 })
             await smallManager.connect()

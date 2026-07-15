@@ -27,6 +27,7 @@ import { getAppContext } from 'lib/utils/getAppContext'
 
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarFetch } from '~/toolbar/toolbarFetch'
+import { ToolbarRequestError } from '~/toolbar/toolbarRequestError'
 import { HeatmapElement, HeatmapResponseType } from '~/toolbar/types'
 import { FilterType } from '~/types'
 
@@ -34,6 +35,10 @@ import type { heatmapDataLogicType } from './heatmapDataLogicType'
 
 // The endpoint defaults to a bounded page for API callers; the overlay renders every point.
 const UNBOUNDED_HEATMAP_LIMIT = 0
+
+// Limit canvas height to prevent browser freezing with heatmap.js
+// Large canvases (e.g., 24000px) cause heatmap.js to block the main thread
+export const MAX_HEATMAP_HEIGHT = 8000
 
 export const HEATMAP_COLOR_PALETTE_OPTIONS: LemonSelectOption<string>[] = [
     { value: 'default', label: 'Default (multicolor)' },
@@ -65,6 +70,46 @@ async function parseHeatmapErrorMessage(response: Response): Promise<string> {
 export interface HeatmapDataLogicProps {
     context: 'in-app' | 'toolbar'
     exportToken?: string | null
+}
+
+/**
+ * Fetch a heatmap endpoint and raise request failures the right way for each context:
+ * in the toolbar a failed request is an expected outcome, so it becomes a tagged
+ * `ToolbarRequestError` (drives the loader's *Failure action without being reported to
+ * error tracking); in-app the pre-existing plain-error behavior is preserved.
+ */
+async function fetchHeatmapData(
+    props: HeatmapDataLogicProps,
+    apiURL: string,
+    options: { authenticateOn403?: boolean } = {}
+): Promise<Response> {
+    let response: Response
+    try {
+        response = await (props.context === 'toolbar'
+            ? toolbarFetch(apiURL, 'GET')
+            : props.exportToken
+              ? fetch(apiURL, { headers: { Authorization: `Bearer ${props.exportToken}` } })
+              : fetch(apiURL))
+    } catch (e) {
+        if (props.context === 'toolbar') {
+            throw new ToolbarRequestError('Network error while loading heatmap data')
+        }
+        throw e
+    }
+
+    if (props.context === 'toolbar' && response.status === 403 && options.authenticateOn403) {
+        toolbarConfigLogic.actions.authenticate()
+    }
+
+    if (response.status !== 200) {
+        const message = await parseHeatmapErrorMessage(response)
+        if (props.context === 'toolbar') {
+            throw new ToolbarRequestError(message, response.status)
+        }
+        throw new Error(message)
+    }
+
+    return response
 }
 
 export function heatmapApiPath(context: HeatmapDataLogicProps['context'], endpoint: '' | 'events/'): string {
@@ -267,20 +312,8 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                     )}`
 
                     // if we export the heatmap, we need to add the export token to the headers
-                    const response = await (props.context === 'toolbar'
-                        ? toolbarFetch(apiURL, 'GET')
-                        : props.exportToken
-                          ? fetch(apiURL, { headers: { Authorization: `Bearer ${props.exportToken}` } })
-                          : fetch(apiURL))
+                    const response = await fetchHeatmapData(props, apiURL, { authenticateOn403: true })
                     breakpoint()
-
-                    if (props.context === 'toolbar' && response.status === 403) {
-                        toolbarConfigLogic.actions.authenticate()
-                    }
-
-                    if (response.status !== 200) {
-                        throw new Error(await parseHeatmapErrorMessage(response))
-                    }
 
                     const data = await response.json()
                     actions.setIsReady(true)
@@ -318,16 +351,8 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                         '?'
                     )}`
 
-                    const response = await (props.context === 'toolbar'
-                        ? toolbarFetch(apiURL, 'GET')
-                        : props.exportToken
-                          ? fetch(apiURL, { headers: { Authorization: `Bearer ${props.exportToken}` } })
-                          : fetch(apiURL))
+                    const response = await fetchHeatmapData(props, apiURL)
                     breakpoint()
-
-                    if (response.status !== 200) {
-                        throw new Error(await parseHeatmapErrorMessage(response))
-                    }
 
                     return await response.json()
                 },
@@ -416,14 +441,23 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
         heightOverride: [
             (s) => [s.maxYFromEvents, s.windowHeight],
             (maxYFromEvents: number, windowHeight: number): number => {
-                // Limit canvas height to prevent browser freezing with heatmap.js
-                // Large canvases (e.g., 24000px) cause heatmap.js to block the main thread
-                const MAX_HEATMAP_HEIGHT = 8000
                 if (maxYFromEvents > 0) {
                     const calculatedHeight = Math.ceil((maxYFromEvents + 100) / 100) * 100
                     return Math.min(Math.max(calculatedHeight, windowHeight), MAX_HEATMAP_HEIGHT)
                 }
                 return Math.max(DEFAULT_HEATMAP_HEIGHT, windowHeight)
+            },
+        ],
+
+        // True when captured points extend past the rendered canvas cap, so the overlay is clipped
+        isHeightCapped: [
+            (s) => [s.maxYFromEvents],
+            (maxYFromEvents: number): boolean => {
+                if (maxYFromEvents <= 0) {
+                    return false
+                }
+                const calculatedHeight = Math.ceil((maxYFromEvents + 100) / 100) * 100
+                return calculatedHeight > MAX_HEATMAP_HEIGHT
             },
         ],
 
@@ -532,14 +566,11 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                 '?'
             )}`
 
-            const response = await (props.context === 'toolbar'
-                ? toolbarFetch(apiURL, 'GET')
-                : props.exportToken
-                  ? fetch(apiURL, { headers: { Authorization: `Bearer ${props.exportToken}` } })
-                  : fetch(apiURL))
-
-            if (response.status !== 200) {
-                lemonToast.error(await parseHeatmapErrorMessage(response))
+            let response: Response
+            try {
+                response = await fetchHeatmapData(props, apiURL)
+            } catch (e) {
+                lemonToast.error(e instanceof Error ? e.message : 'Failed to load more events')
                 return
             }
 

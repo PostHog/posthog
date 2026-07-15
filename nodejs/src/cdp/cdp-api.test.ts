@@ -15,7 +15,7 @@ import { UUIDT } from '~/common/utils/utils'
 
 import { createCdpConsumerDeps } from '../../tests/helpers/cdp'
 import { forSnapshot } from '../../tests/helpers/snapshots'
-import { getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
+import { createTeam, getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
 import { Hub, Team } from '../types'
 import { FixtureHogFlowBuilder } from './_tests/builders/hogflow.builder'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './_tests/examples'
@@ -914,6 +914,7 @@ describe('CDP API', () => {
             const createJobMock = jest.fn().mockResolvedValue('resolver-job-id')
             api['batchResolverProducer'] = {
                 createJob: createJobMock,
+                countInFlightJobs: jest.fn().mockResolvedValue(0),
                 disconnect: jest.fn().mockResolvedValue(undefined),
             }
 
@@ -1000,6 +1001,7 @@ describe('CDP API', () => {
             const createJobMock = jest.fn().mockResolvedValue('resolver-job-id')
             api['batchResolverProducer'] = {
                 createJob: createJobMock,
+                countInFlightJobs: jest.fn().mockResolvedValue(0),
                 disconnect: jest.fn().mockResolvedValue(undefined),
             }
 
@@ -1060,6 +1062,7 @@ describe('CDP API', () => {
             const createJobMock = jest.fn().mockResolvedValue('resolver-job-id')
             api['batchResolverProducer'] = {
                 createJob: createJobMock,
+                countInFlightJobs: jest.fn().mockResolvedValue(0),
                 disconnect: jest.fn().mockResolvedValue(undefined),
             }
 
@@ -1165,6 +1168,79 @@ describe('CDP API', () => {
             expect(res.body.status).toEqual('queued')
             expect(res.body.invocation_id).toBeDefined()
             expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+        })
+    })
+
+    describe('hogflow in-flight count', () => {
+        let countHogFlow: HogFlow
+        let mockCountInFlightJobs: jest.Mock
+
+        beforeEach(async () => {
+            mockCountInFlightJobs = jest.fn().mockResolvedValue(3)
+            api['batchResolverProducer'] = {
+                createJob: jest.fn(),
+                disconnect: jest.fn(),
+                countInFlightJobs: mockCountInFlightJobs,
+            }
+
+            countHogFlow = await insertHogFlow({
+                id: new UUIDT().toString(),
+                name: 'test in-flight count hog flow',
+                status: 'active',
+                version: 1,
+                exit_condition: 'exit_on_conversion',
+                edges: [],
+                actions: [],
+                trigger: {
+                    type: 'event',
+                    filters: {},
+                },
+            })
+        })
+
+        afterEach(() => {
+            api['batchResolverProducer'] = null
+        })
+
+        it('returns the in-flight job count for a workflow', async () => {
+            const res = await supertest(app).get(
+                `/api/projects/${countHogFlow.team_id}/hog_flows/${countHogFlow.id}/in_flight_count`
+            )
+
+            expect(res.status).toEqual(200)
+            expect(res.body).toEqual({ count: 3 })
+            expect(mockCountInFlightJobs).toHaveBeenCalledWith(countHogFlow.team_id, countHogFlow.id)
+        })
+
+        it('errors if missing hog flow', async () => {
+            const res = await supertest(app).get(
+                `/api/projects/${countHogFlow.team_id}/hog_flows/${new UUIDT().toString()}/in_flight_count`
+            )
+
+            expect(res.status).toEqual(404)
+            expect(res.body.error).toEqual('Workflow not found')
+        })
+
+        it("errors when requesting another team's hog flow", async () => {
+            const otherTeamId = await createTeam(hub.postgres, team.organization_id)
+
+            const res = await supertest(app).get(
+                `/api/projects/${otherTeamId}/hog_flows/${countHogFlow.id}/in_flight_count`
+            )
+
+            expect(res.status).toEqual(404)
+            expect(res.body.error).toEqual('Workflow not found')
+            expect(mockCountInFlightJobs).not.toHaveBeenCalled()
+        })
+
+        it('errors if the cyclotron producer is not configured', async () => {
+            api['batchResolverProducer'] = null
+
+            const res = await supertest(app).get(
+                `/api/projects/${countHogFlow.team_id}/hog_flows/${countHogFlow.id}/in_flight_count`
+            )
+
+            expect(res.status).toEqual(503)
         })
     })
 
