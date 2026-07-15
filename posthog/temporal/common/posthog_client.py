@@ -15,6 +15,7 @@ from temporalio.worker import (
 )
 
 from posthog.egress.transport.transport import EgressBudgetExhausted
+from posthog.errors import QueryErrorCategory, classify_query_error
 from posthog.temporal.common.interceptor import ALL_TASK_QUEUES
 from posthog.temporal.common.logger import get_write_only_logger
 
@@ -66,11 +67,17 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
         try:
             return await super().execute_activity(input)
         except Exception as e:
-            # Cancellations (worker drain, activity timeout, workflow cancellation) and our own
+            # Cancellations (worker drain, activity timeout, workflow cancellation), our own
             # egress-budget backpressure (a deliberate "defer and retry later" signal that our
-            # rate limiter already records via record_outbound_decision) are expected control flow,
-            # not defects — re-raise without reporting them to error tracking.
-            if temporalio.exceptions.is_cancelled_exception(e) or isinstance(e, EgressBudgetExhausted):
+            # rate limiter already records via record_outbound_decision), and ClickHouse
+            # rate-limit backpressure (query concurrency cap / at-capacity — Temporal retries
+            # these) are expected control flow, not defects — re-raise without reporting them
+            # to error tracking.
+            if (
+                temporalio.exceptions.is_cancelled_exception(e)
+                or isinstance(e, EgressBudgetExhausted)
+                or classify_query_error(e) == QueryErrorCategory.RATE_LIMITED
+            ):
                 raise
             activity_info = activity.info()
             capture_kwargs = {

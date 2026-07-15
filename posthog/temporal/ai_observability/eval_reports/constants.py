@@ -23,7 +23,11 @@ COORDINATOR_EXECUTION_TIMEOUT = timedelta(hours=2)
 
 # Activity timeouts
 FETCH_ACTIVITY_TIMEOUT = timedelta(seconds=60)
-COUNT_TRIGGER_CHECK_BATCH_SIZE = 5
+# Fan-out width for the count-triggered check. Each check runs a `count()` against
+# the shared `default` ClickHouse user, so a wide fan-out competes for the query
+# concurrency cap and trips ClickHouseAtCapacity. Keep this small — these are
+# background checks with no latency requirement.
+COUNT_TRIGGER_CHECK_BATCH_SIZE = 2
 COUNT_TRIGGER_CHECK_ACTIVITY_TIMEOUT = timedelta(seconds=60)
 PREPARE_ACTIVITY_TIMEOUT = timedelta(seconds=60)
 AGENT_ACTIVITY_TIMEOUT = timedelta(seconds=660)  # 11 minutes (agent timeout + buffer)
@@ -41,6 +45,18 @@ FETCH_RETRY_POLICY = RetryPolicy(
     initial_interval=timedelta(seconds=5),
     maximum_interval=timedelta(seconds=30),
     backoff_coefficient=2.0,
+)
+
+# The count-triggered check almost always fails because ClickHouse is at capacity
+# (the shared `default` user hit its query concurrency cap). Retrying after 5s just
+# piles more load onto an already-saturated queue, so back off much harder and give
+# the queue real time to drain. These checks run every few minutes and have no
+# latency requirement, so a long backoff is free.
+COUNT_TRIGGER_CHECK_RETRY_POLICY = RetryPolicy(
+    maximum_attempts=3,
+    initial_interval=timedelta(seconds=30),
+    maximum_interval=timedelta(seconds=120),
+    backoff_coefficient=3.0,
 )
 
 AGENT_RETRY_POLICY = RetryPolicy(
