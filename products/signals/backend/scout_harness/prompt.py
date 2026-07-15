@@ -438,7 +438,7 @@ def build_run_prompt(skill: LoadedSkill, *, run_id: str, team_id: int, started_a
 
 # How to call tools
 
-Every tool named in this prompt — the `scout-*` harness tools and all PostHog MCP tools — is invoked through the `mcp__posthog__exec` interface as `call <tool_name> <json>`, not as a direct tool call. The bare names below (`skill-get`, `scout-project-profile-get`, `{emit_tool}`, …) are how you *refer* to a tool; you reach one through `exec`. For any tool you haven't already used, discover and inspect it first on that same interface — `search <regex>` to find it, `info <tool_name>` to read its schema — then `call` it. Don't burn opening moves trying to invoke these names directly; they resolve only through `exec`.
+Every tool named in this prompt — the `scout-*` harness tools and all PostHog MCP tools — is invoked through the `mcp__posthog__exec` interface as `call <tool_name> <json>`, not as a direct tool call. The bare names below (`skill-get`, `scout-project-profile-get`, `{emit_tool}`, …) are how you *refer* to a tool; you reach one through `exec`. For any tool you haven't already used, discover and inspect it first on that same interface — `search <regex>` to find it, `info <tool_name>` to read its schema — then `call` it. Don't burn opening moves trying to invoke these names directly; they resolve only through `exec`. If a `scout-*` tool comes back unknown, the server may still expose it under its legacy `signals-scout-*` name — `search scout` and call whichever name the catalog returns.
 
 # First: read your skill
 
