@@ -98,8 +98,8 @@ export const AwsS3SetupModal = (props: AwsS3SetupModalLogicProps): JSX.Element =
                                 </span>
                                 <p className="m-0 text-secondary">
                                     The trust policy must require an <code>sts:ExternalId</code> condition equal to{' '}
-                                    <code>{currentOrganization?.id}</code>. PostHog verifies this condition is enforced
-                                    and exports will fail without it.
+                                    <code>posthog-{currentOrganization?.id}</code>. PostHog verifies this condition is
+                                    enforced and exports will fail without it.
                                 </p>
                             </div>
                             <div className="flex gap-3 items-start">

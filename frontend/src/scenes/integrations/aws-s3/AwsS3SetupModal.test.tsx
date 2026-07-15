@@ -37,9 +37,9 @@ describe('AwsS3SetupModal', () => {
         expect(screen.getByText('IAM role ARN')).toBeInTheDocument()
         expect(screen.getByText('Requirements')).toBeInTheDocument()
         expect(screen.queryByText('AWS Access Key ID')).not.toBeInTheDocument()
-        // The external ID users must set in their trust policy is the organization ID
+        // The external ID users must set in their trust policy is posthog-{organization ID}
         await waitFor(() => {
-            expect(screen.getByText(MOCK_ORGANIZATION_ID)).toBeInTheDocument()
+            expect(screen.getByText(`posthog-${MOCK_ORGANIZATION_ID}`)).toBeInTheDocument()
         })
     })
 
