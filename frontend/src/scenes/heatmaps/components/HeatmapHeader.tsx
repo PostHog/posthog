@@ -20,7 +20,7 @@ export function HeatmapHeader(): JSX.Element {
         type,
     } = useValues(heatmapLogic)
     const { iframeBanner } = useValues(heatmapsBrowserLogic)
-    const { setPageUrlDraft, applyPageUrlDraft, regenerateScreenshot } = useActions(heatmapLogic)
+    const { setPageUrlDraft, applyPageUrlDraft, regenerateScreenshot, changeCaptureMethod } = useActions(heatmapLogic)
 
     const draftIsEmpty = pageUrlDraft.trim() === ''
     const disabledReason = !isPageUrlDraftValid ? 'Enter a valid URL' : draftIsEmpty ? 'Enter a URL' : null
@@ -82,8 +82,15 @@ export function HeatmapHeader(): JSX.Element {
                     )}
                     {type === 'iframe' && iframeBanner?.level === 'error' && (
                         <div className="flex flex-col gap-2">
-                            <LemonBanner type="error">
-                                The page failed to load in an iframe (or is very slow). Some sites block being embedded.
+                            <LemonBanner
+                                type="error"
+                                action={{
+                                    children: 'Switch to screenshot',
+                                    onClick: () => changeCaptureMethod('screenshot'),
+                                }}
+                            >
+                                This page didn't load in the live preview. It may block embedding. If it is public,
+                                switch to Screenshot. If it requires login, use a session recording below.
                             </LemonBanner>
                             {displayUrl && !displayUrlIsPattern ? <HeatmapRecordingFallback url={displayUrl} /> : null}
                         </div>

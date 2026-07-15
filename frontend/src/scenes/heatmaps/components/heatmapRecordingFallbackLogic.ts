@@ -6,12 +6,20 @@ import api from 'lib/api'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 
 import { NodeKind, RecordingsQuery } from '~/queries/schema/schema-general'
-import { PropertyFilterType, PropertyOperator, SessionRecordingType } from '~/types'
+import {
+    FilterLogicalOperator,
+    PropertyFilterType,
+    PropertyOperator,
+    RecordingUniversalFilters,
+    SessionRecordingType,
+    UniversalFilterValue,
+} from '~/types'
 
 import type { heatmapRecordingFallbackLogicType } from './heatmapRecordingFallbackLogicType'
 
 export type HeatmapRecordingFallbackLogicProps = {
     url: string
+    selectionMode?: 'default' | 'guided'
 }
 
 const RECORDING_FALLBACK_LOOKBACK = '-30d'
@@ -34,16 +42,52 @@ export function buildRecordingsQueryForUrl(url: string): RecordingsQuery {
     }
 }
 
+function buildRecordingFiltersForProperty(property: UniversalFilterValue): Partial<RecordingUniversalFilters> {
+    return {
+        date_from: RECORDING_FALLBACK_LOOKBACK,
+        filter_group: {
+            type: FilterLogicalOperator.And,
+            values: [
+                {
+                    type: FilterLogicalOperator.And,
+                    values: [property],
+                },
+            ],
+        },
+    }
+}
+
+export function buildRecordingFiltersForUrl(url: string): Partial<RecordingUniversalFilters> {
+    return buildRecordingFiltersForProperty({
+        type: PropertyFilterType.Recording,
+        key: 'visited_page',
+        operator: PropertyOperator.IContains,
+        value: [url],
+    })
+}
+
+export function buildRecordingMatchingEventFiltersForUrl(url: string): RecordingUniversalFilters {
+    return {
+        ...buildRecordingFiltersForProperty({
+            type: PropertyFilterType.Event,
+            key: '$current_url',
+            operator: PropertyOperator.IContains,
+            value: [url],
+        }),
+        duration: [],
+    } as RecordingUniversalFilters
+}
+
 export const heatmapRecordingFallbackLogic = kea<heatmapRecordingFallbackLogicType>([
     path(['scenes', 'heatmaps', 'components', 'heatmapRecordingFallbackLogic']),
     props({} as HeatmapRecordingFallbackLogicProps),
-    key((props) => props.url),
+    key((props) => `${props.selectionMode ?? 'default'}-${props.url}`),
     connect(() => ({
         actions: [sessionPlayerModalLogic, ['openSessionPlayer']],
     })),
     actions({
         loadMatchingRecordings: true,
-        openRecording: (recordingId: string) => ({ recordingId }),
+        openRecording: (recording: Pick<SessionRecordingType, 'id' | 'matching_events'>) => ({ recording }),
     }),
     loaders(({ props }) => ({
         matchingRecordings: [
@@ -58,15 +102,25 @@ export const heatmapRecordingFallbackLogic = kea<heatmapRecordingFallbackLogicTy
             },
         ],
     })),
-    listeners(({ actions }) => ({
+    listeners(({ actions, props, values }) => ({
         loadMatchingRecordingsSuccess: ({ matchingRecordings }) => {
             posthog.capture('in-app heatmap recording fallback searched', {
                 matching_recordings: matchingRecordings?.length ?? 0,
             })
         },
-        openRecording: ({ recordingId }) => {
+        openRecording: ({ recording }) => {
             posthog.capture('in-app heatmap recording fallback recording opened')
-            actions.openSessionPlayer({ id: recordingId })
+            actions.openSessionPlayer(
+                recording,
+                null,
+                props.selectionMode === 'guided'
+                    ? {
+                          type: 'heatmap-background-selection',
+                          targetUrl: props.url,
+                          matchingRecordingCount: values.matchingRecordings?.length ?? 0,
+                      }
+                    : null
+            )
         },
     })),
     afterMount(({ actions }) => {

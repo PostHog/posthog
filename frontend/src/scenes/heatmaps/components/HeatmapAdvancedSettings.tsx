@@ -10,6 +10,9 @@ export interface HeatmapAdvancedSettingsProps {
     dataUrlHelp: React.ReactNode
     consentHelp: React.ReactNode
     showForbiddenUrl?: boolean
+    showDataUrl?: boolean
+    showConsent?: boolean
+    header?: string
 }
 
 export function HeatmapAdvancedSettings({
@@ -17,6 +20,9 @@ export function HeatmapAdvancedSettings({
     dataUrlHelp,
     consentHelp,
     showForbiddenUrl = false,
+    showDataUrl = true,
+    showConsent = true,
+    header = 'Advanced settings',
 }: HeatmapAdvancedSettingsProps): JSX.Element {
     const { dataUrl, displayUrl, type, blockConsentModals, isBrowserUrlAuthorized } = useValues(heatmapLogic)
     const { setDataUrl, setDataUrlUserTouched, setBlockConsentModals } = useActions(heatmapLogic)
@@ -26,40 +32,44 @@ export function HeatmapAdvancedSettings({
             panels={[
                 {
                     key: 'advanced',
-                    header: 'Advanced settings',
+                    header,
                     content: (
                         <div className="flex flex-col gap-4">
-                            <div>
-                                <LemonLabel>Heatmap data URL</LemonLabel>
-                                <LemonInput
-                                    size="small"
-                                    placeholder={
-                                        displayUrl ? `Same as page URL: ${displayUrl}` : dataUrlPlaceholderFallback
-                                    }
-                                    value={dataUrl ?? ''}
-                                    onChange={(value) => {
-                                        setDataUrlUserTouched(true)
-                                        setDataUrl(value || null)
-                                    }}
-                                    fullWidth={true}
-                                />
-                                <div className="text-xs text-muted mt-1">{dataUrlHelp}</div>
-                                {showForbiddenUrl && dataUrl && !isBrowserUrlAuthorized ? (
-                                    <HeatmapsForbiddenURL />
-                                ) : null}
-                            </div>
-                            <div>
-                                <LemonSwitch
-                                    checked={blockConsentModals}
-                                    onChange={setBlockConsentModals}
-                                    label="Dismiss cookie & consent banners"
-                                    bordered
-                                    disabledReason={
-                                        type !== 'screenshot' ? 'Only available for screenshot heatmaps' : undefined
-                                    }
-                                />
-                                <div className="text-xs text-muted mt-1">{consentHelp}</div>
-                            </div>
+                            {showDataUrl ? (
+                                <div>
+                                    <LemonLabel>Heatmap data URL</LemonLabel>
+                                    <LemonInput
+                                        size="small"
+                                        placeholder={
+                                            displayUrl ? `Same as page URL: ${displayUrl}` : dataUrlPlaceholderFallback
+                                        }
+                                        value={dataUrl ?? ''}
+                                        onChange={(value) => {
+                                            setDataUrlUserTouched(true)
+                                            setDataUrl(value || null)
+                                        }}
+                                        fullWidth={true}
+                                    />
+                                    <div className="text-xs text-muted mt-1">{dataUrlHelp}</div>
+                                    {showForbiddenUrl && dataUrl && !isBrowserUrlAuthorized ? (
+                                        <HeatmapsForbiddenURL />
+                                    ) : null}
+                                </div>
+                            ) : null}
+                            {showConsent ? (
+                                <div>
+                                    <LemonSwitch
+                                        checked={blockConsentModals}
+                                        onChange={setBlockConsentModals}
+                                        label="Dismiss cookie & consent banners"
+                                        bordered
+                                        disabledReason={
+                                            type !== 'screenshot' ? 'Only available for screenshot heatmaps' : undefined
+                                        }
+                                    />
+                                    <div className="text-xs text-muted mt-1">{consentHelp}</div>
+                                </div>
+                            ) : null}
                         </div>
                     ),
                 },

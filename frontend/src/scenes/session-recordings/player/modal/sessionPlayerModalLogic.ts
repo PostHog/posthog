@@ -13,17 +13,28 @@ interface QueryParams {
     timestamp?: number
 }
 
+export interface HeatmapBackgroundSelectionContext {
+    type: 'heatmap-background-selection'
+    targetUrl: string
+    matchingRecordingCount: number
+}
+
+export type SessionPlayerModalContext = HeatmapBackgroundSelectionContext | null
+
 export const sessionPlayerModalLogic = kea<sessionPlayerModalLogicType>([
     path(['scenes', 'session-recordings', 'sessionPlayerModalLogic']),
     actions({
         openSessionPlayer: (
             sessionRecording: Pick<SessionRecordingType, 'id' | 'matching_events'>,
-            initialTimestamp: number | null = null
+            initialTimestamp: number | null = null,
+            modalContext: SessionPlayerModalContext = null
         ) => ({
             sessionRecording,
             initialTimestamp,
+            modalContext,
         }),
         closeSessionPlayer: true,
+        completeHeatmapBackgroundSelection: (storageKey: string) => ({ storageKey }),
     }),
     reducers({
         activeSessionRecording: [
@@ -37,6 +48,13 @@ export const sessionPlayerModalLogic = kea<sessionPlayerModalLogicType>([
             null as number | null,
             {
                 openSessionPlayer: (_, { initialTimestamp }) => initialTimestamp,
+                closeSessionPlayer: () => null,
+            },
+        ],
+        modalContext: [
+            null as SessionPlayerModalContext,
+            {
+                openSessionPlayer: (_, { modalContext }) => modalContext,
                 closeSessionPlayer: () => null,
             },
         ],

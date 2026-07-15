@@ -145,6 +145,7 @@ export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataCo
     pinned?: boolean
     setPinned?: (pinned: boolean) => void
     playNextRecording?: (automatic: boolean) => void
+    skipToFirstMatchingEvent?: boolean
 }
 
 const ReplayIframeDatakeyPrefix = 'ph_replay_fixed_heatmap_'
@@ -653,7 +654,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             config,
         }),
     }),
-    reducers(() => ({
+    reducers(({ props }) => ({
         // used in visual regression testing to make sure the player is paused
         pauseForced: [
             false as boolean,
@@ -662,7 +663,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             },
         ],
         skipToFirstMatchingEvent: [
-            false,
+            props.skipToFirstMatchingEvent ?? false,
             {
                 setSkipToFirstMatchingEvent: (_, { skipToFirstMatchingEvent }) => skipToFirstMatchingEvent,
             },
@@ -2470,9 +2471,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 url: values.currentURL,
             }
             localStorage.setItem(key, JSON.stringify(data))
+            const modalLogic = sessionPlayerModalLogic.findMounted()
+            if (modalLogic?.values.modalContext?.type === 'heatmap-background-selection') {
+                modalLogic.actions.completeHeatmapBackgroundSelection(key)
+                modalLogic.actions.closeSessionPlayer()
+                return
+            }
             // the player may be open in the global modal (e.g. from the heatmap recording
             // fallback); close it or the heatmap scene renders hidden beneath it
-            sessionPlayerModalLogic.findMounted()?.actions.closeSessionPlayer()
+            modalLogic?.actions.closeSessionPlayer()
             router.actions.push(urls.heatmapRecording(`iframeStorage=${key}`))
         },
 
