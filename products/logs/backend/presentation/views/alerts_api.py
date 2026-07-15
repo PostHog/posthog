@@ -29,18 +29,16 @@ from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.utils import relative_date_parse
 
-from products.alerts.backend.destination_configs import (
+from products.alerts.backend.facade.api import (
     DESTINATION_TEMPLATE_IDS,
     AlertDestinationData,
     AlertDestinationValidationError,
     DestinationType,
     build_alert_destination_config,
-    validate_destination_data,
-)
-from products.alerts.backend.destinations import (
     create_alert_destination_hog_functions,
     soft_delete_alert_destinations,
     soft_delete_all_alert_destinations,
+    validate_destination_data,
 )
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCount
