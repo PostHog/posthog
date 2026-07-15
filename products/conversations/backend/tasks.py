@@ -1176,7 +1176,7 @@ def _sync_one_ticket_thread_replies(
                     activity=activity,
                     tenant_id=tenant_id,
                     is_thread_reply=True,
-                    images=reply_images,
+                    attachments=reply_images,
                 )
             except Exception:
                 logger.exception(
@@ -1449,7 +1449,7 @@ def _poll_one_shared_channel(
                         # Shared channel: confirm via Graph (bot connector can't post here),
                         # reusing the token we already hold for the delta read.
                         graph_post_context={"teams_team_id": teams_team_id, "token": token},
-                        images=images,
+                        attachments=images,
                     )
                 except Exception:
                     logger.exception(

@@ -19,14 +19,22 @@ class TestPublicSourceConfigs(APIBaseTest):
         assert "fields" in first_config
 
     def test_matches_wizard_response(self):
-        """Public endpoint should return the same data as the authenticated /wizard endpoint."""
+        """Public endpoint returns the same data as the authenticated /wizard endpoint, plus the
+        docs-only `tables` catalog the wizard deliberately omits to keep its payload small."""
         response = self.client.get("/api/public_source_configs/")
         assert response.status_code == status.HTTP_200_OK
 
         wizard_response = self.client.get("/api/environments/@current/external_data_sources/wizard/")
         assert wizard_response.status_code == status.HTTP_200_OK
 
-        assert response.json() == wizard_response.json()
+        wizard_data = wizard_response.json()
+        assert not any("tables" in config for config in wizard_data.values())
+
+        public_without_tables = {
+            source_type: {k: v for k, v in config.items() if k != "tables"}
+            for source_type, config in response.json().items()
+        }
+        assert public_without_tables == wizard_data
 
     def test_accessible_without_authentication(self):
         self.client.logout()
@@ -71,6 +79,22 @@ class TestPublicSourceConfigs(APIBaseTest):
         """SQL sources have user-defined schemas, so the catalog is empty (renders a generic note)."""
         response = self.client.get("/api/public_source_configs/")
         assert response.json()["Postgres"]["tables"] == []
+
+    def test_every_config_exposes_version_fields(self):
+        """The external version-update automation consumes these exact field names."""
+        response = self.client.get("/api/public_source_configs/")
+        data = response.json()
+
+        for source_type, config in data.items():
+            assert isinstance(config["versions"], list) and len(config["versions"]) > 0, source_type
+            assert config["defaultVersion"] in config["versions"], source_type
+            assert config["apiDocsUrl"] is None or config["apiDocsUrl"].startswith("https://"), source_type
+            assert isinstance(config["deprecatedVersions"], list), source_type
+
+        stripe = data["Stripe"]
+        assert stripe["versions"] == ["2024-09-30.acacia"]
+        assert stripe["defaultVersion"] == "2024-09-30.acacia"
+        assert stripe["apiDocsUrl"] == "https://docs.stripe.com/changelog"
 
     def test_many_fixed_schema_sources_list_tables(self):
         """Guard the opt-in mechanism: a large share of sources expose a static table catalog.

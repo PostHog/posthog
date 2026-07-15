@@ -359,11 +359,14 @@ async def _rewrite_into_temp(
         if PARTITION_KEY in table.column_names:
             table = table.drop([PARTITION_KEY])
 
+        # After the first batch resolves, later batches must use the *resolved* keys too: datetime
+        # auto-detect swaps the key from the primary key to the detected timestamp column, and pairing
+        # the resolved mode with the original (e.g. UUID) key would fail to parse it as a date.
         result = append_partition_key_to_table(
             table=table,
             partition_count=target.partition_count,
             partition_size=target.partition_size,
-            partition_keys=target.partition_keys,
+            partition_keys=resolved.partition_keys if resolved else target.partition_keys,
             partition_mode=resolved.partition_mode if resolved else target.partition_mode,
             partition_format=resolved.partition_format if resolved else target.partition_format,
             logger=logger,

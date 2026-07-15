@@ -19,6 +19,7 @@ from django.core.cache import cache
 from django.test import override_settings
 from django.utils.timezone import now
 
+import grpc
 import requests
 from parameterized import parameterized
 from prometheus_client import REGISTRY
@@ -1866,7 +1867,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             # Successfully update the feature flag with the different user. This will increment the version
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
-                {"name": "Updated name", "version": original_version},
+                {"name": "Updated name", "active": False, "version": original_version},
                 format="json",
             )
 
@@ -1968,7 +1969,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             # Successfully update the feature flag with the different user. This will increment the version
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
-                {"name": "Updated name", "version": original_version},
+                {"name": "Updated name", "active": False, "version": original_version},
                 format="json",
             )
 
@@ -1982,6 +1983,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
                 data={
                     "name": "Updated name",
+                    "active": True,
                     "filters": {
                         "groups": [
                             {
@@ -2002,6 +2004,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                     },
                     "original_flag": {
                         "name": "original name",  # This is the same as the name (though not the current name)
+                        "active": True,
                         "filters": {
                             "groups": [
                                 {
@@ -2031,6 +2034,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             feature_flag = FeatureFlag.objects.get(id=flag_id)
             self.assertEqual(feature_flag.name, "Updated name")
+            self.assertFalse(feature_flag.active)
             self.assertEqual(feature_flag.last_modified_by, original_user)
             self.assertEqual(response.json()["filters"]["groups"][0]["rollout_percentage"], 45)
 
@@ -12975,6 +12979,22 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertEqual(response.json()["detail"], f"Person not found for person_id: {missing_person_id}")
 
+    @patch("products.feature_flags.backend.api.feature_flag.get_person_and_distinct_ids_for_identifier")
+    def test_test_evaluation_personhog_rpc_failure_returns_503(self, mock_get_person):
+        # A personhog RPC outage must surface a distinct retryable 503, not the opaque 500 that
+        # used to swallow it alongside genuine "person not found" and bad-input cases.
+        flag = FeatureFlag.objects.create(team=self.team, key="test-flag")
+        mock_get_person.side_effect = grpc.RpcError("personhog unavailable")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
+            {"distinct_id": "test-user"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(response.json()["error"], "Person lookup service temporarily unavailable. Please retry.")
+
     @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
     @patch("products.feature_flags.backend.api.feature_flag.get_person_and_distinct_ids_for_identifier")
     @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
@@ -13411,3 +13431,39 @@ class TestFeatureFlagEvaluationReasons(APIBaseTest, ClickhouseTestMixin):
         data = response.json()
         self.assertIn(flag.key, data)
         self.assertEqual(data[flag.key]["evaluation"]["reason"], "condition_match")
+
+    @parameterized.expand(
+        [
+            ("repeated_params", {"flag_keys": ["wanted-active", "wanted-disabled"]}),
+            ("mcp_json_array_string", {"flag_keys": '["wanted-active", "wanted-disabled"]'}),
+        ]
+    )
+    @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
+    def test_evaluation_reasons_scopes_to_flag_keys(self, _name, query_flag_keys, mock_get_flags):
+        # flag_keys must be forwarded to the flags service and also scope the disabled-flag
+        # rows appended afterwards, otherwise the response still lists every flag in the project.
+        # MCP clients JSON-stringify array query params into a single value, so that encoding
+        # must scope the response exactly like repeated query params do.
+        FeatureFlag.objects.create(team=self.team, key="wanted-disabled", active=False)
+        FeatureFlag.objects.create(team=self.team, key="other-disabled", active=False)
+        mock_get_flags.return_value = {
+            "flags": {
+                "wanted-active": {
+                    "enabled": True,
+                    "variant": None,
+                    "reason": {"code": "condition_match", "condition_index": 0},
+                },
+            }
+        }
+
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/feature_flags/evaluation_reasons/",
+            {"distinct_id": "user-1", **query_flag_keys},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(mock_get_flags.call_args.kwargs["flag_keys"], ["wanted-active", "wanted-disabled"])
+        data = response.json()
+        self.assertIn("wanted-active", data)
+        self.assertIn("wanted-disabled", data)
+        self.assertNotIn("other-disabled", data)

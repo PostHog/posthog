@@ -159,6 +159,7 @@ export enum Scene {
     Survey = 'Survey',
     SurveyWizard = 'SurveyWizard',
     SurveyFormBuilder = 'SurveyFormBuilder',
+    SupportTickets = 'SupportTickets',
     Surveys = 'Surveys',
     SystemStatus = 'SystemStatus',
     ToolbarLaunch = 'ToolbarLaunch',
@@ -344,6 +345,9 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
 
     // Marketing Analytics
     [Scene.MarketingAnalytics]: AccessControlResourceType.WebAnalytics,
+
+    // Metrics
+    [Scene.Metrics]: AccessControlResourceType.Metrics,
 
     // Surveys
     [Scene.Survey]: AccessControlResourceType.Survey,

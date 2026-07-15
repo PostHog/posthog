@@ -1037,6 +1037,22 @@ export interface PaginatedTicketViewListApi {
     results: TicketViewApi[]
 }
 
+/**
+ * Saved ticket filter criteria. May contain status, priority, channel, sla, assignee, tags, dateFrom, dateTo, and sorting keys.
+ */
+export type PatchedTicketViewApiFilters = { [key: string]: unknown }
+
+export interface PatchedTicketViewApi {
+    readonly id?: string
+    readonly short_id?: string
+    /** @maxLength 400 */
+    name?: string
+    /** Saved ticket filter criteria. May contain status, priority, channel, sla, assignee, tags, dateFrom, dateTo, and sorting keys. */
+    filters?: PatchedTicketViewApiFilters
+    readonly created_at?: string
+    readonly created_by?: UserBasicApi
+}
+
 export interface ZendeskImportStartApi {
     /**
      * Zendesk subdomain (e.g. 'acme' from acme.zendesk.com).

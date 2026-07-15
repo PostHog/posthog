@@ -28,7 +28,6 @@ import { SessionRecordingId } from '~/types'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { UUID_REGEX_MATCH_GROUPS } from './utils'
 
 const HEIGHT = 500
 const MIN_HEIGHT = '20rem'
@@ -45,7 +44,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttrib
     }
 
     const { expanded } = useValues(notebookNodeLogic)
-    const { setActions, insertAfter, setMessageListeners, setExpanded, scrollIntoView } = useActions(notebookNodeLogic)
+    const { setActions, insertAfter, setMessageListeners, setExpanded } = useActions(notebookNodeLogic)
 
     const { sessionPlayerMetaData, sessionPlayerMetaDataLoading, sessionPlayerData } = useValues(
         sessionRecordingDataCoordinatorLogic(recordingLogicProps)
@@ -86,7 +85,6 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttrib
                 }
                 setPlay()
                 seekToTimestamp(time)
-                scrollIntoView()
             },
         })
     })
@@ -169,16 +167,6 @@ export const NotebookNodeRecording = createPostHogWidgetNode<NotebookNodeRecordi
         },
         timestampMs: {
             default: undefined,
-        },
-    },
-    pasteOptions: {
-        find: urls.replaySingle(UUID_REGEX_MATCH_GROUPS),
-        getAttributes: async (match) => {
-            const id = match[1]
-            const remainder = match[2] || ''
-            const tMatch = /[?&#]t=(\d+)/.exec(remainder)
-            const timestampMs = tMatch ? Number(tMatch[1]) * 1000 : undefined
-            return { id, noInspector: false, timestampMs }
         },
     },
     Settings,

@@ -77,7 +77,10 @@ concurrency:
 jobs:
     changes:
         runs-on: ubuntu-latest
-        timeout-minutes: 5
+        # 7 not 5: the debounce step below sleeps up to 60s, so widen the budget to
+        # keep ample headroom. A timeout here skips Playwright, which the aggregator
+        # would count as a pass.
+        timeout-minutes: 7
         # Run on master push, manual dispatch, and on ready internal-repo PRs.
         # Drafts skip E2E (see the trigger comment); the `Playwright tests pass`
         # aggregator treats skipped as success, and drafts can't merge anyway.
@@ -89,7 +92,8 @@ jobs:
              github.event.pull_request.draft != true))
         name: Determine need to run E2E checks
         outputs:
-            shouldRun: ${{ steps.decide.outputs.shouldRun }}
+            # Debounce can veto a PR run whose SHA has already been superseded (see below).
+            shouldRun: ${{ steps.decide.outputs.shouldRun == 'true' && steps.debounce.outputs.superseded != 'true' }}
             oldest_supported: ${{ steps.read-versions.outputs.oldest_supported }}
             schema_cache_key: ${{ steps.schema-key.outputs.key }}
             schema_migrations_key: ${{ steps.schema-key.outputs.migrations_key }}
@@ -144,6 +148,16 @@ jobs:
                         - .github/clickhouse-versions.json
                         - docker-compose.dev.yml
                         - Dockerfile
+                        # Spec-selection selector + map: changes must run the suite (they're
+                        # force-full anyway) so the map validation step actually executes.
+                        - tools/playwright_spec_selection.py
+                        - tools/playwright_area_map.json
+                        - tools/test_playwright_spec_selection.py
+                        # Docs-only changes match the broad globs above but exercise no
+                        # code the E2E suite runs — exclude them so a docs-only PR doesn't
+                        # boot the whole stack.
+                        - '!**/*.md'
+                        - '!**/*.mdx'
 
             # Visual Review auto-commits a snapshot baseline after human review and CI
             # approval. Re-running the ~25-min E2E stack for that bot push is pure waste;
@@ -195,6 +209,31 @@ jobs:
                       echo "shouldRun=false" >> "$GITHUB_OUTPUT"
                   fi
 
+            - name: Debounce rapid PR pushes
+              # A burst of pushes to one branch each dispatches a run; cancel-in-progress
+              # kills the superseded ones, but only after they've begun booting the 8-core
+              # stack. Hold here on the cheap 1x runner through the likely-supersession
+              # window — if a newer push cancels this run mid-wait, the expensive job never
+              # launches. After the wait, if the PR head has already moved past this run's
+              # SHA, skip: the newer run is the real gate (and always runs, since the tip
+              # is never stale against itself). Single pushes just pay the short wait.
+              id: debounce
+              if: steps.decide.outputs.shouldRun == 'true' && github.event_name == 'pull_request'
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+                  REPO: ${{ github.repository }}
+                  PR: ${{ github.event.pull_request.number }}
+                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+              run: |
+                  sleep 60
+                  tip=$(gh api "repos/${REPO}/pulls/${PR}" --jq '.head.sha' 2>/dev/null || echo "")
+                  if [ -n "$tip" ] && [ "$tip" != "$HEAD_SHA" ]; then
+                      echo "::notice::PR head moved ($HEAD_SHA -> $tip); skipping — the newer run is the gate"
+                      echo "superseded=true" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "superseded=false" >> "$GITHUB_OUTPUT"
+                  fi
+
             - name: Read ClickHouse versions from JSON
               id: read-versions
               if: steps.decide.outputs.shouldRun == 'true'
@@ -217,35 +256,49 @@ jobs:
 
             - name: Compute schema cache keys
               id: schema-key
-              # PRs only: master pushes deliberately skip the schema cache and run the
-              # full migration history, so the canonical run never relies on this
-              # optimization.
-              if: steps.decide.outputs.shouldRun == 'true' && github.event_name == 'pull_request'
+              # Both PRs and master pushes restore the schema dump ci-backend saves on
+              # master push, skipping the ~10-min replay of the full migration history —
+              # the migrate step in the heavy job still layers on anything newer. On a PR
+              # the migration-set key is the merge-base's; on a master push it's HEAD's.
+              # ci-backend already validates the full history on every master push (it's
+              # what saves the cache), so replaying it here too bought nothing. A cache
+              # miss falls through to a full migrate, so an absent/wrong key is never a
+              # correctness risk.
+              if: steps.decide.outputs.shouldRun == 'true' && (github.event_name == 'pull_request' || github.event_name == 'push')
               env:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
+                  IS_PUSH: ${{ github.event_name == 'push' }}
                   # Manual cache-bust knob — keep in sync with SCHEMA_CACHE_EPOCH in
                   # ci-backend.yml, which saves these caches on master pushes.
                   SCHEMA_CACHE_EPOCH: v1
               run: |
-                  # HEAD is the synthetic merge commit; HEAD^2 is the PR branch tip.
-                  MERGE_BASE=$(git merge-base HEAD^2 "origin/${BASE_REF}" 2>/dev/null || echo "")
-                  if [ -z "$MERGE_BASE" ]; then
-                      echo "key=" >> $GITHUB_OUTPUT
-                      echo "migrations_key=" >> $GITHUB_OUTPUT
-                      echo "::notice::merge-base not found (branch too stale?) — schema cache will be skipped"
-                      exit 0
+                  if [ "$IS_PUSH" = "true" ]; then
+                      # Pushed commit is checked out directly — no merge commit, no base ref.
+                      # The per-SHA key points at this same push's cache (saved concurrently
+                      # by ci-backend, so racy); rely on the stable migration-set key below.
+                      REF=HEAD
+                  else
+                      # HEAD is the synthetic merge commit; HEAD^2 is the PR branch tip.
+                      MERGE_BASE=$(git merge-base HEAD^2 "origin/${BASE_REF}" 2>/dev/null || echo "")
+                      if [ -z "$MERGE_BASE" ]; then
+                          echo "key=" >> $GITHUB_OUTPUT
+                          echo "migrations_key=" >> $GITHUB_OUTPUT
+                          echo "::notice::merge-base not found (branch too stale?) — schema cache will be skipped"
+                          exit 0
+                      fi
+                      echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
+                      REF="$MERGE_BASE"
                   fi
-                  echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
                   # Shared migration-set key: mirrors the save-side computation in
                   # ci-backend.yml (same inputs, hash, and prefix) so it hits whenever
-                  # the merge-base's migration files match a saved master schema — far
-                  # more stable than the per-SHA key, which needs the exact merge-base
-                  # commit's cache to still be alive.
-                  MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" \
+                  # the ref's migration files match a saved master schema — far more
+                  # stable than the per-SHA key, which needs that exact commit's cache
+                  # to still be alive.
+                  MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' "$REF" \
                       | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
                       | grep -vE '/(clickhouse|async_migrations)/migrations/' \
                       | LC_ALL=C sort) || true
-                  PG_IMAGE=$(git show "${MERGE_BASE}:docker-compose.base.yml" 2>/dev/null \
+                  PG_IMAGE=$(git show "${REF}:docker-compose.base.yml" 2>/dev/null \
                       | grep -m1 -E '^[[:space:]]*image:[[:space:]]*postgres:' | tr -d '[:space:]')
                   if [ -z "$MIG_FILES" ]; then
                       echo "migrations_key=" >> $GITHUB_OUTPUT
@@ -255,10 +308,142 @@ jobs:
                       echo "migrations_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}" >> $GITHUB_OUTPUT
                   fi
 
+    select-specs:
+        name: Select affected E2E specs
+        needs: [changes]
+        # Narrow the suite only on incremental `synchronize` pushes to a ready
+        # (non-draft) internal PR. Every other trigger — opened, reopened,
+        # ready_for_review, workflow_dispatch, push to master, merge_group — skips
+        # this job, leaving empty outputs so the playwright job runs the FULL suite.
+        # The merge gate (ready_for_review run) and the post-merge master run always
+        # run everything, so a selection miss is caught there. Fail-open is FULL,
+        # never skip: over-selection would silently drop coverage.
+        if: |
+            needs.changes.outputs.shouldRun == 'true'
+            && github.event_name == 'pull_request'
+            && github.event.action == 'synchronize'
+            && github.event.pull_request.draft != true
+            && github.event.pull_request.head.repo.full_name == github.repository
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        outputs:
+            mode: ${{ steps.classify.outputs.mode }}
+            spec_files: ${{ steps.classify.outputs.spec_files }}
+            # Telemetry (see the capture-run-time job): empty when the selector errored.
+            selected_count: ${{ steps.classify.outputs.selected_count }}
+            total_spec_count: ${{ steps.classify.outputs.total_spec_count }}
+            skipped_count: ${{ steps.classify.outputs.skipped_count }}
+            changed_file_count: ${{ steps.classify.outputs.changed_file_count }}
+            full_run_reason_category: ${{ steps.classify.outputs.full_run_reason_category }}
+        steps:
+            # Full checkout at PR head so the selector can glob specs on disk and read
+            # the map/script from the branch under test. Bounded depth + blob:none keeps
+            # the merge-base with the base branch reachable cheaply.
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ github.event.pull_request.head.sha }}
+                  repository: ${{ github.event.pull_request.head.repo.full_name }}
+                  fetch-depth: 1000
+                  filter: blob:none
+
+            - name: Run spec selector
+              id: select
+              # continue-on-error: a selector crash, a git failure, or a missing
+              # script/map on an unrebased branch must NOT fail the job — the classify
+              # step reads steps.select.outcome and falls open to a full run.
+              continue-on-error: true
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  # Fetch the current tip of the base branch (scoped, blobless, no tags),
+                  # then diff origin/$BASE_REF...HEAD (3-dot = merge-base) so master
+                  # commits merged into the branch aren't counted as changes.
+                  git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
+                  if [ ! -f tools/playwright_spec_selection.py ] || [ ! -f tools/playwright_area_map.json ]; then
+                      echo "::notice::spec selector/map absent on this checkout (unrebased branch) — full run"
+                      exit 1
+                  fi
+                  python3 tools/playwright_spec_selection.py \
+                      --base-ref "origin/$BASE_REF" \
+                      --summary-path "$GITHUB_STEP_SUMMARY" \
+                      > /tmp/spec-selection.json
+
+            - name: Classify selection
+              id: classify
+              env:
+                  SELECT_OUTCOME: ${{ steps.select.outcome }}
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  # Metric outputs are emitted in every path (see the capture-run-time
+                  # telemetry step). They stay empty only when the selector itself errored.
+                  SPECS=""
+                  SELECTED_COUNT=""
+                  TOTAL_COUNT=""
+                  SKIPPED_COUNT=""
+                  CHANGED_COUNT=""
+                  REASON_CATEGORY=""
+
+                  if [[ "$SELECT_OUTCOME" != "success" ]] || [[ ! -s /tmp/spec-selection.json ]]; then
+                      echo "::warning::spec selector produced no output — running the FULL suite"
+                      MODE=full
+                      REASON_CATEGORY=selector_error
+                  else
+                      MODE=$(jq -r '.mode' /tmp/spec-selection.json)
+                      SELECTED_COUNT=$(jq -r '.selected_count' /tmp/spec-selection.json)
+                      TOTAL_COUNT=$(jq -r '.total_spec_count' /tmp/spec-selection.json)
+                      CHANGED_COUNT=$(jq -r '.changed_file_count' /tmp/spec-selection.json)
+                      REASON_CATEGORY=$(jq -r '.full_run_reason_category' /tmp/spec-selection.json)
+                      SKIPPED_COUNT=$((TOTAL_COUNT - SELECTED_COUNT))
+                      if [[ "$MODE" == "selected" ]]; then
+                          SPECS=$(jq -r '.spec_files | join(" ")' /tmp/spec-selection.json)
+                          if [[ -z "$SPECS" ]]; then
+                              echo "::warning::selected mode but empty spec list — full run"
+                              MODE=full
+                              REASON_CATEGORY=no_specs
+                          fi
+                      else
+                          echo "Selector requested a full run:"
+                          jq -r '.full_run_reasons[]?' /tmp/spec-selection.json
+                      fi
+                  fi
+
+                  # On a full run nothing is passed downstream — the playwright job runs everything.
+                  if [[ "$MODE" != "selected" ]]; then
+                      SPECS=""
+                  fi
+
+                  {
+                      echo "mode=$MODE"
+                      echo "spec_files=$SPECS"
+                      echo "selected_count=$SELECTED_COUNT"
+                      echo "total_spec_count=$TOTAL_COUNT"
+                      echo "skipped_count=$SKIPPED_COUNT"
+                      echo "changed_file_count=$CHANGED_COUNT"
+                      echo "full_run_reason_category=$REASON_CATEGORY"
+                  } >> "$GITHUB_OUTPUT"
+                  echo "mode=$MODE category=${REASON_CATEGORY:-none} selected=${SELECTED_COUNT:-?}/${TOTAL_COUNT:-?}"
+
+            - name: Upload selection artifact
+              if: always() && steps.select.outcome == 'success'
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: playwright-spec-selection
+                  path: /tmp/spec-selection.json
+                  if-no-files-found: ignore
+
     playwright:
         name: Playwright E2E tests
-        needs: [changes]
-        if: needs.changes.outputs.shouldRun == 'true'
+        needs: [changes, select-specs]
+        # Skip-ownership stays with `changes`: gate on shouldRun only. select-specs is
+        # skipped on full-run events, so `!cancelled()` is required for this job to run
+        # past a skipped dependency; a skipped/failed select-specs yields an empty mode,
+        # which the test step below treats as a full run.
+        if: |
+            !cancelled()
+            && needs.changes.outputs.shouldRun == 'true'
         # 8-core depot: 18% avg / 30% peak memory observed on 16-core runs (#46853 noted
         # the workload "is not resource constrained" even after sharding was removed).
         # Talk to #team-devex before changing.
@@ -269,6 +454,8 @@ jobs:
             pull-requests: write
         outputs:
             vr_run_id: ${{ steps.vr-create.outputs.run_id }}
+            # Wall-clock of the test step, for the CI-minutes-saved telemetry.
+            test_seconds: ${{ steps.playwright-tests.outputs.test_seconds }}
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -288,6 +475,26 @@ jobs:
                   # GITHUB_TOKEN in .git/config where that code could read it — the report step
                   # below receives the token explicitly via its GITHUB_TOKEN env instead.
                   persist-credentials: false
+            # Fail fast (seconds, before the ~10-min stack boot) when the spec-selection
+            # map has drifted: a target pointing at a renamed/deleted spec, or a new spec
+            # no map entry reaches. Without this gate the selector silently falls open to
+            # permanent full runs and the selection savings evaporate unnoticed. The
+            # runtime selector stays fail-open; this is the merge-blocking counterpart
+            # that forces the map fix onto the PR that caused the drift. Skipped on
+            # unrebased branches that predate the selector (workflow edits hit every
+            # open PR immediately; the tools files only arrive on rebase).
+            - name: Validate spec-selection map
+              shell: bash
+              run: |
+                  if [ ! -f tools/test_playwright_spec_selection.py ]; then
+                      echo "spec-selection tools absent on this checkout (unrebased branch) — skipping"
+                      exit 0
+                  fi
+                  python3 tools/test_playwright_spec_selection.py || {
+                      echo "::error file=tools/playwright_area_map.json::Spec-selection map is stale. Renamed/deleted a spec? Update the matching target in tools/playwright_area_map.json. Added a spec? Map it (products/scenes/explicit) or list it under full_suite_only. Run tools/test_playwright_spec_selection.py locally."
+                      exit 1
+                  }
+
             - name: Clean up data directories with container permissions
               run: |
                   # Use docker to clean up files created by containers
@@ -315,7 +522,7 @@ jobs:
               id: setup-uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -332,7 +539,7 @@ jobs:
               if: steps.setup-uv.outputs.cache-hit != 'true'
               shell: bash
               run: |
-                  sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+                  sudo rm -f /etc/apt/sources.list.d/*twingate* && sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
             - name: Install pnpm
               uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
@@ -487,12 +694,11 @@ jobs:
               uses: ./.github/actions/setup-sqlx-cli
 
             - name: Restore schema cache from master
-              # PRs only — master pushes run the full migration history on purpose.
-              # Both keys are produced by ci-backend on master push. Prefer the shared
-              # migration-set key (stable while master's migration files are unchanged);
-              # fall back to the exact merge-base SHA key. Cache miss falls through to
-              # a full migrate below.
-              if: github.event_name == 'pull_request' && (needs.changes.outputs.schema_migrations_key != '' || needs.changes.outputs.schema_cache_key != '')
+              # PRs and master pushes alike. Both keys are produced by ci-backend on
+              # master push. Prefer the shared migration-set key (stable while master's
+              # migration files are unchanged); fall back to the exact merge-base SHA key
+              # (PRs only). Cache miss falls through to a full migrate below.
+              if: (github.event_name == 'pull_request' || github.event_name == 'push') && (needs.changes.outputs.schema_migrations_key != '' || needs.changes.outputs.schema_cache_key != '')
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               id: schema-cache
               with:
@@ -510,7 +716,7 @@ jobs:
               # the historical migration work. Treat cache/restore problems as misses:
               # restore-schema-fresh leaves a fresh empty db on failure, so the migrate
               # step below runs the full history.
-              if: github.event_name == 'pull_request'
+              if: github.event_name == 'pull_request' || github.event_name == 'push'
               env:
                   TARGET_DB: posthog_e2e_test
               run: |
@@ -623,11 +829,31 @@ jobs:
                   # the flake signal quarantining relies on; the quarantine gate below is the
                   # flake net instead. workflow_dispatch can override for a one-off run.
                   PLAYWRIGHT_RETRIES: ${{ inputs.playwright_retries || '0' }}
+                  # Empty when select-specs was skipped (full-run events) or chose a full run.
+                  SELECT_MODE: ${{ needs.select-specs.outputs.mode }}
+                  SELECT_SPECS: ${{ needs.select-specs.outputs.spec_files }}
               # WARNING: Worker count is tuned to avoid CPU scheduling contention. Talk to #team-devex before changing.
               # Reduced from 6+4 to 4+2 to minimize CPU scheduling contention (see PR #46853)
               # Capture-only: VR is the gate for visual changes, Playwright just captures screenshots
               run: |
-                  pnpm --filter=@posthog/playwright exec playwright test --workers=4 --update-snapshots
+                  # Time the test step so the telemetry can turn "specs skipped" into
+                  # minutes. set +e around the run so a test failure still records the
+                  # duration; the original exit code is preserved for the quarantine gate.
+                  start=$(date +%s)
+                  set +e
+                  if [[ "$SELECT_MODE" == "selected" && -n "$SELECT_SPECS" ]]; then
+                      echo "Selective run: $SELECT_SPECS"
+                      # Word-splitting is intentional: SELECT_SPECS is a space-separated list
+                      # of controlled spec paths (from the area map + on-disk globs).
+                      # shellcheck disable=SC2086
+                      pnpm --filter=@posthog/playwright exec playwright test $SELECT_SPECS --workers=4 --update-snapshots
+                  else
+                      echo "Full run (mode='${SELECT_MODE:-<skipped>}')"
+                      pnpm --filter=@posthog/playwright exec playwright test --workers=4 --update-snapshots
+                  fi
+                  rc=$?
+                  echo "test_seconds=$(( $(date +%s) - start ))" >> "$GITHUB_OUTPUT"
+                  exit "$rc"
 
             - name: Verify changed Playwright tests are stable
               if: steps.playwright-tests.outcome == 'success' && github.event_name == 'pull_request'
@@ -665,6 +891,11 @@ jobs:
                   VR_PURPOSE: ${{ github.event_name == 'push' && 'observe' || 'review' }}
                   # Recorded on the run so the VR UI can re-trigger this job via the GitHub API.
                   JOB_CHECK_RUN_ID: ${{ job.check_run_id }}
+                  # A selective run only regenerates a subset of snapshots. --partial tells VR
+                  # not to flag the un-run baseline snapshots as REMOVED and routes the run to a
+                  # non-gating status context. Empty on full runs and master pushes (the
+                  # default-branch fence forces is_partial=false there anyway).
+                  VR_PARTIAL: ${{ needs.select-specs.outputs.mode == 'selected' && '--partial' || '' }}
               run: |
                   RUN_ID=$(vr run create \
                     --type playwright \
@@ -673,6 +904,7 @@ jobs:
                     --commit "$VR_COMMIT" \
                     --pr "$VR_PR" \
                     --purpose "$VR_PURPOSE" \
+                    $VR_PARTIAL \
                     --token "$VR_TOKEN")
                   echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
 
@@ -798,7 +1030,7 @@ jobs:
         name: Capture run time
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        needs: [changes, playwright, playwright_tests]
+        needs: [changes, select-specs, playwright, playwright_tests]
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
             always() && github.actor != 'dependabot[bot]' &&
             needs.changes.outputs.shouldRun == 'true' && (
@@ -835,6 +1067,38 @@ jobs:
                   github-token: ${{ steps.telemetry-app-token.outputs.token }}
                   status-job: 'Playwright tests pass'
                   runner: 'depot'
+
+            # Spec-selection telemetry -> DevEx project (347861), where the CI-savings and
+            # fallback-rate insights live. Emitted whenever the heavy job actually ran, so
+            # full runs (this event's `mode=full`, `selection_eligible=false`) provide the
+            # test-time baseline that selective runs are measured against. `selection_eligible`
+            # is true only on synchronize pushes where select-specs ran — the fallback-rate
+            # denominator. Telemetry never reds CI (continue-on-error).
+            - name: Capture spec selection to DevEx PostHog
+              if: github.run_attempt == '1' && (needs.playwright.result == 'success' || needs.playwright.result == 'failure')
+              continue-on-error: true
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+              with:
+                  posthog-token: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+                  event: 'posthog-ci-e2e-spec-selection'
+                  properties: |
+                      {
+                        "mode": ${{ toJSON(needs.select-specs.outputs.mode || 'full') }},
+                        "selection_eligible": ${{ needs.select-specs.result == 'success' }},
+                        "selected_count": ${{ needs.select-specs.outputs.selected_count || 'null' }},
+                        "total_spec_count": ${{ needs.select-specs.outputs.total_spec_count || 'null' }},
+                        "skipped_count": ${{ needs.select-specs.outputs.skipped_count || 'null' }},
+                        "changed_file_count": ${{ needs.select-specs.outputs.changed_file_count || 'null' }},
+                        "full_run_reason_category": ${{ toJSON(needs.select-specs.outputs.full_run_reason_category || '') }},
+                        "playwright_test_seconds": ${{ needs.playwright.outputs.test_seconds || 'null' }},
+                        "playwright_result": ${{ toJSON(needs.playwright.result) }},
+                        "runner_billing_multiplier": 4,
+                        "event_type": ${{ toJSON(github.event_name) }},
+                        "branch": ${{ toJSON(github.head_ref || github.ref_name) }},
+                        "sha": ${{ toJSON(github.sha) }},
+                        "pr_number": ${{ github.event.pull_request.number || 'null' }},
+                        "run_id": ${{ toJSON(github.run_id) }}
+                      }
 
     vr-complete:
         name: Complete Visual Review run

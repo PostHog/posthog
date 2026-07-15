@@ -36,6 +36,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class InsightlySource(ResumableSource[InsightlySourceConfig, InsightlyResumeConfig]):
+    supported_versions = ("v3.1",)
+    default_version = "v3.1"
+    api_docs_url = "https://api.insightly.com/v3.1/Help"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

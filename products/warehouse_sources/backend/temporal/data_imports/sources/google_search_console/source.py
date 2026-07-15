@@ -49,6 +49,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class GoogleSearchConsoleSource(
     ResumableSource[GoogleSearchConsoleSourceConfig, GoogleSearchConsoleResumeConfig], OAuthMixin
 ):
+    supported_versions = ("v3",)
+    default_version = "v3"
+    api_docs_url = "https://developers.google.com/webmaster-tools"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -71,7 +75,10 @@ class GoogleSearchConsoleSource(
             "invalid_grant": "Your Google Search Console connection has expired or been revoked. Please reconnect your account.",
         }
 
-    def get_oauth_accounts(self, integration_id: int, team_id: int) -> list[IntegrationAccount]:
+    def get_oauth_accounts(
+        self, integration_id: int, team_id: int, search: str | None = None
+    ) -> list[IntegrationAccount]:
+        # Search Console sites are few, so `search` is ignored here and the endpoint filters the list.
         try:
             session = google_search_console_session(integration_id, team_id)
         except Integration.DoesNotExist:

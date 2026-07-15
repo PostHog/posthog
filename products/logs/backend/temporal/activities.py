@@ -11,7 +11,6 @@ from datetime import UTC, datetime, timedelta
 from itertools import batched
 
 from django.db import transaction
-from django.db.models import Q
 from django.db.utils import IntegrityError
 
 import structlog
@@ -20,12 +19,16 @@ from pydantic import ValidationError as PydanticValidationError
 
 from posthog.schema import PropertyGroupFilter
 
-from posthog.cdp.internal_events import InternalEventEvent, flush_internal_events_producer, produce_internal_event
 from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.client import ProduceResult
 from posthog.models import Team
 from posthog.sync import database_sync_to_async_pool
 
+from products.alerts.backend.destinations import (
+    alert_internal_event_delivered,
+    flush_alert_internal_events,
+    produce_alert_internal_event,
+)
 from products.logs.backend.alert_check_query import (
     AlertCheckQuery,
     BatchedAlertCheckQuery,
@@ -54,7 +57,7 @@ from products.logs.backend.alert_state_machine import (
     apply_outcome,
     evaluate_alert_check,
 )
-from products.logs.backend.alert_utils import advance_next_check_at, compute_shard_offset_seconds
+from products.logs.backend.alert_utils import advance_next_check_at, compute_shard_offset_seconds, due_alerts_q
 from products.logs.backend.logs_url_params import build_logs_url_params
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.temporal.constants import (
@@ -260,8 +263,15 @@ class _DispatchedAlert:
     """Phase 2 output: notification dispatched, ready for the cohort bulk save.
 
     `notification_failed` is the source of truth for state rollback: if True,
-    the state machine's `new_state` is replaced with the alert's existing state
-    so the next cycle re-tries the notification.
+    the state machine's `new_state` is reset to the alert's pre-check value so
+    the next cycle re-evaluates and re-tries the notification, and
+    `consecutive_failures` may heal downward but never advance. The counter
+    matters as much as the state: the error notification fires on the 0 -> 1
+    failure-counter edge, so persisting an advanced counter after a failed
+    enqueue would silence the retry forever. A successful evaluation's counter
+    reset is kept, though — only delivery failed, and voiding the evidence that
+    evaluation recovered would let a later error skip its notify edge and drag
+    a stale streak toward BROKEN.
 
     `produce_result` is the pending Kafka delivery for this alert's
     notification (None when no notification was attempted or the enqueue itself
@@ -281,6 +291,10 @@ class _DispatchedAlert:
             return dataclasses.replace(
                 self.evaluation.outcome,
                 new_state=AlertState(self.evaluation.alert.state),
+                consecutive_failures=min(
+                    self.evaluation.alert.consecutive_failures,
+                    self.evaluation.outcome.consecutive_failures,
+                ),
             )
         return self.evaluation.outcome
 
@@ -326,13 +340,12 @@ class EmitAlertSignalsInput:
 
 
 def _due_alerts_qs(now: datetime):
-    return (
-        LogsAlertConfiguration.objects.filter(
-            Q(enabled=True),
-            Q(next_check_at__lte=now) | Q(next_check_at__isnull=True),
+    return LogsAlertConfiguration.objects.filter(
+        due_alerts_q(
+            now,
+            broken_state=LogsAlertConfiguration.State.BROKEN,
+            snoozed_state=LogsAlertConfiguration.State.SNOOZED,
         )
-        .exclude(state=LogsAlertConfiguration.State.SNOOZED, snooze_until__gt=now)
-        .exclude(state=LogsAlertConfiguration.State.BROKEN)
     )
 
 
@@ -920,31 +933,21 @@ def _resolve_notification_deliveries(dispatched: list[_DispatchedAlert]) -> list
     if all(d.produce_result is None for d in dispatched):
         return dispatched
 
-    try:
-        remaining = flush_internal_events_producer(NOTIFICATION_FLUSH_TIMEOUT_SECONDS)
-        if remaining:
-            logger.warning("Kafka flush timed out with undelivered messages", remaining=remaining)
-    except Exception as e:
-        logger.exception("Kafka flush failed", error=str(e))
-        capture_exception(e, {"phase": "notification_flush"})
+    flush_alert_internal_events(NOTIFICATION_FLUSH_TIMEOUT_SECONDS)
 
     resolved: list[_DispatchedAlert] = []
     for d in dispatched:
         if d.produce_result is None:
             resolved.append(d)
             continue
-        try:
-            # Delivery callbacks only fire while flush()/poll() pumps the queue,
-            # so after the flush above each result is already resolved or never
-            # will be this cycle — timeout=0 reads the outcome without blocking.
-            d.produce_result.get(timeout=0)
+        if alert_internal_event_delivered(
+            d.produce_result,
+            team_id=d.evaluation.alert.team_id,
+            alert_id=str(d.evaluation.alert.id),
+            event_name=d.evaluation.outcome.notification.value,
+        ):
             resolved.append(d)
-        except Exception:
-            logger.warning(
-                "Notification not delivered before flush deadline; rolling back state for retry",
-                alert_id=str(d.evaluation.alert.id),
-                team_id=d.evaluation.alert.team_id,
-            )
+        else:
             resolved.append(dataclasses.replace(d, notification_failed=True))
     return resolved
 
@@ -1303,19 +1306,12 @@ def _produce_alert_internal_event(
     properties: dict,
     now: datetime,
 ) -> ProduceResult | None:
-    try:
-        return produce_internal_event(
-            team_id=alert.team_id,
-            event=InternalEventEvent(
-                event=event_name,
-                distinct_id=f"team_{alert.team_id}",
-                properties=properties,
-                timestamp=now.isoformat(),
-            ),
-        )
-    except Exception as e:
-        capture_exception(e, {"alert_id": str(alert.id), "event": event_name})
-        return None
+    return produce_alert_internal_event(
+        team_id=alert.team_id,
+        event_name=event_name,
+        properties=properties,
+        timestamp=now,
+    )
 
 
 def _emit_alert_event(

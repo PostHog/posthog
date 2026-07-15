@@ -5,6 +5,9 @@ import { VirtualizedTableColumn } from 'products/logs/frontend/components/Virtua
 // Layout constants for log rows
 export const DEFAULT_ATTRIBUTE_COLUMN_WIDTH = 150
 export const MIN_ATTRIBUTE_COLUMN_WIDTH = 80
+// Upper bound on a resizable column, mirrored by the saved-view serializer's `width` max_value
+// so a legitimate drag can't persist a width the backend would reject.
+export const MAX_ATTRIBUTE_COLUMN_WIDTH = 2000
 export const RESIZER_HANDLE_WIDTH = 16
 
 // Fixed column widths

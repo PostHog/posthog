@@ -6326,7 +6326,7 @@ class TestPostgresPrinter(BaseTest):
         self.assertEqual(self._expr("a - b"), "(a - b)")
         self.assertEqual(self._expr("a * b"), "(a * b)")
         self.assertEqual(self._expr("a / b"), "(a / b)")
-        self.assertEqual(self._expr("a % b"), "(a % b)")
+        self.assertEqual(self._expr("a % b"), "MOD(a, b)")
 
     def test_logical_operators(self):
         self.assertEqual(self._expr("a AND b"), "((a) AND (b))")

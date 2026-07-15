@@ -72,6 +72,14 @@ REMOTE_CONFIG_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
     hypercache=remote_config_hypercache,
     update_fn=update_remote_config_cache,
     cache_name="remote_config",
+    # The refresh only needs the team id (to join RemoteConfig) and api_token (cache key
+    # + expiry identifier). Narrowing the SELECT keeps it resilient to newly added Team
+    # columns the read replica may not have applied yet. organization_id keeps the
+    # (unused) organization/project select_related join valid.
+    # This only protects the batch refresh_expiring_caches path below, not update_fn:
+    # update_remote_config_cache re-fetches its own unrestricted Team, so it must never
+    # run against a narrowed team instance from this config.
+    refresh_only_fields=["id", "api_token", "project_id", "organization_id"],
 )
 
 

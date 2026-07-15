@@ -135,7 +135,6 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # Outbound email delivery queue — looked up by PK / comment FK from internal
         # tasks (send + sweeper), never by user-supplied ID through an API.
         "EmailOutboxMessage",
-        "InsightCachingState",
         "InstanceSetting",
         "Schedule",
         # --- Auto-scoped via ProductTeamModel (TeamScopedManager handles filtering) ---
@@ -164,6 +163,9 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # Write-once idempotency guard keyed on the org, claimed via get_or_create from an
         # internal enrichment write-back path, never looked up by user-supplied ID.
         "EnrichmentSignupSnapshot",
+        # Append-only raw provider-payload archive written by the internal enrichment path;
+        # no API endpoint, never looked up by user-supplied ID.
+        "OrganizationEnrichmentFetch",
         # Model kept to avoid a deletion migration but has no API endpoint
         "ErrorTrackingAutoCaptureControls",
         "DuckLakeBackfill",

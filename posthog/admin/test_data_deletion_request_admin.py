@@ -8,12 +8,12 @@ from django.contrib.admin.sites import AdminSite
 from django.contrib.auth.models import Group
 from django.contrib.messages import get_messages
 from django.contrib.messages.storage.fallback import FallbackStorage
-from django.test import RequestFactory, override_settings
+from django.test import RequestFactory, SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.admin.admins.data_deletion_request_admin import EDITABLE_FIELDS, DataDeletionRequestAdmin
+from posthog.admin.admins.data_deletion_request_admin import EDITABLE_FIELDS, DataDeletionRequestAdmin, dagster_run_url
 from posthog.models.data_deletion_request import DataDeletionRequest, ExecutionMode, RequestStatus, RequestType
 
 
@@ -69,7 +69,7 @@ class TestDataDeletionRequestAdminApprovalFlow(BaseTest):
         self.assertEqual(response.status_code, 200)
         context = response.context_data
         self.assertTrue(context["supports_deferred"])
-        self.assertEqual(context["default_execution_mode"], ExecutionMode.IMMEDIATE)
+        self.assertEqual(context["default_execution_mode"], ExecutionMode.DEFERRED)
 
     def test_approve_view_get_hides_picker_for_property_removal(self):
         request = self._pending_request(request_type=RequestType.PROPERTY_REMOVAL, properties=["$ip"])
@@ -93,6 +93,15 @@ class TestDataDeletionRequestAdminApprovalFlow(BaseTest):
         self.assertEqual(request.status, RequestStatus.APPROVED)
         self.assertEqual(request.execution_mode, execution_mode)
         self.assertTrue(request.approved)
+
+    def test_approve_view_post_defaults_event_removal_to_deferred(self):
+        request = self._pending_request()
+        response = self._call_approve("POST", request, {})
+
+        self.assertEqual(response.status_code, 302)
+        request.refresh_from_db()
+        self.assertEqual(request.status, RequestStatus.APPROVED)
+        self.assertEqual(request.execution_mode, ExecutionMode.DEFERRED)
 
     def test_approve_view_post_deferred_rejected_for_property_removal(self):
         request = self._pending_request(request_type=RequestType.PROPERTY_REMOVAL, properties=["$ip"])
@@ -783,13 +792,14 @@ class TestDataDeletionRequestAdminVerify(BaseTest):
         request.refresh_from_db()
         self.assertEqual(request.status, RequestStatus.QUEUED)
 
-    def test_verify_view_rejects_non_verifiable_status(self):
+    def test_verify_view_promotes_from_any_status_when_events_gone(self):
         request = self._queued_request()
         request.status = RequestStatus.APPROVED
         request.save(update_fields=["status"])
-        self._call_verify(request)
+        with patch("posthog.models.data_deletion_request.count_remaining_matching_events", return_value=0):
+            self._call_verify(request)
         request.refresh_from_db()
-        self.assertEqual(request.status, RequestStatus.APPROVED)
+        self.assertEqual(request.status, RequestStatus.COMPLETED)
 
     def test_verify_view_promotes_failed_when_events_gone(self):
         request = self._queued_request()
@@ -809,12 +819,23 @@ class TestDataDeletionRequestAdminVerify(BaseTest):
         request.refresh_from_db()
         self.assertEqual(request.status, RequestStatus.FAILED)
 
-    def test_verify_view_rejects_non_event_removal(self):
+    def test_verify_view_verifies_property_removal(self):
         request = self._queued_request()
         request.request_type = RequestType.PROPERTY_REMOVAL
+        request.properties = ["$ip"]
+        request.status = RequestStatus.FAILED
+        request.save(update_fields=["request_type", "properties", "status"])
+        with patch("posthog.models.data_deletion_request.count_remaining_property_events", return_value=0):
+            self._call_verify(request)
+        request.refresh_from_db()
+        self.assertEqual(request.status, RequestStatus.COMPLETED)
+
+    def test_verify_view_reports_person_removal_unsupported(self):
+        request = self._queued_request()
+        request.request_type = RequestType.PERSON_REMOVAL
         request.status = RequestStatus.FAILED
         request.save(update_fields=["request_type", "status"])
-        with patch("posthog.models.data_deletion_request.count_remaining_matching_events", return_value=0) as counted:
+        with patch("posthog.admin.admins.data_deletion_request_admin.count_remaining_for_request") as counted:
             self._call_verify(request)
         counted.assert_not_called()
         request.refresh_from_db()
@@ -883,3 +904,58 @@ class TestDataDeletionRequestAdminDuplicate(BaseTest):
         else:
             # No original notes — the copy note stands alone, no trailing separator.
             self.assertFalse(copy.notes.endswith("\n"))
+
+
+class TestDagsterRunLink(SimpleTestCase):
+    RUN_ID = "f5f3a611-4be8-48bc-9b29-ff8b06d01189"
+
+    @parameterized.expand(
+        [
+            ("cloud_us", None, "US", f"https://posthog.dagster.cloud/prod-us/runs/{RUN_ID}"),
+            ("cloud_eu", None, "EU", f"https://posthog.dagster.cloud/prod-eu/runs/{RUN_ID}"),
+            ("dev", None, "DEV", f"https://posthog.dagster.cloud/dev/runs/{RUN_ID}"),
+            ("lowercase_deployment", None, "eu", f"https://posthog.dagster.cloud/prod-eu/runs/{RUN_ID}"),
+            ("domain_takes_precedence", "dagster.example.com", "EU", f"https://dagster.example.com/runs/{RUN_ID}"),
+            ("local", None, None, None),
+            ("unknown_deployment", None, "E2E", None),
+        ]
+    )
+    def test_dagster_run_url(self, _name, dagster_domain, cloud_deployment, expected):
+        with override_settings(DAGSTER_DOMAIN=dagster_domain, CLOUD_DEPLOYMENT=cloud_deployment):
+            self.assertEqual(dagster_run_url(self.RUN_ID), expected)
+
+    @override_settings(DAGSTER_DOMAIN=None, CLOUD_DEPLOYMENT="EU")
+    def test_admin_renders_run_id_as_link(self):
+        admin_obj = DataDeletionRequestAdmin(DataDeletionRequest, AdminSite())
+        rendered = admin_obj.last_dagster_run(DataDeletionRequest(last_dagster_run_id=self.RUN_ID))
+        self.assertIn(f'href="https://posthog.dagster.cloud/prod-eu/runs/{self.RUN_ID}"', rendered)
+
+    @override_settings(DAGSTER_DOMAIN=None, CLOUD_DEPLOYMENT=None)
+    def test_admin_renders_bare_run_id_when_deployment_unknown(self):
+        admin_obj = DataDeletionRequestAdmin(DataDeletionRequest, AdminSite())
+        rendered = admin_obj.last_dagster_run(DataDeletionRequest(last_dagster_run_id=self.RUN_ID))
+        self.assertEqual(rendered, self.RUN_ID)
+
+    def test_admin_renders_placeholder_when_never_executed(self):
+        admin_obj = DataDeletionRequestAdmin(DataDeletionRequest, AdminSite())
+        self.assertEqual(admin_obj.last_dagster_run(DataDeletionRequest()), "—")
+
+
+class TestDataDeletionRequestFormHidesPersonRemoval(SimpleTestCase):
+    def test_person_removal_hidden_from_type_picker_and_fields(self):
+        from typing import cast
+
+        from django import forms
+
+        from posthog.admin.admins.data_deletion_request_admin import PERSON_REMOVAL_FIELDS, DataDeletionRequestForm
+
+        form = DataDeletionRequestForm()
+        request_type = form.fields["request_type"]
+        assert isinstance(request_type, forms.ChoiceField)
+        choices = cast("list[tuple[str, str]]", request_type.choices)
+        type_values = [value for value, _ in choices]
+        self.assertNotIn(RequestType.PERSON_REMOVAL, type_values)
+        self.assertIn(RequestType.EVENT_REMOVAL, type_values)
+        self.assertIn(RequestType.PROPERTY_REMOVAL, type_values)
+        for field in PERSON_REMOVAL_FIELDS:
+            self.assertNotIn(field, form.fields)

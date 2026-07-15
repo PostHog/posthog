@@ -93,7 +93,6 @@ Pick the data center your SurveySparrow account is hosted in — tokens are only
                     ),
                 ],
             ),
-            unreleasedSource=True,
             releaseStatus=ReleaseStatus.ALPHA,
         )
 

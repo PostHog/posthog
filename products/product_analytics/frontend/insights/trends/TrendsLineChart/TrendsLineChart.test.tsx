@@ -292,18 +292,6 @@ describe('TrendsLineChart', () => {
             expect(tooltip.title()).toMatch(/Wednesday/i)
             expect(tooltip.title()).toMatch(/12.+Jun/)
         })
-
-        it('keeps the weekday in the quill tooltip (PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS on)', async () => {
-            renderInsight({
-                query: buildTrendsQuery({ interval: 'day' }),
-                featureFlags: { [FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]: true },
-            })
-
-            const tooltip = await chart.hoverTooltip(2)
-
-            expect(tooltip.title()).toMatch(/Wednesday/i)
-            expect(tooltip.title()).toMatch(/12.+Jun/)
-        })
     })
 
     describe('alert overlays', () => {

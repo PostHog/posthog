@@ -5,6 +5,7 @@ from django.conf import settings
 from posthog.schema import (
     DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
@@ -44,6 +45,9 @@ from .utils import BingAdsResumeConfig
 @SourceRegistry.register
 class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], OAuthMixin):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v13",)
+    default_version = "v13"
+    api_docs_url = "https://learn.microsoft.com/en-us/advertising/guides/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -140,7 +144,7 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
             keywords=["microsoft ads", "microsoft advertising"],
             label="Bing Ads",
             caption="Ensure you have granted PostHog access to your Bing Ads account, learn how to do this in [the documentation](https://posthog.com/docs/cdp/sources/bing-ads).",
-            releaseStatus="beta",
+            releaseStatus=ReleaseStatus.GA,
             iconPath="/static/services/bing-ads.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/bing-ads",
             fields=cast(
@@ -207,7 +211,10 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
                 return friendly
         return None
 
-    def get_oauth_accounts(self, integration_id: int, team_id: int) -> list[IntegrationAccount]:
+    def get_oauth_accounts(
+        self, integration_id: int, team_id: int, search: str | None = None
+    ) -> list[IntegrationAccount]:
+        # Bing accounts are few, so `search` is ignored here and the endpoint filters the returned list.
         try:
             integration = self.get_oauth_integration(integration_id, team_id)
         except ValueError as e:
