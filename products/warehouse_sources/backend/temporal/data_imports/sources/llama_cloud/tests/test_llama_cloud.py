@@ -273,6 +273,19 @@ class TestLlamaCloudTransport:
         assert is_valid is False
         assert message is not None and "region must be one of" in message
 
+    @patch(f"{TRANSPORT_MODULE}.make_tracked_session")
+    def test_validate_credentials_falls_back_to_response_text_on_non_json_body(self, mock_session: MagicMock) -> None:
+        # A gateway can answer an error with an HTML/text body; parsing it as JSON must not crash.
+        response = MagicMock(status_code=401)
+        response.json.side_effect = ValueError("not json")
+        response.text = "Bad Gateway"
+        mock_session.return_value.get.return_value = response
+
+        is_valid, message = validate_credentials("llx-test", "na")
+
+        assert is_valid is False
+        assert message is not None and "Bad Gateway" in message
+
     @parameterized.expand(
         [
             # No sort param exists on the API, so incremental endpoints report "desc" — the
