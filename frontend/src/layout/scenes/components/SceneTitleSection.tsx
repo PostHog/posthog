@@ -41,15 +41,11 @@ import { SceneBreadcrumbBackButton } from './SceneBreadcrumbs'
 export function SceneTitlePanelButton({
     maxToolProps,
     buttonClassName = 'size-[33px]',
-    maxButtonLabelExperiment,
+    maxButtonLabelFeatureFlag,
 }: {
     maxToolProps?: Omit<UseMaxToolOptions, 'active'>
     buttonClassName?: string
-    maxButtonLabelExperiment?: {
-        flag: FeatureFlagKey
-        variant: string
-        label: string
-    }
+    maxButtonLabelFeatureFlag?: FeatureFlagKey
 }): JSX.Element | null {
     const { scenePanelIsPresent } = useValues(sceneLayoutLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
@@ -69,15 +65,13 @@ export function SceneTitlePanelButton({
     }
 
     const rawFeatureFlags = featureFlags.toJSON?.() ?? featureFlags
-    const maxButtonLabelVariant = maxButtonLabelExperiment
-        ? rawFeatureFlags[maxButtonLabelExperiment.flag]
-        : undefined
+    const maxButtonLabelVariant = maxButtonLabelFeatureFlag ? rawFeatureFlags[maxButtonLabelFeatureFlag] : undefined
     const maxButtonLabel =
         !sceneMenuBarEnabled &&
-        maxButtonLabelExperiment &&
+        maxButtonLabelFeatureFlag &&
         maxButtonLabelVariant !== undefined &&
-        featureFlags[maxButtonLabelExperiment.flag] === maxButtonLabelExperiment.variant
-            ? maxButtonLabelExperiment.label
+        featureFlags[maxButtonLabelFeatureFlag] === 'test'
+            ? 'PostHog AI'
             : undefined
 
     return (
@@ -235,12 +229,8 @@ type SceneMainTitleProps = {
      * the AI button in the title section registers the tool with Max
      */
     maxToolProps?: Omit<UseMaxToolOptions, 'active'>
-    /** Optional experiment that labels the PostHog AI button for one variant. */
-    maxButtonLabelExperiment?: {
-        flag: FeatureFlagKey
-        variant: string
-        label: string
-    }
+    /** Optional feature flag that labels the PostHog AI button for its test variant. */
+    maxButtonLabelFeatureFlag?: FeatureFlagKey
     /** Max character length for the description field */
     descriptionMaxLength?: number
 }
@@ -266,7 +256,7 @@ export function SceneTitleSection({
     onGenerateMetadata,
     isGeneratingMetadata,
     maxToolProps,
-    maxButtonLabelExperiment,
+    maxButtonLabelFeatureFlag,
     descriptionMaxLength,
 }: SceneMainTitleProps): JSX.Element | null {
     const { breadcrumbs } = useValues(breadcrumbsLogic)
@@ -418,7 +408,7 @@ export function SceneTitleSection({
                             {effectiveActions}
                             <SceneTitlePanelButton
                                 maxToolProps={maxToolProps}
-                                maxButtonLabelExperiment={maxButtonLabelExperiment}
+                                maxButtonLabelFeatureFlag={maxButtonLabelFeatureFlag}
                             />
                         </div>
                     )}
