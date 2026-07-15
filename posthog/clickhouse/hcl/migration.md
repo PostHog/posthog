@@ -130,9 +130,9 @@ Full implementation plan: `docs/plans/2026-07-14-hcl-recreate.md`.
 ## Repos
 
 - this repo, PostHog/posthog - base repository
-- /Users/orian/workspace/posthog/clickhouse-schema - schema dumps, github: PostHog/clickhouse-schema
-- /Users/orian/workspace/posthog/python-clickhouse-schema - hclexp, github repo is PostHog/chschema
+- PostHog/clickhouse-schema - schema dumps, github: PostHog/clickhouse-schema
+- PostHog/chschema - hclexp, github repo is PostHog/chschema
   - all needed tooling is on main (per-object comparison #139, locate + -duplicates #145); pin >= sha-5756e98
-- /Users/orian/workspace/posthog/posthog-cloud-infra - a repository with ansible and machine configurations
+- PostHog/posthog-cloud-infra - a repository with ansible and machine configurations
   - notable branch: pawel/chore/clickhouse-hcl-data-goldens — the compose harness (vendored base + overrides + data goldens with mat\_ columns), to be merged first
-- /Users/orian/workspace/posthog/charts - kubernetes config and apps deployment scripts, an old / current clickhouse migration mechanism is run here as job in django web app deployemnt
+- PostHog/charts - kubernetes config and apps deployment scripts, an old / current clickhouse migration mechanism is run here as job in django web app deployemnt
