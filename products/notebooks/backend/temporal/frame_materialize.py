@@ -449,18 +449,14 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
             result_overflow_mode="throw",
         )
         try:
-            # Printing needs the client too: it DESCRIBEs the printed query (metadata only,
-            # so it stays outside the concurrency slot) to stringify Arrow-binary columns.
-            printed_sql, context_values = _print_clickhouse_sql(client, team, user, inputs.query, ch_query_id)
-        except ExposedHogQLError as exc:
-            # User-safe and terminal: surface the message through the poll, don't retry —
-            # a bad query cannot succeed on a second attempt.
-            _finalize_status(manager, inputs, error_message=str(exc))
-            FRAME_MATERIALIZATIONS_FINISHED_COUNTER.labels(outcome="failed").inc()
-            raise exceptions.ApplicationError(str(exc), non_retryable=True) from exc
-
-        try:
             with _materialize_slots(inputs.team_id, inputs.query_id):
+                # Everything that touches ClickHouse or Postgres lives inside the slots —
+                # including printing, whose DESCRIBE round-trip would otherwise run ungated
+                # on every retry attempt of a slot-blocked job, i.e. exactly when the
+                # limiter is saturated. A blocked attempt now costs one Redis eval and
+                # nothing else; the extra slot-hold (~100-300ms of print/describe) is noise
+                # against the stream duration.
+                printed_sql, context_values = _print_clickhouse_sql(client, team, user, inputs.query, ch_query_id)
                 query_started = time.perf_counter()
                 with client.post_query(
                     printed_sql,
@@ -488,6 +484,12 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
                         raise MidStreamQueryError("ClickHouse stream ended without the Arrow end-of-stream marker")
         except ConcurrencyLimitExceeded:
             raise  # retryable — Temporal backs off and re-attempts
+        except ExposedHogQLError as exc:
+            # User-safe and terminal: surface the message through the poll, don't retry —
+            # a bad query cannot succeed on a second attempt.
+            _finalize_status(manager, inputs, error_message=str(exc))
+            FRAME_MATERIALIZATIONS_FINISHED_COUNTER.labels(outcome="failed").inc()
+            raise exceptions.ApplicationError(str(exc), non_retryable=True) from exc
         except (
             ClickHouseMemoryLimitExceededError,
             ClickHouseTooManyBytesError,
