@@ -414,9 +414,9 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     name = 'New ticket'
                 } else if (typeof id === 'string' && isUUIDLike(id)) {
                     // Legacy UUID URLs: show the first segment without a # (which implies a number)
-                    name = `Ticket ${id.split('-')[0]} detail`
+                    name = `Ticket ${id.split('-')[0]}`
                 } else {
-                    name = `Ticket #${id} detail`
+                    name = `Ticket #${id}`
                 }
                 return [{ key: ['SupportTicketDetail', id], name }]
             },
