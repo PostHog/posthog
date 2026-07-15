@@ -24,7 +24,7 @@ hogli ci:preflight --fix
 ```
 
 1. Run with `--fix` — it formats, lints, and auto-fixes what is safe.
-2. Read each line: `✓ pass`, `✗ fail`, `→ advisory` (do it yourself), `· skipped` (capability absent). Python diffs run repo-wide `ty` as the fast type-checking tier; authoritative mypy still runs in CI.
+2. Read each line: `✓ pass`, `✗ fail`, `→ advisory` (do it yourself), `· skipped` (capability absent). Changed Python files run through mypy, the authoritative CI checker; `ty` already runs earlier through lint-staged.
 3. Resolve every `✗ fail` — these are what `--fix` could not (real lint error, broken lockfile, migration conflict). These block the push.
 4. Act on every `→ advisory` — e.g. `openapi` advisory → run `hogli build:openapi` and commit the drift; `staleness` advisory → `git merge origin/master`. Advisories never block, but ignoring them ships the failure to CI. **Resolve them before pushing, including drift you didn't introduce — you own the branch state you push.**
 5. Re-run until clean, then push.

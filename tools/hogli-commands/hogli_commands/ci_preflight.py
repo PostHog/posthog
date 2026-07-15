@@ -104,10 +104,11 @@ DIFF_CHECKS: list[DiffCheck] = [
     ),
     DiffCheck(
         key="type-check",
-        label="Python type checking (ty)",
-        triggers=["*.py", "*.pyi", "pyproject.toml", "uv.lock"],
-        # ty is the fast local signal; authoritative repo-wide mypy remains in CI.
-        verify=["uv", "run", "--no-sync", "ty", "check"],
+        label="Python type checking (mypy)",
+        triggers=["*.py", "*.pyi"],
+        # ty already runs in lint-staged; use mypy without inheriting unrelated repo-wide failures.
+        verify=["mypy", "--cache-fine-grained"],
+        takes_files=True,
     ),
     DiffCheck(
         key="markdown-format",

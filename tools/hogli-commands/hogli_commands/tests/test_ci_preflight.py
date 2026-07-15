@@ -88,7 +88,7 @@ class TestStrictAndFixContracts:
         "hogli_commands.ci_preflight.changed_files",
         return_value=["tools/hogli-commands/hogli_commands/ci_preflight.py"],
     )
-    def test_python_changes_run_fast_type_check(
+    def test_python_changes_run_authoritative_type_check(
         self,
         mock_changed: MagicMock,
         mock_run: MagicMock,
@@ -102,8 +102,16 @@ class TestStrictAndFixContracts:
         result = runner.invoke(cli, ["ci:preflight", "--strict"])
 
         assert result.exit_code == 0
-        assert "Python type checking (ty)" in result.output
-        assert any(call.args[0] == ["uv", "run", "--no-sync", "ty", "check"] for call in mock_run.call_args_list)
+        assert "Python type checking (mypy)" in result.output
+        assert any(
+            call.args[0]
+            == [
+                "mypy",
+                "--cache-fine-grained",
+                "tools/hogli-commands/hogli_commands/ci_preflight.py",
+            ]
+            for call in mock_run.call_args_list
+        )
 
 
 class TestStalenessRisks:
