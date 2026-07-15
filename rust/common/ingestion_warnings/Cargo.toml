@@ -6,6 +6,11 @@ edition = "2021"
 [lints]
 workspace = true
 
+[build-dependencies]
+# Parses capture_warning_types.generated.json (mirrored from the Node.js registry)
+# to codegen the WarningType enum. See build.rs.
+serde_json = { workspace = true }
+
 [dependencies]
 chrono = { workspace = true }
 common-kafka = { path = "../kafka" }
