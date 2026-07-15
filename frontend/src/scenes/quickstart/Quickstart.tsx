@@ -783,7 +783,9 @@ export function Quickstart(): JSX.Element {
     }
 
     return (
-        <SceneContent className="gap-y-8 py-4">
+        // Capped and centered like onboarding's product selection: full-width reads stretched
+        // and empty on large monitors, a ~72rem column keeps the page dense
+        <SceneContent className="gap-y-8 py-4 w-full max-w-6xl mx-auto">
             <section className="flex items-center justify-between gap-8">
                 <div className="flex flex-col gap-4 min-w-0 flex-1">
                     <div>
