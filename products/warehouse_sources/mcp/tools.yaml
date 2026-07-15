@@ -85,10 +85,10 @@ tools:
             List credentials the authenticated user stored via the 'data-warehouse-source-connect-link' page that
             haven't been consumed yet. Only credentials this user created are visible — a teammate's stored credentials
             cannot be listed or consumed. Returns metadata only (credential_id, source_type, created_at, expires_at) —
-            never the secrets themselves. Newest first; filter by source_type. After the user confirms they've finished the connect page,
-            take the newest credential_id for the source type and call 'data-warehouse-source-setup' with
-            {'credential_id': '<uuid>'} in the payload. Stored credentials are single-use — they are deleted as soon as
-            setup consumes them — and expire after 24 hours if never used.
+            never the secrets themselves. Newest first; filter by source_type. After the user confirms they've finished
+            the connect page, take the newest credential_id for the source type and call 'data-warehouse-source-setup'
+            with {'credential_id': '<uuid>'} in the payload. Stored credentials are single-use — they are deleted as
+            soon as setup consumes them — and expire after 24 hours if never used.
     external-data-schemas-cancel:
         operation: external_data_schemas_cancel_create
         enabled: true
