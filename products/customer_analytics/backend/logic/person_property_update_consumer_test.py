@@ -6,13 +6,17 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from products.customer_analytics.backend.logic.person_property_update_consumer import (
+    _DEFAULT_RATE_PER_SEC,
     DLQ,
     RETRY,
     SENT,
     InvalidPersonPropertyMessage,
     PersonPropertyUpdateConsumer,
+    _current_rate,
     build_capture_kwargs,
 )
+
+_SETTING = "products.customer_analytics.backend.logic.person_property_update_consumer.get_instance_setting"
 
 
 class TestBuildCaptureKwargs:
@@ -45,8 +49,12 @@ class TestBuildCaptureKwargs:
             build_capture_kwargs(payload)
 
 
-def _capture_result(*, succeeded: bool, dropped: list[str] | None = None) -> MagicMock:
-    return MagicMock(succeeded=MagicMock(return_value=succeeded), dropped=dropped or [])
+def _capture_result(
+    *, succeeded: bool, dropped: list[str] | None = None, error: dict | None = None, status_code: int | None = None
+) -> MagicMock:
+    return MagicMock(
+        succeeded=MagicMock(return_value=succeeded), dropped=dropped or [], error=error, status_code=status_code
+    )
 
 
 class TestProcessRecord:
@@ -79,6 +87,41 @@ class TestProcessRecord:
         value = json.dumps({"token": "t", "distinct_id": "a", "properties": {"p": 1}}).encode()
 
         assert c.process_record(value) == RETRY
+
+    @parameterized.expand(
+        [
+            ("client_error_400", 400, DLQ),
+            ("client_error_404", 404, DLQ),
+            ("server_error_503", 503, RETRY),
+            ("transport_error_0", 0, RETRY),
+        ]
+    )
+    def test_whole_request_error_routes_by_status_code(self, _name, status_code, expected):
+        # A permanent 4xx (bad/stale token, validation) is poison -> DLQ; a 5xx or transport error
+        # (status 0) is transient -> retry. Without this split a 4xx retries forever and wedges the
+        # partition, since capture returns the failure as a result rather than a dropped uid.
+        capture = MagicMock(
+            return_value=_capture_result(succeeded=False, error={"error": "x"}, status_code=status_code)
+        )
+        dlq = MagicMock()
+        c = self._consumer(capture, dlq=dlq)
+        value = json.dumps({"token": "t", "distinct_id": "a", "properties": {"p": 1}}).encode()
+
+        assert c.process_record(value) == expected
+
+    def test_raised_client_error_goes_to_dlq(self):
+        # capture may *raise* a permanent 4xx (carrying .status_code) instead of returning it; that
+        # must DLQ rather than retry forever. A raise without a 4xx status_code stays transient
+        # (covered by test_capture_exception_is_left_for_retry).
+        exc = Exception("bad token")
+        exc.status_code = 400  # type: ignore[attr-defined]
+        capture = MagicMock(side_effect=exc)
+        dlq = MagicMock()
+        c = self._consumer(capture, dlq=dlq)
+        value = json.dumps({"token": "t", "distinct_id": "a", "properties": {"p": 1}}).encode()
+
+        assert c.process_record(value) == DLQ
+        dlq.produce.assert_called_once()
 
     def test_terminal_drop_goes_to_dlq_not_retry(self):
         # A dropped event is a permanent rejection (bad token, validation): DLQ it so it can't be
@@ -214,6 +257,28 @@ class TestRateGate:
         assert c.process_record(self._VALUE) == SENT
         assert sleeps == []
 
+    def test_grant_error_is_treated_as_transient_and_retried(self):
+        # A grant that raises (an unexpected limiter/Redis error the limiter's own fallback didn't
+        # absorb) must not crash the loop: back off and retry the acquire until it succeeds, leaving
+        # the message uncommitted meanwhile. Without this it escapes and crash-loops the pod.
+        outcomes = iter([RuntimeError("redis down"), RuntimeError("redis down"), True])
+
+        def grant() -> bool:
+            nxt = next(outcomes)
+            if isinstance(nxt, Exception):
+                raise nxt
+            return nxt
+
+        capture = MagicMock(return_value=_capture_result(succeeded=True))
+        sleeps: list[float] = []
+        c = PersonPropertyUpdateConsumer(
+            capture_fn=capture, grant_fn=grant, dlq_producer=MagicMock(), sleep=lambda s: sleeps.append(s)
+        )
+
+        assert c.process_record(self._VALUE) == SENT
+        assert capture.call_count == 1
+        assert len(sleeps) == 2  # backed off once per grant error before the grant
+
     def test_reports_liveness_while_throttled(self):
         # A pod that's merely rate-limited must keep heartbeating, or its liveness probe kills it
         # mid-wait. The reporter fires on each throttled poll.
@@ -227,3 +292,17 @@ class TestRateGate:
 
         assert c.process_record(self._VALUE) == SENT
         assert len(heartbeats) == 2  # one per throttled poll before the grant
+
+
+class TestCurrentRate:
+    @parameterized.expand([("empty", ""), ("non_numeric", "fast"), ("none", None)])
+    def test_unreadable_setting_falls_back_to_default(self, _name, raw):
+        # A fat-fingered constance value must not propagate a ValueError through the rate policy into
+        # the consume loop and crash-loop every replica; fall back to the configured default.
+        with patch(_SETTING, return_value=raw):
+            assert _current_rate() == _DEFAULT_RATE_PER_SEC
+
+    @parameterized.expand([("string_int", "250", 250.0), ("below_floor", "0.5", 1.0)])
+    def test_valid_setting_is_parsed_and_floored(self, _name, raw, expected):
+        with patch(_SETTING, return_value=raw):
+            assert _current_rate() == expected

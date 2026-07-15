@@ -30,6 +30,7 @@ from posthog.kafka_client.topics import (
     KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES_DLQ,
 )
 from posthog.models.instance_setting import get_instance_setting
+from posthog.settings import CONSTANCE_CONFIG
 
 logger = structlog.get_logger(__name__)
 
@@ -56,6 +57,11 @@ THROTTLED_TOTAL = Counter(
     "warehouse_person_property_throttled_total", "person-property sends that had to wait on the rate limiter"
 )
 
+# Fall back to the configured default (and never below this floor) when the live rate setting is
+# unreadable, so a fat-fingered constance value can't crash-loop every replica at once.
+_DEFAULT_RATE_PER_SEC = float(CONSTANCE_CONFIG[_RATE_SETTING][0])
+_MIN_RATE_PER_SEC = 1.0
+
 # How long to wait for a DLQ produce to be acknowledged before treating it as failed.
 _DLQ_DELIVERY_TIMEOUT_SECONDS = 30.0
 
@@ -72,7 +78,16 @@ class InvalidPersonPropertyMessage(Exception):
 
 
 def _current_rate() -> float:
-    return float(get_instance_setting(_RATE_SETTING))
+    """Live global send rate. A non-numeric or empty setting (saved via admin/constance) must not
+    take the fleet down: fall back to the default and clamp to a floor rather than letting a
+    ValueError propagate through the rate policy into the consume loop and crash-loop every pod."""
+    raw = get_instance_setting(_RATE_SETTING)
+    try:
+        rate = float(raw)
+    except (TypeError, ValueError):
+        logger.warning("person_property_update.invalid_rate_setting", raw_value=raw)
+        rate = _DEFAULT_RATE_PER_SEC
+    return max(_MIN_RATE_PER_SEC, rate)
 
 
 def _rate_policy(_key: str) -> RatePolicy:
@@ -165,7 +180,11 @@ class PersonPropertyUpdateConsumer:
             topic=KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES_DLQ,
             data={"raw": value.decode("utf-8", "replace"), "reason": reason},
         )
-        producer.flush()
+        # Bound the flush: an unavailable DLQ broker must not block past the liveness timeout and get
+        # the pod killed mid-write. Heartbeat either side so a slow-but-progressing write stays live.
+        self._health_reporter()
+        producer.flush(timeout=_DLQ_DELIVERY_TIMEOUT_SECONDS)
+        self._health_reporter()
         try:
             result.get(timeout=_DLQ_DELIVERY_TIMEOUT_SECONDS)
         except Exception:
@@ -181,17 +200,28 @@ class PersonPropertyUpdateConsumer:
         message uncommitted). The budget lives in Redis, so the limit holds across every replica at
         once — this is what lets the consumer scale out without multiplying the send rate."""
         throttled = False
-        while not self._grant():
+        while not self._shutdown:
+            try:
+                granted = self._grant()
+            except Exception:
+                # The limiter degrades a Redis outage to its in-memory fallback internally; anything
+                # that still escapes here is unexpected. Treat it like a transient failure — back off
+                # and retry the acquire rather than letting it escape and crash-loop the pod. The
+                # message stays uncommitted meanwhile, so nothing is sent or dropped.
+                logger.exception("person_property_update.grant_error")
+                self._health_reporter()
+                self._sleep(_RETRY_BACKOFF_SECONDS)
+                continue
+            if granted:
+                return True
             if not throttled:
                 # Count the message once (not each poll) so the metric reads as "messages that were
                 # throttled", not raw spin iterations.
                 THROTTLED_TOTAL.inc()
                 throttled = True
-            if self._shutdown:
-                return False
             self._health_reporter()
             self._sleep(_THROTTLE_BACKOFF_SECONDS)
-        return True
+        return False
 
     def process_record(self, value: bytes) -> str:
         """Handle one message. Terminal outcomes (sent/dlq) commit; retry does not."""
@@ -215,8 +245,15 @@ class PersonPropertyUpdateConsumer:
             return RETRY
         try:
             result = self._capture(**kwargs)
-        except Exception:
-            # Transient (capture unreachable, timeout): leave uncommitted for redelivery.
+        except Exception as exc:
+            # A client-side/4xx rejection (bad/stale token, validation) can never succeed on retry,
+            # so DLQ it rather than retrying forever and wedging the partition. capture surfaces most
+            # permanent rejections as a returned result (handled below); this covers the case where
+            # it raises one instead — decoupling us from capture's exact validation set. status_code
+            # 0 (transport/client-side) and 5xx (server) stay transient -> leave uncommitted.
+            status_code = getattr(exc, "status_code", None)
+            if isinstance(status_code, int) and 400 <= status_code < 500:
+                return self._dlq(value, f"capture_client_error:{status_code}")
             RETRY_TOTAL.inc()
             logger.exception("person_property_update.capture_error")
             return RETRY
@@ -224,10 +261,13 @@ class PersonPropertyUpdateConsumer:
             SENT_TOTAL.inc()
             return SENT
         # A drop is terminal: capture rejected the event permanently (e.g. invalid/stale token,
-        # validation failure), so it's poison. DLQ it rather than redelivering forever. Everything
-        # else (exhausted retries, unaccounted, whole-request error) is transient -> leave for retry.
+        # validation failure), so it's poison. DLQ it rather than redelivering forever.
         if result.dropped:
             return self._dlq(value, "capture_dropped")
+        # A whole-request 4xx is likewise permanent (bad/stale token, validation), so DLQ it too.
+        # Everything else (exhausted retries, unaccounted, 5xx, transport) is transient -> retry.
+        if result.error and isinstance(result.status_code, int) and 400 <= result.status_code < 500:
+            return self._dlq(value, f"capture_error:{result.status_code}")
         RETRY_TOTAL.inc()
         return RETRY
 
