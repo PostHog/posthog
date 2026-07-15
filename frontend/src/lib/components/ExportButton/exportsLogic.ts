@@ -8,7 +8,7 @@ import { isLongRunningExportFormat } from 'lib/components/ExportButton/exportSta
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { delay } from 'lib/utils/async'
-import { newInternalTab } from 'lib/utils/newInternalTab'
+import { uuid } from 'lib/utils/dom'
 import type { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { urls } from 'scenes/urls'
 
@@ -207,41 +207,66 @@ export const exportsLogic = kea<exportsLogicType>([
             [] as ExportedAssetType[],
             {
                 createExport: ({ exportData }) => {
-                    void (async () => {
+                    // Non-video exports (CSV/XLSX/PNG) run synchronously on the backend, so this
+                    // request can block for a while. lemonToast.promise shows a spinner immediately
+                    // and swaps to the success/failure message when it settles, so the user always
+                    // gets feedback instead of a menu that looks like it did nothing.
+                    const runExport = async (): Promise<string> => {
+                        let response: ExportedAssetType
                         try {
-                            const response = await api.exports.create({
+                            response = await api.exports.create({
                                 export_format: exportData.export_format,
                                 dashboard: exportData.dashboard,
                                 insight: exportData.insight,
                                 export_context: exportData.export_context,
                                 expires_after: dayjs().add(6, 'hour').toJSON(),
                             })
-
-                            const currentExports = values.exports
-                            const updatedExports = [response, ...currentExports.filter((e) => e.id !== response.id)]
-                            actions.loadExportsSuccess(updatedExports)
-
-                            if (response && response.has_content) {
-                                // Blocking export already finished in the request — download and confirm.
-                                await downloadExportedAsset(response)
-                                lemonToast.success('Export complete!')
-                            } else if (response && response.exception) {
-                                lemonToast.error('Export failed: ' + response.exception)
-                            } else if (response) {
-                                // Async export (e.g. video render) is a background job: acknowledge the
-                                // kickoff right away. It surfaces in the Exports panel once the render finishes.
-                                lemonToast.success('Export started', {
-                                    button: {
-                                        label: 'View exports',
-                                        action: () => newInternalTab(urls.exports()),
-                                    },
-                                })
-                                actions.addFresh(response)
+                        } catch (error) {
+                            // Preserve the export-limit error so the caller can show the upsell;
+                            // give everything else a friendly message for the failure toast.
+                            if ((error as { data?: APIErrorType })?.data?.attr === 'export_limit_exceeded') {
+                                throw error
                             }
+                            const message = error instanceof Error ? error.message : String(error)
+                            throw new Error('Export failed: ' + message)
+                        }
+
+                        const currentExports = values.exports
+                        const updatedExports = [response, ...currentExports.filter((e) => e.id !== response.id)]
+                        actions.loadExportsSuccess(updatedExports)
+
+                        if (response.has_content) {
+                            // Blocking export already finished in the request — download and confirm.
+                            downloadExportedAsset(response)
+                            return 'Export complete!'
+                        }
+                        if (response.exception) {
+                            throw new Error('Export failed: ' + response.exception)
+                        }
+                        // Async export (e.g. video render) is a background job: acknowledge the
+                        // kickoff. It surfaces in the Exports panel once the render finishes.
+                        actions.addFresh(response)
+                        return 'Export started'
+                    }
+
+                    const exportToastId = 'export-' + uuid()
+                    void (async () => {
+                        try {
+                            await lemonToast.promise(
+                                runExport(),
+                                {
+                                    pending: 'Preparing export…',
+                                    success: 'Export complete!',
+                                    error: 'Export failed',
+                                },
+                                { toastId: exportToastId }
+                            )
                         } catch (error) {
                             const apiError = error as { data?: APIErrorType }
-                            // Show a survey when the user reaches the export limit
+                            // Show a survey when the user reaches the export limit, replacing the
+                            // generic failure toast with the upsell.
                             if (apiError?.data?.attr === 'export_limit_exceeded') {
+                                lemonToast.dismiss(exportToastId)
                                 actions.setHasReachedExportFullVideoLimit(true)
                                 lemonToast.error(apiError?.data?.detail || 'You reached your export limit.', {
                                     autoClose: false,
@@ -252,9 +277,6 @@ export const exportsLogic = kea<exportsLogicType>([
                                         dataAttr: 'export-limit-reached-button',
                                     },
                                 })
-                            } else {
-                                const message = error instanceof Error ? error.message : String(error)
-                                lemonToast.error('Export failed: ' + message)
                             }
                         }
                     })()
