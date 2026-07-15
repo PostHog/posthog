@@ -1352,6 +1352,36 @@ describe('maxThreadLogic', () => {
         })
     })
 
+    describe('error tracking capture gating', () => {
+        // 402 (out of AI credits) and 429 (rate limited) are expected business conditions shown
+        // to the user, so they must not be reported to error tracking; genuine failures (500) must.
+        it.each([
+            [402, false],
+            [429, false],
+            [500, true],
+        ])('status %s reports exception: %s', async (status, shouldCapture) => {
+            const captureExceptionSpy = jest
+                .spyOn(posthog, 'captureException')
+                .mockImplementation(() => undefined as any)
+            jest.spyOn(api.conversations, 'stream').mockRejectedValue(new ApiError('error', status, undefined, {}))
+
+            logic.unmount()
+            maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)
+            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, panelId: 'test' })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.askMax('hello')
+            }).toDispatchActions(['askMax', 'addMessage', 'completeThreadGeneration'])
+
+            if (shouldCapture) {
+                expect(captureExceptionSpy).toHaveBeenCalledTimes(1)
+            } else {
+                expect(captureExceptionSpy).not.toHaveBeenCalled()
+            }
+        })
+    })
+
     describe('processNotebookUpdate', () => {
         it('navigates to notebook when not already on notebook page', async () => {
             router.actions.push(urls.ai())
