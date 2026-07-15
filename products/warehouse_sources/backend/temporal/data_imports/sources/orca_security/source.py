@@ -44,6 +44,12 @@ class OrcaSecuritySource(ResumableSource[OrcaSecuritySourceConfig, OrcaResumeCon
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.ORCASECURITY
 
+    @property
+    def connection_host_fields(self) -> list[str]:
+        # `region` selects the origin the stored API token is sent to; changing it must
+        # re-require the token (Orca tokens are region-scoped anyway).
+        return ["region"]
+
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.backend.temporal.data_imports.sources.orca_security.canonical_descriptions import (
             CANONICAL_DESCRIPTIONS,
