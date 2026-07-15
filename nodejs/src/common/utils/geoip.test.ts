@@ -3,7 +3,7 @@ import { Reader } from '@maxmind/geoip2-node'
 import { PluginsServerConfig } from '~/types'
 
 import { defaultConfig } from '../config/config'
-import { GeoIPService, GeoIp } from './geoip'
+import { GeoIPService, GeoIp, MMDB_LOAD_TIMEOUT_MS, MmdbLoadTimeoutError } from './geoip'
 
 describe('GeoIp', () => {
     let service: GeoIPService
@@ -18,6 +18,7 @@ describe('GeoIp', () => {
 
     afterEach(() => {
         jest.restoreAllMocks()
+        jest.useRealTimers()
     })
 
     const commonCheck = (geoip: GeoIp) => {
@@ -45,6 +46,16 @@ describe('GeoIp', () => {
 
             commonCheck(res[0])
             commonCheck(res[1])
+        })
+
+        it('should fail the initial load if reading the MMDB hangs', async () => {
+            jest.useFakeTimers()
+            jest.spyOn(Reader, 'open').mockReturnValue(new Promise<never>(() => {}))
+
+            const promise = service.get()
+            const assertion = expect(promise).rejects.toThrow(MmdbLoadTimeoutError)
+            await jest.advanceTimersByTimeAsync(MMDB_LOAD_TIMEOUT_MS)
+            await assertion
         })
     })
 
@@ -100,6 +111,24 @@ describe('GeoIp', () => {
             await service['backgroundRefreshMmdb']()
             expect(jest.mocked(service['loadMmdb'])).toHaveBeenCalledTimes(2)
             expect(service['_mmdbMetadata']).toEqual({ date: '2025-01-02' })
+        })
+
+        it('should keep the existing mmdb if the refresh times out', async () => {
+            jest.spyOn(service as any, 'loadMmdbMetadata').mockResolvedValue({
+                date: '2025-01-01',
+            })
+            const geoip = await service.get()
+            commonCheck(geoip)
+
+            jest.spyOn(service as any, 'loadMmdbMetadata').mockResolvedValue({
+                date: '2025-01-02',
+            })
+            jest.spyOn(service as any, 'loadMmdb').mockRejectedValue(new MmdbLoadTimeoutError('some-location'))
+
+            // Simulate the background refresh: it must not throw, and the loaded db keeps serving
+            await service['backgroundRefreshMmdb']()
+            expect(service['_mmdbMetadata']).toEqual({ date: '2025-01-01' })
+            commonCheck(geoip)
         })
     })
 })
