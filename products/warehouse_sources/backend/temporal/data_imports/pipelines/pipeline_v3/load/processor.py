@@ -585,7 +585,13 @@ def process_message(
                     commit_metadata=commit_metadata,
                 )
         else:
-            write_type = _get_write_type(export_signal.sync_type)
+            write_type: Literal["incremental", "full_refresh", "append", "full_refresh_append"] = _get_write_type(
+                export_signal.sync_type
+            )
+            # Full refresh append stays sync_type "full_refresh" in the queue (it inherits full-refresh
+            # extraction), so the write mode is derived from the schema flag, not the queue sync_type.
+            if schema.is_full_refresh_append:
+                write_type = "full_refresh_append"
 
             # First batch should overwrite the table, but only if not resuming
             should_overwrite_table = export_signal.batch_index == 0 and not export_signal.is_resume
@@ -608,6 +614,7 @@ def process_message(
                     primary_keys=primary_keys,
                     progress_callback=progress_callback,
                     commit_metadata=commit_metadata,
+                    snapshot_at=job.created_at if schema.is_full_refresh_append else None,
                 )
 
         DELTA_ROWS_WRITTEN_TOTAL.labels(team_id=team_id_str, schema_id=schema_id_str).inc(pa_table.num_rows)

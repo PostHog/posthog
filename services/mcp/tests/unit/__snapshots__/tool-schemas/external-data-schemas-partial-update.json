@@ -113,6 +113,32 @@
         "should_sync": {
             "type": "boolean"
         },
+        "snapshot_retention_mode": {
+            "anyOf": [
+                {
+                    "description": "* `count` - count\n* `days` - days",
+                    "enum": ["count", "days"],
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "How full-refresh snapshot retention is measured when snapshot_retention_value > 0: 'count' keeps the latest plus that many previous snapshots, 'days' keeps snapshots synced within the last N days. Ignored when snapshot_retention_value is 0. Paired with snapshot_retention_value.\n\n* `count` - count\n* `days` - days"
+        },
+        "snapshot_retention_value": {
+            "anyOf": [
+                {
+                    "maximum": 365,
+                    "minimum": 0,
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Full-refresh snapshot retention. 0 (the default) is plain full refresh: overwrite each sync, no history, no snapshot column. A positive value turns on append mode — each sync appends a full snapshot (rows stamped `_ph_snapshot_at`) and keeps that many previous snapshots (mode 'count') or that many days of snapshots (mode 'days'), pruned at sync time. The latest snapshot is always kept. Only valid when sync_type is full_refresh; crossing 0<->positive rebuilds the table."
+        },
         "sync_frequency": {
             "anyOf": [
                 {

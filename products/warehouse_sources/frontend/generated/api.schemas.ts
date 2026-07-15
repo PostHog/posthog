@@ -90,6 +90,18 @@ export const CdcTableModeEnumApi = {
 } as const
 
 /**
+ * * `count` - count
+ * * `days` - days
+ */
+export type SnapshotRetentionModeEnumApi =
+    (typeof SnapshotRetentionModeEnumApi)[keyof typeof SnapshotRetentionModeEnumApi]
+
+export const SnapshotRetentionModeEnumApi = {
+    Count: 'count',
+    Days: 'days',
+} as const
+
+/**
  * @nullable
  */
 export type ExternalDataSchemaApiTable = { [key: string]: unknown } | null
@@ -202,6 +214,18 @@ export interface ExternalDataSchemaApi {
      * * `cdc_only` - cdc_only
      * * `both` - both */
     cdc_table_mode?: CdcTableModeEnumApi | null
+    /** How full-refresh snapshot retention is measured when snapshot_retention_value > 0: 'count' keeps the latest plus that many previous snapshots, 'days' keeps snapshots synced within the last N days. Ignored when snapshot_retention_value is 0. Paired with snapshot_retention_value.
+     *
+     * * `count` - count
+     * * `days` - days */
+    snapshot_retention_mode?: SnapshotRetentionModeEnumApi | null
+    /**
+     * Full-refresh snapshot retention. 0 (the default) is plain full refresh: overwrite each sync, no history, no snapshot column. A positive value turns on append mode — each sync appends a full snapshot (rows stamped `_ph_snapshot_at`) and keeps that many previous snapshots (mode 'count') or that many days of snapshots (mode 'days'), pruned at sync time. The latest snapshot is always kept. Only valid when sync_type is full_refresh; crossing 0<->positive rebuilds the table.
+     * @minimum 0
+     * @maximum 365
+     * @nullable
+     */
+    snapshot_retention_value?: number | null
     /**
      * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
      * @nullable
@@ -343,6 +367,18 @@ export interface PatchedExternalDataSchemaApi {
      * * `cdc_only` - cdc_only
      * * `both` - both */
     cdc_table_mode?: CdcTableModeEnumApi | null
+    /** How full-refresh snapshot retention is measured when snapshot_retention_value > 0: 'count' keeps the latest plus that many previous snapshots, 'days' keeps snapshots synced within the last N days. Ignored when snapshot_retention_value is 0. Paired with snapshot_retention_value.
+     *
+     * * `count` - count
+     * * `days` - days */
+    snapshot_retention_mode?: SnapshotRetentionModeEnumApi | null
+    /**
+     * Full-refresh snapshot retention. 0 (the default) is plain full refresh: overwrite each sync, no history, no snapshot column. A positive value turns on append mode — each sync appends a full snapshot (rows stamped `_ph_snapshot_at`) and keeps that many previous snapshots (mode 'count') or that many days of snapshots (mode 'days'), pruned at sync time. The latest snapshot is always kept. Only valid when sync_type is full_refresh; crossing 0<->positive rebuilds the table.
+     * @minimum 0
+     * @maximum 365
+     * @nullable
+     */
+    snapshot_retention_value?: number | null
     /**
      * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
      * @nullable

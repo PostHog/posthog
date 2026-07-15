@@ -28,6 +28,7 @@ def _make_schema(*, is_cdc: bool, sync_type_config: dict | None = None, partitio
     schema.partition_count = partition_count
     schema.cdc_table_mode = "consolidated"
     schema.initial_sync_complete = True
+    schema.is_full_refresh_append = False
     return schema
 
 
@@ -37,6 +38,7 @@ def _make_helper(*, run_maintenance_returns: int | None = None, file_uris: list[
         get_file_uris=AsyncMock(return_value=file_uris or []),
         compact_table=AsyncMock(),
         run_maintenance=AsyncMock(return_value=run_maintenance_returns),
+        prune_snapshots=AsyncMock(return_value=0),
     )
 
 
@@ -49,7 +51,7 @@ async def _run_post_load(
     job = MagicMock()
     job.id = uuid.uuid4()
     job.team_id = schema.team_id
-    logger = MagicMock(adebug=AsyncMock(), ainfo=AsyncMock())
+    logger = MagicMock(adebug=AsyncMock(), ainfo=AsyncMock(), aexception=AsyncMock())
 
     prepare_s3 = AsyncMock(return_value="orders__query_1")
     with (

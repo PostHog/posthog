@@ -282,6 +282,46 @@ class TestExternalDataSchemaAdmin(BaseTest):
         assert "partition_mode_override" not in schema.sync_type_config
         mock_start.assert_not_called()
 
+    def _append_schema(self) -> ExternalDataSchema:
+        # A positive retention value is what puts a full-refresh schema into append mode.
+        return self._schema(
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            sync_type_config={"snapshot_retention_mode": "count", "snapshot_retention_value": 3},
+        )
+
+    def test_trigger_prune_starts_workflow_and_pauses_schedule(self) -> None:
+        schema = self._append_schema()
+
+        with (
+            patch(f"{_ADMIN_MODULE}.sync_connect"),
+            patch(f"{_ADMIN_MODULE}._is_schedule_paused", return_value=False),
+            patch(f"{_ADMIN_MODULE}.pause_external_data_schedule") as mock_pause,
+            patch(f"{_ADMIN_MODULE}._start_prune_snapshots_workflow") as mock_start,
+        ):
+            response = self.admin.trigger_prune_view(self._request("post"), schema.id)
+
+        assert response.status_code == 302
+        mock_pause.assert_called_once()
+        mock_start.assert_called_once()
+        # Since the admin paused the schedule, the workflow must be told to unpause it on completion.
+        inputs = mock_start.call_args.args[2]
+        assert inputs.schema_id == str(schema.id)
+        assert inputs.unpause_schedule_after is True
+
+    def test_trigger_prune_rejects_non_append_schema(self) -> None:
+        schema = self._schema(sync_type=ExternalDataSchema.SyncType.FULL_REFRESH)
+
+        with (
+            patch(f"{_ADMIN_MODULE}.sync_connect") as mock_connect,
+            patch(f"{_ADMIN_MODULE}._start_prune_snapshots_workflow") as mock_start,
+        ):
+            response = self.admin.trigger_prune_view(self._request("post"), schema.id)
+
+        assert response.status_code == 302
+        # Bails out before touching Temporal at all.
+        mock_connect.assert_not_called()
+        mock_start.assert_not_called()
+
     @parameterized.expand([(True,), (False,)])
     def test_recreate_schedule_passes_should_sync_through(self, should_sync: bool) -> None:
         # Guards the recovery action for schemas left without a Temporal schedule: it must

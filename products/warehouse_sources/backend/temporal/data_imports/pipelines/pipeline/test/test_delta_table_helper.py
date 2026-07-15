@@ -1,5 +1,5 @@
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, cast
@@ -14,13 +14,20 @@ import deltalake
 import pyarrow.compute as pc
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import (
+    PARTITION_KEY,
+    SNAPSHOT_COLUMN,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
     DeltaTableHelper,
     _first_per_pk_table,
     _realign_decimal_buffers,
+    snapshots_outside_retention,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import evolve_pyarrow_schema
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
+    _append_snapshot_column_to_pyarrows_table,
+    evolve_pyarrow_schema,
+)
 
 
 def _decimal_array(values: list, *, precision: int = 10, scale: int = 2, misaligned: bool) -> pa.Array:
@@ -901,6 +908,157 @@ class TestRunMaintenance:
 
         assert result == 150
         vacuum_if_stale.assert_awaited_once_with(40, 100)
+
+
+class TestFullRefreshAppend:
+    """Full refresh append keeps prior snapshots and stays idempotent across retries.
+
+    A snapshot is the set of rows sharing one `_ph_snapshot_at` value (the job's created_at). The
+    write branch must never overwrite the whole table (that would drop earlier snapshots) yet must
+    clear the current run's snapshot on its first write, so a retry re-appends cleanly instead of
+    doubling the snapshot's rows.
+    """
+
+    def _snapshot_batch(self, ids: list[int], snapshot_at: datetime) -> pa.Table:
+        return _append_snapshot_column_to_pyarrows_table(pa.table({"id": pa.array(ids, pa.int64())}), snapshot_at)
+
+    async def _write_run(self, helper: DeltaTableHelper, ids: list[int], snapshot_at: datetime) -> None:
+        # A run's first (and here only) batch overwrites nothing but clears its own snapshot first.
+        await helper.write_to_deltalake(
+            data=self._snapshot_batch(ids, snapshot_at),
+            write_type="full_refresh_append",
+            should_overwrite_table=True,
+            primary_keys=None,
+            snapshot_at=snapshot_at,
+        )
+
+    @pytest.mark.asyncio
+    async def test_appends_new_snapshot_and_keeps_prior(self, tmp_path: Path) -> None:
+        helper = _make_local_helper(str(tmp_path / "table"))
+        t1 = datetime(2026, 1, 1, tzinfo=UTC)
+        t2 = datetime(2026, 1, 2, tzinfo=UTC)
+
+        await self._write_run(helper, [1, 2], t1)
+        await self._write_run(helper, [1, 2], t2)
+
+        final = helper.get_delta_table.cache_clear() or (await helper.get_delta_table()).to_pyarrow_table()
+        assert final.num_rows == 4
+        assert sorted(pc.unique(final.column(SNAPSHOT_COLUMN)).to_pylist()) == [t1, t2]
+
+    @pytest.mark.asyncio
+    async def test_retry_of_same_run_does_not_duplicate(self, tmp_path: Path) -> None:
+        helper = _make_local_helper(str(tmp_path / "table"))
+        t1 = datetime(2026, 1, 1, tzinfo=UTC)
+        t2 = datetime(2026, 1, 2, tzinfo=UTC)
+
+        await self._write_run(helper, [1, 2], t1)
+        await self._write_run(helper, [1, 2], t2)
+        # Retry of run 2 (same snapshot_at) must clear the partial t2 rows then re-append, not stack them.
+        await self._write_run(helper, [1, 2], t2)
+
+        helper.get_delta_table.cache_clear()
+        final = (await helper.get_delta_table()).to_pyarrow_table()
+        assert final.num_rows == 4
+        assert sorted(pc.unique(final.column(SNAPSHOT_COLUMN)).to_pylist()) == [t1, t2]
+
+    @pytest.mark.asyncio
+    async def test_prune_count_keeps_latest_plus_previous(self, tmp_path: Path) -> None:
+        helper = _make_local_helper(str(tmp_path / "table"))
+        snapshots = [datetime(2026, 1, day, tzinfo=UTC) for day in (1, 2, 3)]
+        for day, snapshot_at in enumerate(snapshots):
+            await self._write_run(helper, [day], snapshot_at)
+
+        # count 1 = keep the latest plus one previous (2 total), so the oldest of three is pruned.
+        pruned = await helper.prune_snapshots("count", 1)
+
+        assert pruned == 1
+        helper.get_delta_table.cache_clear()
+        final = (await helper.get_delta_table()).to_pyarrow_table()
+        assert sorted(pc.unique(final.column(SNAPSHOT_COLUMN)).to_pylist()) == snapshots[1:]
+
+    @pytest.mark.asyncio
+    async def test_prune_count_noop_when_under_retention(self, tmp_path: Path) -> None:
+        helper = _make_local_helper(str(tmp_path / "table"))
+        snapshots = [datetime(2026, 1, day, tzinfo=UTC) for day in (1, 2)]
+        for day, snapshot_at in enumerate(snapshots):
+            await self._write_run(helper, [day], snapshot_at)
+
+        assert await helper.prune_snapshots("count", 5) == 0
+
+    @pytest.mark.asyncio
+    async def test_prune_days_keeps_within_window(self, tmp_path: Path) -> None:
+        helper = _make_local_helper(str(tmp_path / "table"))
+        now = datetime.now(UTC)
+        old = now - timedelta(days=10)
+        recent = now - timedelta(days=1)
+        await self._write_run(helper, [1], old)
+        await self._write_run(helper, [2], recent)
+
+        pruned = await helper.prune_snapshots("days", 3)
+
+        assert pruned == 1
+        helper.get_delta_table.cache_clear()
+        final = (await helper.get_delta_table()).to_pyarrow_table()
+        assert final.column(SNAPSHOT_COLUMN).to_pylist() == [recent]
+
+    @pytest.mark.asyncio
+    async def test_prune_days_never_deletes_only_snapshot(self, tmp_path: Path) -> None:
+        # Every snapshot is older than the window, but the newest must survive so the table is never emptied.
+        helper = _make_local_helper(str(tmp_path / "table"))
+        now = datetime.now(UTC)
+        await self._write_run(helper, [1], now - timedelta(days=30))
+        await self._write_run(helper, [2], now - timedelta(days=20))
+
+        pruned = await helper.prune_snapshots("days", 1)
+
+        assert pruned == 1
+        helper.get_delta_table.cache_clear()
+        final = (await helper.get_delta_table()).to_pyarrow_table()
+        assert final.num_rows == 1
+
+    @pytest.mark.asyncio
+    async def test_snapshot_inventory_returns_distinct_ascending(self, tmp_path: Path) -> None:
+        helper = _make_local_helper(str(tmp_path / "table"))
+        snapshots = [datetime(2026, 1, day, tzinfo=UTC) for day in (2, 1, 3)]
+        for day, snapshot_at in enumerate(snapshots):
+            # Two rows per snapshot so distinctness (not row count) is what's asserted.
+            await self._write_run(helper, [day, day + 100], snapshot_at)
+
+        helper.get_delta_table.cache_clear()
+        inventory = await helper.snapshot_inventory()
+
+        assert inventory == sorted(snapshots)
+
+
+class TestSnapshotsOutsideRetention:
+    """The retention math shared by the sync-time prune and the on-demand admin orphaned-snapshot readout."""
+
+    _NOW = datetime(2026, 1, 31, tzinfo=UTC)
+
+    def _days(self, *days: int) -> list[datetime]:
+        return [datetime(2026, 1, day, tzinfo=UTC) for day in days]
+
+    @parameterized.expand(
+        [
+            # (name, distinct_days, mode, value, expected_prunable_days). count value = previous
+            # snapshots to keep beyond the latest, so keep_total = value + 1.
+            ("count_2_keeps_latest_plus_2", (1, 2, 3, 4, 5), "count", 2, (1, 2)),
+            ("count_0_keeps_latest_only", (1, 2, 3), "count", 0, (1, 2)),
+            ("count_under_retention_noop", (1, 2), "count", 5, ()),
+            ("count_keeps_latest_plus_value", (1, 2, 3), "count", 2, ()),
+            ("single_snapshot_noop", (5,), "count", 1, ()),
+            ("empty_noop", (), "count", 1, ()),
+            # _NOW is Jan 31; a 7-day window keeps >= Jan 24.
+            ("days_prunes_outside_window", (10, 20, 28), "days", 7, (10, 20)),
+            # All snapshots older than the window: keep only the newest so the table is never emptied.
+            ("days_all_old_keeps_newest", (1, 2, 3), "days", 7, (1, 2)),
+        ]
+    )
+    def test_partitions_snapshots(
+        self, _name: str, distinct_days: tuple[int, ...], mode: str, value: int, expected_days: tuple[int, ...]
+    ) -> None:
+        prunable = snapshots_outside_retention(self._days(*distinct_days), cast(Any, mode), value, now=self._NOW)
+        assert prunable == list(self._days(*expected_days))
 
 
 class TestIsTableCorrupted:

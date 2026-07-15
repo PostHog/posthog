@@ -85,6 +85,11 @@
     <form id="trigger-sync-action-form" method="post" action="{{ trigger_sync_url }}" style="display:none;">
         {% csrf_token %}
     </form>
+    {% if trigger_prune_url %}
+    <form id="trigger-prune-action-form" method="post" action="{{ trigger_prune_url }}" style="display:none;">
+        {% csrf_token %}
+    </form>
+    {% endif %}
     <form id="pause-schedule-action-form" method="post" action="{{ pause_schedule_url }}" style="display:none;">
         {% csrf_token %}
     </form>
@@ -365,6 +370,57 @@
                 </button>
             </div>
         </div>
+
+        {% if is_full_refresh_append %}
+        <div class="form-row partitioning-section">
+            <h3>Snapshots (full refresh &mdash; append)</h3>
+            <p class="help">
+                This schema retains a full snapshot of the source on every sync. Retention:
+                <strong>{{ snapshot_retention_value }} {{ snapshot_retention_mode }}</strong>.
+                Pruning only runs at sync time, so a paused, failing, or idle schema can hold
+                <em>orphaned</em> snapshots &mdash; ones past the retention window that haven't been
+                pruned yet. Trigger a prune below to reclaim that Delta storage without a full re-sync.
+                The pruned snapshots stop being queryable once the next sync rebuilds the table's
+                queryable folder.
+            </p>
+            {% if snapshot_inventory_error %}
+                <p class="help" style="color: red;">
+                    Couldn't read snapshot inventory: {{ snapshot_inventory_error }}
+                </p>
+            {% else %}
+                <table class="partitioning-info">
+                    <tr>
+                        <th>Retained snapshots</th>
+                        <td>{{ snapshot_total }}</td>
+                    </tr>
+                    <tr>
+                        <th>Orphaned (prunable now)</th>
+                        <td>
+                            {% if snapshot_orphaned %}
+                                <span style="color: #b36b00;">{{ snapshot_orphaned }}</span>
+                            {% else %}
+                                0
+                            {% endif %}
+                        </td>
+                    </tr>
+                    <tr>
+                        <th>Oldest snapshot</th>
+                        <td>{% if snapshot_oldest %}{{ snapshot_oldest|date:"Y-m-d H:i:s" }}{% else %}&mdash;{% endif %}</td>
+                    </tr>
+                    <tr>
+                        <th>Newest snapshot</th>
+                        <td>{% if snapshot_newest %}{{ snapshot_newest|date:"Y-m-d H:i:s" }}{% else %}&mdash;{% endif %}</td>
+                    </tr>
+                </table>
+            {% endif %}
+            <div class="partitioning-controls" style="margin-top: 12px;">
+                <button type="submit" form="trigger-prune-action-form" class="default"
+                        onclick="return confirm('Prune orphaned snapshots for this schema now? The schedule will be paused for the prune and unpaused on completion.');">
+                    Prune orphaned snapshots now
+                </button>
+            </div>
+        </div>
+        {% endif %}
     </fieldset>
 
     <fieldset class="module aligned">

@@ -40,6 +40,8 @@ import {
     RowFilter,
 } from '~/types'
 
+import { SnapshotRetentionConfig } from 'products/data_warehouse/frontend/shared/components/forms/SyncMethodForm'
+
 import {
     getDefaultExpandedSchemaKeys,
     groupTablesBySchema,
@@ -51,6 +53,22 @@ import { sourceManagementLogic } from '../../shared/logics/sourceManagementLogic
 import { selfManagedSourceLogic } from './selfManagedSourceLogic'
 import type { sourceWizardLogicType } from './sourceWizardLogicType'
 import { restoreSourceFormState, saveSourceFormState } from './wizardFormStorage'
+
+// Build the create-source schema payload keys for full-refresh snapshot retention. Only emitted for
+// full_refresh schemas; a retention value of 0 (the default) means plain overwrite.
+function snapshotRetentionSchemaPayload(schema: ExternalDataSourceSyncSchema): Partial<ExternalDataSourceSyncSchema> {
+    if (schema.sync_type !== 'full_refresh') {
+        return {}
+    }
+    const retentionValue = schema.snapshot_retention_value ?? 0
+    if (!retentionValue) {
+        return { snapshot_retention_value: 0 }
+    }
+    return {
+        snapshot_retention_mode: schema.snapshot_retention_mode ?? 'count',
+        snapshot_retention_value: retentionValue,
+    }
+}
 
 export const SSH_FIELD: SourceFieldSwitchGroupConfig = {
     name: 'ssh_tunnel',
@@ -339,7 +357,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             incrementalFieldType: string | null,
             primaryKeyColumns: string[] | null,
             cdcTableMode?: 'consolidated' | 'cdc_only' | 'both',
-            incrementalFieldLookbackSeconds?: number | null
+            incrementalFieldLookbackSeconds?: number | null,
+            snapshotRetentionConfig?: SnapshotRetentionConfig
         ) => ({
             schema,
             syncType,
@@ -348,6 +367,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             primaryKeyColumns,
             cdcTableMode,
             incrementalFieldLookbackSeconds,
+            snapshotRetentionConfig,
         }),
         clearSource: true,
         updateSource: (source: Partial<ExternalDataSourceCreatePayload>) => ({
@@ -498,23 +518,28 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         primaryKeyColumns,
                         cdcTableMode,
                         incrementalFieldLookbackSeconds,
+                        snapshotRetentionConfig,
                     }
                 ) => {
-                    return state.map((s) => ({
-                        ...s,
-                        sync_type: s.table === schema.table ? syncType : s.sync_type,
-                        incremental_field: s.table === schema.table ? incrementalField : s.incremental_field,
-                        incremental_field_type:
-                            s.table === schema.table ? incrementalFieldType : s.incremental_field_type,
-                        incremental_field_lookback_seconds:
-                            s.table === schema.table
-                                ? (incrementalFieldLookbackSeconds ?? null)
-                                : s.incremental_field_lookback_seconds,
-                        primary_key_columns: s.table === schema.table ? primaryKeyColumns : s.primary_key_columns,
-                        ...(s.table === schema.table && syncType === 'cdc' && cdcTableMode
-                            ? { cdc_table_mode: cdcTableMode }
-                            : {}),
-                    }))
+                    return state.map((s) => {
+                        if (s.table !== schema.table) {
+                            return s
+                        }
+                        const retentionValue =
+                            syncType === 'full_refresh' ? (snapshotRetentionConfig?.retentionValue ?? 0) : 0
+                        return {
+                            ...s,
+                            sync_type: syncType,
+                            incremental_field: incrementalField,
+                            incremental_field_type: incrementalFieldType,
+                            incremental_field_lookback_seconds: incrementalFieldLookbackSeconds ?? null,
+                            primary_key_columns: primaryKeyColumns,
+                            ...(syncType === 'cdc' && cdcTableMode ? { cdc_table_mode: cdcTableMode } : {}),
+                            snapshot_retention_mode:
+                                retentionValue > 0 ? (snapshotRetentionConfig?.retentionMode ?? 'count') : null,
+                            snapshot_retention_value: retentionValue,
+                        }
+                    })
                 },
             },
         ],
@@ -1254,6 +1279,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                                         ...(schema.sync_type === 'cdc' && schema.cdc_table_mode
                                             ? { cdc_table_mode: schema.cdc_table_mode }
                                             : {}),
+                                        ...snapshotRetentionSchemaPayload(schema),
                                     })),
                                 },
                             })
@@ -1518,6 +1544,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                                 ...(schema.sync_type === 'cdc' && schema.cdc_table_mode
                                     ? { cdc_table_mode: schema.cdc_table_mode }
                                     : {}),
+                                ...snapshotRetentionSchemaPayload(schema),
                             })),
                         },
                     })

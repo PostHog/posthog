@@ -1,6 +1,7 @@
 import json
 import asyncio
 from collections.abc import Callable, Sequence
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
 from django.conf import settings
@@ -21,7 +22,10 @@ from posthog.utils import get_machine_id
 from products.data_warehouse.backend.facade.api import aget_s3_client, ensure_bucket_exists
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import (
+    PARTITION_KEY,
+    SNAPSHOT_COLUMN,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
     conditional_lru_cache_async,
     normalize_column_name,
@@ -72,6 +76,48 @@ async def _purge_s3_prefix(s3: Any, uri: str) -> None:
         await s3._rm([f"s3://{f.lstrip('/')}" for f in files])
     if await s3._exists(uri):
         await s3._rm(uri, recursive=True)
+
+
+def _snapshot_predicate_literal(value: datetime) -> str:
+    """Format a snapshot timestamp as a DataFusion-compatible literal for a Delta delete predicate.
+
+    delta-rs coerces a `'YYYY-MM-DD HH:MM:SS.ffffff'` string literal to the column's timestamp type,
+    so this is compared against the tz-aware `_ph_snapshot_at` column without an explicit cast.
+    """
+    return value.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")
+
+
+def snapshots_outside_retention(
+    distinct: list[datetime],
+    retention_mode: Literal["count", "days"],
+    retention_value: int,
+    *,
+    now: datetime,
+) -> list[datetime]:
+    """Given the ascending distinct snapshot timestamps of a full-refresh-append table, return the ones
+    that fall outside the retention window (i.e. should be pruned), oldest first.
+
+    `retention_value` is the number of *previous* snapshots to keep beyond the latest (count mode) or the
+    age window in days (days mode). So count 0 keeps only the latest, count 2 keeps the latest plus two
+    older. Always keeps at least the newest snapshot, so a table is never emptied even when its only
+    snapshot is older than a day-based window. `now` is injected so the day-mode cutoff stays testable.
+    Pure so both the sync-time prune and the on-demand admin "orphaned snapshots" readout share one
+    definition.
+    """
+    if not distinct:
+        return []
+    if retention_mode == "days":
+        cutoff = now - timedelta(days=retention_value)
+        kept = [snapshot for snapshot in distinct if snapshot >= cutoff]
+        # Never drop everything: keep the newest snapshot even when it's older than the cutoff.
+        oldest_kept = min(kept) if kept else distinct[-1]
+    else:
+        # The latest snapshot plus `retention_value` previous ones.
+        keep_total = retention_value + 1
+        if len(distinct) <= keep_total:
+            return []
+        oldest_kept = distinct[-keep_total]
+    return [snapshot for snapshot in distinct if snapshot < oldest_kept]
 
 
 def _write_deltalake(
@@ -354,11 +400,12 @@ class DeltaTableHelper:
     async def write_to_deltalake(
         self,
         data: pa.Table,
-        write_type: Literal["incremental", "full_refresh", "append"],
+        write_type: Literal["incremental", "full_refresh", "append", "full_refresh_append"],
         should_overwrite_table: bool,
         primary_keys: Sequence[Any] | None,
         progress_callback: Callable[[], None] | None = None,
         commit_metadata: dict[str, str] | None = None,
+        snapshot_at: datetime | None = None,
     ) -> deltalake.DeltaTable:
         # Guard against delta-rs aborting the worker on misaligned decimal buffers (see
         # _realign_decimal_buffers). Sub-tables derived below via filter()/take() are
@@ -556,6 +603,42 @@ class DeltaTableHelper:
                 schema_mode="merge",
                 commit_properties=commit_properties,
             )
+        elif write_type == "full_refresh_append":
+            # Full refresh append: keep prior snapshots, append this run's snapshot as new rows. Never
+            # overwrites the whole table (that would drop earlier snapshots). On the run's first write,
+            # clear any rows already stamped with this run's snapshot timestamp, so a retry after a
+            # partial failure re-appends the same snapshot, so this keeps the run idempotent instead of
+            # duplicating rows. Retention pruning of expired snapshots runs post-load, not here.
+            if snapshot_at is None:
+                # snapshot_at identifies this run's snapshot; without it the delete-before-append below
+                # can't clear a prior failed attempt's rows, so a retry would duplicate the snapshot.
+                raise Exception("snapshot_at is required for full_refresh_append writes")
+
+            if delta_table is None:
+                storage_options = self._get_credentials()
+                delta_uri = await self._get_delta_table_uri()
+                delta_table = await asyncio.to_thread(
+                    deltalake.DeltaTable.create,
+                    table_uri=delta_uri,
+                    schema=data.schema,
+                    storage_options=storage_options,
+                )
+            elif should_overwrite_table:
+                predicate = f"{SNAPSHOT_COLUMN} = '{_snapshot_predicate_literal(snapshot_at)}'"
+                await self._logger.adebug(f"write_to_deltalake: clearing current snapshot with predicate {predicate}")
+                await asyncio.to_thread(delta_table.delete, predicate)
+
+            await self._logger.adebug("write_to_deltalake: write_type = full_refresh_append")
+
+            await asyncio.to_thread(
+                _write_deltalake,
+                delta_table,
+                data,
+                partition_by=None,
+                mode="append",
+                schema_mode="merge",
+                commit_properties=commit_properties,
+            )
 
         delta_table = await self.get_delta_table()
         assert delta_table is not None
@@ -737,6 +820,72 @@ class DeltaTableHelper:
 
         await self.vacuum_table()
         await self._logger.adebug("Compacting and vacuuming complete")
+
+    async def prune_snapshots(self, retention_mode: Literal["count", "days"], retention_value: int) -> int:
+        """Delete snapshots that fall outside the retention window for a full-refresh-append table.
+
+        A snapshot is the set of rows sharing one `_ph_snapshot_at` value (one sync run). Reads the
+        distinct snapshot timestamps (a single-column scan), decides the oldest one to keep, and deletes
+        every row older than it in one predicate, then vacuums to reclaim the S3 files. Always keeps at
+        least the newest snapshot, so a table is never emptied even if its only snapshot is past the age
+        cutoff. Returns the number of snapshots pruned.
+
+        Must run after the new snapshot is written and before the queryable folder is rebuilt / the row
+        count is recomputed, so neither reflects rows that are about to be deleted.
+        """
+        distinct = await self.snapshot_inventory()
+        prunable = snapshots_outside_retention(distinct, retention_mode, retention_value, now=datetime.now(UTC))
+        if not prunable:
+            return 0
+
+        table = await self.get_delta_table()
+        if table is None:
+            return 0
+
+        # prunable is the earliest len(prunable) snapshots, so the next one is the oldest we keep.
+        oldest_kept = distinct[len(prunable)]
+        predicate = f"{SNAPSHOT_COLUMN} < '{_snapshot_predicate_literal(oldest_kept)}'"
+        await self._logger.ainfo(
+            f"prune_snapshots: deleting {len(prunable)} expired snapshot(s) with predicate {predicate}"
+        )
+        await asyncio.to_thread(table.delete, predicate)
+        # Vacuum only reclaims the now-tombstoned files; it is NOT what makes the delete take effect. Once
+        # the delete commit lands the snapshots are gone from the Delta log, so we must report them pruned
+        # even if the vacuum fails — the caller keys the queryable-folder refresh off this count, and the
+        # refreshed Delta file list already excludes the tombstoned files. Swallowing a failed delete here
+        # (returning 0) would instead let the caller copy stale files into the queryable folder.
+        try:
+            await self.vacuum_table()
+        except Exception as e:
+            capture_exception(e)
+            await self._logger.aexception(
+                f"prune_snapshots: vacuum after delete failed (files left to a later vacuum): {e}"
+            )
+        return len(prunable)
+
+    async def snapshot_inventory(self) -> list[datetime]:
+        """Distinct `_ph_snapshot_at` values present in the live Delta table, oldest first.
+
+        Empty when the table doesn't exist yet or has no snapshot column (i.e. not a full-refresh-append
+        table). Used both to prune at sync time and to report retained / orphaned snapshots on demand.
+        Scans the single snapshot column in record batches and dedupes as it goes, so peak memory is
+        bounded by one batch rather than materializing the whole column (a snapshot table has few distinct
+        timestamps but can have very many rows).
+        """
+        table = await self.get_delta_table()
+        if table is None:
+            return []
+
+        def _distinct_snapshots() -> list[datetime]:
+            dataset = table.to_pyarrow_dataset()
+            if SNAPSHOT_COLUMN not in dataset.schema.names:
+                return []
+            seen: set[datetime] = set()
+            for batch in dataset.to_batches(columns=[SNAPSHOT_COLUMN]):
+                seen.update(value for value in pc.unique(batch.column(0)).to_pylist() if value is not None)
+            return sorted(seen)
+
+        return await asyncio.to_thread(_distinct_snapshots)
 
     async def vacuum_if_stale(self, last_vacuum_version: int | None, commit_threshold: int) -> int | None:
         """Vacuum tombstoned files once enough commits have accrued since the last vacuum.

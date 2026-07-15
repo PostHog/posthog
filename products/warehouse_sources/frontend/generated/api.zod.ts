@@ -12,6 +12,9 @@ import * as zod from 'zod'
 export const externalDataSchemasCreateBodyIncrementalFieldLookbackSecondsMin = 0
 export const externalDataSchemasCreateBodyIncrementalFieldLookbackSecondsMax = 5184000
 
+export const externalDataSchemasCreateBodySnapshotRetentionValueMin = 0
+export const externalDataSchemasCreateBodySnapshotRetentionValueMax = 365
+
 export const ExternalDataSchemasCreateBody = /* @__PURE__ */ zod.object({
     should_sync: zod.boolean().optional(),
     sync_type: zod
@@ -87,6 +90,20 @@ export const ExternalDataSchemasCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'For CDC syncs: consolidated, cdc_only, or both.\n\n\* `consolidated` - consolidated\n\* `cdc_only` - cdc_only\n\* `both` - both'
         ),
+    snapshot_retention_mode: zod
+        .union([zod.enum(['count', 'days']).describe('\* `count` - count\n\* `days` - days'), zod.null()])
+        .optional()
+        .describe(
+            "How full-refresh snapshot retention is measured when snapshot_retention_value > 0: 'count' keeps the latest plus that many previous snapshots, 'days' keeps snapshots synced within the last N days. Ignored when snapshot_retention_value is 0. Paired with snapshot_retention_value.\n\n\* `count` - count\n\* `days` - days"
+        ),
+    snapshot_retention_value: zod
+        .number()
+        .min(externalDataSchemasCreateBodySnapshotRetentionValueMin)
+        .max(externalDataSchemasCreateBodySnapshotRetentionValueMax)
+        .nullish()
+        .describe(
+            "Full-refresh snapshot retention. 0 (the default) is plain full refresh: overwrite each sync, no history, no snapshot column. A positive value turns on append mode — each sync appends a full snapshot (rows stamped `_ph_snapshot_at`) and keeps that many previous snapshots (mode 'count') or that many days of snapshots (mode 'days'), pruned at sync time. The latest snapshot is always kept. Only valid when sync_type is full_refresh; crossing 0<->positive rebuilds the table."
+        ),
     enabled_columns: zod
         .array(zod.string())
         .nullish()
@@ -113,6 +130,9 @@ export const ExternalDataSchemasCreateBody = /* @__PURE__ */ zod.object({
 
 export const externalDataSchemasUpdateBodyIncrementalFieldLookbackSecondsMin = 0
 export const externalDataSchemasUpdateBodyIncrementalFieldLookbackSecondsMax = 5184000
+
+export const externalDataSchemasUpdateBodySnapshotRetentionValueMin = 0
+export const externalDataSchemasUpdateBodySnapshotRetentionValueMax = 365
 
 export const ExternalDataSchemasUpdateBody = /* @__PURE__ */ zod.object({
     should_sync: zod.boolean().optional(),
@@ -189,6 +209,20 @@ export const ExternalDataSchemasUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'For CDC syncs: consolidated, cdc_only, or both.\n\n\* `consolidated` - consolidated\n\* `cdc_only` - cdc_only\n\* `both` - both'
         ),
+    snapshot_retention_mode: zod
+        .union([zod.enum(['count', 'days']).describe('\* `count` - count\n\* `days` - days'), zod.null()])
+        .optional()
+        .describe(
+            "How full-refresh snapshot retention is measured when snapshot_retention_value > 0: 'count' keeps the latest plus that many previous snapshots, 'days' keeps snapshots synced within the last N days. Ignored when snapshot_retention_value is 0. Paired with snapshot_retention_value.\n\n\* `count` - count\n\* `days` - days"
+        ),
+    snapshot_retention_value: zod
+        .number()
+        .min(externalDataSchemasUpdateBodySnapshotRetentionValueMin)
+        .max(externalDataSchemasUpdateBodySnapshotRetentionValueMax)
+        .nullish()
+        .describe(
+            "Full-refresh snapshot retention. 0 (the default) is plain full refresh: overwrite each sync, no history, no snapshot column. A positive value turns on append mode — each sync appends a full snapshot (rows stamped `_ph_snapshot_at`) and keeps that many previous snapshots (mode 'count') or that many days of snapshots (mode 'days'), pruned at sync time. The latest snapshot is always kept. Only valid when sync_type is full_refresh; crossing 0<->positive rebuilds the table."
+        ),
     enabled_columns: zod
         .array(zod.string())
         .nullish()
@@ -215,6 +249,9 @@ export const ExternalDataSchemasUpdateBody = /* @__PURE__ */ zod.object({
 
 export const externalDataSchemasPartialUpdateBodyIncrementalFieldLookbackSecondsMin = 0
 export const externalDataSchemasPartialUpdateBodyIncrementalFieldLookbackSecondsMax = 5184000
+
+export const externalDataSchemasPartialUpdateBodySnapshotRetentionValueMin = 0
+export const externalDataSchemasPartialUpdateBodySnapshotRetentionValueMax = 365
 
 export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod.object({
     should_sync: zod.boolean().optional(),
@@ -291,6 +328,20 @@ export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'For CDC syncs: consolidated, cdc_only, or both.\n\n\* `consolidated` - consolidated\n\* `cdc_only` - cdc_only\n\* `both` - both'
         ),
+    snapshot_retention_mode: zod
+        .union([zod.enum(['count', 'days']).describe('\* `count` - count\n\* `days` - days'), zod.null()])
+        .optional()
+        .describe(
+            "How full-refresh snapshot retention is measured when snapshot_retention_value > 0: 'count' keeps the latest plus that many previous snapshots, 'days' keeps snapshots synced within the last N days. Ignored when snapshot_retention_value is 0. Paired with snapshot_retention_value.\n\n\* `count` - count\n\* `days` - days"
+        ),
+    snapshot_retention_value: zod
+        .number()
+        .min(externalDataSchemasPartialUpdateBodySnapshotRetentionValueMin)
+        .max(externalDataSchemasPartialUpdateBodySnapshotRetentionValueMax)
+        .nullish()
+        .describe(
+            "Full-refresh snapshot retention. 0 (the default) is plain full refresh: overwrite each sync, no history, no snapshot column. A positive value turns on append mode — each sync appends a full snapshot (rows stamped `_ph_snapshot_at`) and keeps that many previous snapshots (mode 'count') or that many days of snapshots (mode 'days'), pruned at sync time. The latest snapshot is always kept. Only valid when sync_type is full_refresh; crossing 0<->positive rebuilds the table."
+        ),
     enabled_columns: zod
         .array(zod.string())
         .nullish()
@@ -317,6 +368,9 @@ export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod.object({
 
 export const externalDataSchemasIncrementalFieldsCreateBodyIncrementalFieldLookbackSecondsMin = 0
 export const externalDataSchemasIncrementalFieldsCreateBodyIncrementalFieldLookbackSecondsMax = 5184000
+
+export const externalDataSchemasIncrementalFieldsCreateBodySnapshotRetentionValueMin = 0
+export const externalDataSchemasIncrementalFieldsCreateBodySnapshotRetentionValueMax = 365
 
 export const ExternalDataSchemasIncrementalFieldsCreateBody = /* @__PURE__ */ zod.object({
     should_sync: zod.boolean().optional(),
@@ -393,6 +447,20 @@ export const ExternalDataSchemasIncrementalFieldsCreateBody = /* @__PURE__ */ zo
         .describe(
             'For CDC syncs: consolidated, cdc_only, or both.\n\n\* `consolidated` - consolidated\n\* `cdc_only` - cdc_only\n\* `both` - both'
         ),
+    snapshot_retention_mode: zod
+        .union([zod.enum(['count', 'days']).describe('\* `count` - count\n\* `days` - days'), zod.null()])
+        .optional()
+        .describe(
+            "How full-refresh snapshot retention is measured when snapshot_retention_value > 0: 'count' keeps the latest plus that many previous snapshots, 'days' keeps snapshots synced within the last N days. Ignored when snapshot_retention_value is 0. Paired with snapshot_retention_value.\n\n\* `count` - count\n\* `days` - days"
+        ),
+    snapshot_retention_value: zod
+        .number()
+        .min(externalDataSchemasIncrementalFieldsCreateBodySnapshotRetentionValueMin)
+        .max(externalDataSchemasIncrementalFieldsCreateBodySnapshotRetentionValueMax)
+        .nullish()
+        .describe(
+            "Full-refresh snapshot retention. 0 (the default) is plain full refresh: overwrite each sync, no history, no snapshot column. A positive value turns on append mode — each sync appends a full snapshot (rows stamped `_ph_snapshot_at`) and keeps that many previous snapshots (mode 'count') or that many days of snapshots (mode 'days'), pruned at sync time. The latest snapshot is always kept. Only valid when sync_type is full_refresh; crossing 0<->positive rebuilds the table."
+        ),
     enabled_columns: zod
         .array(zod.string())
         .nullish()
@@ -419,6 +487,9 @@ export const ExternalDataSchemasIncrementalFieldsCreateBody = /* @__PURE__ */ zo
 
 export const externalDataSchemasReloadCreateBodyIncrementalFieldLookbackSecondsMin = 0
 export const externalDataSchemasReloadCreateBodyIncrementalFieldLookbackSecondsMax = 5184000
+
+export const externalDataSchemasReloadCreateBodySnapshotRetentionValueMin = 0
+export const externalDataSchemasReloadCreateBodySnapshotRetentionValueMax = 365
 
 export const ExternalDataSchemasReloadCreateBody = /* @__PURE__ */ zod.object({
     should_sync: zod.boolean().optional(),
@@ -495,6 +566,20 @@ export const ExternalDataSchemasReloadCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'For CDC syncs: consolidated, cdc_only, or both.\n\n\* `consolidated` - consolidated\n\* `cdc_only` - cdc_only\n\* `both` - both'
         ),
+    snapshot_retention_mode: zod
+        .union([zod.enum(['count', 'days']).describe('\* `count` - count\n\* `days` - days'), zod.null()])
+        .optional()
+        .describe(
+            "How full-refresh snapshot retention is measured when snapshot_retention_value > 0: 'count' keeps the latest plus that many previous snapshots, 'days' keeps snapshots synced within the last N days. Ignored when snapshot_retention_value is 0. Paired with snapshot_retention_value.\n\n\* `count` - count\n\* `days` - days"
+        ),
+    snapshot_retention_value: zod
+        .number()
+        .min(externalDataSchemasReloadCreateBodySnapshotRetentionValueMin)
+        .max(externalDataSchemasReloadCreateBodySnapshotRetentionValueMax)
+        .nullish()
+        .describe(
+            "Full-refresh snapshot retention. 0 (the default) is plain full refresh: overwrite each sync, no history, no snapshot column. A positive value turns on append mode — each sync appends a full snapshot (rows stamped `_ph_snapshot_at`) and keeps that many previous snapshots (mode 'count') or that many days of snapshots (mode 'days'), pruned at sync time. The latest snapshot is always kept. Only valid when sync_type is full_refresh; crossing 0<->positive rebuilds the table."
+        ),
     enabled_columns: zod
         .array(zod.string())
         .nullish()
@@ -521,6 +606,9 @@ export const ExternalDataSchemasReloadCreateBody = /* @__PURE__ */ zod.object({
 
 export const externalDataSchemasResyncCreateBodyIncrementalFieldLookbackSecondsMin = 0
 export const externalDataSchemasResyncCreateBodyIncrementalFieldLookbackSecondsMax = 5184000
+
+export const externalDataSchemasResyncCreateBodySnapshotRetentionValueMin = 0
+export const externalDataSchemasResyncCreateBodySnapshotRetentionValueMax = 365
 
 export const ExternalDataSchemasResyncCreateBody = /* @__PURE__ */ zod.object({
     should_sync: zod.boolean().optional(),
@@ -596,6 +684,20 @@ export const ExternalDataSchemasResyncCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'For CDC syncs: consolidated, cdc_only, or both.\n\n\* `consolidated` - consolidated\n\* `cdc_only` - cdc_only\n\* `both` - both'
+        ),
+    snapshot_retention_mode: zod
+        .union([zod.enum(['count', 'days']).describe('\* `count` - count\n\* `days` - days'), zod.null()])
+        .optional()
+        .describe(
+            "How full-refresh snapshot retention is measured when snapshot_retention_value > 0: 'count' keeps the latest plus that many previous snapshots, 'days' keeps snapshots synced within the last N days. Ignored when snapshot_retention_value is 0. Paired with snapshot_retention_value.\n\n\* `count` - count\n\* `days` - days"
+        ),
+    snapshot_retention_value: zod
+        .number()
+        .min(externalDataSchemasResyncCreateBodySnapshotRetentionValueMin)
+        .max(externalDataSchemasResyncCreateBodySnapshotRetentionValueMax)
+        .nullish()
+        .describe(
+            "Full-refresh snapshot retention. 0 (the default) is plain full refresh: overwrite each sync, no history, no snapshot column. A positive value turns on append mode — each sync appends a full snapshot (rows stamped `_ph_snapshot_at`) and keeps that many previous snapshots (mode 'count') or that many days of snapshots (mode 'days'), pruned at sync time. The latest snapshot is always kept. Only valid when sync_type is full_refresh; crossing 0<->positive rebuilds the table."
         ),
     enabled_columns: zod
         .array(zod.string())

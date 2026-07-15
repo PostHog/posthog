@@ -25,7 +25,10 @@ from structlog.types import FilteringBoundLogger
 from posthog.sync import database_sync_to_async_pool
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import (
+    PARTITION_KEY,
+    SNAPSHOT_COLUMN,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
     PartitionFormat,
     PartitionMode,
@@ -345,6 +348,17 @@ def _append_debug_column_to_pyarrows_table(table: pa.Table, load_id: int) -> pa.
     return table.append_column("_ph_debug", column)
 
 
+def _append_snapshot_column_to_pyarrows_table(table: pa.Table, snapshot_at: datetime.datetime) -> pa.Table:
+    """Stamp every row with the snapshot timestamp for a "full refresh - append" sync.
+
+    The value is the run's stable identity (the job's created_at), identical across all rows and all
+    retry attempts of the same run, so a distinct value marks one snapshot. The column is user-facing
+    (it isn't hidden) so callers can filter to a point-in-time snapshot in HogQL.
+    """
+    column = pa.array([snapshot_at] * table.num_rows, type=pa.timestamp("us", tz="UTC"))
+    return table.append_column(SNAPSHOT_COLUMN, column)
+
+
 def normalize_table_column_names(table: pa.Table) -> pa.Table:
     used_names = set()
 
@@ -366,7 +380,7 @@ def normalize_table_column_names(table: pa.Table) -> pa.Table:
     return table
 
 
-INTERNAL_COLUMN_NAMES = frozenset({"_ph_debug", PARTITION_KEY, "_dlt_id", "_dlt_load_id"})
+INTERNAL_COLUMN_NAMES = frozenset({"_ph_debug", PARTITION_KEY, SNAPSHOT_COLUMN, "_dlt_id", "_dlt_load_id"})
 
 
 def _fold_column_name_for_match(name: str) -> str:

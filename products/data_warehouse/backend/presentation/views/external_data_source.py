@@ -2356,7 +2356,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     # Coerce whole-number floats (e.g. 90.0) the way DRF's IntegerField does.
                     if isinstance(lookback_seconds, float) and lookback_seconds.is_integer():
                         lookback_seconds = int(lookback_seconds)
-                    # bool is an int subclass — exclude it so true/false aren't treated as 1/0.
+                    # bool is an int subclass, so exclude it so true/false aren't treated as 1/0.
                     is_valid_int = isinstance(lookback_seconds, int) and not isinstance(lookback_seconds, bool)
                     if not is_valid_int or not (0 <= lookback_seconds <= 5_184_000):
                         new_source_model.delete()
@@ -2385,6 +2385,47 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     "schema_metadata": schema_metadata,
                     "cdc_table_mode": cdc_table_mode,
                 }
+            elif sync_type == "full_refresh":
+                retention_value = schema.get("snapshot_retention_value")
+                # Coerce whole-number floats (e.g. 7.0) the way DRF's IntegerField does on the update path.
+                if isinstance(retention_value, float) and retention_value.is_integer():
+                    retention_value = int(retention_value)
+                # bool is an int subclass, so exclude it so true/false aren't treated as 1/0.
+                if retention_value is not None and (
+                    isinstance(retention_value, bool) or not isinstance(retention_value, int)
+                ):
+                    new_source_model.delete()
+                    return Response(
+                        status=status.HTTP_400_BAD_REQUEST,
+                        data={"message": f"snapshot_retention_value must be an integer for schema '{schema_name}'."},
+                    )
+                if not retention_value:
+                    # 0 / absent / null -> plain full refresh: overwrite each sync, no retained snapshots.
+                    sync_type_config = {"schema_metadata": schema_metadata}
+                else:
+                    # Positive retention -> append mode: keep that many previous snapshots (count) or days.
+                    retention_mode = schema.get("snapshot_retention_mode") or "count"
+                    if retention_mode not in ("count", "days"):
+                        new_source_model.delete()
+                        return Response(
+                            status=status.HTTP_400_BAD_REQUEST,
+                            data={
+                                "message": f"snapshot_retention_mode must be 'count' or 'days' for schema '{schema_name}'."
+                            },
+                        )
+                    if not (1 <= retention_value <= 365):
+                        new_source_model.delete()
+                        return Response(
+                            status=status.HTTP_400_BAD_REQUEST,
+                            data={
+                                "message": f"snapshot_retention_value must be an integer between 0 and 365 for schema '{schema_name}'."
+                            },
+                        )
+                    sync_type_config = {
+                        "schema_metadata": schema_metadata,
+                        "snapshot_retention_mode": retention_mode,
+                        "snapshot_retention_value": retention_value,
+                    }
             else:
                 sync_type_config = {"schema_metadata": schema_metadata}
 

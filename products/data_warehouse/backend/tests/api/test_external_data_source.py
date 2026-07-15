@@ -2132,6 +2132,8 @@ class TestExternalDataSource(APIBaseTest):
                     "description": schema.description,
                     "primary_key_columns": None,
                     "cdc_table_mode": "consolidated",
+                    "snapshot_retention_value": 0,
+                    "snapshot_retention_mode": None,
                     "enabled_columns": None,
                     "row_filters": None,
                     "available_columns": [],
@@ -3877,6 +3879,111 @@ class TestExternalDataSource(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.content
         schema = ExternalDataSchema.objects.get(team_id=self.team.pk, name="events")
         assert schema.enabled_columns == expected_persisted
+
+    def _mock_postgres_source_with_events(self, mock_get_source: Mock) -> None:
+        source_mock = mock_get_source.return_value
+        source_mock.validate_config.return_value = (True, [])
+        parsed_config = Mock()
+        parsed_config.schema = "public"
+        parsed_config.to_dict.return_value = {
+            "host": "localhost",
+            "port": 5432,
+            "database": "app",
+            "user": "user",
+            "password": "pass",
+            "schema": "public",
+        }
+        source_mock.parse_config.return_value = parsed_config
+        source_mock.validate_credentials.return_value = (True, None)
+        source_mock.get_schemas.return_value = [
+            SourceSchema(
+                name="events",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("id", "integer", False)],
+                foreign_keys=[],
+            ),
+        ]
+
+    def _post_full_refresh_source(self, schema_extra: dict[str, t.Any]) -> t.Any:
+        return self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Postgres",
+                "payload": {
+                    "host": "localhost",
+                    "port": 5432,
+                    "database": "app",
+                    "user": "user",
+                    "password": "pass",
+                    "schema": "public",
+                    "schemas": [
+                        {
+                            "name": "events",
+                            "should_sync": True,
+                            "sync_type": "full_refresh",
+                            **schema_extra,
+                        }
+                    ],
+                },
+            },
+        )
+
+    @parameterized.expand(
+        [
+            ("count_mode", "count", 5, 5),
+            ("days_mode", "days", 30, 30),
+            # Whole-number floats coerce to int like DRF's IntegerField does on the update path.
+            ("float_coerces_to_int", "count", 7.0, 7),
+        ]
+    )
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
+    def test_create_full_refresh_positive_retention_turns_on_append(
+        self, _name: str, retention_mode: str, retention_value: float, expected_value: int, mock_get_source
+    ):
+        self._mock_postgres_source_with_events(mock_get_source)
+
+        response = self._post_full_refresh_source(
+            {"snapshot_retention_mode": retention_mode, "snapshot_retention_value": retention_value}
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        schema = ExternalDataSchema.objects.get(team_id=self.team.pk, name="events")
+        # No standalone flag — a positive retention value is what turns append on.
+        assert "full_refresh_append" not in schema.sync_type_config
+        assert schema.is_full_refresh_append is True
+        assert schema.sync_type_config["snapshot_retention_mode"] == retention_mode
+        assert schema.sync_type_config["snapshot_retention_value"] == expected_value
+        assert isinstance(schema.sync_type_config["snapshot_retention_value"], int)
+
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
+    def test_create_full_refresh_zero_retention_is_plain_overwrite(self, mock_get_source):
+        self._mock_postgres_source_with_events(mock_get_source)
+
+        response = self._post_full_refresh_source({"snapshot_retention_value": 0})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        schema = ExternalDataSchema.objects.get(team_id=self.team.pk, name="events")
+        assert schema.is_full_refresh_append is False
+        assert "snapshot_retention_value" not in schema.sync_type_config
+
+    @parameterized.expand(
+        [
+            ("bad_mode", {"snapshot_retention_mode": "weekly", "snapshot_retention_value": 5}),
+            ("value_too_large", {"snapshot_retention_mode": "count", "snapshot_retention_value": 366}),
+        ]
+    )
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
+    def test_create_full_refresh_rejects_invalid_retention(
+        self, _name: str, retention: dict[str, t.Any], mock_get_source
+    ):
+        self._mock_postgres_source_with_events(mock_get_source)
+
+        response = self._post_full_refresh_source(retention)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        # Validation fails before the schema row is created (and rolls back the source).
+        assert not ExternalDataSchema.objects.filter(team_id=self.team.pk, name="events").exists()
 
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_renames_legacy_direct_query_rows(self, mock_get_source):
