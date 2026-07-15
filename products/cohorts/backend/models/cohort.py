@@ -54,6 +54,15 @@ class CohortType(StrEnum):
     ANALYTICAL = "analytical"
 
 
+class CohortConditionType(StrEnum):
+    """Classifies a cohort's filter conditions by kind, independent of `CohortType`
+    (which is about realtime-evaluation eligibility, not filter shape)."""
+
+    PROPERTY_ONLY = "property_only"
+    BEHAVIORAL_ONLY = "behavioral_only"
+    BOTH = "both"
+
+
 # The empty string literal helps us determine when the cohort is invalid/deleted, when
 # set in cohorts_cache
 CohortOrEmpty = Union["Cohort", Literal[""], None]
@@ -226,6 +235,15 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         help_text="Type of cohort based on filter complexity",
     )
 
+    condition_type = models.CharField(
+        max_length=50,
+        null=True,
+        blank=True,
+        choices=[(condition_type.value, condition_type.value) for condition_type in CohortConditionType],
+        help_text="Whether the cohort's filters are property-only, behavioral-only, or contain both. "
+        "Null when neither is present, e.g. empty filters or a cohort made up only of nested cohort references.",
+    )
+
     # deprecated in favor of filters
     groups = models.JSONField(default=list)
 
@@ -344,11 +362,12 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             should_delete=self.deleted,
         )
 
-    def _has_filter_type(self, filter_type: str) -> bool:
-        """Check whether the cohort's filter tree contains any leaf node of the given type."""
-        if not self.filters:
+    @staticmethod
+    def _filters_contain_type(filters: Optional[dict], filter_type: str) -> bool:
+        """Check whether a cohort filters dict contains any leaf node of the given type."""
+        if not filters:
             return False
-        properties = self.filters.get("properties")
+        properties = filters.get("properties")
         if not properties:
             return False
 
@@ -361,6 +380,28 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             return node_type == filter_type
 
         return _check(properties)
+
+    def _has_filter_type(self, filter_type: str) -> bool:
+        """Check whether the cohort's filter tree contains any leaf node of the given type."""
+        return Cohort._filters_contain_type(self.filters, filter_type)
+
+    @staticmethod
+    def compute_condition_type(filters: Optional[dict]) -> Optional["CohortConditionType"]:
+        """Classify a cohort filters dict as property-only, behavioral-only, or both.
+
+        Returns None when the filters contain neither a person nor a behavioral leaf
+        condition (e.g. empty filters, or a cohort made up only of nested cohort references).
+        """
+        has_person_filters = Cohort._filters_contain_type(filters, "person")
+        has_behavioral_filters = Cohort._filters_contain_type(filters, "behavioral")
+
+        if has_person_filters and has_behavioral_filters:
+            return CohortConditionType.BOTH
+        if has_behavioral_filters:
+            return CohortConditionType.BEHAVIORAL_ONLY
+        if has_person_filters:
+            return CohortConditionType.PROPERTY_ONLY
+        return None
 
     @property
     def is_flag_compatible(self) -> bool:
@@ -969,6 +1010,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             "groups": self.groups,
             "is_static": self.is_static,
             "cohort_type": self.cohort_type,
+            "condition_type": self.condition_type,
             "created_by_id": self.created_by_id,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "last_error_at": self.last_error_at.isoformat() if self.last_error_at else None,

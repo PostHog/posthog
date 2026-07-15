@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 import pytest
 from posthog.test.base import BaseTest
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from celery.exceptions import SoftTimeLimitExceeded
 from parameterized import parameterized
@@ -15,7 +15,7 @@ from posthog.models import Person, Team
 from posthog.models.person.util import get_person_by_id
 from posthog.test.persons import add_cohort_members, create_person
 
-from products.cohorts.backend.models.cohort import Cohort, CohortType
+from products.cohorts.backend.models.cohort import Cohort, CohortConditionType, CohortType
 from products.cohorts.backend.models.sql import GET_COHORTPEOPLE_BY_COHORT_ID
 from products.cohorts.backend.models.util import count_cohort_members, list_cohort_member_ids
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
@@ -716,3 +716,18 @@ class TestCohortIsFlagCompatible(BaseTest):
             last_backfill_events_at=events_ts,
         )
         self.assertEqual(cohort.is_flag_compatible, expected)
+
+
+class TestCohortComputeConditionType(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("person_only", _PERSON_FILTERS, CohortConditionType.PROPERTY_ONLY),
+            ("behavioral_only", _BEHAVIORAL_FILTERS, CohortConditionType.BEHAVIORAL_ONLY),
+            ("mixed", _MIXED_FILTERS, CohortConditionType.BOTH),
+            ("cohort_reference_only", _COHORT_REF_FILTERS, None),
+            ("empty_filters", {}, None),
+            ("none_filters", None, None),
+        ]
+    )
+    def test_compute_condition_type(self, _label, filters, expected):
+        self.assertEqual(Cohort.compute_condition_type(filters), expected)

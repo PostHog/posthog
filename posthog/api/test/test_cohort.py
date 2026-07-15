@@ -44,7 +44,7 @@ from posthog.tasks.calculate_cohort import (
 from posthog.test.persons import create_person
 
 from products.actions.backend.models.action import Action
-from products.cohorts.backend.models.cohort import Cohort, CohortType
+from products.cohorts.backend.models.cohort import Cohort, CohortConditionType, CohortType
 from products.cohorts.backend.models.dependencies import find_behavioral_cohorts
 from products.cohorts.backend.models.util import count_cohort_members, list_cohort_member_ids
 from products.exports.backend.api.test.test_exports import TestExportMixin
@@ -6412,6 +6412,9 @@ class TestCohortTypeIntegration(APIBaseTest):
         # cohort_type is auto-computed for realtime-capable filters
         self.assertEqual(cohort.cohort_type, "realtime")
         self.assertEqual(response.data["cohort_type"], "realtime")
+        # condition_type is auto-computed from the filter shape, independent of realtime eligibility
+        self.assertEqual(cohort.condition_type, CohortConditionType.PROPERTY_ONLY)
+        self.assertEqual(response.data["condition_type"], CohortConditionType.PROPERTY_ONLY)
 
     def test_person_metadata_cohort_not_classified_realtime(self):
         """person_metadata cohorts must route to the non-realtime path: the realtime
@@ -6444,12 +6447,13 @@ class TestCohortTypeIntegration(APIBaseTest):
         self.assertNotEqual(cohort.cohort_type, CohortType.REALTIME)
 
     def test_api_response_includes_cohort_type(self):
-        """API responses should include the cohort_type field"""
+        """API responses should include the cohort_type and condition_type fields"""
 
         cohort = Cohort.objects.create(
             team=self.team,
             name="Test Cohort",
             cohort_type=CohortType.BEHAVIORAL,
+            condition_type=CohortConditionType.BEHAVIORAL_ONLY,
             filters={
                 "properties": {
                     "type": "OR",
@@ -6479,6 +6483,8 @@ class TestCohortTypeIntegration(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         self.assertIn("cohort_type", response.data)
         self.assertEqual(response.data["cohort_type"], CohortType.BEHAVIORAL)
+        self.assertIn("condition_type", response.data)
+        self.assertEqual(response.data["condition_type"], CohortConditionType.BEHAVIORAL_ONLY)
 
         # Test LIST request
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts/")
@@ -6488,6 +6494,8 @@ class TestCohortTypeIntegration(APIBaseTest):
         cohort_data = next(c for c in response.data["results"] if c["id"] == cohort.id)
         self.assertIn("cohort_type", cohort_data)
         self.assertEqual(cohort_data["cohort_type"], CohortType.BEHAVIORAL)
+        self.assertIn("condition_type", cohort_data)
+        self.assertEqual(cohort_data["condition_type"], CohortConditionType.BEHAVIORAL_ONLY)
 
     def test_explicit_cohort_type_validation_success(self):
         """Should accept valid explicit cohort types"""
