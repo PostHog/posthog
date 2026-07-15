@@ -48,6 +48,7 @@ class ErrorTrackingFingerprint:
     fingerprint: str
     issue_id: UUID
     created_at: datetime
+    first_seen: datetime | None
 
 
 @dataclass(frozen=True)

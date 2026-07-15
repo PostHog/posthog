@@ -60,6 +60,7 @@ def _to_fingerprint(fingerprint) -> contracts.ErrorTrackingFingerprint:
         fingerprint=fingerprint.fingerprint,
         issue_id=fingerprint.issue_id,
         created_at=fingerprint.created_at,
+        first_seen=fingerprint.first_seen,
     )
 
 
@@ -553,6 +554,13 @@ def get_fingerprint(team_id: int, fingerprint_id: UUID) -> contracts.ErrorTracki
     if fingerprint is None:
         return None
     return _to_fingerprint(fingerprint)
+
+
+def get_fingerprint_by_value(team_id: int, fingerprint: str) -> contracts.ErrorTrackingFingerprint | None:
+    resolved = logic.get_fingerprint_by_value(team_id=team_id, fingerprint=fingerprint)
+    if resolved is None:
+        return None
+    return _to_fingerprint(resolved)
 
 
 def list_external_references(team_id: int) -> list[contracts.ErrorTrackingExternalReference]:

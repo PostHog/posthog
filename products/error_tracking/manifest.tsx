@@ -28,9 +28,15 @@ export const manifest: ProductManifest = {
             projectBased: true,
             name: 'Error tracking issue fingerprints',
         },
+        ErrorTrackingFingerprint: {
+            import: () => import('./frontend/scenes/ErrorTrackingFingerprintScene/ErrorTrackingFingerprintScene'),
+            projectBased: true,
+            name: 'Error tracking fingerprint',
+        },
     },
     routes: {
         '/error_tracking': ['ErrorTracking', 'errorTracking'],
+        '/error_tracking/fingerprint/:fingerprint': ['ErrorTrackingFingerprint', 'errorTrackingFingerprint'],
         '/error_tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
         '/error_tracking/:id/fingerprints': ['ErrorTrackingIssueFingerprints', 'errorTrackingIssueFingerprints'],
         '/error_tracking/alerts/:id': ['HogFunction', 'errorTrackingAlert'],
@@ -61,6 +67,12 @@ export const manifest: ProductManifest = {
             } = {}
         ): string => combineUrl(`/error_tracking/${id}`, params).url,
         errorTrackingIssueFingerprints: (id: string): string => `/error_tracking/${id}/fingerprints`,
+        errorTrackingFingerprint: (
+            fingerprint: string,
+            params: {
+                timestamp?: string
+            } = {}
+        ): string => combineUrl(`/error_tracking/fingerprint/${encodeURIComponent(fingerprint)}`, params).url,
         errorTrackingAlert: (id: string): string => `/error_tracking/alerts/${id}`,
         errorTrackingAlertNew: (templateId: string): string => `/error_tracking/alerts/new/${templateId}`,
     },

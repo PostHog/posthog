@@ -99,7 +99,7 @@ tools:
                      {"type": "divider"},
                      {"type": "actions", "elements": [
                        {"type": "button", "text": {"type": "plain_text", "text": "View Issue"},
-                        "url": "{project.url}/error_tracking/{event.distinct_id}?fingerprint={event.properties.fingerprint}&timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=slack"}
+                        "url": "{project.url}/error_tracking/fingerprint/{encodeURLComponent(event.properties.fingerprint)}?timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=slack"}
                      ]}
                    ]}
                  }

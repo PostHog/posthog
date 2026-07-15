@@ -211,6 +211,10 @@ def get_fingerprint(team_id: int, fingerprint_id: UUID) -> ErrorTrackingIssueFin
     return ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id, id=fingerprint_id).first()
 
 
+def get_fingerprint_by_value(team_id: int, fingerprint: str) -> ErrorTrackingIssueFingerprintV2 | None:
+    return ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id, fingerprint=fingerprint).first()
+
+
 def list_external_references(team_id: int) -> QuerySet[ErrorTrackingExternalReference]:
     return ErrorTrackingExternalReference.objects.select_related("integration").filter(issue__team_id=team_id)
 

@@ -94,10 +94,10 @@ useful for "manage this alert" links inside the message body.
 **Deep-link shape** for the issue page (used by the canonical block templates):
 
 ```text
-{project.url}/error_tracking/{event.distinct_id}?fingerprint={event.properties.fingerprint}&timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=slack
+{project.url}/error_tracking/fingerprint/{encodeURLComponent(event.properties.fingerprint)}?timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=slack
 ```
 
-`utm_medium` matches the destination (`slack`, `discord`, `microsoft_teams`). For `_spiking` links, drop
-the `fingerprint` and `timestamp` params — spiking events do not carry those properties. The `utm_*`
-tags let the team measure how often issues get clicked from alerts later via product analytics on
-`$pageview`.
+The link goes through the fingerprint redirect page, which resolves the fingerprint to whatever issue it currently belongs to — so links keep working after issues are merged.
+`utm_medium` matches the destination (`slack`, `discord`, `microsoft_teams`).
+For `_spiking` links, use `{project.url}/error_tracking/{event.distinct_id}?utm_...` instead — spiking events do not carry the `fingerprint` and `exception_timestamp` properties.
+The `utm_*` tags let the team measure how often issues get clicked from alerts later via product analytics on `$pageview`.

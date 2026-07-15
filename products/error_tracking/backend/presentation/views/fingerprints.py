@@ -1,26 +1,32 @@
 from uuid import UUID
 
 from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema
-from rest_framework import serializers, viewsets
+from rest_framework import request, serializers, viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
-from products.error_tracking.backend.facade.api import get_fingerprint, list_fingerprints
+from products.error_tracking.backend.facade.api import get_fingerprint, get_fingerprint_by_value, list_fingerprints
 
 
 class ErrorTrackingFingerprintSerializer(serializers.Serializer):
-    id = serializers.UUIDField(read_only=True)
-    fingerprint = serializers.CharField(read_only=True)
-    issue_id = serializers.UUIDField(read_only=True)
-    created_at = serializers.DateTimeField(read_only=True)
+    id = serializers.UUIDField(read_only=True, help_text="Unique ID of the fingerprint record.")
+    fingerprint = serializers.CharField(read_only=True, help_text="The fingerprint value.")
+    issue_id = serializers.UUIDField(read_only=True, help_text="ID of the issue this fingerprint currently belongs to.")
+    created_at = serializers.DateTimeField(read_only=True, help_text="When the fingerprint record was created.")
+    first_seen = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="Timestamp of the first exception event captured with this fingerprint.",
+    )
 
 
 class ErrorTrackingFingerprintViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.GenericViewSet):
     scope_object = "error_tracking"
-    scope_object_read_actions = ["list", "retrieve"]
+    scope_object_read_actions = ["list", "retrieve", "resolve"]
     scope_object_write_actions: list[str] = []
     serializer_class = ErrorTrackingFingerprintSerializer
 
@@ -60,6 +66,31 @@ class ErrorTrackingFingerprintViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel
             raise ValidationError("Invalid fingerprint id") from error
 
         fingerprint = get_fingerprint(team_id=self.team.id, fingerprint_id=fingerprint_id)
+        if fingerprint is None:
+            raise NotFound("Fingerprint not found")
+
+        serializer = self.get_serializer(fingerprint)
+        return Response(serializer.data)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="fingerprint",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Fingerprint value to resolve to the issue it currently belongs to.",
+            )
+        ],
+        responses={200: ErrorTrackingFingerprintSerializer},
+    )
+    @action(detail=False, methods=["GET"], pagination_class=None)
+    def resolve(self, request: request.Request, *args: object, **kwargs: object) -> Response:
+        fingerprint_value = self.request.GET.get("fingerprint")
+        if not fingerprint_value:
+            raise ValidationError("fingerprint query parameter is required")
+
+        fingerprint = get_fingerprint_by_value(team_id=self.team.id, fingerprint=fingerprint_value)
         if fingerprint is None:
             raise NotFound("Fingerprint not found")
 

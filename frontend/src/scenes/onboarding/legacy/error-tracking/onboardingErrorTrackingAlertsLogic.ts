@@ -7,6 +7,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { errorTrackingIssueLinkHogTemplate } from 'scenes/hog-functions/sub-templates/sub-templates'
 
 import { HogFunctionConfigurationType } from '~/types'
 
@@ -49,7 +50,7 @@ const DEFAULT_SLACK_INPUTS: Record<string, any> = {
                 type: 'actions',
                 elements: [
                     {
-                        url: '{project.url}/error_tracking/{event.distinct_id}?fingerprint={event.properties.fingerprint}',
+                        url: errorTrackingIssueLinkHogTemplate('slack'),
                         text: { text: 'View Issue', type: 'plain_text' },
                         type: 'button',
                     },

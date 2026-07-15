@@ -484,10 +484,19 @@ export interface PaginatedErrorTrackingExternalReferenceResultListApi {
 }
 
 export interface ErrorTrackingFingerprintApi {
+    /** Unique ID of the fingerprint record. */
     readonly id: string
+    /** The fingerprint value. */
     readonly fingerprint: string
+    /** ID of the issue this fingerprint currently belongs to. */
     readonly issue_id: string
+    /** When the fingerprint record was created. */
     readonly created_at: string
+    /**
+     * Timestamp of the first exception event captured with this fingerprint.
+     * @nullable
+     */
+    readonly first_seen: string | null
 }
 
 export interface PaginatedErrorTrackingFingerprintListApi {
@@ -1785,6 +1794,13 @@ export type ErrorTrackingFingerprintsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type ErrorTrackingFingerprintsResolveRetrieveParams = {
+    /**
+     * Fingerprint value to resolve to the issue it currently belongs to.
+     */
+    fingerprint: string
 }
 
 export type ErrorTrackingGitProviderFileLinksResolveGithubRetrieveParams = {
