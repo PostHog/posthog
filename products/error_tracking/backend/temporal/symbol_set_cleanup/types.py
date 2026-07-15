@@ -5,8 +5,9 @@ import dataclasses
 class SymbolSetCleanupInputs:
     days_old: int = 30
     delete_unused: bool = True
-    total_per_run: int = 500000
+    total_per_run: int = 1000000
     batch_size: int = 10000
+    parallelism: int = 8
     dry_run: bool = False
 
 

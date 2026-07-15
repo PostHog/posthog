@@ -775,6 +775,9 @@ database "posthog" {
     column "client_version_patch" {
       type = "UInt64"
     }
+    column "client_agent" {
+      type = "LowCardinality(String)"
+    }
     column "http_method" {
       type = "UInt8"
     }

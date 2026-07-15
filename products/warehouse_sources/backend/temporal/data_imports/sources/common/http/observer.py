@@ -93,6 +93,7 @@ def record_request(
     exception: BaseException | None = None,
     redact_values: tuple[str, ...] = (),
     capture: bool = True,
+    streamed: bool = False,
 ) -> None:
     """Log + meter a single outbound request. Never raises.
 
@@ -100,7 +101,9 @@ def record_request(
     captured sample, on top of the name-based scrubbers. `capture=False` keeps the
     request metered and logged but excludes it from HTTP sample capture — for auth
     exchanges whose request/response bodies inherently carry secrets the name-based
-    scrubbers can't recognise (e.g. a freshly minted session token).
+    scrubbers can't recognise (e.g. a freshly minted session token). `streamed=True`
+    means the caller requested `stream=True`, so the body hasn't been read yet and the
+    sampler must not force-buffer it (the caller size-caps and reads its own body).
     """
     elapsed_ms = max(0, int((time.monotonic() - started_at_monotonic) * 1000))
     method = (request.method or "GET").upper()
@@ -130,7 +133,13 @@ def record_request(
     _emit_metrics(record, host=host, ctx=ctx)
     if capture:
         _maybe_capture_sample(
-            request, response, record=record, ctx=ctx, exception=exception, redact_values=redact_values
+            request,
+            response,
+            record=record,
+            ctx=ctx,
+            exception=exception,
+            redact_values=redact_values,
+            streamed=streamed,
         )
 
 
@@ -188,10 +197,18 @@ def _maybe_capture_sample(
     ctx: JobContext | None,
     exception: BaseException | None,
     redact_values: tuple[str, ...] = (),
+    streamed: bool = False,
 ) -> None:
     if ctx is None or exception is not None:
         return
     try:
-        maybe_capture(request=request, response=response, record=record, ctx=ctx, redact_values=redact_values)
+        maybe_capture(
+            request=request,
+            response=response,
+            record=record,
+            ctx=ctx,
+            redact_values=redact_values,
+            streamed=streamed,
+        )
     except Exception:
         _fallback_logger.debug("Failed to capture HTTP sample", exc_info=True)
