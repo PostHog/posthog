@@ -767,9 +767,15 @@
     }
 }
 
-/* Empty area reserved for the macOS traffic lights in the frameless desktop window */
+/* Area reserved for the macOS traffic lights in the frameless desktop window; doubles as
+   the window drag region. Interactive children (e.g. the compact search) opt back out. */
 .desktop-traffic-lights-spacer {
     -webkit-app-region: drag;
+
+    a,
+    button {
+        -webkit-app-region: no-drag;
+    }
 }
 
 .top-nav {

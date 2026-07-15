@@ -9,6 +9,7 @@ import { IconApps, IconChat, IconChevronRight, IconPlusSmall, IconTerminal } fro
 
 import { NewAccountMenu } from 'lib/components/Account/NewAccountMenu'
 import { commandLogic } from 'lib/components/Command/commandLogic'
+import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
@@ -287,7 +288,28 @@ export function Nav(): JSX.Element {
                 )}
                 ref={containerRef}
             >
-                {trafficLightsSpace && <div className="desktop-traffic-lights-spacer h-7 w-full shrink-0" />}
+                {trafficLightsSpace && (
+                    <div className="desktop-traffic-lights-spacer h-7 w-full shrink-0 flex items-center justify-end pr-1">
+                        {/* Compact search in the title-bar strip, next to the traffic lights.
+                            Collapsed mode keeps the icon button in the nav column instead. */}
+                        {!isLayoutNavCollapsed && (
+                            <ButtonPrimitive
+                                size="xs"
+                                onClick={() => toggleCommand()}
+                                tooltip={
+                                    <>
+                                        Search <KeyboardShortcut command k />
+                                    </>
+                                }
+                                tooltipPlacement="bottom"
+                                className="h-5 px-1.5 text-xs text-secondary hover:text-primary"
+                                data-attr="desktop-titlebar-search"
+                            >
+                                Search
+                            </ButtonPrimitive>
+                        )}
+                    </div>
+                )}
                 {/* Web: search header at the very top. Desktop app: the Browse/Chat/Code tab
                     strip comes first (right below the traffic lights), then the search row —
                     both render inside Tabs.Root below. */}
@@ -356,7 +378,9 @@ export function Nav(): JSX.Element {
 
                     {isDesktopApp() && (
                         <>
-                            {headerRow}
+                            {/* Expanded desktop nav gets its search from the title-bar strip up
+                                top; the header row only remains for the collapsed icon column */}
+                            {isLayoutNavCollapsed && headerRow}
                             {createButton}
                         </>
                     )}
