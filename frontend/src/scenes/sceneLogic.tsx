@@ -1,6 +1,6 @@
 import { deepEqual as equal } from 'fast-equals'
 import { BuiltLogic, actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
-import { router, urlToAction } from 'kea-router'
+import { combineUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 
@@ -785,7 +785,7 @@ export const sceneLogic = kea<sceneLogicType>([
         // The Home button (via `/`) and a direct visit to /home should both land on the user's
         // configured homepage (set in the Configure home modal). Redirect there unless we're
         // already at it, which also guards against loops when the homepage is the launchpad itself.
-        const redirectToConfiguredHomepage = (searchParams: Params): boolean => {
+        const redirectToConfiguredHomepage = (searchParams: Params, hashParams: Params): boolean => {
             const homepage = values.homepage
             if (!homepage) {
                 return false
@@ -794,13 +794,16 @@ export const sceneLogic = kea<sceneLogicType>([
             if (removeProjectIdIfPresent(targetPathname) === '/') {
                 targetPathname = addProjectIdIfMissing(urls.projectHomepage())
             }
+            // Carry the incoming hash (e.g. #panel=max:<prompt>) across the redirect so URL-driven
+            // side panel prompts keep working on the homepage, merged over the homepage's own hash.
+            const targetWithHash = combineUrl(
+                targetPathname + (homepage.search || '') + (homepage.hash || ''),
+                {},
+                hashParams
+            ).url
             // Forward allow-listed params (e.g. modal) onto the homepage the same way the launchpad
             // redirect does, and compare against that final target so a forwarded param can't loop.
-            const target = withForwardedSearchParams(
-                targetPathname + (homepage.search || '') + (homepage.hash || ''),
-                searchParams,
-                forwardedRedirectQueryParams
-            )
+            const target = withForwardedSearchParams(targetWithHash, searchParams, forwardedRedirectQueryParams)
             const loc = router.values.currentLocation
             if (addProjectIdIfMissing(loc.pathname) + (loc.search || '') + (loc.hash || '') === target) {
                 return false
@@ -809,12 +812,16 @@ export const sceneLogic = kea<sceneLogicType>([
             return true
         }
 
-        mapping['/'] = guardRoute((_params, searchParams) => {
-            if (redirectToConfiguredHomepage(searchParams)) {
+        mapping['/'] = guardRoute((_params, searchParams, hashParams) => {
+            if (redirectToConfiguredHomepage(searchParams, hashParams)) {
                 return
             }
             router.actions.replace(
-                withForwardedSearchParams(urls.projectHomepage(), searchParams, forwardedRedirectQueryParams)
+                withForwardedSearchParams(
+                    combineUrl(urls.projectHomepage(), {}, hashParams).url,
+                    searchParams,
+                    forwardedRedirectQueryParams
+                )
             )
         })
 
@@ -822,7 +829,7 @@ export const sceneLogic = kea<sceneLogicType>([
         for (const [path, [scene, sceneKey]] of Object.entries(routes)) {
             mapping[path] = guardRoute((params, searchParams, hashParams, { method }) => {
                 // A direct visit to /home honors the configured homepage just like the Home button.
-                if (path === projectHomepagePath && redirectToConfiguredHomepage(searchParams)) {
+                if (path === projectHomepagePath && redirectToConfiguredHomepage(searchParams, hashParams)) {
                     return
                 }
                 actions.openScene(
