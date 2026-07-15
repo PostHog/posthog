@@ -17,24 +17,21 @@ jest.mock('./sessions/metrics', () => ({
     SessionBatchMetrics: { incrementSessionsDroppedMissingRetention: jest.fn() },
 }))
 
-type RetentionElement = {
-    message: { partition: number; offset: number }
-    team: TeamForReplay
-    headers: SessionReplayHeaders
-} & SessionBatchContext
-
 describe('createResolveRetentionStep', () => {
     let mockRetentionService: jest.Mocked<RetentionService>
     let mockBatch: jest.Mocked<Pick<SessionBatchRecorder, 'getRetention'>>
 
-    // Minimal element carrying just what the step reads (message offset, team id, session_id header)
-    // plus the cycle's recorder, which the accumulating pipeline tags onto every element.
-    const element = (teamId: number, sessionId: string, _partition = 0, _offset = 0): RetentionElement =>
+    // Minimal element carrying just what the step reads (team id, session_id header, the recorder).
+    const element = (
+        teamId: number,
+        sessionId: string
+    ): { team: TeamForReplay; headers: SessionReplayHeaders } & SessionBatchContext =>
         ({
             team: { teamId, consoleLogIngestionEnabled: false, aiTrainingOptedIn: true },
             headers: { token: 'token', session_id: sessionId, distinct_id: 'distinct-1' },
+            // The cycle's recorder, tagged onto every element by the accumulating pipeline.
             sessionBatchRecorder: mockBatch,
-        }) as unknown as RetentionElement
+        }) as unknown as { team: TeamForReplay; headers: SessionReplayHeaders } & SessionBatchContext
 
     const createStep = () => createResolveRetentionStep(mockRetentionService)
 
@@ -120,7 +117,7 @@ describe('createResolveRetentionStep', () => {
             new SessionSet().add(999, 'gone').add(2, 'ok')
         )
         // The unresolvable session becomes a DROP; its Kafka offset is tracked downstream by the
-        // consumer's offset tracking as a record-phase result, not here.
+        // record pipeline's afterBatch, not here.
         expect(results[0].type).toBe(PipelineResultType.DROP)
         expect(isOkResult(results[1]) ? results[1].value.retentionPeriod : null).toBe('90d')
         expect(SessionBatchMetrics.incrementSessionsDroppedMissingRetention).toHaveBeenCalledTimes(1)

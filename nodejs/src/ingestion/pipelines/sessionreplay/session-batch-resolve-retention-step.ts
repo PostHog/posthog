@@ -22,8 +22,8 @@ import { SessionBatchMetrics } from './sessions/metrics'
  * deleted is dropped; a corrupt/invalid stored value instead throws (crashes) rather than recording
  * against a wrong retention. A transient failure (e.g. Redis) is thrown by the service so the
  * pipeline's retry wrapper can re-run the step. A dropped message still commits its offset — the
- * drop result flows out of the pipeline as a record-phase result carrying its source message, which
- * the consumer's offset tracking picks up on the next drain.
+ * drop result flows out to the record pipeline's afterBatch, which tracks offsets for every fed
+ * message (recorded, dropped, or DLQ'd).
  */
 export function createResolveRetentionStep<
     T extends { team: TeamForReplay; headers: SessionReplayHeaders } & SessionBatchContext,
