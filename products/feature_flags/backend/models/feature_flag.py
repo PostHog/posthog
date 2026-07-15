@@ -8,7 +8,8 @@ from django.contrib.postgres.aggregates import ArrayAgg
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.db import DatabaseError, models, transaction
-from django.db.models import Q, QuerySet
+from django.db.models import Func, IntegerField, Q, QuerySet
+from django.db.models.fields.json import KeyTransform
 from django.db.models.signals import post_delete, post_save
 from django.http import HttpRequest
 from django.utils import timezone
@@ -25,7 +26,7 @@ from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.property import GroupTypeIndex
 from posthog.models.signals import mutable_receiver
-from posthog.models.utils import RootTeamManager, RootTeamMixin
+from posthog.models.utils import RootTeamManager, RootTeamMixin, RootTeamQuerySet
 
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.experiments.backend.models.experiment import live_experiment_exists
@@ -101,9 +102,43 @@ def build_scheduled_change_serializer_data(flag: "FeatureFlag", payload: dict[st
     return None
 
 
+# The single flag-side rule for "this flag can back an experiment": multivariate with
+# 2-20 variants. No variant key is required — the baseline defaults to 'control' when
+# present, else the first variant (see get_baseline_variant_key). Enforced in three
+# matching shapes — experiment_eligibility_error (in-memory), FeatureFlagQuerySet.
+# eligible_for_experiment (JSONB filter), and FeatureFlagSerializer.is_eligible_for_experiment
+# (API field).
+EXPERIMENT_MIN_VARIANTS = 2
+EXPERIMENT_MAX_VARIANTS = 20
+
+
+def experiment_eligibility_error(variants: list[dict[str, Any]] | None) -> str | None:
+    """Why these flag variants can't back an experiment, or None when they can."""
+    if not variants or len(variants) < EXPERIMENT_MIN_VARIANTS:
+        return "Feature flag must have at least 2 variants (a baseline and at least one test variant)"
+    if len(variants) > EXPERIMENT_MAX_VARIANTS:
+        return f"Feature flag must have at most {EXPERIMENT_MAX_VARIANTS} variants"
+    return None
+
+
+class FeatureFlagQuerySet(RootTeamQuerySet):
+    def eligible_for_experiment(self) -> "FeatureFlagQuerySet":
+        """JSONB twin of experiment_eligibility_error: multivariate with 2-20 variants."""
+        return self.annotate(
+            _experiment_variant_count=Func(
+                KeyTransform("variants", KeyTransform("multivariate", "filters")),
+                function="jsonb_array_length",
+                output_field=IntegerField(),
+            )
+        ).filter(
+            _experiment_variant_count__gte=EXPERIMENT_MIN_VARIANTS,
+            _experiment_variant_count__lte=EXPERIMENT_MAX_VARIANTS,
+        )
+
+
 class FeatureFlagManager(RootTeamManager):
-    def get_queryset(self):
-        return super().get_queryset().exclude(deleted=True)
+    def get_queryset(self) -> FeatureFlagQuerySet:
+        return FeatureFlagQuerySet(self.model, using=self._db).exclude(deleted=True)
 
 
 class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Model):
@@ -318,6 +353,10 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
             if isinstance(variants, list):
                 return variants
         return []
+
+    @property
+    def is_eligible_for_experiment(self) -> bool:
+        return experiment_eligibility_error(self.variants) is None
 
     @property
     def usage_dashboard_has_enriched_insights(self) -> bool:

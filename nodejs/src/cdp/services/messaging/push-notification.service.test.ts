@@ -160,6 +160,7 @@ describe('PushNotificationService', () => {
 
             expect(result.metrics).toContainEqual(
                 expect.objectContaining({
+                    metric_kind: 'push',
                     metric_name: 'push_sent',
                     count: 1,
                 })
