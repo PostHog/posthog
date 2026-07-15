@@ -124,6 +124,12 @@ where
     if let Some(ref v) = config.kafka_producer_partitioner {
         client_config.set("partitioner", v);
     }
+    if let Some(ref v) = config.kafka_producer_acks {
+        client_config.set("acks", v);
+    }
+    if let Some(v) = config.kafka_producer_retries {
+        client_config.set("retries", v.to_string());
+    }
 
     if config.kafka_tls {
         client_config

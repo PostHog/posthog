@@ -4,7 +4,9 @@ use std::time::Duration;
 
 use anyhow::Context;
 use axum::Router;
-use common_ingestion_warnings::{KafkaWarningEmitter, WarningEmitter, WarningProducerConfig};
+use common_ingestion_warnings::{KafkaWarningEmitter, WarningEmitter};
+use common_kafka::config::KafkaConfig as WarningsKafkaConfig;
+use common_kafka::kafka_producer::create_kafka_producer;
 use common_redis::RedisClient;
 use tracing::{info, warn};
 
@@ -377,7 +379,7 @@ pub async fn build_components(
     };
 
     let ingestion_warning_emitter =
-        create_ingestion_warning_emitter(&config, ingestion_warnings_handle);
+        create_ingestion_warning_emitter(&config, ingestion_warnings_handle).await;
 
     let app = router::router(
         crate::time::SystemTime {},
@@ -554,10 +556,21 @@ async fn create_sink(
 
 /// Build the optional v2 ingestion warnings emitter. Best-effort by contract:
 /// any misconfiguration or producer-creation failure logs and returns `None`
-/// (capture runs without warnings) instead of failing startup. When built, a
-/// background task heartbeats the advisory lifecycle handle, sweeps the
-/// throttle's per-key state, and flushes the producer once at shutdown.
-fn create_ingestion_warning_emitter(
+/// (capture runs without warnings) instead of failing startup. The producer
+/// is built via `common_kafka::kafka_producer::create_kafka_producer` from a
+/// dedicated, warnings-only `common_kafka::config::KafkaConfig` (fire-and-forget
+/// acks/retries, a small queue) — it shares only the destination cluster
+/// (hosts/TLS) and the `client_ingestion_warning` topic with capture's main
+/// event producer, never its tuning or connection. When built, a background
+/// task heartbeats the advisory lifecycle handle, sweeps the throttle's
+/// per-key state, and flushes the producer once at shutdown.
+///
+/// Fail-open note: unlike the previous bespoke producer (which never pinged
+/// brokers at startup), `create_kafka_producer` does a one-time metadata
+/// fetch. If brokers are unreachable at boot, the emitter stays disabled for
+/// the pod's life — matching how `personhog-writer` treats its own
+/// fire-and-forget warnings producer — rather than retrying.
+async fn create_ingestion_warning_emitter(
     config: &Config,
     handle: Option<lifecycle::Handle>,
 ) -> Option<Arc<dyn WarningEmitter>> {
@@ -565,24 +578,44 @@ fn create_ingestion_warning_emitter(
         return None;
     }
 
-    // Warnings ride the same event cluster as the `client_ingestion_warning`
-    // topic capture already produces to, so reuse the main Kafka connection
-    // config; only the enable flag is warnings-specific. Fire-and-forget
-    // tuning comes from `WarningProducerConfig::default()`.
     if config.kafka.kafka_hosts.is_empty() {
         warn!("ingestion warnings enabled but KAFKA_HOSTS is empty; emitter disabled");
         return None;
     }
 
-    let producer_config = WarningProducerConfig {
-        kafka_hosts: config.kafka.kafka_hosts.clone(),
-        kafka_topic: config.kafka.kafka_client_ingestion_warning_topic.clone(),
-        kafka_tls: config.kafka.kafka_tls,
-        ..WarningProducerConfig::default()
+    let Some(handle) = handle else {
+        warn!(
+            "ingestion warnings enabled but no lifecycle handle was registered; emitter disabled"
+        );
+        return None;
     };
 
-    let emitter = match KafkaWarningEmitter::new(&producer_config) {
-        Ok(emitter) => Arc::new(emitter),
+    let warnings_kafka_config = WarningsKafkaConfig {
+        kafka_hosts: config.kafka.kafka_hosts.clone(),
+        kafka_tls: config.kafka.kafka_tls,
+        kafka_client_rack: String::new(),
+        kafka_client_id: String::new(),
+        kafka_compression_codec: "none".to_string(),
+        kafka_producer_linger_ms: config.capture_ingestion_warnings_kafka_linger_ms,
+        kafka_producer_queue_mib: config.capture_ingestion_warnings_kafka_queue_mib,
+        kafka_producer_queue_messages: config.capture_ingestion_warnings_kafka_queue_messages,
+        kafka_message_timeout_ms: config.capture_ingestion_warnings_kafka_message_timeout_ms,
+        kafka_producer_batch_size: None,
+        kafka_producer_batch_num_messages: None,
+        kafka_producer_enable_idempotence: None,
+        kafka_producer_max_in_flight_requests_per_connection: None,
+        kafka_producer_topic_metadata_refresh_interval_ms: None,
+        kafka_producer_message_max_bytes: Some(
+            config.capture_ingestion_warnings_kafka_message_max_bytes,
+        ),
+        kafka_producer_sticky_partitioning_linger_ms: None,
+        kafka_producer_partitioner: None,
+        kafka_producer_acks: Some(config.capture_ingestion_warnings_kafka_acks.clone()),
+        kafka_producer_retries: Some(config.capture_ingestion_warnings_kafka_retries),
+    };
+
+    let producer = match create_kafka_producer(&warnings_kafka_config, handle.clone()).await {
+        Ok(producer) => producer,
         Err(e) => {
             tracing::error!(
                 "failed to create ingestion warnings producer, emitter disabled: {e:#}"
@@ -591,29 +624,32 @@ fn create_ingestion_warning_emitter(
         }
     };
 
-    if let Some(handle) = handle {
-        let emitter_bg = emitter.clone();
-        tokio::spawn(async move {
-            let mut heartbeat = tokio::time::interval(Duration::from_secs(10));
-            let mut sweep = tokio::time::interval(Duration::from_secs(60));
-            loop {
-                tokio::select! {
-                    _ = heartbeat.tick() => handle.report_healthy(),
-                    _ = sweep.tick() => emitter_bg.sweep_throttle(),
-                    _ = handle.shutdown_recv() => break,
-                }
+    let emitter = Arc::new(KafkaWarningEmitter::new(
+        producer,
+        config.kafka.kafka_client_ingestion_warning_topic.clone(),
+    ));
+
+    let emitter_bg = emitter.clone();
+    tokio::spawn(async move {
+        let mut heartbeat = tokio::time::interval(Duration::from_secs(10));
+        let mut sweep = tokio::time::interval(Duration::from_secs(60));
+        loop {
+            tokio::select! {
+                _ = heartbeat.tick() => handle.report_healthy(),
+                _ = sweep.tick() => emitter_bg.sweep_throttle(),
+                _ = handle.shutdown_recv() => break,
             }
-            // Advisory flush: rdkafka flush blocks, so keep it off the async
-            // workers. Dropping the handle after shutdown signals completion.
-            let flush_result = tokio::task::spawn_blocking(move || {
-                emitter_bg.flush(Duration::from_secs(2));
-            })
-            .await;
-            if let Err(e) = flush_result {
-                warn!("ingestion warnings flush task panicked: {e}");
-            }
-        });
-    }
+        }
+        // Advisory flush: rdkafka flush blocks, so keep it off the async
+        // workers. Dropping the handle after shutdown signals completion.
+        let flush_result = tokio::task::spawn_blocking(move || {
+            emitter_bg.flush(Duration::from_secs(2));
+        })
+        .await;
+        if let Err(e) = flush_result {
+            warn!("ingestion warnings flush task panicked: {e}");
+        }
+    });
 
     info!(
         topic = config.kafka.kafka_client_ingestion_warning_topic.as_str(),

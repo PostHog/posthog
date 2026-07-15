@@ -4,10 +4,19 @@
 //! call [`WarningEmitter::emit`] with the offending event's API token, a
 //! source, a registered [`WarningType`], and caller context; the emitter
 //! throttles per `(token, type)`, builds a `$$client_ingestion_warning`
-//! [`common_types::CapturedEvent`] envelope, and enqueues it to a dedicated
-//! producer without ever awaiting delivery. Everything fails open: a
-//! throttled, unserializable, or unenqueueable warning is counted and dropped —
-//! the caller's hot path is never blocked or failed.
+//! [`common_types::CapturedEvent`] envelope, and enqueues it to a producer
+//! without ever awaiting delivery. Everything fails open: a throttled,
+//! unserializable, or unenqueueable warning is counted and dropped — the
+//! caller's hot path is never blocked or failed.
+//!
+//! The producer is a plain `common_kafka` `FutureProducer` (built by
+//! [`common_kafka::kafka_producer::create_kafka_producer`]) rather than a
+//! bespoke client: callers supply their own dedicated, warnings-tuned
+//! [`common_kafka::config::KafkaConfig`] (fire-and-forget acks/retries, a
+//! small queue) so warnings never share tuning or a connection with a
+//! caller's main event producer. See
+//! `rust/personhog-writer/src/kafka.rs::WarningsProducer` for the reference
+//! shape this mirrors.
 //!
 //! The envelope lands on the `client_ingestion_warning` topic, where the
 //! Node.js `clientwarnings` consumer resolves the token to a `team_id` and
@@ -15,7 +24,6 @@
 //! identical; see [`serializer`] and
 //! `nodejs/src/ingestion/common/steps/event-processing/handle-client-ingestion-warning-step.ts`.
 
-pub mod producer;
 pub mod registry;
 pub mod serializer;
 pub mod test_support;
@@ -24,14 +32,15 @@ pub mod throttle;
 use std::time::Duration;
 
 use chrono::Utc;
+use common_kafka::kafka_producer::KafkaContext;
 use metrics::{counter, gauge};
 use rdkafka::error::KafkaError;
 use rdkafka::message::OwnedHeaders;
+use rdkafka::producer::{FutureProducer, FutureRecord, Producer};
 use rdkafka::types::RDKafkaErrorCode;
 use serde_json::{Map, Value};
 use tracing::warn;
 
-pub use producer::{WarningProducer, WarningProducerConfig};
 pub use registry::WarningType;
 pub use throttle::{ThrottleDecision, WarningThrottle};
 
@@ -95,19 +104,25 @@ pub trait WarningEmitter: Send + Sync {
     fn flush(&self, timeout: Duration);
 }
 
-/// Production emitter: per-(token, type) throttle in front of a dedicated
-/// fire-and-forget Kafka producer.
+/// Production emitter: per-(token, type) throttle in front of a
+/// `common_kafka` producer. Callers build the `FutureProducer` themselves
+/// (via `common_kafka::kafka_producer::create_kafka_producer` with a
+/// dedicated, fire-and-forget-tuned `KafkaConfig`) and hand it in — this
+/// type never constructs its own client, matching
+/// `rust/personhog-writer/src/kafka.rs::WarningsProducer`.
 pub struct KafkaWarningEmitter {
-    producer: WarningProducer,
+    producer: FutureProducer<KafkaContext>,
+    topic: String,
     throttle: WarningThrottle,
 }
 
 impl KafkaWarningEmitter {
-    pub fn new(config: &WarningProducerConfig) -> Result<Self, KafkaError> {
-        Ok(Self {
-            producer: WarningProducer::new(config)?,
+    pub fn new(producer: FutureProducer<KafkaContext>, topic: impl Into<String>) -> Self {
+        Self {
+            producer,
+            topic: topic.into(),
             throttle: WarningThrottle::default(),
-        })
+        }
     }
 
     /// Evict fully-refilled throttle keys to bound memory and publish the
@@ -183,7 +198,16 @@ impl WarningEmitter for KafkaWarningEmitter {
             }
         };
 
-        match self.producer.send(&token, headers, &payload) {
+        let record = FutureRecord::to(&self.topic)
+            .key(&token)
+            .headers(headers)
+            .payload(&payload);
+
+        // `send_result` enqueues and returns immediately; the `DeliveryFuture`
+        // is only awaited off the hot path by `spawn_delivery_observer`, never
+        // here. This is the personhog-writer fire-and-forget shape, not
+        // `common_kafka::send_*`, which awaits delivery inline.
+        match self.producer.send_result(record) {
             Ok(delivery_future) => {
                 counter!(
                     INGESTION_WARNINGS_TOTAL,
@@ -195,7 +219,7 @@ impl WarningEmitter for KafkaWarningEmitter {
                 .increment(1);
                 spawn_delivery_observer(warning, source, delivery_future);
             }
-            Err(KafkaError::MessageProduction(RDKafkaErrorCode::QueueFull)) => {
+            Err((KafkaError::MessageProduction(RDKafkaErrorCode::QueueFull), _record)) => {
                 counter!(
                     INGESTION_WARNINGS_TOTAL,
                     "type" => warning.as_str(),
@@ -205,7 +229,7 @@ impl WarningEmitter for KafkaWarningEmitter {
                 )
                 .increment(1);
             }
-            Err(err) => {
+            Err((err, _record)) => {
                 counter!(
                     INGESTION_WARNINGS_TOTAL,
                     "type" => warning.as_str(),
@@ -221,7 +245,8 @@ impl WarningEmitter for KafkaWarningEmitter {
     }
 
     fn flush(&self, timeout: Duration) {
-        self.producer.flush(timeout);
+        // Advisory only (shutdown path); errors are not actionable here.
+        drop(self.producer.flush(timeout));
     }
 }
 
@@ -263,17 +288,46 @@ fn spawn_delivery_observer(
 
 #[cfg(test)]
 mod tests {
+    use common_liveness::SyncLivenessReporter;
+    use rdkafka::ClientConfig;
+
     use super::*;
+
+    /// No-op liveness sink: these tests build a producer directly (not via
+    /// `create_kafka_producer`) specifically to skip its 15s broker-metadata
+    /// ping, so there is no real health signal to report.
+    #[derive(Clone, Copy)]
+    struct AlwaysHealthy;
+
+    impl SyncLivenessReporter for AlwaysHealthy {
+        fn report_healthy(&self) {}
+        fn report_unhealthy(&self) {}
+    }
+
+    /// Build a producer against an unreachable broker (TEST-NET-1) without
+    /// `create_kafka_producer`'s startup metadata fetch, so tests stay fast
+    /// and offline while still exercising the exact `FutureProducer<KafkaContext>`
+    /// type `KafkaWarningEmitter` holds in production.
+    fn unreachable_producer(
+        message_timeout_ms: u32,
+        linger_ms: u32,
+    ) -> FutureProducer<KafkaContext> {
+        ClientConfig::new()
+            .set("bootstrap.servers", "192.0.2.1:9092")
+            .set("message.timeout.ms", message_timeout_ms.to_string())
+            .set("linger.ms", linger_ms.to_string())
+            .set("queue.buffering.max.messages", "10")
+            .set("retries", "0")
+            .create_with_context(KafkaContext::new(AlwaysHealthy))
+            .expect("client config is valid, so creation cannot fail without a broker round-trip")
+    }
 
     #[test]
     fn kafka_emitter_throttles_repeats_and_never_blocks() {
         // Unreachable broker (TEST-NET-1): emit must return instantly whether
         // the message is enqueued or throttled.
-        let emitter = KafkaWarningEmitter::new(&WarningProducerConfig {
-            kafka_hosts: "192.0.2.1:9092".to_string(),
-            ..WarningProducerConfig::default()
-        })
-        .unwrap();
+        let emitter =
+            KafkaWarningEmitter::new(unreachable_producer(500, 5), "client_ingestion_warning");
 
         let start = std::time::Instant::now();
         emitter.emit(
@@ -307,13 +361,8 @@ mod tests {
     async fn emit_inside_a_runtime_spawns_delivery_observer_without_blocking() {
         // Same unreachable broker, but inside a tokio runtime so the delivery
         // observer task actually spawns; emit must still return immediately.
-        let emitter = KafkaWarningEmitter::new(&WarningProducerConfig {
-            kafka_hosts: "192.0.2.1:9092".to_string(),
-            message_timeout_ms: 500,
-            linger_ms: 5,
-            ..WarningProducerConfig::default()
-        })
-        .unwrap();
+        let emitter =
+            KafkaWarningEmitter::new(unreachable_producer(500, 5), "client_ingestion_warning");
 
         let start = std::time::Instant::now();
         emitter.emit(

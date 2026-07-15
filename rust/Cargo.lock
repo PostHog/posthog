@@ -1802,6 +1802,7 @@ dependencies = [
  "common-compression",
  "common-continuous-profiling",
  "common-ingestion-warnings",
+ "common-kafka",
  "common-redis",
  "common-types",
  "envconfig",
@@ -2408,6 +2409,8 @@ name = "common-ingestion-warnings"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "common-kafka",
+ "common-liveness",
  "common-types",
  "governor",
  "metrics",

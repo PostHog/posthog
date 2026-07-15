@@ -170,6 +170,13 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     capture_v1_max_decompressed_body_bytes: 50 * 1024 * 1024,
     capture_v1_scatter_gather_min_batch: 8,
     capture_ingestion_warnings_enabled: false,
+    capture_ingestion_warnings_kafka_acks: "1".to_string(),
+    capture_ingestion_warnings_kafka_retries: 0,
+    capture_ingestion_warnings_kafka_queue_mib: 16,
+    capture_ingestion_warnings_kafka_queue_messages: 10000,
+    capture_ingestion_warnings_kafka_message_timeout_ms: 5000,
+    capture_ingestion_warnings_kafka_linger_ms: 100,
+    capture_ingestion_warnings_kafka_message_max_bytes: 1048576,
 });
 
 /// Build the per-sink env snapshot the v1 sink loader expects, with every

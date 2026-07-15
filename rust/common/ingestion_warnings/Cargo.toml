@@ -8,6 +8,7 @@ workspace = true
 
 [dependencies]
 chrono = { workspace = true }
+common-kafka = { path = "../kafka" }
 common-types = { path = "../types" }
 governor = { workspace = true }
 metrics = { workspace = true }
@@ -18,4 +19,5 @@ tracing = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
+common-liveness = { path = "../liveness" }
 rstest = "0.26"

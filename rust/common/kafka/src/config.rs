@@ -48,6 +48,14 @@ pub struct KafkaConfig {
     // Set to "murmur2_random" to co-partition a keyed topic with Kafka-Java/python-kafka/Node
     // producers; `None` uses librdkafka's CRC32-based default, which routes keys differently.
     pub kafka_producer_partitioner: Option<String>,
+
+    // `None` means "let librdkafka pick its default" (acks=all, effectively unbounded retries
+    // within message.timeout.ms) — existing callers are unaffected. Fire-and-forget producers
+    // (e.g. best-effort warning emitters) set these explicitly to acks="1"/retries=0 so a slow
+    // broker times out and drops instead of retrying.
+    pub kafka_producer_acks: Option<String>,
+
+    pub kafka_producer_retries: Option<u32>,
 }
 
 #[derive(Envconfig, Clone)]

@@ -344,13 +344,45 @@ pub struct Config {
     pub capture_v1_scatter_gather_min_batch: usize,
 
     // --- Ingestion warnings emitter (fire-and-forget, best-effort) ---
-    // The single knob. Warnings are emitted as `$$client_ingestion_warning`
-    // events onto the existing `client_ingestion_warning` topic on the main
-    // event cluster (see `KAFKA_CLIENT_INGESTION_WARNING_TOPIC`), so the
-    // producer reuses the main Kafka connection config; there are no dedicated
-    // broker/topic/tuning env vars. Defaults off (fail open).
+    // Warnings are emitted as `$$client_ingestion_warning` events onto the
+    // existing `client_ingestion_warning` topic on the main event cluster
+    // (see `KAFKA_CLIENT_INGESTION_WARNING_TOPIC`), so the producer reuses the
+    // main cluster's hosts/TLS — but it gets its OWN dedicated
+    // `common_kafka::config::KafkaConfig` (below) with fire-and-forget
+    // acks/retries and a small queue, so a saturated or slow warnings topic
+    // can never behave like — or contend with — the main event producer.
+    // Defaults off (fail open).
     #[envconfig(default = "false")]
     pub capture_ingestion_warnings_enabled: bool,
+
+    // rdkafka "acks": "1" (leader ack only) trades durability for latency —
+    // appropriate for a best-effort warning nobody blocks on.
+    #[envconfig(default = "1")]
+    pub capture_ingestion_warnings_kafka_acks: String,
+
+    // rdkafka "retries": 0 — never retry a failed send; a warning is worth
+    // less than the memory/time cost of retrying it.
+    #[envconfig(default = "0")]
+    pub capture_ingestion_warnings_kafka_retries: u32,
+
+    #[envconfig(default = "16")]
+    pub capture_ingestion_warnings_kafka_queue_mib: u32,
+
+    #[envconfig(default = "10000")]
+    pub capture_ingestion_warnings_kafka_queue_messages: u32,
+
+    #[envconfig(default = "5000")]
+    pub capture_ingestion_warnings_kafka_message_timeout_ms: u32,
+
+    #[envconfig(default = "100")]
+    pub capture_ingestion_warnings_kafka_linger_ms: u32,
+
+    // rdkafka "message.max.bytes": a hard per-message ceiling, independent of
+    // the main producer's, so an oversized warning envelope (e.g. built from
+    // attacker-controlled input) cannot inflate past this regardless of what
+    // the main event producer allows.
+    #[envconfig(default = "1048576")]
+    pub capture_ingestion_warnings_kafka_message_max_bytes: u32,
 }
 
 #[derive(Envconfig, Clone)]
