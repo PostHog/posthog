@@ -55,16 +55,23 @@ def _fetch(session: requests.Session, url: str, headers: dict[str, str], logger:
 def validate_credentials(api_key: str) -> bool:
     # `/projects` is the cheapest authenticated probe: a project-scoped key can always list at least
     # its own project, so a 200 confirms the key is genuine without needing any session data.
-    # `redact_values` masks the key in tracked logs/samples. Transport errors (timeout, DNS, reset)
-    # propagate rather than being swallowed as False, so a temporary outage isn't reported as a bad key.
+    # `redact_values` masks the key in tracked logs/samples. `capture=False` keeps response bodies out
+    # of HTTP sample storage — project objects can carry arbitrary customer fields the name-based
+    # scrubbers can't recognise. Transport errors (timeout, DNS, reset) propagate rather than being
+    # swallowed as False, so a temporary outage isn't reported as a bad key.
     url = f"{BROWSERBASE_BASE_URL}/projects"
-    response = make_tracked_session(redact_values=(api_key,)).get(url, headers=_get_headers(api_key), timeout=10)
+    response = make_tracked_session(redact_values=(api_key,), capture=False).get(
+        url, headers=_get_headers(api_key), timeout=10
+    )
     return response.status_code == 200
 
 
 def get_rows(api_key: str, endpoint: str, logger: FilteringBoundLogger) -> Iterator[list[dict[str, Any]]]:
     config = BROWSERBASE_ENDPOINTS[endpoint]
-    session = make_tracked_session(redact_values=(api_key,))
+    # `capture=False`: session objects carry arbitrary `userMetadata` (and projects can carry other
+    # customer-defined fields) that the name-based sample scrubbers can't recognise, so keep response
+    # bodies out of HTTP sample storage entirely. Requests are still metered and logged (status + url).
+    session = make_tracked_session(redact_values=(api_key,), capture=False)
     headers = _get_headers(api_key)
 
     # Browserbase list endpoints return a plain JSON array with no pagination, page, or cursor params,
