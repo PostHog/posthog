@@ -1,12 +1,13 @@
 import json
 import dataclasses
-import xml.etree.ElementTree as ET
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 from urllib.parse import urlencode, urlsplit, urlunsplit
+from xml.etree.ElementTree import Element
 
 import requests
+import defusedxml.ElementTree as DET
 from structlog.types import FilteringBoundLogger
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
@@ -75,10 +76,12 @@ def _rate_limit_wait(retry_state: RetryCallState) -> float:
     return wait_exponential_jitter(initial=1, max=30)(retry_state)
 
 
-def _parse_xml(text: str) -> ET.Element:
+def _parse_xml(text: str) -> Element:
     # Qualys streams keep-alive whitespace while generating long responses; strip it so the
-    # XML declaration sits at the start of the document.
-    return ET.fromstring(text.strip())
+    # XML declaration sits at the start of the document. defusedxml rejects entity-expansion
+    # and external-entity payloads a compromised/spoofed server could embed.
+    root: Element = DET.fromstring(text.strip())
+    return root
 
 
 @retry(
@@ -94,7 +97,7 @@ def _parse_xml(text: str) -> ET.Element:
     wait=_rate_limit_wait,
     reraise=True,
 )
-def _fetch_page(session: requests.Session, url: str, logger: FilteringBoundLogger) -> ET.Element:
+def _fetch_page(session: requests.Session, url: str, logger: FilteringBoundLogger) -> Element:
     response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
 
     # Qualys signals per-subscription rate/concurrency limits with 409 plus X-RateLimit /
@@ -125,7 +128,7 @@ def _fetch_page(session: requests.Session, url: str, logger: FilteringBoundLogge
     return root
 
 
-def _element_to_value(element: ET.Element) -> Any:
+def _element_to_value(element: Element) -> Any:
     """Recursively convert an XML element to text, or a dict/list structure for nested elements."""
     children = list(element)
     if not children:
@@ -144,7 +147,7 @@ def _element_to_value(element: ET.Element) -> Any:
     return result
 
 
-def _element_to_row(element: ET.Element, skip_tags: set[str] | None = None) -> dict[str, Any]:
+def _element_to_row(element: Element, skip_tags: set[str] | None = None) -> dict[str, Any]:
     """Convert one record element to a flat row dict.
 
     Scalar children become string columns. Nested children (CVE_LIST, DNS_DATA, TAGS, ...) are
@@ -161,7 +164,7 @@ def _element_to_row(element: ET.Element, skip_tags: set[str] | None = None) -> d
     return row
 
 
-def _extract_rows(root: ET.Element, config: QualysVmdrEndpointConfig) -> Iterator[dict[str, Any]]:
+def _extract_rows(root: Element, config: QualysVmdrEndpointConfig) -> Iterator[dict[str, Any]]:
     for item in root.iter(config.item_tag):
         if not config.flatten_host_detections:
             yield _element_to_row(item)
@@ -176,7 +179,7 @@ def _extract_rows(root: ET.Element, config: QualysVmdrEndpointConfig) -> Iterato
             yield {**host_fields, **_element_to_row(detection)}
 
 
-def _next_batch_url(root: ET.Element, base_url: str) -> str | None:
+def _next_batch_url(root: Element, base_url: str) -> str | None:
     """Resolve the truncation WARNING's next-batch URL, re-rooted onto the configured server.
 
     When a response is truncated, Qualys returns a WARNING block whose URL carries the same

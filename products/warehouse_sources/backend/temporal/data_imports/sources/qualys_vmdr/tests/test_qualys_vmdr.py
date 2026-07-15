@@ -1,9 +1,11 @@
 import json
 from datetime import UTC, date, datetime
+from typing import cast
 
 import pytest
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.qualys_vmdr.qualys_vmdr import (
     QualysVmdrResumeConfig,
     QualysVmdrRetryableError,
@@ -19,6 +21,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.qualys_vmd
 from products.warehouse_sources.backend.temporal.data_imports.sources.qualys_vmdr.settings import QUALYS_VMDR_ENDPOINTS
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.qualys_vmdr.qualys_vmdr"
+
+# tenacity exposes the undecorated function via `__wrapped__`, so status classification can be
+# asserted without sitting through retry backoff.
+_fetch_page_unwrapped = _fetch_page.__wrapped__  # type: ignore[attr-defined]
 
 HOST_LIST_PAGE_1 = """<?xml version="1.0" encoding="UTF-8" ?>
 <HOST_LIST_OUTPUT>
@@ -124,6 +130,9 @@ class _FakeManager:
     def save_state(self, data: QualysVmdrResumeConfig) -> None:
         self.saved.append(data)
 
+    def as_manager(self) -> ResumableSourceManager[QualysVmdrResumeConfig]:
+        return cast(ResumableSourceManager[QualysVmdrResumeConfig], self)
+
 
 class TestQualysVmdr:
     @pytest.mark.parametrize(
@@ -201,7 +210,9 @@ class TestQualysVmdr:
         session.get.side_effect = [_response(text=HOST_LIST_PAGE_1), _response(text=HOST_LIST_PAGE_2)]
 
         with mock.patch(f"{_MODULE}._make_session", return_value=session):
-            generator = get_rows("qualysapi.qualys.com", "user", "pass", "hosts", mock.MagicMock(), manager)
+            generator = get_rows(
+                "qualysapi.qualys.com", "user", "pass", "hosts", mock.MagicMock(), manager.as_manager()
+            )
 
             first_batch = next(generator)
             assert [row["id"] for row in first_batch] == ["1001"]
@@ -226,7 +237,9 @@ class TestQualysVmdr:
         session.get.return_value = _response(text=HOST_LIST_PAGE_2)
 
         with mock.patch(f"{_MODULE}._make_session", return_value=session):
-            batches = list(get_rows("qualysapi.qualys.com", "user", "pass", "hosts", mock.MagicMock(), manager))
+            batches = list(
+                get_rows("qualysapi.qualys.com", "user", "pass", "hosts", mock.MagicMock(), manager.as_manager())
+            )
 
         assert session.get.call_args[0][0] == resume_url
         assert [row["id"] for row in batches[0]] == ["1002"]
@@ -236,7 +249,7 @@ class TestQualysVmdr:
         session.get.return_value = _response(status_code=409, headers={"X-RateLimit-ToWait-Sec": "42"})
 
         with pytest.raises(QualysVmdrRetryableError) as exc_info:
-            _fetch_page.__wrapped__(session, "https://example.com", mock.MagicMock())
+            _fetch_page_unwrapped(session, "https://example.com", mock.MagicMock())
 
         assert exc_info.value.wait_seconds == 42
 
@@ -245,7 +258,7 @@ class TestQualysVmdr:
         session.get.return_value = _response(text=SIMPLE_RETURN_ERROR)
 
         with pytest.raises(ValueError, match="Bad parameter value"):
-            _fetch_page.__wrapped__(session, "https://example.com", mock.MagicMock())
+            _fetch_page_unwrapped(session, "https://example.com", mock.MagicMock())
 
     @pytest.mark.parametrize(
         "status_code,expected",
