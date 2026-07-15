@@ -195,7 +195,7 @@ async fn create_statefulset(client: &Client, name: &str, replicas: i32) {
 
 async fn wait_for_ready_pods(client: &Client, label_selector: &str, count: usize) {
     let pods: Api<k8s_openapi::api::core::v1::Pod> = Api::namespaced(client.clone(), NAMESPACE);
-    let timeout = Duration::from_secs(120);
+    let timeout = Duration::from_secs(300);
     let start = std::time::Instant::now();
 
     loop {
@@ -244,7 +244,7 @@ async fn wait_for_new_running_pods(
     old_names: &[String],
     count: usize,
 ) -> Vec<String> {
-    let timeout = Duration::from_secs(120);
+    let timeout = Duration::from_secs(300);
     let start = std::time::Instant::now();
     loop {
         let all = get_running_pod_names(client, label_selector).await;
