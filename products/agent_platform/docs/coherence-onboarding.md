@@ -116,7 +116,7 @@ benign edits (false alarms), and score which go red.
 
 ```sh
 git clone --branch v0.9.0 https://github.com/daniloc/coherence.git /tmp/coherence
-cd /tmp/coherence && npm install && npm run build   # → dist/cli.js (Node ≥22, zero runtime deps)
+cd /tmp/coherence && npm ci --ignore-scripts && npm run build   # → dist/cli.js (Node ≥22, zero runtime deps)
 ```
 
 The gate pins `daniloc/coherence` at commit `bb40f4a` (v0.9.0) — see

@@ -7,12 +7,13 @@
 # hook just runs the built CLI (zero runtime deps).
 set -euo pipefail
 
-PIN="bb40f4a" # daniloc/coherence v0.9.0 — pinned commit (immutable; bump deliberately)
+# Full 40-char SHA (not a short pin): unambiguous, collision-resistant.
+PIN="bb40f4a1e7f673b6caf20bf11b57b557019aa0f8" # daniloc/coherence v0.9.0 (bump deliberately)
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 DEST="$REPO_ROOT/products/agent_platform/.coherence-tool/repo"
 
 if [ -d "$DEST/.git" ] &&
-    [ "$(git -C "$DEST" rev-parse --short=7 HEAD 2>/dev/null)" = "$PIN" ] &&
+    [ "$(git -C "$DEST" rev-parse HEAD 2>/dev/null)" = "$PIN" ] &&
     [ -f "$DEST/dist/cli.js" ]; then
     echo "[coherence] already installed at $PIN"
     exit 0
@@ -22,6 +23,11 @@ echo "[coherence] installing daniloc/coherence@$PIN (clone + build, one time) ..
 rm -rf "$DEST"
 git clone --quiet https://github.com/daniloc/coherence.git "$DEST"
 git -C "$DEST" checkout --quiet "$PIN"
-(cd "$DEST" && npm install --silent && npm run build --silent)
+# npm (not pnpm) on purpose: this is an isolated clone outside the pnpm
+# workspace with its own package-lock.json — `npm ci` honours that lockfile for
+# a deterministic install (pnpm would ignore it). `--ignore-scripts` blocks any
+# dependency lifecycle script from executing; the build is a plain `tsc` that
+# doesn't need them. npm ships with Node, which we already require.
+(cd "$DEST" && npm ci --ignore-scripts --silent && npm run build --silent)
 echo "[coherence] ready. 'coherence verify --fast' now runs on agent_platform pre-commits."
 echo "[coherence] bypass any single commit with 'git commit --no-verify'."
