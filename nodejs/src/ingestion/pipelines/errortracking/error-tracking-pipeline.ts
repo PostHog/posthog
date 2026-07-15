@@ -284,9 +284,9 @@ export function createErrorTrackingPipeline(config: ErrorTrackingPipelineConfig)
  * Events are emitted to the output topic as a side effect. Failures are
  * handled by the result handling pipeline (DLQ, drop, redirect).
  *
- * Element side effects (DLQ/overflow produces) are already scheduled inside
- * the pipeline; batch hook side effects are awaited here so a driver never
- * silently drops them (the hooks are passthrough today, so the array is empty).
+ * All side effects — element results and batch hooks alike — are handled
+ * inside the pipeline (scheduled on the promise scheduler, which the consumer
+ * drains before committing offsets), so this driver only drains results.
  */
 export async function runErrorTrackingPipeline(pipeline: ErrorTrackingPipeline, messages: Message[]): Promise<void> {
     if (messages.length === 0) {
@@ -301,9 +301,7 @@ export async function runErrorTrackingPipeline(pipeline: ErrorTrackingPipeline, 
         throw new Error(`error tracking pipeline rejected feed: ${feedResult.kind} (${feedResult.reason})`)
     }
 
-    let batchResult = await pipeline.next()
-    while (batchResult !== null) {
-        await Promise.all(batchResult.sideEffects ?? [])
-        batchResult = await pipeline.next()
+    while ((await pipeline.next()) !== null) {
+        // Drain all results
     }
 }

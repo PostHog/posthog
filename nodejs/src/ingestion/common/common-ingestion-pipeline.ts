@@ -75,6 +75,13 @@ export interface CommonIngestionPipelineConfig<ROut extends string = never> {
     promiseScheduler: PromiseScheduler
     /** Maximum number of batches accepted concurrently. Defaults to the framework default. */
     concurrentBatches?: number
+    /**
+     * Await side effects inline instead of scheduling them on the promise
+     * scheduler. Applies to element results and to the beforeBatch/afterBatch
+     * hooks alike — the built pipeline always handles its own side effects, so
+     * drivers never see them on `BatchResult.sideEffects`. Defaults to false.
+     */
+    awaitSideEffects?: boolean
 }
 
 /** Element type entering the per-batch sub-pipeline: input enriched by the beforeBatch hooks. */
@@ -456,8 +463,9 @@ export class CommonBuildStage<
     ) {}
 
     build(): BatchingPipeline<TInput, TFinal, TContext, CBatch, BatchContext<TContext>, ROut> {
-        const { outputs, promiseScheduler, concurrentBatches } = this.config
+        const { outputs, promiseScheduler, concurrentBatches, awaitSideEffects } = this.config
         const pipelineConfig: PipelineConfig<ROut> = { outputs, promiseScheduler }
+        const sideEffectOptions = { await: awaitSideEffects ?? false }
         const afterBatchCallback: AfterBatchCallback<TFinal, TContext, CBatch, ROut> =
             this.afterBatchCallback ??
             ((builder) =>
@@ -465,14 +473,16 @@ export class CommonBuildStage<
                     return Promise.resolve(ok(input))
                 }))
 
+        // The hooks handle their own side effects, so nothing rides out on
+        // `BatchResult.sideEffects` and drivers only ever drain results.
         return newBatchingPipeline<TInput, TFinal, TContext, CBatch, TContext, ROut>(
-            this.beforeBatchCallback,
+            (builder) => this.beforeBatchCallback(builder).handleSideEffects(promiseScheduler, sideEffectOptions),
             (batch) =>
                 batch
                     .messageAware((b) => this.transform(b))
                     .handleResults(pipelineConfig)
-                    .handleSideEffects(promiseScheduler, { await: false }),
-            afterBatchCallback,
+                    .handleSideEffects(promiseScheduler, sideEffectOptions),
+            (builder) => afterBatchCallback(builder).handleSideEffects(promiseScheduler, sideEffectOptions),
             concurrentBatches === undefined ? undefined : { concurrentBatches }
         )
     }
