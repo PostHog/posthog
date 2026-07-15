@@ -128,6 +128,9 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> None:
     # Resolve credentials against this message's sender, not the run-state
     # actor a concurrent follow-up may have overwritten since queueing. Local
     # overlay; the resolver still enforces team access (see run_actor.py).
+    raw_actor_slack_user_id = (input.context or {}).get("actor_slack_user_id")
+    actor_slack_user_id = raw_actor_slack_user_id if isinstance(raw_actor_slack_user_id, str) else None
+
     state = task_run.state
     if input.actor_user_id is not None:
         state = {**(state or {}), "slack_actor_user_id": input.actor_user_id}
@@ -136,11 +139,7 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> None:
             # moves the durable actor at turn boundaries — between-turn
             # consumers (reply tagging, permission broker) see the executing
             # turn's actor. Skipped when already current.
-            actor_slack_user_id = (input.context or {}).get("actor_slack_user_id")
-            updates = slack_actor_state_updates(
-                user_id=input.actor_user_id,
-                slack_user_id=actor_slack_user_id if isinstance(actor_slack_user_id, str) else None,
-            )
+            updates = slack_actor_state_updates(user_id=input.actor_user_id, slack_user_id=actor_slack_user_id)
             current = task_run.state or {}
             if any(current.get(key) != value for key, value in updates.items()):
                 try:
@@ -172,9 +171,8 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> None:
             _write_error_and_complete(input.run_id, error_msg, run_uses_dedicated_stream(task_run.state))
             raise ApplicationError(f"send_followup failed: {error_msg}", non_retryable=True)
 
-    delivery_actor_slack_user_id = (input.context or {}).get("actor_slack_user_id")
-    if input.message_id and isinstance(delivery_actor_slack_user_id, str) and delivery_actor_slack_user_id:
-        record_message_actor(input.run_id, input.message_id, delivery_actor_slack_user_id)
+    if input.message_id and actor_slack_user_id:
+        record_message_actor(input.run_id, input.message_id, actor_slack_user_id)
 
     result = send_user_message(
         task_run,
@@ -199,17 +197,6 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> None:
                 attempt=_current_attempt(),
             )
             return
-        turn_actor_slack_user_id = (input.context or {}).get("actor_slack_user_id")
-        if isinstance(turn_actor_slack_user_id, str) and turn_actor_slack_user_id:
-            # The ack means this message's turn finished; record its actor for
-            # reply tagging — the relay may fire after the next delivery has
-            # already restamped the live actor.
-            try:
-                TaskRun.update_state_atomic(
-                    input.run_id, updates={"slack_last_turn_slack_user_id": turn_actor_slack_user_id}
-                )
-            except Exception:
-                logger.warning("send_followup_turn_actor_stamp_failed", run_id=input.run_id, exc_info=True)
         _write_turn_complete(input.run_id, _get_stop_reason(result.data), run_uses_dedicated_stream(task_run.state))
         logger.info("send_followup_delivered", run_id=input.run_id)
     elif result.turn_in_flight:

@@ -2735,28 +2735,12 @@ def relay_task_run_message(
             logger.exception("task_run_relay_text_signal_failed", extra={"run_id": str(run.id)})
         return "skipped", None
 
-    # Prefer the exact message this turn answers (agent-server echoes its
-    # id); fall back to the last completed turn's actor (stamped on the
-    # delivery ack), then the live actor for pre-rollout runs.
-    mention_slack_user_id = None
-    if message_id:
-        from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporal deps off the api import path
-            get_message_actor,
-        )
-
-        mention_slack_user_id = get_message_actor(str(run.id), message_id)
-    relay_state = run.state or {}
-    mention_slack_user_id = (
-        mention_slack_user_id
-        or relay_state.get("slack_last_turn_slack_user_id")
-        or relay_state.get("slack_actor_slack_user_id")
-    )
     try:
         relay_id = execute_posthog_code_agent_relay_workflow(
             run_id=str(run.id),
             text=trimmed,
             delete_progress=True,
-            mention_slack_user_id=mention_slack_user_id if isinstance(mention_slack_user_id, str) else None,
+            message_id=message_id,
         )
     except Exception:
         logger.exception("task_run_relay_message_enqueue_failed", extra={"run_id": str(run.id)})

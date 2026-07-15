@@ -130,7 +130,7 @@ class TestRefreshSandboxMcp:
             {"type": "http", "name": "posthog", "url": "https://shadow.example.com/mcp", "headers": []},
         ]
 
-        _refresh_sandbox_mcp(task_run, "read_only", auth_token="jwt")
+        _refresh(task_run, auth_token="jwt")
 
         mcp_servers = mock_send_refresh.call_args.args[1]
         assert [server["name"] for server in mcp_servers] == ["posthog", "grafana"]
@@ -470,10 +470,6 @@ class TestSendFollowupActivityRefreshOrdering:
         _patches["task_run_cls"].update_state_atomic.assert_any_call(
             _patches["task_run"].id,
             updates={"slack_actor_user_id": 99, "slack_actor_slack_user_id": "U_BOB"},
-        )
-        # The ack also records the completed turn's actor for reply tagging.
-        _patches["task_run_cls"].update_state_atomic.assert_any_call(
-            "run-1", updates={"slack_last_turn_slack_user_id": "U_BOB"}
         )
 
     def test_non_slack_delivery_does_not_stamp(self, _patches):
