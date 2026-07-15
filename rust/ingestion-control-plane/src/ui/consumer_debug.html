@@ -252,8 +252,14 @@
       const fmtDur = (ms) => {
         if (ms == null || !isFinite(ms) || ms < 0) return "—";
         if (ms < 1000) return `${Math.round(ms)}ms`;
-        if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
-        return `${Math.floor(ms / 60000)}m ${String(Math.round((ms % 60000) / 1000)).padStart(2, "0")}s`;
+        // Round before picking the unit so 59,999ms doesn't render as "60.0s"
+        // or 119,999ms as "1m 60s".
+        if (ms < 60000) {
+          const seconds = Math.round(ms / 100) / 10;
+          if (seconds < 60) return `${seconds.toFixed(1)}s`;
+        }
+        const totalSeconds = Math.round(ms / 1000);
+        return `${Math.floor(totalSeconds / 60)}m ${String(totalSeconds % 60).padStart(2, "0")}s`;
       };
 
       // ---------- point-in-time load (polled fast, no event backlog) ----------
@@ -499,13 +505,18 @@
         const flow = buildFlow(b, workers);
 
         // Annotate flushes with the stash dwell time so defer → retry gaps are
-        // readable without diffing timestamps by hand.
-        let lastDeferTs = null;
+        // readable without diffing timestamps by hand. Measured from the first
+        // deferral of the current stash cycle: several Deferred events can pile
+        // up before one flush, and the earliest is what waited longest.
+        let cycleDeferTs = null;
         const timeline = b.events.map((ev) => {
           const [cls, html] = describe(ev);
           let extra = "";
-          if (ev.type === "Deferred") lastDeferTs = ev.ts_ms;
-          if (ev.type === "DeferredFlushed" && lastDeferTs !== null) extra = `<span class="tag"> · waited ${fmtDur(ev.ts_ms - lastDeferTs)}</span>`;
+          if (ev.type === "Deferred" && cycleDeferTs === null) cycleDeferTs = ev.ts_ms;
+          if (ev.type === "DeferredFlushed" && cycleDeferTs !== null) {
+            extra = `<span class="tag"> · waited ${fmtDur(ev.ts_ms - cycleDeferTs)}</span>`;
+            cycleDeferTs = null;
+          }
           return `<div class="item ${cls}"><span class="t">${fmtTime(ev.ts_ms)}</span>${html}${extra}</div>`;
         }).join("");
 
