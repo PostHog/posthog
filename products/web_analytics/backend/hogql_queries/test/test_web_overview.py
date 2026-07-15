@@ -1,7 +1,8 @@
 from datetime import UTC, datetime, timedelta
-from typing import Optional
+from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
@@ -36,6 +37,7 @@ from posthog.schema import (
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.models import Element
@@ -1132,8 +1134,10 @@ class TestWebOverviewNoJoinFastPath(ClickhouseTestMixin, APIBaseTest):
             assert not runner.should_skip_session_join
 
 
-class TestWebOverviewTwoPhaseFastPath(ClickhouseTestMixin, APIBaseTest):
+@pytest.mark.usefixtures("unittest_snapshot")
+class TestWebOverviewSessionIdSetFastPath(ClickhouseTestMixin, APIBaseTest):
     QUERY_TIMESTAMP = "2025-01-29"
+    snapshot: Any
 
     def _create_pageviews(self):
         s1, s2, s3 = str(uuid7("2025-01-10")), str(uuid7("2025-01-11")), str(uuid7("2025-01-12"))
@@ -1157,7 +1161,7 @@ class TestWebOverviewTwoPhaseFastPath(ClickhouseTestMixin, APIBaseTest):
                     },
                 )
         # A matching pageview with a malformed (non-UUID) session id: the join path
-        # leaves it unmatched; the two-phase id set must drop it instead of feeding
+        # leaves it unmatched; the session-id-set id set must drop it instead of feeding
         # a toUUID() conversion that aborts the whole query.
         _create_event(
             team=self.team,
@@ -1179,19 +1183,19 @@ class TestWebOverviewTwoPhaseFastPath(ClickhouseTestMixin, APIBaseTest):
         return WebOverviewQueryRunner(team=self.team, query=query)
 
     @parameterized.expand([(True,), (False,)])
-    def test_two_phase_results_match_join_path(self, compare: bool):
+    def test_session_id_set_results_match_join_path(self, compare: bool):
         self._create_pageviews()
 
         kwargs = {"compareFilter": CompareFilter(compare=True)} if compare else {}
         with freeze_time(self.QUERY_TIMESTAMP):
-            with override_settings(WEB_ANALYTICS_TWO_PHASE_TEAM_IDS=[self.team.pk]):
+            with override_settings(WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS=[self.team.pk]):
                 fast_runner = self._make_runner(**kwargs)
-                assert fast_runner.should_use_two_phase
+                assert fast_runner.should_use_session_id_set
                 assert not fast_runner.should_skip_session_join
                 fast_results = fast_runner.calculate().results
 
             join_runner = self._make_runner(**kwargs)
-            assert not join_runner.should_use_two_phase
+            assert not join_runner.should_use_session_id_set
             join_results = join_runner.calculate().results
 
         assert [item.key for item in fast_results] == [item.key for item in join_results]
@@ -1225,10 +1229,10 @@ class TestWebOverviewTwoPhaseFastPath(ClickhouseTestMixin, APIBaseTest):
             ("conversion_goal", {"conversionGoal": CustomEventConversionGoal(customEventName="purchase")}, False),
         ]
     )
-    def test_two_phase_eligibility(self, _name: str, query_kwargs: dict, expected: bool):
-        with override_settings(WEB_ANALYTICS_TWO_PHASE_TEAM_IDS=[self.team.pk]):
+    def test_session_id_set_eligibility(self, _name: str, query_kwargs: dict, expected: bool):
+        with override_settings(WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS=[self.team.pk]):
             runner = self._make_runner(**query_kwargs)
-            assert runner.should_use_two_phase == expected
+            assert runner.should_use_session_id_set == expected
 
     @parameterized.expand(
         [
@@ -1245,14 +1249,14 @@ class TestWebOverviewTwoPhaseFastPath(ClickhouseTestMixin, APIBaseTest):
             ("cohort_test_filter", [{"key": "id", "type": "cohort", "value": 1}], False),
         ]
     )
-    def test_two_phase_supports_event_and_person_test_account_filters(self, _name, filters, expected):
+    def test_session_id_set_supports_event_and_person_test_account_filters(self, _name, filters, expected):
         self.team.test_account_filters = filters
         self.team.save()
-        with override_settings(WEB_ANALYTICS_TWO_PHASE_TEAM_IDS=[self.team.pk]):
+        with override_settings(WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS=[self.team.pk]):
             runner = self._make_runner(filterTestAccounts=True)
-            assert runner.should_use_two_phase == expected
+            assert runner.should_use_session_id_set == expected
 
-    def test_two_phase_with_test_filters_matches_join_path(self):
+    def test_session_id_set_with_test_filters_matches_join_path(self):
         self._create_pageviews()
         self.team.test_account_filters = [
             {"key": "$pathname", "type": "event", "operator": "not_icontains", "value": "/docs"}
@@ -1260,22 +1264,22 @@ class TestWebOverviewTwoPhaseFastPath(ClickhouseTestMixin, APIBaseTest):
         self.team.save()
 
         with freeze_time(self.QUERY_TIMESTAMP):
-            with override_settings(WEB_ANALYTICS_TWO_PHASE_TEAM_IDS=[self.team.pk]):
+            with override_settings(WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS=[self.team.pk]):
                 fast_runner = self._make_runner(filterTestAccounts=True)
-                assert fast_runner.should_use_two_phase
+                assert fast_runner.should_use_session_id_set
                 fast_results = fast_runner.calculate().results
             join_results = self._make_runner(filterTestAccounts=True).calculate().results
 
         for fast, join in zip(fast_results, join_results):
             assert fast.value == join.value, f"{fast.key}: {fast.value} != {join.value}"
 
-    def test_two_phase_requires_team_allowlist(self):
+    def test_session_id_set_requires_team_allowlist(self):
         runner = self._make_runner()
-        assert not runner.should_use_two_phase
+        assert not runner.should_use_session_id_set
 
-    def test_two_phase_pushes_id_filter_below_session_aggregation(self):
+    def test_session_id_set_pushes_id_filter_below_session_aggregation(self):
         with freeze_time(self.QUERY_TIMESTAMP):
-            with override_settings(WEB_ANALYTICS_TWO_PHASE_TEAM_IDS=[self.team.pk]):
+            with override_settings(WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS=[self.team.pk]):
                 runner = self._make_runner()
                 context = HogQLContext(
                     team_id=self.team.pk,
@@ -1292,18 +1296,45 @@ class TestWebOverviewTwoPhaseFastPath(ClickhouseTestMixin, APIBaseTest):
         # predicate makes ClickHouse execute the identical GLOBAL IN id-subquery
         # twice — one extra full filtered-events scan per query.
         assert sql.count("globalIn(") == 1
+        # Full-shape lock on the generated SQL, complementing the targeted
+        # assertions above — any change to the rendered fast-path query shows up
+        # in review as a snapshot diff.
+        assert self.generalize_sql(sql) == self.snapshot
 
-    def test_two_phase_falls_back_to_join_when_filter_is_unselective(self):
+    def test_session_id_set_falls_back_to_join_when_preflight_query_fails(self):
+        self._create_pageviews()
+
+        def fail_preflight(*args, **kwargs):
+            if kwargs.get("query_type") == "web_overview_session_id_set_preflight":
+                raise Exception("clickhouse unavailable")
+            return execute_hogql_query(*args, **kwargs)
+
+        with freeze_time(self.QUERY_TIMESTAMP):
+            with override_settings(WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS=[self.team.pk]):
+                with patch(
+                    "products.web_analytics.backend.hogql_queries.web_overview.execute_hogql_query",
+                    side_effect=fail_preflight,
+                ):
+                    runner = self._make_runner()
+                    fallback_results = runner.calculate().results
+                    assert runner._session_id_set_selectivity_ok is False
+
+            join_results = self._make_runner().calculate().results
+
+        for fallback, join in zip(fallback_results, join_results):
+            assert fallback.value == join.value, f"{fallback.key}: {fallback.value} != {join.value}"
+
+    def test_session_id_set_falls_back_to_join_when_filter_is_unselective(self):
         self._create_pageviews()
 
         with freeze_time(self.QUERY_TIMESTAMP):
-            with override_settings(WEB_ANALYTICS_TWO_PHASE_TEAM_IDS=[self.team.pk]):
+            with override_settings(WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS=[self.team.pk]):
                 with patch(
-                    "products.web_analytics.backend.hogql_queries.web_overview.TWO_PHASE_MAX_MATCHING_SESSIONS", 0
+                    "products.web_analytics.backend.hogql_queries.web_overview.SESSION_ID_SET_MAX_MATCHING_SESSIONS", 0
                 ):
                     runner = self._make_runner()
                     gated_results = runner.calculate().results
-                    assert runner._two_phase_selectivity_ok is False
+                    assert runner._session_id_set_selectivity_ok is False
 
             join_results = self._make_runner().calculate().results
 

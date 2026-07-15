@@ -459,15 +459,25 @@ def build_direct_session_id_in_pushdown(node: ast.SelectQuery, context: HogQLCon
     """Push a top-level ``session_id IN (SELECT …)`` filter below the per-session GROUP BY.
 
     A direct select over ``sessions`` aggregates every session in the date range
-    before outer WHERE filters apply, so an id-set filter (the two-phase pattern:
-    events side first, sessions restricted to matching ids) pays the full
+    before outer WHERE filters apply, so an id-set filter (the session-id-set
+    pattern: events side first, sessions restricted to matching ids) pays the full
     aggregation anyway. Rewriting it onto ``raw_sessions.session_id_v7`` inside the
     subquery prunes before aggregation — memory and CPU then scale with matching
     sessions, not all sessions. ``GlobalIn`` keeps the id subquery executing once
-    on the initiator instead of once per shard.
+    on the initiator instead of once per shard. When the rewrite fires, the
+    original outer term is neutralized in place (rewritten to ``1 = 1``) so the id
+    subquery is not executed a second time above the GROUP BY.
 
-    Fails open (returns None) on any shape it doesn't recognize; the outer filter
-    still applies, so this is purely a performance rewrite.
+    Exposure: this is keyed on the ``sessionIdPushdown`` modifier, which teams can
+    persist in ``team.modifiers`` — so any HogQL query with a matching shape
+    (including SQL editor queries) can hit this rewrite, not just the web overview
+    runner. That is safe because the rewrite is semantics-preserving: the filter is
+    on the GROUP BY key itself, so pruning before aggregation returns the same rows
+    as filtering after (locked by the parity tests in
+    test_session_v2_where_clause_extractor.py). Fails open (returns None, outer
+    term untouched) on any shape it doesn't recognize — NOT IN, literal lists,
+    OR-nested terms, multi-column subqueries — preserving exact original semantics
+    there.
     """
     if not context.modifiers or not context.modifiers.sessionIdPushdown:
         return None

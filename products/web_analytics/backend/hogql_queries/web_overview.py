@@ -35,12 +35,12 @@ from products.web_analytics.backend.hogql_queries.web_overview_pre_aggregated im
 
 logger = structlog.get_logger(__name__)
 
-# Ceiling on the phase-1 id set for the two-phase fast path. Cross-team production
-# benchmarks (findings-10): two-phase memory scales ~190 MiB per million ids and still
+# Ceiling on the phase-1 id set for the session-id-set fast path. Cross-team production
+# benchmarks (findings-10): session-id-set memory scales ~190 MiB per million ids and still
 # beats the join at 4-5M ids (3.8s/727MiB vs 6.8s/4.5GiB at 3.8M); the extrapolated
-# crossover where the shipped set stops paying is ~20M. 10M caps two-phase memory at
+# crossover where the shipped set stops paying is ~20M. 10M caps session-id-set memory at
 # ~2 GiB — under half the join's typical footprint — with margin before the crossover.
-TWO_PHASE_MAX_MATCHING_SESSIONS = 10_000_000
+SESSION_ID_SET_MAX_MATCHING_SESSIONS = 10_000_000
 
 
 class WebOverviewQueryRunner(WebAnalyticsQueryRunner[WebOverviewQueryResponse]):
@@ -55,21 +55,21 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner[WebOverviewQueryResponse]):
         self.use_v2_tables = team_version == "v2" if team_version else use_v2_tables
         self.preaggregated_query_builder = WebOverviewPreAggregatedQueryBuilder(self)
         # None = not yet checked (e.g. EXPLAIN paths); set by `_calculate` before execution.
-        self._two_phase_selectivity_ok: Optional[bool] = None
+        self._session_id_set_selectivity_ok: Optional[bool] = None
 
     def to_query(self) -> ast.SelectQuery:
         if self.should_skip_session_join:
             WEB_ANALYTICS_NO_JOIN_SERVED.labels(family="overview").inc()
             return self.no_join_select
-        if self.should_use_two_phase and self._two_phase_selectivity_ok is not False:
+        if self.should_use_session_id_set and self._session_id_set_selectivity_ok is not False:
             # Count only executions whose preflight passed — `to_query` also runs for
             # EXPLAIN/debug paths where selectivity was never checked (None).
-            if self._two_phase_selectivity_ok:
-                WEB_ANALYTICS_NO_JOIN_SERVED.labels(family="overview_two_phase").inc()
-            return self.two_phase_select
+            if self._session_id_set_selectivity_ok:
+                WEB_ANALYTICS_NO_JOIN_SERVED.labels(family="overview_session_id_set").inc()
+            return self.session_id_set_select
         return self.outer_select
 
-    def _check_two_phase_selectivity(self) -> bool:
+    def _check_session_id_set_selectivity(self) -> bool:
         """Preflight: is the filtered session-id set small enough to ship to shards?
 
         A cheap count over the filtered events (materialized columns only) — the
@@ -96,7 +96,7 @@ WHERE and(
         )
         try:
             response = execute_hogql_query(
-                query_type="web_overview_two_phase_preflight",
+                query_type="web_overview_session_id_set_preflight",
                 query=count_query,
                 team=self.team,
                 user=self.user,
@@ -107,13 +107,13 @@ WHERE and(
             matching = response.results[0][0] if response.results else None
             if matching is None:
                 return False
-            return matching <= TWO_PHASE_MAX_MATCHING_SESSIONS
+            return matching <= SESSION_ID_SET_MAX_MATCHING_SESSIONS
         except Exception as e:
-            logger.exception("web_overview_two_phase_preflight_failed", error=e)
+            logger.exception("web_overview_session_id_set_preflight_failed", error=e)
             return False
 
     @cached_property
-    def should_use_two_phase(self) -> bool:
+    def should_use_session_id_set(self) -> bool:
         """Whether a filtered query can run as two independent scans linked by an id set.
 
         Applies when every filter is an event property filter: the events side
@@ -124,7 +124,7 @@ WHERE and(
         Session/person/cohort filters can't be evaluated events-side and keep the
         join path.
         """
-        if self.team.pk not in settings.WEB_ANALYTICS_TWO_PHASE_TEAM_IDS:
+        if self.team.pk not in settings.WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS:
             return False
         if self.query.conversionGoal:
             return False
@@ -135,7 +135,7 @@ WHERE and(
         # Test-account filters are raw dicts off the team model; event- and
         # person-property ones are evaluable on the events side of the id
         # collection (person props via person-on-events), so they ride the
-        # two-phase shape. Cohort test filters can't, and keep the join.
+        # session-id-set shape. Cohort test filters can't, and keep the join.
         if not all(f.get("type") in ("event", "person") for f in self._test_account_filters):
             return False
         if self.query.samplingFactor and self.query.samplingFactor != 1:
@@ -145,7 +145,19 @@ WHERE and(
         return True
 
     @cached_property
-    def two_phase_select(self) -> ast.SelectQuery:
+    def session_id_set_select(self) -> ast.SelectQuery:
+        """Filtered overview as two scans linked by the set of matching session ids.
+
+        Instead of joining events to sessions (which re-executes the sessions
+        subquery on every shard), run the filtered events scan first and collect
+        the distinct session ids it matches, then aggregate the sessions side
+        only over that id set. `build_direct_session_id_in_pushdown` rewrites the
+        `IN` into a GLOBAL IN on `raw_sessions.session_id_v7` below the
+        per-session GROUP BY, so the id collection executes once on the initiator
+        and the set is broadcast to shards. `_check_session_id_set_selectivity`
+        bounds the set size beforehand so we never ship a set too large to hold
+        in memory.
+        """
         filters = property_to_expr(list(self.query.properties) + self._test_account_filters, team=self.team)
         # The id set flows as the nullable-UUID materialized column: malformed
         # `$session_id` strings become NULL and drop out of the set (the join path
@@ -386,16 +398,16 @@ CROSS JOIN {sessions_agg} AS sessions_agg
 
         pre_aggregated_response = self.get_pre_aggregated_response()
 
-        if self.should_use_two_phase and not self.should_skip_session_join:
-            self._two_phase_selectivity_ok = self._check_two_phase_selectivity()
+        if self.should_use_session_id_set and not self.should_skip_session_join:
+            self._session_id_set_selectivity_ok = self._check_session_id_set_selectivity()
 
         execution_modifiers = self.modifiers
         if (
-            self.should_use_two_phase
-            and self._two_phase_selectivity_ok is not False
+            self.should_use_session_id_set
+            and self._session_id_set_selectivity_ok is not False
             and not self.should_skip_session_join
         ):
-            # The two-phase shape relies on `build_direct_session_id_in_pushdown`
+            # The session-id-set shape relies on `build_direct_session_id_in_pushdown`
             # rewriting the id-set filter below the sessions GROUP BY; that rewrite
             # is gated on the sessionIdPushdown modifier.
             execution_modifiers = self.modifiers.model_copy() if self.modifiers else HogQLQueryModifiers()
@@ -409,8 +421,8 @@ CROSS JOIN {sessions_agg} AS sessions_agg
                 query_type=(
                     "web_overview_no_join_query"
                     if self.should_skip_session_join
-                    else "web_overview_two_phase_query"
-                    if self.should_use_two_phase and self._two_phase_selectivity_ok is not False
+                    else "web_overview_session_id_set_query"
+                    if self.should_use_session_id_set and self._session_id_set_selectivity_ok is not False
                     else "web_overview_query"
                 ),
                 query=self.to_query(),
