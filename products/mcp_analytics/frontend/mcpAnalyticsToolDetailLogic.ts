@@ -1,11 +1,12 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { dateFilterToText, dateStringToDayJs } from 'lib/utils/dateFilters'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import {
     DateRange,
@@ -323,7 +324,7 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
         dateRange: [
             (s) => [s.dateFilter, teamLogic.selectors.timezone],
             (dateFilter: DateFilter, timezone: string): DateRange => {
-                const to = dateFilter.dateTo ? dayjs(dateFilter.dateTo) : dayjs().tz(timezone)
+                const to = dateStringToDayJs(dateFilter.dateTo, timezone) ?? dayjs().tz(timezone)
                 const from =
                     dateStringToDayJs(dateFilter.dateFrom, timezone) ?? dayjs().tz(timezone).subtract(30, 'day')
                 return { date_from: from.toISOString(), date_to: to.toISOString() }
@@ -352,15 +353,22 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
         },
     })),
 
-    afterMount(({ actions, values }) => {
-        // The window rides along in the URL from the Tool quality tab; adopt it before loading.
-        const { searchParams } = router.values
-        const dateFrom =
-            typeof searchParams.date_from === 'string' ? searchParams.date_from : DEFAULT_DATE_FILTER.dateFrom
-        const dateTo = typeof searchParams.date_to === 'string' ? searchParams.date_to : null
-        if (dateFrom !== values.dateFilter.dateFrom || dateTo !== values.dateFilter.dateTo) {
-            actions.setDateFilter(dateFrom, dateTo)
-        }
-        actions.loadAllSections()
-    }),
+    // The window rides along in the URL from the Tool quality tab. Reading it here (rather than once
+    // in afterMount) keeps the page in sync when only date_from / date_to change for the same tool —
+    // e.g. browser back/forward — since the logic is keyed by toolName and wouldn't remount.
+    urlToAction(({ actions, values, cache }) => ({
+        [`${urls.mcpAnalyticsToolQuality()}/:toolName`]: (_, searchParams) => {
+            const dateFrom =
+                typeof searchParams.date_from === 'string' ? searchParams.date_from : DEFAULT_DATE_FILTER.dateFrom
+            const dateTo = typeof searchParams.date_to === 'string' ? searchParams.date_to : null
+            const dateChanged = dateFrom !== values.dateFilter.dateFrom || dateTo !== values.dateFilter.dateTo
+            if (dateChanged) {
+                actions.setDateFilter(dateFrom, dateTo)
+            }
+            if (dateChanged || !cache.hasLoaded) {
+                actions.loadAllSections()
+            }
+            cache.hasLoaded = true
+        },
+    })),
 ])
