@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
+    EngineeringAnalyticsBrokenTestsQueryParams,
     EngineeringAnalyticsCiFailureLogsQueryParams,
     EngineeringAnalyticsFlakyTestsQueryParams,
     EngineeringAnalyticsPrCostQueryParams,
@@ -14,6 +15,27 @@ import {
 } from '@/generated/engineering_analytics/api'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+
+const EngineeringAnalyticsBrokenTestsSchema = EngineeringAnalyticsBrokenTestsQueryParams
+
+const engineeringAnalyticsBrokenTests = (): ToolBase<
+    typeof EngineeringAnalyticsBrokenTestsSchema,
+    Schemas.BrokenTestsResult
+> => ({
+    name: 'engineering-analytics-broken-tests',
+    schema: EngineeringAnalyticsBrokenTestsSchema,
+    handler: async (context: Context, params: z.infer<typeof EngineeringAnalyticsBrokenTestsSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.BrokenTestsResult>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/engineering_analytics/broken_tests/`,
+            query: {
+                source_id: params.source_id,
+            },
+        })
+        return result
+    },
+})
 
 const EngineeringAnalyticsCiFailureLogsSchema = EngineeringAnalyticsCiFailureLogsQueryParams
 
@@ -229,6 +251,7 @@ const workflowHealth = (): ToolBase<typeof WorkflowHealthSchema, WithPostHogUrl<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'engineering-analytics-broken-tests': engineeringAnalyticsBrokenTests,
     'engineering-analytics-ci-failure-logs': engineeringAnalyticsCiFailureLogs,
     'engineering-analytics-flaky-tests': engineeringAnalyticsFlakyTests,
     'engineering-analytics-pr-cost': engineeringAnalyticsPrCost,

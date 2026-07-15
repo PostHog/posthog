@@ -31,7 +31,6 @@ import { QuarantineTestModal } from '../components/QuarantineTestModal'
 import { ScopeBar, SourceScopeChip } from '../components/ScopeBar'
 import { StatCard } from '../components/StatCard'
 import {
-    BROKEN_TESTS_WINDOW_DAYS,
     BrokenTestRow,
     FlakyTestRow,
     FlakyTestWindow,
@@ -94,12 +93,12 @@ function RelativeTime({ iso }: { iso: string }): JSX.Element {
     )
 }
 
-// PROTOTYPE (no flag, local only): validates a UX against live prod data. It reads two warehouse
-// views by name (engineering_analytics_ci_failures + engineering_analytics_ci_job_history) through
-// two ad-hoc HogQL calls in the logic loader, then ranks failures with a temporary kea-side
-// classifier. The classifier moves server-side later — see engineeringAnalyticsLogic.
+// Reads the `broken_tests` product endpoint: the failure fingerprints, the classifier that ranks
+// them, and the two cluster reads it merges all run server-side. The row expansion lazy-loads the
+// failing log lines for the row's latest run via run_failure_logs.
 function BrokenTestDrilldown({ row }: { row: BrokenTestRow }): JSX.Element {
-    const { runFailureLogsByRun, runFailureLogsByRunLoading } = useValues(engineeringAnalyticsLogic)
+    const { runFailureLogsByRun, runFailureLogsByRunLoading, brokenTestsWindowDays } =
+        useValues(engineeringAnalyticsLogic)
     const logs = row.latestRunId ? runFailureLogsByRun[row.latestRunId] : undefined
     const runUrl = row.repo && row.latestRunId ? `https://github.com/${row.repo}/actions/runs/${row.latestRunId}` : null
 
@@ -112,7 +111,7 @@ function BrokenTestDrilldown({ row }: { row: BrokenTestRow }): JSX.Element {
                 <span>·</span>
                 <span>
                     {pluralize(row.occurrences, 'failure')} across {pluralize(row.branches, 'branch', 'branches')} in
-                    the last {BROKEN_TESTS_WINDOW_DAYS} days
+                    the last {brokenTestsWindowDays} days
                 </span>
                 {runUrl && (
                     <Link to={runUrl} target="_blank" className="inline-flex items-center gap-1">
@@ -160,13 +159,13 @@ function BrokenTestDrilldown({ row }: { row: BrokenTestRow }): JSX.Element {
 function BrokenTestsPanel(): JSX.Element {
     const {
         visibleBrokenTests,
-        brokenTestsRaw,
-        brokenTestsRawLoading,
+        brokenTestsData,
+        brokenTestsDataLoading,
         brokenTestsError,
+        brokenTestsWindowDays,
         breakingMasterJobs,
         hiddenBrokenTestCount,
         showPrOnlyBrokenTests,
-        sparklineByFingerprint,
     } = useValues(engineeringAnalyticsLogic)
     const { setShowPrOnlyBrokenTests, loadRunFailureLogs } = useActions(engineeringAnalyticsLogic)
 
@@ -252,7 +251,7 @@ function BrokenTestsPanel(): JSX.Element {
             width: 140,
             tooltip: 'Failures per hour over the last 24 hours — a climbing bar means it is escalating right now.',
             render: (_, row) => {
-                const series = sparklineByFingerprint[row.fingerprint]
+                const series = row.trend
                 return series && series.some((n) => n > 0) ? (
                     <Sparkline data={series} type="bar" color="danger" maximumIndicator={false} className="h-8 w-28" />
                 ) : (
@@ -266,14 +265,11 @@ function BrokenTestsPanel(): JSX.Element {
         <div className="flex flex-col gap-4">
             <div className="flex items-start justify-between gap-2">
                 <div className="flex flex-col gap-0.5">
-                    <div className="flex items-center gap-2">
-                        <h3 className="m-0 text-base font-semibold">Currently broken tests</h3>
-                        <LemonTag type="highlight">Prototype</LemonTag>
-                    </div>
+                    <h3 className="m-0 text-base font-semibold">Currently broken tests</h3>
                     <p className="m-0 max-w-2xl text-xs text-tertiary">
-                        Failures over the last {BROKEN_TESTS_WINDOW_DAYS} days, grouped by whether they're breaking
-                        trunk right now, resolving, or just flaky — inferred from CI logs + master job history. Expand a
-                        row for the latest failing run's logs.
+                        Failures over the last {brokenTestsWindowDays} days, grouped by whether they're breaking trunk
+                        right now, resolving, or just flaky — inferred from CI logs + master job history. Expand a row
+                        for the latest failing run's logs.
                     </p>
                 </div>
                 <LemonSwitch
@@ -286,7 +282,7 @@ function BrokenTestsPanel(): JSX.Element {
             </div>
             {brokenTestsError ? (
                 <LemonBanner type="error">Couldn't load broken tests: {brokenTestsError}</LemonBanner>
-            ) : brokenTestsRawLoading && !brokenTestsRaw ? (
+            ) : brokenTestsDataLoading && !brokenTestsData ? (
                 <LemonSkeleton className="h-48 w-full" />
             ) : (
                 <>
@@ -306,7 +302,7 @@ function BrokenTestsPanel(): JSX.Element {
                         columns={columns}
                         dataSource={visibleBrokenTests}
                         rowKey={(row) => row.fingerprint}
-                        loading={brokenTestsRawLoading}
+                        loading={brokenTestsDataLoading}
                         pagination={{ pageSize: 10 }}
                         useURLForSorting={false}
                         emptyState="No broken tests to show. Nothing is breaking trunk right now."
