@@ -1,9 +1,11 @@
+import tempfile
 from typing import Any
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pyarrow as pa
+from deltalake import DeltaTable, write_deltalake
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
@@ -12,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _get_write_type,
     _mark_job_completed,
     _promote_staged_cursor,
+    _read_existing_rows_by_first_pk,
     process_message,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.test_mocks import mock_delta_table
@@ -338,3 +341,40 @@ class TestMarkJobCompleted:
             mock_finish_row_tracking.assert_not_awaited()
         # The pipeline lock must be released either way, or the next sync is blocked.
         mock_release.assert_called_once_with(team_id=1, schema_id="schema-1", token="wf-run-1")
+
+
+# Regression guard for #70476: pyarrow 21+ string_view broke delta pushdown on string PKs.
+class TestReadExistingRowsByFirstPk:
+    @staticmethod
+    def _string_view_table(path: str) -> DeltaTable:
+        sv = pa.string_view()
+        write_deltalake(
+            path,
+            pa.table({"id": pa.array(["a", "b", "c"], sv), "val": pa.array([1, 2, 3], pa.int64())}),
+            mode="overwrite",
+        )
+        # Second file so file pruning is exercised.
+        write_deltalake(
+            path,
+            pa.table({"id": pa.array(["d", "e", "f"], sv), "val": pa.array([4, 5, 6], pa.int64())}),
+            mode="append",
+        )
+        return DeltaTable(path)
+
+    @parameterized.expand(
+        [
+            ("subset_across_files", ["a", "e"], ["a", "e"]),
+            ("single", ["c"], ["c"]),
+            ("superset_with_miss", ["b", "zzz"], ["b"]),
+            ("no_match", ["nope"], []),
+        ]
+    )
+    def test_returns_matching_rows_on_string_view_pk(
+        self, _name: str, components: list[str], expected_ids: list[str]
+    ) -> None:
+        with tempfile.TemporaryDirectory() as path:
+            delta_table = self._string_view_table(path)
+
+            result = _read_existing_rows_by_first_pk(delta_table, "id", components)
+
+            assert set(result.column("id").to_pylist()) == set(expected_ids)
