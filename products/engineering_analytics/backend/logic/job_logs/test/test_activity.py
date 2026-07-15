@@ -2,6 +2,8 @@ import pytest
 
 from temporalio.exceptions import ApplicationError
 
+from posthog.egress.transport.transport import EgressBudgetExhausted
+
 import products.engineering_analytics.backend.logic.job_logs.activity as activity_module
 from products.engineering_analytics.backend.logic.job_logs.activity import (
     FetchJobLogInputs,
@@ -70,7 +72,8 @@ async def test_emits_and_returns_line_count(monkeypatch):
 
 async def test_raises_and_skips_fetch_when_budget_exhausted(monkeypatch):
     # The gate must stop us before the GitHub call when over the shared budget, and raise (retryable)
-    # so Temporal backs off — never silently proceed.
+    # so Temporal backs off — never silently proceed. It must be an EgressBudgetExhausted instance so
+    # the Temporal error-tracking interceptor drops this deliberate backpressure instead of capturing it.
     fetched = {"called": False}
 
     def _fetch(*_args, **_kwargs):
@@ -79,7 +82,7 @@ async def test_raises_and_skips_fetch_when_budget_exhausted(monkeypatch):
 
     _patch(monkeypatch, acquired=False)
     monkeypatch.setattr(activity_module, "fetch_job_log", _fetch)
-    with pytest.raises(ApplicationError):
+    with pytest.raises(EgressBudgetExhausted):
         await fetch_and_emit_job_log_activity(_INPUTS)
     assert fetched["called"] is False
 
