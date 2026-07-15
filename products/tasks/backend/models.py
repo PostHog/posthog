@@ -1103,6 +1103,8 @@ class TaskRun(models.Model):
 
         object_storage.write(self.log_url, content)
 
+        self._forward_logs_to_posthog_logs(entries)
+
         if is_new_file and ttl_days is not None:
             try:
                 object_storage.tag(
@@ -1119,6 +1121,40 @@ class TaskRun(models.Model):
                     log_url=self.log_url,
                     error=str(e),
                 )
+
+    def _forward_logs_to_posthog_logs(self, entries: list[dict]) -> None:
+        """Mirror persisted entries into a PostHog project's Logs product (dogfooding).
+
+        Fire-and-forget: dispatch failures must never break the run's log write.
+        """
+        from products.tasks.backend.logic.services.run_log_otlp import (
+            otlp_forwarding_configured,
+            otlp_forwarding_enabled,
+        )
+
+        if not otlp_forwarding_configured():
+            return
+
+        try:
+            origin_product = self.task.origin_product
+            if not otlp_forwarding_enabled(origin_product):
+                return
+
+            from products.tasks.backend.tasks import forward_task_run_logs_to_posthog_logs
+
+            forward_task_run_logs_to_posthog_logs.delay(
+                entries=entries,
+                team_id=self.team_id,
+                task_id=str(self.task_id),
+                run_id=str(self.id),
+                origin_product=origin_product,
+            )
+        except Exception as e:
+            logger.warning(
+                "task_run.forward_logs_to_posthog_logs_failed",
+                task_run_id=str(self.id),
+                error=str(e),
+            )
 
     def capture_event(self, event: str, properties: dict | None = None, event_uuid: str | None = None) -> None:
         try:
