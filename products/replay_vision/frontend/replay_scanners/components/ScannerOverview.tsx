@@ -63,7 +63,7 @@ function ImpactOverview({ scannerId }: { scannerId: string }): JSX.Element | nul
     }
     if (!scannerImpact || scannerImpact.affected_sessions === 0) {
         return (
-            <OverviewPanel title="Impact">
+            <OverviewPanel title="Impact" fill>
                 <PanelEmpty
                     loading={scannerImpactLoading}
                     message={
@@ -76,7 +76,7 @@ function ImpactOverview({ scannerId }: { scannerId: string }): JSX.Element | nul
         )
     }
     return (
-        <OverviewPanel title="Impact" subtitle={`last ${scannerImpact.window_days} days`}>
+        <OverviewPanel title="Impact" subtitle={`last ${scannerImpact.window_days} days`} fill>
             <div className="text-sm">
                 Matched <strong className="tabular-nums">{scannerImpact.affected_sessions.toLocaleString()}</strong>{' '}
                 session{scannerImpact.affected_sessions === 1 ? '' : 's'} from{' '}
@@ -94,6 +94,7 @@ function ImpactOverview({ scannerId }: { scannerId: string }): JSX.Element | nul
                 loading={affectedCohortLoading}
                 disabledReason={scannerImpact.affected_users === 0 ? 'No users to save' : undefined}
                 data-attr="vision-save-affected-cohort"
+                className="self-start"
             >
                 Save as cohort
             </LemonButton>
@@ -109,7 +110,7 @@ function MonitorOverview({ scannerId }: { scannerId: string }): JSX.Element {
     const total = yesTotal + noTotal + inconclusiveTotal
     if (total === 0) {
         return (
-            <OverviewPanel title="Verdict mix">
+            <OverviewPanel title="Verdict mix" fill>
                 <PanelEmpty
                     loading={observationStatsApiLoading}
                     message={hasActiveObservationFilters ? 'No verdicts match the current filter.' : 'No verdicts yet.'}
@@ -122,7 +123,7 @@ function MonitorOverview({ scannerId }: { scannerId: string }): JSX.Element {
     const inconclusivePct = Math.max(0, 100 - yesPct - noPct)
 
     return (
-        <OverviewPanel title="Verdict mix" subtitle={`${total} verdict${total === 1 ? '' : 's'}`}>
+        <OverviewPanel title="Verdict mix" subtitle={`${total} verdict${total === 1 ? '' : 's'}`} fill>
             <LemonProgress percent={yesPct} />
             <div className="flex flex-wrap items-center gap-4 text-sm">
                 <span className="flex items-center gap-2">
@@ -213,7 +214,7 @@ function ClassifierOverview({ scannerId }: { scannerId: string }): JSX.Element |
 
     return (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <OverviewPanel title="Top fixed tags" subtitle="from configured vocabulary">
+            <OverviewPanel title="Top fixed tags" subtitle="from configured vocabulary" fill>
                 {renderRanked(fixedRanked, fixedEmpty)}
             </OverviewPanel>
 
@@ -221,6 +222,7 @@ function ClassifierOverview({ scannerId }: { scannerId: string }): JSX.Element |
                 title="Top freeform tags"
                 subtitle={freeformAllowed ? 'outside configured vocabulary' : 'disabled'}
                 disabled={!freeformAllowed}
+                fill
             >
                 {freeformAllowed ? (
                     renderRanked(freeformRanked, freeformEmpty)
