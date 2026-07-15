@@ -73,6 +73,13 @@ class LoopRunsTestCase(TestCase):
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
         self.user = User.objects.create_user(email="loop-owner@example.com", first_name="Loop", password="password")
+        # The cloud usage gate makes a live HTTP call to the LLM gateway; unmocked it is
+        # non-deterministic (fails open when the gateway is down, blocks when it's up locally).
+        # Default it to "allowed" so happy-path fires are deterministic; the gate-specific tests
+        # override this with their own patch.
+        gate = patch(f"{LOOP_RUNS_MODULE}.cloud_usage_limit_response", return_value=None)
+        gate.start()
+        self.addCleanup(gate.stop)
 
     def create_loop(self, **overrides) -> Loop:
         defaults = {
@@ -302,9 +309,16 @@ class TestFireLoopCreatesRun(LoopRunsTestCase):
 
     @parameterized.expand(
         [
-            ("default_behaviors_create_pr_defaults_true", {}, {}, True, "read_only"),
+            ("default_behaviors_are_report_only", {}, {}, False, "read_only"),
             ("report_only_loop_disables_create_pr", {"create_prs": False}, {}, False, "read_only"),
-            ("full_mcp_scope_configured_explicitly", {}, {"posthog_mcp_scopes": "full"}, True, "full"),
+            ("create_prs_opt_in_enables_pr", {"create_prs": True}, {}, True, "read_only"),
+            (
+                "full_mcp_scope_configured_explicitly",
+                {"create_prs": True},
+                {"posthog_mcp_scopes": "full"},
+                True,
+                "full",
+            ),
         ]
     )
     def test_fire_dispatches_the_workflow_with_derived_create_pr_and_mcp_scopes(
@@ -502,6 +516,33 @@ class TestHandleLoopRunTerminal(LoopRunsTestCase):
         task_run.completed_at = django_timezone.now()
         task_run.save(update_fields=["status", "error_message", "completed_at", "updated_at"])
         return task_run
+
+    @patch(f"{LOOP_RUNS_MODULE}.dispatch_loop_event")
+    def test_run_in_another_team_cannot_steer_a_loops_bookkeeping(self, mock_dispatch):
+        # A run's state (incl. loop_id) is writable through the run-update endpoint. The terminal
+        # handler must scope the loop lookup to the run's own team, or a run in team B carrying a
+        # team A loop_id could flip team A's loop bookkeeping, failure count and notifications.
+        victim_loop = self.create_loop(consecutive_failures=0)
+
+        other_org = Organization.objects.create(name="Attacker Org")
+        other_team = Team.objects.create(organization=other_org, name="Attacker Team")
+        attacker_task = Task.objects.create(
+            team=other_team,
+            title="Attacker run",
+            description="d",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        attacker_run = attacker_task.create_run(mode="background", extra_state={"loop_id": str(victim_loop.id)})
+        attacker_run.status = TaskRun.Status.FAILED
+        attacker_run.error_message = "forged"
+        attacker_run.save(update_fields=["status", "error_message", "updated_at"])
+
+        handle_loop_run_terminal(attacker_run)
+
+        victim_loop.refresh_from_db()
+        self.assertEqual(victim_loop.consecutive_failures, 0)
+        self.assertIsNone(victim_loop.last_error)
+        mock_dispatch.assert_not_called()
 
     @patch(f"{LOOP_RUNS_MODULE}.dispatch_loop_event")
     def test_non_loop_task_run_is_ignored(self, mock_dispatch):

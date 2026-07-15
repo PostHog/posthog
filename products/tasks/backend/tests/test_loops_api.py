@@ -444,6 +444,24 @@ class LoopFeatureGateAPITest(LoopsAPITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
 
 
+class LoopActivityLogVisibilityAPITest(LoopsAPITestCase):
+    def test_personal_loop_activity_is_hidden_from_a_teammate(self):
+        from posthog.api.advanced_activity_logs.viewset import restrict_loop_activity
+        from posthog.models.activity_logging.activity_log import ActivityLog
+
+        personal = self._create_loop(self.owner_client, visibility="personal")
+        team = self._create_loop(self.owner_client, visibility="team")
+
+        base = ActivityLog.objects.filter(team_id=self.team.id, scope="Loop")
+        owner_ids = {row.item_id for row in restrict_loop_activity(base, self.team.id, self.owner)}
+        peer_ids = {row.item_id for row in restrict_loop_activity(base, self.team.id, self.peer)}
+
+        self.assertIn(personal["id"], owner_ids)
+        self.assertIn(team["id"], owner_ids)
+        self.assertNotIn(personal["id"], peer_ids)
+        self.assertIn(team["id"], peer_ids)
+
+
 class LoopTriggerPayloadCapAPITest(LoopsAPITestCase):
     def _psak_trigger(self, loop_id: str, payload: dict):
         raw_token = generate_random_token_secret()

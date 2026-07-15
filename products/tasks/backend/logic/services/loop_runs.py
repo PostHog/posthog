@@ -371,7 +371,10 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
     user_id = loop.created_by_id
     task_id = str(task.id)
     run_id = str(task_run.id)
-    create_pr = bool((loop.behaviors or {}).get("create_prs", True))
+    # Report-only by default: an omitted behaviors dict reads as create_prs=False through the
+    # API (LoopBehaviorsDTO), so the fire-time fallback must match, or a loop the caller never
+    # opted into PR creation for could still push branches and open PRs.
+    create_pr = bool((loop.behaviors or {}).get("create_prs", False))
     needs_file_system_write = outputs["update_context"] or bool(outputs["canvas_id"])
     posthog_mcp_scopes = _augment_scopes_for_context(
         _resolve_posthog_mcp_scopes(loop.connectors), needs_write=needs_file_system_write
@@ -463,12 +466,14 @@ def handle_loop_run_terminal(task_run: TaskRun) -> None:
     should_pause = False
 
     with transaction.atomic():
-        try:
-            # Not yet team-scoped at this point (only the loop id is known from run
-            # state); this is the same narrow, PK-only escape hatch the reconciliation
-            # sweep and the run-loop activity use.
-            loop = Loop.objects.unscoped().select_for_update().get(id=loop_id)
-        except Loop.DoesNotExist:
+        # Scope the loop to the run's own team. `loop_id` lives in run state, which is
+        # writable through the run-update endpoint; without this a caller in team B could
+        # set their run's state loop_id to a team A loop and steer its bookkeeping,
+        # auto-pause and notifications. `loop_id` is also a protected state key so it
+        # can't be forged in the first place (see facade.api._PROTECTED_RUN_STATE_KEYS);
+        # this is the defense-in-depth second half.
+        loop = Loop.objects.for_team(task_run.team_id, canonical=True).select_for_update().filter(id=loop_id).first()
+        if loop is None:
             return
 
         loop.last_run_at = task_run.completed_at or django_timezone.now()

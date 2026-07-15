@@ -526,6 +526,18 @@ def list_loops(team_id: int, user: User | None) -> list[LoopDTO]:
     return [_loop_to_dto(loop) for loop in loops]
 
 
+def visible_loop_ids(team_id: int, user: User | None) -> set[str]:
+    """Ids of loops the user may see, as strings. For callers outside request/team scope
+    (e.g. the activity-log viewset restricting `Loop`-scoped rows): uses `for_team` explicitly
+    so it never depends on ambient team context, unlike `list_loops`/`_visible_loop_queryset`."""
+    user_id = getattr(user, "id", None)
+    visibility_q = Q(visibility=Loop.Visibility.TEAM)
+    if user_id is not None:
+        visibility_q |= Q(created_by_id=user_id)
+    loops = Loop.objects.for_team(team_id, canonical=True).filter(deleted=False, internal=False).filter(visibility_q)
+    return {str(loop_id) for loop_id in loops.values_list("id", flat=True)}
+
+
 def get_loop(loop_id: str | UUID, team_id: int, user: User | None) -> LoopDTO | None:
     user_id = getattr(user, "id", None)
     loop = _visible_loop_queryset(team_id, user_id).prefetch_related("triggers").filter(pk=loop_id).first()
@@ -861,4 +873,5 @@ __all__ = [
     "sandbox_environment_queryset",
     "soft_delete_loop",
     "update_loop",
+    "visible_loop_ids",
 ]
