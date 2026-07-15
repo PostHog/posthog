@@ -368,10 +368,6 @@ export const ExecuteSQLSchema = z.object({
         ),
 })
 
-export const ReadDataWarehouseSchemaSchema = z
-    .object({})
-    .describe('No input required. Returns core data warehouse schemas.')
-
 const ReadEventsQuerySchema = z.object({
     kind: z.literal('events'),
     limit: z.number().int().min(1).max(500).default(500).optional().describe('Number of events to return per page.'),
@@ -503,7 +499,7 @@ const WorkflowGraphOperationSchema = z.discriminatedUnion('op', [
 ])
 
 export const WorkflowGraphPatchSchema = z.object({
-    id: z.string().describe('The workflow (HogFlow) id to edit. Draft only — active workflows are read-only via MCP.'),
+    id: z.string().describe('The workflow (HogFlow) id to edit.'),
     operations: z
         .array(WorkflowGraphOperationSchema)
         .min(1)

@@ -619,7 +619,7 @@ describe('logsViewerLogic', () => {
 
         it.each<['left' | 'right', string, string[]]>([
             ['left', 'c1', ['c1', 'timestamp', 'message']],
-            ['right', 'c1', ['timestamp', 'message', 'c1']],
+            ['right', 'c1', ['timestamp', 'c1', 'message']], // message pinned last, so a no-op
             ['left', 'timestamp', ['timestamp', 'c1', 'message']], // first, no-op
             ['right', 'message', ['timestamp', 'c1', 'message']], // last, no-op
             ['left', 'missing', ['timestamp', 'c1', 'message']], // unknown id, no-op

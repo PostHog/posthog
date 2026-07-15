@@ -27,3 +27,9 @@ def test_should_have_every_property_in_session_adopted_from_person() -> None:
     session_props = CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"].keys()
     for prop in SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS:
         assert f"$entry_{prop.replace('$', '')}" in session_props
+
+
+def test_mcp_properties_mirrors_every_mcp_event_property() -> None:
+    expected = {key for key in CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"] if key.startswith("$mcp_")}
+    assert expected, "expected $mcp_* keys in event_properties"
+    assert set(CORE_FILTER_DEFINITIONS_BY_GROUP["mcp_properties"]) == expected

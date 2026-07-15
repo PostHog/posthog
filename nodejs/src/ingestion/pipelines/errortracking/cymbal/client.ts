@@ -128,7 +128,7 @@ function jumpConsistentHash(key: number, numBuckets: number): number {
  * all events are sent to that address — no grouping overhead.
  *
  * Note: This client does not implement retry logic. Retries are handled at
- * the pipeline level using pipeBatch()'s retry option. The client throws
+ * the pipeline level using pipeChunk()'s retry option. The client throws
  * CymbalError with isRetriable flag to indicate whether errors should be retried.
  */
 export class CymbalClient {

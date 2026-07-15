@@ -42,7 +42,7 @@ export async function evaluateFeatureFlags(
 }
 
 // Env var (or Cloudflare var) holding a JSON object of flag overrides, e.g.
-// `FEATURE_FLAG_OVERRIDES={"mcp-sql-schema-discovery": true, "some-flag": "variant-a"}`.
+// `FEATURE_FLAG_OVERRIDES={"dev-forced-flag": true, "some-flag": "variant-a"}`.
 const FEATURE_FLAG_OVERRIDES_ENV = 'FEATURE_FLAG_OVERRIDES'
 
 /** Parse a JSON object of flag overrides. Non-object JSON, parse errors, and

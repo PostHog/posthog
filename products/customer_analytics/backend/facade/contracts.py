@@ -135,6 +135,11 @@ class ExternalAccount:
     consumes stays byte-identical to the pre-facade response — a validated
     pydantic pass-through, not a re-typed projection. ``id`` is the stringified
     UUID, matching the wire shape.
+
+    ``custom_properties`` contains every team-defined custom property definition
+    keyed by definition name, with the account's current scalar value (or ``None``
+    when unset). Every definition is present so result paths are deterministic even
+    when a property hasn't been set on this account yet.
     """
 
     id: str
@@ -143,6 +148,7 @@ class ExternalAccount:
     properties: dict
     tags: list[str] = field(default_factory=list)
     relationships: dict[str, list[dict]] = field(default_factory=dict)
+    custom_properties: dict[str, float | bool | str | None] = field(default_factory=dict)
 
 
 class ExternalAccountUpdateError(Enum):
@@ -303,6 +309,7 @@ class CustomPropertyDefinitionView:
     name: str = ""
     description: str | None = None
     display_type: str = "text"
+    target_type: str = "account"
     is_big_number: bool = False
     created_at: datetime | None = None
     created_by: int | None = None
@@ -319,15 +326,18 @@ class CustomPropertySourceView:
 
     ``definition`` / ``saved_query`` are ids (the definition this feeds, and the data-warehouse
     saved query read from). ``last_sync_error`` is null when the last run succeeded or hasn't run.
-    Defaults exist so the wrapping serializer can parse partial request bodies (see
-    :class:`AccountView`).
+    Account-target sources set ``saved_query`` + ``source_column``; person-target sources set
+    ``external_data_schema`` + ``column_property_map`` instead. Defaults exist so the wrapping
+    serializer can parse partial request bodies (see :class:`AccountView`).
     """
 
     id: UUID | None = None
     definition: UUID | None = None
     saved_query: UUID | None = None
-    source_column: str = ""
+    external_data_schema: UUID | None = None
+    source_column: str | None = ""
     key_column: str = ""
+    column_property_map: dict | None = None
     is_enabled: bool = True
     consecutive_failures: int = 0
     last_synced_at: datetime | None = None

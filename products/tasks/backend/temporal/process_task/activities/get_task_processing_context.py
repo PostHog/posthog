@@ -30,7 +30,10 @@ from products.tasks.backend.temporal.constants import resolve_inactivity_timeout
 from products.tasks.backend.temporal.observability import emit_agent_log, log_with_activity_context
 from products.tasks.backend.temporal.process_task.utils import (
     format_allowed_domains_for_log,
+    get_actor_distinct_id,
     get_pr_authorship_mode,
+    get_task_run_credential_user,
+    is_slack_interaction_state,
     resolve_user_github_integration_for_task,
 )
 
@@ -134,6 +137,11 @@ class TaskProcessingContext:
         return value if isinstance(value, str) else None
 
     @property
+    def initial_permission_mode(self) -> str | None:
+        value = (self.state or {}).get("initial_permission_mode")
+        return value if isinstance(value, str) else None
+
+    @property
     def run_source(self) -> str | None:
         value = (self.state or {}).get("run_source")
         return value if isinstance(value, str) else None
@@ -188,6 +196,10 @@ class TaskProcessingContext:
         value = (self.state or {}).get("branch")
         return value if isinstance(value, str) else None
 
+    @branch.setter
+    def branch(self, value: str | None) -> None:
+        self._branch = value
+
     def to_log_context(self) -> dict:
         """Return a dict suitable for structured logging."""
         return {
@@ -205,6 +217,7 @@ class TaskProcessingContext:
             "provider": self.provider,
             "model": self.model,
             "reasoning_effort": self.reasoning_effort,
+            "initial_permission_mode": self.initial_permission_mode,
         }
 
 
@@ -287,6 +300,13 @@ def _is_sandbox_event_ingest_enabled(
     run_id: str,
     state: dict | None = None,
 ) -> bool:
+    # Slack runs must stay on the relay path regardless of the flag or any
+    # override: permission brokering and the Slack approval-card escalation only
+    # run in relay_sandbox_events, so a Slack run in ingest mode would stall
+    # forever on its first gated tool call.
+    if is_slack_interaction_state(state):
+        return False
+
     # Local dev disables the analytics SDK, so the captured flag below is always False there.
     # Pointing ingest at the local agent-proxy is the opt-in and must win over the captured value;
     # prod (DEBUG off) still gates on the flag.
@@ -332,11 +352,20 @@ def _is_modal_vm_sandbox_enabled(
     run_id: str,
     origin_product: str | None,
     allowed_domains: list[str] | None,
+    custom_image_available: bool = False,
     state: dict | None = None,
 ) -> bool:
     if allowed_domains is not None:
         log_with_activity_context(
             "modal_vm_sandbox_skipped_restricted_egress",
+            run_id=run_id,
+            use_modal_vm_sandbox=False,
+        )
+        return False
+
+    if origin_product != Task.OriginProduct.IMAGE_BUILDER and not custom_image_available:
+        log_with_activity_context(
+            "modal_vm_sandbox_skipped_without_custom_image",
             run_id=run_id,
             use_modal_vm_sandbox=False,
         )
@@ -357,13 +386,15 @@ def _is_modal_vm_sandbox_enabled(
         log_with_activity_context("modal_vm_sandbox_flag_check_failed", run_id=run_id, error=str(e))
         return False
 
-    result = origin_product in allowed_origins
+    origin_allowed = origin_product in allowed_origins
+    result = origin_allowed
     log_with_activity_context(
         "modal_vm_sandbox_flag_checked",
         run_id=run_id,
         flag_enabled=bool(allowed_origins),
         origin_product=origin_product,
         allowed_origin_products=sorted(allowed_origins),
+        custom_image_available=custom_image_available,
         use_modal_vm_sandbox=result,
     )
     return result
@@ -527,8 +558,17 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
 
     assert task.created_by is not None
 
-    distinct_id = task.created_by.distinct_id or "process_task_workflow"
     state = task_run.state or {}
+    actor_user = get_task_run_credential_user(task, state)
+    if is_slack_interaction_state(state) and actor_user is None:
+        raise TaskInvalidStateError(
+            f"Task {task.id} has no valid Slack actor",
+            {"task_id": str(task.id), "run_id": run_id},
+            cause=RuntimeError(f"Task {task.id} missing Slack actor for task run {run_id}"),
+        )
+    distinct_id = (
+        get_actor_distinct_id(actor_user) if actor_user else task.created_by.distinct_id or "process_task_workflow"
+    )
     sandbox_environment_id = state.get("sandbox_environment_id")
     sandbox_environment_name: str | None = None
     allowed_domains: list[str] | None = None
@@ -641,6 +681,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         run_id=run_id,
         origin_product=task.origin_product,
         allowed_domains=allowed_domains,
+        custom_image_available=environment_custom_image_name is not None,
         state=state,
     )
     emit_agent_log(
@@ -723,9 +764,16 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         "debug",
         f"rtk_enabled: {rtk_enabled} for this task run",
     )
-    user_github_integration_id = str(task.github_user_integration_id) if task.github_user_integration_id else None
-    if user_github_integration_id is None and get_pr_authorship_mode(task, state).value == "user":
-        user_github_integration = resolve_user_github_integration_for_task(task, allow_refresh=False)
+    pr_authorship_mode = get_pr_authorship_mode(task, state)
+    user_github_integration_id = None
+    if not (is_slack_interaction_state(state) and pr_authorship_mode.value == "user"):
+        user_github_integration_id = str(task.github_user_integration_id) if task.github_user_integration_id else None
+    if user_github_integration_id is None and pr_authorship_mode.value == "user":
+        user_github_integration = resolve_user_github_integration_for_task(
+            task,
+            actor_user=actor_user,
+            allow_refresh=False,
+        )
         if user_github_integration is not None:
             user_github_integration_id = str(user_github_integration.integration.id)
 

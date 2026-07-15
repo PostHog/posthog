@@ -1,8 +1,13 @@
+import re
+import json
 import base64
 import logging
 import binascii
+from datetime import datetime, timedelta
 from typing import Any, cast
 from zoneinfo import available_timezones
+
+from django.utils import timezone as django_timezone
 
 import posthoganalytics
 from croniter import croniter
@@ -18,6 +23,7 @@ from posthog.models.user_integration import UserIntegration
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import (
     ChannelDTO,
+    ChannelFeedMessageDTO,
     SandboxCustomImageDTO,
     SandboxEnvironmentDTO,
     TaskAutomationDTO,
@@ -27,6 +33,7 @@ from products.tasks.backend.facade.contracts import (
     TaskSummaryDTO,
     TaskThreadMessageDTO,
     TaskUserBasicInfo,
+    WizardCloudRunDTO,
 )
 from products.tasks.backend.facade.run_config import (
     ALL_INITIAL_PERMISSION_MODE_CHOICES,
@@ -37,6 +44,9 @@ from products.tasks.backend.facade.run_config import (
     PrAuthorshipMode,
     RunSource,
     RuntimeAdapter,
+    TaskArtifactAdapter,
+    TaskArtifactStatus,
+    TaskArtifactType,
     get_reasoning_effort_error,
 )
 
@@ -108,6 +118,9 @@ TASK_RUN_ARTIFACT_TYPE_CHOICES = [
 TASK_RUN_ARTIFACT_CONTENT_ENCODING_CHOICES = ["utf-8", "base64"]
 TASK_RUN_SKILL_BUNDLE_FORMAT_CHOICES = ["zip"]
 TASK_RUN_SKILL_SOURCE_CHOICES = ["user", "repo", "marketplace", "codex"]
+TASK_RUN_LIVING_ARTIFACT_TYPE_CHOICES = [choice for choice, _label in TaskArtifactType.choices]
+TASK_RUN_LIVING_ARTIFACT_ADAPTER_CHOICES = [choice for choice, _label in TaskArtifactAdapter.choices]
+TASK_RUN_LIVING_ARTIFACT_WRITE_ADAPTER_CHOICES = TASK_RUN_LIVING_ARTIFACT_ADAPTER_CHOICES
 
 
 def get_task_run_artifact_max_size_bytes(
@@ -296,11 +309,31 @@ class TaskRunDetailSerializer(DataclassSerializer):
         ]
 
 
-# Only implementation is supported when linking a task to a report from the public task API
-# (e.g. PostHog Code inbox); research/repo-selection links are created by server-side flows.
-# Mirrors `signals` `task_run_artefacts.TASK_RUN_TYPE_IMPLEMENTATION` — kept inline
-# so presentation never imports the other product's internals.
-SIGNAL_REPORT_TASK_RELATIONSHIP_IMPLEMENTATION = "implementation"
+class WizardCloudRunSerializer(DataclassSerializer):
+    """The team's active onboarding wizard cloud run, used to rehydrate
+    the setup-progress FAB when the run was started server-side (drop flow)."""
+
+    task_id = serializers.UUIDField(help_text="Id of the onboarding wizard task.")
+    run_id = serializers.UUIDField(help_text="Id of the task's latest run, for reconnecting to its progress stream.")
+    status = serializers.CharField(help_text="Latest run status (e.g. queued, in_progress, completed, failed).")
+    started_at = serializers.DateTimeField(
+        allow_null=True, required=False, help_text="When the run was created, for the FAB's elapsed timer."
+    )
+
+    class Meta:
+        dataclass = WizardCloudRunDTO
+        fields = ["task_id", "run_id", "status", "started_at"]
+
+
+# The relationship a client asserts between a task and a signal report when creating a task from the
+# report (e.g. PostHog Code inbox), recorded as a signals `task_run` work-log entry. This is a
+# free-form label — the same as the `task_run` artefact `(product, type)` values, which have never
+# been access-controlled — so no relationship is reserved here either. `implementation` additionally
+# opens the auto-start spend gate (recorded server-side via `record_report_task`). Only the routing-
+# safe format is enforced, so a malformed value returns 400 rather than 500 from the artefact schema.
+# Mirrors the routing-safe identifier rule in `signals` `artefact_schemas` (_IDENTIFIER_PART_RE),
+# kept inline so presentation never imports the other product's internals.
+_SIGNAL_REPORT_TASK_RELATIONSHIP_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 
 
 class TaskSerializer(DataclassSerializer):
@@ -398,11 +431,17 @@ class TaskWriteSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Signal report this task implements, when created from a report.",
     )
-    # Write-only: which SignalReportTask row to create when linking a task to a report.
-    signal_report_task_relationship = serializers.ChoiceField(
-        choices=[(SIGNAL_REPORT_TASK_RELATIONSHIP_IMPLEMENTATION, "Implementation")],
+    # Write-only: recorded as the signals `task_run` artefact type when linking a task to a report.
+    signal_report_task_relationship = serializers.CharField(
         required=False,
         write_only=True,
+        max_length=200,
+        help_text=(
+            "How the created task relates to the signal report (e.g. 'implementation', 'discussion', "
+            "'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens "
+            "the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, "
+            "'_', '-') is accepted."
+        ),
     )
     json_schema = serializers.JSONField(
         required=False,
@@ -567,6 +606,15 @@ class TaskWriteSerializer(serializers.Serializer):
             raise serializers.ValidationError("Signal report must belong to the same team")
         return value
 
+    def validate_signal_report_task_relationship(self, value: str) -> str:
+        normalized = value.strip()
+        if not _SIGNAL_REPORT_TASK_RELATIONSHIP_RE.fullmatch(normalized):
+            raise serializers.ValidationError(
+                "Must contain only lowercase letters, numbers, underscores, or hyphens, "
+                "and start with a lowercase letter or number."
+            )
+        return normalized
+
     def validate(self, attrs: dict) -> dict:
         rel = attrs.get("signal_report_task_relationship")
         if rel is not None:
@@ -721,6 +769,188 @@ class TaskRunArtifactsUploadRequestSerializer(serializers.Serializer):
 
 class TaskRunArtifactsUploadResponseSerializer(serializers.Serializer):
     artifacts = TaskRunArtifactResponseSerializer(many=True, help_text="Updated list of artifacts on the run")
+
+
+class TaskRunLivingArtifactResponseSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Stable living artifact id. Use this id when editing the artifact.")
+    task_id = serializers.CharField(help_text="Task id this living artifact belongs to.")
+    run_id = serializers.CharField(help_text="Task run id that created or currently owns this artifact.")
+    team_id = serializers.IntegerField(help_text="Project id that owns this artifact.")
+    name = serializers.CharField(help_text="Human-readable artifact name.")
+    artifact_type = serializers.ChoiceField(
+        choices=TASK_RUN_LIVING_ARTIFACT_TYPE_CHOICES,
+        help_text="Artifact format or delivery surface, such as document, spreadsheet, slack_canvas, file, or slack_message.",
+    )
+    adapter = serializers.ChoiceField(
+        choices=TASK_RUN_LIVING_ARTIFACT_ADAPTER_CHOICES,
+        help_text="Adapter that currently stores or edits the artifact.",
+    )
+    status = serializers.ChoiceField(
+        choices=[choice for choice, _label in TaskArtifactStatus.choices],
+        help_text="Current registry status for the artifact.",
+    )
+    location = serializers.JSONField(help_text="Adapter-specific location, such as S3 key or Slack canvas id.")
+    metadata = serializers.JSONField(help_text="Adapter-specific metadata for external storage and source tracking.")
+    current_version = serializers.IntegerField(help_text="Current version number for the artifact.")
+    versions = serializers.ListField(
+        child=serializers.DictField(child=serializers.JSONField()),
+        help_text="Chronological version records for this artifact.",
+    )
+    created_at = serializers.CharField(allow_null=True, required=False, help_text="ISO timestamp when created.")
+    updated_at = serializers.CharField(allow_null=True, required=False, help_text="ISO timestamp when last updated.")
+
+
+class TaskRunLivingArtifactsResponseSerializer(serializers.Serializer):
+    artifacts = TaskRunLivingArtifactResponseSerializer(many=True, help_text="Living artifacts for this task run.")
+
+
+class TaskRunLivingArtifactOpenResponseSerializer(TaskRunLivingArtifactResponseSerializer):
+    content = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="Current artifact content when the adapter can read it directly.",
+    )
+
+
+class TaskRunLivingArtifactCreateRequestSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=255, help_text="Human-readable artifact name, used as the title.")
+    artifact_type = serializers.ChoiceField(
+        choices=TASK_RUN_LIVING_ARTIFACT_TYPE_CHOICES,
+        default=TaskArtifactType.DOCUMENT,
+        help_text="Artifact format or delivery surface to create, such as document, spreadsheet, slack_canvas, or file.",
+    )
+    adapter = serializers.ChoiceField(
+        choices=TASK_RUN_LIVING_ARTIFACT_WRITE_ADAPTER_CHOICES,
+        required=False,
+        help_text="Optional preferred external storage or delivery adapter. Slack adapters deliver into the mapped Slack thread; omitted Slack-run documents use Slack canvas, omitted Slack-run files and spreadsheets use Slack file upload, and document_connector uses a connected external document provider.",
+    )
+    content = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=500000,
+        help_text="Markdown or text content for the initial artifact version.",
+    )
+    content_base64 = serializers.CharField(
+        required=False,
+        allow_blank=False,
+        help_text="Base64-encoded binary content for Slack file uploads or other external adapters. Prefer source_artifact_id or source_storage_path for large files that were already uploaded as run output artifacts.",
+    )
+    content_type = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=True,
+        help_text="MIME type for content_base64 or source-backed artifacts, such as application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.",
+    )
+    source_artifact_id = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Existing run artifact id to use as the initial content source. Only agent-uploaded output artifacts are accepted; internal run artifacts are rejected.",
+    )
+    source_storage_path = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Existing run artifact storage_path to use as the initial content source. Only agent-uploaded output artifacts are accepted; internal run artifacts are rejected.",
+    )
+    metadata = serializers.DictField(
+        child=serializers.JSONField(),
+        required=False,
+        default=dict,
+        help_text="Optional metadata to persist with the living artifact.",
+    )
+
+    def validate(self, attrs):
+        has_content = "content" in attrs and attrs.get("content") is not None
+        has_content_base64 = bool(attrs.get("content_base64"))
+        has_source = bool(attrs.get("source_artifact_id") or attrs.get("source_storage_path"))
+        if sum([has_content, has_content_base64, has_source]) != 1:
+            raise serializers.ValidationError(
+                {
+                    "content": "Provide exactly one of content, content_base64, source_artifact_id, or source_storage_path."
+                }
+            )
+        if has_content_base64:
+            try:
+                attrs["content_bytes"] = base64.b64decode(attrs["content_base64"], validate=True)
+            except (binascii.Error, ValueError) as exc:
+                raise serializers.ValidationError({"content_base64": "Invalid base64 content"}) from exc
+            attrs.pop("content_base64", None)
+
+            max_size_bytes = get_task_run_artifact_max_size_bytes(
+                attrs.get("name"),
+                attrs.get("content_type"),
+                attrs.get("artifact_type"),
+            )
+            if len(attrs["content_bytes"]) > max_size_bytes:
+                raise serializers.ValidationError(
+                    {"content_base64": build_task_run_artifact_size_error(attrs.get("name"), max_size_bytes)}
+                )
+        return attrs
+
+
+class TaskRunLivingArtifactEditRequestSerializer(serializers.Serializer):
+    name = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=False,
+        help_text="Optional new human-readable artifact name.",
+    )
+    content = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=500000,
+        help_text="Markdown or text content for the next version.",
+    )
+    content_base64 = serializers.CharField(
+        required=False,
+        allow_blank=False,
+        help_text="Base64-encoded binary content for the next version, used by adapters such as slack_file.",
+    )
+    content_type = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=True,
+        help_text="MIME type for content_base64 or source-backed edits.",
+    )
+    source_artifact_id = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Existing run artifact id to use as the next version content source. Only agent-uploaded output artifacts are accepted; internal run artifacts are rejected.",
+    )
+    source_storage_path = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Existing run artifact storage_path to use as the next version content source. Only agent-uploaded output artifacts are accepted; internal run artifacts are rejected.",
+    )
+    metadata = serializers.DictField(
+        child=serializers.JSONField(),
+        required=False,
+        default=dict,
+        help_text="Optional metadata to merge into the artifact registry record.",
+    )
+
+    def validate(self, attrs):
+        has_content = "content" in attrs and attrs.get("content") is not None
+        has_content_base64 = bool(attrs.get("content_base64"))
+        has_source = bool(attrs.get("source_artifact_id") or attrs.get("source_storage_path"))
+        if sum([has_content, has_content_base64, has_source]) != 1:
+            raise serializers.ValidationError(
+                {
+                    "content": "Provide exactly one of content, content_base64, source_artifact_id, or source_storage_path."
+                }
+            )
+        if has_content_base64:
+            try:
+                attrs["content_bytes"] = base64.b64decode(attrs["content_base64"], validate=True)
+            except (binascii.Error, ValueError) as exc:
+                raise serializers.ValidationError({"content_base64": "Invalid base64 content"}) from exc
+            attrs.pop("content_base64", None)
+
+            max_size_bytes = get_task_run_artifact_max_size_bytes(attrs.get("name"), attrs.get("content_type"))
+            if len(attrs["content_bytes"]) > max_size_bytes:
+                raise serializers.ValidationError(
+                    {"content_base64": build_task_run_artifact_size_error(attrs.get("name"), max_size_bytes)}
+                )
+        return attrs
 
 
 class TaskRunArtifactPrepareUploadSerializer(serializers.Serializer):
@@ -1054,6 +1284,14 @@ class TaskListQuerySerializer(serializers.Serializer):
         ),
     )
     channel = serializers.UUIDField(required=False, help_text="Filter tasks to a channel's feed.")
+    all_team_tasks = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Staff-only. When true, list every task on the team regardless of creator or channel, "
+            "bypassing the per-user visibility filter. Ignored for non-staff users."
+        ),
+    )
 
 
 class ChannelSerializer(DataclassSerializer):
@@ -1082,13 +1320,75 @@ class TaskThreadMessageSerializer(DataclassSerializer):
 
     class Meta:
         dataclass = TaskThreadMessageDTO
-        fields = ["id", "task", "content", "created_at", "author", "forwarded_to_agent_at", "forwarded_by"]
+        fields = [
+            "id",
+            "task",
+            "author_kind",
+            "event",
+            "payload",
+            "content",
+            "created_at",
+            "author",
+            "forwarded_to_agent_at",
+            "forwarded_by",
+        ]
 
 
 class TaskThreadMessageWriteSerializer(serializers.Serializer):
     """Request body for posting a thread message."""
 
     content = serializers.CharField(help_text="Message text.")
+
+
+# The lifecycle events a client may post into a channel's feed. Kept narrow so the
+# feed stays a curated set of announcements, not an open write surface.
+CHANNEL_FEED_EVENTS = ["context_created", "context_md_building"]
+
+
+class ChannelFeedMessageSerializer(DataclassSerializer):
+    """Response shape for one system announcement in a channel's feed."""
+
+    author = TaskUserBasicInfoSerializer(allow_null=True, required=False)
+
+    class Meta:
+        dataclass = ChannelFeedMessageDTO
+        fields = ["id", "channel", "author", "author_kind", "event", "payload", "content", "created_at"]
+
+
+# A client-supplied created_at exists only to order a burst of announcements posted
+# in quick succession; anything beyond this window is backdating, not ordering.
+CHANNEL_FEED_CREATED_AT_WINDOW = timedelta(minutes=10)
+
+# Feed payloads carry a couple of short strings (e.g. a context name); the cap stops one
+# member storing megabytes of JSON every reader must then load and serialize.
+CHANNEL_FEED_PAYLOAD_MAX_BYTES = 8 * 1024
+
+
+class ChannelFeedMessageWriteSerializer(serializers.Serializer):
+    """Request body for posting a system announcement into a channel's feed."""
+
+    event = serializers.ChoiceField(choices=CHANNEL_FEED_EVENTS, help_text="Lifecycle event key.")
+    payload = serializers.JSONField(
+        required=False,
+        default=dict,
+        help_text='Structured event data, e.g. {"context_name": "mobile"}. At most 8 KB of JSON.',
+    )
+    created_at = serializers.DateTimeField(
+        required=False,
+        help_text="Optional explicit timestamp (within 10 minutes of now), so a client can order a burst of announcements.",
+    )
+
+    def validate_created_at(self, value: datetime) -> datetime:
+        if abs(django_timezone.now() - value) > CHANNEL_FEED_CREATED_AT_WINDOW:
+            raise serializers.ValidationError("created_at must be within 10 minutes of the current time.")
+        return value
+
+    def validate_payload(self, value: dict) -> dict:
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("payload must be a JSON object.")
+        if len(json.dumps(value)) > CHANNEL_FEED_PAYLOAD_MAX_BYTES:
+            raise serializers.ValidationError("payload must be at most 8 KB of JSON.")
+        return value
 
 
 class TaskMentionQuerySerializer(serializers.Serializer):
@@ -1314,7 +1614,7 @@ class TaskRunCreateRequestSerializer(serializers.Serializer):
         help_text=(
             "Initial permission mode for the agent session. Claude runtimes accept "
             "'default', 'acceptEdits', 'plan', 'bypassPermissions', and 'auto'. "
-            "Codex runtimes accept 'auto', 'read-only', and 'full-access'."
+            "Codex runtimes accept 'plan', 'auto', 'read-only', and 'full-access'."
         ),
     )
     rtk_enabled = serializers.BooleanField(
@@ -1485,8 +1785,8 @@ class TaskRunBootstrapCreateRequestSerializer(serializers.Serializer):
         default=None,
         help_text=(
             "Initial permission mode for the agent session. Claude runtimes accept PostHog permission "
-            "presets like 'plan'. Codex runtimes accept native Codex modes like 'auto' and "
-            "'read-only'."
+            "presets like 'plan'. Codex runtimes accept native Codex modes like 'plan', 'auto', "
+            "and 'read-only'."
         ),
     )
     rtk_enabled = serializers.BooleanField(
@@ -1649,6 +1949,17 @@ class TaskRunStartRequestSerializer(serializers.Serializer):
             attrs["pending_user_message"] = trimmed_message or None
 
         return attrs
+
+
+class TaskRunCancelRequestSerializer(serializers.Serializer):
+    reason = serializers.CharField(
+        required=False,
+        default=None,
+        allow_blank=True,
+        allow_null=True,
+        max_length=500,
+        help_text="Optional reason for the cancellation, recorded on the run and shown to run watchers.",
+    )
 
 
 class ClaudeTaskRunCreateSchemaSerializer(TaskRunCreateRequestSerializer):
@@ -2232,7 +2543,10 @@ class SlackThreadContextRepoResearchSerializer(serializers.Serializer):
         help_text="Research run status, or null if the run row could not be loaded.",
     )
     task_processing_workflow_id = serializers.CharField(
-        help_text="Temporal workflow id for the research sandbox run (`task-processing-<task_id>-<run_id>`).",
+        help_text=(
+            "Temporal workflow id for the research sandbox run (`task-processing-<task_id>-<run_id>`, "
+            "or a caller-prefixed variant)."
+        ),
     )
     task_processing_workflow_url = serializers.CharField(
         allow_null=True,
@@ -2274,7 +2588,10 @@ class SlackThreadContextRunSerializer(serializers.Serializer):
         help_text="Error captured on terminal failure, or null on success.",
     )
     task_processing_workflow_id = serializers.CharField(
-        help_text="Temporal workflow id for the sandbox/agent run (`task-processing-<task_id>-<run_id>`).",
+        help_text=(
+            "Temporal workflow id for the sandbox/agent run (`task-processing-<task_id>-<run_id>`, "
+            "or a caller-prefixed variant)."
+        ),
     )
     task_processing_workflow_url = serializers.CharField(
         allow_null=True,

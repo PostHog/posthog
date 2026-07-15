@@ -145,9 +145,18 @@ class ModelConfigurationSerializer(serializers.Serializer):
     provider_key_id = serializers.UUIDField(
         required=False,
         allow_null=True,
-        help_text="Team provider key to run this eval with (same provider as `provider`). Leave null only for brief pre-key testing; real evals should set it.",
+        help_text=(
+            "Optional team provider key to run this evaluation with; it must use the same provider. "
+            "May be null when no key is pinned or after the selected key is removed."
+        ),
     )
     provider_key_name = serializers.SerializerMethodField(read_only=True)
+
+    def validate(self, data: dict[str, Any]) -> dict[str, Any]:
+        errors = {field: "This field is required." for field in ("provider", "model") if field not in data}
+        if errors:
+            raise serializers.ValidationError(errors, code="required")
+        return data
 
     def get_provider_key_name(self, obj: LLMModelConfiguration) -> str | None:
         if obj.provider_key:
@@ -182,7 +191,17 @@ class EvaluationConditionSerializer(serializers.Serializer):
 
 class EvaluationSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
-    model_configuration = ModelConfigurationSerializer(required=False, allow_null=True)
+    model_configuration = ModelConfigurationSerializer(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. "
+            "To add or replace a model, provide both provider and model. On an existing configured llm_judge, "
+            "omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or "
+            "sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable "
+            "without adding one. The nested provider_key_id may be null."
+        ),
+    )
     status_reason_detail = serializers.CharField(
         read_only=True,
         allow_null=True,
@@ -289,6 +308,19 @@ class EvaluationSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {"model_configuration": "This evaluation type does not use model configuration."}
             )
+
+        if evaluation_uses_model_configuration(evaluation_type) and model_configuration is None:
+            existing_uses_model_configuration = bool(
+                self.instance and evaluation_uses_model_configuration(self.instance.evaluation_type)
+            )
+            newly_requires_model_configuration = self.instance is None or not existing_uses_model_configuration
+            clears_existing_model_configuration = bool(
+                self.instance and self.instance.model_configuration_id and "model_configuration" in data
+            )
+            if newly_requires_model_configuration or clears_existing_model_configuration:
+                raise serializers.ValidationError(
+                    {"model_configuration": "Select a provider and model for this LLM judge evaluation."}
+                )
 
         should_validate_configs = (
             self.instance is None
@@ -438,9 +470,9 @@ class EvaluationSerializer(serializers.ModelSerializer):
 
     def _effective_model_configuration(self, data: dict) -> dict[str, Any] | None:
         """The explicit model configuration the evaluation will have after this update, or None
-        when it defers to the team default (null config). An explicit `model_configuration: null`
-        detaches the stored config (see update()), so payload presence wins — membership, not
-        truthiness."""
+        when it defers to the team default (null config). Payload presence wins because an explicit
+        null is still accepted for legacy null-config evaluations and when switching to a type that
+        does not use a model."""
         if "model_configuration" in data:
             return data["model_configuration"]
         if self.instance is not None and self.instance.model_configuration is not None:
@@ -512,8 +544,8 @@ class EvaluationSerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
     def update(self, instance, validated_data):
-        # An explicit `model_configuration: null` detaches the config; a PATCH that omits the field must
-        # leave it untouched. pop()'s default can't tell the two apart, so check membership explicitly.
+        # Switching away from an LLM judge uses an explicit null to detach its config; omission leaves it untouched.
+        # pop()'s default can't tell the two apart, so check membership explicitly.
         model_config_provided = "model_configuration" in validated_data
         model_config_data = validated_data.pop("model_configuration", None)
         old_config = None
@@ -677,7 +709,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         with transaction.atomic():
             instance = serializer.save()
 
-            if evaluation_supports_reports(instance.output_type) and instance.target == EvaluationTarget.GENERATION:
+            if evaluation_supports_reports(instance.output_type, instance.target):
                 # Auto-create a default report config so reports are generated from the start.
                 # Defaults to count-triggered (frequency=every_n), so rrule/starts_at stay empty
                 # and users add email/Slack delivery targets later if they want notifications.

@@ -8,8 +8,8 @@ Pure formatter — no network I/O. You fetch the inputs through the PostHog MCP 
 schedule, posture, last run, and last outcome.
 
 Inputs (`call --json` payloads saved to a file):
-  --config  signals-scout-config-list --json        (REQUIRED) the roster
-  --runs    signals-scout-runs-list --json           (optional) to enrich with the
+  --config  scout-config-list --json        (REQUIRED) the roster
+  --runs    scout-runs-list --json           (optional) to enrich with the
             most recent run per scout (status + report output). Fetch with a
             small limit (~30) — runs-list overflows easily; offload to a file.
   --now     ISO-8601 timestamp to compute "ago" columns against (optional; pass the
@@ -186,8 +186,8 @@ def render(config: Any, runs_payload: Any, now: datetime | None, *, art: bool = 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--config", required=True, help="signals-scout-config-list --json payload")
-    ap.add_argument("--runs", help="signals-scout-runs-list --json payload (small limit)")
+    ap.add_argument("--config", required=True, help="scout-config-list --json payload")
+    ap.add_argument("--runs", help="scout-runs-list --json payload (small limit)")
     ap.add_argument("--now", help="ISO-8601 current time for 'ago' columns")
     ap.add_argument("--no-art", dest="art", action="store_false", help="skip the hedgehog banner")
     ap.add_argument("--out", help="write here instead of stdout (use a .txt path)")

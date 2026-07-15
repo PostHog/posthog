@@ -14,10 +14,14 @@ import { ChartDisplayType } from '~/types'
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import { NotebookDataframeTable } from './components/NotebookDataframeTable'
 import { getCellLabel } from './components/NotebookNodeTitle'
+import { NotebookRunDownstreamBanner } from './components/NotebookRunDownstreamBanner'
 import { NotebookCodeSQLEditorSettings } from './components/NotebookSQLEditor'
+import { NotebookStaleCellBanner } from './components/NotebookStaleCellBanner'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { SQL_V2_DEFAULT_PAGE_SIZE, collectSqlV2Refs, notebookNodeSQLV2Logic } from './notebookNodeSQLV2Logic'
 import { NotebookDataframeResult } from './pythonExecution'
+
+export type NotebookNodeSQLV2Media = { mime_type: string; data: string }
 
 export type NotebookNodeSQLV2Result = {
     columns: string[]
@@ -25,6 +29,10 @@ export type NotebookNodeSQLV2Result = {
     row_count: number
     first_page: (string | number | null)[][]
     has_more?: boolean
+    // Python node output: captured streams and rich media (e.g. matplotlib PNGs).
+    stdout?: string
+    stderr?: string
+    media?: NotebookNodeSQLV2Media[]
 }
 
 export type NotebookNodeSQLV2Attributes = {
@@ -80,9 +88,21 @@ const Component = ({
         updateAttributes,
         runId: attributes.runId ?? null,
         hasResult: !!attributes.result,
+        getContent: () => notebookLogic.values.content ?? null,
     })
-    const { isRunning, runError, page, pageSize, pageResult, pageLoading, operationBlockReason } = useValues(dataLogic)
-    const { setPage, setPageSize } = useActions(dataLogic)
+    const {
+        isRunning,
+        runError,
+        page,
+        pageSize,
+        pageResult,
+        pageLoading,
+        operationBlockReason,
+        isStale,
+        isChainRunning,
+        staleDownstreamCount,
+    } = useValues(dataLogic)
+    const { setPage, setPageSize, runStaleChain } = useActions(dataLogic)
 
     const usageLabel = (nodeType: NotebookNodeType, nodeIndex: number | undefined, title: string): string =>
         title.trim() || getCellLabel(nodeIndex, nodeType) || 'SQL'
@@ -127,6 +147,19 @@ const Component = ({
                 onMouseDown={(event) => event.stopPropagation()}
                 onDragStart={(event) => event.stopPropagation()}
             >
+                {isStale ? (
+                    <div className="shrink-0" onClick={(event) => event.stopPropagation()}>
+                        <NotebookStaleCellBanner />
+                    </div>
+                ) : staleDownstreamCount > 0 && !isChainRunning ? (
+                    <div className="shrink-0" onClick={(event) => event.stopPropagation()}>
+                        <NotebookRunDownstreamBanner
+                            count={staleDownstreamCount}
+                            onRun={() => runStaleChain(notebookLogic.values.content ?? null, nodeId)}
+                            disabledReason={isRunning ? 'This cell is running' : (operationBlockReason ?? undefined)}
+                        />
+                    </div>
+                ) : null}
                 {runError ? (
                     <div className="p-2 text-xs font-mono text-danger whitespace-pre-wrap">{runError}</div>
                 ) : dataframeResult && cachedResults ? (
@@ -256,9 +289,10 @@ const Settings = ({
         updateAttributes,
         runId: attributes.runId ?? null,
         hasResult: !!attributes.result,
+        getContent: () => notebookLogic.values.content ?? null,
     })
-    const { isRunning, operationBlockReason } = useValues(dataLogic)
-    const { runQuery } = useActions(dataLogic)
+    const { isRunning, isInterrupting, operationBlockReason } = useValues(dataLogic)
+    const { runQuery, interruptRun } = useActions(dataLogic)
 
     return (
         <NotebookCodeSQLEditorSettings
@@ -271,6 +305,8 @@ const Settings = ({
             runQueryLoading={isRunning}
             runQueryDisabledReason={operationBlockReason ?? undefined}
             runQueryTooltip="Run SQL (v2) query"
+            onCancelQuery={interruptRun}
+            cancelQueryLoading={isInterrupting}
         />
     )
 }

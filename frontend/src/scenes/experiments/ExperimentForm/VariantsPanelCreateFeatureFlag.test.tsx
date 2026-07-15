@@ -9,14 +9,14 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import type { Experiment } from '~/types'
 
-import type { FeatureFlagMultivariateVariantSchemaApi } from 'products/experiments/frontend/generated/api.schemas'
+import type { ExperimentFlagVariantApi } from 'products/experiments/frontend/generated/api.schemas'
 
 import { NEW_EXPERIMENT } from '../constants'
 import { VariantsPanelCreateFeatureFlag } from './VariantsPanelCreateFeatureFlag'
 
 // Draft flag config in the flag's own input shape, the source the panel reads and writes.
 const flagConfig = (
-    variants: FeatureFlagMultivariateVariantSchemaApi[],
+    variants: ExperimentFlagVariantApi[],
     rolloutPercentage?: number
 ): Experiment['feature_flag_config'] => ({
     filters: {
@@ -101,6 +101,28 @@ describe('VariantsPanelCreateFeatureFlag', () => {
 
             expect(controlInput).toBeInTheDocument()
             expect(testInput).toBeInTheDocument()
+        })
+
+        it('allows renaming the control variant for product experiments', () => {
+            renderComponent(defaultExperiment)
+
+            const controlInput = screen.getByDisplayValue('control')
+            expect(controlInput).toBeEnabled()
+
+            fireEvent.change(controlInput, { target: { value: 'baseline' } })
+
+            expect(mockOnChange).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    variants: [expect.objectContaining({ key: 'baseline' }), expect.objectContaining({ key: 'test' })],
+                })
+            )
+        })
+
+        it('locks the control variant key for web experiments', () => {
+            renderComponent({ ...defaultExperiment, type: 'web' })
+
+            expect(screen.getByDisplayValue('control')).toBeDisabled()
+            expect(screen.getByDisplayValue('test')).toBeEnabled()
         })
 
         it('renders variant split labels by default', () => {

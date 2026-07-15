@@ -41,6 +41,7 @@ from posthog.storage import object_storage
 from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS
+from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.logic.stream.redis_stream import publish_task_run_stream_event
 from products.tasks.backend.metrics import observe_task_run_created, observe_task_run_dispatch_callback
 from products.tasks.backend.redis import evaluate_dedicated_stream_flag, run_uses_dedicated_stream
@@ -103,6 +104,9 @@ class Channel(TeamScopedRootMixin):
 
 
 SLACK_NOTIFIED_PR_URL_STATE_KEY = "slack_notified_pr_url"
+PR_READY_EMAIL_QUEUED_AT_STATE_KEY = "pr_ready_email_queued_at"
+PR_READY_EMAIL_SENT_AT_STATE_KEY = "pr_ready_email_sent_at"
+PR_READY_EMAIL_PR_URL_STATE_KEY = "pr_ready_email_pr_url"
 
 
 class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
@@ -128,6 +132,8 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         # ticket's Code chat carry this origin (previously "support_queue", which
         # collided with the conversations support pipeline).
         HOGDESK = "hogdesk", "HogDesk"
+        # ReviewHog PR reviewer — its sandbox steps (chunking/review/validation/dedup) spawn one task each.
+        REVIEW_HOG = "review_hog", "ReviewHog"
         IMAGE_BUILDER = "image_builder", "Image Builder"
 
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
@@ -390,6 +396,36 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             task = Task.objects.select_for_update().only("id", "state").get(id=self.id)
             state = dict(task.state or {})
             state[SLACK_NOTIFIED_PR_URL_STATE_KEY] = pr_url
+            task.state = state
+            task.save(update_fields=["state", "updated_at"])
+        self.state = state
+
+    @property
+    def pr_ready_email_sent_at(self) -> str | None:
+        return (self.state or {}).get(PR_READY_EMAIL_SENT_AT_STATE_KEY)
+
+    def mark_pr_ready_email_queued(self, pr_url: str, *, queued_at: datetime | None = None) -> bool:
+        """Record that this task's PR-ready email task was queued, preserving other state keys."""
+        with transaction.atomic():
+            task = Task.objects.select_for_update().only("id", "state").get(id=self.id)
+            state = dict(task.state or {})
+            if state.get(PR_READY_EMAIL_QUEUED_AT_STATE_KEY) or state.get(PR_READY_EMAIL_SENT_AT_STATE_KEY):
+                self.state = state
+                return False
+            state[PR_READY_EMAIL_QUEUED_AT_STATE_KEY] = (queued_at or django_timezone.now()).isoformat()
+            state[PR_READY_EMAIL_PR_URL_STATE_KEY] = pr_url
+            task.state = state
+            task.save(update_fields=["state", "updated_at"])
+        self.state = state
+        return True
+
+    def mark_pr_ready_email_sent(self, pr_url: str, *, sent_at: datetime | None = None) -> None:
+        """Record confirmed PR-ready email delivery, preserving other state keys."""
+        with transaction.atomic():
+            task = Task.objects.select_for_update().only("id", "state").get(id=self.id)
+            state = dict(task.state or {})
+            state[PR_READY_EMAIL_SENT_AT_STATE_KEY] = (sent_at or django_timezone.now()).isoformat()
+            state[PR_READY_EMAIL_PR_URL_STATE_KEY] = pr_url
             task.state = state
             task.save(update_fields=["state", "updated_at"])
         self.state = state
@@ -698,6 +734,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         wizard_config: dict | None = None,
         wizard_head_branch: str | None = None,
         pending_user_message: str | None = None,
+        workflow_id_prefix: str | None = None,
         custom_image_builder_id: str | None = None,
         custom_image_id: str | None = None,
     ) -> "Task":
@@ -742,6 +779,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
                 "posthog_mcp_scopes": posthog_mcp_scopes,
                 "user_id": user_id,
                 "slack_thread_context": _normalize_slack_context(slack_thread_context),
+                "workflow_id_prefix": workflow_id_prefix,
             }
 
         task_run = task.create_run(mode=mode, extra_state=run_extra_state or None, branch=branch)
@@ -770,6 +808,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
                     create_pr=create_pr,
                     slack_thread_context=slack_thread_context,
                     posthog_mcp_scopes=posthog_mcp_scopes,
+                    workflow_id_prefix=workflow_id_prefix,
                 )
 
             transaction.on_commit(_dispatch)
@@ -778,9 +817,18 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
 
 
 class TaskThreadMessage(TeamScopedRootMixin):
-    """One human message in a task's thread — the side conversation channel members
-    have around a task. Messages never reach the agent unless the task author
-    forwards one (send_to_agent), which stamps the forwarded_* fields."""
+    """One message in a task's thread — the side conversation channel members have
+    around a task. Human messages never reach the agent unless the task author
+    forwards one (send_to_agent), which stamps the forwarded_* fields. Agent rows
+    (``author_kind=AGENT``, no ``author``) are server-emitted announcements carrying
+    a stable ``event`` key + ``payload`` — the same shape as ``ChannelFeedMessage`` —
+    so clients can render them structurally and dedupe them against live
+    session-derived views (e.g. ``turn_complete`` carries the run id)."""
+
+    class AuthorKind(models.TextChoices):
+        HUMAN = "human", "Human"
+        SYSTEM = "system", "System"
+        AGENT = "agent", "Agent"
 
     # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -792,6 +840,11 @@ class TaskThreadMessage(TeamScopedRootMixin):
     author = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
     )
+    author_kind = models.CharField(max_length=16, choices=AuthorKind, default=AuthorKind.HUMAN)
+    # Stable event key + structured payload for non-human rows (empty for human
+    # messages); `content` stays the rendered text so older clients degrade cleanly.
+    event = models.CharField(max_length=64, blank=True, default="")
+    payload = models.JSONField(default=dict, blank=True)
     content = models.TextField()
     forwarded_to_agent_at = models.DateTimeField(null=True, blank=True)
     forwarded_by = models.ForeignKey(
@@ -836,6 +889,46 @@ class TaskThreadMessageMention(TeamScopedRootMixin):
 
     def __str__(self):
         return f"Mention of user {self.mentioned_user_id} in message {self.message_id}"
+
+
+class ChannelFeedMessage(TeamScopedRootMixin):
+    """A durable, team-visible announcement in a channel's feed — rendered alongside
+    task cards as a "PostHog agent" system row (e.g. "Adam created this context").
+    The channel feed is otherwise a task list, so these give channel lifecycle events
+    a home without shoe-horning them into tasks. ``author`` is the user whose action
+    produced the row (for "Adam …"); ``author_kind`` says who authored it."""
+
+    class AuthorKind(models.TextChoices):
+        HUMAN = "human", "Human"
+        SYSTEM = "system", "System"
+        AGENT = "agent", "Agent"
+
+    # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    # db_constraint=False on the team/user FKs: adding an FK constraint to those hot
+    # tables locks them and stalls deploys; Django still enforces the relation and
+    # on_delete at the app level (see safe-django-migrations.md).
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    channel = models.ForeignKey(Channel, on_delete=models.CASCADE, related_name="feed_messages")
+    author = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
+    )
+    author_kind = models.CharField(max_length=16, choices=AuthorKind, default=AuthorKind.SYSTEM)
+    # A stable event key the client maps to copy (e.g. "context_created"), plus a
+    # structured payload (e.g. {"context_name": "mobile"}) so rendering survives renames.
+    event = models.CharField(max_length=64)
+    payload = models.JSONField(default=dict, blank=True)
+    # Optional freeform fallback when there is no structured event.
+    content = models.TextField(blank=True, default="")
+    deleted = models.BooleanField(default=False)
+    created_at = models.DateTimeField(default=django_timezone.now)
+
+    class Meta:
+        db_table = "posthog_task_channel_feed_message"
+        indexes = [models.Index(fields=["channel", "created_at"], name="task_channel_feed_msg_created")]
+
+    def __str__(self):
+        return f"Feed message {self.id} on channel {self.channel_id}"
 
 
 class TaskAutomationManager(models.Manager):
@@ -1154,13 +1247,24 @@ class TaskRun(models.Model):
         return cls.mutate_state_atomic(run_id, _mutator)
 
     @staticmethod
-    def get_workflow_id(task_id: str | uuid.UUID, run_id: str | uuid.UUID) -> str:
-        """Get the Temporal workflow ID for a task run."""
+    def get_workflow_id(
+        task_id: str | uuid.UUID, run_id: str | uuid.UUID, workflow_id_prefix: str | None = None
+    ) -> str:
+        """Get the Temporal workflow ID for a task run, optionally under a caller-supplied prefix."""
+        if workflow_id_prefix:
+            return f"{workflow_id_prefix}-{task_id}-{run_id}"
         return f"task-processing-{task_id}-{run_id}"
 
     @property
     def workflow_id(self) -> str:
-        """Get the Temporal workflow ID for this task run."""
+        """The run's actual Temporal workflow ID.
+
+        A prefixed dispatch persists the started ID in `state` (it isn't derivable from ids alone);
+        the default ID stays derived.
+        """
+        persisted = self.state.get("workflow_id") if isinstance(self.state, dict) else None
+        if persisted:
+            return persisted
         return self.get_workflow_id(self.task_id, self.id)
 
     def heartbeat_workflow(self, agent_active: bool = False) -> None:
@@ -1304,6 +1408,40 @@ class TaskRun(models.Model):
                     error=str(e),
                 )
 
+    def effective_rtk(self) -> bool | None:
+        """rtk posture for analytics: the launch-persisted effective value, falling
+        back to the user's explicit override for runs that never launched."""
+        state = self.state if isinstance(self.state, dict) else {}
+        rtk = state.get("rtk_effective", state.get("rtk_enabled"))
+        return rtk if isinstance(rtk, bool) else None
+
+    def _analytics_usage_properties(self) -> dict:
+        """Token usage and rtk posture for analytics events.
+
+        The agent-server merges cumulative usage into ``state.token_usage`` as turns
+        settle.
+        """
+        props: dict = {}
+        state = self.state if isinstance(self.state, dict) else {}
+        usage = state.get("token_usage")
+        if isinstance(usage, dict):
+            for key in (
+                "input_tokens",
+                "output_tokens",
+                "cache_read_tokens",
+                "cache_write_tokens",
+                "thought_tokens",
+                "total_tokens",
+                "turns",
+            ):
+                value = usage.get(key)
+                if isinstance(value, int | float) and not isinstance(value, bool):
+                    props["usage_turns" if key == "turns" else key] = value
+        rtk = self.effective_rtk()
+        if rtk is not None:
+            props["rtk_enabled"] = rtk
+        return props
+
     def capture_event(self, event: str, properties: dict | None = None, event_uuid: str | None = None) -> None:
         try:
             distinct_id = (
@@ -1320,7 +1458,12 @@ class TaskRun(models.Model):
                 "title": self.task.title,
                 "signal_report_id": str(self.task.signal_report_id) if self.task.signal_report_id else None,
                 "environment": self.environment,
+                # The bare `environment` property gets clobbered by the analytics
+                # client's deployment-region super-property, so ship the run's
+                # local/cloud value under an unclobbered name too.
+                "run_environment": self.environment,
                 "mode": self.mode,
+                **self._analytics_usage_properties(),
             }
             if properties:
                 all_properties.update(properties)
@@ -1342,16 +1485,24 @@ class TaskRun(models.Model):
             return round((self.completed_at - self.created_at).total_seconds(), 1)
         return 0.0
 
-    def mark_completed(self):
-        """Mark the progress as completed."""
+    def mark_completed(self, *, notify: bool = True, analytics_properties: dict | None = None) -> None:
+        """Mark the progress as completed.
+
+        ``notify=False`` skips the push notification — for janitor-style finalization of a run
+        the user is no longer watching, where a "finished" ping long after the fact is noise.
+        ``analytics_properties`` are merged into the ``task_run_completed`` capture so swept
+        completions stay distinguishable from organic ones.
+        """
         self.status = self.Status.COMPLETED
         self.completed_at = django_timezone.now()
         self.save(update_fields=["status", "completed_at"])
         self.publish_stream_state_event()
         self.capture_event(
             "task_run_completed",
-            {"duration_seconds": self._duration_seconds()},
+            {"duration_seconds": self._duration_seconds(), **(analytics_properties or {})},
         )
+        if not notify:
+            return
         from products.tasks.backend.push_dispatcher import notify_task_run_completed
 
         notify_task_run_completed(self)
@@ -1370,7 +1521,7 @@ class TaskRun(models.Model):
                 error=str(e),
             )
 
-    def mark_failed(self, error: str):
+    def mark_failed(self, error: str, error_type: str | None = None) -> None:
         """Mark the progress as failed with an error message."""
         self.status = self.Status.FAILED
         self.error_message = error
@@ -1380,7 +1531,8 @@ class TaskRun(models.Model):
         self.capture_event(
             "task_run_failed",
             {
-                "error_message": error[:500],
+                "error_message": truncate_error_message(error),
+                "error_type": error_type or "unspecified",
                 "duration_seconds": self._duration_seconds(),
             },
         )
@@ -1497,6 +1649,62 @@ class TaskRun(models.Model):
 
     def delete(self, *args, **kwargs):
         raise Exception("Cannot delete TaskRun. Task runs are immutable records.")
+
+
+class TaskArtifact(TeamScopedRootMixin, UUIDModel):
+    class ArtifactType(models.TextChoices):
+        SLACK_MESSAGE = "slack_message", "Slack message"
+        SLACK_CANVAS = "slack_canvas", "Slack canvas"
+        DOCUMENT = "document", "Document"
+        SPREADSHEET = "spreadsheet", "Spreadsheet"
+        DASHBOARD = "dashboard", "Dashboard"
+        FILE = "file", "File"
+        GITHUB_PR = "github_pr", "GitHub PR"
+
+    class Adapter(models.TextChoices):
+        SLACK_MESSAGE = "slack_message", "Slack message"
+        SLACK_CANVAS = "slack_canvas", "Slack canvas"
+        SLACK_FILE = "slack_file", "Slack file"
+        DOCUMENT_CONNECTOR = "document_connector", "Document connector"
+        GITHUB_PR = "github_pr", "GitHub PR"
+
+    class Status(models.TextChoices):
+        ACTIVE = "active", "Active"
+        FAILED = "failed", "Failed"
+
+    # App-level scoping is enforced by TeamScopedRootMixin; avoid locking the hot Team/User tables.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="living_artifacts")
+    task_run = models.ForeignKey(TaskRun, on_delete=models.CASCADE, related_name="living_artifacts")
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
+    )
+    name = models.CharField(max_length=255)
+    artifact_type = models.CharField(max_length=32, choices=ArtifactType)
+    adapter = models.CharField(max_length=32, choices=Adapter)
+    status = models.CharField(max_length=16, choices=Status, default=Status.ACTIVE, db_default=Status.ACTIVE)
+    location = models.JSONField(
+        default=dict, db_default=models.Value("{}"), help_text="Adapter-specific location data."
+    )
+    metadata = models.JSONField(
+        default=dict, db_default=models.Value("{}"), help_text="Adapter-specific artifact metadata."
+    )
+    versions = models.JSONField(
+        default=list, db_default=models.Value("[]"), help_text="Chronological artifact versions."
+    )
+    current_version = models.PositiveIntegerField(default=1, db_default=1)
+    created_at = models.DateTimeField(default=django_timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_task_artifact"
+        indexes = [
+            models.Index(fields=["team", "task", "-updated_at"], name="task_artifact_team_task_idx"),
+            models.Index(fields=["team", "task_run", "-updated_at"], name="task_artifact_team_run_idx"),
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.artifact_type})"
 
 
 class SandboxSnapshot(UUIDModel):

@@ -2,17 +2,12 @@ import { RESOURCE_URI_META_KEY } from '@modelcontextprotocol/ext-apps/server'
 import type { Tool as McpTool } from '@modelcontextprotocol/sdk/types.js'
 
 import type { QueryToolInfo } from '@/lib/instructions'
-import {
-    type InstructionsContext,
-    InstructionsFormatter,
-    schemaDiscoveryViaSqlEnabled,
-} from '@/lib/instructions-formatter'
-import type { EvaluatedFlags } from '@/lib/posthog/flags'
+import { type InstructionsContext, InstructionsFormatter } from '@/lib/instructions-formatter'
 import { formatPrompt } from '@/lib/utils'
 import { RENDER_UI_RESOURCE_URI } from '@/resources/ui-apps.generated'
 import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
-import SCHEMA_DISCOVERY_INFOSCHEMA from '@/templates/sections/schema-discovery-infoschema.md'
-import SCHEMA_DISCOVERY_LEGACY from '@/templates/sections/schema-discovery-legacy.md'
+import SCHEMA_DISCOVERY from '@/templates/sections/schema-discovery.md'
+import { ExecHelpCatalog } from '@/tools/exec-help'
 import {
     getRenderableToolNames,
     makeRenderUiSchema,
@@ -64,7 +59,6 @@ export class InstructionsBuilder {
                         ...(def.system_prompt_hint ? { systemPromptHint: def.system_prompt_hint } : {}),
                     } as QueryToolInfo
                 }),
-            featureFlags: state.toolFeatureFlags,
             renderUiEnabled: state.renderUiEnabled,
             metadata: state.metadata,
             groupTypes: state.groupTypes,
@@ -116,10 +110,19 @@ export class InstructionsBuilder {
         // un-stripped path.)
         const keepEnvContext = state.clientProfile.isClaudeChatHost()
         const ctx = this.buildContext(state)
+        if (keepEnvContext) {
+            return this.formatter.buildClaudeExecCommandReference(ctx)
+        }
         return this.formatter.buildExecCommandReference(ctx, {
             stripEnvContext: supportsInstructions,
-            keepEnvContext,
         })
+    }
+
+    buildExecHelpCatalog(state: ResolvedState): ExecHelpCatalog | undefined {
+        if (!state.clientProfile.isClaudeChatHost()) {
+            return undefined
+        }
+        return new ExecHelpCatalog(this.formatter.buildClaudeExecHelpEntries(this.buildContext(state)))
     }
 
     buildExecToolDescription(): string {
@@ -130,13 +133,10 @@ export class InstructionsBuilder {
         return this.guidelines
     }
 
-    formatExecuteSqlDescription(featureFlags?: EvaluatedFlags): string {
-        const schemaDiscovery = schemaDiscoveryViaSqlEnabled(featureFlags)
-            ? SCHEMA_DISCOVERY_INFOSCHEMA
-            : SCHEMA_DISCOVERY_LEGACY
+    formatExecuteSqlDescription(): string {
         return formatPrompt(EXECUTE_SQL_PROMPT, {
             guidelines: this.guidelines.trim(),
-            schema_discovery: schemaDiscovery.trim(),
+            schema_discovery: SCHEMA_DISCOVERY.trim(),
         })
     }
 }
