@@ -1,6 +1,8 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect } from 'react'
 
+import { LemonBanner } from '@posthog/lemon-ui'
+
 import { SQLEditor } from 'scenes/data-warehouse/editor/SQLEditor'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
@@ -9,6 +11,7 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
 import { METRICS_SQL_EDITOR_TAB_ID, metricsSceneLogic } from '../metricsSceneLogic'
+import { getMetricsViewerDisabledReason } from '../metricsAccess'
 import { metricsSqlEditorTrackingLogic } from './metricsSqlEditorTrackingLogic'
 
 // `metrics` is only registered under the `posthog.` HogQL namespace
@@ -22,14 +25,17 @@ export const MetricsSqlEditor = (): JSX.Element => {
     const logic = sqlEditorLogic({ tabId: sqlEditorTabId, mode: SQLEditorMode.Embedded })
     const { queryInput } = useValues(logic)
     const { setQueryInput, setSourceQuery, runQuery } = useActions(logic)
+    const metricsViewerDisabledReason = getMetricsViewerDisabledReason()
     useMountedLogic(metricsSqlEditorTrackingLogic({ sqlEditorTabId }))
 
     useEffect(() => {
-        keepSqlEditorMounted(sqlEditorTabId)
-    }, [sqlEditorTabId]) // eslint-disable-line react-hooks/exhaustive-deps
+        if (!metricsViewerDisabledReason) {
+            keepSqlEditorMounted(sqlEditorTabId)
+        }
+    }, [sqlEditorTabId, metricsViewerDisabledReason]) // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
-        if (queryInput === null) {
+        if (queryInput === null && !metricsViewerDisabledReason) {
             setQueryInput(DEFAULT_METRICS_QUERY)
             setSourceQuery({
                 kind: NodeKind.DataVisualizationNode,
@@ -43,9 +49,18 @@ export const MetricsSqlEditor = (): JSX.Element => {
         }
     }, [queryInput]) // eslint-disable-line react-hooks/exhaustive-deps
 
+    if (metricsViewerDisabledReason) {
+        return <LemonBanner type="warning">{metricsViewerDisabledReason}</LemonBanner>
+    }
+
     return (
         <div className="flex flex-col flex-1 min-h-0 min-w-0 border rounded overflow-hidden">
-            <SQLEditor tabId={sqlEditorTabId} mode={SQLEditorMode.Embedded} defaultShowDatabaseTree={false} />
+            <SQLEditor
+                tabId={sqlEditorTabId}
+                mode={SQLEditorMode.Embedded}
+                defaultShowDatabaseTree={false}
+                runQueryDisabledReason={metricsViewerDisabledReason ?? undefined}
+            />
         </div>
     )
 }

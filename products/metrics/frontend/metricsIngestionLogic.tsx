@@ -7,6 +7,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import { metricsHasMetricsRetrieve } from './generated/api'
+import { canViewMetrics } from './metricsAccess'
 import type { metricsIngestionLogicType } from './metricsIngestionLogicType'
 
 const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
@@ -21,6 +22,9 @@ export const metricsIngestionLogic = kea<metricsIngestionLogicType>([
         teamHasMetrics: {
             __default: undefined as boolean | undefined,
             loadTeamHasMetrics: async (): Promise<boolean> => {
+                if (!canViewMetrics()) {
+                    return false
+                }
                 const response = await retryWithBackoff(() => metricsHasMetricsRetrieve(String(values.currentTeamId)), {
                     maxAttempts: 3,
                 })
@@ -76,7 +80,7 @@ export const metricsIngestionLogic = kea<metricsIngestionLogicType>([
     }),
 
     afterMount(({ actions, values }) => {
-        if (values.cachedTeamHasMetrics !== true) {
+        if (canViewMetrics() && values.cachedTeamHasMetrics !== true) {
             actions.loadTeamHasMetrics()
         }
     }),

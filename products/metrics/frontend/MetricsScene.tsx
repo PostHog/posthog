@@ -13,6 +13,7 @@ import { MetricsSetupPrompt } from './components/MetricsSetupPrompt'
 import { MetricsSqlEditor } from './components/MetricsSqlEditor'
 import { metricsUsageTrackingLogic } from './components/metricsUsageTrackingLogic'
 import { MetricsViewer } from './components/MetricsViewer'
+import { getMetricsViewerDisabledReason } from './metricsAccess'
 import { metricsIngestionLogic } from './metricsIngestionLogic'
 import { MetricsSceneActiveTab, metricsSceneLogic } from './metricsSceneLogic'
 
@@ -41,6 +42,7 @@ const MetricsSceneContent = (): JSX.Element => {
     const { activeTab } = useValues(metricsSceneLogic)
     const { setActiveTab } = useActions(metricsSceneLogic)
     const { teamHasMetricsCheckFailed } = useValues(metricsIngestionLogic)
+    const metricsViewerDisabledReason = getMetricsViewerDisabledReason()
     // Scene-level so tab switches in both directions are captured; keeps the viewer
     // and samples logics (its connect targets) mounted across tab flips as a side effect.
     useMountedLogic(metricsUsageTrackingLogic)
@@ -67,7 +69,19 @@ const MetricsSceneContent = (): JSX.Element => {
                     Unable to verify metrics setup. If you haven't configured metrics yet, check out our setup guide.
                 </LemonBanner>
             )}
-            <LemonTabs<MetricsSceneActiveTab> activeKey={activeTab} onChange={setActiveTab} tabs={TABS} sceneInset />
+            <LemonTabs<MetricsSceneActiveTab>
+                activeKey={activeTab}
+                onChange={(tab) => {
+                    if (!metricsViewerDisabledReason) {
+                        setActiveTab(tab)
+                    }
+                }}
+                tabs={TABS.map((tab) => ({
+                    ...tab,
+                    disabledReason: metricsViewerDisabledReason ?? undefined,
+                }))}
+                sceneInset
+            />
             <MetricsSetupPrompt>
                 <div className="flex flex-col gap-2 py-2 flex-1 min-h-0">
                     {activeTab === 'viewer' && <MetricsViewer />}
