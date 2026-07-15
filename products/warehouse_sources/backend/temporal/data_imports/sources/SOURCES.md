@@ -178,6 +178,7 @@ the row lists both.
 | finnhub                   | HTTP                        | requests                                                        | ✅                          |
 | finnworlds                | HTTP                        | requests                                                        | ✅                          |
 | firecrawl                 | HTTP                        | requests                                                        | ✅                          |
+| fireworks_ai              | HTTP                        | requests                                                        | ✅                          |
 | fleetio                   | HTTP                        | requests                                                        | ✅                          |
 | firehydrant               | HTTP                        | requests                                                        | ✅                          |
 | flexmail                  | HTTP                        | requests                                                        | ✅                          |
@@ -610,7 +611,6 @@ doesn't conflict with concurrent PRs.
 - fintoc
 - firebase
 - firebolt
-- fireworks_ai
 - flagsmith
 - flexmail
 - flexport
