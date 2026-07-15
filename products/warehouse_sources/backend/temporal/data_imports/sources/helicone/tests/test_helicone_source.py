@@ -32,6 +32,10 @@ class TestHeliconeSource:
     def test_source_type(self):
         assert self.source.source_type == ExternalDataSourceType.HELICONE
 
+    def test_region_is_a_connection_host_field(self):
+        # Changing the regional host must force re-entry of the API key (credential retargeting guard).
+        assert self.source.connection_host_fields == ["region"]
+
     def test_get_source_config(self):
         config = self.source.get_source_config
 

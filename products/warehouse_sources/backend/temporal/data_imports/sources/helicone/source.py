@@ -45,6 +45,12 @@ class HeliconeSource(ResumableSource[HeliconeSourceConfig, HeliconeResumeConfig]
         return ExternalDataSourceType.HELICONE
 
     @property
+    def connection_host_fields(self) -> list[str]:
+        # `region` picks the host the stored API key is sent to. Retargeting it must re-require the
+        # secret so a preserved key can't be aimed at a different regional endpoint without re-entry.
+        return ["region"]
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.HELICONE,
