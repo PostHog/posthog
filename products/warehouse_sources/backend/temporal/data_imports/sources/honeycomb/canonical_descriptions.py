@@ -120,7 +120,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "columns": {
             "id": "Unique identifier for the recipient.",
             "type": "Delivery mechanism of the recipient (e.g. email, slack, pagerduty, webhook).",
-            "details": "Type-specific delivery settings, such as the target address or channel.",
+            "details": "Type-specific delivery settings, such as the target address or channel. Credential-bearing fields (integration keys, webhook URLs and secrets) are redacted by PostHog during sync.",
             "created_at": "When the recipient was created.",
             "updated_at": "When the recipient was last modified.",
         },

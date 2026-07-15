@@ -25,6 +25,19 @@ HONEYCOMB_BASE_URLS: dict[str, str] = {
 # outside any real dataset.
 ENVIRONMENT_WIDE_SLUG = "__all__"
 
+# Recipient payloads carry live credentials: PagerDuty integration keys, webhook signing
+# secrets, and webhook / MS Teams URLs (capability URLs). Those must never land in a
+# warehouse table any project member can query, so recipient `details` are filtered to an
+# allow-list — unknown keys (new recipient types) are redacted, failing closed.
+SAFE_RECIPIENT_DETAIL_KEYS = frozenset({"email_address", "slack_channel", "webhook_name", "pagerduty_integration_name"})
+# Recipient types whose `target` (the abbreviated form embedded in trigger / burn-alert rows)
+# is a plain address rather than a credential.
+SAFE_RECIPIENT_TARGET_TYPES = frozenset({"email", "slack"})
+# Endpoints whose raw responses contain recipient credentials — excluded from HTTP sample
+# capture so unsanitized bodies are never persisted (still metered and logged).
+ENDPOINTS_WITH_CREDENTIAL_PAYLOADS = frozenset({"recipients", "triggers", "burn_alerts"})
+REDACTED_VALUE = "[REDACTED]"
+
 
 class HoneycombRetryableError(Exception):
     pass
@@ -107,6 +120,30 @@ def _fetch_list_skipping_missing(
         raise
 
 
+def _sanitize_recipient(recipient: dict[str, Any]) -> dict[str, Any]:
+    """Redact credential-bearing fields from a recipient object (full or embedded form)."""
+    sanitized = dict(recipient)
+    details = sanitized.get("details")
+    if isinstance(details, dict):
+        sanitized["details"] = {
+            key: (value if key in SAFE_RECIPIENT_DETAIL_KEYS else REDACTED_VALUE) for key, value in details.items()
+        }
+    if "target" in sanitized and sanitized.get("type") not in SAFE_RECIPIENT_TARGET_TYPES:
+        sanitized["target"] = REDACTED_VALUE
+    return sanitized
+
+
+def _sanitize_row(endpoint_name: str, row: dict[str, Any]) -> dict[str, Any]:
+    """Scrub recipient credentials from a row before it reaches the warehouse."""
+    if endpoint_name == "recipients":
+        return _sanitize_recipient(row)
+    embedded = row.get("recipients")
+    if isinstance(embedded, list):
+        row = dict(row)
+        row["recipients"] = [_sanitize_recipient(item) if isinstance(item, dict) else item for item in embedded]
+    return row
+
+
 def _list_dataset_slugs(
     session: requests.Session, base_url: str, headers: dict[str, str], logger: FilteringBoundLogger
 ) -> list[str]:
@@ -133,11 +170,13 @@ def _rows_for_dataset(
         for slo in slos:
             slo_id = slo["id"]
             items = _fetch_list_skipping_missing(session, f"{url}?slo_id={slo_id}", headers, logger)
-            rows.extend({**item, "dataset_slug": dataset_slug, "slo_id": slo_id} for item in items)
+            rows.extend(
+                {**_sanitize_row(config.name, item), "dataset_slug": dataset_slug, "slo_id": slo_id} for item in items
+            )
         return rows
 
     items = _fetch_list_skipping_missing(session, url, headers, logger)
-    return [{**item, "dataset_slug": dataset_slug} for item in items]
+    return [{**_sanitize_row(config.name, item), "dataset_slug": dataset_slug} for item in items]
 
 
 def _iter_fan_out(
@@ -188,13 +227,14 @@ def get_rows(
     # One session reused across every request so urllib3 keeps the connection alive instead of
     # re-handshaking per request. Redact the key: it rides in the X-Honeycomb-Team header, which
     # the tracked transport's built-in scrubber doesn't recognise, so a logged/sampled request
-    # would otherwise leak it.
-    session = make_tracked_session(redact_values=(api_key,))
+    # would otherwise leak it. Responses carrying recipient credentials are additionally kept
+    # out of HTTP sample capture — the name-based scrubbers can't recognise those payloads.
+    session = make_tracked_session(redact_values=(api_key,), capture=endpoint not in ENDPOINTS_WITH_CREDENTIAL_PAYLOADS)
 
     if config.scope == HoneycombScope.ENVIRONMENT:
         rows = _fetch_list(session, f"{base_url}{config.path}", headers, logger)
         if rows:
-            yield rows
+            yield [_sanitize_row(config.name, row) for row in rows]
         return
 
     yield from _iter_fan_out(session, base_url, headers, config, logger, resumable_source_manager)

@@ -239,6 +239,108 @@ class TestBurnAlertFanOut:
         assert rows == [{"id": "ba1", "dataset_slug": "prod", "slo_id": "slo1"}]
 
 
+class TestRecipientCredentialScrubbing:
+    """Recipient payloads carry live credentials (PagerDuty integration keys, webhook signing
+    secrets, webhook / MS Teams capability URLs). Dropping the sanitization would hand those to
+    anyone with warehouse query access, so lock in the redaction behavior."""
+
+    def test_recipient_details_are_allow_listed(self, monkeypatch: Any) -> None:
+        lists = {
+            f"{US}/1/recipients": [
+                {"id": "r1", "type": "email", "details": {"email_address": "oncall@example.com"}},
+                {
+                    "id": "r2",
+                    "type": "webhook",
+                    "details": {"webhook_name": "hook", "webhook_url": "https://h.example", "webhook_secret": "shh"},
+                },
+                {
+                    "id": "r3",
+                    "type": "pagerduty",
+                    "details": {"pagerduty_integration_name": "svc", "pagerduty_integration_key": "pd-key"},
+                },
+                # Unknown detail keys (new recipient types) must fail closed.
+                {"id": "r4", "type": "msteams", "details": {"msteams_url": "https://teams.example/abc"}},
+            ]
+        }
+        rows = _collect("recipients", lists, _FakeResumableManager(), monkeypatch)
+        assert rows == [
+            {"id": "r1", "type": "email", "details": {"email_address": "oncall@example.com"}},
+            {
+                "id": "r2",
+                "type": "webhook",
+                "details": {"webhook_name": "hook", "webhook_url": "[REDACTED]", "webhook_secret": "[REDACTED]"},
+            },
+            {
+                "id": "r3",
+                "type": "pagerduty",
+                "details": {"pagerduty_integration_name": "svc", "pagerduty_integration_key": "[REDACTED]"},
+            },
+            {"id": "r4", "type": "msteams", "details": {"msteams_url": "[REDACTED]"}},
+        ]
+
+    def test_embedded_trigger_recipients_redact_credential_targets(self, monkeypatch: Any) -> None:
+        # Triggers (and burn alerts) embed abbreviated recipients whose `target` holds the same
+        # credentials for non-address types; only email/slack targets are plain addresses.
+        lists = {
+            f"{US}/1/datasets": [{"slug": "prod"}],
+            f"{US}/1/triggers/prod": [
+                {
+                    "id": "t1",
+                    "name": "High latency",
+                    "recipients": [
+                        {"id": "r1", "type": "email", "target": "oncall@example.com"},
+                        {"id": "r2", "type": "pagerduty", "target": "pd-integration-key"},
+                    ],
+                }
+            ],
+        }
+        rows = _collect("triggers", lists, _FakeResumableManager(), monkeypatch)
+        assert rows == [
+            {
+                "id": "t1",
+                "name": "High latency",
+                "recipients": [
+                    {"id": "r1", "type": "email", "target": "oncall@example.com"},
+                    {"id": "r2", "type": "pagerduty", "target": "[REDACTED]"},
+                ],
+                "dataset_slug": "prod",
+            }
+        ]
+
+    @parameterized.expand(
+        [
+            ("recipients", False),
+            ("triggers", False),
+            ("burn_alerts", False),
+            ("boards", True),
+            ("columns", True),
+        ]
+    )
+    def test_credential_payload_endpoints_excluded_from_sample_capture(self, endpoint: str, expected: bool) -> None:
+        # Raw responses for these endpoints contain unsanitized credentials, so they must not be
+        # persisted by HTTP sample capture (the name-based scrubbers can't recognise them).
+        captured: dict[str, Any] = {}
+
+        def fake_make_session(*args: Any, **kwargs: Any) -> Any:
+            captured.update(kwargs)
+            return MagicMock()
+
+        # parameterized.expand can't also receive the `monkeypatch` fixture, so manage our own.
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(honeycomb, "make_tracked_session", fake_make_session)
+            mp.setattr(honeycomb, "_fetch_list", lambda *args, **kwargs: [])
+            list(
+                get_rows(
+                    api_key="key",
+                    region="us",
+                    endpoint=endpoint,
+                    logger=MagicMock(),
+                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                )
+            )
+        assert captured.get("capture") is expected
+
+
 class TestValidateCredentials:
     @parameterized.expand(
         [

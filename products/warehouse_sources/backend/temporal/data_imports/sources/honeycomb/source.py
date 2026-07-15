@@ -114,6 +114,11 @@ Keys are region-specific — pick the region that matches your Honeycomb account
     ) -> list[SourceSchema]:
         def _description(endpoint: str) -> str | None:
             endpoint_config = HONEYCOMB_ENDPOINTS[endpoint]
+            if endpoint == "recipients":
+                return (
+                    "Credential-bearing recipient fields (integration keys, webhook URLs and secrets) "
+                    "are redacted during sync."
+                )
             if endpoint_config.scope is HoneycombScope.PER_SLO:
                 return "One row per burn alert per dataset, fetched by walking every dataset's SLOs."
             if endpoint_config.include_environment_wide:
