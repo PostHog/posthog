@@ -204,6 +204,9 @@ def _emit(inputs: EmitActionReadyInputs) -> None:
                 "scanner_id": str(action.scanner_id) if action.scanner_id else None,
                 "vision_action_run_id": str(run.id),
                 "slack_text": run.output.get("slack", ""),
+                # Pre-split section blocks so the full report renders as ONE Slack message; None (not
+                # []) when absent so Slack falls back to slack_text rather than rejecting empty blocks.
+                "slack_blocks": run.output.get("slack_blocks") or None,
                 "action_url": action_url,
             },
         ),
