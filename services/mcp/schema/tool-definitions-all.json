@@ -2709,6 +2709,21 @@
         },
         "feature_flag": "engineering-analytics"
     },
+    "engineering-analytics-run-failure-logs": {
+        "description": "The thinned CI failure logs of one workflow run, grouped by failed job — the run-scoped twin of ci-failure-logs, for when you have a run id rather than a PR (default-branch failures, the broken-tests panel's latest_run_id, the run page). Each failed job returns its failure region (error lines plus surrounding context, with \"... N lines omitted ...\" markers) as ordered lines, every line carrying its original 1-based line number in the full pre-thinning log. logs_available is false when the run didn't fail or its logs aged out of the short Logs retention. Use ci-failure-logs instead when you have a PR number and want all its runs' failures.",
+        "category": "Engineering analytics",
+        "feature": "engineering_analytics",
+        "summary": "CI failure logs for a run",
+        "title": "CI failure logs for a run",
+        "required_scopes": ["engineering_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "engineering-analytics"
+    },
     "engineering-analytics-sources": {
         "description": "The team's connected GitHub data warehouse sources, oldest first, each with its id, repo (owner/name), and table prefix. Call this first when a team may have more than one GitHub source, then pass a chosen id as source_id to the pull-requests, workflow-health, ci-cards, or pr-lifecycle tools to read that specific source. With a single source you can skip it — the other tools default to the oldest connected source. The prefix also names the underlying warehouse tables (prefix + github_pull_requests / github_workflow_runs / github_workflow_jobs), which you can query directly with SQL or save as SQL insights and subscriptions when the named tools don't fit (timestamps land as strings; parse with parseDateTimeBestEffort).",
         "category": "Engineering analytics",

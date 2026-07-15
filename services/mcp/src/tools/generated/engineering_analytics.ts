@@ -9,6 +9,7 @@ import {
     EngineeringAnalyticsPrCostQueryParams,
     EngineeringAnalyticsPrLifecycleQueryParams,
     EngineeringAnalyticsPullRequestsQueryParams,
+    EngineeringAnalyticsRunFailureLogsQueryParams,
     EngineeringAnalyticsWorkflowHealthQueryParams,
     EngineeringAnalyticsWorkflowJobsQueryParams,
     EngineeringAnalyticsWorkflowRunnerCostsQueryParams,
@@ -99,6 +100,28 @@ const engineeringAnalyticsPrCost = (): ToolBase<typeof EngineeringAnalyticsPrCos
             query: {
                 pr_number: params.pr_number,
                 repo: params.repo,
+                source_id: params.source_id,
+            },
+        })
+        return result
+    },
+})
+
+const EngineeringAnalyticsRunFailureLogsSchema = EngineeringAnalyticsRunFailureLogsQueryParams
+
+const engineeringAnalyticsRunFailureLogs = (): ToolBase<
+    typeof EngineeringAnalyticsRunFailureLogsSchema,
+    Schemas.RunFailureLogs
+> => ({
+    name: 'engineering-analytics-run-failure-logs',
+    schema: EngineeringAnalyticsRunFailureLogsSchema,
+    handler: async (context: Context, params: z.infer<typeof EngineeringAnalyticsRunFailureLogsSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.RunFailureLogs>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/engineering_analytics/run_failure_logs/`,
+            query: {
+                run_id: params.run_id,
                 source_id: params.source_id,
             },
         })
@@ -255,6 +278,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'engineering-analytics-ci-failure-logs': engineeringAnalyticsCiFailureLogs,
     'engineering-analytics-flaky-tests': engineeringAnalyticsFlakyTests,
     'engineering-analytics-pr-cost': engineeringAnalyticsPrCost,
+    'engineering-analytics-run-failure-logs': engineeringAnalyticsRunFailureLogs,
     'engineering-analytics-sources': engineeringAnalyticsSources,
     'engineering-analytics-workflow-jobs': engineeringAnalyticsWorkflowJobs,
     'engineering-analytics-workflow-runner-costs': engineeringAnalyticsWorkflowRunnerCosts,

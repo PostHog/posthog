@@ -60,11 +60,13 @@ _SEVERITY: dict[BrokenTestState, int] = {
     BrokenTestState.PR_ONLY: 4,
 }
 
-# Fingerprint aggregation over the failure-lines view. ``age_hours`` / ``span_hours`` are computed
-# here (integer dateDiffs against now()) so the Python classifier stays timezone-agnostic. The
-# HAVING keeps only failures that spread beyond one branch or reached trunk — a single PR's own
-# fresh failure is noise here. Capped at limit+1 (by recency) so a full page reveals truncation;
-# the final severity ranking happens after classification.
+# Fingerprint aggregation over the failure-lines view. ``age_hours`` / ``span_hours`` /
+# ``last_master_hit_age`` are computed here (integer dateDiffs against now()) so the Python classifier
+# stays timezone-agnostic. The HAVING keeps only failures that spread beyond one branch or reached
+# trunk — a single PR's own fresh failure is noise here. The cap orders by urgency proxy first
+# (reached trunk, then wider spread, then recency) so the SQL can't evict a trunk-breaking fingerprint
+# in favor of newer low-signal ones before the Python classifier runs; +1 reveals truncation, and the
+# final severity ranking still happens after classification.
 _FINGERPRINTS_SELECT = """
     SELECT
         fingerprint,
@@ -80,12 +82,14 @@ _FINGERPRINTS_SELECT = """
         countIf(branch IN {default_branches}) AS master_hits,
         any(repo) AS repo,
         argMax(run_id, timestamp) AS latest_run_id,
-        argMax(branch, timestamp) AS latest_branch
+        argMax(branch, timestamp) AS latest_branch,
+        argMax(workflow_name, timestamp) AS workflow_name,
+        dateDiff('second', maxIf(timestamp, branch IN {default_branches}), now()) AS last_master_hit_age
     FROM __FAILURES_SOURCE__
     WHERE timestamp >= {date_from} AND lower(repo) = lower({repository})
     GROUP BY fingerprint
     HAVING branches >= 2 OR master_hits > 0
-    ORDER BY last_seen DESC
+    ORDER BY master_hits DESC, branches DESC, last_seen DESC
     LIMIT {limit_plus_one}
 """
 
@@ -102,38 +106,59 @@ _HOURLY_SELECT = """
     GROUP BY fingerprint, hours_ago
 """
 
-# Latest default-branch status per job, from the curated workflow-jobs source. ``created_at_raw`` is
-# the raw ISO string the scan can prune on (a parsed-column predicate forces a full scan); it floors
-# a day below the precise ``created_at`` window. ``latest_conclusion`` is the newest completed run's
-# conclusion — red means trunk is broken for that job right now, green means it recovered.
+# Latest default-branch status per (workflow, job), from the curated workflow-jobs source. Keyed by
+# workflow too, not job name alone: unrelated workflows can reuse a job name like ``test`` / ``build``,
+# and collapsing them would let one workflow's green job mask another's red one. ``created_at_raw`` is
+# the raw ISO string the scan can prune on (a parsed-column predicate forces a full scan); it floors a
+# day below the precise ``created_at`` window. ``latest_conclusion`` is the newest completed run's
+# conclusion (red = broken now); ``latest_completed_age`` is how long ago that run finished, so the
+# classifier can tell a genuine recovery from a stale-green row the logs have already overtaken.
 _MASTER_JOBS_SELECT = """
     SELECT
+        workflow_name,
         name AS job_name,
-        argMaxIf(conclusion, created_at, status = 'completed') AS latest_conclusion
+        argMaxIf(conclusion, created_at, status = 'completed') AS latest_conclusion,
+        dateDiff('second', maxIf(created_at, status = 'completed'), now()) AS latest_completed_age
     FROM __JOBS_SOURCE__
     WHERE head_branch IN {default_branches}
         AND created_at_raw >= {created_floor}
         AND created_at >= {date_from}
-    GROUP BY name
+    GROUP BY workflow_name, name
 """
 
 
 def _classify(
-    *, master_hits: int, age_hours: int, span_hours: int, branches: int, latest_conclusion: str | None
+    *,
+    master_hits: int,
+    age_hours: int,
+    span_hours: int,
+    branches: int,
+    latest_conclusion: str | None,
+    last_master_hit_age: int,
+    latest_completed_age: int | None,
 ) -> BrokenTestState:
-    """The broken-test verdict for one fingerprint. ``latest_conclusion`` is the matched default-branch
-    job's newest completed conclusion, or None when the job has no default-branch status (job source
-    unsynced, or the failure's job never ran on trunk)."""
+    """The broken-test verdict for one fingerprint. ``latest_conclusion`` / ``latest_completed_age`` are
+    the matched default-branch job's newest completed conclusion and how long ago it finished, or None
+    when the job has no default-branch status (job source unsynced, or the failure's job never ran on
+    trunk). ``last_master_hit_age`` is how long ago this fingerprint last failed on trunk (only
+    meaningful when ``master_hits > 0``). All ages are seconds-ago-from-now, so smaller = more recent."""
     master_red = latest_conclusion in _RED_MASTER_SET
-    master_green = latest_conclusion == "success"
+    # Only a green run that finished *after* the fingerprint's most recent trunk failure counts as a
+    # recovery. If the green predates the failure, the warehouse job status is just lagging the fresher
+    # logs and the trunk break is still live — don't call it resolved.
+    master_green_and_fresh = (
+        latest_conclusion == "success"
+        and latest_completed_age is not None
+        and latest_completed_age < last_master_hit_age
+    )
     # Breaking trunk right now: hit the default branch and that job's latest run is still red.
     if master_hits > 0 and master_red:
         return BrokenTestState.BREAKING_MASTER
     # New today and already spreading across branches, but not on trunk yet.
     if age_hours < _NOVEL_BURST_MAX_AGE_HOURS and branches >= _NOVEL_BURST_MIN_BRANCHES and master_hits == 0:
         return BrokenTestState.NOVEL_BURST
-    # Hit the default branch but that job is green again — probably already fixed.
-    if master_hits > 0 and master_green:
+    # Hit the default branch but that job has since gone green again — probably already fixed.
+    if master_hits > 0 and master_green_and_fresh:
         return BrokenTestState.POTENTIALLY_RESOLVED
     # Sporadic across branches and recurring over more than a day.
     if branches >= _FLAKY_MIN_BRANCHES and span_hours > _FLAKY_MIN_SPAN_HOURS:
@@ -200,10 +225,11 @@ def query_broken_tests(
         or []
     )
 
-    # Latest default-branch status per job — empty when the job-level source isn't synced, in which
-    # case breaking_master / potentially_resolved can't be distinguished and those rows fall through.
-    master_by_job: dict[str, str | None] = {}
-    breaking_master_jobs: list[str] = []
+    # Latest default-branch status per (workflow, job) — empty when the job-level source isn't synced,
+    # in which case breaking_master / potentially_resolved can't be distinguished and those rows fall
+    # through. Keyed on (workflow_name, job_name) so a job name shared across workflows doesn't collapse.
+    master_by_key: dict[tuple[str, str], tuple[str | None, int | None]] = {}
+    breaking_master_jobs: set[str] = set()
     jobs_source = curated.jobs_source()
     if jobs_source is not None:
         master_rows = (
@@ -218,10 +244,10 @@ def query_broken_tests(
             ).results
             or []
         )
-        for job_name, latest_conclusion in master_rows:
-            master_by_job[job_name] = latest_conclusion
+        for workflow_name, job_name, latest_conclusion, latest_completed_age in master_rows:
+            master_by_key[(workflow_name, job_name)] = (latest_conclusion, latest_completed_age)
             if latest_conclusion in _RED_MASTER_SET:
-                breaking_master_jobs.append(job_name)
+                breaking_master_jobs.add(job_name)
 
     sparklines = _sparklines_by_fingerprint(hourly_rows)
 
@@ -241,13 +267,18 @@ def query_broken_tests(
         repo,
         latest_run_id,
         latest_branch,
+        workflow_name,
+        last_master_hit_age,
     ) in fingerprint_rows:
+        latest_conclusion, latest_completed_age = master_by_key.get((workflow_name, job_name), (None, None))
         state = _classify(
             master_hits=master_hits,
             age_hours=age_hours,
             span_hours=span_hours,
             branches=branches,
-            latest_conclusion=master_by_job.get(job_name),
+            latest_conclusion=latest_conclusion,
+            last_master_hit_age=last_master_hit_age,
+            latest_completed_age=latest_completed_age,
         )
         rows.append(
             BrokenTestRow(

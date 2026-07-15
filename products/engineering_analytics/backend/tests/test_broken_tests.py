@@ -13,29 +13,36 @@ from products.engineering_analytics.backend.logic.queries.broken_tests import (
 )
 
 
+# Ages are seconds-ago-from-now (smaller = more recent). last_master_hit_age is the fingerprint's most
+# recent trunk failure; latest_completed_age is the matched job's newest completed run.
 @pytest.mark.parametrize(
-    "master_hits,age_hours,span_hours,branches,latest_conclusion,expected",
+    "master_hits,age_hours,span_hours,branches,latest_conclusion,last_master_hit_age,latest_completed_age,expected",
     [
         # Breaking trunk: hit master and that job's latest run is still red — highest priority.
-        (3, 5, 48, 5, "failure", BrokenTestState.BREAKING_MASTER),
-        (1, 40, 100, 2, "timed_out", BrokenTestState.BREAKING_MASTER),
+        (3, 5, 48, 5, "failure", 100, 50, BrokenTestState.BREAKING_MASTER),
+        (1, 40, 100, 2, "timed_out", 100, 50, BrokenTestState.BREAKING_MASTER),
         # Breaking wins even when the row also looks novel (fresh + spreading).
-        (3, 5, 5, 4, "failure", BrokenTestState.BREAKING_MASTER),
+        (3, 5, 5, 4, "failure", 100, 50, BrokenTestState.BREAKING_MASTER),
         # Novel burst: fresh (<24h), spread across >=3 branches, never on trunk.
-        (0, 5, 5, 4, None, BrokenTestState.NOVEL_BURST),
-        # Hit trunk but that job is green again — probably fixed.
-        (2, 40, 100, 3, "success", BrokenTestState.POTENTIALLY_RESOLVED),
+        (0, 5, 5, 4, None, 0, None, BrokenTestState.NOVEL_BURST),
+        # Hit trunk but the green run finished AFTER the last failure (100 < 1000) — a real recovery.
+        (2, 40, 100, 3, "success", 1000, 100, BrokenTestState.POTENTIALLY_RESOLVED),
+        # Green but STALE: the green predates the last trunk failure (1000 > 100), so the warehouse is
+        # just lagging the fresher logs — not resolved, falls through to flaky.
+        (2, 40, 100, 3, "success", 100, 1000, BrokenTestState.FLAKY),
         # Flaky: sporadic across >=2 branches over more than a day, not on trunk.
-        (0, 100, 48, 3, None, BrokenTestState.FLAKY),
+        (0, 100, 48, 3, None, 0, None, BrokenTestState.FLAKY),
         # Degradation: hit trunk but no job status (source unsynced) — falls through, not misreported.
-        (3, 100, 48, 3, None, BrokenTestState.FLAKY),
+        (3, 100, 48, 3, None, 100, None, BrokenTestState.FLAKY),
         # PR-only: one branch, recent, short span — the lowest signal.
-        (0, 5, 2, 1, None, BrokenTestState.PR_ONLY),
+        (0, 5, 2, 1, None, 0, None, BrokenTestState.PR_ONLY),
         # Not novel (only 2 branches) and not flaky (span within a day) → PR-only.
-        (0, 5, 10, 2, None, BrokenTestState.PR_ONLY),
+        (0, 5, 10, 2, None, 0, None, BrokenTestState.PR_ONLY),
     ],
 )
-def test_classify_states(master_hits, age_hours, span_hours, branches, latest_conclusion, expected):
+def test_classify_states(
+    master_hits, age_hours, span_hours, branches, latest_conclusion, last_master_hit_age, latest_completed_age, expected
+):
     assert (
         _classify(
             master_hits=master_hits,
@@ -43,6 +50,8 @@ def test_classify_states(master_hits, age_hours, span_hours, branches, latest_co
             span_hours=span_hours,
             branches=branches,
             latest_conclusion=latest_conclusion,
+            last_master_hit_age=last_master_hit_age,
+            latest_completed_age=latest_completed_age,
         )
         == expected
     )
@@ -67,8 +76,20 @@ def test_sparkline_fold_places_hours_oldest_first_and_skips_out_of_window():
     assert "other" in series
 
 
-def _fp_row(fingerprint, job_name, *, master_hits, branches, last_seen, latest_run_id=1, age=100, span=48):
-    # Column order mirrors _FINGERPRINTS_SELECT.
+def _fp_row(
+    fingerprint,
+    job_name,
+    *,
+    master_hits,
+    branches,
+    last_seen,
+    workflow_name="wf",
+    latest_run_id=1,
+    age=100,
+    span=48,
+    last_master_hit_age=500,
+):
+    # Column order mirrors _FINGERPRINTS_SELECT (workflow_name + last_master_hit_age appended last).
     return (
         fingerprint,
         f"test_{fingerprint}",
@@ -84,6 +105,8 @@ def _fp_row(fingerprint, job_name, *, master_hits, branches, last_seen, latest_r
         "PostHog/posthog",
         latest_run_id,
         "some-branch",
+        workflow_name,
+        last_master_hit_age,
     )
 
 
@@ -119,7 +142,8 @@ def test_query_joins_master_status_ranks_by_severity_and_attaches_trend():
             _fp_row("break-fp", "job-a", master_hits=3, branches=4, last_seen=datetime(2026, 7, 14, tzinfo=UTC)),
         ],
         hourly_rows=[("break-fp", 0, 5), ("break-fp", 1, 2)],
-        master_rows=[("job-a", "failure"), ("job-b", "success")],
+        # (workflow_name, job_name, latest_conclusion, latest_completed_age)
+        master_rows=[("wf", "job-a", "failure", 50), ("wf", "job-b", "success", 50)],
     )
 
     assert [row.fingerprint for row in result.rows] == ["break-fp", "flaky-fp"]
@@ -131,6 +155,38 @@ def test_query_joins_master_status_ranks_by_severity_and_attaches_trend():
     assert result.rows[0].trend_24h[-2] == 2
     # The flaky row had no hourly rows → all-zero trend of the contract width.
     assert result.rows[1].trend_24h == [0] * BROKEN_TEST_SPARKLINE_HOURS
+
+
+def test_query_keys_master_status_by_workflow_not_just_job_name():
+    # Two workflows reuse the job name "test": one is red on trunk, one green. Keying master status by
+    # job name alone would let the green mask the red. Both fingerprints hit trunk, so the right verdicts
+    # are breaking_master (red workflow) and potentially_resolved (green workflow, fresh green).
+    result = _run_query(
+        fingerprint_rows=[
+            _fp_row(
+                "red-wf-fp",
+                "test",
+                workflow_name="backend",
+                master_hits=3,
+                branches=3,
+                last_seen=datetime(2026, 7, 15, tzinfo=UTC),
+            ),
+            _fp_row(
+                "green-wf-fp",
+                "test",
+                workflow_name="frontend",
+                master_hits=3,
+                branches=3,
+                last_seen=datetime(2026, 7, 15, tzinfo=UTC),
+            ),
+        ],
+        hourly_rows=[],
+        master_rows=[("backend", "test", "failure", 50), ("frontend", "test", "success", 50)],
+    )
+
+    by_fp = {row.fingerprint: row.state for row in result.rows}
+    assert by_fp["red-wf-fp"] == BrokenTestState.BREAKING_MASTER
+    assert by_fp["green-wf-fp"] == BrokenTestState.POTENTIALLY_RESOLVED
 
 
 def test_query_degrades_without_job_source():

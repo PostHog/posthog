@@ -293,7 +293,8 @@ function BrokenTestsPanel(): JSX.Element {
                         </LemonBanner>
                     ) : (
                         <LemonBanner type="success">
-                            Nothing is breaking master right now — every implicated job's latest master run is green.
+                            Nothing is flagged as breaking master right now. Failures that hit trunk only show here once
+                            their job's latest master run is known to be red, so this needs the job-level source synced.
                         </LemonBanner>
                     )}
                     <LemonTable
