@@ -9,11 +9,11 @@ from products.growth.dags.github_sdk_versions import (
     fetch_dotnet_sdk_data,
     fetch_elixir_sdk_data,
     fetch_flutter_sdk_data,
-    fetch_github_data_for_sdk,
     fetch_go_sdk_data,
     fetch_ios_sdk_data,
     fetch_java_sdk_data,
     fetch_java_server_sdk_data,
+    fetch_kmp_sdk_data,
     fetch_node_sdk_data,
     fetch_php_sdk_data,
     fetch_python_sdk_data,
@@ -206,7 +206,7 @@ class TestFetchKmpSdkData(TestFetchSdkDataBase):
             ],
         )
 
-        result = fetch_github_data_for_sdk("posthog-kmp")
+        result = fetch_kmp_sdk_data()
 
         assert result == {
             "latestVersion": "0.0.1",
