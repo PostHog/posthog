@@ -216,6 +216,7 @@ the row lists both.
 | hatchet                   | HTTP                        | requests                                                        | ✅                          |
 | healthchecks              | HTTP                        | requests                                                        | ✅                          |
 | height                    | HTTP                        | requests                                                        | ✅                          |
+| helicone                  | HTTP                        | requests                                                        | ✅                          |
 | hellobaton                | HTTP                        | requests                                                        | ✅                          |
 | hetzner                   | HTTP                        | requests                                                        | ✅                          |
 | hibob                     | HTTP                        | requests                                                        | ✅                          |
@@ -665,7 +666,6 @@ doesn't conflict with concurrent PRs.
 - harness
 - harvey
 - heap
-- helicone
 - helpscout
 - heroku
 - hetzner
