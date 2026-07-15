@@ -26,7 +26,10 @@ type Result = {
 
 /**
  * Coerce the raw `path_cleaning_filters` value (typed `unknown` in the API schema) into a
- * clean, order-sorted list. Tolerates missing/duplicate `order` by falling back to array index.
+ * clean list. Preserves the stored ARRAY order: the backend (`apply_path_cleaning` →
+ * `Team.path_cleaning_filter_models`) applies rules in array order and ignores the `order`
+ * field for sequencing, so re-sorting by `order` here could silently resequence untouched
+ * rules on save. The `order` field is carried through only as display metadata.
  */
 export function normalizePathCleaningFilters(raw: unknown): StoredPathCleaningRule[] {
     if (!Array.isArray(raw)) {
@@ -45,8 +48,6 @@ export function normalizePathCleaningFilters(raw: unknown): StoredPathCleaningRu
             // entries with no `regex` to match on — keeping an existing empty-alias rule
             // instead of silently deleting it on the next confirmed edit.
             .filter((rule) => rule.regex !== '')
-            // Stable sort keeps input order for equal `order`, preserving the index fallback above.
-            .sort((a, b) => a.order - b.order)
     )
 }
 
@@ -175,18 +176,45 @@ export function applyOperations(
     return { rules, changes }
 }
 
+/**
+ * Compile a re2 pattern into a JS RegExp for the approximate preview. Translates a leading
+ * re2 inline-flag group (e.g. `(?i)`) into JS flags so patterns accepted by the tool don't
+ * silently drop out of the preview. Returns null for patterns JS can't represent.
+ */
+function compileForPreview(regex: string): RegExp | null {
+    const match = regex.match(/^\(\?([imsUx]+)\)/)
+    const inlineFlags = match ? match[1]! : ''
+    const pattern = match ? regex.slice(match[0].length) : regex
+    // Map the re2 flags JS supports; ignore U/x (no JS equivalent, and rare in path cleaning).
+    let flags = 'g'
+    if (inlineFlags.includes('i')) {
+        flags += 'i'
+    }
+    if (inlineFlags.includes('m')) {
+        flags += 'm'
+    }
+    if (inlineFlags.includes('s')) {
+        flags += 's'
+    }
+    try {
+        return new RegExp(pattern, flags)
+    } catch {
+        // A rule using re2-only syntax may not compile under JS RegExp — skip it in the
+        // approximate preview rather than failing the whole call.
+        return null
+    }
+}
+
 /** Chain a path through every rule in order, mirroring ClickHouse `replaceRegexpAll` per rule. */
 function applyChain(path: string, rules: PathCleaningRule[]): string {
     let out = path
     for (const rule of rules) {
-        try {
-            const re = new RegExp(rule.regex, 'g')
-            // `alias` is a literal; escape `$` so JS's replace() doesn't treat it as a group ref.
-            out = out.replace(re, rule.alias.replace(/\$/g, '$$$$'))
-        } catch {
-            // A rule using re2-only syntax may not compile under JS RegExp — skip it in the
-            // approximate preview rather than failing the whole call.
+        const re = compileForPreview(rule.regex)
+        if (re === null) {
+            continue
         }
+        // `alias` is a literal; escape `$` so JS's replace() doesn't treat it as a group ref.
+        out = out.replace(re, rule.alias.replace(/\$/g, '$$$$'))
     }
     return out
 }

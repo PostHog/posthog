@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import type { Context } from '@/tools/types'
 import updatePathCleaning, {
     applyOperations,
     normalizePathCleaningFilters,
@@ -8,9 +7,13 @@ import updatePathCleaning, {
     renumber,
     updatePathCleaningHandler,
 } from '@/tools/projects/updatePathCleaning'
+import type { Context } from '@/tools/types'
 
 describe('normalizePathCleaningFilters', () => {
-    it('sorts by order and drops only entries with no regex, keeping valid empty-alias rules', () => {
+    it('preserves stored array order (not the order field) and drops only entries with no regex', () => {
+        // The backend applies rules in array order and ignores `order`, so normalize must NOT
+        // re-sort — doing so would silently resequence untouched rules on save. Order-field
+        // values here are deliberately non-monotonic to prove no sorting happens.
         const raw = [
             { alias: '/b', regex: '/b/\\d+', order: 2 },
             { alias: '/a', regex: '/a/\\d+', order: 0 },
@@ -18,9 +21,9 @@ describe('normalizePathCleaningFilters', () => {
             { alias: '/c', regex: '', order: 3 }, // no regex = meaningless; dropped
         ]
         expect(normalizePathCleaningFilters(raw)).toEqual([
+            { alias: '/b', regex: '/b/\\d+', order: 2 },
             { alias: '/a', regex: '/a/\\d+', order: 0 },
             { alias: '', regex: '\\?page=\\d+$', order: 1 },
-            { alias: '/b', regex: '/b/\\d+', order: 2 },
         ])
     })
 
@@ -156,6 +159,20 @@ describe('applyOperations', () => {
             /ambiguous/
         )
     })
+
+    it('creates and targets an empty-alias (delete matched text) rule', () => {
+        const created = applyOperations(
+            [{ alias: '/x', regex: '/x' }],
+            [{ action: 'append', alias: '', regex: '\\?page=\\d+$' }]
+        )
+        expect(created.rules).toEqual([
+            { alias: '/x', regex: '/x' },
+            { alias: '', regex: '\\?page=\\d+$' },
+        ])
+        // The empty-alias rule can then be targeted by "" for removal.
+        const removed = applyOperations(created.rules, [{ action: 'remove', target_alias: '' }])
+        expect(removed.rules).toEqual([{ alias: '/x', regex: '/x' }])
+    })
 })
 
 function createMockContext(overrides: {
@@ -257,6 +274,18 @@ describe('path-cleaning-rules-update handler', () => {
         })
         // Not "/price/$&" or "/price/" — the alias $ must survive JS String.replace semantics.
         expect(result.sample_preview).toEqual([{ path: '/price/500', before: '/price/500', after: '/price/$amount' }])
+    })
+
+    it('reflects a (?i) inline-flag rule in the preview instead of dropping it', async () => {
+        // (?i) throws under a naive JS RegExp; the preview must translate it to the JS `i`
+        // flag so an accepted rule doesn't silently vanish from before/after.
+        const context = createMockContext({ currentFilters: [] })
+        const result = await updatePathCleaningHandler(context, {
+            operations: [{ action: 'append', alias: '/user/<id>', regex: '(?i)/USER/[0-9]+' }],
+            sample_paths: ['/user/42'],
+            confirm: false,
+        })
+        expect(result.sample_preview).toEqual([{ path: '/user/42', before: '/user/42', after: '/user/<id>' }])
     })
 
     it('chains preview rules in order, each feeding the next', async () => {

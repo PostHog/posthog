@@ -535,8 +535,7 @@
                                     },
                                     "alias": {
                                         "type": "string",
-                                        "minLength": 1,
-                                        "description": "The human-readable replacement, e.g. \"/users/<id>/profile\". Use angle-bracket placeholders (<id>, <uuid>, <slug>) by convention. Not a regex template — backreferences are not supported."
+                                        "description": "The human-readable replacement, e.g. \"/users/<id>/profile\". Use angle-bracket placeholders (<id>, <uuid>, <slug>) by convention. An empty string is valid — it deletes the matched text (e.g. to strip a \"?page=N\" fragment). Not a regex template — backreferences are not supported."
                                     },
                                     "regex": {
                                         "type": "string",
@@ -562,8 +561,7 @@
                                     },
                                     "alias": {
                                         "type": "string",
-                                        "minLength": 1,
-                                        "description": "The human-readable replacement, e.g. \"/users/<id>/profile\". Use angle-bracket placeholders (<id>, <uuid>, <slug>) by convention. Not a regex template — backreferences are not supported."
+                                        "description": "The human-readable replacement, e.g. \"/users/<id>/profile\". Use angle-bracket placeholders (<id>, <uuid>, <slug>) by convention. An empty string is valid — it deletes the matched text (e.g. to strip a \"?page=N\" fragment). Not a regex template — backreferences are not supported."
                                     },
                                     "regex": {
                                         "type": "string",
@@ -583,13 +581,11 @@
                                     },
                                     "target_alias": {
                                         "type": "string",
-                                        "minLength": 1,
-                                        "description": "The alias of the existing rule to target (must match an existing rule exactly)."
+                                        "description": "The alias of the existing rule to target (must match an existing rule exactly). Use \"\" to target a rule whose alias is empty."
                                     },
                                     "alias": {
                                         "description": "New alias. Omit to keep the current alias.",
-                                        "type": "string",
-                                        "minLength": 1
+                                        "type": "string"
                                     },
                                     "regex": {
                                         "description": "New regex. Omit to keep the current regex.",
@@ -609,8 +605,7 @@
                                     },
                                     "target_alias": {
                                         "type": "string",
-                                        "minLength": 1,
-                                        "description": "The alias of the existing rule to target (must match an existing rule exactly)."
+                                        "description": "The alias of the existing rule to target (must match an existing rule exactly). Use \"\" to target a rule whose alias is empty."
                                     }
                                 },
                                 "required": ["action", "target_alias"],
@@ -626,10 +621,9 @@
                                     "ordered_aliases": {
                                         "type": "array",
                                         "items": {
-                                            "type": "string",
-                                            "minLength": 1
+                                            "type": "string"
                                         },
-                                        "description": "The full set of current aliases in the new desired order. Must be a permutation of the existing aliases."
+                                        "description": "The full set of current aliases in the new desired order (including \"\" for any empty-alias rule and any duplicates). Must be a permutation of the existing aliases."
                                     }
                                 },
                                 "required": ["action", "ordered_aliases"],

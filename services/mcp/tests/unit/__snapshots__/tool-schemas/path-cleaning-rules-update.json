@@ -18,8 +18,7 @@
                                 "type": "string"
                             },
                             "alias": {
-                                "description": "The human-readable replacement, e.g. \"/users/<id>/profile\". Use angle-bracket placeholders (<id>, <uuid>, <slug>) by convention. Not a regex template — backreferences are not supported.",
-                                "minLength": 1,
+                                "description": "The human-readable replacement, e.g. \"/users/<id>/profile\". Use angle-bracket placeholders (<id>, <uuid>, <slug>) by convention. An empty string is valid — it deletes the matched text (e.g. to strip a \"?page=N\" fragment). Not a regex template — backreferences are not supported.",
                                 "type": "string"
                             },
                             "regex": {
@@ -39,8 +38,7 @@
                                 "type": "string"
                             },
                             "alias": {
-                                "description": "The human-readable replacement, e.g. \"/users/<id>/profile\". Use angle-bracket placeholders (<id>, <uuid>, <slug>) by convention. Not a regex template — backreferences are not supported.",
-                                "minLength": 1,
+                                "description": "The human-readable replacement, e.g. \"/users/<id>/profile\". Use angle-bracket placeholders (<id>, <uuid>, <slug>) by convention. An empty string is valid — it deletes the matched text (e.g. to strip a \"?page=N\" fragment). Not a regex template — backreferences are not supported.",
                                 "type": "string"
                             },
                             "index": {
@@ -67,7 +65,6 @@
                             },
                             "alias": {
                                 "description": "New alias. Omit to keep the current alias.",
-                                "minLength": 1,
                                 "type": "string"
                             },
                             "regex": {
@@ -76,8 +73,7 @@
                                 "type": "string"
                             },
                             "target_alias": {
-                                "description": "The alias of the existing rule to target (must match an existing rule exactly).",
-                                "minLength": 1,
+                                "description": "The alias of the existing rule to target (must match an existing rule exactly). Use \"\" to target a rule whose alias is empty.",
                                 "type": "string"
                             }
                         },
@@ -92,8 +88,7 @@
                                 "type": "string"
                             },
                             "target_alias": {
-                                "description": "The alias of the existing rule to target (must match an existing rule exactly).",
-                                "minLength": 1,
+                                "description": "The alias of the existing rule to target (must match an existing rule exactly). Use \"\" to target a rule whose alias is empty.",
                                 "type": "string"
                             }
                         },
@@ -108,9 +103,8 @@
                                 "type": "string"
                             },
                             "ordered_aliases": {
-                                "description": "The full set of current aliases in the new desired order. Must be a permutation of the existing aliases.",
+                                "description": "The full set of current aliases in the new desired order (including \"\" for any empty-alias rule and any duplicates). Must be a permutation of the existing aliases.",
                                 "items": {
-                                    "minLength": 1,
                                     "type": "string"
                                 },
                                 "type": "array"

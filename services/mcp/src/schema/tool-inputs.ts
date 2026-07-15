@@ -343,9 +343,8 @@ export const EventDefinitionUpdateSchema = z.object({
 
 const PathCleaningAliasField = z
     .string()
-    .min(1)
     .describe(
-        'The human-readable replacement, e.g. "/users/<id>/profile". Use angle-bracket placeholders (<id>, <uuid>, <slug>) by convention. Not a regex template — backreferences are not supported.'
+        'The human-readable replacement, e.g. "/users/<id>/profile". Use angle-bracket placeholders (<id>, <uuid>, <slug>) by convention. An empty string is valid — it deletes the matched text (e.g. to strip a "?page=N" fragment). Not a regex template — backreferences are not supported.'
     )
 const PathCleaningRegexField = z
     .string()
@@ -355,8 +354,9 @@ const PathCleaningRegexField = z
     )
 const PathCleaningTargetAlias = z
     .string()
-    .min(1)
-    .describe('The alias of the existing rule to target (must match an existing rule exactly).')
+    .describe(
+        'The alias of the existing rule to target (must match an existing rule exactly). Use "" to target a rule whose alias is empty.'
+    )
 
 export const PathCleaningRulesUpdateSchema = z.object({
     operations: z
@@ -401,9 +401,9 @@ export const PathCleaningRulesUpdateSchema = z.object({
                     .object({
                         action: z.literal('reorder'),
                         ordered_aliases: z
-                            .array(z.string().min(1))
+                            .array(z.string())
                             .describe(
-                                'The full set of current aliases in the new desired order. Must be a permutation of the existing aliases.'
+                                'The full set of current aliases in the new desired order (including "" for any empty-alias rule and any duplicates). Must be a permutation of the existing aliases.'
                             ),
                     })
                     .describe(

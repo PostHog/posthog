@@ -137,13 +137,13 @@ applies granular operations (`append`, `insert`, `replace`, `remove`,
 returns a **preview** of the resulting rules without saving. Pass
 `sample_paths` to see how the resulting set rewrites real paths.
 
-Preview first (no `confirm`), surface it to the user, then apply:
+First call it without `confirm` to get the preview, surface that to the user,
+then re-send the same call with `"confirm": true` to save:
 
 ```json
 {
   "operations": [{ "action": "append", "alias": "/users/<id>/profile", "regex": "/users/\\d+/profile" }],
-  "sample_paths": ["/users/123/profile", "/users/me/profile"],
-  "confirm": true
+  "sample_paths": ["/users/123/profile", "/users/me/profile"]
 }
 ```
 
