@@ -17,7 +17,7 @@
         "@posthog/icons": "catalog:",
         "@types/react": "*",
         "clsx": "*",
-        "fast-equals": "*",
+        "fast-equals": "catalog:",
         "fuse.js": "*",
         "react": "*"
     }

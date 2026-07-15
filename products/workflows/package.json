@@ -25,7 +25,7 @@
         "@xyflow/react": "*",
         "clsx": "*",
         "elkjs": "*",
-        "fast-equals": "*",
+        "fast-equals": "catalog:",
         "fuse.js": "*",
         "react": "*",
         "rrule": "*"

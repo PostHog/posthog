@@ -33,7 +33,7 @@
         "ansi-colors": "*",
         "clsx": "*",
         "eslint": "*",
-        "fast-equals": "*",
+        "fast-equals": "catalog:",
         "jest": "*",
         "papaparse": "*",
         "react": "*",

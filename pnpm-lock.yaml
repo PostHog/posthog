@@ -2759,8 +2759,8 @@ importers:
         specifier: '*'
         version: 3.1.0(chart.js@4.5.1)
       fast-equals:
-        specifier: '*'
-        version: 5.4.0
+        specifier: 'catalog:'
+        version: 6.0.1
       kea:
         specifier: 'catalog:'
         version: 4.0.0-pre.5(react@18.3.1)
@@ -3214,8 +3214,8 @@ importers:
         specifier: '*'
         version: 1.2.1
       fast-equals:
-        specifier: '*'
-        version: 5.4.0
+        specifier: 'catalog:'
+        version: 6.0.1
       fuse.js:
         specifier: '*'
         version: 6.6.2
@@ -3318,8 +3318,8 @@ importers:
         specifier: '*'
         version: 7.9.0
       fast-equals:
-        specifier: '*'
-        version: 5.4.0
+        specifier: 'catalog:'
+        version: 6.0.1
       fuse.js:
         specifier: '*'
         version: 6.6.2
@@ -3681,8 +3681,8 @@ importers:
         specifier: '*'
         version: 8.57.0
       fast-equals:
-        specifier: '*'
-        version: 5.4.0
+        specifier: 'catalog:'
+        version: 6.0.1
       jest:
         specifier: '*'
         version: 29.7.0(@types/node@25.8.0)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3))
@@ -4405,8 +4405,8 @@ importers:
         specifier: '*'
         version: 2.1.1
       fast-equals:
-        specifier: '*'
-        version: 5.4.0
+        specifier: 'catalog:'
+        version: 6.0.1
       kea:
         specifier: 'catalog:'
         version: 4.0.0-pre.5(react@18.3.1)
@@ -4580,8 +4580,8 @@ importers:
         specifier: '*'
         version: 0.10.0
       fast-equals:
-        specifier: '*'
-        version: 5.4.0
+        specifier: 'catalog:'
+        version: 6.0.1
       fuse.js:
         specifier: '*'
         version: 6.6.2
