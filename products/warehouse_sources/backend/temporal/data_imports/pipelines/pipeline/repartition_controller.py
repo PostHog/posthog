@@ -147,6 +147,16 @@ async def maybe_flag_for_repartition(
     omitted it is evaluated lazily, only once the table is confirmed over budget.
     """
     try:
+        # A table pending a corruption revive must heal before it's rewritten — flagging it here would
+        # re-arm the revive loop after the heal clears the marker. Skip; the healed table is evaluated
+        # normally on a later run.
+        if schema.delta_revive_required is not None:
+            await logger.adebug(
+                f"repartition: skipped detection, table pending corruption revive schema_id={schema.id}",
+                schema_id=str(schema.id),
+            )
+            return
+
         partition_bytes = await asyncio.to_thread(measure_partition_bytes, delta_table)
         if not partition_bytes:
             await logger.adebug(
