@@ -815,6 +815,109 @@ async def test_paddle_source(team, mock_paddle_client, request, schema_name, tab
     )
 
 
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_paddle_webhook_s3_customers(team, paddle_customers, mock_paddle_client, minio_client):
+    # Initial pull sync to create the delta table and mark initial_sync_complete
+    mock_paddle_client(paddle_customers["data"])
+    _, inputs = await _run(
+        team=team,
+        schema_name="customers",
+        table_name="paddle_customers",
+        source_type="Paddle",
+        job_inputs=_PADDLE_JOB_INPUTS,
+        mock_data_response=paddle_customers["data"],
+        sync_type=ExternalDataSchema.SyncType.WEBHOOK,
+    )
+
+    res = await sync_to_async(execute_hogql_query)("SELECT * FROM paddle_customers", team)
+    assert len(res.results) == 1
+
+    schema = await sync_to_async(ExternalDataSchema.objects.get)(id=inputs.external_data_schema_id)
+    assert schema.initial_sync_complete is True
+
+    await sync_to_async(HogFunction.objects.create)(
+        team=team,
+        enabled=True,
+        deleted=False,
+        type="warehouse_source_webhook",
+        inputs_schema=[{"key": "schema_mapping", "type": "json"}, {"key": "source_id", "type": "string"}],
+        inputs={
+            # Keyed by the Paddle entity type — what the Hog template extracts from event_type.
+            "schema_mapping": {"value": {"customer": str(schema.id)}},
+            "source_id": {"value": str(inputs.external_data_source_id)},
+        },
+    )
+
+    # Two events for the same new customer in one batch — the transformer must collapse
+    # them to the latest state before the delta merge sees them.
+    base_customer = {
+        "id": "ctm_02webhook",
+        "name": "Jane Stale",
+        "email": "jane@doe.com",
+        "status": "active",
+        "created_at": "2024-01-01T00:00:00Z",
+        "updated_at": "2024-01-01T00:00:00Z",
+        "marketing_consent": False,
+        "locale": "en",
+        "custom_data": None,
+        "import_meta": None,
+    }
+    webhook_events = [
+        {
+            "event_id": "evt_1",
+            "event_type": "customer.created",
+            "occurred_at": "2024-01-01T00:00:00.100Z",
+            "notification_id": "ntf_1",
+            "data": base_customer,
+        },
+        {
+            "event_id": "evt_2",
+            "event_type": "customer.updated",
+            "occurred_at": "2024-01-01T00:00:00.200Z",
+            "notification_id": "ntf_2",
+            "data": {**base_customer, "name": "Jane Fresh", "updated_at": "2024-01-01T00:00:01Z"},
+        },
+    ]
+    webhook_table = pa.table(
+        {
+            "team_id": [team.id] * len(webhook_events),
+            "schema_id": [str(schema.id)] * len(webhook_events),
+            "payload_json": [orjson.dumps(event).decode("utf-8") for event in webhook_events],
+        }
+    )
+    webhook_prefix = f"source_webhook_producer/{team.id}/{schema.id}"
+    webhook_file_key = f"{webhook_prefix}/webhook_0.parquet"
+
+    buf = pa.BufferOutputStream()
+    pq.write_table(webhook_table, buf)
+    await minio_client.put_object(
+        Bucket=BUCKET_NAME,
+        Key=webhook_file_key,
+        Body=buf.getvalue().to_pybytes(),
+    )
+
+    # Run the pipeline again to ingest the webhook parquet
+    with mock.patch.object(DeltaTableHelper, "compact_table"):
+        workflow_id = str(uuid.uuid4())
+        await _execute_run(workflow_id, inputs, paddle_customers["data"])
+
+        await _replay_v3_consumer(team_id=team.pk, schema_id=schema.id)
+
+    run = await get_latest_run_if_exists(team_id=team.pk, pipeline_id=inputs.external_data_source_id)
+    assert run is not None
+    assert run.status == ExternalDataJob.Status.COMPLETED
+
+    # The two events merged in as ONE new row carrying the latest state
+    res = await sync_to_async(execute_hogql_query)("SELECT id, name FROM paddle_customers ORDER BY created_at", team)
+    assert len(res.results) == 2
+    assert tuple(res.results[1]) == ("ctm_02webhook", "Jane Fresh")
+
+    # Consumed webhook parquet files are deleted from S3
+    files = await minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=webhook_prefix)
+    assert files.get("Contents") is None or len(files.get("Contents", [])) == 0
+
+
 async def _run_customer_io(team, schema_name, table_name, mock_data, mock_customer_io_client, payload):
     mock_customer_io_client(payload)
     await _run(

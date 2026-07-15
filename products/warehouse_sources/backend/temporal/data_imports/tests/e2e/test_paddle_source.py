@@ -1,7 +1,7 @@
 from datetime import datetime
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pyarrow as pa
 from parameterized import parameterized
@@ -20,6 +20,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.paddle.sou
 
 # We patch requests.Session.request to ensure NO real HTTP calls are made.
 MOCK_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.paddle.paddle.requests.Session.request"
+
+
+def _get_mock_webhook_manager(enabled: bool = False) -> MagicMock:
+    mock_manager = MagicMock()
+    # async_to_sync in paddle_source needs an awaitable, not a MagicMock return value.
+    mock_manager.webhook_enabled = AsyncMock(return_value=enabled)
+    mock_manager.get_items.return_value = iter([])
+    return mock_manager
 
 
 class MockResponse:
@@ -131,27 +139,107 @@ def test_validate_credentials_missing_permissions(mock_request):
         validate_credentials("fake_key")
 
 
+@parameterized.expand(
+    [
+        # Partitioning is decoupled from the incremental cursor: transactions keeps its
+        # billed_at cursor but must still partition on the stable created_at, like every
+        # other endpoint.
+        ("non_incremental", "products"),
+        ("incremental", "transactions"),
+    ]
+)
 @patch(MOCK_PATH)
 @patch(
     "products.warehouse_sources.backend.temporal.data_imports.sources.paddle.paddle.get_dlt_mapping_for_external_table"
 )
-def test_paddle_source(mock_get_mapping, mock_request):
+def test_paddle_source(_name, endpoint, mock_get_mapping, mock_request):
     mock_get_mapping.return_value = {"id": {"data_type": "text"}}
     logger = MagicMock()
     mock_manager = _get_mock_resumable_manager()
 
     response = paddle_source(
         api_key="fake",
-        endpoint="products",
+        endpoint=endpoint,
         db_incremental_field_last_value=None,
         should_use_incremental_field=False,
         logger=logger,
         resumable_source_manager=mock_manager,
+        webhook_source_manager=_get_mock_webhook_manager(),
     )
 
-    assert response.name == "products"
+    assert response.name == endpoint
     assert response.primary_keys == ["id"]
     assert response.column_hints == {"id": "text"}
+    assert response.partition_keys == ["created_at"]
+    assert response.partition_mode == "datetime"
+    assert response.partition_format == "week"
+    assert response.sort_mode == "asc"
+
+
+@patch(MOCK_PATH)
+@patch(
+    "products.warehouse_sources.backend.temporal.data_imports.sources.paddle.paddle.get_dlt_mapping_for_external_table"
+)
+def test_paddle_source_reads_webhook_items_when_enabled(mock_get_mapping, mock_request):
+    mock_get_mapping.return_value = {"id": {"data_type": "text"}}
+    webhook_manager = _get_mock_webhook_manager(enabled=True)
+
+    response = paddle_source(
+        api_key="fake",
+        endpoint="transactions",
+        db_incremental_field_last_value=None,
+        should_use_incremental_field=False,
+        logger=MagicMock(),
+        resumable_source_manager=_get_mock_resumable_manager(),
+        webhook_source_manager=webhook_manager,
+    )
+
+    items = response.items()
+
+    # No Paddle endpoint is webhook-only — the initial sync must always be able to backfill.
+    webhook_manager.webhook_enabled.assert_awaited_once_with(webhook_only=False)
+    webhook_manager.get_items.assert_called_once()
+    assert items is webhook_manager.get_items.return_value
+    # The webhook path must never hit the Paddle API.
+    mock_request.assert_not_called()
+
+
+@patch(MOCK_PATH)
+@patch(
+    "products.warehouse_sources.backend.temporal.data_imports.sources.paddle.paddle.get_dlt_mapping_for_external_table"
+)
+def test_paddle_source_pulls_from_api_when_webhook_disabled(mock_get_mapping, mock_request):
+    mock_get_mapping.return_value = {"id": {"data_type": "text"}}
+    mock_request.return_value = MockResponse({"data": [{"id": "txn_1"}], "meta": {"pagination": {"next": None}}})
+    webhook_manager = _get_mock_webhook_manager(enabled=False)
+
+    response = paddle_source(
+        api_key="fake",
+        endpoint="transactions",
+        db_incremental_field_last_value=None,
+        should_use_incremental_field=False,
+        logger=MagicMock(),
+        resumable_source_manager=_get_mock_resumable_manager(),
+        webhook_source_manager=webhook_manager,
+    )
+
+    tables = list(response.items())
+
+    webhook_manager.get_items.assert_not_called()
+    assert len(tables) == 1
+    assert tables[0].column("id").to_pylist() == ["txn_1"]
+
+
+@patch(MOCK_PATH)
+def test_validate_credentials_sandbox_hits_sandbox_host(mock_request):
+    mock_request.return_value = MockResponse({"data": []}, status_code=200)
+
+    assert validate_credentials("fake_key", environment="sandbox") is True
+
+    for call in mock_request.call_args_list:
+        # A sandbox key sent to the live API always 401s — the environment must reach
+        # the URL builder.
+        assert call[0][1].startswith("https://sandbox-api.paddle.com/")
 
 
 @patch(MOCK_PATH)

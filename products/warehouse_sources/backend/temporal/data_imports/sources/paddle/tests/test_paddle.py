@@ -1,11 +1,78 @@
-from typing import cast
+from typing import Any, Optional, cast
 
+from unittest.mock import patch
+
+import orjson
+from parameterized import parameterized
 from requests.adapters import HTTPAdapter
+from requests.exceptions import HTTPError
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.paddle.paddle import (
     PADDLE_BASE_URL,
+    _base_url,
     _get_paddle_session,
+    _webhook_table_transformer,
+    create_webhook,
+    delete_webhook,
+    get_external_webhook_info,
+    update_webhook_events,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.paddle.settings import PADDLE_WEBHOOK_EVENTS
+
+MOCK_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.paddle.paddle.requests.Session.request"
+
+LIVE_HOST = "https://api.paddle.com"
+SANDBOX_HOST = "https://sandbox-api.paddle.com"
+WEBHOOK_URL = "https://webhooks.us.posthog.com/public/webhooks/dwh/some-hog-fn-id"
+
+
+class MockResponse:
+    def __init__(self, json_data: Any, status_code: int = 200):
+        self.json_data = json_data
+        self.status_code = status_code
+
+    def json(self) -> Any:
+        return self.json_data
+
+    def raise_for_status(self) -> None:
+        if self.status_code >= 400:
+            raise HTTPError(f"HTTP Error {self.status_code}", response=cast(Any, self))
+
+
+def _settings_list_response(items: list[dict[str, Any]], next_url: Optional[str] = None) -> MockResponse:
+    return MockResponse({"data": items, "meta": {"pagination": {"next": next_url}}})
+
+
+def _setting(
+    setting_id: str = "ntfset_1",
+    destination: str = WEBHOOK_URL,
+    active: bool = True,
+    secret: Optional[str] = "pdl_ntfset_secret",
+    events: Optional[list[str]] = None,
+) -> dict[str, Any]:
+    return {
+        "id": setting_id,
+        "description": "PostHog data warehouse webhook",
+        "destination": destination,
+        "active": active,
+        "endpoint_secret_key": secret,
+        "subscribed_events": [{"name": name} for name in (events if events is not None else PADDLE_WEBHOOK_EVENTS)],
+    }
+
+
+def _envelope(
+    entity: dict[str, Any],
+    event_type: str = "transaction.updated",
+    occurred_at: str = "2024-01-01T00:00:00.000Z",
+) -> dict[str, Any]:
+    return {
+        "event_id": f"evt_{entity.get('id', 'x')}_{occurred_at}",
+        "event_type": event_type,
+        "occurred_at": occurred_at,
+        "notification_id": "ntf_1",
+        "data": entity,
+    }
 
 
 class TestPaddleSession:
@@ -29,3 +96,287 @@ class TestPaddleSession:
         assert retry.is_retry("GET", 401) is False
         assert retry.is_retry("GET", 403) is False
         assert retry.is_retry("GET", 400) is False
+
+
+class TestBaseUrl:
+    @parameterized.expand(
+        [
+            ("live", "live", LIVE_HOST),
+            ("sandbox", "sandbox", SANDBOX_HOST),
+            # Sources created before the environment field existed have no value stored —
+            # they must keep hitting the live API.
+            ("missing", None, LIVE_HOST),
+            ("empty", "", LIVE_HOST),
+            ("unknown", "junk", LIVE_HOST),
+        ]
+    )
+    def test_base_url(self, _name, environment, expected):
+        assert _base_url(environment) == expected
+
+
+class TestWebhookTableTransformer:
+    def test_unwraps_envelope_to_entity_rows(self):
+        table = table_from_py_list(
+            [_envelope({"id": "txn_1", "status": "completed", "created_at": "2024-01-01T00:00:00Z"})]
+        )
+        result = _webhook_table_transformer(table)
+
+        assert result.num_rows == 1
+        row = result.to_pylist()[0]
+        # Rows must be entity-shaped and carry the merge key and the partition column.
+        assert row["id"] == "txn_1"
+        assert row["created_at"] == "2024-01-01T00:00:00Z"
+        assert row["status"] == "completed"
+        assert "event_type" not in result.column_names
+
+    def test_dedupes_to_latest_by_parsed_occurred_at(self):
+        # "…48.123Z" sorts before "…48.12Z" lexicographically but is the later instant —
+        # a string comparison would keep the stale row.
+        stale = _envelope({"id": "txn_1", "status": "stale"}, occurred_at="2024-01-01T00:00:48.12Z")
+        fresh = _envelope({"id": "txn_1", "status": "fresh"}, occurred_at="2024-01-01T00:00:48.123Z")
+
+        for envelopes in ([stale, fresh], [fresh, stale]):
+            result = _webhook_table_transformer(table_from_py_list(envelopes))
+            assert result.num_rows == 1
+            assert result.to_pylist()[0]["status"] == "fresh"
+
+    def test_tie_keeps_last_seen_event(self):
+        first = _envelope({"id": "txn_1", "status": "first"}, occurred_at="2024-01-01T00:00:00Z")
+        second = _envelope({"id": "txn_1", "status": "second"}, occurred_at="2024-01-01T00:00:00Z")
+
+        result = _webhook_table_transformer(table_from_py_list([first, second]))
+
+        assert result.num_rows == 1
+        # S3 files are read oldest-first, so on equal timestamps the later arrival wins.
+        assert result.to_pylist()[0]["status"] == "second"
+
+    def test_data_as_json_string(self):
+        envelope = _envelope({"id": "txn_1", "status": "completed"})
+        envelope["data"] = orjson.dumps(envelope["data"]).decode()
+
+        result = _webhook_table_transformer(table_from_py_list([envelope]))
+
+        assert result.num_rows == 1
+        assert result.to_pylist()[0]["id"] == "txn_1"
+
+    def test_skips_null_and_malformed_data_and_missing_id_rows(self):
+        # Malformed rows must be skipped, not raised on: a crash leaves the buffered S3
+        # file in place and every retry re-crashes on it.
+        envelopes = [
+            _envelope({"id": "txn_1"}),
+            {**_envelope({"id": "ignored"}), "data": None},
+            {**_envelope({"id": "ignored"}), "data": orjson.dumps([{"id": "txn_in_list"}]).decode()},
+            {**_envelope({"id": "ignored"}), "data": "not json at all"},
+            _envelope({"status": "no id"}),
+        ]
+
+        result = _webhook_table_transformer(table_from_py_list(envelopes))
+
+        rows = result.to_pylist()
+        assert [row["id"] for row in rows] == ["txn_1"]
+
+    def test_entities_missing_created_at_still_produce_the_partition_column(self):
+        # A batch whose rows all lack created_at must not drop the partition column —
+        # the datetime partition layer KeyErrors on a missing column and wedges the sync.
+        result = _webhook_table_transformer(table_from_py_list([_envelope({"id": "txn_1", "status": "billed"})]))
+
+        assert "created_at" in result.column_names
+        assert result.to_pylist()[0]["created_at"] is None
+
+    def test_distinct_ids_all_kept(self):
+        envelopes = [_envelope({"id": f"txn_{i}"}) for i in range(3)]
+
+        result = _webhook_table_transformer(table_from_py_list(envelopes))
+
+        assert sorted(row["id"] for row in result.to_pylist()) == ["txn_0", "txn_1", "txn_2"]
+
+    def test_missing_data_column_returns_empty(self):
+        result = _webhook_table_transformer(table_from_py_list([{"event_type": "transaction.updated"}]))
+        assert result.num_rows == 0
+
+
+class TestCreateWebhook:
+    @patch(MOCK_PATH)
+    def test_creates_destination_and_returns_secret(self, mock_request):
+        mock_request.side_effect = [
+            _settings_list_response([]),
+            MockResponse({"data": _setting(secret="pdl_ntfset_new")}),
+        ]
+
+        result = create_webhook("key", "live", WEBHOOK_URL)
+
+        assert result.success is True
+        # The secret must flow back so signature verification configures itself.
+        assert result.extra_inputs == {"signing_secret": "pdl_ntfset_new"}
+        assert result.pending_inputs == []
+
+        method, url = mock_request.call_args_list[1][0]
+        body = mock_request.call_args_list[1][1]["json"]
+        assert method == "POST"
+        assert url == f"{LIVE_HOST}/notification-settings"
+        assert body["destination"] == WEBHOOK_URL
+        assert body["type"] == "url"
+        assert body["active"] is True
+        assert body["subscribed_events"] == PADDLE_WEBHOOK_EVENTS
+
+    @patch(MOCK_PATH)
+    def test_sandbox_environment_hits_sandbox_host(self, mock_request):
+        mock_request.side_effect = [
+            _settings_list_response([]),
+            MockResponse({"data": _setting()}),
+        ]
+
+        create_webhook("key", "sandbox", WEBHOOK_URL)
+
+        for call in mock_request.call_args_list:
+            assert call[0][1].startswith(SANDBOX_HOST)
+
+    @patch(MOCK_PATH)
+    def test_existing_destination_reused_without_duplicate_post(self, mock_request):
+        mock_request.side_effect = [_settings_list_response([_setting(secret="pdl_ntfset_existing")])]
+
+        result = create_webhook("key", "live", WEBHOOK_URL)
+
+        assert result.success is True
+        assert result.extra_inputs == {"signing_secret": "pdl_ntfset_existing"}
+        # Only the list call — re-creating would register duplicate destinations in Paddle.
+        assert mock_request.call_count == 1
+
+    @patch(MOCK_PATH)
+    def test_existing_inactive_destination_is_reactivated(self, mock_request):
+        mock_request.side_effect = [
+            _settings_list_response([_setting(setting_id="ntfset_9", active=False)]),
+            MockResponse({"data": _setting(setting_id="ntfset_9", active=True)}),
+        ]
+
+        result = create_webhook("key", "live", WEBHOOK_URL)
+
+        assert result.success is True
+        method, url = mock_request.call_args_list[1][0]
+        assert method == "PATCH"
+        assert url == f"{LIVE_HOST}/notification-settings/ntfset_9"
+        assert mock_request.call_args_list[1][1]["json"] == {"active": True}
+
+    @patch(MOCK_PATH)
+    def test_existing_destination_without_secret_reports_pending_input(self, mock_request):
+        mock_request.side_effect = [_settings_list_response([_setting(secret=None)])]
+
+        result = create_webhook("key", "live", WEBHOOK_URL)
+
+        assert result.success is True
+        assert result.extra_inputs == {}
+        assert result.pending_inputs == ["signing_secret"]
+
+    @parameterized.expand(
+        [
+            ("permission_denied", 403, "write permission"),
+            ("bad_key", 401, "rejected the API key"),
+        ]
+    )
+    @patch(MOCK_PATH)
+    def test_http_errors_return_friendly_result(self, _name, status_code, expected_fragment, mock_request):
+        mock_request.return_value = MockResponse({"error": "denied"}, status_code=status_code)
+
+        result = create_webhook("key", "live", WEBHOOK_URL)
+
+        assert result.success is False
+        assert result.error is not None and expected_fragment in result.error
+
+
+class TestUpdateWebhookEvents:
+    @patch(MOCK_PATH)
+    def test_merges_missing_events_on_drift(self, mock_request):
+        mock_request.side_effect = [
+            _settings_list_response(
+                [_setting(setting_id="ntfset_1", events=["transaction.completed", "custom.event"])]
+            ),
+            MockResponse({"data": _setting()}),
+        ]
+
+        result = update_webhook_events("key", "live", WEBHOOK_URL, ["transaction.completed", "transaction.updated"])
+
+        assert result.success is True
+        method, url = mock_request.call_args_list[1][0]
+        assert method == "PATCH"
+        assert url == f"{LIVE_HOST}/notification-settings/ntfset_1"
+        # Union, never replacement — a user-added subscription must survive reconciliation.
+        assert mock_request.call_args_list[1][1]["json"] == {
+            "subscribed_events": ["custom.event", "transaction.completed", "transaction.updated"]
+        }
+
+    @patch(MOCK_PATH)
+    def test_no_write_when_already_subscribed(self, mock_request):
+        mock_request.side_effect = [_settings_list_response([_setting(events=PADDLE_WEBHOOK_EVENTS)])]
+
+        result = update_webhook_events("key", "live", WEBHOOK_URL, list(PADDLE_WEBHOOK_EVENTS))
+
+        assert result.success is True
+        # Reconcile runs on every schema enable; drift-free must not PATCH.
+        assert mock_request.call_count == 1
+
+    @patch(MOCK_PATH)
+    def test_missing_destination_is_success(self, mock_request):
+        mock_request.side_effect = [_settings_list_response([])]
+
+        result = update_webhook_events("key", "live", WEBHOOK_URL, ["transaction.updated"])
+
+        assert result.success is True
+        assert mock_request.call_count == 1
+
+
+class TestDeleteWebhook:
+    @patch(MOCK_PATH)
+    def test_deletes_matching_destination(self, mock_request):
+        mock_request.side_effect = [
+            _settings_list_response([_setting(setting_id="ntfset_7")]),
+            MockResponse({}, status_code=204),
+        ]
+
+        result = delete_webhook("key", "live", WEBHOOK_URL)
+
+        assert result.success is True
+        method, url = mock_request.call_args_list[1][0]
+        assert method == "DELETE"
+        assert url == f"{LIVE_HOST}/notification-settings/ntfset_7"
+
+    @patch(MOCK_PATH)
+    def test_absent_destination_is_success(self, mock_request):
+        mock_request.side_effect = [_settings_list_response([])]
+
+        result = delete_webhook("key", "live", WEBHOOK_URL)
+
+        # Source deletion must not fail when the user already removed the destination.
+        assert result.success is True
+
+    @patch(MOCK_PATH)
+    def test_delete_race_404_is_success(self, mock_request):
+        mock_request.side_effect = [
+            _settings_list_response([_setting(setting_id="ntfset_7")]),
+            MockResponse({"error": "not found"}, status_code=404),
+        ]
+
+        result = delete_webhook("key", "live", WEBHOOK_URL)
+
+        assert result.success is True
+
+
+class TestGetExternalWebhookInfo:
+    @patch(MOCK_PATH)
+    def test_maps_destination_fields(self, mock_request):
+        mock_request.side_effect = [_settings_list_response([_setting(active=False, events=["transaction.completed"])])]
+
+        info = get_external_webhook_info("key", "live", WEBHOOK_URL)
+
+        assert info.exists is True
+        assert info.url == WEBHOOK_URL
+        assert info.enabled_events == ["transaction.completed"]
+        assert info.status == "disabled"
+
+    @patch(MOCK_PATH)
+    def test_absent_destination(self, mock_request):
+        mock_request.side_effect = [_settings_list_response([])]
+
+        info = get_external_webhook_info("key", "live", WEBHOOK_URL)
+
+        assert info.exists is False
+        assert info.error is None

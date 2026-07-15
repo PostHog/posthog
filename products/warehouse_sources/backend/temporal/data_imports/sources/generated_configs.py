@@ -2701,6 +2701,7 @@ class PabblySubscriptionsBillingSourceConfig(config.Config):
 @config.config
 class PaddleSourceConfig(config.Config):
     paddle_api_key: str
+    environment: Literal["live", "sandbox"] = config.value(default="live")
 
 
 @config.config

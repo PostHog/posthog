@@ -304,7 +304,7 @@ the row lists both.
 | ortto                     | HTTP                        | requests                                                        | ✅                          |
 | oura                      | HTTP                        | requests                                                        | ✅                          |
 | outbrain                  | HTTP                        | requests                                                        | ✅                          |
-| paddle                    | HTTP                        | requests                                                        | ✅                          |
+| paddle                    | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
 | optimizely                | HTTP                        | requests                                                        | ✅                          |
 | pagerduty                 | HTTP                        | requests                                                        | ✅                          |
 | pandadoc                  | HTTP                        | requests                                                        | ✅                          |
