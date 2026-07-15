@@ -377,6 +377,12 @@ class _TracingAttributeBreakdownQueryBodySerializer(serializers.Serializer):
         default=False,
         help_text="Drop filters targeting the breakdown key itself (including serviceNames for a service_name breakdown), so a facet's value list stays complete while one of its values is selected.",
     )
+    facetSearch = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Type-ahead filter over the breakdown field's own values (case-insensitive substring match). "
+        "An empty string means no filter. Lets a facet's value search reach past the row limit.",
+    )
     orderBy = serializers.ChoiceField(
         choices=["count", "error_count"],
         required=False,
@@ -1114,6 +1120,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             filter_group=filter_group,
             service_names=query_data.get("serviceNames", None),
             exclude_breakdown_filter=bool(query_data.get("excludeBreakdownFilter")),
+            facet_search=query_data.get("facetSearch") or None,
         )
 
         return Response(

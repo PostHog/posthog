@@ -1,4 +1,4 @@
-import equal from 'fast-deep-equal'
+import { deepEqual as equal } from 'fast-equals'
 import { actions, afterMount, kea, key, listeners, path, propsChanged, props, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 

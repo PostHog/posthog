@@ -68,6 +68,7 @@ rules:
                               |AgentSession
                               |AgentSessionCredential
                               |AgentToolApprovalRequest
+                              |AgentTransportBinding
                               |AgentUser
                               |Alert
                               |AlertConfiguration
@@ -86,6 +87,9 @@ rules:
                               |CodeWorkflowConfig
                               |CodeWorkstream
                               |Cohort
+                              |CohortBackfillChunk
+                              |CohortBackfillRun
+                              |CohortBackfillRunCohort
                               |Comment
                               |Conversation
                               |ConversationRestoreToken
@@ -193,6 +197,7 @@ rules:
                               |MessageRecipientPreference
                               |MessageTemplate
                               |Metric
+                              |RelationshipProposal
                               |MCPAnalyticsSubmission
                               |MCPIntentClusterSnapshot
                               |MCPIntentEmbeddingCache
@@ -364,6 +369,7 @@ rules:
                         |AgentSession
                         |AgentSessionCredential
                         |AgentToolApprovalRequest
+                        |AgentTransportBinding
                         |AgentUser
                         |Alert
                         |AlertConfiguration
@@ -382,6 +388,9 @@ rules:
                         |CodeWorkflowConfig
                         |CodeWorkstream
                         |Cohort
+                        |CohortBackfillChunk
+                        |CohortBackfillRun
+                        |CohortBackfillRunCohort
                         |Comment
                         |Conversation
                         |ConversationRestoreToken
@@ -486,6 +495,7 @@ rules:
                         |MessageRecipientPreference
                         |MessageTemplate
                         |Metric
+                        |RelationshipProposal
                         |MCPIntentClusterSnapshot
                         |MCPIntentEmbeddingCache
                         |MCPSession
