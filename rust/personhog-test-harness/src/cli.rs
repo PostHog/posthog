@@ -218,6 +218,20 @@ pub struct GateArgs {
     #[arg(long, value_parser = humantime::parse_duration)]
     pub router_kill_after: Option<Duration>,
 
+    /// With --router-kill-after: also revoke the router's registration and
+    /// election leases so failover is immediate. Set false for a true
+    /// crash — the survivor is blind until both leases expire, exercising
+    /// the slow-failover window (election TTL + campaign retry).
+    #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+    pub router_kill_fast: bool,
+
+    /// Gracefully shut down (SIGTERM) the first router (the presumed
+    /// coordinator) this long into the traffic phase: the election must
+    /// hand over to a survivor immediately via the revoke-on-exit path,
+    /// not by waiting out the lease TTL. Requires --routers >= 2.
+    #[arg(long, value_parser = humantime::parse_duration)]
+    pub router_shutdown_after: Option<Duration>,
+
     /// After the first handoff-creating event (--shutdown-after or
     /// --scale-up-after) fires, watch for the resulting handoff and SIGKILL
     /// its target pod mid-handoff. Best effort: a handoff that completes

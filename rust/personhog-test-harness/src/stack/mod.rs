@@ -354,17 +354,40 @@ impl Stack {
     /// waits for it to win the election — and revoke both its registration
     /// lease (so freeze quorums stop counting it) and its election lease
     /// (so a surviving router takes over immediately instead of waiting
-    /// out the 15s election TTL). Handoffs created after this run under
-    /// the new coordinator.
-    pub async fn kill_coordinator_router(&mut self) -> Result<String> {
+    /// out the election TTL). Handoffs created after this run under the
+    /// new coordinator. With `fast` false, neither lease is revoked — a
+    /// true crash whose failover waits out both TTLs.
+    pub async fn kill_coordinator_router(&mut self, fast: bool) -> Result<String> {
         if self.routers.len() < 2 {
             bail!("coordinator kill requires at least 2 routers");
         }
         let (name, mut proc) = self.routers.remove(0);
         proc.kill_now().await;
-        etcd::revoke_router_lease(&self.store, &name).await?;
-        let held_election = etcd::revoke_coordinator_lease_if_held_by(&self.store, &name).await?;
-        tracing::info!(router = %name, held_election, "killed coordinator router");
+        if fast {
+            etcd::revoke_router_lease(&self.store, &name).await?;
+            let held_election =
+                etcd::revoke_coordinator_lease_if_held_by(&self.store, &name).await?;
+            tracing::info!(router = %name, held_election, "killed coordinator router");
+        } else {
+            // Registration and election leases linger until their TTLs
+            // expire: the survivor stays blind to the death, and no
+            // handoff can start until the election lease frees up.
+            tracing::info!(router = %name, "crashed coordinator router (leases left to expire)");
+        }
+        self.retired.push(proc);
+        Ok(name)
+    }
+
+    /// SIGTERM the first router (the presumed coordinator) — a graceful
+    /// exit whose election handover must come from the revoke-on-exit
+    /// path, immediately, never from waiting out the lease TTL.
+    pub fn shutdown_coordinator_router(&mut self) -> Result<String> {
+        if self.routers.len() < 2 {
+            bail!("coordinator shutdown requires at least 2 routers");
+        }
+        let (name, proc) = self.routers.remove(0);
+        proc.sigterm();
+        tracing::info!(router = %name, "requested graceful shutdown of coordinator router");
         self.retired.push(proc);
         Ok(name)
     }
