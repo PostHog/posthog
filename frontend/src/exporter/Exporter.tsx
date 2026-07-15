@@ -70,11 +70,13 @@ export function Exporter(props: ExportedData): JSX.Element {
 
     // A metric insight sizes to a square card rather than filling the viewport, so drop the 100vh floor
     // that would otherwise leave empty space below it (see Exporter.scss and ExportedInsight.scss).
-    const isMetricInsight =
-        !!insight &&
+    const metric =
+        insight &&
         isInsightVizNode(insight.query) &&
         isTrendsQuery(insight.query.source) &&
         insight.query.source.trendsFilter?.display === ChartDisplayType.Metric
+            ? insight
+            : undefined
 
     const { currentTeam } = useValues(teamLogic)
     const { ref: elementRef, height, width } = useResizeObserver()
@@ -119,7 +121,7 @@ export function Exporter(props: ExportedData): JSX.Element {
             <div
                 className={clsx('Exporter', {
                     'Exporter--insight': !!insight,
-                    'Exporter--metric': isMetricInsight,
+                    'Exporter--metric': !!metric,
                     'Exporter--dashboard': !!dashboard,
                     'Exporter--recording': !!recording,
                     'Exporter--notebook': !!notebook,

@@ -64,8 +64,6 @@ export function ExportedInsight({
     const trendsDisplay =
         isInsightVizNode(query) && isTrendsQuery(query.source) ? query.source.trendsFilter?.display : undefined
     const isBoxPlot = trendsDisplay === ChartDisplayType.BoxPlot
-    // A metric has no intrinsically tall content, so give it a square footprint (see ExportedInsight.scss)
-    // instead of letting the filling sparkline stretch to the full exporter height.
     const isMetric = trendsDisplay === ChartDisplayType.Metric
     const showLegend =
         legend &&
