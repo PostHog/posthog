@@ -154,8 +154,10 @@ function ScoutSignalsSection({ skillName }: { skillName: string }): JSX.Element 
     const { selectedScoutFindingId } = useValues(inboxSceneLogic)
 
     // No run in the window emitted anything — keep the section out entirely rather than show an
-    // empty box (mirrors the Reports section above).
-    if (emittedRuns.length === 0) {
+    // empty box (mirrors the Reports section above). Only once the runs window has settled, though:
+    // before that, `emittedRuns` is empty by default and hiding would skip the loading skeleton
+    // for scouts that do have signals.
+    if (runsWindowLoadedOnce && emittedRuns.length === 0) {
         return null
     }
 
