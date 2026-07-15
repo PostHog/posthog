@@ -208,7 +208,34 @@ class TestEmitSignalValidation:
         assert emitter_call.kwargs["id"] == SignalEmitterWorkflow.workflow_id_for(
             team_stub.id, "github:issue:posthog/posthog#42"
         )
-        assert emitter_call.kwargs["id_reuse_policy"] == WorkflowIDReusePolicy.REJECT_DUPLICATE
+        # FAILED_ONLY dedupes a succeeded/running emission but lets a transiently-failed one retry.
+        assert emitter_call.kwargs["id_reuse_policy"] == WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY
+
+    async def test_emit_signal_empty_idempotency_key_does_not_dedupe(self, team_stub):
+        client = AsyncMock()
+        client.start_workflow.side_effect = [
+            temporalio.exceptions.WorkflowAlreadyStartedError("already started", "buffer-signals-1"),
+            AsyncMock(),
+        ]
+
+        with (
+            patch("products.signals.backend.facade.api.async_connect", return_value=client),
+            patch.object(SignalSourceConfig, "is_source_enabled", return_value=True),
+        ):
+            await emit_signal(
+                team=team_stub,
+                source_product="github",
+                source_type="issue",
+                source_id="posthog/posthog#42",
+                description="A valid signal",
+                extra=GITHUB_ISSUE_EXTRA,
+                idempotency_key="",
+            )
+
+        # An empty key is treated as "no key": no dedup, so a blank-derived key can't collapse
+        # distinct observations onto one deterministic workflow id.
+        emitter_call = client.start_workflow.call_args_list[1]
+        assert emitter_call.kwargs["id_reuse_policy"] == WorkflowIDReusePolicy.ALLOW_DUPLICATE
 
 
 @pytest.mark.asyncio
