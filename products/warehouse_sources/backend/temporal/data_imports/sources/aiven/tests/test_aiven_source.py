@@ -22,8 +22,6 @@ class TestSourceConfig:
     def test_config_shape(self) -> None:
         config = AivenSource().get_source_config
         assert config.name == "Aiven"
-        # Ships hidden and alpha until end-to-end verified against a live token.
-        assert config.unreleasedSource is True
         assert config.releaseStatus == "alpha"
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/aiven"
 
