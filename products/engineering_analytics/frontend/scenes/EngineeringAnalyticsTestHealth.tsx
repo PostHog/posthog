@@ -318,6 +318,12 @@ function BrokenTestsPanel(): JSX.Element {
                             expandedRowRender: (row) => <BrokenTestDrilldown row={row} />,
                         }}
                     />
+                    {brokenTestsData?.truncated && (
+                        <div className="text-xs text-tertiary">
+                            Showing the top {brokenTestsData.limit} by urgency — more distinct failures matched than
+                            fit.
+                        </div>
+                    )}
                     {hiddenBrokenTestCount > 0 && !showPrOnlyBrokenTests && (
                         <div className="text-xs text-tertiary">
                             {pluralize(hiddenBrokenTestCount, 'PR-only failure')} hidden — toggle "Show PR-only

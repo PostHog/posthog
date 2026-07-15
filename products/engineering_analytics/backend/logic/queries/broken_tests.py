@@ -79,7 +79,7 @@ _FINGERPRINTS_SELECT = """
         dateDiff('hour', min(timestamp), now()) AS age_hours,
         dateDiff('hour', min(timestamp), max(timestamp)) AS span_hours,
         count() AS occurrences,
-        uniqExact(branch) AS branches,
+        uniqExactIf(branch, branch != '') AS branches,
         countIf(branch IN {default_branches}) AS master_hits,
         any(repo) AS repo,
         argMax(run_id, timestamp) AS latest_run_id,
