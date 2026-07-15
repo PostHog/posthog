@@ -324,3 +324,87 @@ describe('dispatchApprovedResult: proxy-routed resume', () => {
         expect(d.error).toBe('native tool unknown: posthog__get-insights')
     })
 })
+
+describe('dispatchApprovedResult: proxy-routed resume', () => {
+    // A proxy connection gates `call_tool` on the underlying tool, so the
+    // approval row is keyed `<prefix>__<remoteName>` with the call_tool args
+    // stashed as proposed_args. On resume the driver must route that row back to
+    // the connection's `call_tool` executor (via resolveApprovedExecutor) — a
+    // plain `realExecute.get(row.tool_name)` misses it and drops the call.
+    function makeProxyRow(over: Partial<ApprovalRequest> = {}): ApprovalRequest {
+        return {
+            id: 'req-proxy-1',
+            session_id: TEST_SESSION_ID,
+            application_id: TEST_APP_ID,
+            revision_id: TEST_REV_ID,
+            team_id: 1,
+            turn: 1,
+            tool_call_id: 'tc-9',
+            tool_name: 'posthog__get-insights',
+            proposed_args: { tool_name: 'get-insights', arguments: { limit: 5 } },
+            args_hash: Buffer.alloc(0),
+            assistant_message: null,
+            approver_scope: null,
+            state: 'approving',
+            decision_by: 'u1',
+            decision_at: null,
+            decision_reason: null,
+            decided_args: null,
+            dispatch_outcome: null,
+            expires_at: '2026-06-26',
+            created_at: '2026-06-26',
+            ...over,
+        } as ApprovalRequest
+    }
+
+    function dispatchStore(): ApprovalStore & { dispatched: Array<{ id: string; outcome: unknown }> } {
+        const dispatched: Array<{ id: string; outcome: unknown }> = []
+        return {
+            dispatched,
+            async markDispatched(id: string, outcome: unknown): Promise<void> {
+                dispatched.push({ id, outcome })
+            },
+        } as unknown as ApprovalStore & { dispatched: Array<{ id: string; outcome: unknown }> }
+    }
+
+    it('replays the approved proxy call through the connection call_tool executor', async () => {
+        const seen: Array<{ id: string; args: Record<string, unknown> }> = []
+        const callToolExec: RealToolExecute = async (id, args) => {
+            seen.push({ id, args })
+            return { content: [{ type: 'text' as const, text: 'ok' }], details: { output: { ran: true } } }
+        }
+        const realExecute = new Map<string, RealToolExecute>([['posthog__call_tool', callToolExec]])
+        const proxyCallTools = new Map<string, unknown>([['posthog__call_tool', {}]])
+        const row = makeProxyRow()
+        const store = dispatchStore()
+
+        const d = await dispatchApprovedResult({
+            approvals: store,
+            realExecute: resolveApprovedExecutor(row.tool_name, realExecute, proxyCallTools),
+            row,
+        })
+
+        expect(d.isError).toBe(false)
+        // The call_tool executor ran with the row's stored call_tool args (the
+        // remote tool + its arguments), i.e. the real call replayed.
+        expect(seen).toEqual([{ id: 'tc-9', args: { tool_name: 'get-insights', arguments: { limit: 5 } } }])
+        expect(store.dispatched[0]?.outcome).toEqual({ result: { ran: true } })
+    })
+
+    it('the old direct lookup (the bug) drops the call with a synthetic "unknown tool"', async () => {
+        const realExecute = new Map<string, RealToolExecute>([
+            ['posthog__call_tool', async () => ({ content: [], details: {} })],
+        ])
+        const row = makeProxyRow()
+
+        const d = await dispatchApprovedResult({
+            approvals: dispatchStore(),
+            // What the driver did before: a plain lookup by the re-keyed name.
+            realExecute: realExecute.get(row.tool_name),
+            row,
+        })
+
+        expect(d.isError).toBe(true)
+        expect(d.error).toBe('native tool unknown: posthog__get-insights')
+    })
+})

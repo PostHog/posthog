@@ -796,7 +796,7 @@ class TaskRunLivingArtifactCreateRequestSerializer(serializers.Serializer):
     content_base64 = serializers.CharField(
         required=False,
         allow_blank=False,
-        help_text="Base64-encoded binary content for Slack file uploads or other external adapters. Prefer source_artifact_id or source_storage_path for large files that were already uploaded as run artifacts.",
+        help_text="Base64-encoded binary content for Slack file uploads or other external adapters. Prefer source_artifact_id or source_storage_path for large files that were already uploaded as run output artifacts.",
     )
     content_type = serializers.CharField(
         max_length=255,
@@ -807,12 +807,12 @@ class TaskRunLivingArtifactCreateRequestSerializer(serializers.Serializer):
     source_artifact_id = serializers.CharField(
         required=False,
         allow_blank=True,
-        help_text="Existing run artifact id to use as the initial content source.",
+        help_text="Existing run artifact id to use as the initial content source. Only agent-uploaded output artifacts are accepted; internal run artifacts are rejected.",
     )
     source_storage_path = serializers.CharField(
         required=False,
         allow_blank=True,
-        help_text="Existing run artifact storage_path to use as the initial content source.",
+        help_text="Existing run artifact storage_path to use as the initial content source. Only agent-uploaded output artifacts are accepted; internal run artifacts are rejected.",
     )
     metadata = serializers.DictField(
         child=serializers.JSONField(),
@@ -877,12 +877,12 @@ class TaskRunLivingArtifactEditRequestSerializer(serializers.Serializer):
     source_artifact_id = serializers.CharField(
         required=False,
         allow_blank=True,
-        help_text="Existing run artifact id to use as the next version content source.",
+        help_text="Existing run artifact id to use as the next version content source. Only agent-uploaded output artifacts are accepted; internal run artifacts are rejected.",
     )
     source_storage_path = serializers.CharField(
         required=False,
         allow_blank=True,
-        help_text="Existing run artifact storage_path to use as the next version content source.",
+        help_text="Existing run artifact storage_path to use as the next version content source. Only agent-uploaded output artifacts are accepted; internal run artifacts are rejected.",
     )
     metadata = serializers.DictField(
         child=serializers.JSONField(),

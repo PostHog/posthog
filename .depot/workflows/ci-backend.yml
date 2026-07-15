@@ -246,6 +246,10 @@ jobs:
                         - conftest.py # Root conftest loads for every pytest run
                         - .test_durations # Used for pytest-split sharding
                         - .test_quarantine.json # Un-quarantining must re-run the affected tests
+                        # turbo-discover reads the module graph for the dependent
+                        # cascade, and `tach check` validates it — a graph-only PR
+                        # must still dispatch both.
+                        - tach.toml
                         # generates posthog/schema.py
                         - frontend/src/queries/schema.json
                         # Operator parity check
