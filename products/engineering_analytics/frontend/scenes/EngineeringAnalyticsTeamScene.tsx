@@ -34,6 +34,7 @@ export const scene: SceneExport<TeamDetailLogicProps> = {
 }
 
 const WINDOW_LABELS: Record<TeamsWindow, { prior: string; current: string }> = {
+    '-24h': { prior: 'Previous 24 hours', current: 'Last 24 hours' },
     '-7d': { prior: 'Previous 7 days', current: 'Last 7 days' },
     '-14d': { prior: 'Previous 14 days', current: 'Last 14 days' },
     '-30d': { prior: 'Previous 30 days', current: 'Last 30 days' },
@@ -124,18 +125,17 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
                             {!isUnowned && <span>owner: {ownerTeam}</span>}
                         </>
                     }
-                    right={
-                        <LemonSegmentedButton
-                            size="small"
-                            value={window}
-                            onChange={(value) => setWindow(value as TeamsWindow)}
-                            options={[
-                                { value: '-7d', label: '7d' },
-                                { value: '-14d', label: '14d' },
-                                { value: '-30d', label: '30d' },
-                            ]}
-                        />
-                    }
+                />
+                <LemonSegmentedButton
+                    size="small"
+                    value={window}
+                    onChange={(value) => setWindow(value as TeamsWindow)}
+                    options={[
+                        { value: '-24h', label: '1d' },
+                        { value: '-7d', label: '7d' },
+                        { value: '-14d', label: '14d' },
+                        { value: '-30d', label: '30d' },
+                    ]}
                 />
             </div>
 
