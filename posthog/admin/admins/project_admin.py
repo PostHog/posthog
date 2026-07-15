@@ -1,3 +1,5 @@
+from typing import cast
+
 from django.conf import settings
 from django.contrib import admin, messages
 from django.shortcuts import redirect
@@ -95,6 +97,10 @@ class ProjectAdmin(admin.ModelAdmin):
     def trigger_deletion_view(self, request, project_id):
         from temporalio.exceptions import WorkflowAlreadyStartedError
 
+        from posthog.event_usage import report_user_action
+        from posthog.helpers.impersonation import is_impersonated
+        from posthog.models.activity_logging.activity_log import Detail, log_activity
+        from posthog.models.utils import UUIDT
         from posthog.temporal.delete_teams.dispatch import start_delete_project_data_workflow
 
         change_url = reverse("admin:posthog_project_change", args=[project_id])
@@ -108,19 +114,38 @@ class ProjectAdmin(admin.ModelAdmin):
         if request.method != "POST":
             return redirect(change_url)
 
+        # Staff access alone must not authorize a destructive delete; require Django's
+        # delete permission for the model (superusers pass automatically).
+        if not self.has_delete_permission(request, project):
+            messages.error(request, "You do not have permission to delete this project.")
+            return redirect(change_url)
+
         if settings.DISABLE_BULK_DELETES:
             messages.error(
                 request, "Bulk deletes are temporarily disabled during a database migration. Try again later."
             )
             return redirect(change_url)
 
-        team_ids = list(project.teams.values_list("id", flat=True))
+        if project.is_pending_deletion:
+            messages.error(request, f"Project {project.name} ({project.pk}) is already being deleted.")
+            return redirect(change_url)
+
+        teams = list(project.teams.only("id", "name", "organization_id").all())
+        team_ids = [team.pk for team in teams]
+
+        user = request.user
+        organization_id = project.organization_id
+
+        # Mark pending before dispatch so the project is locked out even if this write and the
+        # workflow start race; mirrors the API deletion path.
+        project.is_pending_deletion = True
+        project.save(update_fields=["is_pending_deletion"])
 
         try:
             start_delete_project_data_workflow(
                 team_ids=team_ids,
                 project_id=project.pk,
-                user_id=request.user.id,
+                user_id=user.id,
                 project_name=project.name,
             )
         except WorkflowAlreadyStartedError:
@@ -129,10 +154,43 @@ class ProjectAdmin(admin.ModelAdmin):
             )
             return redirect(change_url)
         except Exception as e:
+            # Dispatch failed, so no workflow is running; unlock the project so it can be retried.
+            project.is_pending_deletion = False
+            project.save(update_fields=["is_pending_deletion"])
             messages.error(request, f"Failed to start deletion workflow: {e}")
             return redirect(change_url)
 
-        project.is_pending_deletion = True
-        project.save(update_fields=["is_pending_deletion"])
+        was_impersonated = is_impersonated(request)
+        for team in teams:
+            log_activity(
+                organization_id=cast(UUIDT, organization_id),
+                team_id=team.pk,
+                user=user,
+                was_impersonated=was_impersonated,
+                scope="Team",
+                item_id=team.pk,
+                activity="deleted",
+                detail=Detail(name=str(team.name)),
+            )
+            report_user_action(user, "team deleted", team=team, request=request)
+        log_activity(
+            organization_id=cast(UUIDT, organization_id),
+            team_id=project.pk,
+            user=user,
+            was_impersonated=was_impersonated,
+            scope="Project",
+            item_id=project.pk,
+            activity="deleted",
+            detail=Detail(name=str(project.name)),
+        )
+        if teams:
+            report_user_action(
+                user,
+                "project deleted",
+                {"project_name": project.name},
+                team=teams[0],
+                request=request,
+            )
+
         messages.success(request, f"Started deletion workflow for project {project.name} ({project.pk}).")
         return redirect(change_url)

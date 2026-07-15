@@ -352,6 +352,7 @@ class OrganizationAdmin(admin.ModelAdmin):
     def trigger_deletion_view(self, request, organization_id):
         from temporalio.exceptions import WorkflowAlreadyStartedError
 
+        from posthog.event_usage import report_organization_deleted, report_organization_deletion_initiated
         from posthog.temporal.delete_teams.dispatch import start_delete_organization_workflow
 
         change_url = reverse("admin:posthog_organization_change", args=[organization_id])
@@ -365,21 +366,40 @@ class OrganizationAdmin(admin.ModelAdmin):
         if request.method != "POST":
             return redirect(change_url)
 
+        # Staff access alone must not authorize a destructive delete; require Django's
+        # delete permission for the model (superusers pass automatically).
+        if not self.has_delete_permission(request, organization):
+            messages.error(request, "You do not have permission to delete this organization.")
+            return redirect(change_url)
+
         if settings.DISABLE_BULK_DELETES:
             messages.error(
                 request, "Bulk deletes are temporarily disabled during a database migration. Try again later."
             )
             return redirect(change_url)
 
+        if organization.is_pending_deletion:
+            messages.error(request, f"Organization {organization.name} ({organization.pk}) is already being deleted.")
+            return redirect(change_url)
+
         teams = list(organization.teams.only("id", "name").all())
         team_ids = [team.pk for team in teams]
         project_names = [team.name for team in teams]
+
+        user = request.user
+        report_organization_deleted(user, organization)
+        report_organization_deletion_initiated(user, organization)
+
+        # Mark pending before dispatch so the org is locked out even if this write and the
+        # workflow start race; mirrors the API deletion path.
+        organization.is_pending_deletion = True
+        organization.save(update_fields=["is_pending_deletion"])
 
         try:
             start_delete_organization_workflow(
                 team_ids=team_ids,
                 organization_id=str(organization.pk),
-                user_id=request.user.id,
+                user_id=user.id,
                 organization_name=organization.name,
                 project_names=project_names,
             )
@@ -390,11 +410,12 @@ class OrganizationAdmin(admin.ModelAdmin):
             )
             return redirect(change_url)
         except Exception as e:
+            # Dispatch failed, so no workflow is running; unlock the org so it can be retried.
+            organization.is_pending_deletion = False
+            organization.save(update_fields=["is_pending_deletion"])
             messages.error(request, f"Failed to start deletion workflow: {e}")
             return redirect(change_url)
 
-        organization.is_pending_deletion = True
-        organization.save(update_fields=["is_pending_deletion"])
         messages.success(
             request, f"Started deletion workflow for organization {organization.name} ({organization.pk})."
         )

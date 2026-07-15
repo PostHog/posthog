@@ -5,6 +5,8 @@ from django.contrib.admin.sites import AdminSite
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.test import RequestFactory, override_settings
 
+from temporalio.exceptions import WorkflowAlreadyStartedError
+
 from posthog.admin.admins.organization_admin import OrganizationAdmin
 from posthog.admin.admins.project_admin import ProjectAdmin
 from posthog.models import Organization, Project
@@ -25,18 +27,22 @@ class TestOrganizationAdminTriggerDeletion(BaseTest):
     def setUp(self):
         super().setUp()
         self.user.is_staff = True
+        self.user.is_superuser = True
         self.user.save()
         self.factory = RequestFactory()
         self.admin = OrganizationAdmin(Organization, AdminSite())
 
-    def _call(self, method: str):
+    def _call(self, method: str, start_side_effect=None):
         path = f"/admin/posthog/organization/{self.organization.pk}/trigger-deletion/"
         http_request = self.factory.post(path) if method == "POST" else self.factory.get(path)
         http_request.user = self.user
         _attach_messages(http_request)
         with (
             patch("posthog.admin.admins.organization_admin.reverse", side_effect=_fake_reverse),
-            patch("posthog.temporal.delete_teams.dispatch.start_delete_organization_workflow") as mock_start,
+            patch(
+                "posthog.temporal.delete_teams.dispatch.start_delete_organization_workflow",
+                side_effect=start_side_effect,
+            ) as mock_start,
         ):
             response = self.admin.trigger_deletion_view(http_request, str(self.organization.pk))
         return response, mock_start
@@ -71,23 +77,63 @@ class TestOrganizationAdminTriggerDeletion(BaseTest):
         self.organization.refresh_from_db()
         self.assertFalse(self.organization.is_pending_deletion)
 
+    def test_staff_without_delete_permission_cannot_dispatch(self):
+        self.user.is_superuser = False
+        self.user.save()
+
+        response, mock_start = self._call("POST")
+
+        self.assertEqual(response.status_code, 302)
+        mock_start.assert_not_called()
+        self.organization.refresh_from_db()
+        self.assertFalse(self.organization.is_pending_deletion)
+
+    def test_already_pending_deletion_is_rejected(self):
+        self.organization.is_pending_deletion = True
+        self.organization.save(update_fields=["is_pending_deletion"])
+
+        response, mock_start = self._call("POST")
+
+        self.assertEqual(response.status_code, 302)
+        mock_start.assert_not_called()
+
+    def test_dispatch_failure_rolls_back_pending(self):
+        response, mock_start = self._call("POST", start_side_effect=Exception("boom"))
+
+        self.assertEqual(response.status_code, 302)
+        mock_start.assert_called_once()
+        self.organization.refresh_from_db()
+        self.assertFalse(self.organization.is_pending_deletion)
+
+    def test_already_started_workflow_keeps_pending(self):
+        response, mock_start = self._call("POST", start_side_effect=WorkflowAlreadyStartedError("id", "type"))
+
+        self.assertEqual(response.status_code, 302)
+        mock_start.assert_called_once()
+        self.organization.refresh_from_db()
+        self.assertTrue(self.organization.is_pending_deletion)
+
 
 class TestProjectAdminTriggerDeletion(BaseTest):
     def setUp(self):
         super().setUp()
         self.user.is_staff = True
+        self.user.is_superuser = True
         self.user.save()
         self.factory = RequestFactory()
         self.admin = ProjectAdmin(Project, AdminSite())
 
-    def _call(self, method: str):
+    def _call(self, method: str, start_side_effect=None):
         path = f"/admin/posthog/project/{self.project.pk}/trigger-deletion/"
         http_request = self.factory.post(path) if method == "POST" else self.factory.get(path)
         http_request.user = self.user
         _attach_messages(http_request)
         with (
             patch("posthog.admin.admins.project_admin.reverse", side_effect=_fake_reverse),
-            patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow") as mock_start,
+            patch(
+                "posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow",
+                side_effect=start_side_effect,
+            ) as mock_start,
         ):
             response = self.admin.trigger_deletion_view(http_request, str(self.project.pk))
         return response, mock_start
@@ -110,5 +156,42 @@ class TestProjectAdminTriggerDeletion(BaseTest):
 
         self.assertEqual(response.status_code, 302)
         mock_start.assert_not_called()
+        self.project.refresh_from_db()
+        self.assertFalse(self.project.is_pending_deletion)
+
+    @override_settings(DISABLE_BULK_DELETES=True)
+    def test_disable_bulk_deletes_blocks_dispatch(self):
+        response, mock_start = self._call("POST")
+
+        self.assertEqual(response.status_code, 302)
+        mock_start.assert_not_called()
+        self.project.refresh_from_db()
+        self.assertFalse(self.project.is_pending_deletion)
+
+    def test_staff_without_delete_permission_cannot_dispatch(self):
+        self.user.is_superuser = False
+        self.user.save()
+
+        response, mock_start = self._call("POST")
+
+        self.assertEqual(response.status_code, 302)
+        mock_start.assert_not_called()
+        self.project.refresh_from_db()
+        self.assertFalse(self.project.is_pending_deletion)
+
+    def test_already_pending_deletion_is_rejected(self):
+        self.project.is_pending_deletion = True
+        self.project.save(update_fields=["is_pending_deletion"])
+
+        response, mock_start = self._call("POST")
+
+        self.assertEqual(response.status_code, 302)
+        mock_start.assert_not_called()
+
+    def test_dispatch_failure_rolls_back_pending(self):
+        response, mock_start = self._call("POST", start_side_effect=Exception("boom"))
+
+        self.assertEqual(response.status_code, 302)
+        mock_start.assert_called_once()
         self.project.refresh_from_db()
         self.assertFalse(self.project.is_pending_deletion)
