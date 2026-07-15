@@ -237,23 +237,24 @@ repositories.
 
 > **Note:** This only works with `SANDBOX_PROVIDER=docker`.
 
-### Optional: mirror run logs to PostHog Logs (dogfooding)
+### Task-run log mirroring to PostHog Logs (dogfooding)
 
-Task-run log entries (the JSONL appended to object storage via `TaskRun.append_log`) can also be shipped to a PostHog project's Logs product as OTLP log records,
+Task-run log entries (the JSONL appended to object storage via `TaskRun.append_log`) are also mirrored into the PostHog Logs product,
 so runs can be browsed and sampled in the Logs UI instead of fetching S3 blobs.
 
+There is no transport of its own: entries are emitted as structured stdout log lines (`event=task_run_log`),
+and the per-cluster OTel collector that already ships all container stdout into the region's internal PostHog project picks them up
+(locally, `otel-collector-config.dev.yaml` does the same into your dev logs project).
+The collector parses each JSON key into a queryable attribute and turns the emitted `request_id` (the run uuid) into a trace id,
+so one run groups as a trace and can be pulled up with an attribute filter on `task_run_id`.
+
 ```bash
-# The target project's OTLP logs endpoint and API token.
-TASK_RUN_LOGS_OTLP_ENDPOINT=https://us.i.posthog.com/i/v1/logs
-TASK_RUN_LOGS_OTLP_TOKEN=phc_...
-# Which task origins to forward (comma-separated). Defaults to signals scouts only.
-TASK_RUN_LOGS_OTLP_ORIGIN_PRODUCTS=signals_scout
+# Which task origins to mirror (comma-separated). Defaults to signals scouts only.
+# Set empty to disable.
+TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS=signals_scout
 ```
 
-Forwarding is off unless both endpoint and token are set.
-Records carry `service.name=<origin_product>`, a run-scoped trace id, and `task_run_id` / `task_id` / `team_id` attributes,
-so one run can be pulled up with an attribute filter on `task_run_id`.
-Export happens on a Celery task off the log-write path; failures are logged and never break the run.
+Mirroring failures are logged and never break the run's log write.
 
 ### How `MODAL_DOCKER` works
 

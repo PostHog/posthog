@@ -1,7 +1,6 @@
 import json
-import uuid
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, TestCase, override_settings
 
@@ -9,15 +8,17 @@ from parameterized import parameterized
 
 from posthog.models import Organization, Team
 
-from products.tasks.backend.logic.services.run_log_otlp import MAX_BODY_CHARS, build_otlp_payload
+from products.tasks.backend.logic.services.run_log_mirror import MAX_BODY_CHARS, mirror_entries
 from products.tasks.backend.models import Task, TaskRun
 
 RUN_ID = "0b166f65-9e52-4d1b-b3c4-1a9e3f6d3c21"
 TASK_ID = "7d0e9a34-2f1c-4b8a-9c3d-5e6f7a8b9c0d"
 
 
-def _build(entries: list[dict]) -> dict | None:
-    return build_otlp_payload(entries, team_id=2, task_id=TASK_ID, run_id=RUN_ID, origin_product="signals_scout")
+def _mirror(entries: list[dict]) -> MagicMock:
+    with patch("products.tasks.backend.logic.services.run_log_mirror.logger") as mock_logger:
+        mirror_entries(entries, team_id=2, task_id=TASK_ID, run_id=RUN_ID, origin_product="signals_scout")
+    return mock_logger
 
 
 def _session_update_entry(session_update: str, **update_fields) -> dict:
@@ -31,7 +32,7 @@ def _session_update_entry(session_update: str, **update_fields) -> dict:
     }
 
 
-class TestBuildOtlpPayload(SimpleTestCase):
+class TestMirrorEntries(SimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -39,12 +40,6 @@ class TestBuildOtlpPayload(SimpleTestCase):
                 _session_update_entry("agent_message", content={"type": "text", "text": "hello"}),
                 "info",
                 "[agent_message] hello",
-            ),
-            (
-                "agent_thought_is_debug",
-                _session_update_entry("agent_thought_chunk", content={"type": "text", "text": "thinking"}),
-                "debug",
-                "[agent_thought_chunk] thinking",
             ),
             (
                 "tool_call_without_content",
@@ -61,7 +56,7 @@ class TestBuildOtlpPayload(SimpleTestCase):
             (
                 "console_level_passthrough",
                 {"notification": {"method": "_posthog/console", "params": {"level": "warn", "message": "careful"}}},
-                "warn",
+                "warning",
                 "careful",
             ),
             (
@@ -83,55 +78,45 @@ class TestBuildOtlpPayload(SimpleTestCase):
             ),
         ]
     )
-    def test_severity_and_body_mapping(self, _name, entry, expected_severity, expected_body):
-        payload = _build([entry])
-        assert payload is not None
-        record = payload["resourceLogs"][0]["scopeLogs"][0]["logRecords"][0]
-        self.assertEqual(record["severityText"], expected_severity)
-        self.assertEqual(record["body"]["stringValue"], expected_body)
+    def test_severity_and_body_mapping(self, _name, entry, expected_log_method, expected_body):
+        mock_logger = _mirror([entry])
+        log_call = getattr(mock_logger, expected_log_method)
+        log_call.assert_called_once()
+        self.assertEqual(log_call.call_args.kwargs["body"], expected_body)
 
     def test_unrecognized_entry_falls_back_to_json_body(self):
         notification = {"method": "session/request_permission", "params": {"tool": "bash"}}
-        payload = _build([{"notification": notification}])
-        assert payload is not None
-        record = payload["resourceLogs"][0]["scopeLogs"][0]["logRecords"][0]
-        self.assertEqual(json.loads(record["body"]["stringValue"]), notification)
+        mock_logger = _mirror([{"notification": notification}])
+        self.assertEqual(json.loads(mock_logger.info.call_args.kwargs["body"]), notification)
 
-    def test_payload_structure_carries_run_identity(self):
-        payload = _build([_session_update_entry("agent_message", content={"type": "text", "text": "hi"})])
-        assert payload is not None
-        resource_attrs = {
-            attr["key"]: attr["value"]["stringValue"] for attr in payload["resourceLogs"][0]["resource"]["attributes"]
-        }
-        self.assertEqual(
-            resource_attrs,
-            {"service.name": "signals_scout", "team_id": "2", "task_id": TASK_ID, "task_run_id": RUN_ID},
-        )
-        record = payload["resourceLogs"][0]["scopeLogs"][0]["logRecords"][0]
-        self.assertEqual(record["traceId"], uuid.UUID(RUN_ID).hex)
-        self.assertEqual(record["timeUnixNano"], str(1784109600 * 1_000_000_000))
-        record_attrs = {attr["key"]: attr["value"]["stringValue"] for attr in record["attributes"]}
-        self.assertEqual(record_attrs["acp.method"], "session/update")
-        self.assertEqual(record_attrs["acp.session_update"], "agent_message")
+    def test_emitted_fields_carry_run_identity(self):
+        mock_logger = _mirror([_session_update_entry("agent_message", content={"type": "text", "text": "hi"})])
+        self.assertEqual(mock_logger.info.call_args.args, ("task_run_log",))
+        fields = mock_logger.info.call_args.kwargs
+        self.assertEqual(fields["request_id"], RUN_ID)
+        self.assertEqual(fields["task_run_id"], RUN_ID)
+        self.assertEqual(fields["task_id"], TASK_ID)
+        self.assertEqual(fields["team_id"], 2)
+        self.assertEqual(fields["origin_product"], "signals_scout")
+        self.assertEqual(fields["acp_method"], "session/update")
+        self.assertEqual(fields["acp_session_update"], "agent_message")
+        self.assertEqual(fields["entry_timestamp"], "2026-07-15T10:00:00+00:00")
 
     def test_oversized_body_is_truncated(self):
         entry = _session_update_entry("agent_message", content={"type": "text", "text": "x" * (MAX_BODY_CHARS * 2)})
-        payload = _build([entry])
-        assert payload is not None
-        record = payload["resourceLogs"][0]["scopeLogs"][0]["logRecords"][0]
-        self.assertEqual(len(record["body"]["stringValue"]), MAX_BODY_CHARS)
+        mock_logger = _mirror([entry])
+        self.assertEqual(len(mock_logger.info.call_args.kwargs["body"]), MAX_BODY_CHARS)
 
     @parameterized.expand([("empty", []), ("non_dict_entries", ["not-a-dict", 42])])
-    def test_no_usable_entries_returns_none(self, _name, entries):
-        self.assertIsNone(_build(entries))
+    def test_no_usable_entries_emits_nothing(self, _name, entries):
+        mock_logger = _mirror(entries)
+        mock_logger.info.assert_not_called()
+        mock_logger.warning.assert_not_called()
+        mock_logger.error.assert_not_called()
 
 
-@override_settings(
-    TASK_RUN_LOGS_OTLP_ENDPOINT="https://us.i.posthog.com/i/v1/logs",
-    TASK_RUN_LOGS_OTLP_TOKEN="phc_test",
-    TASK_RUN_LOGS_OTLP_ORIGIN_PRODUCTS=["signals_scout"],
-)
-class TestAppendLogForwarding(TestCase):
+@override_settings(TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS=["signals_scout"])
+class TestAppendLogMirroring(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.organization = Organization.objects.create(name="Test Org")
@@ -152,11 +137,9 @@ class TestAppendLogForwarding(TestCase):
             (Task.OriginProduct.USER_CREATED, False),
         ]
     )
-    @patch("products.tasks.backend.tasks.forward_task_run_logs_to_posthog_logs.delay")
+    @patch("products.tasks.backend.logic.services.run_log_mirror.logger")
     @patch("products.tasks.backend.models.object_storage")
-    def test_forwards_only_allowlisted_origin_products(
-        self, origin_product, expect_forwarded, mock_storage, mock_delay
-    ):
+    def test_mirrors_only_allowlisted_origin_products(self, origin_product, expect_mirrored, mock_storage, mock_logger):
         mock_storage.read.return_value = None
         run = self._create_run(origin_product)
         message = _session_update_entry("agent_message", content={"type": "text", "text": "hi"})
@@ -165,38 +148,36 @@ class TestAppendLogForwarding(TestCase):
         run.append_log([message, chunk])
 
         mock_storage.write.assert_called_once()
-        if expect_forwarded:
-            mock_delay.assert_called_once_with(
-                entries=[message],
-                team_id=self.team.id,
-                task_id=str(run.task_id),
-                run_id=str(run.id),
-                origin_product=origin_product,
-            )
+        if expect_mirrored:
+            # The chunk entry is dropped before persistence, so exactly one line is mirrored.
+            mock_logger.info.assert_called_once()
+            self.assertEqual(mock_logger.info.call_args.kwargs["task_run_id"], str(run.id))
+            self.assertEqual(mock_logger.info.call_args.kwargs["origin_product"], origin_product)
         else:
-            mock_delay.assert_not_called()
+            mock_logger.info.assert_not_called()
 
-    @override_settings(TASK_RUN_LOGS_OTLP_ENDPOINT=None, TASK_RUN_LOGS_OTLP_TOKEN=None)
-    @patch("products.tasks.backend.tasks.forward_task_run_logs_to_posthog_logs.delay")
+    @override_settings(TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS=[])
+    @patch("products.tasks.backend.logic.services.run_log_mirror.logger")
     @patch("products.tasks.backend.models.object_storage")
-    def test_no_forwarding_when_unconfigured(self, mock_storage, mock_delay):
+    def test_no_mirroring_when_disabled(self, mock_storage, mock_logger):
         mock_storage.read.return_value = None
         run = self._create_run(Task.OriginProduct.SIGNALS_SCOUT)
 
         run.append_log([_session_update_entry("agent_message", content={"type": "text", "text": "hi"})])
 
         mock_storage.write.assert_called_once()
-        mock_delay.assert_not_called()
+        mock_logger.info.assert_not_called()
 
     @patch(
-        "products.tasks.backend.tasks.forward_task_run_logs_to_posthog_logs.delay", side_effect=RuntimeError("kaboom")
+        "products.tasks.backend.logic.services.run_log_mirror.mirror_entries",
+        side_effect=RuntimeError("kaboom"),
     )
     @patch("products.tasks.backend.models.object_storage")
-    def test_dispatch_failure_does_not_break_log_write(self, mock_storage, mock_delay):
+    def test_mirror_failure_does_not_break_log_write(self, mock_storage, mock_mirror):
         mock_storage.read.return_value = None
         run = self._create_run(Task.OriginProduct.SIGNALS_SCOUT)
 
         run.append_log([_session_update_entry("agent_message", content={"type": "text", "text": "hi"})])
 
         mock_storage.write.assert_called_once()
-        mock_delay.assert_called_once()
+        mock_mirror.assert_called_once()

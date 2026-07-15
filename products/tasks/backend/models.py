@@ -1103,7 +1103,7 @@ class TaskRun(models.Model):
 
         object_storage.write(self.log_url, content)
 
-        self._forward_logs_to_posthog_logs(entries)
+        self._mirror_logs_to_posthog_logs(entries)
 
         if is_new_file and ttl_days is not None:
             try:
@@ -1122,28 +1122,23 @@ class TaskRun(models.Model):
                     error=str(e),
                 )
 
-    def _forward_logs_to_posthog_logs(self, entries: list[dict]) -> None:
-        """Mirror persisted entries into a PostHog project's Logs product (dogfooding).
+    def _mirror_logs_to_posthog_logs(self, entries: list[dict]) -> None:
+        """Mirror persisted entries into the PostHog Logs product via stdout (dogfooding).
 
-        Fire-and-forget: dispatch failures must never break the run's log write.
+        Fire-and-forget: mirroring failures must never break the run's log write.
         """
-        from products.tasks.backend.logic.services.run_log_otlp import (
-            otlp_forwarding_configured,
-            otlp_forwarding_enabled,
-        )
+        from products.tasks.backend.logic.services.run_log_mirror import mirror_entries, mirroring_enabled
 
-        if not otlp_forwarding_configured():
+        if not settings.TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS:
             return
 
         try:
             origin_product = self.task.origin_product
-            if not otlp_forwarding_enabled(origin_product):
+            if not mirroring_enabled(origin_product):
                 return
 
-            from products.tasks.backend.tasks import forward_task_run_logs_to_posthog_logs
-
-            forward_task_run_logs_to_posthog_logs.delay(
-                entries=entries,
+            mirror_entries(
+                entries,
                 team_id=self.team_id,
                 task_id=str(self.task_id),
                 run_id=str(self.id),
@@ -1151,7 +1146,7 @@ class TaskRun(models.Model):
             )
         except Exception as e:
             logger.warning(
-                "task_run.forward_logs_to_posthog_logs_failed",
+                "task_run.mirror_logs_to_posthog_logs_failed",
                 task_run_id=str(self.id),
                 error=str(e),
             )

@@ -76,16 +76,14 @@ TASKS_CREDENTIAL_REFRESH_INITIAL_DELAY_SECONDS: int = get_from_env(
     "TASKS_CREDENTIAL_REFRESH_INITIAL_DELAY_SECONDS", 0, type_cast=int
 )
 
-# Mirror persisted task-run logs into a PostHog project's Logs product (dogfooding).
-# Entries appended to a run's S3 JSONL log are also shipped as OTLP/HTTP log records to
-# TASK_RUN_LOGS_OTLP_ENDPOINT (e.g. https://us.i.posthog.com/i/v1/logs), authenticated with
-# the target project's API token. Disabled unless both endpoint and token are set. Only runs
-# whose task origin_product is in TASK_RUN_LOGS_OTLP_ORIGIN_PRODUCTS are forwarded — scoped
-# to signals scouts for now; widen the list to cover more task origins.
-TASK_RUN_LOGS_OTLP_ENDPOINT: str | None = get_from_env("TASK_RUN_LOGS_OTLP_ENDPOINT", None, optional=True)
-TASK_RUN_LOGS_OTLP_TOKEN: str | None = get_from_env("TASK_RUN_LOGS_OTLP_TOKEN", None, optional=True)
-TASK_RUN_LOGS_OTLP_ORIGIN_PRODUCTS: list[str] = get_list(
-    os.getenv("TASK_RUN_LOGS_OTLP_ORIGIN_PRODUCTS", "signals_scout")
+# Mirror persisted task-run logs into the PostHog Logs product (dogfooding).
+# Entries appended to a run's S3 JSONL log are also emitted as structured stdout log lines;
+# the per-cluster OTel collector already ships container stdout into the region's internal
+# PostHog project's Logs, so no transport or credentials are needed here. Only runs whose
+# task origin_product is in this list are mirrored — scoped to signals scouts for now;
+# widen the list to cover more task origins, or set it empty to disable.
+TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS: list[str] = get_list(
+    os.getenv("TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS", "signals_scout")
 )
 
 TEMPORAL_LOG_LEVEL_PRODUCE: str = os.getenv("TEMPORAL_LOG_LEVEL_PRODUCE", "DEBUG")
