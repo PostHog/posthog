@@ -219,6 +219,10 @@ class TestResolveSuggestedReviewersEndToEnd:
                 "products.signals.backend.report_generation.resolve_reviewers.get_area_activity",
                 return_value=activity,
             ),
+            patch(
+                "products.signals.backend.report_generation.resolve_reviewers.repository_activity_needs_rebuild",
+                return_value=False,
+            ),
         ):
             reviewers = resolve_suggested_reviewers(team.id, "acme/app", {"d" * 7: "introduced the bug"})
 

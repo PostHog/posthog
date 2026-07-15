@@ -5,9 +5,10 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
-from posthog.egress.github.transport import GitHubRateLimitError
-from posthog.models import Organization, Team
-from posthog.models.github_integration_base import GitHubRecentCommit
+from social_django.models import UserSocialAuth
+
+from posthog.models import Organization, Team, User
+from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 
 from products.signals.backend.models import SignalRepositoryAreaActivity
@@ -16,8 +17,13 @@ from products.signals.backend.report_generation.repo_activity import (
     area_for_path,
     areas_for_paths,
     get_area_activity,
+    rebuild_repository_activity,
+    repository_activity_needs_rebuild,
 )
 from products.signals.backend.tasks import refresh_signal_repository_activity
+from products.tasks.backend.facade.repo_activity import RepositoryCommitActivity
+
+_COLLECT_PATCH_TARGET = "products.signals.backend.report_generation.repo_activity.collect_repository_commit_activity"
 
 
 @pytest.fixture
@@ -32,30 +38,36 @@ def team(organization):
     return Team.objects.create(organization=organization, name="test-repo-activity-team")
 
 
-class FakeGitHub:
-    """Stub of the GitHubIntegrationBase surface repo_activity uses."""
-
-    def __init__(self, commits_by_path: dict[str | None, list[GitHubRecentCommit]] | None = None):
-        self.commits_by_path = commits_by_path or {}
-        self.calls: list[str | None] = []
-        self.raise_error: Exception | None = None
-
-    def list_recent_commits(self, repository, *, path=None, since=None, per_page=100, max_pages=1):
-        self.calls.append(path)
-        if self.raise_error is not None:
-            raise self.raise_error
-        return self.commits_by_path.get(path, [])
-
-
-def _commit(login: str, sha: str, days_ago: int) -> GitHubRecentCommit:
-    committed_at = (timezone.now() - timedelta(days=days_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    return GitHubRecentCommit(
+def _commit(sha: str, email: str, days_ago: int, paths: list[str], name: str = "") -> RepositoryCommitActivity:
+    return RepositoryCommitActivity(
         sha=sha,
-        login=login,
-        name=login.title(),
-        committed_at=committed_at,
-        html_url=f"https://github.com/acme/app/commit/{sha}",
+        author_name=name or email.split("@")[0],
+        author_email=email,
+        committed_at=(timezone.now() - timedelta(days=days_ago)).isoformat(),
+        paths=paths,
     )
+
+
+def _fresh_row(team, area: str, contributors: list[dict] | None = None, **kwargs):
+    with team_scope(team.id, canonical=True):
+        return SignalRepositoryAreaActivity.objects.create(
+            team=team,
+            repository="acme/app",
+            area=area,
+            contributors=contributors
+            or [
+                {
+                    "login": "alice",
+                    "name": "Alice",
+                    "commit_count": 5,
+                    "last_commit_at": timezone.now().isoformat(),
+                    "last_commit_sha": "e" * 7,
+                    "last_commit_url": "https://github.com/acme/app/commit/eeeeeee",
+                }
+            ],
+            refreshed_at=kwargs.pop("refreshed_at", timezone.now()),
+            **kwargs,
+        )
 
 
 class TestAreaForPath:
@@ -81,118 +93,82 @@ class TestAreaForPath:
 
 
 @pytest.mark.django_db
+class TestRebuildRepositoryActivity:
+    def test_builds_area_map_from_git_history(self, team):
+        commits = [
+            _commit("a" * 7, "123+alice@users.noreply.github.com", 2, ["products/signals/backend/models.py"]),
+            _commit("b" * 7, "123+alice@users.noreply.github.com", 9, ["products/signals/frontend/App.tsx"]),
+            _commit("c" * 7, "bob@example.com", 30, ["products/signals/backend/tasks.py", "posthog/models/user.py"]),
+            _commit("d" * 7, "nobody@example.com", 1, ["products/signals/backend/views.py"]),
+        ]
+        bob = User.objects.create(email="bob@example.com")
+        OrganizationMembership.objects.create(user=bob, organization=team.organization)
+        UserSocialAuth.objects.create(user=bob, provider="github", uid="gh-bob", extra_data={"login": "BobDev"})
+
+        with patch(_COLLECT_PATCH_TARGET, return_value=commits):
+            rebuild_repository_activity(team.id, "acme/app")
+
+        activity = get_area_activity(team.id, "acme/app", ["products/signals", "posthog/models"])
+
+        signals_area = {c.login: c for c in activity["products/signals"]}
+        # alice via noreply email: both commits, latest one kept as evidence
+        assert signals_area["alice"].commit_count == 2
+        assert signals_area["alice"].last_commit_sha == "a" * 7
+        # bob via org-member email match, login lowercased
+        assert signals_area["bobdev"].commit_count == 1
+        assert [c.login for c in activity["posthog/models"]] == ["bobdev"]
+        # nobody@example.com resolves to no login and is dropped
+        assert "nobody" not in signals_area
+
+    def test_replaces_previous_map_and_empties_dead_areas(self, team):
+        _fresh_row(team, "products/old", refreshed_at=timezone.now() - timedelta(days=30))
+
+        commits = [_commit("a" * 7, "1+alice@users.noreply.github.com", 1, ["products/new/x.py"])]
+        with patch(_COLLECT_PATCH_TARGET, return_value=commits):
+            rebuild_repository_activity(team.id, "acme/app")
+
+        with team_scope(team.id, canonical=True):
+            old_row = SignalRepositoryAreaActivity.objects.get(repository="acme/app", area="products/old")
+            new_row = SignalRepositoryAreaActivity.objects.get(repository="acme/app", area="products/new")
+        # the dead area is refreshed-but-empty: "nobody is active", not "unknown"
+        assert old_row.contributors == []
+        assert old_row.refreshed_at > timezone.now() - timedelta(minutes=1)
+        assert [c["login"] for c in new_row.contributors] == ["alice"]
+
+
+@pytest.mark.django_db
 class TestGetAreaActivity:
-    def test_creates_row_and_returns_contributors(self, team):
-        github = FakeGitHub(
-            {
-                "products/signals": [
-                    _commit("alice", "a" * 7, 3),
-                    _commit("alice", "b" * 7, 10),
-                    _commit("bob", "c" * 7, 40),
-                ]
-            }
-        )
+    def test_reads_fresh_cache(self, team):
+        _fresh_row(team, "products/signals")
 
-        result = get_area_activity(github, team.id, "acme/app", ["products/signals"])
+        result = get_area_activity(team.id, "acme/app", ["products/signals"])
 
-        assert github.calls == ["products/signals"]
-        contributors = result["products/signals"]
-        assert [(c.login, c.commit_count) for c in contributors] == [("alice", 2), ("bob", 1)]
-        # Newest-first listing: the first commit seen per login is their latest.
-        assert contributors[0].last_commit_sha == "a" * 7
-
-        with team_scope(team.id, canonical=True):
-            row = SignalRepositoryAreaActivity.objects.get(repository="acme/app", area="products/signals")
-        assert row.refreshed_at is not None
-
-    def test_fresh_row_is_not_refetched(self, team):
-        with team_scope(team.id, canonical=True):
-            SignalRepositoryAreaActivity.objects.create(
-                team=team,
-                repository="acme/app",
-                area="products/signals",
-                contributors=[
-                    {
-                        "login": "alice",
-                        "name": "Alice",
-                        "commit_count": 5,
-                        "last_commit_at": timezone.now().isoformat(),
-                        "last_commit_sha": "e" * 7,
-                        "last_commit_url": "https://github.com/acme/app/commit/eeeeeee",
-                    }
-                ],
-                refreshed_at=timezone.now(),
-            )
-        github = FakeGitHub()
-
-        result = get_area_activity(github, team.id, "acme/app", ["products/signals"])
-
-        assert github.calls == []
         assert [c.login for c in result["products/signals"]] == ["alice"]
 
-    def test_rate_limited_refresh_falls_back_to_stale_data(self, team):
-        with team_scope(team.id, canonical=True):
-            SignalRepositoryAreaActivity.objects.create(
-                team=team,
-                repository="acme/app",
-                area="products/signals",
-                contributors=[
-                    {
-                        "login": "bob",
-                        "name": "Bob",
-                        "commit_count": 2,
-                        "last_commit_at": (timezone.now() - timedelta(days=20)).isoformat(),
-                        "last_commit_sha": "f" * 7,
-                        "last_commit_url": "https://github.com/acme/app/commit/fffffff",
-                    }
-                ],
-                refreshed_at=timezone.now() - timedelta(days=30),
-            )
-        github = FakeGitHub()
-        github.raise_error = GitHubRateLimitError("rate limited")
-
-        result = get_area_activity(github, team.id, "acme/app", ["products/signals"])
-
-        assert [c.login for c in result["products/signals"]] == ["bob"]
-
-    def test_never_refreshed_area_is_absent_from_result(self, team):
-        github = FakeGitHub()
-        github.raise_error = RuntimeError("boom")
-
-        result = get_area_activity(github, team.id, "acme/app", ["products/signals"])
+    def test_missing_area_gets_placeholder_row_and_is_absent(self, team):
+        result = get_area_activity(team.id, "acme/app", ["products/signals"])
 
         assert result == {}
-        # The row still exists so the weekly refresh can pick it up later.
         with team_scope(team.id, canonical=True):
-            assert SignalRepositoryAreaActivity.objects.filter(repository="acme/app").count() == 1
+            row = SignalRepositoryAreaActivity.objects.get(repository="acme/app", area="products/signals")
+        assert row.refreshed_at is None
+
+    def test_needs_rebuild_transitions(self, team):
+        assert repository_activity_needs_rebuild(team.id, "acme/app") is True
+
+        row = _fresh_row(team, "products/signals")
+        assert repository_activity_needs_rebuild(team.id, "acme/app") is False
+
+        with team_scope(team.id, canonical=True):
+            SignalRepositoryAreaActivity.objects.filter(id=row.id).update(
+                refreshed_at=timezone.now() - timedelta(days=30)
+            )
+        assert repository_activity_needs_rebuild(team.id, "acme/app") is True
 
 
 @pytest.mark.django_db
 class TestWeeklyRefreshTask:
-    def test_refreshes_used_rows_and_drops_idle_ones(self, team):
-        now = timezone.now()
-        with team_scope(team.id, canonical=True):
-            used = SignalRepositoryAreaActivity.objects.create(
-                team=team, repository="acme/app", area="products/signals", last_used_at=now
-            )
-            idle = SignalRepositoryAreaActivity.objects.create(
-                team=team, repository="acme/app", area="products/old", last_used_at=now - timedelta(days=120)
-            )
-
-        fake_github = FakeGitHub({"products/signals": [_commit("alice", "a" * 7, 1)]})
-        with patch(
-            "products.signals.backend.tasks.GitHubIntegration.first_for_team_repository",
-            return_value=fake_github,
-        ):
-            refresh_signal_repository_activity()
-
-        with team_scope(team.id, canonical=True):
-            assert not SignalRepositoryAreaActivity.objects.filter(id=idle.id).exists()
-            used.refresh_from_db()
-        assert used.refreshed_at is not None
-        assert [c["login"] for c in used.contributors] == ["alice"]
-
-    def test_rate_limit_skips_remaining_rows_for_repository(self, team):
+    def test_enqueues_one_rebuild_per_repository_and_drops_idle_rows(self, team):
         now = timezone.now()
         with team_scope(team.id, canonical=True):
             SignalRepositoryAreaActivity.objects.create(
@@ -201,16 +177,17 @@ class TestWeeklyRefreshTask:
             SignalRepositoryAreaActivity.objects.create(
                 team=team, repository="acme/app", area="a/two", last_used_at=now
             )
+            SignalRepositoryAreaActivity.objects.create(
+                team=team, repository="acme/other", area="b/one", last_used_at=now
+            )
+            idle = SignalRepositoryAreaActivity.objects.create(
+                team=team, repository="acme/dead", area="c/one", last_used_at=now - timedelta(days=120)
+            )
 
-        fake_github = FakeGitHub()
-        fake_github.raise_error = GitHubRateLimitError("rate limited")
-        with patch(
-            "products.signals.backend.tasks.GitHubIntegration.first_for_team_repository",
-            return_value=fake_github,
-        ):
+        with patch("products.signals.backend.tasks.rebuild_signal_repository_activity.delay") as delay:
             refresh_signal_repository_activity()
 
-        # First row hits the limit; the second is skipped without another API call.
-        assert fake_github.calls == ["a/one"]
+        enqueued = {(call.kwargs["team_id"], call.kwargs["repository"]) for call in delay.call_args_list}
+        assert enqueued == {(team.id, "acme/app"), (team.id, "acme/other")}
         with team_scope(team.id, canonical=True):
-            assert not SignalRepositoryAreaActivity.objects.filter(refreshed_at__isnull=False).exists()
+            assert not SignalRepositoryAreaActivity.objects.filter(id=idle.id).exists()

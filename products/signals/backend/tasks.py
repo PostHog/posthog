@@ -7,12 +7,9 @@ import structlog
 from celery import shared_task
 
 from posthog.cloud_utils import get_cached_instance_license
-from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
-from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
-from posthog.models.integration import GitHubIntegration
-from posthog.models.scoping import team_scope, with_team_scope
+from posthog.models.scoping import with_team_scope
 from posthog.ph_client import ph_scoped_capture
 from posthog.scoping_audit import skip_team_scope_audit
 
@@ -21,8 +18,9 @@ from products.signals.backend.implementation_pr import PrCloseReason, close_impl
 from products.signals.backend.models import SignalReportRefund, SignalRepositoryAreaActivity
 from products.signals.backend.report_generation.repo_activity import (
     ACTIVITY_KEEP_WARM_WINDOW,
-    refresh_area_activity_row,
+    rebuild_repository_activity,
 )
+from products.tasks.backend.facade.repo_activity import RepositoryCommitActivityError
 
 logger = structlog.get_logger(__name__)
 
@@ -230,67 +228,51 @@ _ACTIVITY_ROW_MAX_IDLE = timedelta(days=90)
 
 
 @shared_task(
+    name="products.signals.backend.tasks.rebuild_signal_repository_activity",
+    ignore_result=True,
+    max_retries=0,
+)
+@with_team_scope()
+def rebuild_signal_repository_activity(team_id: int, repository: str) -> None:
+    """Rebuild one repository's area-activity map from its git history (sandbox clone + git log).
+
+    Enqueued on cache miss by reviewer resolution and weekly by the sweeper. A failed
+    rebuild leaves the cached rows untouched; the next enqueue retries.
+    """
+    try:
+        rebuild_repository_activity(team_id, repository)
+    except RepositoryCommitActivityError as exc:
+        logger.warning(
+            "signals repository activity rebuild failed",
+            team_id=team_id,
+            repository=repository,
+            error=str(exc),
+        )
+    except Exception as exc:
+        capture_exception(exc, {"team_id": team_id, "repository": repository})
+
+
+@shared_task(
     name="products.signals.backend.tasks.refresh_signal_repository_activity",
     ignore_result=True,
     max_retries=0,
 )
 @skip_team_scope_audit
 def refresh_signal_repository_activity() -> None:
-    """Weekly (Monday) warm-up of the repository area-activity cache.
-
-    Best-effort per row; a rate limit or exhausted egress budget skips the rest of that
-    (team, repository) group — the rows stay stale and lazily refresh on next use.
-    """
+    """Weekly (Monday) warm-up: enqueue a rebuild for every recently-used repository map."""
     now = timezone.now()
     SignalRepositoryAreaActivity.objects.unscoped().filter(
         last_used_at__lt=now - _ACTIVITY_ROW_MAX_IDLE
     ).delete()  # nosemgrep: idor-lookup-without-team (system Celery sweeper, no user input; unscoped is the sanctioned cross-team access)
 
-    rows = list(
+    repositories = list(
         SignalRepositoryAreaActivity.objects.unscoped()  # nosemgrep: idor-lookup-without-team (system Celery sweeper, no user input; unscoped is the sanctioned cross-team access)
         .filter(last_used_at__gte=now - ACTIVITY_KEEP_WARM_WINDOW)
-        .order_by("team_id", "repository", "area")
+        .values_list("team_id", "repository")
+        .distinct()
+        .order_by("team_id", "repository")
     )
-
-    refreshed = 0
-    skipped_repos: set[tuple[int, str]] = set()
-    github_by_repo: dict[tuple[int, str], GitHubIntegration | None] = {}
-    for row in rows:
-        key = (row.team_id, row.repository)
-        if key in skipped_repos:
-            continue
-        if key not in github_by_repo:
-            try:
-                github = GitHubIntegration.first_for_team_repository(
-                    row.team_id, row.repository, source="signals_activity_refresh"
-                )
-                if github is not None:
-                    # Sheddable: the egress limiter drops BATCH calls first when the installation budget runs hot.
-                    github.priority = Priority.BATCH
-                github_by_repo[key] = github
-            except (GitHubRateLimitError, GitHubEgressBudgetExhausted):
-                github_by_repo[key] = None
-        github = github_by_repo[key]
-        if github is None:
-            skipped_repos.add(key)
-            continue
-        try:
-            with team_scope(row.team_id):
-                refresh_area_activity_row(row, github)
-            refreshed += 1
-        except (GitHubRateLimitError, GitHubEgressBudgetExhausted):
-            logger.info(
-                "signals activity refresh rate limited, skipping repository",
-                team_id=row.team_id,
-                repository=row.repository,
-            )
-            skipped_repos.add(key)
-        except Exception as exc:
-            capture_exception(exc, {"team_id": row.team_id, "repository": row.repository, "area": row.area})
-
-    logger.info(
-        "signals repository activity refresh finished",
-        total_rows=len(rows),
-        refreshed=refreshed,
-        skipped_repositories=len(skipped_repos),
-    )
+    for team_id, repository in repositories:
+        rebuild_signal_repository_activity.delay(team_id=team_id, repository=repository)
+    if repositories:
+        logger.info("signals repository activity refresh enqueued rebuilds", count=len(repositories))

@@ -29,6 +29,7 @@ from products.signals.backend.report_generation.repo_activity import (
     ContributorActivity,
     areas_for_paths,
     get_area_activity,
+    repository_activity_needs_rebuild,
 )
 
 from ..models import SignalReportArtefact
@@ -189,7 +190,7 @@ def resolve_suggested_reviewers(
                 login_names[login] = author_info.name
 
     touched_paths = [path for info in author_results.values() if info is not None for path in info.file_paths]
-    activity_by_login = _relevant_area_activity(github, team_id, repository, touched_paths)
+    activity_by_login = _relevant_area_activity(team_id, repository, touched_paths)
 
     scores = _score_candidates(login_weights, activity_by_login)
 
@@ -229,25 +230,22 @@ class _AreaContributor:
 
 
 def _relevant_area_activity(
-    github: GitHubIntegration,
     team_id: int,
     repository: str,
     touched_paths: list[str],
 ) -> dict[str, _AreaContributor]:
     """Aggregate cached area activity across the areas the finding commits touched.
 
-    Returns an empty dict when nothing is known — either no paths were derivable or no
-    area has activity data yet — which callers must treat as "no signal", not "nobody
-    is active".
+    Cache-only; a missing or stale map schedules an async rebuild and this report falls
+    back to whatever is cached (possibly nothing). Returns an empty dict when nothing is
+    known — callers must treat that as "no signal", not "nobody is active".
     """
     areas = areas_for_paths(touched_paths)
     if not areas:
         return {}
-    try:
-        activity_by_area = get_area_activity(github, team_id, repository, areas)
-    except GitHubRateLimitError:
-        logger.info("GitHub rate limited fetching area activity for %s", repository)
-        return {}
+    activity_by_area = get_area_activity(team_id, repository, areas)
+    if repository_activity_needs_rebuild(team_id, repository):
+        _schedule_activity_rebuild(team_id, repository)
 
     now = timezone.now()
     merged: dict[str, _AreaContributor] = {}
@@ -256,6 +254,16 @@ def _relevant_area_activity(
             existing = merged.get(contributor.login)
             merged[contributor.login] = _merge_contributor(existing, contributor, area, now)
     return merged
+
+
+def _schedule_activity_rebuild(team_id: int, repository: str) -> None:
+    # Local import: tasks.py imports repo_activity at load time.
+    from products.signals.backend.tasks import rebuild_signal_repository_activity
+
+    try:
+        rebuild_signal_repository_activity.delay(team_id=team_id, repository=repository)
+    except Exception:
+        logger.warning("Failed to schedule activity rebuild for %s", repository, exc_info=True)
 
 
 def _merge_contributor(

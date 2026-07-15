@@ -2,22 +2,27 @@
 
 Supplies the recency signal blame resolution lacks: for each *area* (a path prefix like
 ``products/signals``) it knows who actually committed there in the last
-``ACTIVITY_WINDOW_DAYS`` days. Cached in ``SignalRepositoryAreaActivity`` — rows are
-created on demand, refreshed lazily when stale, and kept warm by the weekly
-``refresh_signal_repository_activity`` Celery task.
+``ACTIVITY_WINDOW_DAYS`` days. Built from the repository's own git history (one
+``git log --name-only`` pass in a short-lived sandbox, via the tasks facade) and cached in
+``SignalRepositoryAreaActivity`` — reviewer resolution only ever reads the cache; rebuilds
+run async (on cache miss and weekly).
 """
 
 from __future__ import annotations
 
+import re
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
+from django.db import transaction
 from django.utils import timezone
 
-from posthog.egress.github.transport import GitHubRateLimitError
-from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.scoping import team_scope
+from posthog.models.team.team import Team
+from posthog.models.user import User
+
+from products.tasks.backend.facade.repo_activity import collect_repository_commit_activity
 
 from ..models import SignalRepositoryAreaActivity
 
@@ -25,11 +30,12 @@ logger = logging.getLogger(__name__)
 
 ACTIVITY_WINDOW_DAYS = 90
 ACTIVITY_STALE_AFTER = timedelta(days=7)
-# The weekly refresh only keeps rows warm that reviewer resolution read this recently.
+# The weekly refresh only rebuilds repositories whose rows were read this recently.
 ACTIVITY_KEEP_WARM_WINDOW = timedelta(days=45)
 AREA_PATH_DEPTH = 2
-# Bounds GitHub calls per report on a cold cache.
 MAX_AREAS_PER_RESOLUTION = 6
+
+_NOREPLY_EMAIL_RE = re.compile(r"^(?:\d+\+)?([a-z0-9-]+)@users\.noreply\.github\.com$", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -62,17 +68,12 @@ def areas_for_paths(paths: list[str]) -> list[str]:
     return [area for area, _count in ranked[:MAX_AREAS_PER_RESOLUTION]]
 
 
-def get_area_activity(
-    github: GitHubIntegrationBase,
-    team_id: int,
-    repository: str,
-    areas: list[str],
-) -> dict[str, list[ContributorActivity]]:
-    """Recent contributors per area, read through the ``SignalRepositoryAreaActivity`` cache.
+def get_area_activity(team_id: int, repository: str, areas: list[str]) -> dict[str, list[ContributorActivity]]:
+    """Recent contributors per area, read from the ``SignalRepositoryAreaActivity`` cache.
 
-    Missing or stale rows are refreshed from GitHub inline; a failed refresh falls back to
-    cached data. An area never refreshed successfully is absent from the result — callers
-    must treat that as "no signal", not "nobody is active".
+    Cache-only — never hits git or GitHub. Missing areas get a placeholder row (so rebuilds
+    know they are wanted) and are absent from the result; callers must treat absence as
+    "no signal", not "nobody is active".
     """
     if not areas:
         return {}
@@ -88,17 +89,6 @@ def get_area_activity(
                 repository=repository,
                 area=area,
             )
-            if row.refreshed_at is None or now - row.refreshed_at >= ACTIVITY_STALE_AFTER:
-                try:
-                    refresh_area_activity_row(row, github)
-                except GitHubRateLimitError:
-                    logger.info(
-                        "GitHub rate limited refreshing area activity for %s %r, using cached data",
-                        repository,
-                        area,
-                    )
-                except Exception:
-                    logger.warning("Failed to refresh area activity for %s %r", repository, area, exc_info=True)
             SignalRepositoryAreaActivity.objects.filter(id=row.id).update(last_used_at=now)
             if row.refreshed_at is not None:
                 result[area] = _parse_contributors(row.contributors)
@@ -106,34 +96,113 @@ def get_area_activity(
     return result
 
 
-def refresh_area_activity_row(row: SignalRepositoryAreaActivity, github: GitHubIntegrationBase) -> None:
-    """Rebuild one row's contributor map from GitHub's recent default-branch commits.
+def repository_activity_needs_rebuild(team_id: int, repository: str) -> bool:
+    """Whether the repository's cached map is missing or older than ``ACTIVITY_STALE_AFTER``."""
+    repository = repository.strip().lower()
+    with team_scope(team_id):
+        return not SignalRepositoryAreaActivity.objects.filter(
+            team_id=team_id,
+            repository=repository,
+            refreshed_at__gte=timezone.now() - ACTIVITY_STALE_AFTER,
+        ).exists()
 
-    Raises on failure (including ``GitHubRateLimitError``) — callers decide whether stale
-    data is acceptable. On success the row is saved with a fresh ``refreshed_at``.
+
+def rebuild_repository_activity(team_id: int, repository: str) -> int:
+    """Rebuild the repository's whole area-activity map from its git history.
+
+    One facade call collects the recent commits (with touched paths); commits map to areas
+    locally and author emails resolve to GitHub logins (noreply-email parse, then org-member
+    email match). Every area row for the repository is replaced in one transaction — areas
+    with no recent commits are stamped refreshed with no contributors, which scoring reads
+    as "nobody is active here", distinct from a never-built row.
+
+    Returns the number of areas with at least one contributor. Raises
+    ``RepositoryCommitActivityError`` when collection fails.
     """
-    since = timezone.now() - timedelta(days=ACTIVITY_WINDOW_DAYS)
-    commits = github.list_recent_commits(row.repository, path=row.area or None, since=since)
+    repository = repository.strip().lower()
+    commits = collect_repository_commit_activity(team_id, repository, since_days=ACTIVITY_WINDOW_DAYS)
+    login_by_email = _github_logins_for_emails(team_id, {c.author_email.lower() for c in commits})
 
-    by_login: dict[str, dict] = {}
-    for commit in commits:
-        entry = by_login.get(commit.login)
-        if entry is None:
-            by_login[commit.login] = {
-                "login": commit.login,
-                "name": commit.name,
-                "commit_count": 1,
-                # The listing is newest-first, so the first commit seen per login is their latest.
-                "last_commit_at": commit.committed_at,
-                "last_commit_sha": commit.sha,
-                "last_commit_url": commit.html_url,
-            }
+    per_area: dict[str, dict[str, dict]] = {}
+    for commit in commits:  # newest-first, so the first commit seen per login is their latest
+        login = login_by_email.get(commit.author_email.lower())
+        if login is None:
+            continue
+        for area in {area_for_path(path) for path in commit.paths}:
+            entry = per_area.setdefault(area, {}).get(login)
+            if entry is None:
+                per_area[area][login] = {
+                    "login": login,
+                    "name": commit.author_name or login,
+                    "commit_count": 1,
+                    "last_commit_at": commit.committed_at,
+                    "last_commit_sha": commit.sha,
+                    "last_commit_url": f"https://github.com/{repository}/commit/{commit.sha}",
+                }
+            else:
+                entry["commit_count"] += 1
+
+    now = timezone.now()
+    with team_scope(team_id), transaction.atomic():
+        for area, by_login in per_area.items():
+            SignalRepositoryAreaActivity.objects.update_or_create(
+                team_id=team_id,
+                repository=repository,
+                area=area,
+                defaults={
+                    "contributors": sorted(by_login.values(), key=lambda c: -c["commit_count"]),
+                    "refreshed_at": now,
+                },
+            )
+        SignalRepositoryAreaActivity.objects.filter(team_id=team_id, repository=repository).exclude(
+            area__in=per_area.keys()
+        ).update(contributors=[], refreshed_at=now)
+
+    logger.info(
+        "rebuilt signal repository activity for team %d %s: %d commits, %d areas",
+        team_id,
+        repository,
+        len(commits),
+        len(per_area),
+    )
+    return len(per_area)
+
+
+def _github_logins_for_emails(team_id: int, emails: set[str]) -> dict[str, str]:
+    """Map lowercased author emails to GitHub logins.
+
+    GitHub noreply addresses carry the login directly (squash merges); other emails match
+    org members with a linked GitHub identity. Unresolvable emails are dropped — reviewer
+    routing needs addressable logins.
+    """
+    resolved: dict[str, str] = {}
+    remaining: set[str] = set()
+    for email in emails:
+        match = _NOREPLY_EMAIL_RE.match(email)
+        if match:
+            resolved[email] = match.group(1).lower()
         else:
-            entry["commit_count"] += 1
+            remaining.add(email)
 
-    row.contributors = sorted(by_login.values(), key=lambda c: -c["commit_count"])
-    row.refreshed_at = timezone.now()
-    row.save(update_fields=["contributors", "refreshed_at"])
+    if remaining:
+        # Local import: resolve_reviewers imports this module at load time.
+        from products.signals.backend.report_generation.resolve_reviewers import _github_identity_prefetches
+
+        try:
+            org_id = Team.objects.values_list("organization_id", flat=True).get(id=team_id)
+        except Team.DoesNotExist:
+            return resolved
+        users = (
+            User.objects.filter(organization_membership__organization_id=org_id, email__in=remaining)
+            .prefetch_related(*_github_identity_prefetches())
+            .order_by("id")
+        )
+        for user in users:
+            login = user.get_github_login()
+            if login:
+                resolved[user.email.lower()] = login.lower()
+
+    return resolved
 
 
 def _parse_contributors(raw: object) -> list[ContributorActivity]:
