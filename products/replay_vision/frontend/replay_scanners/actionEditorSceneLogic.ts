@@ -18,6 +18,7 @@ import {
 import {
     AlertConfigFrequencyEnumApi,
     VisionActionModeEnumApi,
+    VisionAlertDirectionEnumApi,
     VisionAlertMetricEnumApi,
 } from '../generated/api.schemas'
 import type { VisionActionApi } from '../generated/api.schemas'
@@ -303,6 +304,7 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
                         : AlertConfigFrequencyEnumApi.EveryMatch),
                 alert_metric: action.alert_config?.metric ?? VisionAlertMetricEnumApi.Count,
                 alert_threshold: action.alert_config?.threshold ?? 1,
+                alert_direction: action.alert_config?.direction ?? VisionAlertDirectionEnumApi.Above,
                 alert_window_days: action.alert_config?.window_days ?? 1,
                 verdict: action.selection?.verdict ?? [],
                 tags: action.selection?.tags ?? [],
