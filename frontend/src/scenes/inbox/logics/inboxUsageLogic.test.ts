@@ -128,9 +128,11 @@ describe('inboxUsageLogic', () => {
         logic = inboxUsageLogic()
         logic.mount()
 
-        await expectLogic(logic).toDispatchActions(['loadRefundSummarySuccess'])
+        await expectLogic(logic).toDispatchActions(['loadRefundSummarySuccess']).toFinishAllListeners()
         expect(logic.values.refundSummary).toBeNull()
-        // Widget still renders from billing's recorded usage rather than tearing down.
+        // Widget still renders from billing's recorded usage rather than tearing down. Billing loads
+        // via afterMount independently of the refund summary, so wait for all loaders above before
+        // reading usedPrs, which depends on both.
         expect(logic.values.usedPrs).toBe(1)
     })
 })
