@@ -17,7 +17,7 @@ from re import (
     Pattern,
     compile as re_compile,
 )
-from typing import Any, Literal, Optional
+from typing import Any, Literal, NamedTuple, Optional
 from urllib.parse import quote
 
 import humanize
@@ -222,20 +222,38 @@ def try_parse_version(version: str) -> Optional[SemanticVersion]:
         return None
 
 
-def _sdk_version_sort_key(entry: SdkVersionEntry) -> tuple[int, int, int, int, int, str, int]:
+class _SdkVersionSortKey(NamedTuple):
+    is_valid: bool
+    major: int
+    minor: int
+    patch: int
+    is_stable: bool
+    extra: str
+    count: int
+
+
+def _sdk_version_sort_key(entry: SdkVersionEntry) -> _SdkVersionSortKey:
     raw_version = entry["lib_version"]
     version = try_parse_version(raw_version) if raw_version else None
     if version is None:
-        return (0, 0, 0, 0, 0, "", entry["count"])
+        return _SdkVersionSortKey(
+            is_valid=False,
+            major=0,
+            minor=0,
+            patch=0,
+            is_stable=False,
+            extra="",
+            count=entry["count"],
+        )
 
-    return (
-        1,
-        version.major,
-        version.minor or 0,
-        version.patch or 0,
-        1 if version.extra is None else 0,
-        version.extra or "",
-        entry["count"],
+    return _SdkVersionSortKey(
+        is_valid=True,
+        major=version.major,
+        minor=version.minor or 0,
+        patch=version.patch or 0,
+        is_stable=version.extra is None,
+        extra=version.extra or "",
+        count=entry["count"],
     )
 
 
