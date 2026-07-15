@@ -1,7 +1,9 @@
-import { AccumulatingPipeline, AccumulatingResult } from './accumulating-pipeline'
+import { AccumulatingPipeline, AccumulatingResult, ReduceInput } from './accumulating-pipeline'
+import { newPipelineBuilder } from './builders'
 import { ChunkPipeline, ChunkPipelineResultWithContext, OkResultWithContext } from './chunk-pipeline.interface'
 import { createOkContext } from './helpers'
 import { PipelineResultType, drop, isOkResult, ok } from './results'
+import { ProcessingStep } from './steps'
 
 type RecordIn = { id: number }
 // The cycle state is the one accumulator, like session replay's recorder plus its offsets.
@@ -87,14 +89,27 @@ describe('AccumulatingPipeline', () => {
     let flushPipeline: RecordsFlushPipeline
     let reducedTypes: PipelineResultType[]
 
+    type Reduce = ReduceInput<State, RecordIn, Record<string, never>>
+
     function createPipeline(options: {
         flushAt: number
         maxCycleAgeMs?: number
         recordSideEffect?: () => Promise<unknown>
+        reduceStep?: ProcessingStep<Reduce, State>
     }) {
         onNewCycle = jest.fn((): State => ({ records: [] }))
         flushPipeline = new RecordsFlushPipeline()
         reducedTypes = []
+
+        const reduceStep =
+            options.reduceStep ??
+            function foldIdsStep(input: Reduce) {
+                reducedTypes.push(input.element.result.type)
+                if (isOkResult(input.element.result)) {
+                    input.state.records.push(input.element.result.value.id)
+                }
+                return Promise.resolve(ok(input.state))
+            }
 
         return new AccumulatingPipeline<
             RecordIn,
@@ -108,13 +123,7 @@ describe('AccumulatingPipeline', () => {
             maxCycleAgeMs: options.maxCycleAgeMs ?? 60_000,
             onNewCycle,
             pipeline: new EchoRecordPipeline(options.recordSideEffect),
-            reduce: (state, element) => {
-                reducedTypes.push(element.result.type)
-                if (isOkResult(element.result)) {
-                    state.records.push(element.result.value.id)
-                }
-                return state
-            },
+            reduce: newPipelineBuilder<Reduce, Record<string, never>>().pipe(reduceStep).build(),
             shouldFlush: (state) => state.records.length >= options.flushAt,
             flushPipeline,
         })
@@ -178,8 +187,9 @@ describe('AccumulatingPipeline', () => {
         expect(onNewCycle).not.toHaveBeenCalled()
     })
 
-    // The reducer is the per-message bookkeeping point: it must see every drained result exactly
-    // once — non-OK included, since e.g. the offsets a flush commits must cover dropped messages.
+    // The reduce pipeline is the per-message bookkeeping point: it must see every drained result
+    // exactly once — non-OK included, since e.g. the offsets a flush commits must cover dropped
+    // messages.
     it('reduces every drained result into the cycle state, non-OK included', async () => {
         const pipeline = createPipeline({ flushAt: 100 })
 
@@ -190,6 +200,37 @@ describe('AccumulatingPipeline', () => {
 
         await pipeline.flush()
         expect(flushPipeline.lastFlushedState).toEqual({ records: [1, 3] })
+    })
+
+    // A drained element's fate is already sealed, so the reduce pipeline has no business dropping
+    // or DLQing — a non-OK result from it means silently skipped bookkeeping (e.g. an uncommitted
+    // offset), which is a broken invariant.
+    it('throws when the reduce pipeline returns a non-ok result', async () => {
+        const pipeline = createPipeline({
+            flushAt: 100,
+            reduceStep: function droppingReduceStep() {
+                return Promise.resolve(drop('reduce should never drop'))
+            },
+        })
+
+        pipeline.feed(feedBatch([1]))
+
+        await expect(pipeline.next()).rejects.toThrow('reduce pipeline returned non-ok result')
+    })
+
+    it('surfaces side effects attached by reduce steps on the turn', async () => {
+        const reduceProduce = Promise.resolve('reduce produce')
+        const pipeline = createPipeline({
+            flushAt: 100,
+            reduceStep: function reduceWithSideEffect(input: Reduce) {
+                return Promise.resolve(ok(input.state, [reduceProduce]))
+            },
+        })
+
+        pipeline.feed(feedBatch([1]))
+        const recorded = await drainNext(pipeline)
+
+        expect(recorded?.sideEffects).toEqual([reduceProduce])
     })
 
     it('surfaces the record elements side effects on a record turn', async () => {

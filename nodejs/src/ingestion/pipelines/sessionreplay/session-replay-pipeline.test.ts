@@ -23,7 +23,7 @@ import { createMockKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/t
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 
-import { ReplayCycleState, createReplayCycleReducer } from './replay-cycle-state'
+import { ReplayCycleState, createFoldOffsetsStep, createRecordToBatchStep } from './replay-cycle-state'
 import {
     SessionReplayInnerPipelineConfig,
     SessionReplayPipelineOutput,
@@ -196,7 +196,7 @@ describe('session-replay-pipeline', () => {
     }
 
     // Feeds messages through the inner pipeline, drains it, and folds every drained result through
-    // the replay cycle reducer — exactly what the accumulating pipeline does. OK results get
+    // the replay reduce steps — exactly what the accumulating pipeline does. OK results get
     // recorded into the state's (mock) recorder; the reduced state lands in `cycleState`.
     async function runPipeline(
         pipeline: ReturnType<typeof createSessionReplayInnerPipeline>,
@@ -206,12 +206,21 @@ describe('session-replay-pipeline', () => {
         if (messages.length > 0) {
             pipeline.feed(messages.map((message) => createOkContext({ message }, { message })))
         }
-        const reduce = createReplayCycleReducer({ topHog, isDebugLoggingEnabled })
+        const foldOffsets = createFoldOffsetsStep()
+        const recordToBatch = createRecordToBatchStep({ topHog, isDebugLoggingEnabled })
         const recorded: SessionReplayPipelineOutput[] = []
         let batch = await pipeline.next()
         while (batch !== null) {
             for (const element of batch) {
-                cycleState = await reduce(cycleState, element)
+                const folded = await foldOffsets({ state: cycleState, element })
+                if (!isOkResult(folded)) {
+                    throw new Error('foldOffsets returned non-ok result')
+                }
+                const reduced = await recordToBatch(folded.value)
+                if (!isOkResult(reduced)) {
+                    throw new Error('recordToBatch returned non-ok result')
+                }
+                cycleState = reduced.value
                 if (isOkResult(element.result)) {
                     recorded.push(element.result.value)
                 }

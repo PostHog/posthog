@@ -2,21 +2,25 @@ import pLimit from 'p-limit'
 
 import { ChunkPipeline, ChunkPipelineResultWithContext, OkResultWithContext } from './chunk-pipeline.interface'
 import { createOkContext } from './helpers'
-import { PipelineResultWithContext } from './pipeline.interface'
+import { Pipeline, PipelineResultWithContext } from './pipeline.interface'
 import { ResettableSignal } from './resettable-signal'
+import { isOkResult } from './results'
 
 /**
- * Folds one drained record result into the cycle state. Runs on every result the pipeline emits,
- * one element at a time — OK and non-OK alike, with the context still attached — exactly once, so
- * this is where per-message bookkeeping lives: session replay records OK results into the state's
- * batch recorder and folds every message's partition and offset into it (drops and DLQs too, so
- * the flush's commit advances past them). Extract what the flush needs into the state and let the
- * element go — nothing is retained after the reduce, so the cycle never pins per-message payloads.
+ * What the reduce pipeline processes: the cycle state paired with one drained record result. The
+ * drained element rides inside the value — it is data by then, not a live result — so reduce steps
+ * can inspect `element.result` (OK and non-OK alike, with the context still attached) while the
+ * reduce pipeline's own result channel stays free. The reduce pipeline runs on every result the
+ * record pipeline emits, one element at a time, exactly once — so its steps are where per-message
+ * bookkeeping lives: session replay folds every message's partition and offset into the state
+ * (drops and DLQs too, so the flush's commit advances past them) and records OK results into the
+ * state's batch recorder. Extract what the flush needs into the state and let the element go —
+ * nothing is retained after the reduce, so the cycle never pins per-message payloads.
  */
-export type CycleReducer<TState, TRecordOut, CRecordOut, R extends string = never> = (
-    state: TState,
+export interface ReduceInput<TState, TRecordOut, CRecordOut, R extends string = never> {
+    state: TState
     element: PipelineResultWithContext<TRecordOut, CRecordOut, R>
-) => TState | Promise<TState>
+}
 
 /**
  * Discriminated result of next(). The consumer reads `flushed` to decide what to do: a
@@ -60,11 +64,16 @@ export interface AccumulatingPipelineConfig<
     onNewCycle: () => TState | Promise<TState>
     /**
      * Per-message pipeline — a plain chunk pipeline of steps. It knows nothing about cycles or
-     * flushes: it takes messages in and emits the data the reducer folds into the state.
+     * flushes: it takes messages in and emits the data the reduce pipeline folds into the state.
      */
     pipeline: ChunkPipeline<TRecordIn, TRecordOut, CRecordIn, CRecordOut, R>
-    /** Folds every drained record result into the cycle state — see {@link CycleReducer}. */
-    reduce: CycleReducer<TState, TRecordOut, CRecordOut, R>
+    /**
+     * Reduce pipeline: folds one drained record result into the cycle state, taking a
+     * {@link ReduceInput} and returning the new state. A non-OK result from it is a broken
+     * invariant (the drained element's fate is already sealed) and throws; side effects its steps
+     * attach are surfaced on the turn like any other.
+     */
+    reduce: Pipeline<ReduceInput<TState, TRecordOut, CRecordOut, R>, TState, Record<string, never>>
     /** Size trigger: flush when this returns true for the current state. */
     shouldFlush: (state: TState) => boolean
     /**
@@ -132,7 +141,7 @@ export class AccumulatingPipeline<
     private readonly maxCycleAgeMs: number
     private readonly onNewCycle: () => TState | Promise<TState>
     private readonly pipeline: ChunkPipeline<TRecordIn, TRecordOut, CRecordIn, CRecordOut, R>
-    private readonly reduce: CycleReducer<TState, TRecordOut, CRecordOut, R>
+    private readonly reduce: Pipeline<ReduceInput<TState, TRecordOut, CRecordOut, R>, TState, Record<string, never>>
     private readonly shouldFlush: (state: TState) => boolean
     private readonly flushPipeline: ChunkPipeline<TState, TFlushOut, Record<string, never>, CFlushOut, R>
 
@@ -235,8 +244,9 @@ export class AccumulatingPipeline<
     /**
      * Drains the record pipeline to null, handling each drained element exactly once: any side
      * effects still on its context are lifted into the turn (the caller makes them durable), and
-     * the element is folded into the cycle state via `reduce` — then let go, so nothing beyond the
-     * state is retained.
+     * the element is folded into the cycle state through the reduce pipeline — then let go, so
+     * nothing beyond the state is retained. Side effects the reduce steps attach surface on the
+     * turn too.
      */
     private async drainRecord(): Promise<{ drained: number; sideEffects: Promise<unknown>[] }> {
         let drained = 0
@@ -244,10 +254,15 @@ export class AccumulatingPipeline<
         let result = await this.pipeline.next()
         while (result !== null) {
             if (result.length > 0) {
-                let state = this.currentState ?? (await this.onNewCycle())
+                let state: TState = this.currentState ?? (await this.onNewCycle())
                 for (const element of result) {
                     sideEffects.push(...element.context.sideEffects)
-                    state = await this.reduce(state, element)
+                    const reduced = await this.reduce.process(createOkContext({ state, element }, {}))
+                    if (!isOkResult(reduced.result)) {
+                        throw new Error('accumulating_pipeline reduce pipeline returned non-ok result')
+                    }
+                    sideEffects.push(...reduced.context.sideEffects)
+                    state = reduced.result.value
                 }
                 this.currentState = state
                 drained += result.length

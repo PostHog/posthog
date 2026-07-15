@@ -24,13 +24,15 @@
  * - **`pipeline`** — a plain chunk pipeline of steps (chapters 2–13) that
  *   takes messages in and emits the data to accumulate. It never sees the
  *   cycle.
- * - **`reduce`** — folds every result the pipeline emits into the state, one
- *   element at a time — OK and non-OK alike, with the context still attached
- *   — so this is the per-message bookkeeping point: session replay records
- *   OK results into the state's recorder and folds every message's offset in
- *   (drops and DLQs too, so the flush's commit advances past them). Extract
- *   what the flush needs and let the element go; nothing is retained after
- *   the reduce.
+ * - **`reduce`** — a pipeline of steps that folds every result the record
+ *   pipeline emits into the state, one element at a time. Each step takes a
+ *   `ReduceInput` — the state paired with the drained element, whose result
+ *   (OK and non-OK alike, context attached) is data by then — and the last
+ *   step returns the new state. This is the per-message bookkeeping point:
+ *   session replay folds every message's offset in (drops and DLQs too, so
+ *   the flush's commit advances past them) and records OK results into the
+ *   state's recorder. Extract what the flush needs and let the element go;
+ *   nothing is retained after the reduce.
  * - **`shouldFlush`** — the size trigger that closes the cycle.
  * - **`flush`** — the pipeline that persists the cycle. It receives ONE
  *   element per flush: the cycle state.
@@ -96,13 +98,15 @@ function buildPipeline(options: {
         // Mints the cycle's accumulator — lazily for the first result, and again after every flush.
         onNewCycle: () => ({ records: [] }),
         pipeline: buildRecordPipeline(options.recordSideEffect),
-        // The reducer sees every drained result exactly once; here it folds the ids in.
-        reduce: (state, element) => {
-            if (isOkResult(element.result)) {
-                state.records.push(element.result.value.id)
-            }
-            return state
-        },
+        // The reduce pipeline sees every drained result exactly once; here one step folds the ids
+        // in and returns the state.
+        reduce: (builder) =>
+            builder.pipe(function foldIntoState(input) {
+                if (isOkResult(input.element.result)) {
+                    input.state.records.push(input.element.result.value.id)
+                }
+                return Promise.resolve(ok(input.state))
+            }),
         shouldFlush: (state) => state.records.length >= options.flushAt,
         // The flush pipeline receives ONE element: the cycle state. Here it "persists" by emitting
         // the accumulated records; session replay writes the state's recorder to S3 and commits the

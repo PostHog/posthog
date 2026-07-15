@@ -1,4 +1,4 @@
-import { AccumulatingPipeline, CycleReducer } from '~/ingestion/framework/accumulating-pipeline'
+import { AccumulatingPipeline, ReduceInput } from '~/ingestion/framework/accumulating-pipeline'
 import {
     AfterBatchInput,
     AfterBatchOutput,
@@ -97,8 +97,13 @@ export function newAccumulatingPipeline<
     onNewCycle: () => TState | Promise<TState>
     /** Pre-built record pipeline (a plain chunk pipeline); it never sees the cycle */
     pipeline: ChunkPipeline<TRecordIn, TRecordOut, CRecordIn, CRecordOut, R>
-    /** Folds every drained record result into the cycle state — see {@link CycleReducer} */
-    reduce: CycleReducer<TState, TRecordOut, CRecordOut, R>
+    /**
+     * Builds the reduce pipeline that folds every drained record result into the cycle state: it
+     * takes a {@link ReduceInput} and its last step returns the new state.
+     */
+    reduce: (
+        builder: StartPipelineBuilder<ReduceInput<TState, TRecordOut, CRecordOut, R>, Record<string, never>>
+    ) => PipelineBuilder<ReduceInput<TState, TRecordOut, CRecordOut, R>, TState, Record<string, never>>
     /** Size predicate: returns true when the current cycle should flush */
     shouldFlush: (state: TState) => boolean
     /**
@@ -109,6 +114,9 @@ export function newAccumulatingPipeline<
         builder: ChunkPipelineBuilder<TState, TState, Record<string, never>>
     ) => ChunkPipelineBuilder<TState, TFlushOut, Record<string, never>, CFlushOut, R>
 }): AccumulatingPipeline<TRecordIn, TRecordOut, CRecordIn, CRecordOut, TState, TFlushOut, CFlushOut, R> {
+    const reduce = config
+        .reduce(new StartPipelineBuilder<ReduceInput<TState, TRecordOut, CRecordOut, R>, Record<string, never>>())
+        .build()
     const flushPipeline = config
         .flush(new ChunkPipelineBuilder(new BufferingChunkPipeline<TState, Record<string, never>>()))
         .build()
@@ -116,7 +124,7 @@ export function newAccumulatingPipeline<
         maxCycleAgeMs: config.maxCycleAgeMs,
         onNewCycle: config.onNewCycle,
         pipeline: config.pipeline,
-        reduce: config.reduce,
+        reduce,
         shouldFlush: config.shouldFlush,
         flushPipeline,
     })

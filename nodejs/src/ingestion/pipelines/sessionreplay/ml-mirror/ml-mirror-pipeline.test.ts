@@ -9,9 +9,13 @@ import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '~/ingestion/common/steps/event-preprocessing'
 import { TopHogRegistry } from '~/ingestion/framework/extensions/tophog'
 import { createOkContext } from '~/ingestion/framework/helpers'
-import { ok } from '~/ingestion/framework/results'
+import { isOkResult, ok } from '~/ingestion/framework/results'
 import { defaultAllowLists } from '~/ingestion/pipelines/sessionreplay/anonymize/default-dict'
-import { ReplayCycleState, createReplayCycleReducer } from '~/ingestion/pipelines/sessionreplay/replay-cycle-state'
+import {
+    ReplayCycleState,
+    createFoldOffsetsStep,
+    createRecordToBatchStep,
+} from '~/ingestion/pipelines/sessionreplay/replay-cycle-state'
 import { SessionBatchRecorder } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-recorder'
 import { SessionFilter } from '~/ingestion/pipelines/sessionreplay/sessions/session-filter'
 import { SessionTracker } from '~/ingestion/pipelines/sessionreplay/sessions/session-tracker'
@@ -146,19 +150,28 @@ describe('ml-mirror-pipeline', () => {
     }
 
     // Feeds messages through the inner pipeline, drains it, and folds every drained result through
-    // the replay cycle reducer (as the accumulating pipeline does) — which records OK results into
+    // the replay reduce steps (as the accumulating pipeline does) — which record OK results into
     // the state's (mock) recorder.
     async function runPipeline(
         pipeline: ReturnType<typeof createMlMirrorReplayPipeline>,
         messages: Message[]
     ): Promise<void> {
         pipeline.feed(messages.map((message) => createOkContext({ message }, { message })))
-        const reduce = createReplayCycleReducer({ topHog, isDebugLoggingEnabled: () => false })
+        const foldOffsets = createFoldOffsetsStep()
+        const recordToBatch = createRecordToBatchStep({ topHog, isDebugLoggingEnabled: () => false })
         let state: ReplayCycleState = { sessionBatchRecorder: recorder, offsets: new Map() }
         let batch = await pipeline.next()
         while (batch !== null) {
             for (const element of batch) {
-                state = await reduce(state, element)
+                const folded = await foldOffsets({ state, element })
+                if (!isOkResult(folded)) {
+                    throw new Error('foldOffsets returned non-ok result')
+                }
+                const reduced = await recordToBatch(folded.value)
+                if (!isOkResult(reduced)) {
+                    throw new Error('recordToBatch returned non-ok result')
+                }
+                state = reduced.value
             }
             batch = await pipeline.next()
         }
