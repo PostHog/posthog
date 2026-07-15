@@ -842,7 +842,7 @@ class CodySourceConfig(config.Config):
 
 @config.config
 class CohereSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1788,7 +1788,9 @@ class HuntrSourceConfig(config.Config):
 
 @config.config
 class HyperspellSourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
+    user_id: str | None = None
 
 
 @config.config
@@ -1981,7 +1983,7 @@ class KekaSourceConfig(config.Config):
 
 @config.config
 class KernelSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2442,7 +2444,7 @@ class NavanSourceConfig(config.Config):
 
 @config.config
 class NebiusAISourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2988,7 +2990,7 @@ class PromptingCompanySourceConfig(config.Config):
 
 @config.config
 class PyPISourceConfig(config.Config):
-    pass
+    packages: str
 
 
 @config.config
