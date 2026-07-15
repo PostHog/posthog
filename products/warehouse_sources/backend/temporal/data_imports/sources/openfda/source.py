@@ -68,7 +68,6 @@ An API key is optional but recommended. Without one, openFDA limits you to 1,000
                 ],
             ),
             keywords=["fda", "openfda", "drug", "device", "food"],
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

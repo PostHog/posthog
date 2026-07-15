@@ -503,6 +503,26 @@ export interface WidgetFilterEntryApi {
     value?: string | string[] | null
 }
 
+export type ActivityEventsPropertyFilterApiType =
+    (typeof ActivityEventsPropertyFilterApiType)[keyof typeof ActivityEventsPropertyFilterApiType]
+
+export const ActivityEventsPropertyFilterApiType = {
+    Event: 'event',
+    Person: 'person',
+} as const
+
+export interface ActivityEventsPropertyFilterApi {
+    /**
+     * @minLength 1
+     * @maxLength 400
+     */
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type: ActivityEventsPropertyFilterApiType
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
 export type ActivityEventsListWidgetConfigApiWidgetFilters = { [key: string]: WidgetFilterEntryApi } | null
 
 export interface ActivityEventsListWidgetConfigApi {
@@ -517,6 +537,8 @@ export interface ActivityEventsListWidgetConfigApi {
     limit?: number
     /** Limit the feed to a single event name. Omit or null for all events. */
     eventName?: string | null
+    /** Event and person property filters, matching Activity > Explore events. */
+    properties?: ActivityEventsPropertyFilterApi[] | null
 }
 
 /**
@@ -2440,7 +2462,7 @@ export interface TrendsQueryApi {
     /** Sampling rate */
     samplingFactor?: number | null
     /** Events and actions to include */
-    series: (GroupNodeApi | EventsNodeApi | ActionsNodeApi | DataWarehouseNodeApi)[]
+    series: (EventsNodeApi | ActionsNodeApi | DataWarehouseNodeApi | GroupNodeApi)[]
     /** Tags that will be added to the Query log comment */
     tags?: QueryLogTagsApi | null
     /** Properties specific to the trends insight */
@@ -4510,6 +4532,7 @@ export const IntegrationKindApi = {
     Postgresql: 'postgresql',
     AwsS3: 'aws-s3',
     S3Compatible: 's3-compatible',
+    Snowflake: 'snowflake',
 } as const
 
 export interface ErrorTrackingExternalReferenceIntegrationApi {
@@ -8105,6 +8128,52 @@ export interface DashboardTileBasicApi {
     deleted?: boolean | null
 }
 
+export interface DashboardFilterApi {
+    breakdown_filter?: BreakdownFilterApi | null
+    date_from?: string | null
+    date_to?: string | null
+    explicitDate?: boolean | null
+    /** Tri-state test-account override. Null/absent = inherit; true = force on; false = force off. */
+    filterTestAccounts?: boolean | null
+    /** Time granularity forced onto every insight that supports one. Absent/null = inherit. */
+    interval?: IntervalTypeApi | null
+    properties?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
+              | ElementPropertyFilterApi
+              | EventMetadataPropertyFilterApi
+              | SessionPropertyFilterApi
+              | CohortPropertyFilterApi
+              | RecordingPropertyFilterApi
+              | LogEntryPropertyFilterApi
+              | GroupPropertyFilterApi
+              | FeaturePropertyFilterApi
+              | FlagPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | EmptyPropertyFilterApi
+              | DataWarehousePropertyFilterApi
+              | DataWarehousePersonPropertyFilterApi
+              | ErrorTrackingIssueFilterApi
+              | LogPropertyFilterApi
+              | MetricPropertyFilterApi
+              | SpanPropertyFilterApi
+              | RevenueAnalyticsPropertyFilterApi
+              | WorkflowVariablePropertyFilterApi
+          )[]
+        | null
+}
+
+export interface InsightFilterOverrideContextApi {
+    /** Dashboard filters that remain active after applying tile precedence. */
+    dashboard?: DashboardFilterApi | null
+    /** Tile filters applied above the dashboard filters. */
+    tile?: DashboardFilterApi | null
+    /** Dashboard filters replaced by the tile filters. */
+    overridden_dashboard?: DashboardFilterApi | null
+}
+
 /**
  * @nullable
  */
@@ -8210,6 +8279,8 @@ export interface InsightApi {
     readonly resolved_date_range: InsightApiResolvedDateRange
     _create_in_folder?: string
     readonly alerts: readonly unknown[]
+    /** Resolved dashboard and tile filter layers used to explain filter precedence in the UI. */
+    readonly filter_override_context: InsightFilterOverrideContextApi | null
     /** @nullable */
     readonly last_viewed_at: string | null
     /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */

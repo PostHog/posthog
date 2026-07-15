@@ -414,6 +414,57 @@ export interface ChannelWriteApi {
     name: string
 }
 
+export type ChannelFeedMessageDTOApiPayload = { [key: string]: unknown }
+
+/**
+ * Response shape for one system announcement in a channel's feed.
+ */
+export interface ChannelFeedMessageDTOApi {
+    id: string
+    channel: string
+    author?: TaskUserBasicInfoApi | null
+    author_kind: string
+    event: string
+    payload: ChannelFeedMessageDTOApiPayload
+    content: string
+    created_at: string
+}
+
+export interface PaginatedChannelFeedMessageDTOListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ChannelFeedMessageDTOApi[]
+}
+
+/**
+ * * `context_created` - context_created
+ * * `context_md_building` - context_md_building
+ */
+export type EventEnumApi = (typeof EventEnumApi)[keyof typeof EventEnumApi]
+
+export const EventEnumApi = {
+    ContextCreated: 'context_created',
+    ContextMdBuilding: 'context_md_building',
+} as const
+
+/**
+ * Request body for posting a system announcement into a channel's feed.
+ */
+export interface ChannelFeedMessageWriteApi {
+    /** Lifecycle event key.
+     *
+     * * `context_created` - context_created
+     * * `context_md_building` - context_md_building */
+    event: EventEnumApi
+    /** Structured event data, e.g. {"context_name": "mobile"}. At most 8 KB of JSON. */
+    payload?: unknown
+    /** Optional explicit timestamp (within 10 minutes of now), so a client can order a burst of announcements. */
+    created_at?: string
+}
+
 /**
  * Request body for creating (resolve-or-create) or renaming a public channel.
  */
@@ -550,16 +601,6 @@ export const OriginProductEnumApi = {
 } as const
 
 /**
- * * `implementation` - Implementation
- */
-export type SignalReportTaskRelationshipEnumApi =
-    (typeof SignalReportTaskRelationshipEnumApi)[keyof typeof SignalReportTaskRelationshipEnumApi]
-
-export const SignalReportTaskRelationshipEnumApi = {
-    Implementation: 'implementation',
-} as const
-
-/**
  * * `claude` - claude
  * * `codex` - codex
  */
@@ -644,7 +685,11 @@ export interface TaskWriteApi {
      * @nullable
      */
     signal_report?: string | null
-    signal_report_task_relationship?: SignalReportTaskRelationshipEnumApi
+    /**
+     * How the created task relates to the signal report (e.g. 'implementation', 'discussion', 'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted.
+     * @maxLength 200
+     */
+    signal_report_task_relationship?: string
     /** JSON schema used to validate the output of the task. */
     json_schema?: unknown
     /** If true, this task is for internal use and should not be exposed to end users. */
@@ -759,7 +804,11 @@ export interface PatchedTaskWriteApi {
      * @nullable
      */
     signal_report?: string | null
-    signal_report_task_relationship?: SignalReportTaskRelationshipEnumApi
+    /**
+     * How the created task relates to the signal report (e.g. 'implementation', 'discussion', 'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted.
+     * @maxLength 200
+     */
+    signal_report_task_relationship?: string
     /** JSON schema used to validate the output of the task. */
     json_schema?: unknown
     /** If true, this task is for internal use and should not be exposed to end users. */
@@ -2089,16 +2138,16 @@ export interface TaskRunLivingArtifactCreateRequestApi {
      * @maxLength 500000
      */
     content?: string
-    /** Base64-encoded binary content for Slack file uploads or other external adapters. Prefer source_artifact_id or source_storage_path for large files that were already uploaded as run artifacts. */
+    /** Base64-encoded binary content for Slack file uploads or other external adapters. Prefer source_artifact_id or source_storage_path for large files that were already uploaded as run output artifacts. */
     content_base64?: string
     /**
      * MIME type for content_base64 or source-backed artifacts, such as application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.
      * @maxLength 255
      */
     content_type?: string
-    /** Existing run artifact id to use as the initial content source. */
+    /** Existing run artifact id to use as the initial content source. Only agent-uploaded output artifacts are accepted; internal run artifacts are rejected. */
     source_artifact_id?: string
-    /** Existing run artifact storage_path to use as the initial content source. */
+    /** Existing run artifact storage_path to use as the initial content source. Only agent-uploaded output artifacts are accepted; internal run artifacts are rejected. */
     source_storage_path?: string
     /** Optional metadata to persist with the living artifact. */
     metadata?: TaskRunLivingArtifactCreateRequestApiMetadata
@@ -2188,13 +2237,15 @@ export interface TaskRunLivingArtifactEditRequestApi {
      * @maxLength 255
      */
     content_type?: string
-    /** Existing run artifact id to use as the next version content source. */
+    /** Existing run artifact id to use as the next version content source. Only agent-uploaded output artifacts are accepted; internal run artifacts are rejected. */
     source_artifact_id?: string
-    /** Existing run artifact storage_path to use as the next version content source. */
+    /** Existing run artifact storage_path to use as the next version content source. Only agent-uploaded output artifacts are accepted; internal run artifacts are rejected. */
     source_storage_path?: string
     /** Optional metadata to merge into the artifact registry record. */
     metadata?: TaskRunLivingArtifactEditRequestApiMetadata
 }
+
+export type TaskThreadMessageDTOApiPayload = { [key: string]: unknown }
 
 /**
  * Response shape for one message in a task's thread.
@@ -2202,6 +2253,9 @@ export interface TaskRunLivingArtifactEditRequestApi {
 export interface TaskThreadMessageDTOApi {
     id: string
     task: string
+    author_kind: string
+    event: string
+    payload: TaskThreadMessageDTOApiPayload
     content: string
     created_at: string
     author?: TaskUserBasicInfoApi | null
@@ -2225,6 +2279,24 @@ export interface PaginatedTaskThreadMessageDTOListApi {
 export interface TaskThreadMessageWriteApi {
     /** Message text. */
     content: string
+}
+
+/**
+ * The team's active onboarding wizard cloud run, used to rehydrate
+ * the setup-progress FAB when the run was started server-side (drop flow).
+ */
+export interface WizardCloudRunDTOApi {
+    /** Id of the onboarding wizard task. */
+    task_id: string
+    /** Id of the task's latest run, for reconnecting to its progress stream. */
+    run_id: string
+    /** Latest run status (e.g. queued, in_progress, completed, failed). */
+    status: string
+    /**
+     * When the run was created, for the FAB's elapsed timer.
+     * @nullable
+     */
+    started_at?: string | null
 }
 
 export interface TaskRepositoriesResponseApi {
@@ -2631,6 +2703,17 @@ export type TaskChannelsListParams = {
     offset?: number
 }
 
+export type TaskChannelsFeedListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type TaskMentionsListParams = {
     /**
      * Maximum number of mentions to return (newest first).
@@ -2649,6 +2732,10 @@ export type TaskMentionsListParams = {
 }
 
 export type TasksListParams = {
+    /**
+     * Staff-only. When true, list every task on the team regardless of creator or channel, bypassing the per-user visibility filter. Ignored for non-staff users.
+     */
+    all_team_tasks?: boolean
     /**
      * Filter by archived state. Defaults to excluding archived tasks. Use 'true' to list only archived tasks, 'false' for the default, or 'all' to include both.
      *

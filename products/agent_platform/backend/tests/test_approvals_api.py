@@ -160,6 +160,30 @@ class TestApprovalEndpointsAuth(APIBaseTest):
         self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
         mock_janitor.return_value.decide_approval.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("legacy_team_admins_decidable", {"approvers": ["team_admins"]}, True),
+            ("legacy_session_principal_not_decidable", {"approvers": ["session_principal"]}, False),
+            ("empty_scope_not_decidable", {}, False),
+        ]
+    )
+    @patch("products.agent_platform.backend.presentation.views._janitor")
+    def test_decide_gate_resolves_legacy_scope_shapes(self, _name, scope, decidable, mock_janitor) -> None:
+        self._set_org_level(OrganizationMembership.Level.ADMIN)
+        mock_janitor.return_value.get_approval.return_value = {
+            "id": self.approval_id,
+            "application_id": str(self.application.id),
+            "approver_scope": scope,
+        }
+        mock_janitor.return_value.decide_approval.return_value = {"ok": True, "state": "approving"}
+        resp = self.client.post(self.url_decide, {"decision": "approve"}, format="json")
+        if decidable:
+            self.assertEqual(resp.status_code, status.HTTP_200_OK)
+            mock_janitor.return_value.decide_approval.assert_called_once()
+        else:
+            self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+            mock_janitor.return_value.decide_approval.assert_not_called()
+
     # A Personal API key resolves to an authenticated User but is not
     # `SessionAuthentication` — agent (owner) decisions require a human acting
     # interactively (session or first-party OAuth), so a PAT is always rejected.

@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 import psycopg
 import structlog
 
+from products.warehouse_sources.backend.temporal.data_imports.metrics import LOCK_TAKEOVER_LATEST_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import (
     batch_consumer as batch_consumer_module,
 )
@@ -17,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer import (
     BatchConsumer,
     ConsumerConfig,
+    DeltaBatchConsumerAdapter,
     _group_by_key,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
@@ -145,6 +147,7 @@ class TestProcessSingle:
         [
             "20009.59457503306999908717 is too large to store in a Decimal128 of precision 24.",
             "Primary key required for incremental syncs",
+            "Source column type changed: 'price' has values that no longer fit its stored type int64",
         ],
     )
     @pytest.mark.asyncio
@@ -735,6 +738,99 @@ class TestFailRun:
             await consumer._fail_run(batch, reason="boom", conn=consumer._poll_conn)
 
         mock_status.assert_called_once()
+
+
+class TestShouldProcessBatch:
+    @pytest.mark.parametrize("job_status", ["Failed", "BillingLimitReached"], ids=["failed", "billing_limited"])
+    @pytest.mark.asyncio
+    async def test_dead_job_fails_run_and_skips(self, job_status):
+        # Cancel (or any failure) marks the job terminal while batches are still queued:
+        # the loader must not load them, and must clear the run + release the pipeline lock.
+        consumer = _make_consumer()
+        conn = consumer._poll_conn
+        assert conn is not None
+        batch = _make_batch(metadata={"workflow_run_id": "wf-run-1"})
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer._get_job_status_and_error",
+                return_value=(job_status, "connection lost"),
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.fail_run",
+                new_callable=AsyncMock,
+            ) as mock_queue_fail,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer._update_job_status_to_failed",
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.release_v3_pipeline_lock",
+            ) as mock_release,
+        ):
+            result = await consumer._adapter.should_process_batch(conn, batch=batch)
+
+        assert result is False
+        mock_queue_fail.assert_awaited_once()
+        assert mock_queue_fail.call_args.kwargs["run_uuid"] == batch.run_uuid
+        mock_release.assert_called_once_with(team_id=batch.team_id, schema_id=batch.schema_id, token="wf-run-1")
+
+    @pytest.mark.parametrize(
+        "status_row",
+        [
+            ("Running", None),
+            ("Completed", None),
+            None,
+            # A takeover-failed job stays loadable: the sentinel unseals Failed -> Completed
+            # in update_external_job_status, so skipping its batches here would close that
+            # deliberate in-flight recovery window.
+            ("Failed", LOCK_TAKEOVER_LATEST_ERROR),
+        ],
+        ids=["running", "completed", "missing", "takeover_failed"],
+    )
+    @pytest.mark.asyncio
+    async def test_loadable_job_is_processed(self, status_row):
+        consumer = _make_consumer()
+        conn = consumer._poll_conn
+        assert conn is not None
+        batch = _make_batch()
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer._get_job_status_and_error",
+                return_value=status_row,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.fail_run",
+                new_callable=AsyncMock,
+            ) as mock_queue_fail,
+        ):
+            result = await consumer._adapter.should_process_batch(conn, batch=batch)
+
+        assert result is True
+        mock_queue_fail.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_status_check_db_error_fails_open(self):
+        # An app-DB hiccup must not wedge the loader: process the batch as if the job were alive.
+        consumer = _make_consumer()
+        conn = consumer._poll_conn
+        assert conn is not None
+        batch = _make_batch()
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer._get_job_status_and_error",
+                side_effect=Exception("db down"),
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.fail_run",
+                new_callable=AsyncMock,
+            ) as mock_queue_fail,
+        ):
+            result = await consumer._adapter.should_process_batch(conn, batch=batch)
+
+        assert result is True
+        mock_queue_fail.assert_not_called()
 
 
 class TestReconcileFailedRuns:
@@ -1588,3 +1684,21 @@ class TestBatchHeartbeat:
         # blip -> continue; renewed -> status refresh; lease lost -> stop
         assert renew.await_count == 3
         refresh.assert_awaited_once()
+
+
+class TestIsRetryableError:
+    # A dropped pattern silently reverts a permanent error (deleted schema/job,
+    # data that can never fit) to burning all retry attempts before failing.
+
+    @pytest.mark.parametrize(
+        ("message", "retryable"),
+        [
+            ("value is too large to store in a Decimal128 of precision 24", False),
+            ("Primary key required for incremental syncs", False),
+            ("ExternalDataSchema matching query does not exist.", False),
+            ("ExternalDataJob matching query does not exist.", False),
+            ("connection reset by peer", True),
+        ],
+    )
+    def test_pattern_classification(self, message: str, retryable: bool):
+        assert DeltaBatchConsumerAdapter().is_retryable_error(Exception(message)) is retryable

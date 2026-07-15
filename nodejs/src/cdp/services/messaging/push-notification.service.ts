@@ -1,5 +1,5 @@
 import { createHash, createSign } from 'crypto'
-import { Counter } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 
 import {
     CyclotronInvocationQueueParametersSendPushNotificationType,
@@ -16,6 +16,13 @@ import { EncryptedFields } from '../../utils/encryption-utils'
 import { createInvocationResult } from '../../utils/invocation-utils'
 import { getDevicePushSubscriptionToken } from '../../utils/push-subscription-utils'
 import { IntegrationManagerService } from '../managers/integration-manager.service'
+import {
+    NormalizedPushError,
+    PushPlatform,
+    PushSendError,
+    normalizeApnsError,
+    normalizeFcmError,
+} from './push-notification-errors'
 
 const pushNotificationSentCounter = new Counter({
     name: 'push_notification_sent_total',
@@ -29,6 +36,25 @@ const pushNotificationTokenPrunedCounter = new Counter({
     labelNames: ['platform'],
 })
 
+const pushNotificationFailedCounter = new Counter({
+    name: 'push_notification_failed_total',
+    help: 'Push notifications that failed to send, by platform and normalized failure reason.',
+    labelNames: ['platform', 'reason'],
+})
+
+const pushNotificationSkippedCounter = new Counter({
+    name: 'push_notification_skipped_total',
+    help: 'Push sends not delivered without an outright failure, by platform and reason. no_token = the recipient never registered a device; unregistered = the provider reported the token dead and it was removed.',
+    labelNames: ['platform', 'reason'],
+})
+
+const pushNotificationSendDurationMs = new Histogram({
+    name: 'push_notification_send_duration_ms',
+    help: 'Duration of a push send request to the provider, by platform.',
+    labelNames: ['platform'],
+    buckets: [10, 25, 50, 100, 200, 500, 1000, 2000, 5000, 10000],
+})
+
 // Apple rate-limits new APNs provider tokens (returns 429 TooManyProviderTokenUpdates if refreshed more
 // than once every ~20 min per key) and accepts a token for up to 1 hour. Cache the signed JWT in Redis
 // keyed by the auth key id so the whole fleet reuses one token per key rather than minting one per send.
@@ -39,6 +65,17 @@ const APNS_JWT_TTL_SECONDS = 45 * 60
 // crafted with a huge channel list can't tie up a worker with an unbounded outbound-request loop; a real
 // push targets a handful of provider integrations, not thousands.
 const MAX_PUSH_CHANNELS = 10
+
+function stringifyBody(body: unknown): string {
+    return typeof body === 'string' ? body : JSON.stringify(body)
+}
+
+function pushSendError(platform: PushPlatform, err: NormalizedPushError): PushSendError {
+    // Append the raw provider code so the failure surfaced to the hog template stays debuggable, while
+    // the human-readable sentence leads.
+    const message = err.code ? `${err.message} [${err.code}]` : err.message
+    return new PushSendError(message, platform, err.reason, err.level, err.code)
+}
 
 export type PushNotificationFetchUtils = {
     trackedFetch: (args: { url: string; fetchParams: FetchOptions; templateId: string }) => Promise<{
@@ -74,7 +111,7 @@ export class PushNotificationService {
                 team_id: invocation.teamId,
                 app_source_id: invocation.parentRunId ?? invocation.functionId,
                 instance_id: invocation.state.actionId || invocation.id,
-                metric_kind: 'other',
+                metric_kind: 'push',
                 metric_name: metricName,
                 count: 1,
             })
@@ -124,7 +161,15 @@ export class PushNotificationService {
             } catch (error) {
                 errorCount++
                 firstError = firstError ?? error.message
-                addLog('error', error.message)
+                if (error instanceof PushSendError) {
+                    // The channel already normalized the provider error; log it once here at the reason's
+                    // severity and label the failure metric by platform + reason.
+                    addLog(error.level, error.message)
+                    pushNotificationFailedCounter.labels({ platform: error.platform, reason: error.reason }).inc()
+                } else {
+                    addLog('error', error.message)
+                    pushNotificationFailedCounter.labels({ platform: 'unknown', reason: 'unknown' }).inc()
+                }
                 pushMetric('push_failed')
             }
         }
@@ -163,6 +208,7 @@ export class PushNotificationService {
 
         if (!token) {
             addLog('warn', `No active FCM device token found for distinct_id: ${params.distinctId}`)
+            pushNotificationSkippedCounter.labels({ platform: 'fcm', reason: 'no_token' }).inc()
             return false
         }
 
@@ -210,27 +256,23 @@ export class PushNotificationService {
         }
 
         const status = fetchResponse?.status
+        pushNotificationSendDurationMs.labels({ platform: 'fcm' }).observe(fetchDuration)
 
         if (!fetchResponse || (status && status >= 400)) {
-            addLog(
-                'error',
-                `FCM send error. Status: ${status ?? '(none)'}. Body: ${typeof body === 'string' ? body : JSON.stringify(body)}. Fetch error: ${fetchError?.message ?? 'none'}`
-            )
-            // A 404 / UNREGISTERED means FCM no longer knows this token (app uninstalled or token rotated).
-            // Prune it and treat the channel as skipped rather than retrying a token that will never work.
-            const fcmErrorCode = (body as any)?.error?.details?.find?.((d: any) => d?.errorCode)?.errorCode
-            if (status === 404 || fcmErrorCode === 'UNREGISTERED') {
+            const err = normalizeFcmError(status, body, fetchError)
+            // Keep the raw provider response available for deep debugging, at debug level so it doesn't
+            // clutter the workflow log — the user-facing explanation is the normalized message below.
+            addLog('debug', `FCM response ${status ?? '(none)'}: ${stringifyBody(body)}`)
+            if (err.unregistered) {
                 this.pruneDeviceToken(result, invocation, params.distinctId, projectId, 'fcm')
-                addLog('warn', `Removed unregistered FCM token for distinct_id: ${params.distinctId}`)
+                addLog('warn', `FCM: ${err.message}`)
                 return false
             }
-            throw new Error(
-                `Push notification failed with status ${status ?? '(none)'}.${fetchError ? ` Error: ${fetchError.message}.` : ''}`
-            )
+            throw pushSendError('fcm', err)
         }
 
         pushNotificationSentCounter.labels({ platform: 'fcm' }).inc()
-        addLog('info', `Push notification sent via FCM`)
+        addLog('info', 'Push notification accepted by FCM.')
         return true
     }
 
@@ -257,6 +299,7 @@ export class PushNotificationService {
 
         if (!token) {
             addLog('warn', `No active APNS device token found for distinct_id: ${params.distinctId}`)
+            pushNotificationSkippedCounter.labels({ platform: 'apns', reason: 'no_token' }).inc()
             return false
         }
 
@@ -322,29 +365,23 @@ export class PushNotificationService {
         }
 
         const status = fetchResponse?.status
+        pushNotificationSendDurationMs.labels({ platform: 'apns' }).observe(fetchDuration)
 
         if (!fetchResponse || (status && status >= 400)) {
-            const reason =
-                body && typeof body === 'object' && 'reason' in body ? ` Reason: ${(body as any).reason}.` : ''
-            addLog(
-                'error',
-                `APNS send error. Status: ${status ?? '(none)'}. Body: ${typeof body === 'string' ? body : JSON.stringify(body)}. Fetch error: ${fetchError?.message ?? 'none'}`
-            )
-            // 410 Unregistered is Apple's signal that the token is dead (app uninstalled). Prune it and
-            // skip rather than retrying. Other 4xx (e.g. BadDeviceToken) can be environment/config issues,
-            // so we don't prune on those to avoid dropping a token that is actually valid.
-            if (status === 410) {
+            const err = normalizeApnsError(status, body, fetchError)
+            addLog('debug', `APNs response ${status ?? '(none)'}: ${stringifyBody(body)}`)
+            // Apple signals a dead token with 410 / reason "Unregistered". Prune it and skip rather than
+            // retrying a token that will never work; other reasons are surfaced as failures.
+            if (err.unregistered) {
                 this.pruneDeviceToken(result, invocation, params.distinctId, bundleId, 'apns')
-                addLog('warn', `Removed unregistered APNS token for distinct_id: ${params.distinctId}`)
+                addLog('warn', `APNs: ${err.message}`)
                 return false
             }
-            throw new Error(
-                `Push notification failed with status ${status ?? '(none)'}.${reason}${fetchError ? ` Error: ${fetchError.message}.` : ''}`
-            )
+            throw pushSendError('apns', err)
         }
 
         pushNotificationSentCounter.labels({ platform: 'apns' }).inc()
-        addLog('info', `Push notification sent via APNS`)
+        addLog('info', 'Push notification accepted by APNs.')
         return true
     }
 
@@ -450,6 +487,9 @@ export class PushNotificationService {
             properties: { $unset: [`$device_push_subscription_${appIdentifier}`] },
         })
         pushNotificationTokenPrunedCounter.labels({ platform }).inc()
+        // A dead token is a non-delivery, not a failure to fix. Record it in the reason-labeled skip
+        // series too (not just the token-removal counter) so the skip metric accounts for it.
+        pushNotificationSkippedCounter.labels({ platform, reason: 'unregistered' }).inc()
     }
 
     private buildFcmMessage(token: string, payload: PushNotificationPayloadType): Record<string, unknown> {

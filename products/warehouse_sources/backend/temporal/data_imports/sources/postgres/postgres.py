@@ -219,6 +219,16 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # ("password authentication failed", "SASL authentication failed"), and exclude the volatile
     # millisecond value.
     "authentication did not complete within",
+    # pgcat (a Rust Postgres pooler) refuses to hand out a backend when every server in the pool is
+    # currently banned/down — a failed health check bans a server and pgcat auto-unbans it after
+    # `ban_time` — reporting it as SQLSTATE 58000 ("could not get connection from the pool -
+    # AllServersDown"), which psycopg maps to OperationalError. It's transient by construction (a
+    # banned server rejoins once it passes a health check, or the ban expires), the pgcat analog of
+    # Supavisor's ECHECKOUT* pool-checkout failures above, so a fresh reconnect recovers. It can land
+    # on the first discovery query (`SELECT version()` in `_is_duckdb_connection`), so the discovery
+    # retry must catch it. Match the stable prefix + reason and leave pgcat's non-transient reasons
+    # (e.g. BadConfig) to surface.
+    "could not get connection from the pool - allserversdown",
 )
 
 # Supavisor (Supabase's connection pooler) doesn't surface a dropped upstream connection with a

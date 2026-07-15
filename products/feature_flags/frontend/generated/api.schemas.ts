@@ -218,6 +218,7 @@ export interface CopyFlagsRequestApi {
     from_project: number
     /**
      * List of target project IDs to copy the flag to
+     * @minItems 1
      * @maxItems 50
      */
     target_project_ids: number[]
@@ -225,6 +226,8 @@ export interface CopyFlagsRequestApi {
     copy_schedule?: boolean
     /** Whether to force the copied flag to be disabled in target projects, ignoring the source flag's enabled status */
     disable_copied_flag?: boolean
+    /** Whether to also copy missing feature flags that this flag depends on */
+    copy_dependencies?: boolean
 }
 
 export interface CopyFlagsSuccessItemApi {
@@ -238,10 +241,16 @@ export interface CopyFlagsSuccessItemApi {
     active: boolean
     /** Team ID the flag was copied to */
     team_id: number
+    /** True when a flag with the same key already existed in the target project and was overwritten with the copied configuration, false when a new flag was created */
+    updated_existing: boolean
     /** Warnings for flag dependencies that were dropped because no matching active flag exists in the target project */
     flag_dependency_warnings?: string[]
-    /** Warning emitted when the flag was copied but its scheduled changes failed to copy */
+    /** Warning emitted when schedules failed to copy or existing target schedules may affect the copied flag */
     schedule_copy_warning?: string
+    /** Dependency flag keys that were copied before this flag */
+    copied_dependency_keys?: string[]
+    /** Warnings emitted while copying dependency flags */
+    dependency_copy_warnings?: string[]
 }
 
 export interface CopyFlagsResultApi {
@@ -249,6 +258,10 @@ export interface CopyFlagsResultApi {
     project_id?: number
     /** Error message (present on failure) */
     error_message?: string
+    /** True when the copy was not applied because the target project's approval policy requires approval; a change request has been created and the copy will apply once approved */
+    approval_pending?: boolean
+    /** ID of the pending change request created in the target project (present when approval_pending is true) */
+    change_request_id?: string
 }
 
 export interface CopyFlagsResponseApi {
@@ -256,6 +269,39 @@ export interface CopyFlagsResponseApi {
     success: CopyFlagsSuccessItemApi[]
     /** List of failed copy attempts */
     failed: CopyFlagsResultApi[]
+}
+
+export interface ErrorResponseApi {
+    /** Error message */
+    error: string
+}
+
+export interface CopyFlagsDependencyRequirementsRequestApi {
+    /** Key of the feature flag to check */
+    feature_flag_key: string
+    /** Source project ID to copy the flag from */
+    from_project: number
+    /**
+     * List of target project IDs to check dependency copy eligibility for
+     * @minItems 1
+     * @maxItems 50
+     */
+    target_project_ids: number[]
+}
+
+export interface CopyFlagsDependencyRequirementsResponseApi {
+    /** Whether dependencies can be automatically copied */
+    can_copy_dependencies: boolean
+    /** Total number of transitive source dependency flags */
+    dependency_count: number
+    /** Dependency flag keys that would be copied because they are missing from a target project */
+    copied_dependency_keys: string[]
+    /** Dependency flag keys that already have an active same-key flag in every target project */
+    reused_dependency_keys: string[]
+    /** Reasons dependency copying is unavailable or needs user attention */
+    warnings: string[]
+    /** Primary human-readable eligibility result */
+    reason: string
 }
 
 export interface OrganizationFeatureFlagRowApi {
@@ -496,6 +542,8 @@ export interface FeatureFlagApi {
     _should_create_usage_dashboard?: boolean
     /** Check if this feature flag is used in any team's session recording linked flag setting. */
     readonly is_used_in_replay_settings: boolean
+    /** Whether this flag can back an experiment: multivariate with 2 to 20 variants. */
+    readonly is_eligible_for_experiment: boolean
 }
 
 export interface PaginatedFeatureFlagListApi {
@@ -1172,11 +1220,6 @@ export interface FeatureFlagTestEvaluationResponseApi {
     evaluation_distinct_id: string | null
     /** Detailed analysis of each condition in the feature flag */
     conditions: FeatureFlagConditionAnalysisApi[]
-}
-
-export interface ErrorResponseApi {
-    /** Error message */
-    error: string
 }
 
 export type FeatureFlagVersionResponseApiFilters = { [key: string]: unknown }

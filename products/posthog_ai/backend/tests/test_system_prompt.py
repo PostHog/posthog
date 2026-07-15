@@ -25,6 +25,7 @@ class TestPostHogAISystemPrompt(APIBaseTest):
         assert "# Tone and style" in prompt
         # The MCP is reachable through its single entry point.
         assert "mcp__posthog__exec" in prompt
+        assert "AI observability** (also called AIO, LLM analytics, or LLMA)" in prompt
 
     def test_does_not_inject_groups_billing_core_memory_or_project_context(self):
         prompt = self._build()["append"]

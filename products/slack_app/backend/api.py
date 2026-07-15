@@ -40,6 +40,7 @@ from posthog.models.user_integration import UserGitHubIntegration, UserIntegrati
 from posthog.temporal.ai.slack_app import (
     PostHogCodeSlackMentionCommandWorkflowInputs,
     PostHogCodeSlackMentionWorkflowInputs,
+    SlackAppMentionWorkflowInputs,
     derive_mention_workflow_id,
 )
 from posthog.temporal.ai.slack_app.posthog_code_slack_interactivity import (
@@ -48,6 +49,10 @@ from posthog.temporal.ai.slack_app.posthog_code_slack_interactivity import (
 )
 from posthog.temporal.ai.slack_app.posthog_code_slack_mention import PostHogCodeSlackMentionWorkflow
 from posthog.temporal.ai.slack_app.posthog_code_slack_mention_command import PostHogCodeSlackMentionCommandWorkflow
+from posthog.temporal.ai.slack_app.slack_app_mention import (
+    SlackAppMentionWorkflow,
+    derive_slack_app_mention_workflow_id,
+)
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_instance_region
@@ -57,6 +62,7 @@ from products.slack_app.backend.feature_flags import (
     is_slack_app_assistant_enabled,
     is_slack_app_bot_prs_enabled,
     is_slack_app_oauth_enabled,
+    is_slack_app_queue_workflow_enabled,
     is_slack_app_untagged_thread_followups_enabled,
 )
 from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping
@@ -1435,7 +1441,16 @@ def _start_posthog_code_workflow(
     event: dict,
     event_id: str | None,
     workflow_id: str | None = None,
+    start_signal: str | None = None,
+    start_signal_args: list[Any] | None = None,
 ) -> None:
+    """Start a Slack-app workflow, optionally as a signal-with-start.
+
+    With ``start_signal`` set the operation is atomic on the server: a running
+    execution gets the signal, a finished (or never-started) one is started
+    with the signal as its first event — how the queue workflow guarantees a
+    message lands exactly once in its conversation's queue.
+    """
     if workflow_id is None:
         fallback = event_id if event_id else f"{event.get('channel', '')}:{event.get('ts', '')}"
         workflow_id = f"{id_prefix}-{slack_team_id}:{fallback}"
@@ -1448,6 +1463,9 @@ def _start_posthog_code_workflow(
             task_queue=settings.TASKS_TASK_QUEUE,
             id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
             id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+            # None / [] match the SDK defaults, so a plain start stays a plain start.
+            start_signal=start_signal,
+            start_signal_args=start_signal_args or [],
         )
     )
 
@@ -2444,6 +2462,22 @@ def _start_mention_workflow(
         untagged_followup=untagged_followup,
         is_ext_shared_channel=is_ext_shared_channel,
     )
+    # Deriving the ID is free, the flag evaluation is remote — check in that
+    # order. Events without channel/ts fall back to the per-message workflow.
+    queue_workflow_id = derive_slack_app_mention_workflow_id(workflow_inputs)
+    if queue_workflow_id is not None and is_slack_app_queue_workflow_enabled(integration, slack_team_id):
+        _start_posthog_code_workflow(
+            SlackAppMentionWorkflow,
+            SlackAppMentionWorkflowInputs(),
+            id_prefix="slack-app-mention",
+            slack_team_id=slack_team_id,
+            event=event,
+            event_id=event_id,
+            workflow_id=queue_workflow_id,
+            start_signal="new_message",
+            start_signal_args=[workflow_inputs],
+        )
+        return ROUTE_HANDLED_LOCALLY
     # Use derive_mention_workflow_id as the single source of truth: the workflow persists the same
     # value as slack_mention_workflow_id, so dispatch and the debug-tool Temporal link stay consistent
     _start_posthog_code_workflow(
@@ -3517,7 +3551,7 @@ def _handle_permission_submit(payload: dict) -> HttpResponse:
     return HttpResponse(status=200)
 
 
-# Wire contract with products/signals/backend/slack_inbox_notifications.py (SIGNALS_DISMISS_REPORT_ACTION_ID).
+# Handles the Dismiss button on inbox notifications delivered before that button was removed.
 SIGNALS_DISMISS_REPORT_ACTION_ID = "signals_dismiss_report"
 
 

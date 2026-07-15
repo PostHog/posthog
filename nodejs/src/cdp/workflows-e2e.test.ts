@@ -50,7 +50,7 @@ import { CdpCyclotronWorkerHogFlow } from './consumers/cdp-cyclotron-worker-hogf
 import { CdpDatawarehouseEventsConsumer } from './consumers/cdp-data-warehouse-events.consumer'
 import { CdpEventsConsumer } from './consumers/cdp-events.consumer'
 import { CdpHogflowSubscriptionMatcherConsumer } from './consumers/cdp-hogflow-subscription-matcher.consumer'
-import { CyclotronV2Manager, CyclotronV2Worker } from './services/cyclotron-v2'
+import { CyclotronV2Janitor, CyclotronV2Manager, CyclotronV2Worker } from './services/cyclotron-v2'
 import {
     HOGFLOW_BATCH_RESOLVE_QUEUE,
     MAX_RESOLVER_ATTEMPTS,
@@ -572,6 +572,168 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
 
             // Function should NOT have been called
             expect(mockFetch).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('live edit while a run is parked (follow-live contract)', () => {
+        // The runs park on a 2m delay so they cannot wake before the edit lands; the tests then
+        // pull the wake forward explicitly (the same scheduled-time update the subscription
+        // matcher performs), so there is no race between the park deadline and the edit.
+
+        /** Wait until a job is parked in the future (a delay/wait step was hit) */
+        async function waitForParkedJob(): Promise<void> {
+            await waitForExpect(async () => {
+                const jobs = await queryCyclotronJobs()
+                expect(jobs.some((j: any) => j.status === 'available' && new Date(j.scheduled) > new Date())).toBe(true)
+            }, 5000)
+        }
+
+        /** Persist an edited actions/edges graph and bust the worker's config cache, like Django's save + pub/sub would */
+        async function applyLiveEdit(flow: HogFlow): Promise<void> {
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_hogflow SET actions = $2, edges = $3, updated_at = NOW() WHERE id = $1`,
+                [flow.id, JSON.stringify(flow.actions), JSON.stringify(flow.edges)],
+                'liveEditHogFlow'
+            )
+            ;(hogflowWorker as any).hogFlowManager.lazyLoader.markForRefresh(flow.id)
+        }
+
+        /** Pull parked jobs' scheduled time forward so the worker picks them up now */
+        async function wakeParkedJobsNow(): Promise<void> {
+            await cyclotronPool.query(
+                `UPDATE cyclotron_jobs SET scheduled = NOW() WHERE ${statusColumn} = 'available' AND scheduled > NOW()`
+            )
+        }
+
+        /** Shorten the flow's delay so the woken run advances instead of re-parking */
+        function shortenDelay(flow: HogFlow, actionId: string): void {
+            const delay = flow.actions.find((a) => a.id === actionId)!
+            ;(delay.config as any).delay_duration = '1s'
+        }
+
+        it('a content edit made while parked on an upstream delay is honored on wake', async () => {
+            const flow = await createWorkflowFlow({
+                actions: {
+                    trigger: trigger(),
+                    delay_1: delayAction('2m'),
+                    function_1: fetchAction('https://example.com/content-v1'),
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'delay_1', type: 'continue' },
+                    { from: 'delay_1', to: 'function_1', type: 'continue' },
+                    { from: 'function_1', to: 'exit', type: 'continue' },
+                ],
+            })
+            await triggerWorkflow(createGlobals())
+            await waitForParkedJob()
+
+            const functionAction = flow.actions.find((a) => a.id === 'function_1')!
+            ;(functionAction.config as any).inputs.url.value = 'https://example.com/content-v2'
+            shortenDelay(flow, 'delay_1')
+            await applyLiveEdit(flow)
+            await wakeParkedJobsNow()
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/content-v2', expect.anything())
+        })
+
+        it("rerouting the parked step's edge does not re-run earlier steps or run the old target", async () => {
+            const flow = await createWorkflowFlow({
+                actions: {
+                    trigger: trigger(),
+                    function_a: fetchAction('https://example.com/step-a'),
+                    delay_1: delayAction('2m'),
+                    function_b: fetchAction('https://example.com/step-b'),
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'function_a', type: 'continue' },
+                    { from: 'function_a', to: 'delay_1', type: 'continue' },
+                    { from: 'delay_1', to: 'function_b', type: 'continue' },
+                    { from: 'function_b', to: 'exit', type: 'continue' },
+                ],
+            })
+            await triggerWorkflow(createGlobals())
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledWith('https://example.com/step-a', expect.anything())
+            }, 10000)
+            await waitForParkedJob()
+
+            // Reroute the delay's continue edge onto a newly added step
+            const functionB = flow.actions.find((a) => a.id === 'function_b')!
+            flow.actions.push({
+                ...functionB,
+                id: 'function_c',
+                config: {
+                    ...(functionB.config as any),
+                    inputs: { url: { value: 'https://example.com/step-c' }, method: { value: 'POST' } },
+                },
+            })
+            flow.edges = [
+                { from: 'trigger', to: 'function_a', type: 'continue' },
+                { from: 'function_a', to: 'delay_1', type: 'continue' },
+                { from: 'delay_1', to: 'function_c', type: 'continue' },
+                { from: 'function_c', to: 'exit', type: 'continue' },
+            ]
+            shortenDelay(flow, 'delay_1')
+            await applyLiveEdit(flow)
+            await wakeParkedJobsNow()
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledWith('https://example.com/step-c', expect.anything())
+            }, 10000)
+
+            // Exactly one send per executed step: the step behind the run did not re-run, the old
+            // target never ran, the new target ran once
+            const urls = mockFetch.mock.calls.map((call) => call[0])
+            expect(urls.filter((u) => u === 'https://example.com/step-a')).toHaveLength(1)
+            expect(urls.filter((u) => u === 'https://example.com/step-b')).toHaveLength(0)
+            expect(urls.filter((u) => u === 'https://example.com/step-c')).toHaveLength(1)
+        })
+
+        it('deleting the step a run is parked on exits the run gracefully on wake', async () => {
+            const flow = await createWorkflowFlow({
+                actions: {
+                    trigger: trigger(),
+                    delay_1: delayAction('2m'),
+                    function_1: fetchAction('https://example.com/should-not-fire'),
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'delay_1', type: 'continue' },
+                    { from: 'delay_1', to: 'function_1', type: 'continue' },
+                    { from: 'function_1', to: 'exit', type: 'continue' },
+                ],
+            })
+            await triggerWorkflow(createGlobals())
+            await waitForParkedJob()
+
+            flow.actions = flow.actions.filter((a) => a.id !== 'delay_1')
+            flow.edges = [
+                { from: 'trigger', to: 'function_1', type: 'continue' },
+                { from: 'function_1', to: 'exit', type: 'continue' },
+            ]
+            await applyLiveEdit(flow)
+            await wakeParkedJobsNow()
+
+            // The parked run wakes, finds its step gone, and finishes as a deliberate exit
+            await waitForExpect(async () => {
+                const jobs = await queryCyclotronJobs()
+                expect(jobs.filter((j: any) => j.status === 'completed')).toHaveLength(1)
+            }, 10000)
+            expect(mockFetch).not.toHaveBeenCalled()
+
+            await waitForExpect(() => {
+                const metricNames = mockProducerObserver
+                    .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .map((m: any) => m.value.metric_name)
+                expect(metricNames).toContain('exited_workflow_changed')
+                expect(metricNames).not.toContain('failed')
+            }, 5000)
         })
     })
 
@@ -1690,6 +1852,102 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             )
         })
     })
+
+    // Heartbeat + janitor is postgres-v2-only. Skipping on the legacy postgres
+    // mode where the heartbeat wrapper is a no-op.
+    if (mode === 'postgres-v2') {
+        describe('heartbeat during long batches', () => {
+            let janitor: CyclotronV2Janitor
+
+            beforeEach(async () => {
+                // Restart the worker with a short heartbeat interval so the
+                // interval fires several times inside the test's ~1s fetch delay.
+                // Default is 10s — nothing would fire in a test.
+                await hogflowWorker.stop()
+                hub.CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS = 100
+                hogflowWorker = new CdpCyclotronWorkerHogFlow(hub, deps, hogflowQueue)
+                await hogflowWorker.start()
+
+                // Aggressive stall/poison thresholds so the test observes the
+                // exact regression the heartbeat guards against: without heartbeats
+                // firing, a 1.2s fetch would exceed the 300ms stall window and
+                // the janitor would reset the row on the very first runOnce().
+                // cleanupGraceMs is huge so terminal jobs stay queryable after
+                // completion — we assert on their final janitor_touch_count.
+                janitor = new CyclotronV2Janitor({
+                    pool: { dbUrl: CYCLOTRON_NODE_DB_URL },
+                    stallTimeoutMs: 300,
+                    maxTouchCount: 2,
+                    cleanupGraceMs: 99_999_000,
+                    cleanupBatchSize: 100,
+                    cleanupIntervalMs: 60_000,
+                })
+
+                await createWorkflow({
+                    actions: {
+                        trigger: trigger(),
+                        slow_fetch: fetchAction('https://example.com/slow'),
+                        exit: exitAction(),
+                    },
+                    edges: [
+                        { from: 'trigger', to: 'slow_fetch', type: 'continue' },
+                        { from: 'slow_fetch', to: 'exit', type: 'continue' },
+                    ],
+                })
+                globals = createGlobals()
+            })
+
+            afterEach(async () => {
+                await janitor?.stop()
+            })
+
+            it('heartbeats keep janitor_touch_count at 0 during a slow batch', async () => {
+                // Fetch takes 1.2s — 4x the stallTimeoutMs. The heartbeat
+                // interval firing every 100ms is the only thing preventing
+                // last_heartbeat from going stale.
+                mockFetch.mockImplementation(
+                    () =>
+                        new Promise((resolve) =>
+                            setTimeout(
+                                () =>
+                                    resolve({
+                                        status: 200,
+                                        headers: { 'Content-Type': 'application/json' },
+                                        json: () => Promise.resolve({ ok: true }),
+                                        text: () => Promise.resolve(JSON.stringify({ ok: true })),
+                                        dump: () => Promise.resolve(),
+                                    }),
+                                1200
+                            )
+                        )
+                )
+
+                await triggerWorkflow(globals)
+
+                // Wait long enough for the worker to dequeue and start the fetch,
+                // then check the janitor mid-flight. Without heartbeats,
+                // last_heartbeat would be ~700ms old (> 300ms cutoff) → stalled.
+                await new Promise((r) => setTimeout(r, 700))
+                const midResult = await janitor.runOnce()
+                expect(midResult.stalled).toBe(0)
+                expect(midResult.poisoned).toBe(0)
+
+                // Wait for the workflow to complete
+                await waitForExpect(async () => {
+                    const jobs = await queryCyclotronJobs()
+                    expect(jobs.some((j) => j.status === 'completed')).toBe(true)
+                }, 10000)
+
+                // Final check: no row ever accumulated a touch. This is the
+                // load-bearing assertion — regressions to the setInterval or
+                // its cleanup would flip this to >= 1.
+                const jobs = await queryCyclotronJobs()
+                for (const row of jobs) {
+                    expect(row.janitor_touch_count).toBe(0)
+                }
+            })
+        })
+    }
 })
 
 // Email queue routing is postgres-v2 only — the email worker reschedules jobs

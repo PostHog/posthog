@@ -49,7 +49,6 @@ class ReplicateSource(ResumableSource[ReplicateSourceConfig, ReplicateResumeConf
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Replicate",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             keywords=["ml", "ai", "models", "inference"],
             caption="""Enter your Replicate API token to automatically pull your Replicate data into the PostHog Data warehouse.
 
