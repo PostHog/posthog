@@ -113,12 +113,21 @@ class TestBatchImportSupportAPI(APIBaseTest):
         detail_response = self.client.get(f"/api/managed_migrations_support/{batch_import.id}/")
         self.assertEqual(detail_response.status_code, status.HTTP_200_OK)
 
-    def test_query_string_api_key_is_rejected(self):
-        # The paginator rebuilds next/previous links from the full request URL, so a
-        # query-string key would be reflected into the response body - this endpoint
-        # accepts personal API keys via the Authorization header only.
+    @parameterized.expand(
+        [
+            # The paginator rebuilds next/previous links from the full request URL, so a
+            # query-string key would be reflected into the response body - reject it no
+            # matter which authenticator would otherwise win: PAT auth via the query
+            # string itself, and a logged-in session carrying a stray key (which never
+            # reaches the PAT authenticator's own rejection).
+            ("pat_auth_via_query_string", False),
+            ("session_auth_with_stray_query_key", True),
+        ]
+    )
+    def test_query_string_api_key_is_rejected(self, _name, use_session):
         token = self._create_pat(scopes=["batch_import_support:read"])
-        self.client.logout()
+        if not use_session:
+            self.client.logout()
 
         response = self.client.get(f"/api/managed_migrations_support/?personal_api_key={token}")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED, response.content)

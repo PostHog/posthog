@@ -1,5 +1,3 @@
-from typing import Any
-
 from django.utils import timezone
 
 import structlog
@@ -204,30 +202,6 @@ class BatchImportSupportDetailSerializer(BatchImportSupportListSerializer):
         return email
 
 
-class HeaderOnlyPersonalAPIKeyAuthentication(PersonalAPIKeyAuthentication):
-    """
-    Accepts personal API keys ONLY from the Authorization header.
-
-    The base class also reads `?personal_api_key=` and the request body. A query-string
-    key is reflected by the paginator into the `next`/`previous` links of the response
-    (and risks capture by URL-logging infrastructure) - unacceptable for a staff
-    credential, so reject that transport outright. The query-string check fires even
-    when a valid header is also present, keeping stray keys out of pagination links.
-    """
-
-    def authenticate(self, request: request.Request) -> tuple[Any, None] | None:
-        if "personal_api_key" in request.GET:
-            raise AuthenticationFailed(
-                "Query-string personal API keys are not accepted on this endpoint - send the key as 'Authorization: Bearer <key>'."
-            )
-        result = super().authenticate(request)
-        if result is not None and self.personal_api_key_source != self.SOURCE_HEADER:
-            raise AuthenticationFailed(
-                "Personal API keys are only accepted via the Authorization header on this endpoint."
-            )
-        return result
-
-
 class UnscopedPersonalAPIKeyPermission(BasePermission):
     """
     Rejects personal API keys carrying scoped_teams or scoped_organizations.
@@ -270,8 +244,8 @@ class BatchImportSupportViewSet(viewsets.ReadOnlyModelViewSet):
     - a staff user (`is_staff`) - enforced for both session and personal-API-key auth, since
       PersonalAPIKeyAuthentication authenticates as the key's real user;
     - for token auth, a personal API key explicitly carrying `batch_import_support:read`,
-      sent via the Authorization header only (query-string/body keys are rejected: the
-      paginator would reflect a query-string key into next/previous response links).
+      sent via the Authorization header (query-string keys are rejected in `initial()`:
+      the paginator would reflect them into next/previous response links).
       The scope is OAuth-hidden (grantable to a PAT, never via OAuth consent) and
       `scope_object = "INTERNAL"` blocks full-access (`*`) keys, so only a deliberately
       minted key works. Browser sessions bypass the scope layer and rely on `is_staff`.
@@ -290,7 +264,7 @@ class BatchImportSupportViewSet(viewsets.ReadOnlyModelViewSet):
     scope_object = "INTERNAL"
     required_scopes = ["batch_import_support:read"]
     permission_classes = [IsAuthenticated, IsStaffUser, APIScopePermission, UnscopedPersonalAPIKeyPermission]
-    authentication_classes = [SessionAuthentication, HeaderOnlyPersonalAPIKeyAuthentication]
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication]
     queryset = BatchImport.objects.select_related("team").order_by("-created_at")
     serializer_class = BatchImportSupportListSerializer
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
@@ -300,6 +274,21 @@ class BatchImportSupportViewSet(viewsets.ReadOnlyModelViewSet):
     search_fields = ["status_message", "team__name"]
     ordering_fields = ["created_at", "updated_at", "status"]
     ordering = ["-created_at"]
+
+    def initial(self, request: request.Request, *args, **kwargs) -> None:
+        # PersonalAPIKeyAuthentication also accepts `?personal_api_key=` - but the
+        # paginator rebuilds next/previous links from the full request URL, which would
+        # reflect the plaintext staff key into the response body. Reject here, before
+        # authentication runs, so the gate holds on every auth path (including a
+        # logged-in browser session carrying a stray key, which never reaches the PAT
+        # authenticator at all). Deliberately NOT enforced in a custom authenticator:
+        # anything that raises during DRF's lazy authentication also fires inside
+        # finalize_response (the audit logger touches request.user) and escapes as a 500.
+        if "personal_api_key" in request.query_params:
+            raise AuthenticationFailed(
+                "Query-string personal API keys are not accepted on this endpoint - send the key as 'Authorization: Bearer <key>'."
+            )
+        super().initial(request, *args, **kwargs)
 
     def get_serializer_class(self) -> type[BatchImportSupportListSerializer]:
         if self.action == "retrieve":
