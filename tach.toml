@@ -241,7 +241,6 @@ depends_on = [
     "posthog",
     "products.data_tools",
     "products.data_warehouse",
-    "products.engineering_analytics",
     "products.revenue_analytics",
     "products.warehouse_sources",
 ]
@@ -276,6 +275,7 @@ depends_on = [
     "products.cdp",
     "products.data_modeling",
     "products.revenue_analytics", "products.warehouse_sources", "products.data_tools", "products.batch_exports",
+    "products.warehouse_sources_queue",
 ]
 layer = "modules"
 

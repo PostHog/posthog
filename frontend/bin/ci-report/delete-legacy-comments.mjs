@@ -17,6 +17,10 @@ const LEGACY_MARKERS = [
     '### 📄 Generated Docs Update Required',
     '### 📦 Surveys SDK Version Check Reminder',
     '<!-- hobby-smoke-test -->',
+    '<!-- hobby-ci-comment -->',
+    '[docs-preview]:',
+    '## Migration SQL Changes',
+    '## 🔍 Migration Risk Analysis',
 ]
 
 const context = resolvePrContext('cleanup')

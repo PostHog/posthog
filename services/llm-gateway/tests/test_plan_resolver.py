@@ -108,13 +108,14 @@ class TestPlanResolver:
             mock_settings.return_value.plan_cache_ttl = 300
             result = await resolver.get_plan(user_id=1, auth_header="Bearer phx_test")
         assert result.plan_key is None
+        assert result.seat_missing is False
 
     async def test_returns_cached_plan(self, resolver_with_redis: PlanResolver) -> None:
         import json
 
         cached = json.dumps({"plan_key": "posthog-code-200-20260301", "created_at": None})
         assert resolver_with_redis._redis is not None
-        resolver_with_redis._redis.get = AsyncMock(return_value=cached.encode())  # type: ignore[method-assign]
+        resolver_with_redis._redis.get = AsyncMock(return_value=cached.encode())  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
         result = await resolver_with_redis.get_plan(user_id=1, auth_header="Bearer phx_test")
         assert result.plan_key == "posthog-code-200-20260301"
 
@@ -123,9 +124,11 @@ class TestPlanResolver:
 
         cached = json.dumps({"plan_key": None, "created_at": None})
         assert resolver_with_redis._redis is not None
-        resolver_with_redis._redis.get = AsyncMock(return_value=cached.encode())  # type: ignore[method-assign]
+        resolver_with_redis._redis.get = AsyncMock(return_value=cached.encode())  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
         result = await resolver_with_redis.get_plan(user_id=1, auth_header="Bearer phx_test")
         assert result.plan_key is None
+        # Entries cached before seat_missing existed must fail loose.
+        assert result.seat_missing is False
 
     async def test_cached_old_seat_returns_plan(self, resolver_with_redis: PlanResolver) -> None:
         import json
@@ -133,7 +136,7 @@ class TestPlanResolver:
         old_date = (datetime.now(tz=UTC) - timedelta(days=60)).isoformat()
         cached = json.dumps({"plan_key": "posthog-code-free-20260301", "created_at": old_date})
         assert resolver_with_redis._redis is not None
-        resolver_with_redis._redis.get = AsyncMock(return_value=cached.encode())  # type: ignore[method-assign]
+        resolver_with_redis._redis.get = AsyncMock(return_value=cached.encode())  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
         result = await resolver_with_redis.get_plan(user_id=1, auth_header="Bearer phx_test")
         assert result.plan_key == "posthog-code-free-20260301"
         assert result.seat_created_at == old_date
@@ -152,7 +155,7 @@ class TestPlanResolver:
             },
         }
         mock_resp.raise_for_status = MagicMock()
-        resolver_with_redis._http.get = AsyncMock(return_value=mock_resp)  # type: ignore[method-assign]
+        resolver_with_redis._http.get = AsyncMock(return_value=mock_resp)  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
 
         with patch("llm_gateway.services.plan_resolver.get_settings") as mock_settings:
             mock_settings.return_value.posthog_api_base_url = "https://app.posthog.com"
@@ -178,7 +181,7 @@ class TestPlanResolver:
         mock_resp.status_code = 200
         mock_resp.json.return_value = {"plan_key": "posthog-code-200-20260301", "created_at": None}
         mock_resp.raise_for_status = MagicMock()
-        resolver_with_redis._http.get = AsyncMock(return_value=mock_resp)  # type: ignore[method-assign]
+        resolver_with_redis._http.get = AsyncMock(return_value=mock_resp)  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
 
         with patch("llm_gateway.services.plan_resolver.get_settings") as mock_settings:
             mock_settings.return_value.posthog_api_base_url = "https://app.posthog.com"
@@ -193,7 +196,7 @@ class TestPlanResolver:
         mock_resp.status_code = 200
         mock_resp.json.return_value = {"plan_key": None, "created_at": None}
         mock_resp.raise_for_status = MagicMock()
-        resolver._http.get = AsyncMock(return_value=mock_resp)  # type: ignore[method-assign]
+        resolver._http.get = AsyncMock(return_value=mock_resp)  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
 
         with patch("llm_gateway.services.plan_resolver.get_settings") as mock_settings:
             mock_settings.return_value.posthog_api_base_url = "https://app.posthog.com"
@@ -207,7 +210,7 @@ class TestPlanResolver:
     async def test_404_returns_none_plan(self, resolver: PlanResolver) -> None:
         mock_resp = MagicMock()
         mock_resp.status_code = 404
-        resolver._http.get = AsyncMock(return_value=mock_resp)  # type: ignore[method-assign]
+        resolver._http.get = AsyncMock(return_value=mock_resp)  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
 
         with patch("llm_gateway.services.plan_resolver.get_settings") as mock_settings:
             mock_settings.return_value.posthog_api_base_url = "https://app.posthog.com"
@@ -215,9 +218,29 @@ class TestPlanResolver:
             result = await resolver.get_plan(user_id=1, auth_header="Bearer phx_test")
 
         assert result.plan_key is None
+        assert result.seat_missing is True
+
+    async def test_404_seat_missing_round_trips_through_cache(self, resolver_with_redis: PlanResolver) -> None:
+        import json
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 404
+        resolver_with_redis._http.get = AsyncMock(return_value=mock_resp)  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+
+        with patch("llm_gateway.services.plan_resolver.get_settings") as mock_settings:
+            mock_settings.return_value.posthog_api_base_url = "https://app.posthog.com"
+            mock_settings.return_value.plan_cache_ttl = 300
+            await resolver_with_redis.get_plan(user_id=1, auth_header="Bearer phx_test")
+
+        assert resolver_with_redis._redis is not None
+        cached_payload = resolver_with_redis._redis.set.call_args.args[1]  # type: ignore[attr-defined]
+        resolver_with_redis._redis.get = AsyncMock(return_value=cached_payload.encode())  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+        cached_result = await resolver_with_redis.get_plan(user_id=1, auth_header="Bearer phx_test")
+        assert json.loads(cached_payload)["seat_missing"] is True
+        assert cached_result.seat_missing is True
 
     async def test_api_error_returns_none_plan(self, resolver: PlanResolver) -> None:
-        resolver._http.get = AsyncMock(side_effect=Exception("connection refused"))  # type: ignore[method-assign]
+        resolver._http.get = AsyncMock(side_effect=Exception("connection refused"))  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
 
         with patch("llm_gateway.services.plan_resolver.get_settings") as mock_settings:
             mock_settings.return_value.posthog_api_base_url = "https://app.posthog.com"
@@ -225,6 +248,7 @@ class TestPlanResolver:
             result = await resolver.get_plan(user_id=1, auth_header="Bearer phx_test")
 
         assert result.plan_key is None
+        assert result.seat_missing is False
 
     async def test_empty_auth_header_skips_fetch(self, resolver: PlanResolver) -> None:
         result = await resolver.get_plan(user_id=1, auth_header="")
@@ -246,7 +270,7 @@ class TestPlanResolver:
             }
         )
         assert resolver_with_redis._redis is not None
-        resolver_with_redis._redis.get = AsyncMock(return_value=cached.encode())  # type: ignore[method-assign]
+        resolver_with_redis._redis.get = AsyncMock(return_value=cached.encode())  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
         result = await resolver_with_redis.get_plan(user_id=1, auth_header="Bearer phx_test")
         assert result.billing_period is not None
         assert result.billing_period.current_period_start == "2026-04-01T00:00:00+00:00"
@@ -257,12 +281,12 @@ class TestPlanResolver:
 
         cached = json.dumps({"plan_key": "posthog-code-200-20260301", "created_at": None})
         assert resolver_with_redis._redis is not None
-        resolver_with_redis._redis.get = AsyncMock(return_value=cached.encode())  # type: ignore[method-assign]
+        resolver_with_redis._redis.get = AsyncMock(return_value=cached.encode())  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
         result = await resolver_with_redis.get_plan(user_id=1, auth_header="Bearer phx_test")
         assert result.billing_period is None
 
     async def test_api_error_not_cached(self, resolver_with_redis: PlanResolver) -> None:
-        resolver_with_redis._http.get = AsyncMock(side_effect=Exception("connection refused"))  # type: ignore[method-assign]
+        resolver_with_redis._http.get = AsyncMock(side_effect=Exception("connection refused"))  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
 
         with patch("llm_gateway.services.plan_resolver.get_settings") as mock_settings:
             mock_settings.return_value.posthog_api_base_url = "https://app.posthog.com"

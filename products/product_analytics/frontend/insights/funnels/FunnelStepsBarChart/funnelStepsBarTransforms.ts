@@ -1,4 +1,4 @@
-import type { BarChartConfig, PointClickData } from '@posthog/quill-charts'
+import type { PointClickData, TooltipConfig } from '@posthog/quill-charts'
 
 import { getVisibilityKey } from 'scenes/funnels/funnelUtils'
 
@@ -114,21 +114,16 @@ function orderCompareSeriesPreviousFirst(
     )
 }
 
-/** Derives the chart config from the base config plus whether the new pinnable tooltip is
- *  enabled. A breakdown always puts one series per breakdown value at each step, so a pinnable
- *  tooltip here always covers multiple series — `resolveClickToNearestSeries` resolves the
- *  click to the nearest one and opens its persons modal directly instead of pinning first. */
-export function withFunnelStepsBarInteraction(
-    baseConfig: BarChartConfig,
-    options: { quillTooltipEnabled: boolean }
-): BarChartConfig {
-    if (options.quillTooltipEnabled) {
-        return {
-            ...baseConfig,
-            tooltip: { ...INSIGHT_TOOLTIP_CONFIG, resolveClickToNearestSeries: true },
-        }
-    }
-    return baseConfig
+/** Tooltip behaviour for the grouped funnel bars. A breakdown always puts one series per breakdown
+ *  value at each step, so a pinnable tooltip here always covers multiple series —
+ *  `resolveClickToNearestSeries` resolves the click to the nearest one and opens its persons modal
+ *  directly instead of pinning first. */
+/** Pinnable, cursor-anchored tooltip for the grouped funnel bars. A breakdown puts one series per
+ *  breakdown value at each step, so the tooltip always covers multiple series — `resolveClickToNearestSeries`
+ *  makes a click open the nearest series' persons modal directly instead of pinning first. */
+export const FUNNEL_STEPS_BAR_TOOLTIP_CONFIG: TooltipConfig = {
+    ...INSIGHT_TOOLTIP_CONFIG,
+    resolveClickToNearestSeries: true,
 }
 
 export interface FunnelStepClickTarget {

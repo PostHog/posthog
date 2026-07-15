@@ -186,7 +186,7 @@ class AikidoSecuritySourceConfig(config.Config):
 
 @config.config
 class AirOpsSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -445,7 +445,7 @@ class BaserowSourceConfig(config.Config):
 
 @config.config
 class BasetenSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -569,7 +569,7 @@ class BrowserUseSourceConfig(config.Config):
 
 @config.config
 class BrowserbaseSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1055,7 +1055,7 @@ class DevinAISourceConfig(config.Config):
 
 @config.config
 class DigitalOceanSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1366,7 +1366,8 @@ class FlowluSourceConfig(config.Config):
 
 @config.config
 class FlyIoSourceConfig(config.Config):
-    pass
+    api_token: str
+    organization_slug: str
 
 
 @config.config
@@ -1638,7 +1639,7 @@ class GridlySourceConfig(config.Config):
 
 @config.config
 class GroqSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1787,7 +1788,9 @@ class HuntrSourceConfig(config.Config):
 
 @config.config
 class HyperspellSourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
+    user_id: str | None = None
 
 
 @config.config
@@ -1980,7 +1983,7 @@ class KekaSourceConfig(config.Config):
 
 @config.config
 class KernelSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2987,7 +2990,7 @@ class PromptingCompanySourceConfig(config.Config):
 
 @config.config
 class PyPISourceConfig(config.Config):
-    pass
+    packages: str
 
 
 @config.config
