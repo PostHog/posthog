@@ -299,6 +299,7 @@ the row lists both.
 | orb                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | openaq                    | HTTP                        | requests                                                        | ✅                          |
 | openfda                   | HTTP                        | requests                                                        | ✅                          |
+| openrouter                | HTTP                        | requests                                                        | ✅                          |
 | openweather               | HTTP                        | requests                                                        | ✅                          |
 | ortto                     | HTTP                        | requests                                                        | ✅                          |
 | oura                      | HTTP                        | requests                                                        | ✅                          |
@@ -692,7 +693,6 @@ doesn't conflict with concurrent PRs.
 - onesignal
 - open_data_dc
 - openai
-- openrouter
 - opsgenie
 - opuswatch
 - oracle
