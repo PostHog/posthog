@@ -433,6 +433,26 @@ def test_fmt_leaves_glob_files_untouched(tmp_path: Path) -> None:
     assert plan.is_canonical
 
 
+def test_fmt_reports_top_level_owner_edits(tmp_path: Path) -> None:
+    # Canonical placement here rewrites the root file's `owners:` ([] -> [team-a])
+    # while deleting both children. A plan that only printed the deletions would
+    # under-apply: following it literally leaves every file unowned even though
+    # the proof passed against the full in-memory proposal.
+    plan = _fmt_plan(
+        tmp_path,
+        {
+            "owners.yaml": "version: 1\nowners: []\n",
+            "a/owners.yaml": "version: 1\nowners: [team-a]\n",
+            "b/owners.yaml": "version: 1\nowners: [team-a]\n",
+            "a/f.py": "x",
+            "b/g.py": "x",
+        },
+    )
+    assert not plan.is_canonical
+    assert sorted(plan.deletions) == ["a/owners.yaml", "b/owners.yaml"]
+    assert any("owners: [] -> [team-a]" in line for line in plan.additions.get("owners.yaml", []))
+
+
 def test_fmt_pins_files_with_rule_level_metadata(tmp_path: Path) -> None:
     # Relocation only preserves match+owners, so a rule carrying status/inherit
     # must pin its file exactly like a glob does — otherwise folding this child

@@ -459,10 +459,12 @@ class CanonicalPlacer:
     ) -> tuple[list[str], list[str], dict[str, list[str]]]:
         current_simple_dirs: set[str] = set()  # dirs whose file fmt may delete
         current_rules: dict[str, set[str]] = {}  # dir -> rule matches already present
+        current_owners: dict[str, list[str] | None] = {}  # dir -> top-level owners as written
         for entry in entries:
             if entry.name != OWNERS_FILENAME or entry.parsed is None:
                 continue
             current_rules[entry.rel_dir] = {r.match for r in entry.parsed.rules}
+            current_owners[entry.rel_dir] = entry.parsed.owners
             if _is_simple_file(entry.parsed):
                 current_simple_dirs.add(entry.rel_dir)
 
@@ -480,9 +482,15 @@ class CanonicalPlacer:
             has_content = bool(proposed_file.rules) or bool(proposed_file.owners) or proposed_file.owners is None
             if not file_exists and has_content:
                 creations.append(path)
-            added = [f"{m} {_fmt_owners(o)}" for m, o in proposed_rules.items() if m not in cur_rules]
-            if added:
-                additions[path] = sorted(added)
+            edits: list[str] = []
+            # A changed top-level `owners:` on an existing file is as much a part of
+            # the plan as a new rule — omitting it would print a plan that, applied
+            # literally, resolves differently from the proved proposal.
+            if carrier in current_owners and proposed_file.owners != current_owners[carrier]:
+                edits.append(f"owners: {_fmt_owners(current_owners[carrier])} -> {_fmt_owners(proposed_file.owners)}")
+            edits += sorted(f"{m} -> {_fmt_owners(o)}" for m, o in proposed_rules.items() if m not in cur_rules)
+            if edits:
+                additions[path] = edits
 
         for carrier in current_simple_dirs:
             if carrier not in open_dirs:
@@ -529,5 +537,5 @@ def _index(node: _Node, out: dict[str, _Node]) -> None:
 
 def _fmt_owners(owners: list[str] | None) -> str:
     if owners is None:
-        return "-> (unowned)"
-    return "-> [" + ", ".join(owners) + "]"
+        return "(unowned)"
+    return "[" + ", ".join(owners) + "]"
