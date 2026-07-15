@@ -167,15 +167,18 @@ class OwnershipResolver(Protocol):
 
 
 def _owner_to_team_handle(owner: str) -> str | None:
-    """Map a resolver owner to the `@PostHog/<slug>` team handle the gate uses.
+    """Map a resolver owner to the handle shape the advisory context uses.
 
     Resolver owners are bare team slugs (`team-foo`) plus `@handle` individuals.
-    The ownership gate is team-based, so keep team slugs (formatted as the
-    handle the reviewer prompt and membership check expect) and drop individuals.
-    The `team-CHANGEME` placeholder is already filtered by the resolver's parsers.
+    Team slugs become `@PostHog/<slug>` (the shape the reviewer prompt expects);
+    individuals pass through unchanged so individually-owned paths count as
+    owned instead of reporting no ownership-source match. The `team-CHANGEME`
+    placeholder is already filtered by the resolver's parsers.
     """
-    if not owner or owner.startswith("@"):
+    if not owner:
         return None
+    if owner.startswith("@"):
+        return owner
     return f"@PostHog/{owner}"
 
 
