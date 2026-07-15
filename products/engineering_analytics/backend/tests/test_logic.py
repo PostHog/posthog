@@ -1010,15 +1010,15 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         assert ci.success_rate == 1.0
         assert ci.success_rate_prev == 1.0
 
-    def test_workflow_health_duration_percentiles_exclude_cancelled_and_failed_runs(self) -> None:
+    def test_workflow_health_duration_percentiles_exclude_cancelled_failed_and_noop_runs(self) -> None:
         self._create_table(
             "github_pull_requests",
             _PULL_REQUESTS_COLUMNS,
             [_pr_row(90, "alice", "open", 0, _ago(1), head_sha="sha90")],
         )
-        # Every success shares one duration, so success-only p50/p95 are exactly 100; any leaked
-        # cancel (1s) or failure (1000s) in the percentile population moves them off 100.
-        conclusions = [("success", 100)] * 2 + [("cancelled", 1)] * 3 + [("failure", 1000)]
+        # Every real success shares one duration, so the percentile population is exactly 100; any
+        # leaked cancel (1s), failure (1000s), or no-op gate success (4s) moves p50/p95 off 100.
+        conclusions = [("success", 100)] * 2 + [("success", 4)] * 3 + [("cancelled", 1)] * 3 + [("failure", 1000)]
         self._create_table(
             "github_workflow_runs",
             _WORKFLOW_RUNS_COLUMNS,
@@ -1034,18 +1034,26 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
                     head_branch="feature/ci",
                 )
                 for index, (conclusion, duration_seconds) in enumerate(conclusions)
+            ]
+            # An all-fast workflow has no real successes — its percentiles fall back to every
+            # successful run instead of reading as missing.
+            + [
+                _run_row(9100, "Guard", "guard-1", "completed", "success", *_ago_with_duration(1, 4)),
+                _run_row(9101, "Guard", "guard-2", "completed", "success", *_ago_with_duration(2, 4)),
             ],
         )
 
-        ci = next(
-            item for item in api.list_workflow_health(team=self.team, date_from="-30d") if item.workflow_name == "CI"
-        )
+        health = api.list_workflow_health(team=self.team, date_from="-30d")
+        ci = next(item for item in health if item.workflow_name == "CI")
 
         # Counts and rate stay over all/completed runs; only the duration population narrows.
-        assert ci.run_count == 6
-        assert ci.success_rate == pytest.approx(2 / 6)
+        assert ci.run_count == 9
+        assert ci.success_rate == pytest.approx(5 / 9)
         assert ci.p50_seconds == pytest.approx(100)
         assert ci.p95_seconds == pytest.approx(100)
+
+        guard = next(item for item in health if item.workflow_name == "Guard")
+        assert guard.p50_seconds == pytest.approx(4)
 
     def test_workflow_health_pull_request_scope_excludes_default_branch_and_unattributed_runs(self) -> None:
         self._create_table(
