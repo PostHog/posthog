@@ -2161,6 +2161,39 @@ class TestExtractSegments:
                 [TextSegment(value="Nothing to strip.")],
                 id="no_citations",
             ),
+            pytest.param(
+                "Filtered repeatedly (t 12, 34, 56), then sorted.",
+                "Filtered repeatedly, then sorted.",
+                [
+                    TextSegment(value="Filtered repeatedly"),
+                    ChipSegment(timestamp_ms=12_000),
+                    ChipSegment(timestamp_ms=34_000),
+                    ChipSegment(timestamp_ms=56_000),
+                    TextSegment(value=", then sorted."),
+                ],
+                id="comma_joined",
+            ),
+            pytest.param(
+                "Clicked (t 39, t 57) twice.",
+                "Clicked twice.",
+                [
+                    TextSegment(value="Clicked"),
+                    ChipSegment(timestamp_ms=39_000),
+                    ChipSegment(timestamp_ms=57_000),
+                    TextSegment(value=" twice."),
+                ],
+                id="comma_joined_repeated_t",
+            ),
+            pytest.param(
+                "Opened (t 50, 99999) later.",
+                "Opened later.",
+                [
+                    TextSegment(value="Opened"),
+                    ChipSegment(timestamp_ms=50_000),
+                    TextSegment(value=" later."),
+                ],
+                id="comma_joined_out_of_range_dropped",
+            ),
         ],
     )
     def test_extract_segments(self, text: str, expected_plain: str, expected_segments: list[Segment]) -> None:

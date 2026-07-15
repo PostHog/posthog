@@ -1,20 +1,25 @@
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest.mock import MagicMock, patch
 
 import requests
 from parameterized import parameterized
+from tenacity import RetryCallState
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic import anthropic
 from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.anthropic import (
+    _MAX_RETRY_AFTER_SECONDS,
     AnthropicResumeConfig,
+    AnthropicRetryableError,
     _build_url,
     _flatten_cost_result,
     _flatten_usage_result,
+    _parse_retry_after,
     _report_params,
     _row_id,
+    _wait_anthropic,
     get_rows,
     validate_credentials,
 )
@@ -103,8 +108,17 @@ class TestReportParams:
         )
         assert params["starting_at"] == "2026-03-04T00:00:00Z"
         assert params["bucket_width"] == "1d"
-        assert params["limit"] == 31
+        assert params["limit"] == 7
         assert multi == {"group_by[]": config.group_by}
+
+    def test_usage_report_page_size_stays_below_bucket_max(self) -> None:
+        # Grouping by every dimension multiplies the results per bucket, so requesting the 31-bucket
+        # max overflows the per-response result cap and the API 400s. Keep the page small while still
+        # grouping by the full set; pagination walks the rest.
+        config = anthropic.ANTHROPIC_ENDPOINTS["usage_report"]
+        params, _ = _report_params(config, should_use_incremental_field=False, db_incremental_field_last_value=None)
+        assert len(config.group_by) == 8
+        assert params["limit"] <= 7
 
     def test_full_refresh_falls_back_to_launch_date(self) -> None:
         # Without a watermark we must still send the required starting_at; the Anthropic launch date
@@ -317,3 +331,51 @@ class TestFetchPage:
         with pytest.raises(requests.HTTPError):
             anthropic._fetch_page(session, "https://api.anthropic.com/v1/organizations/users", {}, MagicMock())
         assert session.get.call_count == 1
+
+
+class _FakeRetryState:
+    def __init__(self, exc: Exception | None, attempt_number: int = 1) -> None:
+        self.outcome = MagicMock()
+        self.outcome.exception.return_value = exc
+        self.attempt_number = attempt_number
+
+
+class TestRetryAfter:
+    @parameterized.expand(
+        [
+            ("delta_seconds", "45", 45.0),
+            ("zero", "0", 0.0),
+            ("missing", None, None),
+            ("non_numeric", "in a while", None),
+            ("negative", "-5", None),
+        ]
+    )
+    def test_parse_retry_after(self, _name: str, header: str | None, expected: float | None) -> None:
+        assert _parse_retry_after(header) == expected
+
+    def test_fetch_page_attaches_retry_after_from_header(self) -> None:
+        # The rate-limited report endpoints tell us exactly when the window resets; that value must
+        # survive onto the exception so the wait strategy can honor it instead of guessing.
+        response = MagicMock(status_code=429, ok=False, headers={"retry-after": "45"})
+        session = MagicMock()
+        session.get.return_value = response
+        with patch.object(anthropic._fetch_page.retry, "sleep", lambda *_: None):  # type: ignore[attr-defined]
+            with pytest.raises(AnthropicRetryableError) as exc_info:
+                anthropic._fetch_page(
+                    session, "https://api.anthropic.com/v1/organizations/cost_report", {}, MagicMock()
+                )
+        assert exc_info.value.retry_after == 45.0
+
+    def test_wait_honors_retry_after_capped(self) -> None:
+        state = _FakeRetryState(AnthropicRetryableError("rate limited", retry_after=45.0))
+        assert _wait_anthropic(cast(RetryCallState, state)) == 45.0
+        # A server asking for longer than the cap is clamped so it can't wedge the worker.
+        capped = _FakeRetryState(AnthropicRetryableError("rate limited", retry_after=6000.0))
+        assert _wait_anthropic(cast(RetryCallState, capped)) == _MAX_RETRY_AFTER_SECONDS
+
+    def test_wait_falls_back_when_no_retry_after(self) -> None:
+        # No header (e.g. a 5xx) → blind exponential backoff, never a crash on the missing value.
+        state = _FakeRetryState(AnthropicRetryableError("server error"), attempt_number=1)
+        wait = _wait_anthropic(cast(RetryCallState, state))
+        assert isinstance(wait, float)
+        assert wait >= 0

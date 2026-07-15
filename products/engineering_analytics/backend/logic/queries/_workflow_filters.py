@@ -4,7 +4,7 @@ Clauses qualify columns with ``r`` — every consuming template reads the runs
 source as ``FROM __RUNS_SOURCE__ AS r`` (or joins it as ``r``).
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from posthog.hogql import ast
 
@@ -22,6 +22,15 @@ DURATION_PERCENTILE_CONDITION = "status = 'completed' AND conclusion = 'success'
 LATEST_COMPLETED_RUN_FAILED = (
     "argMaxIf(conclusion IN ('failure', 'timed_out'), (run_started_at, id), status = 'completed')"
 )
+
+
+def run_started_floor_constant(window_start: datetime) -> ast.Constant:
+    """Raw-string scan floor for the runs builder's {run_started_floor} placeholder: a date-only
+    string one day below the window start. Compares lexicographically below every in-window
+    ISO timestamp ('2026-07-11' < '2026-07-11T...'), and the one-day slack absorbs any timezone
+    offset between the window's zone and the UTC strings GitHub lands, so the coarse floor can
+    never cut rows the precise parsed {date_from} filter would keep."""
+    return ast.Constant(value=(window_start - timedelta(days=1)).strftime("%Y-%m-%d"))
 
 
 def branch_filter_clause(

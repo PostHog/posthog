@@ -55,7 +55,6 @@ class BuildkiteSource(ResumableSource[BuildkiteSourceConfig, BuildkiteResumeConf
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Buildkite",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Buildkite API access token and organization slug to sync your CI/CD data into the PostHog Data warehouse.
 
 You can create an API access token in your [Buildkite account settings](https://buildkite.com/user/api-access-tokens).

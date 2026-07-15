@@ -4,9 +4,7 @@ import { subscriptions } from 'kea-subscriptions'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { EXPERIMENT_TARGET_SELECTOR } from 'lib/utils/actions'
-import { isLaunched } from 'scenes/experiments/experimentStatus'
 
-import { percentageDistribution } from '~/scenes/experiments/utils'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { experimentsLogic } from '~/toolbar/experiments/experimentsLogic'
 import {
@@ -20,7 +18,7 @@ import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { WebExperiment, WebExperimentDraftType, WebExperimentForm } from '~/toolbar/types'
 import { urls } from '~/toolbar/urls'
-import { elementToQuery, joinWithUiHost } from '~/toolbar/utils'
+import { elementToQuery, isLaunched, joinWithUiHost, percentageDistribution } from '~/toolbar/utils'
 import { Experiment, ExperimentIdType } from '~/types'
 
 import type { experimentsTabLogicType } from './experimentsTabLogicType'

@@ -4141,7 +4141,7 @@ class TestExperimentService(APIBaseTest):
         # If persisting the shipped flag fails (e.g. ApprovalRequired surfacing as a 409), the flag
         # is still frozen and serving from the snapshot — the cohort must not be deleted from under it.
         with patch(
-            "products.experiments.backend.experiment_service.update_flag",
+            "products.experiments.backend.experiment_service.ship_flag_variant",
             side_effect=ValidationError("boom"),
         ):
             with self.assertRaises(ValidationError):
@@ -4337,125 +4337,6 @@ class TestExperimentService(APIBaseTest):
         assert "experiment variant shipped" in event_names
         assert "experiment completed" not in event_names
         assert "experiment stopped" not in event_names
-
-    # ------------------------------------------------------------------
-    # Transform filters for winning variant
-    # ------------------------------------------------------------------
-
-    def test_transform_filters_default_preserves_groups(self):
-        current_filters = {
-            "groups": [{"properties": [], "rollout_percentage": 100}],
-            "payloads": {},
-            "multivariate": {
-                "variants": [
-                    {"key": "control", "name": "Control Group", "rollout_percentage": 50},
-                    {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
-                ]
-            },
-            "aggregation_group_type_index": None,
-        }
-
-        result = ExperimentService._transform_filters_for_winning_variant(current_filters, "test")
-
-        # Variant distribution flipped
-        assert result["multivariate"]["variants"] == [
-            {"key": "control", "name": "Control Group", "rollout_percentage": 0},
-            {"key": "test", "name": "Test Variant", "rollout_percentage": 100},
-        ]
-        # Groups preserved exactly — no catch-all prepended in default mode
-        assert result["groups"] == current_filters["groups"]
-        assert result["payloads"] == {}
-        assert result["aggregation_group_type_index"] is None
-
-    def test_transform_filters_release_to_everyone_prepends_catch_all(self):
-        current_filters = {
-            "groups": [{"properties": [], "rollout_percentage": 100}],
-            "payloads": {},
-            "multivariate": {
-                "variants": [
-                    {"key": "control", "name": "Control Group", "rollout_percentage": 50},
-                    {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
-                ]
-            },
-            "aggregation_group_type_index": None,
-        }
-
-        result = ExperimentService._transform_filters_for_winning_variant(
-            current_filters, "test", release_to_everyone=True
-        )
-
-        assert result["multivariate"]["variants"] == [
-            {"key": "control", "name": "Control Group", "rollout_percentage": 0},
-            {"key": "test", "name": "Test Variant", "rollout_percentage": 100},
-        ]
-        assert result["groups"][0] == {
-            "properties": [],
-            "rollout_percentage": 100,
-            "description": "Added automatically when the experiment was ended to keep only one variant.",
-        }
-        assert result["groups"][1:] == [{"properties": [], "rollout_percentage": 100}]
-        assert result["payloads"] == {}
-        assert result["aggregation_group_type_index"] is None
-
-    def test_transform_filters_default_does_not_mutate_input(self):
-        """Defensive: ensure the function returns a new groups list without mutating caller's filters."""
-        original_groups = [{"properties": [], "rollout_percentage": 50}]
-        current_filters = {
-            "groups": original_groups,
-            "multivariate": {
-                "variants": [
-                    {"key": "control", "rollout_percentage": 50},
-                    {"key": "test", "rollout_percentage": 50},
-                ]
-            },
-        }
-
-        result = ExperimentService._transform_filters_for_winning_variant(current_filters, "test")
-
-        # Caller's list reference is untouched
-        assert current_filters["groups"] is original_groups
-        # Result's groups equals original by value but is a distinct list object
-        assert result["groups"] == original_groups
-        assert result["groups"] is not original_groups
-
-    def test_transform_filters_multiple_variants_with_payloads(self):
-        current_filters = {
-            "groups": [{"properties": [], "rollout_percentage": 100}],
-            "payloads": {
-                "test_1": "{key: 'test_1'}",
-                "test_2": "{key: 'test_2'}",
-                "test_3": "{key: 'test_3'}",
-                "control": "{key: 'control'}",
-            },
-            "multivariate": {
-                "variants": [
-                    {"key": "control", "name": "This is control", "rollout_percentage": 25},
-                    {"key": "test_1", "name": "This is test_1", "rollout_percentage": 25},
-                    {"key": "test_2", "name": "This is test_2", "rollout_percentage": 25},
-                    {"key": "test_3", "name": "This is test_3", "rollout_percentage": 25},
-                ]
-            },
-            "aggregation_group_type_index": 1,
-        }
-
-        result = ExperimentService._transform_filters_for_winning_variant(
-            current_filters, "control", release_to_everyone=True
-        )
-
-        assert result["multivariate"]["variants"] == [
-            {"key": "control", "name": "This is control", "rollout_percentage": 100},
-            {"key": "test_1", "name": "This is test_1", "rollout_percentage": 0},
-            {"key": "test_2", "name": "This is test_2", "rollout_percentage": 0},
-            {"key": "test_3", "name": "This is test_3", "rollout_percentage": 0},
-        ]
-        assert result["groups"][0] == {
-            "properties": [],
-            "rollout_percentage": 100,
-            "description": "Added automatically when the experiment was ended to keep only one variant.",
-        }
-        assert result["groups"][1:] == [{"properties": [], "rollout_percentage": 100}]
-        assert result["payloads"] == current_filters["payloads"]
-        assert result["aggregation_group_type_index"] == 1
 
     # ------------------------------------------------------------------
     # Exposure cohort

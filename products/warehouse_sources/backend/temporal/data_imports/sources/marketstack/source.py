@@ -128,7 +128,6 @@ class MarketstackSource(ResumableSource[MarketstackSourceConfig, MarketstackResu
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Marketstack",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Marketstack access key to pull end-of-day, intraday, splits, and dividends data plus market reference tables (tickers, exchanges, currencies, timezones) into the PostHog Data warehouse.
 
 You can find your access key in your [Marketstack dashboard](https://marketstack.com/dashboard).
