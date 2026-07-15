@@ -263,8 +263,8 @@ const Settings = ({
         runId: attributes.runId ?? null,
         hasResult: !!attributes.result,
     })
-    const { isRunning, operationBlockReason } = useValues(dataLogic)
-    const { runQuery } = useActions(dataLogic)
+    const { isRunning, isInterrupting, operationBlockReason } = useValues(dataLogic)
+    const { runQuery, interruptRun } = useActions(dataLogic)
 
     return (
         <NotebookCodeSQLEditorSettings
@@ -277,6 +277,8 @@ const Settings = ({
             runQueryLoading={isRunning}
             runQueryDisabledReason={operationBlockReason ?? undefined}
             runQueryTooltip="Run SQL (v2) query"
+            onCancelQuery={interruptRun}
+            cancelQueryLoading={isInterrupting}
         />
     )
 }

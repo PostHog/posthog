@@ -1,9 +1,11 @@
-from typing import ClassVar
+import json
+from typing import ClassVar, Protocol
 
 from unittest.mock import MagicMock, patch
 
 from django.test import TestCase
 
+from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import NotAuthenticated
 from rest_framework.test import APIClient
@@ -24,6 +26,12 @@ MOCK_SEAT = {
     "active_until": None,
     "active_from": "2026-04-01T00:00:00Z",
 }
+
+
+class _JsonTestResponse(Protocol):
+    status_code: int
+
+    def json(self) -> dict[str, object]: ...
 
 
 def _billing_response(data=None, status_code=200, ok=True):
@@ -145,8 +153,8 @@ class TestSeatAPIAdminPermissions(BaseSeatAPITest):
         response = self.client.post(
             "/api/seats/",
             {
-                "product_key": "posthog_code",
-                "plan_key": "posthog-code-free-20260301",
+                "product_key": "other_product",
+                "plan_key": "other-plan",
                 "user_distinct_id": str(self.user.distinct_id),
             },
             format="json",
@@ -198,7 +206,11 @@ class TestSeatAPIAdminPermissions(BaseSeatAPITest):
     @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
     def test_reactivate_non_org_member_rejected(self, mock_request, _mock_license, _mock_token):
         self._auth_as_admin()
-        response = self.client.post(f"/api/seats/{self.external_user.distinct_id}/reactivate/", format="json")
+        response = self.client.post(
+            f"/api/seats/{self.external_user.distinct_id}/reactivate/",
+            {"product_key": "posthog_code"},
+            format="json",
+        )
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
 
@@ -229,7 +241,7 @@ class TestSeatAPIMeResolution(BaseSeatAPITest):
         self._auth_as_member()
         self.client.patch(
             "/api/seats/me/",
-            {"product_key": "posthog_code", "plan_key": "posthog-code-200-20260301"},
+            {"product_key": "other_product", "plan_key": "other-plan"},
             format="json",
         )
         _, kwargs = mock_request.call_args
@@ -239,9 +251,118 @@ class TestSeatAPIMeResolution(BaseSeatAPITest):
     def test_reactivate_me_resolves_distinct_id(self, mock_request, _mock_license, _mock_token):
         mock_request.return_value = _billing_response({"seat": MOCK_SEAT})
         self._auth_as_member()
-        self.client.post("/api/seats/me/reactivate/", format="json")
+        self.client.post("/api/seats/me/reactivate/", {"product_key": "other_product"}, format="json")
         _, kwargs = mock_request.call_args
         assert str(self.user.distinct_id) in kwargs["url"]
+
+
+class TestSeatAPIRetiredProducts(BaseSeatAPITest):
+    def _assert_retired(self, response: _JsonTestResponse) -> None:
+        assert response.status_code == status.HTTP_410_GONE
+        assert response.json() == {
+            "error": (
+                "You can no longer create, upgrade, or reactivate PostHog Code seats. "
+                "PostHog Code with usage-based billing is launching shortly."
+            ),
+            "code": "seat_product_retired",
+        }
+
+    @parameterized.expand(
+        [
+            (
+                "create",
+                "POST",
+                "/api/seats/",
+                {
+                    "product_key": "posthog_code",
+                    "plan_key": "posthog-code-free-20260301",
+                    "user_distinct_id": "me",
+                },
+            ),
+            (
+                "upgrade",
+                "PATCH",
+                "/api/seats/me/",
+                {"product_key": "posthog_code", "plan_key": "posthog-code-pro-200-20260301"},
+            ),
+            (
+                "reactivate",
+                "POST",
+                "/api/seats/me/reactivate/",
+                {"product_key": "posthog_code"},
+            ),
+        ]
+    )
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
+    def test_posthog_code_mutation_is_rejected_locally(
+        self,
+        _name: str,
+        method: str,
+        path: str,
+        payload: dict[str, str],
+        mock_request: MagicMock,
+    ) -> None:
+        self._auth_as_member()
+        request_payload = payload.copy()
+        if request_payload.get("user_distinct_id") == "me":
+            request_payload["user_distinct_id"] = str(self.user.distinct_id)
+        response = self.client.generic(
+            method,
+            path,
+            json.dumps(request_payload),
+            content_type="application/json",
+        )
+
+        self._assert_retired(response)
+        mock_request.assert_not_called()
+
+    @parameterized.expand(
+        [
+            (
+                "create",
+                "POST",
+                "/api/seats/?product_key=posthog_code",
+                {
+                    "plan_key": "posthog-code-free-20260301",
+                    "user_distinct_id": "me",
+                },
+            ),
+            (
+                "upgrade",
+                "PATCH",
+                "/api/seats/me/?product_key=posthog_code",
+                {"plan_key": "posthog-code-pro-200-20260301"},
+            ),
+            (
+                "reactivate",
+                "POST",
+                "/api/seats/me/reactivate/?product_key=posthog_code",
+                {},
+            ),
+        ]
+    )
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
+    def test_posthog_code_query_param_mutation_is_rejected_locally(
+        self,
+        _name: str,
+        method: str,
+        path: str,
+        payload: dict[str, str],
+        mock_request: MagicMock,
+    ) -> None:
+        self._auth_as_member()
+        request_payload = payload.copy()
+        if request_payload.get("user_distinct_id") == "me":
+            request_payload["user_distinct_id"] = str(self.user.distinct_id)
+        response = self.client.generic(
+            method,
+            path,
+            json.dumps(request_payload),
+            content_type="application/json",
+        )
+
+        self._assert_retired(response)
+        mock_request.assert_not_called()
 
 
 @patch("products.tasks.backend.presentation.views.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
@@ -420,8 +541,34 @@ class TestSeatAPIBestPlan(BaseSeatAPITest):
 
     @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
     @patch("products.tasks.backend.presentation.views.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
-    def test_all_billing_failures_returns_404(self, _mock_token, mock_request, _mock_license):
+    def test_all_billing_failures_returns_503(self, _mock_token, mock_request, _mock_license):
+        """A failed lookup is not a confirmed absence: the LLM gateway caches a 404
+        as seat_missing and free-caps the user, so a billing outage must surface
+        as an error it fails open on, never as 404."""
         mock_request.return_value = _billing_response({"error": "fail"}, status_code=500, ok=False)
+        self._auth_as_member()
+        response = self.client.get("/api/seats/me/?product_key=posthog_code&best=true")
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
+    @patch("products.tasks.backend.presentation.views.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
+    def test_partial_failure_with_no_seat_returns_503(self, _mock_token, mock_request, _mock_license):
+        mock_request.side_effect = [
+            _billing_response({"error": "fail"}, status_code=500, ok=False),
+            _billing_response({"error": "No seat found for this user"}, status_code=404, ok=False),
+        ]
+        self._auth_as_member()
+        response = self.client.get("/api/seats/me/?product_key=posthog_code&best=true")
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+
+    @patch("products.tasks.backend.presentation.views.seat_api.requests.request")
+    @patch("products.tasks.backend.presentation.views.seat_api.build_billing_token", return_value=MOCK_BILLING_TOKEN)
+    def test_all_orgs_conclusively_no_seat_returns_404(self, _mock_token, mock_request, _mock_license):
+        """404 stays 404 when every org's lookup succeeded and found nothing —
+        the gateway's seat_missing free-cap depends on this conclusive signal."""
+        mock_request.return_value = _billing_response(
+            {"error": "No seat found for this user"}, status_code=404, ok=False
+        )
         self._auth_as_member()
         response = self.client.get("/api/seats/me/?product_key=posthog_code&best=true")
         assert response.status_code == status.HTTP_404_NOT_FOUND

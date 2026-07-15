@@ -998,6 +998,7 @@ export type ActivityLogListParams = {
      * * `StreamlitApp` - StreamlitApp
      * * `Metric` - Metric
      * * `TableCertification` - TableCertification
+     * * `Billing` - Billing
      * @minLength 1
      */
     scope?: ActivityLogListScope
@@ -1084,6 +1085,7 @@ export const ActivityLogListScope = {
     StreamlitApp: 'StreamlitApp',
     Metric: 'Metric',
     TableCertification: 'TableCertification',
+    Billing: 'Billing',
 } as const
 
 /**
@@ -1157,6 +1159,7 @@ export const ActivityLogListScope = {
  * * `StreamlitApp` - StreamlitApp
  * * `Metric` - Metric
  * * `TableCertification` - TableCertification
+ * * `Billing` - Billing
  */
 export type ActivityLogListScopesItem = (typeof ActivityLogListScopesItem)[keyof typeof ActivityLogListScopesItem]
 
@@ -1231,6 +1234,7 @@ export const ActivityLogListScopesItem = {
     StreamlitApp: 'StreamlitApp',
     Metric: 'Metric',
     TableCertification: 'TableCertification',
+    Billing: 'Billing',
 } as const
 
 export type AdvancedActivityLogsListParams = {

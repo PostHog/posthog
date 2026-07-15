@@ -197,6 +197,7 @@ export type SettingId =
     | 'organization-delete'
     | 'organization-display-name'
     | 'organization-experiment-stats-method'
+    | 'organization-id'
     | 'organization-integrations-list'
     | 'organization-ip-anonymization-default'
     | 'organization-oauth-apps-list'

@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { combineUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -27,6 +27,9 @@ import {
     TraceQuery,
 } from '~/queries/schema/schema-general'
 import { ActivityScope, AnyPropertyFilter, Breadcrumb, InsightLogicProps } from '~/types'
+
+import { engineeringAnalyticsResolveBranch } from 'products/engineering_analytics/frontend/generated/api'
+import type { BranchPRMatchApi } from 'products/engineering_analytics/frontend/generated/api.schemas'
 
 import { aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
 import type { aiObservabilityTraceLogicType } from './aiObservabilityTraceLogicType'
@@ -78,6 +81,32 @@ export function getDataNodeLogicProps({
 
 export type AIObservabilityTraceLogicProps = Record<string, never>
 
+/** Git ref stamped on a trace's events by a coding-agent session (branch-only MVP; either field may be null). */
+export interface TraceGitMetadata {
+    branch: string | null
+    repo: string | null
+    /** The trace's capture time, threaded to resolve_branch so a reused branch name resolves to the PR
+     * that was active when the trace ran, not whichever PR is newest now. */
+    timestamp: string | null
+}
+
+/** A branch→PR resolution tagged with the request it resolved for, so a result left over from a
+ * previously viewed trace can be ignored until the reload for the new trace finishes. */
+export interface BranchPRResolution {
+    key: string | null
+    matches: BranchPRMatchApi[]
+    /** True when the resolve was skipped because feature flags had not loaded yet — retried once they do. */
+    gated?: boolean
+}
+
+/** Identity of one resolution request. Branch alone is not enough: two traces can carry the same
+ * branch name in different repos, and a branch-only guard would link one repo's chip to the other's PR. */
+export function branchPRResolutionKey(gitMetadata: TraceGitMetadata | null): string | null {
+    return gitMetadata?.branch ? `${gitMetadata.repo ?? ''}::${gitMetadata.branch}` : null
+}
+
+const projectId = (): string => String(ApiConfig.getCurrentProjectId())
+
 export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
     path(['scenes', 'ai-observability', 'aiObservabilityTraceLogic']),
     props({} as AIObservabilityTraceLogicProps),
@@ -120,6 +149,19 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
 
     reducers(() => ({
         traceId: ['' as string, { setTraceId: (_, { traceId }) => traceId }],
+        // The branch+repo the loader is currently resolving for. Updates synchronously when the load is
+        // dispatched (before the request resolves), so the branchPRMatches selector can drop a
+        // resolution still tagged with the previously viewed trace's branch/repo.
+        resolvingKey: [
+            null as string | null,
+            { loadBranchPRMatches: (_, gitMetadata: TraceGitMetadata | null) => branchPRResolutionKey(gitMetadata) },
+        ],
+        // The metadata of the latest resolve request, kept so a resolve skipped while feature flags
+        // were still loading can be re-dispatched once they arrive (see the featureFlags subscription).
+        lastGitMetadata: [
+            null as TraceGitMetadata | null,
+            { loadBranchPRMatches: (_, gitMetadata: TraceGitMetadata | null) => gitMetadata },
+        ],
         eventId: [null as string | null, { setEventId: (_, { eventId }) => eventId }],
         highlightMessageIndex: [
             null as number | null,
@@ -313,9 +355,61 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
                 },
             },
         ],
+        branchPRResolution: [
+            { key: null, matches: [] } as BranchPRResolution,
+            {
+                loadBranchPRMatches: async (gitMetadata: TraceGitMetadata | null, breakpoint) => {
+                    // Tag the result with the branch+repo it resolved for, so a stale in-flight result from
+                    // the previously viewed trace can be discarded (see the branchPRMatches selector).
+                    const key = branchPRResolutionKey(gitMetadata)
+                    const branch = gitMetadata?.branch ?? null
+
+                    if (!branch) {
+                        return { key, matches: [] }
+                    }
+
+                    // Gated on engineering analytics: only that product can turn a git branch into a PR link.
+                    // Flags may not have loaded yet (deep link straight to a trace) — mark the skip as
+                    // gated so the featureFlags subscription retries once they arrive.
+                    if (!values.featureFlags?.[FEATURE_FLAGS.ENGINEERING_ANALYTICS]) {
+                        return { key, matches: [], gated: !Object.keys(values.featureFlags ?? {}).length }
+                    }
+
+                    await breakpoint(100)
+
+                    // A failed resolution just means no PR link, the chip renders plain and never blocks the header.
+                    let matches: BranchPRMatchApi[]
+                    try {
+                        matches = await engineeringAnalyticsResolveBranch(projectId(), {
+                            branch,
+                            repo: gitMetadata?.repo ?? undefined,
+                            timestamp: gitMetadata?.timestamp ?? undefined,
+                        })
+                    } catch {
+                        matches = []
+                    }
+
+                    // Also on the failure path: a stale request failing after a newer load resolved must not
+                    // overwrite the newer resolution.
+                    breakpoint()
+
+                    return { key, matches }
+                },
+            },
+        ],
     })),
 
     selectors({
+        // Only surface matches once the stored resolution matches the branch+repo currently being
+        // resolved. On a trace switch traceGitMetadata (and resolvingKey) update immediately while the
+        // loader still holds the previous trace's matches, so this drops them until the reload lands —
+        // the chip never links the new trace's text to another branch's (or same-named branch in
+        // another repo's) PR.
+        branchPRMatches: [
+            (s) => [s.branchPRResolution, s.resolvingKey],
+            (resolution, resolvingKey): BranchPRMatchApi[] =>
+                resolution.key === resolvingKey ? resolution.matches : [],
+        ],
         inputMessageShowStates: [(s) => [s.messageShowStates], (messageStates) => messageStates.input],
         outputMessageShowStates: [(s) => [s.messageShowStates], (messageStates) => messageStates.output],
         query: [
@@ -393,7 +487,7 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         initializeMessageStates: ({ inputCount, outputCount }) => {
             // Apply display option when initializing
             const displayOption = values.displayOption
@@ -410,8 +504,17 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
             actions.applySearchResults(inputStates, outputStates)
         },
         setSearchQuery: ({ searchQuery }) => {
+            // When the query came from the URL (via urlToAction), don't write it back.
+            // The URL builder and the router's decoder don't round-trip every string
+            // identically (e.g. queries containing a space), so the value-only comparison
+            // below can stay unequal forever and recurse until the stack overflows. This
+            // re-entrancy flag breaks the loop regardless of encoding.
+            if (cache.settingSearchFromUrl) {
+                cache.settingSearchFromUrl = false
+                return
+            }
+
             // Only update URL if the search query actually changed
-            // This prevents infinite loop when setSearchQuery is called from urlToAction
             const currentUrl = window.location.search
             const urlParams = new URLSearchParams(currentUrl)
             const currentSearchInUrl = urlParams.get('search') || ''
@@ -450,7 +553,14 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
         },
     })),
 
-    subscriptions(({ actions }) => ({
+    subscriptions(({ actions, values }) => ({
+        featureFlags: (featureFlags: Record<string, unknown>) => {
+            // A resolve skipped because flags had not loaded yet (deep link straight to a trace)
+            // is retried once they arrive — otherwise the chip stays permanently unlinked.
+            if (featureFlags?.[FEATURE_FLAGS.ENGINEERING_ANALYTICS] && values.branchPRResolution.gated) {
+                actions.loadBranchPRMatches(values.lastGitMetadata)
+            }
+        },
         traceId: (traceId: string) => {
             if (traceId) {
                 actions.loadCommentCount()
@@ -463,7 +573,7 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
         },
     })),
 
-    urlToAction(({ actions }) => ({
+    urlToAction(({ actions, cache }) => ({
         [urls.aiObservabilityTrace(':id')]: ({ id }, { event, timestamp, exception_ts, search, line, tab, msg }) => {
             actions.setTraceId(id ?? '')
             void addProductIntent({
@@ -486,7 +596,9 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
                     parsedDate.add(EXCEPTION_LOOKUP_WINDOW_MINUTES, 'minutes').toISOString()
                 )
             }
-            // Set search from URL param if provided, otherwise clear it
+            // Set search from URL param if provided, otherwise clear it.
+            // Mark it as URL-driven so the listener doesn't write it straight back to the URL.
+            cache.settingSearchFromUrl = true
             actions.setSearchQuery(search || '')
         },
     })),

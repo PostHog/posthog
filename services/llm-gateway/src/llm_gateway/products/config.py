@@ -15,9 +15,9 @@ class CreditBucket(StrEnum):
 
     Values match (or, once created, will match) the Django quota resource keys
     (ee/billing/quota_limiting.py QuotaResource), which is what the gateway's
-    quota resolver checks against. Only AI_CREDITS has a QuotaResource and
-    gateway-side quota enforcement today; POSTHOG_CODE_CREDITS bills without
-    blocking until its resource lands.
+    quota resolver checks against. Both buckets have gateway-side quota
+    enforcement: an exhausted bucket blocks every caller of the product, the
+    same population the usage reporter counts into it.
     """
 
     AI_CREDITS = "ai_credits"
@@ -34,9 +34,8 @@ class ProductConfig:
     # Which customer credit bucket this product bills into. None = not billed: emitted
     # $ai_generation events are tagged $ai_billable=false and the usage reporter
     # (posthog/tasks/usage_report.py) ignores them. A bucket value tags events billable
-    # so the reporter rolls them into that bucket's credit counter, and requests are
-    # blocked when the bucket's quota is exhausted — currently only AI_CREDITS has
-    # gateway-side quota enforcement; other buckets bill without blocking.
+    # so the reporter rolls them into that bucket's credit counter, and every caller
+    # is blocked when the bucket's quota is exhausted.
     credit_bucket: CreditBucket | None = None
 
 
