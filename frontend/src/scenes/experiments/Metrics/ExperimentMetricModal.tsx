@@ -7,6 +7,7 @@ import type { Experiment } from '~/types'
 
 import { ExperimentMetricForm } from '../ExperimentMetricForm'
 import { exposureCriteriaModalLogic } from '../ExperimentView/exposureCriteriaModalLogic'
+import { getExperimentMetricConversionWindowError } from '../utils'
 import { type MetricContext, experimentMetricModalLogic } from './experimentMetricModalLogic'
 
 export function ExperimentMetricModal({
@@ -73,6 +74,7 @@ export function ExperimentMetricModal({
                             onClick={() => onSave(metric, context)}
                             type="primary"
                             data-attr="save-experiment-metric"
+                            disabledReason={getExperimentMetricConversionWindowError(metric) ?? undefined}
                         >
                             {isCreateMode ? 'Create' : 'Save'}
                         </LemonButton>

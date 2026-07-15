@@ -757,6 +757,18 @@ export const isLegacyExperiment = (experiment?: Experiment | null): boolean => {
 
 export const isLegacySharedMetric = ({ query }: SharedMetric): boolean => isLegacyExperimentQuery(query)
 
+/**
+ * Returns a validation message when a metric's conversion window is misconfigured, otherwise null.
+ * A time-window unit requires a positive conversion window; an empty value would silently fall back
+ * to a default, so we surface it instead.
+ */
+export function getExperimentMetricConversionWindowError(metric: ExperimentMetric): string | null {
+    if (metric.conversion_window_unit !== undefined && !metric.conversion_window) {
+        return 'Enter a conversion window, or switch to experiment duration'
+    }
+    return null
+}
+
 const getEventCountSeries = (metric: ExperimentMetric): AnyEntityNode[] => {
     /**
      * we short circuit for funnel metrics

@@ -8,6 +8,8 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { ExperimentMetric } from '~/queries/schema/schema-general'
 import { FunnelConversionWindowTimeUnit } from '~/types'
 
+import { getExperimentMetricConversionWindowError } from './utils'
+
 export function ExperimentMetricConversionWindowFilter({
     metric,
     handleSetMetric,
@@ -22,6 +24,7 @@ export function ExperimentMetricConversionWindowFilter({
         })
     )
     const intervalBounds = TIME_INTERVAL_BOUNDS[metric.conversion_window_unit ?? FunnelConversionWindowTimeUnit.Day]
+    const conversionWindowError = getExperimentMetricConversionWindowError(metric)
 
     return (
         <SceneSection
@@ -67,26 +70,30 @@ export function ExperimentMetricConversionWindowFilter({
                     ]}
                 />
                 {metric.conversion_window_unit !== undefined && (
-                    <div className="flex items-center gap-2">
-                        <LemonInput
-                            type="number"
-                            className="max-w-20"
-                            fullWidth={false}
-                            min={intervalBounds[0]}
-                            max={intervalBounds[1]}
-                            value={metric.conversion_window || 1}
-                            onChange={(value) => {
-                                handleSetMetric({ ...metric, conversion_window: value || undefined })
-                            }}
-                        />
-                        <LemonSelect
-                            dropdownMatchSelectWidth={false}
-                            value={metric.conversion_window_unit}
-                            onChange={(value) =>
-                                handleSetMetric({ ...metric, conversion_window_unit: value || undefined })
-                            }
-                            options={options}
-                        />
+                    <div className="flex flex-col gap-1">
+                        <div className="flex items-center gap-2">
+                            <LemonInput
+                                type="number"
+                                className="max-w-20"
+                                fullWidth={false}
+                                min={intervalBounds[0]}
+                                max={intervalBounds[1]}
+                                status={conversionWindowError ? 'danger' : 'default'}
+                                value={metric.conversion_window}
+                                onChange={(value) => {
+                                    handleSetMetric({ ...metric, conversion_window: value || undefined })
+                                }}
+                            />
+                            <LemonSelect
+                                dropdownMatchSelectWidth={false}
+                                value={metric.conversion_window_unit}
+                                onChange={(value) =>
+                                    handleSetMetric({ ...metric, conversion_window_unit: value || undefined })
+                                }
+                                options={options}
+                            />
+                        </div>
+                        {conversionWindowError && <div className="text-danger text-xs">{conversionWindowError}</div>}
                     </div>
                 )}
             </div>
