@@ -58,6 +58,7 @@ members = [
   "personhog-replica",
   "personhog-router",
   "personhog-stateright",
+  "personhog-test-harness",
   "affected-services",
   "property-vals-rs",
 ]

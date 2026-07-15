@@ -72,6 +72,22 @@ Pass `--include-source` to bundle the referenced source files for richer context
 
 The standalone `posthog-cli dsym upload` command is unchanged and still recommended for dSYM-only Xcode build phases, where it also reads release and version metadata from each bundle's `Info.plist`.
 
+## Configuring sourcemap upload concurrency
+
+Sourcemap uploads run up to 10 file uploads at a time by default. Set a different positive value with `--concurrency` on `sourcemap upload` or `sourcemap process`:
+
+```bash
+posthog-cli sourcemap process --directory ./dist --concurrency 32
+```
+
+For build integrations such as `@posthog/nextjs-config`, set `POSTHOG_CLI_SOURCEMAP_UPLOAD_CONCURRENCY` in the build environment instead:
+
+```bash
+POSTHOG_CLI_SOURCEMAP_UPLOAD_CONCURRENCY=32 npm run build
+```
+
+The CLI flag takes precedence over the environment variable. Both require a value greater than zero. This setting applies only to plain sourcemap uploads; other CLI concurrency remains unchanged.
+
 ## Skipping uploads (dry run)
 
 Pass `--dry-run` before the subcommand (`posthog-cli --dry-run hermes upload ...`), or set `POSTHOG_CLI_DRY_RUN=true`, to turn the upload commands — `sourcemap`, `dsym`, `hermes`, and `proguard` — into a no-op.
