@@ -49,7 +49,6 @@ class ElevenLabsSource(ResumableSource[ElevenLabsSourceConfig, ElevenLabsResumeC
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="ElevenLabs",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your ElevenLabs API key to sync your ElevenLabs data into the PostHog Data warehouse.
 
 You can create an API key in your [ElevenLabs account settings](https://elevenlabs.io/app/settings/api-keys).
