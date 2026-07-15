@@ -516,6 +516,7 @@ doesn't conflict with concurrent PRs.
 - asknicely
 - auth0
 - automox
+- autumn
 - aws_cloudtrail
 - azure_blob
 - azure_table_storage
@@ -621,6 +622,7 @@ doesn't conflict with concurrent PRs.
 - frill
 - fulcrum
 - gerrit
+- getstream
 - gitea
 - gitguardian
 - glassfrog
@@ -749,6 +751,7 @@ doesn't conflict with concurrent PRs.
 - nuget
 - nutshell
 - nylas
+- octolens
 - octopus_deploy
 - onedrive
 - onehundredms
