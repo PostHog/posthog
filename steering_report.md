@@ -4,7 +4,7 @@ Date: 2026-07-15
 
 ## Status
 
-Negotiated native steering for active Codex and Claude cloud runs is implemented and hardened against the original QA findings and both follow-up blocker rounds.
+Negotiated native steering for active Codex and Claude cloud runs is implemented and hardened against the original QA findings and all follow-up blocker rounds.
 
 The implementation is split across:
 
@@ -156,20 +156,67 @@ Both `ProcessTaskWorkflow` and `ExecuteSandboxWorkflow` consume that outcome, cl
 
 Resume hydration now finds the maximum suffix/prefix overlap between ancestor history and the current endpoint response. This handles backend history windows that overlap without beginning at the root, avoiding duplicate transcript entries beyond the backend's bounded resume-chain window.
 
+## Final race and delivery fixes
+
+### Completion drains a declined-steer fallback
+
+Both `ProcessTaskWorkflow` and `ExecuteSandboxWorkflow` now finish the active follow-up and drain follow-ups that became dispatchable before terminal cleanup.
+
+If `complete_task` arrives while a steer attempt is in flight and that steer declines, the message is converted to a normal follow-up and delivered before the workflow exits. The behavior remains behind the existing Temporal patch so prior histories replay unchanged.
+
+The regressions cover completion arriving during the steer attempt in both workflow generations.
+
+### Cold-reload hydration updates the live watcher offset
+
+The live watcher now owns the resume-history offset used to normalize chain-global updates. It starts from `resumeFromEntryCount` and is updated in place when hydration succeeds, including hydration triggered by a same-run reconciliation.
+
+This keeps the existing watcher synchronized when an initial cold-reload hydration is incomplete and a later attempt succeeds. Buffered or subsequent leaf updates continue to append against the leaf-local cursor instead of being dropped as a gap.
+
+### Recoverable outcomes remain idempotent
+
+An accepted prompt that returns `error_recoverable` is now committed before the result is returned. A retry with the same `messageId` receives the original delivery outcome and cannot execute the prompt or its side effects again.
+
+### Persisted resume history is authoritative during hydration
+
+Live E2E exposed a separate immediate-resume duplication: inherited live `agent_message_chunk` events could be merged over already-coalesced persisted `agent_message` history because their JSON shapes differ.
+
+Resume hydration now treats persisted history as authoritative through its newest event and appends only genuinely newer session events. Live watcher updates remain buffered until hydration completes, so no current-leaf update is lost. The regression preserves a newer live event while rejecting the inherited duplicate chunk.
+
 ## Automated validation
 
 Latest validation:
 
-- Backend focused Temporal, activity, and client suite: 150 passed.
-- PostHog Code agent adapter/server focused suite: 203 passed.
-- PostHog Code app-server client regression suite: 8 passed.
-- PostHog Code session service UI suite: 141 passed.
+- Backend `process_task` and `execute_sandbox` workflow suites: 103 passed.
+- Backend focused completion-race regressions after merging current `origin/master`: 2 passed.
+- PostHog Code agent package: 77 files and 1,270 tests passed.
+- PostHog Code full UI package: 172 files and 1,523 tests passed.
+- PostHog Code session service UI suite: 142 passed.
 - Shared, agent, core, and UI TypeScript package typechecks passed.
-- OpenAPI generation, Ruff, Python compilation, targeted Biome, and diff checks passed.
+- OpenAPI generation, Ruff, Python compilation, Biome, and diff checks passed.
 
-Earlier validation across the branch also covered the full 1,268-test agent package and broader workspace checks.
+Earlier validation across the branch also covered the focused Temporal, activity, client, adapter, and app-server suites.
 
 ## Live cloud-run verification
+
+### Final steering and A→B→C hydration run
+
+- Task: `3bd196b5-fd2b-4858-9ab2-f2eb07b29763`
+- A run: `aed18219-01e6-4c0e-a0bb-5fe2e1343e2e`
+- B run: `afb5674f-a4e5-4e72-bc04-6dfab9712766`
+- C run: `4cada160-2626-44fc-ac3f-cd50ffba26cf`
+
+The backend and Electron app were restarted with the current working trees. The live sandbox reported the configured backend and LLM gateway tunnels, and database state confirmed the final A→B→C linkage.
+
+Verified:
+
+- A returned `FINALGOOD15` once in the response and once in the echoed prompt.
+- An idle steer became a normal fallback turn. While that request was active, a second steer was delivered concurrently through `send_followup_steered` and returned `STEERFINAL15` without terminalizing the run.
+- A was completed before B was sent, and B was completed before C was sent. Both follow-ups therefore created real resumed runs rather than joining a live workflow.
+- B returned `RESUMEFINAL15`; C returned `THIRDRESUME15`.
+- Immediately after C hydrated, every prior and current marker appeared exactly twice, with no duplicate response chunks, missing ancestry, pending prompt, or error.
+- After a cold renderer reload, all markers still appeared exactly twice and the transcript contained two restored-sandbox boundaries.
+- A new post-reload live follow-up returned `POSTFIXLIVE15` exactly twice, proving the C watcher retained the correct leaf-local cursor after hydration.
+- All three workflow runs reached `completed`.
 
 ### Latest Codex boundary, resume, and cold-reload run
 
