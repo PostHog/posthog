@@ -1,5 +1,7 @@
 from typing import Optional, cast
 
+from requests.exceptions import RequestException
+
 from posthog.schema import (
     DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -129,7 +131,16 @@ class RedditAdsSource(ResumableSource[RedditAdsSourceConfig, RedditAdsResumeConf
         # trying again — `refresh_access_token` clears it on entry and usually succeeds.
         oauth = OauthIntegration(integration)
         if oauth.access_token_expired():
-            oauth.refresh_access_token()
+            try:
+                oauth.refresh_access_token()
+            except RequestException as e:
+                # A refresh that fails before Reddit returns an HTTP response (timeout, dropped
+                # connection) never reaches the code that records ERROR_TOKEN_REFRESH_FAILED, so it
+                # would escape as an unhandled 500. Map it to the same transient guidance the handled
+                # failures return.
+                raise IntegrationAccountListingError(
+                    "Could not reach Reddit to refresh the credentials for this integration. Please try again."
+                ) from e
         if integration.errors == ERROR_TOKEN_REFRESH_FAILED or not integration.access_token:
             raise IntegrationAccountListingError(
                 "Could not refresh the Reddit Ads credentials. Please reconnect your Reddit Ads integration."
