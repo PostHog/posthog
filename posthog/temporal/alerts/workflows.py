@@ -9,6 +9,8 @@ from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 
 from posthog.schema import AlertState
 
+from posthog.slo.context import JsonValue
+from posthog.slo.types import SloArea, SloConfig, SloOperation
 from posthog.temporal.alerts.activities import (
     cleanup_alert_checks,
     evaluate_alert,
@@ -26,8 +28,6 @@ from posthog.temporal.alerts.types import (
     PrepareAlertActivityInputs,
 )
 from posthog.temporal.common.base import PostHogWorkflow
-
-from products.alerts.backend.slo import build_alert_check_slo
 
 with temporalio.workflow.unsafe.imports_passed_through():
     from django.conf import settings
@@ -59,6 +59,11 @@ class ScheduleDueAlertChecksWorkflow(PostHogWorkflow):
         # rejects the duplicate start.
         tasks = []
         for alert in alerts:
+            slo_properties: dict[str, JsonValue] = {
+                "alert_type": "insight",
+                "calculation_interval": alert.calculation_interval,
+                "insight_id": alert.insight_id,
+            }
             task = temporalio.workflow.execute_child_workflow(
                 CheckAlertWorkflow.run,
                 CheckAlertWorkflowInputs(
@@ -67,15 +72,14 @@ class ScheduleDueAlertChecksWorkflow(PostHogWorkflow):
                     distinct_id=alert.distinct_id,
                     calculation_interval=alert.calculation_interval,
                     insight_id=alert.insight_id,
-                    slo=build_alert_check_slo(
+                    slo=SloConfig(
+                        operation=SloOperation.ALERT_CHECK,
+                        area=SloArea.ANALYTIC_PLATFORM,
                         team_id=alert.team_id,
-                        alert_id=alert.alert_id,
+                        resource_id=alert.alert_id,
                         distinct_id=alert.distinct_id,
-                        alert_type="insight",
-                        properties={
-                            "calculation_interval": alert.calculation_interval,
-                            "insight_id": alert.insight_id,
-                        },
+                        start_properties=slo_properties.copy(),
+                        completion_properties=slo_properties.copy(),
                     ),
                 ),
                 id=f"check-alert-{alert.alert_id}",

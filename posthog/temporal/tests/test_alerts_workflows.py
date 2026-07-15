@@ -71,6 +71,10 @@ async def test_schedule_due_alert_checks_adds_shared_slo_context() -> None:
         "calculation_interval": AlertCalculationInterval.DAILY.value,
         "insight_id": 123,
     }
+    assert inputs.slo.completion_properties == inputs.slo.start_properties
+
+    inputs.slo.completion_properties["alert_state"] = AlertState.FIRING
+    assert "alert_state" not in inputs.slo.start_properties
 
 
 def test_schedule_is_registered_in_init_schedules():

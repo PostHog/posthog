@@ -19,7 +19,6 @@ from pydantic import ValidationError as PydanticValidationError
 
 from posthog.schema import PropertyGroupFilter
 
-from posthog.alerting.scheduling import due_alerts_q
 from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.client import ProduceResult
 from posthog.models import Team
@@ -58,7 +57,7 @@ from products.logs.backend.alert_state_machine import (
     apply_outcome,
     evaluate_alert_check,
 )
-from products.logs.backend.alert_utils import advance_next_check_at, compute_shard_offset_seconds
+from products.logs.backend.alert_utils import advance_next_check_at, compute_shard_offset_seconds, due_alerts_q
 from products.logs.backend.logs_url_params import build_logs_url_params
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.temporal.constants import (

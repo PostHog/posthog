@@ -1,11 +1,8 @@
-"""Shared scheduling math for alert check sweeps.
+"""Scheduling math for alerts with fixed, minute-based check intervals.
 
-Alerting products run the same sweep shape — a Temporal cron discovers due alerts
-(`next_check_at <= now`), evaluates them in batches, and advances `next_check_at`.
-This module owns the pure per-alert cadence math; the Django-side due-alert
-predicate lives in posthog/alerting/scheduling.py.
-
-Pure Python — no Django, no product imports.
+This is compatible with the real-time, 15-minute, and hourly insight alert
+cadences. Daily, weekly, and monthly insight alerts remain product-specific
+because they align checks to the team's timezone and apply schedule restrictions.
 """
 
 from __future__ import annotations
@@ -14,7 +11,7 @@ from datetime import datetime, timedelta
 from uuid import UUID
 
 # How often a sweep schedule typically fires. Drives shard granularity in
-# `compute_shard_offset_seconds` — schedule fires every N seconds, so a
+# `compute_shard_offset_seconds`: schedule fires every N seconds, so a
 # cadence of M seconds has `M // N` shard slots available.
 DEFAULT_SCHEDULE_INTERVAL_SECONDS = 60
 
@@ -33,8 +30,8 @@ def compute_shard_offset_seconds(
     5 buckets at offsets [0, 60, 120, 180, 240] seconds.
 
     `alert_id.int` is stable across pod restarts (process-local `hash()` is not).
-    For UUIDv7 IDs, the low bits are the random portion — the modulus operation
-    naturally lands on those bits, so distribution is uniform.
+    For UUIDv7 IDs, the low bits are the random portion, so the modulus operation
+    produces a uniform distribution.
     Cadences ≤ schedule interval get 1 shard (no spread possible).
     """
     cadence_seconds = check_interval_minutes * 60
@@ -66,14 +63,14 @@ def advance_next_check_at(
     Default 0 = no shard, alert sits on the canonical grid.
 
     Any drifted `next_check_at` — sub-minute drift OR minute-level offset (e.g.
-    legacy alerts on a per-creation-time grid) — self-heals to canonical on its
+    legacy alerts on a per-creation-time grid) self-heals to canonical on its
     next return. Existing alerts heal lazily, one transient short-gap each (the
     state machine handles the brief overlap window via N-of-M dedup).
 
     Inter-eval gaps are exactly `check_interval_minutes` in steady state. The
     only "shorter than cadence" gaps are (1) creation-to-first-eval and (2)
     the one-time heal cycle for a previously-drifted alert. Both are
-    cosmetic — alert eval windows tile correctly because they're anchored
+    cosmetic because alert eval windows tile correctly and are anchored
     on `date_to`, not on prior eval time.
     """
     if check_interval_minutes <= 0:
@@ -101,11 +98,11 @@ def _floor_to_cadence_grid(t: datetime, cadence_minutes: int) -> datetime:
     """Floor to the previous cadence-grid slot, anchored at midnight of `t`.
 
     For divisors of 60 (1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60), this is
-    "every cadence minutes within the hour" — the grid an operator expects
+    "every cadence minutes within the hour", the grid an operator expects
     (5-min alerts on :00/:05/:10, 15-min on :00/:15/:30/:45, etc.). Cadences
     > 60 that divide 1440 (90, 120, 240, 360, 480, 720, 1440) also tile
     cleanly. Cadences that divide neither 60 nor 1440 (e.g. 7, 11, 100) get
-    a discontinuity at midnight where the grid re-anchors — fine in practice
+    a discontinuity at midnight where the grid re-anchors. This is fine in practice
     because alert UI almost certainly constrains cadence to common values.
     """
     total_minutes = t.hour * 60 + t.minute
