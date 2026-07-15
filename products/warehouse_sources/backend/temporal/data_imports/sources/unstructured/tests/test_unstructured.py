@@ -201,6 +201,18 @@ class TestGetRows:
         assert make_session.call_args.kwargs["allow_redirects"] is False
         assert make_session.call_args.kwargs["redact_values"] == ("secret-key",)
 
+    @parameterized.expand([("secret_endpoint", "sources", False), ("plain_endpoint", "jobs", True)])
+    def test_capture_disabled_for_secret_bearing_endpoints(self, _name: str, endpoint: str, capture: bool) -> None:
+        # The adapter captures the raw body before `_drop_sensitive_fields` runs, so capture must be
+        # off for endpoints whose responses carry the connector `config` secrets.
+        manager = self._manager()
+        session = MagicMock()
+        session.get.return_value = _response(200, [])
+        with patch.object(unstructured, "make_tracked_session", return_value=session) as make_session:
+            list(get_rows(DEFAULT_BASE_URL, "key", endpoint, MagicMock(), manager, team_id=1))
+
+        assert make_session.call_args.kwargs["capture"] is capture
+
     def test_unsafe_host_blocks_fetch(self) -> None:
         # A host resolving to an internal address must be rejected before the key is ever sent.
         manager = self._manager()

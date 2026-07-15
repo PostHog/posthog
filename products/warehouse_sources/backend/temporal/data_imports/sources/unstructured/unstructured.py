@@ -154,7 +154,12 @@ def get_rows(
     # `allow_redirects=False` keeps the credentialed request pinned to the validated host so a
     # customer-controlled host can't 30x the `unstructured-api-key` header off-origin (SSRF). The
     # key is also registered for value-based redaction so it never lands in a captured HTTP sample.
-    session = make_tracked_session(redact_values=(api_key,), allow_redirects=False)
+    # HTTP sample capture is disabled for endpoints with drop_fields (sources / destinations): the
+    # adapter records the raw response body before `_drop_sensitive_fields` runs, so capturing it
+    # would persist the connector `config` secrets into the sample bucket that stripping removes.
+    session = make_tracked_session(
+        redact_values=(api_key,), allow_redirects=False, capture=not bool(config.drop_fields)
+    )
 
     if not config.paginated:
         rows = _drop_sensitive_fields(_fetch(session, url, headers, None, logger), config.drop_fields)
