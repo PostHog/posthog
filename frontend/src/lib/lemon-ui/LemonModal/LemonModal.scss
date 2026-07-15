@@ -111,11 +111,17 @@
     border-bottom: 1px solid var(--color-border-primary);
 
     h3 {
-        margin-right: 2.5rem;
+        display: -webkit-box;
+        min-width: 0;
+        max-width: calc(100% - 2.5rem);
+        overflow: hidden;
         margin-bottom: 0;
         font-size: 1.125rem;
         font-weight: 700;
         line-height: 1.5rem;
+        overflow-wrap: anywhere;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
     }
 
     p {

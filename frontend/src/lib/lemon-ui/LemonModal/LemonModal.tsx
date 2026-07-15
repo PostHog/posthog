@@ -1,7 +1,7 @@
 import './LemonModal.scss'
 
 import clsx from 'clsx'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import Modal from 'react-modal'
 
 import { IconX } from '@posthog/icons'
@@ -69,6 +69,42 @@ export const LemonModalContent = ({ children, className, embedded = false }: Lem
         <section className={clsx('LemonModal__content', embedded && 'LemonModal__content--embedded', className)}>
             {children}
         </section>
+    )
+}
+
+function LemonModalTitle({ children }: { children: React.ReactNode }): JSX.Element {
+    const titleRef = useRef<HTMLHeadingElement>(null)
+    const [isTruncated, setIsTruncated] = useState(false)
+
+    useLayoutEffect(() => {
+        const titleElement = titleRef.current
+        if (!titleElement) {
+            return
+        }
+
+        const updateIsTruncated = (): void => {
+            setIsTruncated(
+                titleElement.scrollWidth > titleElement.clientWidth ||
+                    titleElement.scrollHeight > titleElement.clientHeight
+            )
+        }
+
+        updateIsTruncated()
+
+        if (typeof ResizeObserver === 'undefined') {
+            return
+        }
+
+        const resizeObserver = new ResizeObserver(updateIsTruncated)
+        resizeObserver.observe(titleElement)
+
+        return () => resizeObserver.disconnect()
+    }, [children])
+
+    return (
+        <Tooltip title={isTruncated ? children : undefined} placement="bottom-start">
+            <h3 ref={titleRef}>{children}</h3>
+        </Tooltip>
     )
 }
 
@@ -148,7 +184,7 @@ export function LemonModal({
                     <>
                         {title ? (
                             <LemonModalHeader>
-                                <h3>{title}</h3>
+                                <LemonModalTitle>{title}</LemonModalTitle>
                                 {description ? (
                                     typeof description === 'string' ? (
                                         <p>{description}</p>

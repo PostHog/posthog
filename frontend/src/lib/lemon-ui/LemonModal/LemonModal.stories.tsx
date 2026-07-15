@@ -95,6 +95,22 @@ export const WithoutContent: Story = {
     },
 }
 
+export const WithLongTitle: Story = {
+    render: () => (
+        <div className="bg-default p-4">
+            <LemonModal
+                inline
+                width={480}
+                title="/project/example/groups/example.myshopify.com/sessionRecordings/with/a/title/that/is/too/long/to/display/in/full"
+                onClose={() => undefined}
+            >
+                The title wraps without overlapping the close button and shows the full value in a tooltip when it is
+                truncated.
+            </LemonModal>
+        </div>
+    ),
+}
+
 export const Inline: Story = {
     render: () => {
         const [isOpen, setIsOpen] = useState(false)
