@@ -345,12 +345,22 @@ const getScatterAutoSettings = (columns: Column[], scatterSettings: ScatterSetti
 
     const nextSettings: Partial<ScatterSettings> = {}
 
+    // account for a same-tick auto-fill on the other axis so we never point both axes at one column
+    const effectiveX = (): string | null | undefined => nextSettings.xAxisColumn ?? scatterSettings.xAxisColumn
+    const effectiveY = (): string | null | undefined => nextSettings.yAxisColumn ?? scatterSettings.yAxisColumn
+
     if (!isUsable(scatterSettings.xAxisColumn) && numericalColumns[0]) {
-        nextSettings.xAxisColumn = numericalColumns[0].name
+        const candidate = numericalColumns.find((column) => column.name !== effectiveY())
+        if (candidate) {
+            nextSettings.xAxisColumn = candidate.name
+        }
     }
 
     if (!isUsable(scatterSettings.yAxisColumn) && numericalColumns[1]) {
-        nextSettings.yAxisColumn = numericalColumns[1].name
+        const candidate = numericalColumns.find((column) => column.name !== effectiveX())
+        if (candidate) {
+            nextSettings.yAxisColumn = candidate.name
+        }
     }
 
     // null means the user explicitly chose no label — only fill when never set or stale

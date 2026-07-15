@@ -446,6 +446,36 @@ describe('dataVisualizationLogic', () => {
         })
     })
 
+    it('does not auto-fill both scatter axes with the same column', async () => {
+        const nodeLogic = dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId })
+        nodeLogic.actions.setResponse({
+            columns: ['org', 'gb_ingested', 'query_count'],
+            types: [
+                ['org', 'String'],
+                ['gb_ingested', 'Int64'],
+                ['query_count', 'Int64'],
+            ],
+            results: [['Org A', 10, 100]],
+        })
+        logic.actions.setVisualizationType(ChartDisplayType.ScatterPlot)
+
+        // X is valid and already points at the last numerical column; Y is stale and must not
+        // re-derive to that same column
+        logic.actions.updateChartSettings({
+            scatter: { xAxisColumn: 'query_count', yAxisColumn: 'missing', labelColumn: null },
+        })
+        logic.actions.setVisualizationType(ChartDisplayType.ScatterPlot)
+
+        await expectLogic(logic).toMatchValues({
+            chartSettings: expect.objectContaining({
+                scatter: expect.objectContaining({
+                    xAxisColumn: 'query_count',
+                    yAxisColumn: 'gb_ingested',
+                }),
+            }),
+        })
+    })
+
     it('stamps labels onto the slices when a pie chart is newly picked', async () => {
         logic.actions.setVisualizationType(ChartDisplayType.ActionsPie)
 
