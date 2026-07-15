@@ -96,6 +96,13 @@ export const inboxErrorTrackingIssueLogic = kea<inboxErrorTrackingIssueLogicType
                         // 308 means the issue was merged into another; surface the target for the fallback.
                         if (error?.status === 308 && error?.data && 'issue_id' in error.data) {
                             actions.setMergedToIssueId(error.data.issue_id)
+                            throw error
+                        }
+                        // 404 means the issue was deleted or the signal holds a stale id. The card already
+                        // renders a placeholder for a null issue (`mergedFailed`), so degrade quietly rather
+                        // than rethrowing and surfacing a handled frontend exception. Other errors propagate.
+                        if (error?.status === 404) {
+                            return null
                         }
                         throw error
                     }

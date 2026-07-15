@@ -72,6 +72,25 @@ describe('inboxErrorTrackingIssueLogic', () => {
             .toMatchValues({ summaryUnavailable: false })
     })
 
+    it('degrades quietly to the placeholder when the issue was deleted or the id is stale (404)', async () => {
+        // The backend raises NotFound("Issue not found") as a plain 404 for a deleted/stale issue id.
+        jest.spyOn(api.errorTracking, 'getIssue').mockRejectedValue(new ApiError('Issue not found', 404))
+        jest.spyOn(api, 'query').mockResolvedValue({ results: [] } as any)
+
+        mountLogic()
+
+        // The loader resolves into a null issue rather than failing, so nothing bubbles up as an exception.
+        await expectLogic(logic)
+            .toDispatchActions(['loadIssue', 'loadIssueSuccess'])
+            .toNotHaveDispatchedActions(['loadIssueFailure'])
+            .toMatchValues({
+                issue: null,
+                mergedToIssueId: null,
+                mergedFailed: true,
+                mergedIssue: null,
+            })
+    })
+
     it('falls back to a link when the issue was merged away (308)', async () => {
         const mergedError = new ApiError('Moved', 308, undefined, { issue_id: 'issue-2' })
         jest.spyOn(api.errorTracking, 'getIssue').mockRejectedValue(mergedError)
