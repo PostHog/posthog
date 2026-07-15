@@ -251,11 +251,34 @@ function parseTachModules(tomlText) {
     // match of each within a block. depends_on entries are plain quoted
     // strings with no nested brackets, so a non-greedy scan to the first `]`
     // is safe even across multi-line lists or lists split across shared lines.
+    //
+    // Only double-quoted strings are supported. Other valid TOML (single-quoted
+    // literals, inline tables) would be dropped by the regexes without error,
+    // silently shrinking the cascade — so any entry the regexes can't represent
+    // throws instead, which loadTachModuleGraph turns into "test all products".
+    // A false trip over-tests; a silent drop under-tests, so err on throwing.
     const blocks = tomlText.split('[[modules]]').slice(1)
     for (const block of blocks) {
         const pathMatch = block.match(/path\s*=\s*"([^"]+)"/)
+        if (!pathMatch) {
+            if (/^\s*path\s*=/m.test(block)) {
+                throw new Error('unsupported `path` syntax in a tach.toml module block (expected a double-quoted string)')
+            }
+            continue
+        }
         const dependsMatch = block.match(/depends_on\s*=\s*\[([\s\S]*?)\]/)
-        if (!pathMatch || !dependsMatch) {continue}
+        if (!dependsMatch) {
+            if (/^\s*depends_on\s*=/m.test(block)) {
+                throw new Error(`unsupported \`depends_on\` syntax for ${pathMatch[1]} in tach.toml (expected a list)`)
+            }
+            continue
+        }
+        const leftover = dependsMatch[1].replace(/"[^"]*"/g, '').replace(/#[^\n]*/g, '')
+        if (/[^\s,]/.test(leftover)) {
+            throw new Error(
+                `unsupported \`depends_on\` entry for ${pathMatch[1]} in tach.toml (expected double-quoted strings): ${leftover.trim().slice(0, 80)}`
+            )
+        }
         const modulePath = pathMatch[1]
         if (!modulePath.startsWith(TACH_MODULE_PREFIX)) {continue}
         const product = modulePath.slice(TACH_MODULE_PREFIX.length)

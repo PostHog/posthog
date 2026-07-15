@@ -159,3 +159,41 @@ layer = "modules"
     const dependents = tachDependents(['a', 'b'], graph)
     assert.deepEqual(dependents, [])
 })
+
+test('fail closed: a depends_on entry that is not a double-quoted string throws instead of silently dropping the edge', () => {
+    const toml = `
+[[modules]]
+path = "products.a"
+depends_on = ['products.b']
+layer = "modules"
+`
+    assert.throws(() => parseTachModules(toml), /depends_on/)
+})
+
+test('fail closed: a path that is not a double-quoted string throws instead of silently dropping the module', () => {
+    const toml = `
+[[modules]]
+path = 'products.a'
+depends_on = ["products.b"]
+layer = "modules"
+`
+    assert.throws(() => parseTachModules(toml), /path/)
+})
+
+test('comments inside a depends_on list are tolerated, and a block without depends_on is skipped without error', () => {
+    const toml = `
+[[modules]]
+path = "products.a"
+depends_on = [
+    "products.b", # transitional edge
+]
+layer = "modules"
+
+[[modules]]
+path = "products.no_deps"
+layer = "modules"
+`
+    const graph = parseTachModules(toml)
+    assert.deepEqual(graph.get('a'), ['b'])
+    assert.equal(graph.has('no_deps'), false)
+})
