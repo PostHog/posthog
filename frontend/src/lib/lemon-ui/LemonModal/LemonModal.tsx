@@ -86,13 +86,10 @@ function getTooltipTitle(titleElement: HTMLHeadingElement | null): string {
             continue
         }
 
-        const text = textNodeWalker.currentNode.textContent?.trim()
-        if (text) {
-            textSegments.push(text)
-        }
+        textSegments.push(textNodeWalker.currentNode.textContent ?? '')
     }
 
-    return textSegments.join(' ').replace(/\s+/g, ' ')
+    return textSegments.join('').replace(/\s+/g, ' ').trim()
 }
 
 function LemonModalTitle({ children }: { children: React.ReactNode }): JSX.Element {
@@ -122,7 +119,7 @@ function LemonModalTitle({ children }: { children: React.ReactNode }): JSX.Eleme
         resizeObserver.observe(titleElement)
 
         return () => resizeObserver.disconnect()
-    }, [children, isTruncated])
+    }, [children])
 
     return (
         <Tooltip title={isTruncated ? () => getTooltipTitle(titleRef.current) : undefined} placement="bottom-start">
