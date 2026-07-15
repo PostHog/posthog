@@ -19,12 +19,25 @@ export class AppState {
     private readonly store: JsonStore<DesktopSettings>
     private readonly context: AppStateContext
     private apiKey: string | null = null
+    private apiKeyLoaded = false
     private appOrigin: string | null = null
 
     constructor(store: JsonStore<DesktopSettings>, context: AppStateContext) {
         this.store = store
         this.context = context
-        const encrypted = store.get('encryptedApiKey')
+    }
+
+    /**
+     * Decrypts the stored API key lazily, on first getAuth(). AppState is constructed before
+     * app.whenReady(), and Electron's safeStorage throws when used before the app is ready —
+     * eager decryption in the constructor silently signed the user out on every launch.
+     */
+    private loadApiKey(): void {
+        if (this.apiKeyLoaded) {
+            return
+        }
+        this.apiKeyLoaded = true
+        const encrypted = this.store.get('encryptedApiKey')
         if (encrypted) {
             this.apiKey = decryptSecret(encrypted)
         }
@@ -39,6 +52,7 @@ export class AppState {
     }
 
     getAuth(): UpstreamAuth | null {
+        this.loadApiKey()
         const host = this.apiHost()
         if (!host || !this.apiKey) {
             return null
@@ -48,6 +62,7 @@ export class AppState {
 
     signIn(region: CloudRegion, customHost: string, apiKey: string, email: string): void {
         this.apiKey = apiKey
+        this.apiKeyLoaded = true
         this.store.set({
             region,
             customHost,
@@ -58,6 +73,7 @@ export class AppState {
 
     signOut(): void {
         this.apiKey = null
+        this.apiKeyLoaded = true
         this.store.set({ encryptedApiKey: null, signedInEmail: null })
     }
 
