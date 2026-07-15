@@ -659,6 +659,25 @@ class TestOauthIntegrationModel(BaseTest):
 
     @patch("posthog.models.integration.reload_integrations_on_workers")
     @patch("posthog.models.integration.requests.post")
+    def test_refresh_primary_network_error_still_tries_fallback(self, mock_post, mock_reload):
+        # A network error on the primary credentials must not skip the fallback attempt.
+        mock_post.side_effect = [requests.Timeout("timed out"), self._mock_token_response(200, "fallback-token")]
+        integration = self.create_integration(kind="bing-ads", config={"expires_in": 1000})
+
+        with self.settings(
+            BING_ADS_CLIENT_ID="new-app-id",
+            BING_ADS_CLIENT_SECRET="new-app-secret",
+            OAUTH_CLIENT_FALLBACKS={"bing-ads": {"client_id": "old-app-id", "client_secret": "old-app-secret"}},
+        ):
+            OauthIntegration(integration).refresh_access_token()
+
+        integration.refresh_from_db()
+        assert mock_post.call_count == 2
+        assert integration.errors == ""
+        assert integration.sensitive_config["access_token"] == "fallback-token"
+
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("posthog.models.integration.requests.post")
     def test_refresh_access_token_resets_errors(self, mock_post, mock_reload):
         """Test that errors field is reset to empty string after successful refresh_access_token"""
         mock_post.return_value.status_code = 200

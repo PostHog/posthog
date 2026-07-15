@@ -1374,10 +1374,19 @@ class OauthIntegration:
         try:
             res = self._post_token_refresh(oauth_config, oauth_config.client_id, oauth_config.client_secret)
             config = self._parse_token_refresh_response(res)
+        except requests.RequestException as e:
+            # A network error (timeout, connection reset) is a failed refresh, not a crash. Without
+            # this the Celery sweep task errors out before recording the failure, so the backoff and
+            # the TOKEN_REFRESH_FAILED reconnect state are never persisted.
+            logger.warning(f"Network error on primary credentials for {self}", error=str(e))
 
-            # A rotated or migrated OAuth app leaves users with refresh tokens only the previous
-            # credentials can refresh. Retry with the fallback pair so they keep working until they reconnect.
-            if (res.status_code != 200 or not config.get("access_token")) and oauth_config.client_secret_fallback:
+        # A rotated or migrated OAuth app leaves users with refresh tokens only the previous
+        # credentials can refresh. Retry with the fallback pair — including when the primary hit a
+        # network error — so they keep working until they reconnect.
+        if (
+            res is None or res.status_code != 200 or not config.get("access_token")
+        ) and oauth_config.client_secret_fallback:
+            try:
                 res = self._post_token_refresh(
                     oauth_config,
                     oauth_config.client_id_fallback or oauth_config.client_id,
@@ -1385,11 +1394,10 @@ class OauthIntegration:
                 )
                 config = self._parse_token_refresh_response(res)
                 used_fallback = True
-        except requests.RequestException as e:
-            # A network error (timeout, connection reset) is a failed refresh, not a crash. Without
-            # this the Celery sweep task errors out before recording the failure, so the backoff and
-            # the TOKEN_REFRESH_FAILED reconnect state are never persisted.
-            logger.warning(f"Network error refreshing token for {self}", error=str(e))
+            except requests.RequestException as e:
+                logger.warning(f"Network error on fallback credentials for {self}", error=str(e))
+                res = None
+                config = {}
 
         if res is None or res.status_code != 200 or not config.get("access_token"):
             logger.warning(
