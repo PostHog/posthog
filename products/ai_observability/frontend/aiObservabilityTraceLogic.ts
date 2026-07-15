@@ -487,7 +487,7 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         initializeMessageStates: ({ inputCount, outputCount }) => {
             // Apply display option when initializing
             const displayOption = values.displayOption
@@ -504,8 +504,17 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
             actions.applySearchResults(inputStates, outputStates)
         },
         setSearchQuery: ({ searchQuery }) => {
+            // When the query came from the URL (via urlToAction), don't write it back.
+            // The URL builder and the router's decoder don't round-trip every string
+            // identically (e.g. queries containing a space), so the value-only comparison
+            // below can stay unequal forever and recurse until the stack overflows. This
+            // re-entrancy flag breaks the loop regardless of encoding.
+            if (cache.settingSearchFromUrl) {
+                cache.settingSearchFromUrl = false
+                return
+            }
+
             // Only update URL if the search query actually changed
-            // This prevents infinite loop when setSearchQuery is called from urlToAction
             const currentUrl = window.location.search
             const urlParams = new URLSearchParams(currentUrl)
             const currentSearchInUrl = urlParams.get('search') || ''
@@ -564,7 +573,7 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
         },
     })),
 
-    urlToAction(({ actions }) => ({
+    urlToAction(({ actions, cache }) => ({
         [urls.aiObservabilityTrace(':id')]: ({ id }, { event, timestamp, exception_ts, search, line, tab, msg }) => {
             actions.setTraceId(id ?? '')
             void addProductIntent({
@@ -587,7 +596,9 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
                     parsedDate.add(EXCEPTION_LOOKUP_WINDOW_MINUTES, 'minutes').toISOString()
                 )
             }
-            // Set search from URL param if provided, otherwise clear it
+            // Set search from URL param if provided, otherwise clear it.
+            // Mark it as URL-driven so the listener doesn't write it straight back to the URL.
+            cache.settingSearchFromUrl = true
             actions.setSearchQuery(search || '')
         },
     })),

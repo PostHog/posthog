@@ -75,7 +75,9 @@ type TaskEntry = {
  * Single-coroutine Kafka consumer. The loop is the only mutator; the rebalance callback
  * just enqueues events. On REVOKE the loop synchronously drains in-flight settle promises
  * (post-storeOffsets, not raw user tasks), bumps `generation` so any laggard task skips
- * its now-invalid storeOffsets, then calls incrementalUnassign.
+ * its now-invalid storeOffsets, runs the optional onPartitionsRevoked hook while the
+ * partitions are still assigned (so a flush there can store offsets that get committed
+ * on the unassign), then calls incrementalUnassign.
  */
 export class KafkaConsumerV2 {
     private rdKafkaConsumer: RdKafkaConsumer
@@ -93,6 +95,13 @@ export class KafkaConsumerV2 {
     // Latched on the first backgroundTask failure: blocks further offset stores and
     // makes the loop exit on the next tick so the pod replays from the last good commit.
     private fatalError: unknown | undefined
+
+    // Optional async hook invoked with the partitions being revoked, after the in-flight
+    // drain and while the partitions are still assigned, before the unassign. The drain and
+    // the hook share one budget (drainTimeoutMs): the hook gets whatever the drain left, and
+    // a hook outliving it is abandoned so the rebalance proceeds. Not invoked for the final
+    // revoke during disconnect — callers flush explicitly before disconnecting.
+    private onPartitionsRevoked?: (assignments: Assignment[]) => Promise<void>
 
     // Tunables (resolved at construction)
     private fetchBatchSize: number
@@ -197,7 +206,11 @@ export class KafkaConsumerV2 {
         this.rdKafkaConsumer.offsetsStore(offsets)
     }
 
-    public async connect(eachBatch: EachBatch): Promise<void> {
+    public async connect(
+        eachBatch: EachBatch,
+        onPartitionsRevoked?: (assignments: Assignment[]) => Promise<void>
+    ): Promise<void> {
+        this.onPartitionsRevoked = onPartitionsRevoked
         try {
             await promisifyCallback<Metadata>((cb) => this.rdKafkaConsumer.connect({}, cb))
             logger.info('📝', 'kafka_consumer_v2_connected', { groupId: this.config.groupId, topic: this.config.topic })
@@ -224,10 +237,13 @@ export class KafkaConsumerV2 {
         })
     }
 
-    public async disconnect(): Promise<void> {
-        if (!this.running) {
-            return
-        }
+    /**
+     * Stop the consume loop and drain in-flight batches without leaving the group. After this
+     * resolves, eachBatch will never be called again. Callers that buffer work across batches
+     * flush and store offsets between this and disconnect(), which then commits the stored
+     * offsets as it leaves the group — that ordering is what makes the final flush race-free.
+     */
+    public async stopConsuming(): Promise<void> {
         // Flip running so the loop exits and so the final REVOKE during disconnect goes
         // through rebalanceCallback's special-case path.
         this.running = false
@@ -236,6 +252,10 @@ export class KafkaConsumerV2 {
                 logger.error('🔁', 'kafka_consumer_v2_loop_failed_during_disconnect', { error: String(error) })
             })
         }
+    }
+
+    public async disconnect(): Promise<void> {
+        await this.stopConsuming()
         if (this.rdKafkaConsumer.isConnected()) {
             await new Promise<void>((res, rej) => this.rdKafkaConsumer.disconnect((e) => (e ? rej(e) : res())))
         }
@@ -421,7 +441,36 @@ export class KafkaConsumerV2 {
                 generation: this.generation,
                 partitions: event.partitions.map((p) => `${p.topic}/${p.partition}`),
             })
+            // One budget for the whole revoke path: the drain spends what it needs and the
+            // hook gets the remainder, so CONSUMER_REBALANCE_TIMEOUT_MS bounds the total hold
+            // on the rebalance — not each phase separately.
+            const revokeDeadline = Date.now() + this.drainTimeoutMs
             await this.drainAll('revoke')
+
+            if (this.onPartitionsRevoked) {
+                const hookBudgetMs = Math.max(revokeDeadline - Date.now(), 0)
+                try {
+                    // A wedged flush (e.g. a produce stuck until its delivery timeout) must not
+                    // hold the group's rebalance hostage until max.poll.interval.ms fences the
+                    // member. On timeout the partitions are given up without the flush's
+                    // offsets — the new owner replays from the last commit, exactly as with a
+                    // failed flush.
+                    const { timedOut } = await raceWithTimeout(this.onPartitionsRevoked(event.partitions), hookBudgetMs)
+                    if (timedOut) {
+                        consumerDrainTimeouts.labels(this.config.topic, this.config.groupId, 'revoke_hook').inc()
+                        logger.error('🔁', 'kafka_consumer_v2_revoke_handler_timeout', {
+                            hookBudgetMs,
+                            rebalanceTimeoutMs: this.drainTimeoutMs,
+                        })
+                    }
+                } catch (error) {
+                    // A failed flush must not strand the rebalance — give the partitions up
+                    // anyway. The offsets simply won't have been stored, so the new owner
+                    // reprocesses from the last commit.
+                    logger.error('🔁', 'kafka_consumer_v2_revoke_handler_failed', { error: String(error) })
+                    captureException(error)
+                }
+            }
 
             try {
                 if (this.rdKafkaConsumer.rebalanceProtocol() === 'COOPERATIVE') {
