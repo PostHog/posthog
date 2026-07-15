@@ -18,17 +18,144 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 env_file="$repo_root/.flox/cache/codex-env"
 fingerprint_file="$env_file.fingerprint"
 fingerprint_inputs=(
+    "$repo_root/.codex/with-flox"
     "$repo_root/.flox/env/manifest.toml"
     "$repo_root/.flox/env/on-activate.sh"
     "$repo_root/pnpm-lock.yaml"
     "$repo_root/uv.lock"
+)
+while IFS= read -r path; do
+    fingerprint_inputs+=("$path")
+done < <(find "$repo_root/tools/phrocs" -type f \( -name '*.go' -o -name 'go.mod' -o -name 'go.sum' -o -name 'Makefile' \) -print | sort)
+
+toolchain_variables=(
+    ACLOCAL_PATH
+    BUILDENV_NIX
+    CARGO_TARGET_DIR
+    CMAKE_PREFIX_PATH
+    CPATH
+    CPPFLAGS
+    DIRENV_LOG_FORMAT
+    DOTENV_FILE
+    DYLD_FALLBACK_LIBRARY_PATH
+    FLOX_ACTIVATE_START_SERVICES
+    FLOX_CONFIG_DIR
+    FLOX_ENV
+    FLOX_ENV_CACHE
+    FLOX_ENV_DESCRIPTION
+    FLOX_ENV_DIRS
+    FLOX_ENV_PROJECT
+    FLOX_PROMPT_COLOR_1
+    FLOX_PROMPT_COLOR_2
+    FLOX_PROMPT_ENVIRONMENTS
+    FLOX_SENTRY_DSN
+    FLOX_SENTRY_ENV
+    GOCACHE
+    GOMODCACHE
+    GOPATH
+    GOTOOLCHAIN
+    INFOPATH
+    LDFLAGS
+    LIBRARY_PATH
+    LOCAL_POSTHOG_CODE_MONOREPO_ROOT
+    MANPATH
+    NIX_BIN
+    NIX_PLUGINS
+    NIX_SSL_CERT_FILE
+    OPENSSL_INCLUDE_DIR
+    OPENSSL_LIB_DIR
+    OPENSSL_ROOT_DIR
+    PATH
+    PATH_LOCALE
+    PKG_CONFIG_PATH
+    PROCESS_COMPOSE_BIN
+    RUSTC_WRAPPER
+    RUST_LOG
+    RUST_SRC_PATH
+    SSL_CERT_FILE
+    UV_PROJECT_ENVIRONMENT
+    VIRTUAL_ENV
+    XDG_DATA_DIRS
 )
 
 environment_fingerprint() {
     cksum "${fingerprint_inputs[@]}" | cksum
 }
 
-cd "$repo_root"
+find_flox() {
+    local found
+    found="$(command -v flox || true)"
+    if [[ -z "$found" ]]; then
+        for candidate in /usr/local/bin/flox /opt/homebrew/bin/flox "$HOME/.local/bin/flox"; do
+            if [[ -x "$candidate" ]]; then
+                found="$candidate"
+                break
+            fi
+        done
+    fi
+    printf '%s' "$found"
+}
+
+is_dependency_change() {
+    local tool="${1##*/}"
+    shift
+    [[ "$tool" == "uv" || "$tool" == "pnpm" ]] || return 1
+
+    local argument
+    for argument in "$@"; do
+        case "$argument" in
+            add | i | install | lock | sync | up | update) return 0 ;;
+        esac
+    done
+    return 1
+}
+
+is_stack_lifecycle() {
+    local tool="${1##*/}"
+    shift
+    if [[ "$tool" == "start" ]]; then
+        return 0
+    fi
+    [[ "$tool" == "hogli" ]] || return 1
+
+    local argument
+    for argument in "$@"; do
+        case "$argument" in
+            box:forward | down | restart | start | up | wait) return 0 ;;
+        esac
+    done
+    return 1
+}
+
+if is_dependency_change "$@"; then
+    if [[ -n "${CODEX_SANDBOX:-}" ]]; then
+        echo "error: dependency changes require elevated execution so bin/dev-sandbox can protect credentials" >&2
+        exit 77
+    fi
+
+    flox_bin="$(find_flox)"
+    if [[ -z "$flox_bin" ]]; then
+        echo "error: Flox is required to provision the PostHog development environment" >&2
+        exit 127
+    fi
+    command_string="$(printf '%q ' "$flox_bin" activate --dir "$repo_root" -- "$@")"
+    exec env -i \
+        FLOX_CONFIG_DIR="$repo_root/.flox/cache/flox-config" \
+        FLOX_DISABLE_METRICS=true \
+        HOME="$HOME" \
+        LANG="${LANG:-C.UTF-8}" \
+        LOGNAME="${LOGNAME:-}" \
+        PATH="/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
+        SHELL="${SHELL:-/bin/bash}" \
+        TMPDIR="${TMPDIR:-/tmp}" \
+        USER="${USER:-}" \
+        /bin/bash "$repo_root/bin/dev-sandbox" "$command_string"
+fi
+
+if [[ -n "${CODEX_SANDBOX:-}" ]] && is_stack_lifecycle "$@"; then
+    echo "error: local-stack commands require elevated execution for loopback and Docker access" >&2
+    exit 77
+fi
 
 if [[ "$prepare" -eq 0 ]]; then
     if [[ ! -f "$env_file" || ! -f "$fingerprint_file" ]]; then
@@ -42,6 +169,34 @@ if [[ "$prepare" -eq 0 ]]; then
     fi
 
     runtime_env=(env -i)
+    cached_variables=0
+    while IFS= read -r -d '' assignment; do
+        name="${assignment%%=*}"
+        allowed=0
+        for allowed_name in "${toolchain_variables[@]}"; do
+            if [[ "$name" == "$allowed_name" ]]; then
+                allowed=1
+                break
+            fi
+        done
+        if [[ "$allowed" -ne 1 ]]; then
+            echo "error: Codex environment contains an unexpected variable; rerun setup" >&2
+            exit 1
+        fi
+        runtime_env+=("$assignment")
+        cached_variables=$((cached_variables + 1))
+    done < "$env_file"
+    if [[ "$cached_variables" -eq 0 ]]; then
+        echo "error: Codex environment is invalid; rerun setup" >&2
+        exit 1
+    fi
+
+    runtime_env+=("HOME=$HOME")
+    runtime_env+=("LANG=${LANG:-C.UTF-8}")
+    runtime_env+=("LOGNAME=${LOGNAME:-}")
+    runtime_env+=("SHELL=${SHELL:-/bin/bash}")
+    runtime_env+=("TMPDIR=${TMPDIR:-/tmp}")
+    runtime_env+=("USER=${USER:-}")
     [[ -n "${CODEX_SANDBOX:-}" ]] && runtime_env+=("CODEX_SANDBOX=$CODEX_SANDBOX")
     [[ -n "${CODEX_SANDBOX_NETWORK_DISABLED:-}" ]] && runtime_env+=("CODEX_SANDBOX_NETWORK_DISABLED=$CODEX_SANDBOX_NETWORK_DISABLED")
     runtime_env+=("PYTEST_ADDOPTS=${PYTEST_ADDOPTS:--p no:xdist}")
@@ -52,12 +207,9 @@ if [[ "$prepare" -eq 0 ]]; then
     # shellcheck disable=SC2016
     exec "${runtime_env[@]}" "$BASH" -c '
         set -euo pipefail
-        env_file="$1"
-        repo_root="$2"
-        caller_cwd="$3"
-        shift 3
-        # shellcheck disable=SC1090
-        source "$env_file"
+        repo_root="$1"
+        caller_cwd="$2"
+        shift 2
         cd "$repo_root"
         dotenv_file="${DOTENV_FILE:-}"
         if [[ -n "$dotenv_file" && "$dotenv_file" != /* ]]; then
@@ -71,40 +223,18 @@ if [[ "$prepare" -eq 0 ]]; then
         fi
         cd "$caller_cwd"
 
-        if [[ "$(uname -s)" == "Darwin" && -f "$repo_root/bin/dev-sandbox-shims" ]]; then
-            # shellcheck disable=SC1090
-            source "$repo_root/bin/dev-sandbox-shims"
-            should_sandbox=0
-            _ph_sandbox_should_wrap "$@" && should_sandbox=1
-            unset -f uv pnpm _ph_sandbox_run _ph_sandbox_should_wrap 2>/dev/null || true
-            if [[ "$should_sandbox" -eq 1 ]]; then
-                if [[ -n "${CODEX_SANDBOX:-}" ]]; then
-                    echo "error: dependency changes require elevated execution so bin/dev-sandbox can protect credentials" >&2
-                    exit 77
-                fi
-                exec "$repo_root/bin/dev-sandbox" "$(printf "%q " "$@")"
-            fi
-        fi
-
         exec "$@"
-    ' bash "$env_file" "$repo_root" "$caller_cwd" "$@"
+    ' bash "$repo_root" "$caller_cwd" "$@"
 fi
 
-flox_bin="$(command -v flox || true)"
-
-if [[ -z "$flox_bin" ]]; then
-    for candidate in /usr/local/bin/flox /opt/homebrew/bin/flox "$HOME/.local/bin/flox"; do
-        if [[ -x "$candidate" ]]; then
-            flox_bin="$candidate"
-            break
-        fi
-    done
-fi
+flox_bin="$(find_flox)"
 
 if [[ -z "$flox_bin" ]]; then
     echo "error: Flox is required to provision the PostHog development environment" >&2
     exit 127
 fi
+
+cd "$repo_root"
 
 # Provision from a minimal environment so the cached file cannot capture ambient
 # credentials or another checkout's activation state.
@@ -121,21 +251,22 @@ exec env -i \
         set -euo pipefail
         prepare="$1"
         fingerprint="$2"
-        shift 2
+        variable_names="$3"
+        shift 3
         export VIRTUAL_ENV="$FLOX_ENV_CACHE/venv"
         export UV_PROJECT_ENVIRONMENT="$VIRTUAL_ENV"
         export PATH="$VIRTUAL_ENV/bin:$PATH"
         if [[ "$prepare" -eq 1 ]]; then
             umask 077
-            if [[ -n "${DOTENV_FILE:-}" && -f "$DOTENV_FILE" ]]; then
-                while IFS= read -r name; do
-                    unset "$name"
-                done < <(sed -nE "s/^[[:space:]]*(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)=.*/\\2/p" "$DOTENV_FILE")
-            fi
-            export -p > "$FLOX_ENV_CACHE/codex-env.tmp"
+            : > "$FLOX_ENV_CACHE/codex-env.tmp"
+            while IFS= read -r name; do
+                if [[ -n "$name" ]] && declare -p "$name" >/dev/null 2>&1; then
+                    printf "%s=%s\0" "$name" "${!name}" >> "$FLOX_ENV_CACHE/codex-env.tmp"
+                fi
+            done <<< "$variable_names"
             printf "%s\n" "$fingerprint" > "$FLOX_ENV_CACHE/codex-env.fingerprint.tmp"
             mv "$FLOX_ENV_CACHE/codex-env.tmp" "$FLOX_ENV_CACHE/codex-env"
             mv "$FLOX_ENV_CACHE/codex-env.fingerprint.tmp" "$FLOX_ENV_CACHE/codex-env.fingerprint"
         fi
         exec "$@"
-    ' bash "$prepare" "$(environment_fingerprint)" "$@"
+    ' bash "$prepare" "$(environment_fingerprint)" "$(printf '%s\n' "${toolchain_variables[@]}")" "$@"
