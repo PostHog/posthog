@@ -77,7 +77,10 @@ concurrency:
 jobs:
     changes:
         runs-on: ubuntu-latest
-        timeout-minutes: 5
+        # 7 not 5: the debounce step below sleeps up to 60s, so widen the budget to
+        # keep ample headroom. A timeout here skips Playwright, which the aggregator
+        # would count as a pass.
+        timeout-minutes: 7
         # Run on master push, manual dispatch, and on ready internal-repo PRs.
         # Drafts skip E2E (see the trigger comment); the `Playwright tests pass`
         # aggregator treats skipped as success, and drafts can't merge anyway.
