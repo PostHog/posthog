@@ -218,17 +218,28 @@ class TestLlamaCloudTransport:
         assert url == "https://api.cloud.eu.llamaindex.ai/api/v1/pipelines"
         assert params == {}
 
-    def test_get_rows_pipelines_redacts_nested_credentials(self) -> None:
-        # Pipeline definitions embed third-party credentials in nested config; those keys
-        # must never reach the warehouse, while the surrounding metadata passes through.
+    def test_get_rows_pipelines_projects_to_documented_fields(self) -> None:
+        # Pipeline definitions embed third-party credentials in nested config; only the
+        # documented, non-sensitive metadata reaches the warehouse. Includes token/credentials/
+        # headers — the generically-named secrets a key-name denylist would let through.
         session = FakeSession(
             [
                 [
                     {
                         "id": "pipeline-1",
+                        "created_at": "2026-01-01T00:00:00Z",
+                        "updated_at": "2026-01-02T00:00:00Z",
                         "name": "docs",
-                        "embedding_config": {"type": "OPENAI_EMBEDDING", "component": {"api_key": "sk-secret"}},
-                        "data_sink": {"component": {"password": "hunter2", "host": "db.example.com"}},
+                        "project_id": "proj-1",
+                        "pipeline_type": "MANAGED",
+                        "embedding_config": {"component": {"api_key": "sk-secret"}},
+                        "data_sink": {
+                            "component": {
+                                "token": "bearer-secret",
+                                "credentials": {"password": "hunter2"},
+                                "headers": {"Authorization": "Bearer x"},
+                            }
+                        },
                     }
                 ]
             ]
@@ -242,9 +253,11 @@ class TestLlamaCloudTransport:
             [
                 {
                     "id": "pipeline-1",
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "updated_at": "2026-01-02T00:00:00Z",
                     "name": "docs",
-                    "embedding_config": {"type": "OPENAI_EMBEDDING", "component": {"api_key": "REDACTED"}},
-                    "data_sink": {"component": {"password": "REDACTED", "host": "db.example.com"}},
+                    "project_id": "proj-1",
+                    "pipeline_type": "MANAGED",
                 }
             ]
         ]

@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.dat
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sample_scrub import REDACT_FIELD_NAMES
 from products.warehouse_sources.backend.temporal.data_imports.sources.llama_cloud.settings import (
     DEFAULT_LLAMA_CLOUD_REGION,
     LLAMA_CLOUD_ENDPOINTS,
@@ -23,29 +22,20 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.llama_clou
 
 REQUEST_TIMEOUT_SECONDS = 60
 
-_REDACTED_SECRET_VALUE = "REDACTED"
-
 
 class LlamaCloudRetryableError(Exception):
     pass
 
 
-def _redact_secret_fields(value: Any) -> Any:
-    """Replace values of auth-bearing keys (by name) with a placeholder, recursively.
+def _project_rows(rows: list[dict[str, Any]], allowed_fields: frozenset[str]) -> list[dict[str, Any]]:
+    """Keep only allowlisted top-level keys on each row.
 
     LlamaCloud pipeline definitions embed third-party credentials — embedding-provider
-    API keys and data-sink connection secrets — in nested config objects. Redacting them
-    by key name keeps the useful pipeline metadata out of the warehouse without persisting
-    the secrets. Reuses the same denylist the HTTP sample-capture path scrubs by.
+    API keys, data-sink connection secrets, bearer tokens — in nested config objects.
+    Projecting onto the documented, non-sensitive fields keeps those secrets out of the
+    warehouse structurally, rather than trying to enumerate every secret-bearing key.
     """
-    if isinstance(value, dict):
-        return {
-            key: (_REDACTED_SECRET_VALUE if str(key).lower() in REDACT_FIELD_NAMES else _redact_secret_fields(val))
-            for key, val in value.items()
-        }
-    if isinstance(value, list):
-        return [_redact_secret_fields(item) for item in value]
-    return value
+    return [{key: value for key, value in row.items() if key in allowed_fields} for row in rows]
 
 
 @dataclasses.dataclass
@@ -182,12 +172,14 @@ def get_rows(
     url = f"{base_url}{config.path}"
     headers = _headers(api_key)
     # One session reused across every page so urllib3 keeps the connection alive.
-    session = make_tracked_session()
+    # Endpoints whose raw responses carry secrets opt out of HTTP sample capture — the
+    # sampler observes the upstream body before row projection runs.
+    session = make_tracked_session(capture=config.capture_http_samples)
 
     if not config.paginated:
         data = _fetch_page(session, url, headers, {})
         if data:
-            yield _redact_secret_fields(data) if config.redact_secrets else data
+            yield _project_rows(data, config.output_fields) if config.output_fields else data
         return
 
     params: dict[str, Any] = {"page_size": config.page_size}
@@ -212,7 +204,7 @@ def get_rows(
         next_page_token = data.get("next_page_token")
 
         if items:
-            yield _redact_secret_fields(items) if config.redact_secrets else items
+            yield _project_rows(items, config.output_fields) if config.output_fields else items
 
         if not next_page_token:
             break

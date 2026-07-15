@@ -58,10 +58,13 @@ class LlamaCloudEndpointConfig:
     requires_organization_id: bool = False
     description: str | None = None
     default_incremental_lookback_seconds: int | None = None
-    # Endpoints whose payloads embed third-party credentials (embedding-provider keys,
-    # data-sink connection secrets) have auth-bearing keys redacted before they land
-    # in the warehouse. Only the config-style pipelines endpoint carries these.
-    redact_secrets: bool = False
+    # Allowlist of top-level fields to keep per row. Set for config-style endpoints whose
+    # payloads embed third-party credentials in nested config objects — projecting onto the
+    # documented, non-sensitive fields keeps secrets out of the warehouse. None imports every field.
+    output_fields: frozenset[str] | None = None
+    # Whether raw HTTP responses may be captured as anonymized samples. Off for endpoints
+    # whose responses carry secrets the name-based sample scrubbers can't fully catch.
+    capture_http_samples: bool = True
 
 
 LLAMA_CLOUD_ENDPOINTS: dict[str, LlamaCloudEndpointConfig] = {
@@ -129,8 +132,10 @@ LLAMA_CLOUD_ENDPOINTS: dict[str, LlamaCloudEndpointConfig] = {
         path="/api/v1/pipelines",
         # Returns a bare JSON array with neither pagination nor timestamp filters.
         paginated=False,
-        # Pipeline definitions embed nested embedding-provider and data-sink credentials.
-        redact_secrets=True,
+        # Pipeline definitions embed nested embedding-provider and data-sink credentials, so
+        # import only the documented metadata (matches canonical_descriptions) and skip sampling.
+        output_fields=frozenset({"id", "created_at", "updated_at", "name", "project_id", "pipeline_type"}),
+        capture_http_samples=False,
     ),
     "files": LlamaCloudEndpointConfig(
         name="files",
