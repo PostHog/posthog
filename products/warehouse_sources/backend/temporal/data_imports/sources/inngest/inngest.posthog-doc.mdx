@@ -1,0 +1,64 @@
+<!--
+This is the user-facing source documentation. It belongs in the posthog.com repo at
+contents/docs/cdp/sources/inngest.md (served at /docs/cdp/sources/inngest). It is kept here only
+because a posthog.com checkout was not available when the source was implemented — copy it across and
+delete this file from this repo. Run `python manage.py audit_source_docs --docs-dir <posthog.com>/contents/docs/cdp/sources`
+once it lands.
+-->
+
+---
+
+title: Linking Inngest as a source
+sidebar: Docs
+showTitle: true
+availability: { free: full, selfServe: full, enterprise: full }
+sourceId: Inngest
+beta: true
+
+---
+
+import SourceSetupIntro from '../_snippets/source-setup-intro.mdx'
+import SyncModes from '../_snippets/sync-modes.mdx'
+import TroubleshootingLink from '../_snippets/dw-troubleshooting-link.mdx'
+import AlphaRelease from '../_snippets/alpha-release.mdx'
+
+<AlphaRelease />
+
+[Inngest](https://www.inngest.com/) is a durable workflow engine: functions are triggered by events and run with steps, retries, and flow control.
+This connector pulls your Inngest data — events, function runs, bulk cancellations, environments, inbound webhook intake endpoints, and event/signing key inventories — into the PostHog Data warehouse so you can join it with your product data.
+
+Inngest retains event and run history for a plan-dependent window (from 24 hours up to 90 days), so a synced copy in PostHog doubles as durable history. Schedule frequent syncs to avoid gaps.
+
+## Prerequisites
+
+You need an Inngest account and the signing key for the environment you want to sync. Signing keys authenticate both the v1 and v2 REST APIs, so no additional scopes are required. (Dashboard API keys only work with the v2 API, which does not cover events and runs, so they can't be used here.)
+
+## Adding a data source
+
+<SourceSetupIntro />
+
+Inngest authenticates with a per-environment signing key (it starts with `signkey-`). Copy it from your [Inngest dashboard](https://app.inngest.com/) under **Settings** → **Signing key** and paste it into the **Signing key** field. To sync a branch environment, also enter its name in the optional **Environment** field.
+
+## Sync modes
+
+<SyncModes />
+
+**Events** sync append-only using the server-side `received_after` filter, backfilling up to 90 days of history on the first sync (bounded by your plan's retention). **Function runs** sync incrementally: they are discovered by walking the incoming event stream and looking up each event's runs, and each sync re-reads a trailing hour so recently-started runs pick up their final status. The other tables are small inventories with no server-side timestamp filter, so they sync as full refresh.
+
+The secret key material of event keys and signing keys is never synced — only their metadata (name, environment, creation time).
+
+## Configuration
+
+<SourceParameters />
+
+## Supported tables
+
+<SourceTables />
+
+## Troubleshooting
+
+- **401 Unauthorized** — the signing key is invalid or has been rotated. Copy the current signing key from your Inngest dashboard settings and reconnect.
+- **403 Forbidden** — the key is valid but does not have access to the requested environment. Check that the key matches the environment you entered and reconnect.
+- **Missing older events or runs** — Inngest's retention is plan-dependent (24 hours to 90 days). Data that aged out upstream before a sync ran cannot be backfilled, so keep syncs frequent.
+
+<TroubleshootingLink />
