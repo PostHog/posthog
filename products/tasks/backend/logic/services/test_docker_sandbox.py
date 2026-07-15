@@ -291,6 +291,7 @@ class TestDockerSandboxUnit:
 
         with patch.object(sandbox, "is_running", return_value=True):
             with patch.object(sandbox, "execute") as mock_execute:
+                mock_execute.return_value = ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
                 sandbox.clone_repository(repository, github_token="test-token")
                 command = mock_execute.call_args[0][0]
 
@@ -317,6 +318,7 @@ class TestDockerSandboxUnit:
 
         with patch.object(sandbox, "is_running", return_value=True):
             with patch.object(sandbox, "execute") as mock_execute:
+                mock_execute.return_value = ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
                 sandbox.clone_repository("PostHog/posthog", github_token="test-token", shallow=shallow)
                 command = mock_execute.call_args[0][0]
 
@@ -409,6 +411,7 @@ class TestDockerSandboxUnit:
         with patch.dict(os.environ, {}, clear=True):
             with patch.object(sandbox, "is_running", return_value=True):
                 with patch.object(sandbox, "execute") as mock_execute:
+                    mock_execute.return_value = ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
                     sandbox.clone_repository("PostHog/posthog", github_token="tok")
                     mock_execute.assert_called_once()
 

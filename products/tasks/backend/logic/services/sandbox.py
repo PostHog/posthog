@@ -14,6 +14,7 @@ from __future__ import annotations
 import os
 import re
 import json
+import time
 import shlex
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable
@@ -28,6 +29,7 @@ import structlog
 from pydantic import BaseModel, model_validator
 
 from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR, SNAPSHOT_KIND_FILESYSTEM, SnapshotKind
+from products.tasks.backend.exceptions import SandboxTimeoutError
 from products.tasks.backend.logic.services.sandbox_config import (
     BURSTABLE_REQUEST_CPU_CORES,
     BURSTABLE_REQUEST_MEMORY_MB,
@@ -160,6 +162,38 @@ def redact_sandbox_command(command: str) -> str:
     return SENSITIVE_AGENT_RUNTIME_ENV_PATTERN.sub(r"\g<name>=<redacted>", command)
 
 
+# Bounded retry for the initial repository clone. A clone can fail because github.com is briefly
+# unreachable (DNS hiccup, connection timeout, TLS/RPC error) — a blip a retry almost always rides
+# out — or for a deterministic reason (repo not found, credentials rejected) that no retry can fix.
+# We retry the former with exponential backoff and fail fast on the latter.
+CLONE_MAX_ATTEMPTS = 3
+CLONE_RETRY_BACKOFF_BASE_SECONDS = 2.0
+
+# Substrings that mark a clone failure as deterministic: retrying cannot fix it, so we stop
+# immediately. Everything else (connection refused/timeout, DNS failure, TLS/RPC errors, 5xx) is
+# treated as transient and retried.
+_DETERMINISTIC_CLONE_ERROR_MARKERS: tuple[str, ...] = (
+    "repository not found",
+    "could not read username",
+    "could not read password",
+    "terminal prompts disabled",
+    "authentication failed",
+    "invalid username or password",
+    "permission denied",
+    "access denied",
+    "the requested url returned error: 401",
+    "the requested url returned error: 403",
+    "the requested url returned error: 404",
+)
+
+
+def is_transient_clone_error(stderr: str) -> bool:
+    """A clone failure is transient (worth retrying) unless its stderr names a deterministic cause
+    such as a missing repo or rejected credentials."""
+    haystack = stderr.lower()
+    return not any(marker in haystack for marker in _DETERMINISTIC_CLONE_ERROR_MARKERS)
+
+
 def build_agent_runtime_env_prefix(
     *,
     interaction_origin: str | None = None,
@@ -264,14 +298,55 @@ class SandboxBase(ABC):
         # Skip blobs over 128kB during full clones — large test snapshots and auto-generated
         # files get fetched on demand. Shallow clones are already small enough.
         blob_filter = "" if shallow else " --filter=blob:limit=128k"
+        # `rm -rf` at the front makes each attempt idempotent: a retry wipes any partial clone the
+        # previous attempt left behind before trying again.
         clone_command = (
             f"rm -rf {shlex.quote(target_path)} && "
             f"mkdir -p {shlex.quote(org_path)} && "
             f"cd {shlex.quote(org_path)} && "
             f"git clone --single-branch{blob_filter}{depth_flag} {shlex.quote(repo_url)} {shlex.quote(repo)}"
         )
-        _logger.info(f"Cloning repository {repository} to {target_path} in sandbox {self.id} (shallow={shallow})")
-        return self.execute(clone_command, timeout_seconds=5 * 60)
+
+        last_result: ExecutionResult | None = None
+        for attempt in range(1, CLONE_MAX_ATTEMPTS + 1):
+            _logger.info(
+                f"Cloning repository {repository} to {target_path} in sandbox {self.id} "
+                f"(shallow={shallow}, attempt {attempt}/{CLONE_MAX_ATTEMPTS})"
+            )
+            try:
+                result = self.execute(clone_command, timeout_seconds=5 * 60)
+            except SandboxTimeoutError:
+                # A clone that hangs until the execution timeout is a connectivity stall — retry it
+                # like any other transient failure, but re-raise once attempts are exhausted.
+                if attempt >= CLONE_MAX_ATTEMPTS:
+                    raise
+                _logger.warning(
+                    f"Clone of {repository} timed out in sandbox {self.id} "
+                    f"(attempt {attempt}/{CLONE_MAX_ATTEMPTS}); retrying"
+                )
+                time.sleep(CLONE_RETRY_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1)))
+                continue
+
+            if result.exit_code == 0:
+                return result
+
+            last_result = result
+            if attempt < CLONE_MAX_ATTEMPTS and is_transient_clone_error(result.stderr):
+                _logger.warning(
+                    f"Transient failure cloning {repository} in sandbox {self.id} "
+                    f"(attempt {attempt}/{CLONE_MAX_ATTEMPTS}, exit={result.exit_code}); retrying: "
+                    f"{result.stderr.strip()[:200]}"
+                )
+                time.sleep(CLONE_RETRY_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1)))
+                continue
+
+            # Deterministic failure, or attempts exhausted — hand the result back so the caller
+            # surfaces the non-zero exit exactly as before.
+            return result
+
+        # The loop always returns or raises above; this satisfies the type checker.
+        assert last_result is not None
+        return last_result
 
     @abstractmethod
     def setup_repository(self, repository: str) -> ExecutionResult: ...
