@@ -2690,17 +2690,20 @@ are enabled by the user via the toggle. A new canonical added later auto-enables
 row the user disabled is left alone (get_or_create no-op). Scouts call register-missing each coordinator tick
 (`config_registry.py`); we call it when resolving the acting user, before loading.
 
-**PR-author → PostHog user (mandatory gate, no fallback).** The acting user whose perspectives apply = the **PR
-author**, from `pr_metadata.author` (`tools/github_meta.py:244`), resolved via **`resolve_org_github_login_to_users(
-team_id, [login]) -> {login: User}`** (`products/signals/backend/report_generation/resolve_reviewers.py:241`;
-org-scoped, case-insensitive, backed by `User.get_github_login()` precedence UserIntegration-github →
-UserSocialAuth-github → team-integration login, `posthog/models/user.py:438`; already used in prod). **CORRECTION
-to earlier docs: this reverse-lookup DOES exist** (a prior research pass wrongly said it didn't). If the author does
-**not** map to a PostHog org user → **do not review** (no fallback / no canonical default — we rely on
-PostHog-stored skills, so the author must be a PostHog user with an org account). Gate **after fetch, before the
-perspective fan-out** — resolution is needed for selection anyway, so no dead code, nothing wasted. `inputs.user_id`
-today is the integration _creator_ (`trigger.py:54-57, 125`), NOT the PR author — keep it for sandbox/MCP auth, but
-resolve the PR author separately for perspective selection.
+**PR-author → PostHog user (label trigger falls back; other triggers don't).** The acting user whose perspectives
+apply = the **PR author**, from `pr_metadata.author` (`tools/github_meta.py:244`), resolved via
+**`resolve_org_github_login_to_users(team_id, [login]) -> {login: User}`**
+(`products/signals/backend/report_generation/resolve_reviewers.py:241`; org-scoped, case-insensitive, backed by
+`User.get_github_login()` precedence UserIntegration-github → UserSocialAuth-github → team-integration login,
+`posthog/models/user.py:438`; already used in prod). **CORRECTION to earlier docs: this reverse-lookup DOES exist**
+(a prior research pass wrongly said it didn't). When the author does **not** map to a PostHog org user, the **label
+trigger** falls back to the **run user** (`inputs.user_id`, threaded into the resolve activity as `default_user_id`
+— the same identity the sandboxes execute under, so acting and sandbox identity can never drift) — someone
+explicitly asked for the review, so a borrowed user's perspectives beat no review. The
+`review_labeled_prs` opt-out stays **author-only**: a fallback-resolved acting user never imports their personal
+switch into someone else's PR (forced True in the resolve snapshot). Inbox/manual/branch triggers keep the
+no-fallback contract → unmapped author = **no review**. Gate **after fetch, before the perspective fan-out**.
+`inputs.user_id` is the sandbox/MCP identity (integration creator lineage), resolved separately from the acting user.
 
 **Loader change** — `load_perspectives_for_run(team_id, acting_user_id)` (`skill_loader.py:50`): after
 `register_missing_perspective_configs`, read the user's enabled set
