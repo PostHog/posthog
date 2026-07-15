@@ -1996,7 +1996,11 @@ class DashboardSerializer(DashboardMetadataSerializer):
             ),
             Prefetch(
                 "insight__alertconfiguration_set",
-                queryset=AlertConfiguration.objects.select_related("created_by"),
+                # AlertSerializer emits threshold and subscribed_users per alert; without these,
+                # every alert on the dashboard costs two extra queries
+                queryset=AlertConfiguration.objects.select_related("created_by", "threshold").prefetch_related(
+                    "subscribed_users"
+                ),
                 to_attr="_prefetched_alerts",
             ),
         )
@@ -2021,8 +2025,24 @@ class DashboardSerializer(DashboardMetadataSerializer):
             if not sorted_tiles:
                 return []
 
+            # One serializer reused across tiles: constructing DashboardTileSerializer per tile
+            # deep-copies every declared field of the tile + nested insight serializers, which
+            # dominates CPU on large dashboards. Per-tile state is passed via the shared context.
+            # (dashboard, insight) is unique per dashboard, so the per-instance insight_result
+            # lru_cache never leaks a result from one tile to another.
+            tile_context = self.context.copy()
+            reused_serializer = DashboardTileSerializer(context=tile_context)
             for order, tile in enumerate(sorted_tiles):
-                order, tile_data = serialize_tile_with_context(tile, order, self.context)
+                tile_context.update({"dashboard_tile": tile, "order": order})
+
+                if isinstance(tile.layouts, str):
+                    tile.layouts = json.loads(tile.layouts)
+
+                try:
+                    tile_data = reused_serializer.to_representation(tile)
+                except pydantic_core.ValidationError:
+                    # Fall back to the fresh-serializer path, which handles the error shape
+                    order, tile_data = serialize_tile_with_context(tile, order, self.context)
                 serialized_tiles.append(cast(ReturnDict, tile_data))
 
         return serialized_tiles

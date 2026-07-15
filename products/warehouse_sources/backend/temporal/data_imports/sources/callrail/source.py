@@ -63,7 +63,6 @@ You can create an API key under **Account settings → Integrations → API Keys
 Leave **Account ID** blank to use the first account your key can access, or set it to sync a specific account.""",
             iconPath="/static/services/callrail.png",
             docsUrl="https://posthog.com/docs/cdp/sources/callrail",
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [

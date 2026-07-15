@@ -45,7 +45,6 @@ class OpenWeatherSource(SimpleSource[OpenWeatherSourceConfig]):
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="OpenWeather",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your OpenWeather API key and the locations you want to track to pull weather data into the PostHog Data warehouse.
 
 Create an API key in your [OpenWeather account](https://home.openweathermap.org/api_keys). A newly created key can take a couple of hours to activate.

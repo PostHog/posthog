@@ -127,7 +127,7 @@ class LogAttributesTable(Table):
         "severity_text": StringDatabaseField(
             name="severity_text",
             nullable=False,
-            description="OpenTelemetry severity text (e.g. 'info', 'error') the attribute counts are scoped to.",
+            description="OpenTelemetry severity text the attribute counts are scoped to, e.g. 'INFO', 'ERROR'.",
         ),
     }
 

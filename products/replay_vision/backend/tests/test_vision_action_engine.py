@@ -10,13 +10,21 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from products.replay_vision.backend.models import ReplayScanner, VisionAction, VisionActionRun
+from products.replay_vision.backend.models.replay_observation import (
+    ObservationStatus,
+    ObservationTrigger,
+    ReplayObservation,
+)
 from products.replay_vision.backend.models.replay_scanner import ScannerModel, ScannerType
-from products.replay_vision.backend.models.vision_action import TriggerType, VisionActionRunStatus
+from products.replay_vision.backend.models.vision_action import ActionMode, TriggerType, VisionActionRunStatus
 from products.replay_vision.backend.temporal.vision_actions import activities as act
+from products.replay_vision.backend.temporal.vision_actions.alerts import evaluate_alert_activity
 from products.replay_vision.backend.temporal.vision_actions.synthesis import synthesize_group_summary_activity
 from products.replay_vision.backend.temporal.vision_actions.types import (
+    AlertStatus,
     CreateVisionActionRunInputs,
     EmitActionReadyInputs,
+    EvaluateAlertResult,
     EvaluateDueVisionActionsInputs,
     ProcessVisionActionInputs,
     SynthesisStatus,
@@ -25,6 +33,7 @@ from products.replay_vision.backend.temporal.vision_actions.types import (
     ValidateVisionActionInputs,
 )
 from products.replay_vision.backend.temporal.vision_actions.workflows import ProcessVisionActionWorkflow
+from products.replay_vision.backend.tests.helpers import snapshot_for
 
 DAILY = "FREQ=DAILY;BYHOUR=9"
 
@@ -59,6 +68,21 @@ def _make_due(action) -> None:
     VisionAction.all_teams.filter(pk=action.pk).update(next_run_at=timezone.now() - timedelta(hours=1))
 
 
+EVERY_MATCH = {"frequency": "every_match", "metric": "count"}
+
+
+def _completed_observation(scanner) -> ReplayObservation:
+    return ReplayObservation.objects.create(
+        scanner=scanner,
+        session_id="s1",
+        scanner_snapshot=snapshot_for(scanner),
+        triggered_by=ObservationTrigger.SCHEDULE,
+        status=ObservationStatus.SUCCEEDED,
+        completed_at=timezone.now(),
+        scanner_result={"model_output": {"scanner_type": scanner.scanner_type, "summary": "s"}},
+    )
+
+
 class TestEvaluateDue(BaseTest):
     def _inputs(self, scanner) -> EvaluateDueVisionActionsInputs:
         return EvaluateDueVisionActionsInputs(scanner_id=scanner.id, team_id=self.team.id)
@@ -84,6 +108,62 @@ class TestEvaluateDue(BaseTest):
         result = act._evaluate_due(self._inputs(scanner))
         self.assertEqual([d.vision_action_id for d in result], [due.id])
         self.assertEqual(result[0].team_id, self.team.id)
+
+    def test_every_match_alerts_are_due_on_every_sweep_when_observations_exist(self) -> None:
+        # every_match alerts ignore their rrule cursor: a fresh match should notify within minutes,
+        # not wait for an hourly tick — so one whose cursor sits in the future is still claimed, with
+        # this sweep's time (not the future cursor) as the window-anchoring tick. Disabled stay out.
+        scanner = _scanner(self.team)
+        _completed_observation(scanner)
+        alert = _action(self.team, name="alert", scanner=scanner, mode=ActionMode.ALERT, alert_config=EVERY_MATCH)
+        VisionAction.all_teams.filter(pk=alert.pk).update(next_run_at=timezone.now() + timedelta(hours=1))
+
+        disabled = _action(
+            self.team, name="off", scanner=scanner, mode=ActionMode.ALERT, alert_config=EVERY_MATCH, enabled=False
+        )
+        VisionAction.all_teams.filter(pk=disabled.pk).update(next_run_at=timezone.now() + timedelta(hours=1))
+
+        result = act._evaluate_due(self._inputs(scanner))
+
+        self.assertEqual([d.vision_action_id for d in result], [alert.id])
+        assert result[0].scheduled_at is not None
+        self.assertLessEqual(result[0].scheduled_at, timezone.now())
+
+        # And the next sweep claims it again — no hourly gate between checks.
+        self.assertEqual([d.vision_action_id for d in act._evaluate_due(self._inputs(scanner))], [alert.id])
+
+    def test_every_match_alert_skips_quiet_ticks_but_stamps_last_checked(self) -> None:
+        # With no new observations there's nothing an every_match alert could report, so the sweep
+        # must not spawn its child workflow — but "Last checked" still has to move.
+        scanner = _scanner(self.team)
+        alert = _action(self.team, name="alert", scanner=scanner, mode=ActionMode.ALERT, alert_config=EVERY_MATCH)
+
+        self.assertEqual(act._evaluate_due(self._inputs(scanner)), [])
+        alert.refresh_from_db()
+        self.assertIsNotNone(alert.last_run_at)
+
+    def test_on_breach_alerts_keep_the_schedule_cursor_gate(self) -> None:
+        # Threshold alerts read rolling windows of days; hourly resolution loses nothing, and the
+        # cursor gate bounds how much window-scanning alert fan-out can add to every sweep.
+        scanner = _scanner(self.team)
+        _completed_observation(scanner)
+        on_breach = _action(
+            self.team,
+            name="threshold-alert",
+            scanner=scanner,
+            mode=ActionMode.ALERT,
+            alert_config={"frequency": "on_breach", "metric": "count", "threshold": 1},
+        )
+        VisionAction.all_teams.filter(pk=on_breach.pk).update(next_run_at=timezone.now() + timedelta(hours=1))
+
+        self.assertEqual(act._evaluate_due(self._inputs(scanner)), [])
+
+        _make_due(on_breach)
+        on_breach.refresh_from_db()
+        result = act._evaluate_due(self._inputs(scanner))
+        self.assertEqual([d.vision_action_id for d in result], [on_breach.id])
+        # The tick is the schedule cursor (like summaries), not the sweep time.
+        self.assertEqual(result[0].scheduled_at, on_breach.next_run_at)
 
     def test_claims_by_advancing_next_run_at(self) -> None:
         scanner = _scanner(self.team)
@@ -175,7 +255,10 @@ class TestEngineActivities(BaseTest):
     def test_emit_produces_internal_event(self) -> None:
         action = _action(self.team, delivery_config=[{"type": "slack", "integration_id": 1, "channel": "#general"}])
         run = VisionActionRun(
-            vision_action=action, team=self.team, idempotency_key="k", output={"slack": "hello *world*"}
+            vision_action=action,
+            team=self.team,
+            idempotency_key="k",
+            output={"slack": "hello *world*", "slack_blocks": [{"type": "section"}]},
         )
         run.save()
 
@@ -192,6 +275,7 @@ class TestEngineActivities(BaseTest):
         self.assertEqual(event.uuid, str(run.id))
         self.assertEqual(event.properties["vision_action_id"], str(action.id))
         self.assertEqual(event.properties["slack_text"], "hello *world*")
+        self.assertEqual(event.properties["slack_blocks"], [{"type": "section"}])
 
     def test_emit_noops_without_delivery(self) -> None:
         # No destinations configured → nothing to emit; the run row itself is the in-app artifact.
@@ -292,6 +376,38 @@ async def test_process_maps_synthesis_status(
     assert _final_error(mocks) == expected_error
     # The schedule cursor is advanced by the eligibility claim, never by this workflow.
     assert act.evaluate_due_vision_actions_activity not in call_fns
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "alert_status, expected_final, expect_emit, expected_error",
+    [
+        (AlertStatus.FIRED, VisionActionRunStatus.COMPLETED.value, True, None),
+        (AlertStatus.NOT_BREACHED, VisionActionRunStatus.SKIPPED.value, False, {"skip_reason": "not_breached"}),
+    ],
+)
+async def test_process_routes_alert_mode_to_alert_evaluation(
+    alert_status: AlertStatus, expected_final: str, expect_emit: bool, expected_error: dict | None
+) -> None:
+    # The routing regression: an alert action must evaluate its condition, never synthesize.
+    mocks = _Mocks(
+        results={
+            act.create_vision_action_run_activity: uuid.uuid4(),
+            act.validate_vision_action_activity: None,
+            evaluate_alert_activity: EvaluateAlertResult(status=alert_status, observation_count=1),
+        }
+    )
+    await _run_process(
+        ProcessVisionActionInputs(vision_action_id=uuid.uuid4(), team_id=1, mode="alert"),
+        mocks,
+    )
+
+    call_fns = mocks.calls()
+    assert evaluate_alert_activity in call_fns
+    assert synthesize_group_summary_activity not in call_fns
+    assert (act.emit_action_ready_activity in call_fns) is expect_emit
+    assert _final_status(mocks) == expected_final
+    assert _final_error(mocks) == expected_error
 
 
 @pytest.mark.asyncio

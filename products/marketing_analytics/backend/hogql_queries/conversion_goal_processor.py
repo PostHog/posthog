@@ -1,5 +1,6 @@
 import math
 import uuid
+import threading
 from collections.abc import Sequence
 from dataclasses import (
     dataclass,
@@ -31,6 +32,7 @@ from posthog.models import PropertyDefinition, Team, User
 from products.access_control.backend.property_access_control import get_restricted_property_names
 from products.actions.backend.models.action import Action
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
+    LazyComputationResult,
     LazyComputationTable,
     ensure_precomputed,
 )
@@ -153,6 +155,50 @@ def build_touchpoints_precompute_query() -> ast.SelectQuery:
             ]
         ),
     )
+
+
+class SharedTouchpointsPrecompute:
+    """One touchpoints materialization shared by every conversion goal in a request.
+
+    `build_touchpoints_precompute_query()` takes no goal input and the range depends only on the
+    team's attribution window, so the call every goal makes is byte-identical. Each goal was driving
+    its own `ensure_precomputed` for the same window: redundant ClickHouse work, and concurrent
+    materializations of the same window risk landing under separate job_ids.
+
+    The first goal to ask does the work; the rest reuse its result. Goals run in a thread pool, hence
+    the lock.
+    """
+
+    def __init__(self, team: Team, config: MarketingAnalyticsConfig) -> None:
+        self._team = team
+        self._config = config
+        self._lock = threading.Lock()
+        self._result: Optional[LazyComputationResult] = None
+        self._range: Optional[tuple[datetime, datetime]] = None
+
+    def get(self, date_from: datetime, date_to: datetime) -> LazyComputationResult:
+        with self._lock:
+            if self._result is None:
+                window = timedelta(days=self._config.attribution_window_days)
+                self._range = (date_from, date_to)
+                self._result = ensure_precomputed(
+                    team=self._team,
+                    insert_query=build_touchpoints_precompute_query(),
+                    time_range_start=date_from - window,
+                    time_range_end=date_to,
+                    ttl_seconds=PRECOMPUTE_TTL_SECONDS,
+                    table=LazyComputationTable.MARKETING_TOUCHPOINTS_PREAGGREGATED,
+                )
+            elif self._range != (date_from, date_to):
+                # One handle is scoped to one read, whose goals all share its date range. Handing back
+                # the first caller's window for a different range would attribute one window's
+                # touchpoints to another — silently, and in the shape of the double-counting bug this
+                # class exists to prevent.
+                raise ValueError(
+                    f"SharedTouchpointsPrecompute is scoped to one date range per read: "
+                    f"materialized {self._range}, asked for {(date_from, date_to)}"
+                )
+            return self._result
 
 
 @dataclass
@@ -291,10 +337,15 @@ class ConversionGoalProcessor:
         additional_conditions: Sequence[ast.Expr],
         date_from: Optional[datetime] = None,
         date_to: Optional[datetime] = None,
+        touchpoints: Optional[SharedTouchpointsPrecompute] = None,
     ) -> ast.SelectQuery:
-        """Generate main CTE query for conversion goal."""
+        """Generate main CTE query for conversion goal.
+
+        `touchpoints` lets callers running several goals share one touchpoints materialization. When
+        omitted the goal materializes its own, so standalone callers keep working unchanged.
+        """
         if self.goal.kind in ["EventsNode", "ActionsNode"]:
-            return self._generate_array_based_query(additional_conditions, date_from, date_to)
+            return self._generate_array_based_query(additional_conditions, date_from, date_to, touchpoints)
         return self._generate_direct_query(additional_conditions)
 
     def build_array_collection_query(self, additional_conditions: Sequence[ast.Expr]) -> ast.SelectQuery:
@@ -329,10 +380,11 @@ class ConversionGoalProcessor:
         additional_conditions: Sequence[ast.Expr],
         date_from: Optional[datetime] = None,
         date_to: Optional[datetime] = None,
+        touchpoints: Optional[SharedTouchpointsPrecompute] = None,
     ) -> ast.SelectQuery:
         """Generate array-based query with attribution logic for Events/Actions"""
         if self.config.attribution_window_days > 0:
-            return self._generate_funnel_query(additional_conditions, date_from, date_to)
+            return self._generate_funnel_query(additional_conditions, date_from, date_to, touchpoints)
         return self._generate_direct_query(additional_conditions)
 
     def _generate_funnel_query(
@@ -340,6 +392,7 @@ class ConversionGoalProcessor:
         additional_conditions: Sequence[ast.Expr],
         date_from: Optional[datetime] = None,
         date_to: Optional[datetime] = None,
+        touchpoints: Optional[SharedTouchpointsPrecompute] = None,
     ) -> ast.SelectQuery:
         """Generate multi-step funnel query with attribution window.
 
@@ -349,7 +402,7 @@ class ConversionGoalProcessor:
             # `_should_use_precompute` returns False unless both dates are set; narrow for mypy.
             assert date_from is not None and date_to is not None
             try:
-                precomputed = self._build_attribution_from_precomputes(date_from, date_to)
+                precomputed = self._build_attribution_from_precomputes(date_from, date_to, touchpoints)
                 if precomputed is not None:
                     return precomputed
             except Exception:
@@ -488,7 +541,12 @@ class ConversionGoalProcessor:
             where=ast.And(exprs=where_exprs),
         )
 
-    def _build_attribution_from_precomputes(self, date_from: datetime, date_to: datetime) -> Optional[ast.SelectQuery]:
+    def _build_attribution_from_precomputes(
+        self,
+        date_from: datetime,
+        date_to: datetime,
+        touchpoints: Optional[SharedTouchpointsPrecompute] = None,
+    ) -> Optional[ast.SelectQuery]:
         """Reusable-precompute read path: ensure both the config-agnostic touchpoints and the per-goal
         conversions are materialized, then attribute at read time by feeding a precompute-sourced array
         collection through the existing pipeline (all modes). Neither precompute depends on attribution
@@ -499,15 +557,13 @@ class ConversionGoalProcessor:
         # Touchpoints extend back by the attribution window; conversions only span the query range.
         # Both ensure_precomputed calls can materialize inline (PG + Redis + ClickHouse) when a slice
         # is stale, so they are timed separately from the AST work that follows.
+        #
+        # Touchpoints are config-agnostic, so a multi-goal read shares one materialization. Without a
+        # shared handle each goal materializes the same window itself, which is what a standalone
+        # caller gets.
+        shared_touchpoints = touchpoints or SharedTouchpointsPrecompute(self.team, self.config)
         with self.timings.measure("ma_ensure_touchpoints"):
-            touchpoints_result = ensure_precomputed(
-                team=self.team,
-                insert_query=build_touchpoints_precompute_query(),
-                time_range_start=date_from - window,
-                time_range_end=date_to,
-                ttl_seconds=PRECOMPUTE_TTL_SECONDS,
-                table=LazyComputationTable.MARKETING_TOUCHPOINTS_PREAGGREGATED,
-            )
+            touchpoints_result = shared_touchpoints.get(date_from, date_to)
         if not touchpoints_result.ready:
             return None
 

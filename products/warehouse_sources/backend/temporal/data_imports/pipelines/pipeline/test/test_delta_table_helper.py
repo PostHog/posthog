@@ -41,9 +41,8 @@ def _decimal_array(values: list, *, precision: int = 10, scale: int = 2, misalig
     memoryview(padded)[8 : 8 + data_buffer.size] = memoryview(data_buffer)
     misaligned_buffer = padded.slice(8, data_buffer.size)
     assert misaligned_buffer.address % 16 == 8
-    # The validity buffer is legitimately None here; pyarrow accepts it but the stub types
-    # the list as list[Buffer], so cast rather than fight the (over-strict) annotation.
-    buffers = cast("list[pa.Buffer]", [None, misaligned_buffer])
+    # The validity buffer is legitimately None here (no nulls).
+    buffers: list[pa.Buffer | None] = [None, misaligned_buffer]
     return pa.Array.from_buffers(pa.decimal128(precision, scale), len(values), buffers)
 
 
@@ -723,9 +722,10 @@ class TestRealignDecimalBuffers:
         assert good_buffer.address == orig_buffer.address
 
     def test_multi_chunk_misaligned_column(self) -> None:
+        # The arrays already carry decimal128(10, 2); an explicit type= doesn't match any
+        # pyarrow-stubs chunked_array overload for decimal types.
         chunked = pa.chunked_array(
             [_decimal_array([1, 2], misaligned=True), _decimal_array([3, 4], misaligned=True)],
-            type=pa.decimal128(10, 2),
         )
         table = pa.table({"amount": chunked, "id": pa.array([1, 2, 3, 4])})
         assert _table_is_misaligned(table) is True
@@ -820,7 +820,7 @@ class TestWriteMisalignedDecimalEndToEnd:
         # The seeded row is closed (valid_to set) and the new misaligned row is appended.
         assert final.num_rows == 2
         assert set(final.column("amount").to_pylist()) == {5, 7}
-        closed = final.filter(pc.equal(final.column("amount"), Decimal("5.00")))
+        closed = final.filter(pc.equal(final.column("amount"), pa.scalar(Decimal("5.00"), type=pa.decimal128(10, 2))))
         assert closed.column("valid_to").to_pylist() == [ts2]
 
 

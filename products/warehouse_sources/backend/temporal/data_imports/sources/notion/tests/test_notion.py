@@ -25,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.notion.not
     _request,
     _search_body,
     _search_stream,
+    _users_stream,
     _wait_strategy,
     validate_credentials,
 )
@@ -136,6 +137,70 @@ class TestNotion:
 
         # The first request must start from the persisted cursor.
         assert session.calls[0]["json"]["start_cursor"] == "resume-cursor"
+
+    @staticmethod
+    def _invalid_cursor_response() -> FakeResponse:
+        response = FakeResponse({}, status_code=400)
+        response.text = (
+            '{"object":"error","status":400,"code":"validation_error",'
+            '"message":"The start_cursor provided is invalid: dead-cursor"}'
+        )
+        return response
+
+    def test_search_stream_restarts_when_resumed_cursor_invalid(self) -> None:
+        # A resumed search cursor can expire before the retry runs; Notion then rejects it with a 400
+        # validation_error. The stream must drop the stale cursor and restart from the beginning
+        # rather than crashing the whole sync.
+        session = FakeSession(
+            [
+                self._invalid_cursor_response(),
+                _list_response([{"id": "p1"}], has_more=False, next_cursor=None),
+            ]
+        )
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = NotionResumeConfig(next_cursor="stale-cursor")
+
+        tables = list(
+            _search_stream(cast(requests.Session, session), NOTION_ENDPOINTS["pages"], mock.MagicMock(), manager)
+        )
+
+        assert sum(t.num_rows for t in tables) == 1
+        # First request replays the stale cursor (rejected); the restart carries no cursor.
+        assert session.calls[0]["json"]["start_cursor"] == "stale-cursor"
+        assert "start_cursor" not in session.calls[1]["json"]
+
+    def test_search_stream_propagates_non_cursor_bad_request(self) -> None:
+        # A 400 that is not the invalid-cursor case is a genuine bad request and must still fail the
+        # sync rather than being silently restarted.
+        other_400 = FakeResponse({}, status_code=400)
+        other_400.text = '{"code":"validation_error","message":"something else"}'
+        session = FakeSession([other_400])
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = NotionResumeConfig(next_cursor="stale-cursor")
+
+        with pytest.raises(NotionBadRequestError):
+            list(_search_stream(cast(requests.Session, session), NOTION_ENDPOINTS["pages"], mock.MagicMock(), manager))
+
+    def test_users_stream_restarts_when_resumed_cursor_invalid(self) -> None:
+        # The users stream persists the same kind of resume cursor as search, so a stale cursor must
+        # trigger the same restart-from-the-beginning recovery rather than crashing the sync.
+        session = FakeSession(
+            [
+                self._invalid_cursor_response(),
+                _list_response([{"id": "u1"}], has_more=False, next_cursor=None),
+            ]
+        )
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = NotionResumeConfig(next_cursor="stale-cursor")
+
+        tables = list(_users_stream(cast(requests.Session, session), mock.MagicMock(), manager))
+
+        assert sum(t.num_rows for t in tables) == 1
+        assert session.calls[0]["params"]["start_cursor"] == "stale-cursor"
+        assert "start_cursor" not in session.calls[1]["params"]
 
     def test_block_children_inject_page_id(self) -> None:
         session = FakeSession([_list_response([{"id": "b1", "has_children": False}], has_more=False, next_cursor=None)])

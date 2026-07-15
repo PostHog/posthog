@@ -13,6 +13,7 @@ import {
     hasBreakdownFilter,
     isFunnelsQuery,
     isInsightVizNode,
+    isMetricsQuery,
     isTrendsQuery,
 } from '~/queries/utils'
 import { FunnelVizType, InsightLogicProps } from '~/types'
@@ -31,9 +32,16 @@ export interface InsightAlertsLogicProps {
     deferInitialAlertsLoad?: boolean
 }
 
+/** Per-kind feature-flag state threaded from call sites into the alert-support predicates. */
+export interface AlertSupportFlagOptions {
+    hogqlAlertsEnabled?: boolean
+    funnelAlertsEnabled?: boolean
+    metricsAlertsEnabled?: boolean
+}
+
 export const areAlertsSupportedForInsight = (
     query?: Record<string, any> | null,
-    options: { hogqlAlertsEnabled?: boolean; funnelAlertsEnabled?: boolean } = {}
+    options: AlertSupportFlagOptions = {}
 ): boolean => {
     if (!query) {
         return false
@@ -47,12 +55,16 @@ export const areAlertsSupportedForInsight = (
         const vizType = query.source.funnelsFilter?.funnelVizType
         return vizType !== FunnelVizType.TimeToConvert && vizType !== FunnelVizType.Flow
     }
+    // Metrics insights persist a bare MetricsQuery node (no InsightVizNode wrapper).
+    if (options.metricsAlertsEnabled && isMetricsQuery(query)) {
+        return true
+    }
     return !!options.hogqlAlertsEnabled && containsHogQLQuery(query)
 }
 
 export const areAnomalyAlertsSupportedForInsight = (
     query?: Record<string, any> | null,
-    options: { hogqlAlertsEnabled?: boolean } = {}
+    options: AlertSupportFlagOptions = {}
 ): boolean => {
     if (!areAlertsSupportedForInsight(query, options)) {
         return false
@@ -66,14 +78,18 @@ export const areAnomalyAlertsSupportedForInsight = (
 
 // List only the insight types this account can actually alert on — naming a flag-gated type the
 // user doesn't have would disclose an unreleased feature.
-const alertableInsightTypesLabel = (options: { hogqlAlertsEnabled?: boolean; funnelAlertsEnabled?: boolean }): string =>
-    ['trends', options.hogqlAlertsEnabled && 'SQL', options.funnelAlertsEnabled && 'funnel'].filter(Boolean).join(', ')
+const alertableInsightTypesLabel = (options: AlertSupportFlagOptions): string =>
+    [
+        'trends',
+        options.hogqlAlertsEnabled && 'SQL',
+        options.funnelAlertsEnabled && 'funnel',
+        options.metricsAlertsEnabled && 'metrics',
+    ]
+        .filter(Boolean)
+        .join(', ')
 
 export const alertsUnsupportedReason = (
-    options: {
-        hogqlAlertsEnabled?: boolean
-        funnelAlertsEnabled?: boolean
-    },
+    options: AlertSupportFlagOptions,
     query?: Record<string, any> | null
 ): string => {
     // A funnel on a viz type without a conversion-rate metric otherwise reads as a contradiction —

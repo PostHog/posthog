@@ -1,5 +1,6 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -18,6 +19,7 @@ import {
     PendingAlertNotification,
     buildAlertFilterConfig,
     buildHogFunctionPayload,
+    notificationTypeFromTemplateId,
 } from 'products/alerts/frontend/logic/alertNotifications'
 
 import type { alertNotificationLogicType } from './alertNotificationLogicType'
@@ -122,13 +124,16 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
         ],
     })),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         loadIntegrationsSuccess: () => {
             if (!values.firstSlackIntegration) {
                 actions.setSelectedType(ALERT_NOTIFICATION_TYPE_WEBHOOK)
             }
         },
         deleteExistingHogFunction: async ({ hogFunction }) => {
+            // Resolve the type from the closure up front — after the delete the HogFunction is
+            // removed from state, so we can't derive it later.
+            const type = notificationTypeFromTemplateId(hogFunction.template_id)
             await deleteWithUndo({
                 endpoint: `projects/${values.currentProjectId}/hog_functions`,
                 object: {
@@ -138,6 +143,18 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
                 callback: (undo) => {
                     if (undo) {
                         actions.loadExistingHogFunctions()
+                        return
+                    }
+                    // Capture only a delete that actually landed: the callback runs after the API
+                    // call resolves and not at all on failure, and we skip it on undo. Mirrors the
+                    // create event, which always carries a known type — so skip an unrecognized
+                    // template rather than emit a null type that can't be classified. A
+                    // delete-then-undo still counts once — acceptable for optimistic-undo analytics.
+                    if (type) {
+                        posthog.capture('insight alert destination deleted', {
+                            alert_id: props.alertId,
+                            type,
+                        })
                     }
                 },
             })
@@ -155,6 +172,19 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
                     return api.hogFunctions.create(payload)
                 })
             )
+
+            // Capture one event per destination that was actually created, tagged with its type,
+            // so adoption of each destination (Slack/Discord/Teams/webhook) is measurable. The
+            // destination is a separate HogFunction, so no `alert created`/`alert updated` event
+            // records it — this is the only signal that ties a destination type to an alert.
+            results.forEach((result, i) => {
+                if (result.status === 'fulfilled') {
+                    posthog.capture('insight alert destination created', {
+                        alert_id: alertId,
+                        type: pending[i].type,
+                    })
+                }
+            })
 
             const failures = results
                 .map((result, i) => ({ result, notification: pending[i] }))

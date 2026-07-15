@@ -115,7 +115,9 @@ class TeamLogsConfigSerializer(serializers.ModelSerializer):
         ),
     )
     logs_session_id_attribute_keys = serializers.ListField(
-        child=serializers.CharField(max_length=200, allow_blank=False),
+        # trim_whitespace is the DRF default, but the uniqueness validator below
+        # depends on it — spell it out so it can't drift silently.
+        child=serializers.CharField(max_length=200, allow_blank=False, trim_whitespace=True),
         allow_empty=False,
         max_length=10,
         help_text=(
@@ -132,12 +134,11 @@ class TeamLogsConfigSerializer(serializers.ModelSerializer):
         fields = ["logs_distinct_id_attribute_key", "logs_session_id_attribute_keys"]
 
     def validate_logs_session_id_attribute_keys(self, value: list[str]) -> list[str]:
-        keys = [key.strip() for key in value]
-        if any(not key for key in keys):
-            raise serializers.ValidationError("Attribute keys cannot be blank.")
-        if len(set(keys)) != len(keys):
+        # The child CharField already trims whitespace and rejects blanks; only
+        # cross-item uniqueness needs checking here.
+        if len(set(value)) != len(value):
             raise serializers.ValidationError("Attribute keys must be unique.")
-        return keys
+        return value
 
 
 def handle_logs_config(request: request.Request, team: Team) -> response.Response:
