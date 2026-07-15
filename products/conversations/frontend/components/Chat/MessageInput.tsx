@@ -8,7 +8,7 @@ import { RichContentEditorType } from 'lib/components/RichContentEditor/types'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
 import type { TicketChannel, TicketStatus } from '../../types'
-import { channelIcon, getReplyPlaceholder } from '../Channels/ChannelsTag'
+import { channelIcon, getReplyPlaceholder, hasReplyChannelBranding } from '../Channels/ChannelsTag'
 import { SupportEditor, serializeToMarkdown } from '../Editor'
 
 export interface MessageInputProps {
@@ -85,7 +85,7 @@ export function MessageInput({
     const setIsPrivate = onPrivateChange ?? setLocalIsPrivate
 
     const resolvedPlaceholder = placeholder ?? (isPrivate ? 'Type your private note...' : getReplyPlaceholder(channel))
-    const showChannelLogo = !isPrivate && (channel === 'slack' || channel === 'teams')
+    const showChannelLogo = !isPrivate && hasReplyChannelBranding(channel)
     const sendVerb = isPrivate ? 'Attach' : 'Send'
 
     const handleSubmit = (statusAfterSend?: TicketStatus): void => {

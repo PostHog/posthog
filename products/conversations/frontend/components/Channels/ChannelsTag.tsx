@@ -21,14 +21,21 @@ export const channelIcon: Record<TicketChannel, JSX.Element> = {
     github: <IconGithub />,
 }
 
+// Channels a team member replies back into externally, branded on the composer
+// (placeholder text + send-button logo). Others fall back to the generic composer.
+const replyChannelLabel: Partial<Record<TicketChannel, string>> = {
+    slack: 'Slack',
+    teams: 'Microsoft Teams',
+    github: 'GitHub',
+}
+
 export function getReplyPlaceholder(channel?: TicketChannel): string {
-    if (channel === 'slack') {
-        return 'Reply in Slack...'
-    }
-    if (channel === 'teams') {
-        return 'Reply in Microsoft Teams...'
-    }
-    return 'Type your message...'
+    const label = channel ? replyChannelLabel[channel] : undefined
+    return label ? `Reply in ${label}...` : 'Type your message...'
+}
+
+export function hasReplyChannelBranding(channel?: TicketChannel): channel is TicketChannel {
+    return !!channel && channel in replyChannelLabel
 }
 
 const channelDetailLabel: Record<TicketChannelDetail, string> = {
