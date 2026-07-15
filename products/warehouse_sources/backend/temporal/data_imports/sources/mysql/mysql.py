@@ -321,6 +321,13 @@ _CANT_CONNECT_TO_SERVER_CODE = 2003
 # Postgres source, which retries its own "SSL connection has been closed unexpectedly" on connect.
 _SSL_UNEXPECTED_EOF_TOKEN = "[SSL: UNEXPECTED_EOF_WHILE_READING]"
 
+# Newer OpenSSL/Python raise `ssl.SSLZeroReturnError` — "TLS/SSL connection has been closed (EOF)" —
+# for the same peer-closed-the-TLS-connection condition the token above covers, just a different
+# rendering (a clean SSL_ERROR_ZERO_RETURN close rather than an abrupt read EOF). pymysql wraps it as
+# the same 2003 connect failure, so it's equally transient and must be retried too. Match the stable
+# phrase, not the volatile `_ssl.c:<line>` suffix that shifts across Python builds.
+_SSL_CONNECTION_CLOSED_EOF_TOKEN = "TLS/SSL connection has been closed (EOF)"
+
 # paramiko raises a bare, message-less EOFError from `start_client` when the SSH gateway accepts
 # the TCP connection but closes it during the SSH handshake — a non-SSH service on the port, a
 # bastion refusing PostHog's IPs, or a proxy that resets the stream. sshtunnel doesn't wrap it
@@ -344,10 +351,12 @@ def _is_transient_connect_drop(e: BaseException) -> bool:
       A fresh attempt recovers. The one 2013 that is *not* transient is the SSL-version
       mismatch (a deterministic config error, already non-retryable): it arrives with an
       `[SSL: ...` suffix, so exclude that and let it surface.
-    - `2003` (can't connect) carrying an `[SSL: UNEXPECTED_EOF_WHILE_READING]` cause:
-      the peer aborted the TLS handshake with an unexpected EOF — the SSL-flavoured
-      sibling of the 2013 drop, equally transient. The generic 2003 (wrong host/port,
-      firewall) stays non-retryable, so match only the unexpected-EOF token.
+    - `2003` (can't connect) carrying an SSL peer-close cause — either
+      `[SSL: UNEXPECTED_EOF_WHILE_READING]` (an abrupt read EOF) or "TLS/SSL connection
+      has been closed (EOF)" (`SSLZeroReturnError`, a clean close): the peer dropped the
+      TLS connection mid-handshake — the SSL-flavoured sibling of the 2013 drop, equally
+      transient. The generic 2003 (wrong host/port, firewall) stays non-retryable, so
+      match only the SSL peer-close tokens.
     """
     if not isinstance(e, pymysql.err.OperationalError):
         return False
@@ -356,7 +365,7 @@ def _is_transient_connect_drop(e: BaseException) -> bool:
     if code == _LOST_CONNECTION_DURING_QUERY_CODE:
         return "[SSL:" not in args_text
     if code == _CANT_CONNECT_TO_SERVER_CODE:
-        return _SSL_UNEXPECTED_EOF_TOKEN in args_text
+        return _SSL_UNEXPECTED_EOF_TOKEN in args_text or _SSL_CONNECTION_CLOSED_EOF_TOKEN in args_text
     return False
 
 
@@ -379,6 +388,27 @@ def _is_transient_connect_timeout(e: BaseException) -> bool:
     if code != _CANT_CONNECT_CODE:
         return False
     return "timed out" in " ".join(str(arg) for arg in e.args)
+
+
+# glibc's getaddrinfo returns EAI_AGAIN — "Temporary failure in name resolution" — when the DNS
+# resolver is momentarily unavailable (the nameserver couldn't be reached, returned SERVFAIL, or a
+# resolver-side blip prevented the lookup). pymysql wraps it as the 2003 connect failure, so without
+# this it falls through to the non-retryable "Can't connect to MySQL server on" classifier and the
+# sync gives up on a recoverable blip. EAI_AGAIN is a "try again later" condition — distinct from
+# EAI_NONAME ("Name or service not known"), where the host genuinely doesn't resolve and staying
+# non-retryable is correct. Match the stable, locale-independent gai_strerror text rather than the
+# platform-specific errno number.
+_DNS_TEMPORARY_FAILURE_TOKEN = "Temporary failure in name resolution"
+
+
+def _is_transient_connect_dns_failure(e: BaseException) -> bool:
+    """Return True if connect failed on a transient DNS-resolver blip — recoverable on retry."""
+    if not isinstance(e, pymysql.err.OperationalError):
+        return False
+    code = e.args[0] if e.args else None
+    if code != _CANT_CONNECT_CODE:
+        return False
+    return _DNS_TEMPORARY_FAILURE_TOKEN in " ".join(str(arg) for arg in e.args)
 
 
 # pymysql raises this `InternalError` from `_read_packet` when an incoming packet's
@@ -439,6 +469,7 @@ def _connect_with_transient_retry(kwargs: dict[str, Any]) -> pymysql.Connection:
             if attempt >= _MAX_CONNECT_ATTEMPTS or not (
                 _is_transient_connect_drop(e)
                 or _is_transient_connect_timeout(e)
+                or _is_transient_connect_dns_failure(e)
                 or _is_transient_packet_sequence_error(e)
                 or _is_transient_vitess_dial_timeout(e)
             ):

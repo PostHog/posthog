@@ -89,6 +89,17 @@ export interface CIFailureLogsApi {
     truncated: boolean
 }
 
+export interface CurrentBranchHealthApi {
+    /** Detected default branch ('master' or 'main') from runs in the same 24-hour window. */
+    default_branch: string
+    /** Workflows with at least one completed run in the last 24 hours. */
+    settled_workflows: number
+    /** Workflows whose latest completed run in the last 24 hours failed or timed out. */
+    failing_workflows: number
+    /** Alphabetical preview of failing workflow names, capped at 20; use failing_workflows for the complete count. */
+    failing_workflow_names: string[]
+}
+
 export interface FlakyTestItemApi {
     /** Reconstructed pytest nodeid (the CI span name), e.g. 'posthog/api/test/test_event/TestEvents::test_x'. A stable grouping key, not a runnable selector — use `selector` to run or quarantine the test. */
     nodeid: string
@@ -196,11 +207,24 @@ export interface RunCostApi {
     estimated_cost_usd: number | null
 }
 
+export interface PRLLMSpendApi {
+    /** Total agent LLM token cost in USD attributed to this PR (sum of $ai_total_cost_usd over the matched $ai_generation events). */
+    cost_usd: number
+    /** Total input (prompt) tokens across the attributed generations. */
+    input_tokens: number
+    /** Total output (completion) tokens across the attributed generations. */
+    output_tokens: number
+    /** Number of $ai_generation events attributed to this PR by git branch ($ai_git_branch). */
+    generations: number
+}
+
 export interface PRCostSummaryApi {
     /** Same spend broken down per workflow. */
     by_workflow: WorkflowCostApi[]
     /** Same spend broken down per workflow run, keyed by (run_id, run_attempt). */
     by_run: RunCostApi[]
+    /** Agent LLM token spend attributed to this PR by git branch ($ai_git_branch), or null when no generation matched — independent of the CI cost figures, so it can be present even when jobs_available is false. The UI hides the row when null. */
+    llm_spend?: PRLLMSpendApi | null
     /** False when the job-level source (github_workflow_jobs) isn't synced — every figure is then zero/null and the cost cards should be hidden. */
     jobs_available: boolean
     /** Billable CI minutes: each costed (self-hosted) job's elapsed time, summed. Parallel jobs add up, so this is compute time spent, not wall-clock run duration. */
@@ -668,13 +692,13 @@ export interface OpenToMergeBucketApi {
 }
 
 export interface RepoOverviewApi {
-    /** CI cost per merged PR across the window, oldest first, zero-filled, bucketed by cost_series_granularity. Empty when the job-level source isn't synced. */
+    /** CI cost per merged PR across the window, oldest first, zero-filled, bucketed by cost_series_granularity. Empty when the job-level source isn't synced or include_series=false. */
     cost_series: CostPerMergeBucketApi[]
-    /** Median time-to-green (p50 successful PR-attributed CI run duration) per bucket across the window, oldest first, bucketed by time_to_green_series_granularity. Empty buckets carry null. */
+    /** Median time-to-green (p50 successful PR-attributed CI run duration) per bucket across the window, oldest first, bucketed by time_to_green_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
     time_to_green_series: TimeToGreenBucketApi[]
-    /** CI pass rate (completed runs that succeeded, all branches) per bucket across the window, oldest first, bucketed by success_rate_series_granularity. Empty buckets carry null. */
+    /** CI pass rate (completed runs that succeeded, all branches) per bucket across the window, oldest first, bucketed by success_rate_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
     success_rate_series: PassRateBucketApi[]
-    /** Median time-to-merge (p50 open_to_merge_seconds, bots/drafts excluded) per bucket across the window, oldest first, bucketed by open_to_merge_series_granularity. Empty buckets carry null. */
+    /** Median time-to-merge (p50 open_to_merge_seconds, bots/drafts excluded) per bucket across the window, oldest first, bucketed by open_to_merge_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
     open_to_merge_series: OpenToMergeBucketApi[]
     /** Workflow runs started in the window, all branches and workflows. */
     run_count: number
@@ -694,6 +718,10 @@ export interface RepoOverviewApi {
     rerun_cycles: number
     /** Re-run cycles over the previous window. */
     rerun_cycles_prev: number
+    /** PRs merged in the window, all authors and bots included — the merge population that triggered the CI spend, so it divides cleanly into billable_minutes and estimated_cost_usd. */
+    merged_pr_count: number
+    /** Merged-PR count over the previous window. */
+    merged_pr_count_prev: number
     /**
      * Median merged_at - created_at over PRs merged in the window, bots and drafts excluded. Coarse by design: draft and ready-for-review time are fused. Null when nothing merged.
      * @nullable
@@ -768,6 +796,23 @@ export interface WorkflowRunActivityApi {
     truncated: boolean
     /** Maximum number of run points returned in `points`. */
     limit: number
+}
+
+export interface BranchPRMatchApi {
+    /** Repository the pull request belongs to, as 'owner/name'. */
+    repo: string
+    /** Pull request number within the repository — pair with `repo` to link to it. */
+    number: number
+    /**
+     * Pull request title, or null when the snapshot carries no title.
+     * @nullable
+     */
+    title: string | null
+    /**
+     * Derived PR state ('open', 'closed', 'merged'), or null when the snapshot carries no state.
+     * @nullable
+     */
+    state: string | null
 }
 
 export interface RunFailureLogsApi {
@@ -960,6 +1005,13 @@ export type EngineeringAnalyticsCiFailureLogsParams = {
     source_id?: string
 }
 
+export type EngineeringAnalyticsCurrentBranchHealthParams = {
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
+}
+
 export type EngineeringAnalyticsFlakyTestsParams = {
     /**
      * Window start: relative ('-7d', '-30d') or ISO8601. Defaults to -7d; the window may span at most 30 days.
@@ -1110,6 +1162,10 @@ export type EngineeringAnalyticsRepoOverviewParams = {
      */
     date_to?: string
     /**
+     * Set false to skip the chart series (cost_series, time_to_green_series, success_rate_series, open_to_merge_series return empty) and their query cost — for headline-only consumers like the weekly digest. Defaults to true.
+     */
+    include_series?: boolean
+    /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string
@@ -1132,6 +1188,25 @@ export type EngineeringAnalyticsRepoRunActivityParams = {
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string
+}
+
+export type EngineeringAnalyticsResolveBranchParams = {
+    /**
+     * Git branch (the PR's head ref) to resolve. Open PRs are returned first, then most recently updated.
+     */
+    branch: string
+    /**
+     * Optional 'owner/name' repository to narrow matching to a single repo.
+     */
+    repo?: string
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
+    /**
+     * Optional ISO8601 timestamp, e.g. the trace's capture time. When a branch name has been reused across PRs over time, the PR whose lifetime window contains this moment is ranked first so the result matches the PR that was active when the trace was captured. A preference only, not a filter; omit to rank purely by open state then recency.
+     */
+    timestamp?: string
 }
 
 export type EngineeringAnalyticsRunFailureLogsParams = {

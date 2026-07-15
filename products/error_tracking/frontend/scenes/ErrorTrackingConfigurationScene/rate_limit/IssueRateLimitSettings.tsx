@@ -11,6 +11,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
+import { errorTrackingEditAccessDisabledReason } from '../../../utils'
 import { issueRateLimitConfigLogic } from './issueRateLimitConfigLogic'
 import { BUCKET_OPTIONS } from './rateLimitConfigLogic'
 import { RateLimitHistoryChart } from './RateLimitHistoryChart'
@@ -97,7 +98,10 @@ function ConfigColumn(): JSX.Element {
                 <LemonButton
                     type="primary"
                     htmlType="submit"
-                    disabledReason={!configFormChanged ? 'No changes to save' : undefined}
+                    disabledReason={
+                        errorTrackingEditAccessDisabledReason() ??
+                        (!configFormChanged ? 'No changes to save' : undefined)
+                    }
                     loading={isConfigFormSubmitting}
                 >
                     Save

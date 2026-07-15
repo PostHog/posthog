@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
 import { dayjs } from 'lib/dayjs'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
@@ -42,6 +43,7 @@ import {
     slugifyFeatureFlagKey,
     validateFeatureFlagKey,
 } from './featureFlagLogic'
+import { featureFlagsLogic } from './featureFlagsLogic'
 
 const MOCK_FEATURE_FLAG = {
     ...NEW_FLAG,
@@ -198,6 +200,46 @@ describe('featureFlagLogic', () => {
     afterEach(() => {
         logic.unmount()
         jest.useRealTimers()
+    })
+
+    describe('stale list-cache reconciliation on mount', () => {
+        it('refreshes a cache-painted flag so active reflects the server, not the stale list cache', async () => {
+            logic.unmount()
+
+            useMocks({
+                get: {
+                    '/api/projects/:projectId/feature_flags/': () => [
+                        200,
+                        { results: [{ ...MOCK_FEATURE_FLAG, active: false }], count: 1 },
+                    ],
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/`]: () => [
+                        200,
+                        { ...MOCK_FEATURE_FLAG, active: true },
+                    ],
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/status`]: () => [
+                        200,
+                        MOCK_FEATURE_FLAG_STATUS,
+                    ],
+                },
+            })
+
+            featureFlagsLogic.mount()
+            featureFlagsLogic.actions.loadFeatureFlags()
+            await expectLogic(featureFlagsLogic).toFinishAllListeners()
+            expect(featureFlagsLogic.values.featureFlags.results[0].active).toBe(false)
+
+            logic = featureFlagLogic({ id: 1 })
+            logic.mount()
+
+            await expectLogic(logic)
+                .toDispatchActions(['setFeatureFlag', 'refreshFeatureFlag', 'refreshFeatureFlagSuccess'])
+                .toFinishAllListeners()
+
+            expect(logic.values.featureFlag.active).toBe(true)
+            expect(featureFlagsLogic.values.featureFlags.results[0].active).toBe(true)
+
+            featureFlagsLogic.unmount()
+        })
     })
 
     describe('setMultivariateEnabled functionality', () => {
@@ -1276,6 +1318,21 @@ describe('featureFlagLogic', () => {
             ])
             expect(logic.values.featureFlag.active).toBe(true)
             expect(logic.values.projectFlagsToggling).toEqual({})
+        })
+    })
+
+    describe('toggleFeatureFlagActive', () => {
+        it('opens one confirmation with matching disable copy', async () => {
+            const dialogOpenSpy = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+            logic.actions.setFeatureFlag({ ...MOCK_FEATURE_FLAG, active: true })
+
+            await expectLogic(logic, () => logic.actions.toggleFeatureFlagActive(false)).toFinishAllListeners()
+
+            expect(dialogOpenSpy).toHaveBeenCalledTimes(1)
+            const dialogProps = dialogOpenSpy.mock.calls[0][0]
+            expect(dialogProps.title).toBe('Disable feature flag "test-flag"?')
+            expect(dialogProps.primaryButton?.children).toBe('Disable flag')
+            dialogOpenSpy.mockRestore()
         })
     })
 })

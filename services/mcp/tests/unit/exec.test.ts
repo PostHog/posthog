@@ -9,7 +9,13 @@ import { buildQueryToolsBlock, buildToolDomainsCompact } from '@/lib/instruction
 import { InstructionsFormatter } from '@/lib/instructions-formatter'
 import { SessionManager } from '@/lib/SessionManager'
 import { getToolsFromContext } from '@/tools'
-import { createExecTool, type ExecInnerCallProperties, parseExecCallInnerToolName } from '@/tools/exec'
+import {
+    createExecTool,
+    type ExecInnerCallProperties,
+    type ExecToolOptions,
+    parseExecCallInnerToolName,
+} from '@/tools/exec'
+import { ExecHelpCatalog } from '@/tools/exec-help'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 import {
     POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
@@ -45,7 +51,7 @@ const mockContext = {
 function createExec(
     tools: Tool<ZodObjectAny>[] = [makeMockTool()],
     mcpConsumer?: string,
-    options?: { isInlineExecUiHost?: boolean }
+    options?: ExecToolOptions
 ): Tool<any> {
     return createExecTool(
         tools,
@@ -60,6 +66,80 @@ function createExec(
 }
 
 describe('exec tool', () => {
+    describe('learn command', () => {
+        const helpCatalog = new ExecHelpCatalog([
+            {
+                id: 'analytics',
+                kind: 'guide',
+                title: 'Analytics',
+                description: 'Detailed analytics guidance.',
+                content: '### Retrieving data\n\nUse the analytics tools.',
+            },
+            {
+                id: 'retention-analysis',
+                kind: 'skill',
+                title: 'Retention analysis',
+                description: 'A retention workflow.',
+                content: '### Retention analysis\n\nFollow the workflow.',
+            },
+        ])
+
+        it('lists topic metadata without loading topic content', async () => {
+            const exec = createExec(undefined, undefined, { helpCatalog })
+
+            const result = JSON.parse((await exec.handler(mockContext, { command: 'learn' })) as string)
+
+            expect(result).toEqual([
+                {
+                    id: 'analytics',
+                    kind: 'guide',
+                    title: 'Analytics',
+                    description: 'Detailed analytics guidance.',
+                },
+                {
+                    id: 'retention-analysis',
+                    kind: 'skill',
+                    title: 'Retention analysis',
+                    description: 'A retention workflow.',
+                },
+            ])
+        })
+
+        it('loads a topic by its globally unique ID', async () => {
+            const exec = createExec(undefined, undefined, { helpCatalog })
+
+            await expect(exec.handler(mockContext, { command: 'learn analytics' })).resolves.toBe(
+                '### Retrieving data\n\nUse the analytics tools.'
+            )
+        })
+
+        it('loads multiple unique topics in the requested order', async () => {
+            const exec = createExec(undefined, undefined, { helpCatalog })
+
+            await expect(
+                exec.handler(mockContext, { command: 'learn retention-analysis analytics retention-analysis' })
+            ).resolves.toBe(
+                '## Retention analysis\n\n### Retention analysis\n\nFollow the workflow.\n\n## Analytics\n\n### Retrieving data\n\nUse the analytics tools.'
+            )
+        })
+
+        it('reports the available IDs when a topic is unknown', async () => {
+            const exec = createExec(undefined, undefined, { helpCatalog })
+
+            await expect(exec.handler(mockContext, { command: 'learn unknown' })).rejects.toThrow(
+                'Unknown learning topic: "unknown". Available: analytics, retention-analysis'
+            )
+        })
+
+        it('reports every unknown ID without returning partial topic content', async () => {
+            const exec = createExec(undefined, undefined, { helpCatalog })
+
+            await expect(
+                exec.handler(mockContext, { command: 'learn analytics unknown missing unknown' })
+            ).rejects.toThrow('Unknown learning topics: "unknown", "missing". Available: analytics, retention-analysis')
+        })
+    })
+
     describe('call command', () => {
         it('returns TOON-formatted output by default', async () => {
             const exec = createExec()

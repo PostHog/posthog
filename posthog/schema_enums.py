@@ -1937,6 +1937,13 @@ class ExternalDataSourceType(StrEnum):
     WINDMILL = "Windmill"
     ZEP = "Zep"
     HEX = "Hex"
+    SINGULAR = "Singular"
+    SWONKIE = "Swonkie"
+    SUMSUB = "Sumsub"
+    GOOGLE_CHAT = "GoogleChat"
+    KICKSCALE = "Kickscale"
+    ZELLIFY = "Zellify"
+    RUDDER_STACK = "RudderStack"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -2021,6 +2028,7 @@ class FileSystemIconType(StrEnum):
     CONVERSATIONS = "conversations"
     TOOLBAR = "toolbar"
     VISUAL_REVIEW = "visual_review"
+    CODE_REVIEW = "code_review"
     SETTINGS = "settings"
     HEALTH = "health"
     INBOX = "inbox"
@@ -2331,6 +2339,7 @@ class IntegrationKind(StrEnum):
     CUSTOMERIO_APP = "customerio-app"
     CUSTOMERIO_WEBHOOK = "customerio-webhook"
     CUSTOMERIO_TRACK = "customerio-track"
+    APNS = "apns"
     POSTGRESQL = "postgresql"
     AWS_S3 = "aws-s3"
     S3_COMPATIBLE = "s3-compatible"
@@ -2917,6 +2926,7 @@ class ProductKey(StrEnum):
     PRODUCT_ANALYTICS = "product_analytics"
     PRODUCT_TOURS = "product_tours"
     REVENUE_ANALYTICS = "revenue_analytics"
+    REVIEW_HOG = "review_hog"
     SESSION_REPLAY = "session_replay"
     REPLAY_VISION = "replay_vision"
     SITE_APPS = "site_apps"

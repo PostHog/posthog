@@ -69,7 +69,6 @@ You can create an API key under **My Account → API keys** in [Smartwaiver](htt
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

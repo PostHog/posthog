@@ -13,8 +13,6 @@ import {
 import type { BarChartConfig, PointClickData, TimeSeriesBarChartConfig, TooltipContext } from '@posthog/quill-charts'
 
 import { useChartTheme, useChartConfig, useDateRangeZoom } from 'lib/charts/hooks'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { percentage } from 'lib/utils/numbers'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
@@ -34,7 +32,7 @@ import { getStackBreakdownValues } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
-import { INSIGHT_TOOLTIP_CONFIG, INSIGHT_TOOLTIP_CONFIG_LEGACY } from '../../shared/tooltipConfig'
+import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
 import { AnnotationsLayer } from '../shared/AnnotationsLayer'
 import { makeChartErrorHandler } from '../shared/chartErrorHandler'
 import { getTrendsSeriesDisplayLabel } from '../shared/getTrendsSeriesDisplayLabel'
@@ -43,7 +41,6 @@ import { handleTrendsChartClick, type TrendsChartClickDeps } from '../shared/han
 import { TrendsAlertOverlays } from '../shared/TrendsAlertOverlays'
 import { trendsFilterToYFormatterConfig } from '../shared/trendsAxisFormat'
 import { buildTrendsSeriesMeta, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
-import { TrendsTooltip } from '../shared/TrendsTooltip'
 import { useInsightsLegendConfig } from '../shared/useInsightsLegendConfig'
 import { getAggregatedDisplayLabel as getAggregatedDisplayLabelFn } from './getAggregatedDisplayLabel'
 import { handleTrendsBarAggregatedChartClick } from './handleTrendsBarAggregatedChartClick'
@@ -91,9 +88,6 @@ export function TrendsBarChart({
     embedded = false,
 }: TrendsBarChartProps): JSX.Element | null {
     const theme = useChartTheme()
-    const { featureFlags } = useValues(featureFlagLogic)
-    const quillTooltipEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
-    const TIME_SERIES_TOOLTIP_CONFIG = quillTooltipEnabled ? INSIGHT_TOOLTIP_CONFIG : INSIGHT_TOOLTIP_CONFIG_LEGACY
     const { insightProps, insight } = useValues(insightLogic)
 
     // Time-series bars (vertical) render the in-chart legend; the aggregated bar-value layout has
@@ -111,7 +105,6 @@ export function TrendsBarChart({
         breakdownFilter,
         insightData,
         trendsFilter,
-        formula,
         isStickiness,
         labelGroupType,
         hasPersonsModal,
@@ -232,7 +225,7 @@ export function TrendsBarChart({
                 yAxisLabel: trendsFilter?.yAxisLabel,
                 goalLines,
                 valueLabels: showValuesOnSeries ? { formatter: valueLabelFormatter } : false,
-                tooltip: TIME_SERIES_TOOLTIP_CONFIG,
+                tooltip: INSIGHT_TOOLTIP_CONFIG,
             }),
             // Interactive legend (toggle callbacks, context menu) is a component concern, kept out
             // of the pure transform so the builder stays free of React state.
@@ -253,7 +246,6 @@ export function TrendsBarChart({
             showValuesOnSeries,
             valueLabelFormatter,
             legendConfig,
-            TIME_SERIES_TOOLTIP_CONFIG,
         ]
     )
 
@@ -400,11 +392,7 @@ export function TrendsBarChart({
                 showHeader: isAggregated ? (false as const) : undefined,
                 sortedByValue: false,
             }
-            return quillTooltipEnabled ? (
-                <InsightSeriesTooltip {...sharedProps} />
-            ) : (
-                <TrendsTooltip {...sharedProps} formula={formula} />
-            )
+            return <InsightSeriesTooltip {...sharedProps} />
         },
         [
             timezone,
@@ -412,7 +400,6 @@ export function TrendsBarChart({
             breakdownFilter,
             insightData?.resolved_date_range,
             trendsFilter,
-            formula,
             isStickiness,
             isPercentStackView,
             baseCurrency,
@@ -421,7 +408,6 @@ export function TrendsBarChart({
             canHandleClick,
             clickDeps,
             isAggregated,
-            quillTooltipEnabled,
         ]
     )
 

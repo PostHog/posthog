@@ -1,3 +1,5 @@
+import datetime
+
 import django.db.models.manager
 import django.db.models.deletion
 from django.db import migrations, models
@@ -7,7 +9,31 @@ from posthog.models.utils import uuid7
 PARTITIONS_AHEAD = 7
 
 
+def _precreate_daily_partitions(schema_editor, parent_table):
+    """Pre-create one daily range partition per day for today + next N days.
+
+    Emitted as individual ``CREATE TABLE ... PARTITION OF`` statements from
+    Python rather than a server-side ``DO`` block, so it applies against
+    Postgres-wire targets that don't implement PL/pgSQL, ``generate_series``,
+    or ``EXECUTE format(...)``.
+    """
+    today = datetime.date.today()
+    for offset in range(PARTITIONS_AHEAD + 1):
+        day = today + datetime.timedelta(days=offset)
+        next_day = day + datetime.timedelta(days=1)
+        suffix = day.strftime("%Y%m%d")
+        schema_editor.execute(
+            f"CREATE TABLE IF NOT EXISTS {parent_table}_{suffix} "
+            f"PARTITION OF {parent_table} "
+            f"FOR VALUES FROM ('{day.isoformat()}') TO ('{next_day.isoformat()}')"
+        )
+
+
 def _create_duckgres_tables(apps, schema_editor):
+    # One statement per execute(): psycopg3 sends DDL over the extended query
+    # protocol, which parses a single statement at a time. Multiple statements
+    # crammed into one execute() fail against targets that reject trailing
+    # tokens after the first statement.
     schema_editor.execute("""
         CREATE TABLE sourcebatchduckgresstatus (
             id UUID NOT NULL DEFAULT gen_random_uuid(),
@@ -18,13 +44,15 @@ def _create_duckgres_tables(apps, schema_editor):
             error_response JSONB,
             created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
             PRIMARY KEY (id, created_at)
-        ) PARTITION BY RANGE (created_at);
-
-        CREATE INDEX sbdgs_batch_desc_state_idx
-            ON sourcebatchduckgresstatus (batch_id, created_at DESC, id DESC, job_state);
-
-        CREATE TABLE sourcebatchduckgresstatus_default PARTITION OF sourcebatchduckgresstatus DEFAULT;
+        ) PARTITION BY RANGE (created_at)
     """)
+    schema_editor.execute(
+        "CREATE INDEX sbdgs_batch_desc_state_idx "
+        "ON sourcebatchduckgresstatus (batch_id, created_at DESC, id DESC, job_state)"
+    )
+    schema_editor.execute(
+        "CREATE TABLE sourcebatchduckgresstatus_default PARTITION OF sourcebatchduckgresstatus DEFAULT"
+    )
 
     schema_editor.execute("""
         CREATE TABLE sourcebatchduckgresapply (
@@ -37,35 +65,12 @@ def _create_duckgres_tables(apps, schema_editor):
             row_count INT NOT NULL,
             created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
             CONSTRAINT sbdga_unique_batch_apply UNIQUE (team_id, schema_id, run_uuid, batch_index)
-        );
-
-        CREATE INDEX sbdga_run_idx
-            ON sourcebatchduckgresapply (team_id, schema_id, run_uuid);
-
-        CREATE INDEX sbdga_team_id_idx
-            ON sourcebatchduckgresapply (team_id);
+        )
     """)
+    schema_editor.execute("CREATE INDEX sbdga_run_idx ON sourcebatchduckgresapply (team_id, schema_id, run_uuid)")
+    schema_editor.execute("CREATE INDEX sbdga_team_id_idx ON sourcebatchduckgresapply (team_id)")
 
-    schema_editor.execute(f"""
-        DO $$
-        DECLARE
-            d DATE;
-        BEGIN
-            FOR d IN SELECT generate_series(
-                CURRENT_DATE,
-                CURRENT_DATE + {PARTITIONS_AHEAD},
-                '1 day'::interval
-            )::date
-            LOOP
-                EXECUTE format(
-                    'CREATE TABLE IF NOT EXISTS sourcebatchduckgresstatus_%%s '
-                    'PARTITION OF sourcebatchduckgresstatus '
-                    'FOR VALUES FROM (%%L) TO (%%L)',
-                    to_char(d, 'YYYYMMDD'), d, d + 1
-                );
-            END LOOP;
-        END $$;
-    """)
+    _precreate_daily_partitions(schema_editor, "sourcebatchduckgresstatus")
 
 
 def _create_latest_duckgres_status_view(apps, schema_editor):
