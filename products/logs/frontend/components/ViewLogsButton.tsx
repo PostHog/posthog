@@ -25,18 +25,27 @@ export function ViewLogsButton({
     iconOnly,
     ...buttonProps
 }: ViewLogsButtonProps): JSX.Element | null {
-    const { configuredSessionIdKeys } = useValues(logsConfigLogic)
+    const { configuredSessionIdKeys, logsConfigLoading } = useValues(logsConfigLogic)
     const enabled = useFeatureFlag('LOGS_IN_ERROR_TRACKING')
 
     if (!enabled) {
         return null
     }
 
+    // Until the team's logs config resolves we don't know which session-ID keys to filter on.
+    // Linking with the fallback key here would silently open logs filtered by the wrong
+    // attribute for teams that configured a custom key, so hold the link in a loading state.
+    const to =
+        sessionId && !logsConfigLoading
+            ? buildLogsSessionUrl(sessionId, configuredSessionIdKeys, timestamp)
+            : undefined
+
     return (
         <LemonButton
             icon={<IconLive />}
-            to={sessionId ? buildLogsSessionUrl(sessionId, configuredSessionIdKeys, timestamp) : undefined}
+            to={to}
             targetBlank
+            loading={logsConfigLoading}
             tooltip={iconOnly ? 'View logs from this session' : undefined}
             disabledReason={sessionId ? undefined : 'No session ID associated with this event'}
             {...buttonProps}
