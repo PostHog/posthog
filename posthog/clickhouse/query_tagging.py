@@ -491,6 +491,9 @@ class QueryTags(BaseModel):
 
     hogql_features: Optional[HogQLFeatures] = None
 
+    # Structural fingerprint of the HogQL AST (literals/aliases/positional refs canonicalized) for grouping query patterns.
+    hogql_fingerprint: Optional[str] = None
+
     modifiers: Optional[object] = None
     number_of_entities: Optional[int] = None
     person_on_events_mode: Optional[str] = None  # PersonsOnEventsMode
