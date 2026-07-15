@@ -121,11 +121,13 @@ export class CyclotronV2Janitor {
         const deletedCounts = await this.cleanupTerminalJobs()
         const deleted = Object.values(deletedCounts).reduce((a, b) => a + b, 0)
 
-        // Give up on genuine poison pills: record each to hog_invocation_results,
-        // then delete, so a give-up is never silently dropped. When recovery is
-        // disabled the janitor pauses giving up entirely — poison pills are left
-        // for resetStalledJobs to retry (they accumulate but are never dropped).
-        const poisonedIds = this.poisonRecoveryEnabled ? await this.recordAndDeletePoisonPills() : []
+        // Give up on genuine poison pills. The kill-switch picks between two
+        // self-contained paths — record-then-delete, or pause — with no inline
+        // flag checks beyond this branch, so the paused path can be deleted
+        // wholesale once we trust recording in production.
+        const poisonedIds = this.poisonRecoveryEnabled
+            ? await this.recordAndDeletePoisonPills()
+            : this.pausePoisonPills()
 
         const stalled = await this.resetStalledJobs()
         const depths = await this.measureQueueDepths()
@@ -171,6 +173,17 @@ export class CyclotronV2Janitor {
         }
 
         return counts
+    }
+
+    /**
+     * Kill-switch OFF path — poison-pill recovery disabled. The janitor does not
+     * give up on poison pills at all: it leaves them for `resetStalledJobs` to
+     * keep retrying rather than deleting them without a recovery record. Kept as
+     * a named counterpart to `recordAndDeletePoisonPills` so the two paths stay
+     * separate and this one can be removed wholesale once recording is trusted.
+     */
+    private pausePoisonPills(): string[] {
+        return []
     }
 
     /**
