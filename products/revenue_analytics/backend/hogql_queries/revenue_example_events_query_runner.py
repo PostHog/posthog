@@ -38,9 +38,24 @@ class RevenueExampleEventsQueryRunner(QueryRunnerWithHogQLContext):
             VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CHARGE],
             self.database,
         )
+
+        # Cap how many rows each per-view branch has to enrich. The outer query paginates with
+        # `LIMIT limit + 1 OFFSET offset`, so any branch only needs to supply that many of its most
+        # recent rows for the global ordering to be correct.
+        per_view_limit = self.paginator.limit + self.paginator.offset + 1
+
         for view in views:
             if not view.is_event_view():
                 continue
+
+            # Only pull the most recent revenue events out of the view before enriching them.
+            # Without this the join below would have to materialize every matching event.
+            view_subquery = ast.SelectQuery(
+                select=[ast.Field(chain=["*"])],
+                select_from=ast.JoinExpr(table=ast.Field(chain=[view.name])),
+                order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")],
+                limit=ast.Constant(value=per_view_limit),
+            )
 
             queries.append(
                 ast.SelectQuery(
@@ -102,13 +117,16 @@ class RevenueExampleEventsQueryRunner(QueryRunnerWithHogQLContext):
                             expr=ast.Field(chain=["view", "timestamp"]),
                         ),
                     ],
+                    # `events` drives the join (probe side) while the already-capped view is the
+                    # build side, so the hash table stays small. Filtering `events.event` prunes the
+                    # scan using the events table sort key rather than reading every event.
                     select_from=ast.JoinExpr(
-                        alias="view",
-                        table=ast.Field(chain=[view.name]),
+                        alias="events",
+                        table=ast.Field(chain=["events"]),
                         next_join=ast.JoinExpr(
                             join_type="INNER JOIN",
-                            alias="events",
-                            table=ast.Field(chain=["events"]),
+                            alias="view",
+                            table=view_subquery,
                             constraint=ast.JoinConstraint(
                                 constraint_type="ON",
                                 expr=ast.CompareOperation(
@@ -119,7 +137,13 @@ class RevenueExampleEventsQueryRunner(QueryRunnerWithHogQLContext):
                             ),
                         ),
                     ),
+                    where=ast.CompareOperation(
+                        op=CompareOperationOp.Eq,
+                        left=ast.Field(chain=["events", "event"]),
+                        right=ast.Constant(value=view.event_name),
+                    ),
                     order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")],
+                    limit=ast.Constant(value=per_view_limit),
                 )
             )
 
