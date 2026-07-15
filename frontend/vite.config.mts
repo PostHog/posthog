@@ -83,6 +83,7 @@ export default defineConfig(({ mode }) => {
             rollupOptions: {
                 input: {
                     index: resolve(__dirname, 'src/index.tsx'),
+                    embed: resolve(__dirname, 'src/embed/index.tsx'),
                     exporter: resolve(__dirname, 'src/exporter/index.tsx'),
                     render_query: resolve(__dirname, 'src/render-query/index.tsx'),
                     toolbar: resolve(__dirname, 'src/toolbar/index.tsx'),

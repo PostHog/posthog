@@ -19,6 +19,8 @@ export const themeLogic = kea<themeLogicType>([
     actions({
         syncDarkModePreference: (darkModePreference: boolean) => ({ darkModePreference }),
         setTheme: (theme: string | null) => ({ theme }),
+        // Embedded mode (PostHog Code iframe): the host window's theme wins
+        setEmbedForcedTheme: (theme: 'light' | 'dark' | null) => ({ theme }),
         saveCustomCss: true,
         setPersistedCustomCss: (css: string | null) => ({ css }),
         setPreviewingCustomCss: (css: string | null) => ({ css }),
@@ -36,6 +38,12 @@ export const themeLogic = kea<themeLogicType>([
             { persist: true },
             {
                 setTheme: (_, { theme }) => theme,
+            },
+        ],
+        embedForcedTheme: [
+            (typeof window !== 'undefined' && window.__POSTHOG_EMBED_THEME__) || (null as 'light' | 'dark' | null),
+            {
+                setEmbedForcedTheme: (_, { theme }) => theme,
             },
         ],
         persistedCustomCss: [
@@ -74,8 +82,18 @@ export const themeLogic = kea<themeLogicType>([
             (persistedCustomCss, previewingCustomCss): string | null => previewingCustomCss || persistedCustomCss,
         ],
         isDarkModeOn: [
-            (s) => [s.themeMode, s.darkModeSystemPreference, sceneLogic.selectors.sceneConfig, s.theme],
-            (themeMode, darkModeSystemPreference, sceneConfig, theme) => {
+            (s) => [
+                s.themeMode,
+                s.darkModeSystemPreference,
+                sceneLogic.selectors.sceneConfig,
+                s.theme,
+                s.embedForcedTheme,
+            ],
+            (themeMode, darkModeSystemPreference, sceneConfig, theme, embedForcedTheme) => {
+                // Embedded in PostHog Code: the host explicitly controls light/dark
+                if (embedForcedTheme) {
+                    return embedForcedTheme === 'dark'
+                }
                 if (
                     typeof window !== 'undefined' &&
                     window.document &&
