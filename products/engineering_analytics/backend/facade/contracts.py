@@ -803,20 +803,24 @@ class CostPerMergeBucket:
 
 
 @dataclass(frozen=True)
-class TimeToGreenBucket:
-    """One time bucket of the repo's median time-to-green: the p50 wall-clock duration of *successful*
-    CI runs attributed to pull requests (default-branch runs excluded), started in this bucket. Cancelled
-    and failed runs end early and would bias the percentile low, so they are excluded — the same
-    success-only population the workflow-health percentiles use. ``p50_seconds`` is None for a bucket with
-    no successful PR run (a gap, not instant CI); the UI carries the last known value forward rather than
-    dipping the trend to zero.
+class SuccessfulPrWorkflowDurationBucket:
+    """One bucket of successful PR-attributed workflow-run durations.
+
+    This is workflow-run grain, not elapsed time until every check on a PR is green. Failed, cancelled,
+    and skipped runs are excluded because they end early. Empty buckets carry null percentiles and remain
+    gaps in the chart. ``sample_count`` is the qualifying successful-run population behind both percentiles.
     """
 
     # Bucket start, aligned to the granularity (top of hour / midnight / Monday).
     bucket_start: datetime
-    # Median wall-clock seconds of successful PR-attributed CI runs started in this bucket. None when the
-    # bucket had no successful PR run.
+    # Median wall-clock seconds of qualifying workflow runs started in this bucket.
     p50_seconds: float | None
+    # 95th-percentile wall-clock seconds of the same qualifying workflow runs.
+    p95_seconds: float | None
+    # Qualifying successful workflow runs behind both percentiles.
+    sample_count: int
+    # Whether this bucket extends past the selected window end and is still incomplete.
+    is_partial: bool
 
 
 @dataclass(frozen=True)
@@ -873,6 +877,14 @@ class RepoOverview:
     billable_minutes_prev: float | None
     estimated_cost_usd: float | None
     estimated_cost_usd_prev: float | None
+    # Successful PR-attributed workflow-run duration headlines. These are run-grain, success-only,
+    # exclude the common default branches, and use the same no-op fallback as workflow health.
+    successful_pr_workflow_duration_p50_seconds: float | None
+    successful_pr_workflow_duration_p50_seconds_prev: float | None
+    successful_pr_workflow_duration_p95_seconds: float | None
+    successful_pr_workflow_duration_p95_seconds_prev: float | None
+    successful_pr_workflow_duration_sample_count: int
+    successful_pr_workflow_duration_sample_count_prev: int
     jobs_available: bool
     # 'master' or 'main', picked by observed run volume in the current window.
     default_branch: str
@@ -881,11 +893,11 @@ class RepoOverview:
     cost_series: list[CostPerMergeBucket]
     # Bucket width of `cost_series`, chosen to fit the window: 'hour', 'day', or 'week'.
     cost_series_granularity: str
-    # Time-to-green trend: median CI duration of successful PR-attributed runs per bucket, oldest first,
-    # bucketed by `time_to_green_series_granularity`. Empty buckets carry None (no successful PR run).
-    time_to_green_series: list[TimeToGreenBucket]
-    # Bucket width of `time_to_green_series`, chosen to fit the window: 'hour', 'day', or 'week'.
-    time_to_green_series_granularity: str
+    # Successful PR-attributed workflow-run p50/p95 durations per bucket, oldest first. Empty buckets
+    # carry None rather than zero or a carried-forward value.
+    successful_pr_workflow_duration_series: list[SuccessfulPrWorkflowDurationBucket]
+    # Bucket width of the workflow-duration series: 'hour', 'day', or 'week'.
+    successful_pr_workflow_duration_series_granularity: str
     # Pass-rate trend: fraction of completed runs (all branches) that succeeded per bucket, oldest first,
     # bucketed by `success_rate_series_granularity`. Empty buckets carry None (no completed run).
     success_rate_series: list[PassRateBucket]

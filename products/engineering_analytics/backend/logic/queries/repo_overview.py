@@ -22,7 +22,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     OpenToMergeBucket,
     PassRateBucket,
     RepoOverview,
-    TimeToGreenBucket,
+    SuccessfulPrWorkflowDurationBucket,
 )
 from products.engineering_analytics.backend.logic.queries._buckets import (
     Granularity,
@@ -32,14 +32,24 @@ from products.engineering_analytics.backend.logic.queries._buckets import (
     window_buckets,
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource, opt_float
-from products.engineering_analytics.backend.logic.queries._workflow_filters import run_started_floor_constant
+from products.engineering_analytics.backend.logic.queries._workflow_filters import (
+    PULL_REQUEST_RUN_CONDITION,
+    run_duration_percentile_expr,
+    run_duration_sample_count_expr,
+    run_started_floor_constant,
+)
 from products.engineering_analytics.backend.logic.queries.pr_cost import (
     query_cost_per_merge_series,
     query_workflow_window_costs_with_prev,
 )
-from products.engineering_analytics.backend.logic.queries.workflow_health import query_time_to_green_series
+from products.engineering_analytics.backend.logic.queries.workflow_health import (
+    query_successful_pr_workflow_duration_series,
+)
 
-_RUNS_SELECT = """
+_CURRENT_PR_DURATION_CONDITION = f"__CUR__ AND {PULL_REQUEST_RUN_CONDITION}"
+_PREVIOUS_PR_DURATION_CONDITION = f"__PREV__ AND {PULL_REQUEST_RUN_CONDITION}"
+
+_RUNS_SELECT = f"""
     SELECT
         countIf(__CUR__) AS run_count,
         countIf(__PREV__) AS run_count_prev,
@@ -49,10 +59,16 @@ _RUNS_SELECT = """
             / nullIf(countIf(status = 'completed' AND __PREV__), 0) AS success_rate_prev,
         countIf(run_attempt > 1 AND __CUR__) AS rerun_cycles,
         countIf(run_attempt > 1 AND __PREV__) AS rerun_cycles_prev,
+        {run_duration_percentile_expr(0.5, _CURRENT_PR_DURATION_CONDITION)} AS pr_duration_p50,
+        {run_duration_percentile_expr(0.5, _PREVIOUS_PR_DURATION_CONDITION)} AS pr_duration_p50_prev,
+        {run_duration_percentile_expr(0.95, _CURRENT_PR_DURATION_CONDITION)} AS pr_duration_p95,
+        {run_duration_percentile_expr(0.95, _PREVIOUS_PR_DURATION_CONDITION)} AS pr_duration_p95_prev,
+        {run_duration_sample_count_expr(_CURRENT_PR_DURATION_CONDITION)} AS pr_duration_samples,
+        {run_duration_sample_count_expr(_PREVIOUS_PR_DURATION_CONDITION)} AS pr_duration_samples_prev,
         countIf(head_branch = 'master' AND __CUR__) AS master_runs,
         countIf(head_branch = 'main' AND __CUR__) AS main_runs
     FROM __RUNS_SOURCE__ AS r
-    WHERE run_started_at >= {prev_from} __DATE_TO__
+    WHERE run_started_at >= {{prev_from}} __DATE_TO__
 """
 
 # Medians follow the locked cycle-time recipe (bots/drafts excluded); the merged counts deliberately
@@ -201,7 +217,7 @@ class RepoSeries:
 
     granularity: Granularity
     cost: list[CostPerMergeBucket]
-    time_to_green: list[TimeToGreenBucket]
+    successful_pr_workflow_duration: list[SuccessfulPrWorkflowDurationBucket]
     success_rate: list[PassRateBucket]
     open_to_merge: list[OpenToMergeBucket]
 
@@ -219,7 +235,7 @@ def query_repo_series(
         cost=query_cost_per_merge_series(
             curated=curated, date_from=date_from, date_to=date_to, granularity=granularity
         ),
-        time_to_green=query_time_to_green_series(
+        successful_pr_workflow_duration=query_successful_pr_workflow_duration_series(
             curated=curated, date_from=date_from, date_to=date_to, granularity=granularity
         ),
         success_rate=query_success_rate_series(
@@ -237,7 +253,7 @@ def empty_repo_series(*, date_from: datetime, date_to: datetime | None) -> RepoS
     return RepoSeries(
         granularity=pick_granularity(date_from, date_to),
         cost=[],
-        time_to_green=[],
+        successful_pr_workflow_duration=[],
         success_rate=[],
         open_to_merge=[],
     )
@@ -275,8 +291,42 @@ def query_repo_overview(
     runs_response = curated.run(
         runs_sql, query_type="engineering_analytics.repo_overview_runs", placeholders=placeholders
     )
-    row = runs_response.results[0] if runs_response.results else (0, 0, None, None, 0, 0, 0, 0)
-    run_count, run_count_prev, success_rate, success_rate_prev, reruns, reruns_prev, master_runs, main_runs = row
+    row = (
+        runs_response.results[0]
+        if runs_response.results
+        else (
+            0,
+            0,
+            None,
+            None,
+            0,
+            0,
+            None,
+            None,
+            None,
+            None,
+            0,
+            0,
+            0,
+            0,
+        )
+    )
+    (
+        run_count,
+        run_count_prev,
+        success_rate,
+        success_rate_prev,
+        reruns,
+        reruns_prev,
+        pr_duration_p50,
+        pr_duration_p50_prev,
+        pr_duration_p95,
+        pr_duration_p95_prev,
+        pr_duration_samples,
+        pr_duration_samples_prev,
+        master_runs,
+        main_runs,
+    ) = row
     default_branch = "main" if (main_runs or 0) > (master_runs or 0) else "master"
 
     pr_cur = "(merged_at >= {date_from}" + (" AND merged_at <= {date_to})" if date_to is not None else ")")
@@ -316,12 +366,18 @@ def query_repo_overview(
         billable_minutes_prev=billable_seconds_prev / 60 if billable_seconds_prev is not None else None,
         estimated_cost_usd=opt_float(cost_usd),
         estimated_cost_usd_prev=opt_float(cost_usd_prev),
+        successful_pr_workflow_duration_p50_seconds=opt_float(pr_duration_p50),
+        successful_pr_workflow_duration_p50_seconds_prev=opt_float(pr_duration_p50_prev),
+        successful_pr_workflow_duration_p95_seconds=opt_float(pr_duration_p95),
+        successful_pr_workflow_duration_p95_seconds_prev=opt_float(pr_duration_p95_prev),
+        successful_pr_workflow_duration_sample_count=int(pr_duration_samples or 0),
+        successful_pr_workflow_duration_sample_count_prev=int(pr_duration_samples_prev or 0),
         jobs_available=jobs_available,
         default_branch=default_branch,
         cost_series=series.cost,
         cost_series_granularity=series.granularity,
-        time_to_green_series=series.time_to_green,
-        time_to_green_series_granularity=series.granularity,
+        successful_pr_workflow_duration_series=series.successful_pr_workflow_duration,
+        successful_pr_workflow_duration_series_granularity=series.granularity,
         success_rate_series=series.success_rate,
         success_rate_series_granularity=series.granularity,
         open_to_merge_series=series.open_to_merge,

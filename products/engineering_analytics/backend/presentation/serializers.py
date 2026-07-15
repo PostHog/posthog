@@ -43,7 +43,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     RepoRef,
     RunCost,
     RunFailureLogs,
-    TimeToGreenBucket,
+    SuccessfulPrWorkflowDurationBucket,
     WorkflowCost,
     WorkflowHealthBucket,
     WorkflowHealthItem,
@@ -870,18 +870,25 @@ class CostPerMergeBucketSerializer(DataclassSerializer):
         }
 
 
-class TimeToGreenBucketSerializer(DataclassSerializer):
+class SuccessfulPrWorkflowDurationBucketSerializer(DataclassSerializer):
     class Meta:
-        dataclass = TimeToGreenBucket
+        dataclass = SuccessfulPrWorkflowDurationBucket
         extra_kwargs = {
             "bucket_start": {
-                "help_text": "Bucket start, aligned to time_to_green_series_granularity (top of hour, midnight, or Monday)."
+                "help_text": "Bucket start, aligned to successful_pr_workflow_duration_series_granularity."
             },
             "p50_seconds": {
-                "help_text": "Median wall-clock seconds of successful PR-attributed CI runs started in this bucket. "
-                "Null when the bucket had no successful PR run (a gap, not instant CI).",
+                "help_text": "Median wall-clock seconds of successful PR-attributed workflow runs started in this "
+                "bucket. Null when there was no qualifying run (a chart gap, not zero).",
                 "allow_null": True,
             },
+            "p95_seconds": {
+                "help_text": "95th-percentile wall-clock seconds of the same successful PR-attributed workflow-run "
+                "population. Null when there was no qualifying run.",
+                "allow_null": True,
+            },
+            "sample_count": {"help_text": "Qualifying successful PR-attributed workflow runs behind both percentiles."},
+            "is_partial": {"help_text": "Whether this bucket extends past the selected window end and is incomplete."},
         }
 
 
@@ -921,11 +928,12 @@ class RepoOverviewSerializer(DataclassSerializer):
         help_text="CI cost per merged PR across the window, oldest first, zero-filled, bucketed by "
         "cost_series_granularity. Empty when the job-level source isn't synced or include_series=false.",
     )
-    time_to_green_series = TimeToGreenBucketSerializer(
+    successful_pr_workflow_duration_series = SuccessfulPrWorkflowDurationBucketSerializer(
         many=True,
-        help_text="Median time-to-green (p50 successful PR-attributed CI run duration) per bucket across the "
-        "window, oldest first, bucketed by time_to_green_series_granularity. Empty buckets carry null; the "
-        "whole series is empty when include_series=false.",
+        help_text="p50 and p95 wall-clock duration of successful PR-attributed workflow runs per bucket, oldest "
+        "first. This is workflow-run grain, not elapsed time until every check on a PR is green. Failed, "
+        "cancelled, skipped, and common default-branch runs are excluded. Empty buckets carry null rather than "
+        "zero or a carried-forward value. Empty when include_series=false.",
     )
     success_rate_series = PassRateBucketSerializer(
         many=True,
@@ -989,13 +997,37 @@ class RepoOverviewSerializer(DataclassSerializer):
                 "help_text": "Estimated cost over the previous window; null when the job-level source isn't synced.",
                 "allow_null": True,
             },
+            "successful_pr_workflow_duration_p50_seconds": {
+                "help_text": "Median wall-clock duration of successful PR-attributed workflow runs started in the "
+                "selected window. This is workflow-run grain, not whole-PR time-to-green. Null when none qualify.",
+                "allow_null": True,
+            },
+            "successful_pr_workflow_duration_p50_seconds_prev": {
+                "help_text": "The same p50 over the immediately preceding equal-length window. Null when none qualify.",
+                "allow_null": True,
+            },
+            "successful_pr_workflow_duration_p95_seconds": {
+                "help_text": "95th-percentile duration over the same selected-window workflow-run population. Null "
+                "when none qualify.",
+                "allow_null": True,
+            },
+            "successful_pr_workflow_duration_p95_seconds_prev": {
+                "help_text": "The same p95 over the immediately preceding equal-length window. Null when none qualify.",
+                "allow_null": True,
+            },
+            "successful_pr_workflow_duration_sample_count": {
+                "help_text": "Qualifying selected-window workflow runs behind the p50 and p95 headlines."
+            },
+            "successful_pr_workflow_duration_sample_count_prev": {
+                "help_text": "Qualifying workflow runs in the immediately preceding equal-length window."
+            },
             "jobs_available": {"help_text": "Whether the job-level source is synced (cost and queue figures exist)."},
             "default_branch": {"help_text": "'master' or 'main', picked by observed run volume in the window."},
             "cost_series_granularity": {
                 "help_text": "Bucket width of the cost_series trend, chosen to fit the window: 'hour', 'day', or 'week'."
             },
-            "time_to_green_series_granularity": {
-                "help_text": "Bucket width of the time_to_green_series trend: 'hour', 'day', or 'week'."
+            "successful_pr_workflow_duration_series_granularity": {
+                "help_text": "Bucket width of the successful PR workflow-duration trend: 'hour', 'day', or 'week'."
             },
             "success_rate_series_granularity": {
                 "help_text": "Bucket width of the success_rate_series trend: 'hour', 'day', or 'week'."

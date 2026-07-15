@@ -1,4 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { delay } from 'msw'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
@@ -35,6 +36,12 @@ const OVERVIEW: RepoOverviewApi = {
     billable_minutes_prev: 4890,
     estimated_cost_usd: 412.5,
     estimated_cost_usd_prev: 361.0,
+    successful_pr_workflow_duration_p50_seconds: 780,
+    successful_pr_workflow_duration_p50_seconds_prev: 900,
+    successful_pr_workflow_duration_p95_seconds: 2100,
+    successful_pr_workflow_duration_p95_seconds_prev: 1800,
+    successful_pr_workflow_duration_sample_count: 186,
+    successful_pr_workflow_duration_sample_count_prev: 172,
     jobs_available: true,
     default_branch: 'master',
     cost_series_granularity: 'day',
@@ -44,11 +51,24 @@ const OVERVIEW: RepoOverviewApi = {
         merges: 8,
         cost_per_merge_usd: cost,
     })),
-    time_to_green_series: [540, 600, null, 660, 720, 900, 780].map((p50_seconds, i) => ({
+    successful_pr_workflow_duration_series: (
+        [
+            [540, 1560, 22],
+            [600, 1680, 27],
+            [null, null, 0],
+            [660, 1740, 31],
+            [720, 1920, 28],
+            [900, 2400, 34],
+            [780, 2100, 44],
+        ] satisfies [number | null, number | null, number][]
+    ).map(([p50_seconds, p95_seconds, sample_count], i) => ({
         bucket_start: `2026-06-${25 + i}T00:00:00Z`,
         p50_seconds,
+        p95_seconds,
+        sample_count,
+        is_partial: i === 6,
     })),
-    time_to_green_series_granularity: 'day',
+    successful_pr_workflow_duration_series_granularity: 'day',
     success_rate_series: [0.82, 0.85, 0.8, null, 0.88, 0.79, 0.87].map((success_rate, i) => ({
         bucket_start: `2026-06-${25 + i}T00:00:00Z`,
         success_rate,
@@ -274,6 +294,63 @@ export const RepoOverviewFailing: Story = {
                     settled_workflows: WORKFLOW_HEALTH.length,
                     failing_workflows: 2,
                     failing_workflow_names: ['Backend CI', 'E2E - Playwright'],
+                },
+            },
+        }),
+    ],
+}
+
+export const RepoOverviewSparseDuration: Story = {
+    render: () => <App />,
+    parameters: { pageUrl: urls.engineeringAnalytics() },
+    decorators: [
+        mswDecorator({
+            get: {
+                'api/projects/:team_id/engineering_analytics/repo_overview/': {
+                    ...OVERVIEW,
+                    successful_pr_workflow_duration_series: OVERVIEW.successful_pr_workflow_duration_series.map(
+                        (bucket, index) =>
+                            index === 1 || index === 5
+                                ? bucket
+                                : { ...bucket, p50_seconds: null, p95_seconds: null, sample_count: 0 }
+                    ),
+                },
+            },
+        }),
+    ],
+}
+
+export const RepoOverviewEmptyDuration: Story = {
+    render: () => <App />,
+    parameters: { pageUrl: urls.engineeringAnalytics() },
+    decorators: [
+        mswDecorator({
+            get: {
+                'api/projects/:team_id/engineering_analytics/repo_overview/': {
+                    ...OVERVIEW,
+                    successful_pr_workflow_duration_p50_seconds: null,
+                    successful_pr_workflow_duration_p50_seconds_prev: null,
+                    successful_pr_workflow_duration_p95_seconds: null,
+                    successful_pr_workflow_duration_p95_seconds_prev: null,
+                    successful_pr_workflow_duration_sample_count: 0,
+                    successful_pr_workflow_duration_sample_count_prev: 0,
+                    successful_pr_workflow_duration_series: OVERVIEW.successful_pr_workflow_duration_series.map(
+                        (bucket) => ({ ...bucket, p50_seconds: null, p95_seconds: null, sample_count: 0 })
+                    ),
+                },
+            },
+        }),
+    ],
+}
+
+export const RepoOverviewDurationLoading: Story = {
+    render: () => <App />,
+    parameters: { pageUrl: urls.engineeringAnalytics() },
+    decorators: [
+        mswDecorator({
+            get: {
+                'api/projects/:team_id/engineering_analytics/repo_overview/': async () => {
+                    await delay('infinite')
                 },
             },
         }),

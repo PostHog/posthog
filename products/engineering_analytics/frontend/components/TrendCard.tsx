@@ -1,6 +1,6 @@
 // A stat-plus-trend card for the repo hub's Trends strip: lead with the current value and its change
 // across the window (the answer), over a sentiment-colored sparkline (the context). `goodWhenDown` colors
-// both the delta and the line green when the metric is falling (time-to-green, cost), red when rising.
+// both the delta and the line green when the metric is falling (duration, cost), red when rising.
 
 import { ReactNode } from 'react'
 

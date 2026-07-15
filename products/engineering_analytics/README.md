@@ -52,7 +52,7 @@ The primary surface is MCP tools. You're in Claude Code and you ask:
 
 A tool runs HogQL over the PR/CI data and answers:
 
-> CI time-to-green: median dropped from 14m to 9m over 8 weeks (good). But p95 rose
+> Successful PR workflow duration: p50 dropped from 14m to 9m over 8 weeks (good). But p95 rose
 > from 31m to 47m — a long tail of PRs is getting stuck. Worst offender is the
 > `e2e-playwright` workflow on `products/web_analytics`. Want the slow PRs?
 

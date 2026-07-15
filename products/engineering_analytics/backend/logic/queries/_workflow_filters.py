@@ -37,18 +37,32 @@ NO_OP_RUN_FLAG = (
 # Run duration percentiles additionally exclude no-op gate runs: a workflow that mostly "succeeds"
 # in seconds without doing real work would otherwise report a seconds-long p50 on every surface.
 RUN_DURATION_PERCENTILE_CONDITION = f"{DURATION_PERCENTILE_CONDITION} AND NOT {NO_OP_RUN_FLAG}"
+PULL_REQUEST_RUN_CONDITION = "r.head_branch NOT IN ('master', 'main') AND r.pr_number > 0"
 
 
-def run_duration_percentile_expr(quantile: float) -> str:
+def _with_additional_condition(condition: str, additional_condition: str | None) -> str:
+    return f"({condition}) AND ({additional_condition})" if additional_condition else condition
+
+
+def run_duration_percentile_expr(quantile: float, additional_condition: str | None = None) -> str:
     """Bare (unaliased) duration percentile over successful non-no-op runs, per aggregate group.
     Falls back to every successful run when the group has no real samples — duration alone can't
     tell a gate no-op from an intentionally fast workflow — mirroring the activity endpoint and
     the frontend ``computeHealthSummary``."""
+    real_condition = _with_additional_condition(RUN_DURATION_PERCENTILE_CONDITION, additional_condition)
+    fallback_condition = _with_additional_condition(DURATION_PERCENTILE_CONDITION, additional_condition)
     return (
-        f"if(countIf({RUN_DURATION_PERCENTILE_CONDITION}) > 0, "
-        f"quantileIf({quantile})(duration_seconds, {RUN_DURATION_PERCENTILE_CONDITION}), "
-        f"quantileIf({quantile})(duration_seconds, {DURATION_PERCENTILE_CONDITION}))"
+        f"if(countIf({real_condition}) > 0, "
+        f"quantileIf({quantile})(duration_seconds, {real_condition}), "
+        f"quantileIf({quantile})(duration_seconds, {fallback_condition}))"
     )
+
+
+def run_duration_sample_count_expr(additional_condition: str | None = None) -> str:
+    """Sample count for ``run_duration_percentile_expr``'s selected population."""
+    real_condition = _with_additional_condition(RUN_DURATION_PERCENTILE_CONDITION, additional_condition)
+    fallback_condition = _with_additional_condition(DURATION_PERCENTILE_CONDITION, additional_condition)
+    return f"if(countIf({real_condition}) > 0, countIf({real_condition}), countIf({fallback_condition}))"
 
 
 # The one "failing right now" signal, per workflow: did the latest completed run fail?
@@ -110,5 +124,7 @@ def run_scope_filter_clause(
         # query_default_branch resolves per-repo, not reused here because it costs an extra query.
         # The cost queries pass the cost source's columns; there pr_number is 0→NULL normalized, so
         # "attributed" becomes ``c.pr_number IS NOT NULL`` rather than ``> 0``.
+        if branch_column == "r.head_branch" and attributed_predicate == "r.pr_number > 0":
+            return f"AND {PULL_REQUEST_RUN_CONDITION}"
         return f"AND {branch_column} NOT IN ('master', 'main') AND {attributed_predicate}"
     return ""

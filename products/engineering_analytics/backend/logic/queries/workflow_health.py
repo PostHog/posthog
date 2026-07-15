@@ -22,7 +22,7 @@ from posthog.hogql import ast
 
 from products.engineering_analytics.backend.facade.contracts import (
     RepoRef,
-    TimeToGreenBucket,
+    SuccessfulPrWorkflowDurationBucket,
     WorkflowHealthBucket,
     WorkflowHealthItem,
     WorkflowHealthRunScope,
@@ -30,6 +30,7 @@ from products.engineering_analytics.backend.facade.contracts import (
 from products.engineering_analytics.backend.logic.queries._buckets import (
     Granularity,
     bucket_expr,
+    bucket_is_partial,
     normalize_bucket,
     pick_granularity,
     window_buckets,
@@ -40,6 +41,7 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
     branch_filter_clause,
     date_to_filter_clause,
     run_duration_percentile_expr,
+    run_duration_sample_count_expr,
     run_scope_filter_clause,
     run_started_floor_constant,
 )
@@ -101,10 +103,12 @@ _BUCKET_SELECT = f"""
 """
 
 
-_TIME_TO_GREEN_SELECT = f"""
+_SUCCESSFUL_PR_WORKFLOW_DURATION_SELECT = f"""
     SELECT
         __BUCKET_FN__ AS bucket_start,
-        {run_duration_percentile_expr(0.5)} AS p50_seconds
+        {run_duration_percentile_expr(0.5)} AS p50_seconds,
+        {run_duration_percentile_expr(0.95)} AS p95_seconds,
+        {run_duration_sample_count_expr()} AS sample_count
     FROM __RUNS_SOURCE__ AS r
     WHERE run_started_at >= {{date_from}} __DATE_TO__ __RUN_SCOPE__
     GROUP BY bucket_start
@@ -112,17 +116,14 @@ _TIME_TO_GREEN_SELECT = f"""
 """
 
 
-def query_time_to_green_series(
+def query_successful_pr_workflow_duration_series(
     *,
     curated: CuratedGitHubSource,
     date_from: datetime,
     date_to: datetime | None,
     granularity: Granularity,
-) -> list[TimeToGreenBucket]:
-    """Median time-to-green per bucket across the window, oldest first: the p50 wall-clock duration of
-    successful, PR-attributed CI runs (default-branch runs excluded). Success-only + PR-scoped — the same
-    population workflow-health's percentiles use — so it answers "how long until CI passes on a PR", not
-    master build time. Empty buckets carry ``p50_seconds`` None (a gap, not instant CI)."""
+) -> list[SuccessfulPrWorkflowDurationBucket]:
+    """p50/p95 successful PR-attributed workflow-run duration per bucket, oldest first."""
     placeholders: dict[str, ast.Expr] = {
         "date_from": ast.Constant(value=date_from),
         "run_started_floor": run_started_floor_constant(date_from),
@@ -130,18 +131,29 @@ def query_time_to_green_series(
     date_to_clause = date_to_filter_clause(date_to, placeholders)
     run_scope_clause = run_scope_filter_clause(WorkflowHealthRunScope.PULL_REQUEST)
     sql = (
-        _TIME_TO_GREEN_SELECT.replace("__RUNS_SOURCE__", curated.run_source(started_floor=True))
+        _SUCCESSFUL_PR_WORKFLOW_DURATION_SELECT.replace("__RUNS_SOURCE__", curated.run_source(started_floor=True))
         .replace("__DATE_TO__", date_to_clause)
         .replace("__RUN_SCOPE__", run_scope_clause)
         .replace("__BUCKET_FN__", bucket_expr(granularity))
     )
-    response = curated.run(sql, query_type="engineering_analytics.time_to_green_series", placeholders=placeholders)
-    p50_by_bucket = {
-        normalize_bucket(bucket_start, granularity): opt_float(p50_seconds)
-        for bucket_start, p50_seconds in response.results or []
+    response = curated.run(
+        sql,
+        query_type="engineering_analytics.successful_pr_workflow_duration_series",
+        placeholders=placeholders,
+    )
+    values_by_bucket = {
+        normalize_bucket(bucket_start, granularity): (opt_float(p50_seconds), opt_float(p95_seconds), sample_count)
+        for bucket_start, p50_seconds, p95_seconds, sample_count in response.results or []
     }
+    end = date_to or datetime.now(tz=date_from.tzinfo)
     return [
-        TimeToGreenBucket(bucket_start=bucket, p50_seconds=p50_by_bucket.get(bucket))
+        SuccessfulPrWorkflowDurationBucket(
+            bucket_start=bucket,
+            p50_seconds=values_by_bucket.get(bucket, (None, None, 0))[0],
+            p95_seconds=values_by_bucket.get(bucket, (None, None, 0))[1],
+            sample_count=int(values_by_bucket.get(bucket, (None, None, 0))[2] or 0),
+            is_partial=bucket_is_partial(bucket, end, granularity),
+        )
         for bucket in window_buckets(date_from, date_to, granularity)
     ]
 

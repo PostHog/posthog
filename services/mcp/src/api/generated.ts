@@ -53185,21 +53185,30 @@ export namespace Schemas {
       recording_active_seconds?: number | null;
     }
 
-    export interface TimeToGreenBucket {
-      /** Bucket start, aligned to time_to_green_series_granularity (top of hour, midnight, or Monday). */
+    export interface SuccessfulPrWorkflowDurationBucket {
+      /** Bucket start, aligned to successful_pr_workflow_duration_series_granularity. */
       bucket_start: string;
       /**
-         * Median wall-clock seconds of successful PR-attributed CI runs started in this bucket. Null when the bucket had no successful PR run (a gap, not instant CI).
+         * Median wall-clock seconds of successful PR-attributed workflow runs started in this bucket. Null when there was no qualifying run (a chart gap, not zero).
          * @nullable
          */
       p50_seconds: number | null;
+      /**
+         * 95th-percentile wall-clock seconds of the same successful PR-attributed workflow-run population. Null when there was no qualifying run.
+         * @nullable
+         */
+      p95_seconds: number | null;
+      /** Qualifying successful PR-attributed workflow runs behind both percentiles. */
+      sample_count: number;
+      /** Whether this bucket extends past the selected window end and is incomplete. */
+      is_partial: boolean;
     }
 
     export interface RepoOverview {
       /** CI cost per merged PR across the window, oldest first, zero-filled, bucketed by cost_series_granularity. Empty when the job-level source isn't synced or include_series=false. */
       cost_series: CostPerMergeBucket[];
-      /** Median time-to-green (p50 successful PR-attributed CI run duration) per bucket across the window, oldest first, bucketed by time_to_green_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
-      time_to_green_series: TimeToGreenBucket[];
+      /** p50 and p95 wall-clock duration of successful PR-attributed workflow runs per bucket, oldest first. This is workflow-run grain, not elapsed time until every check on a PR is green. Failed, cancelled, skipped, and common default-branch runs are excluded. Empty buckets carry null rather than zero or a carried-forward value. Empty when include_series=false. */
+      successful_pr_workflow_duration_series: SuccessfulPrWorkflowDurationBucket[];
       /** CI pass rate (completed runs that succeeded, all branches) per bucket across the window, oldest first, bucketed by success_rate_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
       success_rate_series: PassRateBucket[];
       /** Median time-to-merge (p50 open_to_merge_seconds, bots/drafts excluded) per bucket across the window, oldest first, bucketed by open_to_merge_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
@@ -53256,14 +53265,38 @@ export namespace Schemas {
          * @nullable
          */
       estimated_cost_usd_prev: number | null;
+      /**
+         * Median wall-clock duration of successful PR-attributed workflow runs started in the selected window. This is workflow-run grain, not whole-PR time-to-green. Null when none qualify.
+         * @nullable
+         */
+      successful_pr_workflow_duration_p50_seconds: number | null;
+      /**
+         * The same p50 over the immediately preceding equal-length window. Null when none qualify.
+         * @nullable
+         */
+      successful_pr_workflow_duration_p50_seconds_prev: number | null;
+      /**
+         * 95th-percentile duration over the same selected-window workflow-run population. Null when none qualify.
+         * @nullable
+         */
+      successful_pr_workflow_duration_p95_seconds: number | null;
+      /**
+         * The same p95 over the immediately preceding equal-length window. Null when none qualify.
+         * @nullable
+         */
+      successful_pr_workflow_duration_p95_seconds_prev: number | null;
+      /** Qualifying selected-window workflow runs behind the p50 and p95 headlines. */
+      successful_pr_workflow_duration_sample_count: number;
+      /** Qualifying workflow runs in the immediately preceding equal-length window. */
+      successful_pr_workflow_duration_sample_count_prev: number;
       /** Whether the job-level source is synced (cost and queue figures exist). */
       jobs_available: boolean;
       /** 'master' or 'main', picked by observed run volume in the window. */
       default_branch: string;
       /** Bucket width of the cost_series trend, chosen to fit the window: 'hour', 'day', or 'week'. */
       cost_series_granularity: string;
-      /** Bucket width of the time_to_green_series trend: 'hour', 'day', or 'week'. */
-      time_to_green_series_granularity: string;
+      /** Bucket width of the successful PR workflow-duration trend: 'hour', 'day', or 'week'. */
+      successful_pr_workflow_duration_series_granularity: string;
       /** Bucket width of the success_rate_series trend: 'hour', 'day', or 'week'. */
       success_rate_series_granularity: string;
       /** Bucket width of the open_to_merge_series trend: 'hour', 'day', or 'week'. */
@@ -71255,7 +71288,7 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
-     * Set false to skip the chart series (cost_series, time_to_green_series, success_rate_series, open_to_merge_series return empty) and their query cost — for headline-only consumers like the weekly digest. Defaults to true.
+     * Set false to skip the chart series (cost_series, successful_pr_workflow_duration_series, success_rate_series, and open_to_merge_series return empty) and their query cost — for headline-only consumers like the weekly digest. Defaults to true.
      */
     include_series?: boolean;
     /**

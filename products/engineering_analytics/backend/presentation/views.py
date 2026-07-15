@@ -972,8 +972,9 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 type=OpenApiTypes.BOOL,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description="Set false to skip the chart series (cost_series, time_to_green_series, "
-                "success_rate_series, open_to_merge_series return empty) and their query cost — for "
+                description="Set false to skip the chart series (cost_series, "
+                "successful_pr_workflow_duration_series, success_rate_series, and open_to_merge_series return "
+                "empty) and their query cost — for "
                 "headline-only consumers like the weekly digest. Defaults to true.",
             ),
             _SOURCE_ID,
@@ -985,8 +986,9 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         description=(
             "Repo-level headline aggregates over a window (default -30d): run count, success rate, re-run "
             "cycles, merged-PR count (bots included), median PR open-to-merge (bots and drafts excluded; "
-            "coarse — draft and ready time fused), and billable minutes + estimated cost — each with its "
-            "equal-length previous-window twin so a caller can render honest deltas. Also carries the "
+            "coarse — draft and ready time fused), successful PR-attributed workflow-run p50/p95 duration, and "
+            "billable minutes + estimated cost — each with its equal-length previous-window twin so a caller can "
+            "render honest deltas. Workflow duration is success-only run grain, not whole-PR time-to-green. Also carries the "
             "detected default branch and its completed-run history series (skippable via include_series=false). "
             "Cost figures are null until the job-level source is synced."
         ),

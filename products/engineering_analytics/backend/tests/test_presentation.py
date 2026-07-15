@@ -100,12 +100,18 @@ def _repo_overview() -> contracts.RepoOverview:
         billable_minutes_prev=90.0,
         estimated_cost_usd=12.5,
         estimated_cost_usd_prev=11.0,
+        successful_pr_workflow_duration_p50_seconds=600.0,
+        successful_pr_workflow_duration_p50_seconds_prev=720.0,
+        successful_pr_workflow_duration_p95_seconds=1800.0,
+        successful_pr_workflow_duration_p95_seconds_prev=2100.0,
+        successful_pr_workflow_duration_sample_count=42,
+        successful_pr_workflow_duration_sample_count_prev=38,
         jobs_available=True,
         default_branch="master",
         cost_series=[],
         cost_series_granularity="day",
-        time_to_green_series=[],
-        time_to_green_series_granularity="day",
+        successful_pr_workflow_duration_series=[],
+        successful_pr_workflow_duration_series_granularity="day",
         success_rate_series=[],
         success_rate_series_granularity="day",
         open_to_merge_series=[],
@@ -258,6 +264,8 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         data = response.json()
         assert data["merged_pr_count"] == 42
         assert data["merged_pr_count_prev"] == 40
+        assert data["successful_pr_workflow_duration_p95_seconds"] == 1800.0
+        assert data["successful_pr_workflow_duration_sample_count"] == 42
         assert data["cost_series"] == []
 
     def test_repo_overview_400_on_bad_include_series(self) -> None:

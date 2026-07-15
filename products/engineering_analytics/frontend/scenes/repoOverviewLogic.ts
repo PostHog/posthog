@@ -44,6 +44,46 @@ export interface CurrentHealthSummary {
     failingWorkflowNames: string[]
 }
 
+export interface SuccessfulPrWorkflowDurationComparison {
+    labels: string[]
+    p50Seconds: number[]
+    p95Seconds: number[]
+    sampleCounts: number[]
+    interval: 'hour' | 'day' | 'week'
+    partialFromIndex: number | null
+    p50SecondsCurrent: number | null
+    p50SecondsPrevious: number | null
+    p95SecondsCurrent: number | null
+    p95SecondsPrevious: number | null
+    sampleCountCurrent: number
+    sampleCountPrevious: number
+}
+
+export function buildSuccessfulPrWorkflowDurationComparison(
+    overview: RepoOverviewApi | null
+): SuccessfulPrWorkflowDurationComparison | null {
+    const buckets = overview?.successful_pr_workflow_duration_series ?? []
+    if (!buckets.some((bucket) => bucket.p50_seconds != null || bucket.p95_seconds != null)) {
+        return null
+    }
+    const partialIndex = buckets.findIndex((bucket) => bucket.is_partial)
+    const granularity = overview?.successful_pr_workflow_duration_series_granularity
+    return {
+        labels: buckets.map((bucket) => bucket.bucket_start),
+        p50Seconds: buckets.map((bucket) => bucket.p50_seconds ?? Number.NaN),
+        p95Seconds: buckets.map((bucket) => bucket.p95_seconds ?? Number.NaN),
+        sampleCounts: buckets.map((bucket) => bucket.sample_count),
+        interval: granularity === 'hour' ? 'hour' : granularity === 'week' ? 'week' : 'day',
+        partialFromIndex: partialIndex === -1 ? null : Math.max(0, partialIndex - 1),
+        p50SecondsCurrent: overview?.successful_pr_workflow_duration_p50_seconds ?? null,
+        p50SecondsPrevious: overview?.successful_pr_workflow_duration_p50_seconds_prev ?? null,
+        p95SecondsCurrent: overview?.successful_pr_workflow_duration_p95_seconds ?? null,
+        p95SecondsPrevious: overview?.successful_pr_workflow_duration_p95_seconds_prev ?? null,
+        sampleCountCurrent: overview?.successful_pr_workflow_duration_sample_count ?? 0,
+        sampleCountPrevious: overview?.successful_pr_workflow_duration_sample_count_prev ?? 0,
+    }
+}
+
 export const repoOverviewLogic = kea<repoOverviewLogicType>([
     path(['products', 'engineering_analytics', 'frontend', 'scenes', 'repoOverviewLogic']),
 
@@ -282,29 +322,10 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
                 }
             },
         ],
-        // Time-to-green trend (median success-only PR CI duration) in minutes. Empty buckets carry the last
-        // known value forward — a gap means "no new PR run to time", not 0 min, so zero-filling would draw a
-        // false dip. Trimmed to start at the first bucket with data so the line doesn't open on flat zeros.
-        // Null when no bucket has a successful PR run, so the card shows its own empty state.
-        timeToGreenSeries: [
+        successfulPrWorkflowDurationComparison: [
             (s) => [s.overview],
-            (overview): { values: number[]; labels: string[] } | null => {
-                const series = overview?.time_to_green_series ?? []
-                const firstData = series.findIndex((bucket) => bucket.p50_seconds != null)
-                if (firstData === -1) {
-                    return null
-                }
-                const fmt = overview?.time_to_green_series_granularity === 'hour' ? 'MMM D HH:mm' : 'MMM D'
-                const trimmed = series.slice(firstData)
-                let last = 0
-                const values = trimmed.map((bucket) => {
-                    if (bucket.p50_seconds != null) {
-                        last = Math.round((bucket.p50_seconds / 60) * 10) / 10
-                    }
-                    return last
-                })
-                return { values, labels: trimmed.map((bucket) => dayjs(bucket.bucket_start).format(fmt)) }
-            },
+            (overview): SuccessfulPrWorkflowDurationComparison | null =>
+                buildSuccessfulPrWorkflowDurationComparison(overview),
         ],
         // Pass-rate trend (0-1). Empty buckets carry the last known value forward so a gap (no completed
         // run) draws no false dip to zero; trimmed to start at the first bucket with data. Null when no

@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
 import { LemonButton, LemonCard, LemonSkeleton, LemonTable, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
-import { TimeSeriesLineChart, useChartTheme } from '@posthog/quill-charts'
+import { DefaultTooltip, TimeSeriesLineChart, useChartTheme, type ChartTheme } from '@posthog/quill-charts'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { cn } from 'lib/utils/css-classes'
@@ -17,8 +17,9 @@ import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
 import { RepoEntityHeader } from '../components/EntityHeader'
 import { FailureLogGroups } from '../components/FailureLogs'
+import { DeltaBadge, percentChange } from '../components/MetricTile'
 import { PullRequestTable } from '../components/PullRequestTable'
-import { formatAxisMinutes, hasEnoughRunActivity } from '../components/RunActivityChart'
+import { hasEnoughRunActivity } from '../components/RunActivityChart'
 import { RunActivityMiniBars } from '../components/RunActivityMiniBars'
 import { ScopeDateFilter, SourceScopeChip } from '../components/ScopeBar'
 import { Section, scrollToSection } from '../components/Section'
@@ -26,14 +27,148 @@ import { HeroStat } from '../components/StatCard'
 import { TrendCard } from '../components/TrendCard'
 import { WorkflowHealthTable } from '../components/WorkflowHealthTable'
 import type { MasterFailureGroupApi } from '../generated/api.schemas'
-import { compactHoursLabel, compactMinutes, compactUsd, percent } from '../lib/format'
+import { compactAgeLabel, compactHoursLabel, compactMinutes, compactUsd, percent } from '../lib/format'
 import { githubCommitUrl } from '../lib/github'
 import { HUB_PREVIEW_MAX } from '../lib/preview'
 import { engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
-import { repoOverviewLogic } from './repoOverviewLogic'
+import { repoOverviewLogic, type SuccessfulPrWorkflowDurationComparison } from './repoOverviewLogic'
 
 function withSource(url: string, sourceId: string | null): string {
     return combineUrl(url, sourceId ? { source: sourceId } : {}).url
+}
+
+function DurationHeadline({
+    label,
+    current,
+    previous,
+    sampleCount,
+}: {
+    label: string
+    current: number | null
+    previous: number | null
+    sampleCount: number
+}): JSX.Element {
+    const delta = percentChange(current, previous)
+    return (
+        <div className="min-w-0">
+            <div className="text-xs font-medium text-secondary">{label}</div>
+            <div className="mt-1 flex flex-wrap items-baseline gap-2">
+                <span className="text-2xl font-semibold tabular-nums">{compactAgeLabel(current)}</span>
+                <DeltaBadge value={delta} goodWhenDown vs="selected window vs the previous equal-length window" />
+            </div>
+            <div className="mt-1 text-[11px] text-tertiary">{sampleCount.toLocaleString()} qualifying runs</div>
+        </div>
+    )
+}
+
+function SuccessfulPrWorkflowDurationCard({
+    comparison,
+    loading,
+    timezone,
+    dateFrom,
+    dateTo,
+    chartTheme,
+}: {
+    comparison: SuccessfulPrWorkflowDurationComparison | null
+    loading: boolean
+    timezone: string
+    dateFrom: string | null
+    dateTo: string | null
+    chartTheme: ChartTheme
+}): JSX.Element {
+    return (
+        <LemonCard hoverEffect={false} className="flex flex-col p-4 md:col-span-2">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                    <h3 className="text-sm font-semibold">Successful PR workflow duration</h3>
+                    <p className="mt-1 text-xs text-secondary">
+                        Successful PR-attributed workflow runs. Default branches, failed, cancelled, and skipped runs
+                        are excluded.
+                    </p>
+                </div>
+                <div className="text-right text-[11px] text-tertiary">
+                    <div>
+                        {dateFrom ?? 'Earliest available'} to {dateTo ?? 'now'} · {timezone}
+                    </div>
+                    <div>{comparison?.interval ?? 'Adaptive'} buckets · previous equal-length window baseline</div>
+                </div>
+            </div>
+            {loading ? (
+                <LemonSkeleton className="mt-4 h-72 w-full" />
+            ) : comparison ? (
+                <>
+                    <div className="mt-4 grid grid-cols-2 gap-4 border-y border-primary py-3">
+                        <DurationHeadline
+                            label="p50"
+                            current={comparison.p50SecondsCurrent}
+                            previous={comparison.p50SecondsPrevious}
+                            sampleCount={comparison.sampleCountCurrent}
+                        />
+                        <DurationHeadline
+                            label="p95"
+                            current={comparison.p95SecondsCurrent}
+                            previous={comparison.p95SecondsPrevious}
+                            sampleCount={comparison.sampleCountCurrent}
+                        />
+                    </div>
+                    <div className="mt-4 h-72 w-full">
+                        <TimeSeriesLineChart
+                            series={[
+                                {
+                                    key: 'p50',
+                                    label: 'p50',
+                                    data: comparison.p50Seconds,
+                                    points: { radius: 3 },
+                                    stroke:
+                                        comparison.partialFromIndex == null
+                                            ? undefined
+                                            : { partial: { fromIndex: comparison.partialFromIndex } },
+                                },
+                                {
+                                    key: 'p95',
+                                    label: 'p95',
+                                    data: comparison.p95Seconds,
+                                    points: { radius: 3 },
+                                    stroke: {
+                                        pattern: [2, 5],
+                                        partial:
+                                            comparison.partialFromIndex == null
+                                                ? undefined
+                                                : { fromIndex: comparison.partialFromIndex, pattern: [10, 10] },
+                                    },
+                                },
+                            ]}
+                            labels={comparison.labels}
+                            theme={chartTheme}
+                            config={{
+                                xAxis: { timezone, interval: comparison.interval },
+                                yAxis: { format: 'duration', label: 'Workflow duration' },
+                                legend: { show: true, interactive: false, align: 'start' },
+                                showCrosshair: true,
+                                showGrid: true,
+                            }}
+                            tooltip={(context) => (
+                                <DefaultTooltip
+                                    {...context}
+                                    valueFormatter={(value) => compactAgeLabel(value)}
+                                    labelFormatter={(label) => <TZLabel time={label} />}
+                                    footer={`${comparison.sampleCounts[context.dataIndex]?.toLocaleString() ?? 0} qualifying runs`}
+                                />
+                            )}
+                        />
+                    </div>
+                </>
+            ) : (
+                <div className="flex h-72 items-center text-sm text-secondary">
+                    No successful PR-attributed workflow runs in this window.
+                </div>
+            )}
+            <div className="mt-3 border-t border-primary pt-2 text-[11px] text-tertiary">
+                Run grain, not whole-PR time-to-green. Missing buckets are gaps. A dashed tail marks an incomplete
+                current bucket. Previous window samples: {comparison?.sampleCountPrevious.toLocaleString() ?? 0}.
+            </div>
+        </LemonCard>
+    )
 }
 
 /** The page's thesis: is the pipeline healthy right now? Default-branch verdict plus open-PR backlog
@@ -237,7 +372,7 @@ export function RepoOverviewScene(): JSX.Element {
         repoActivityFailed,
         attentionPrs,
         costPerMergeSeries,
-        timeToGreenSeries,
+        successfulPrWorkflowDurationComparison,
         passRateSeries,
         openToMergeSeries,
         jobsAvailable,
@@ -251,6 +386,8 @@ export function RepoOverviewScene(): JSX.Element {
         currentBranchHealthLoading,
         prPreviewCount,
         workflowPreviewCount,
+        dateFrom,
+        dateTo,
     } = useValues(repoOverviewLogic)
     const { cards, pullRequestsLoading, workflowHealth, workflowHealthLoading, sourceId, activeSource } =
         useValues(engineeringAnalyticsLogic)
@@ -377,16 +514,13 @@ export function RepoOverviewScene(): JSX.Element {
                         caption="Share of completed CI runs that passed, all branches."
                     />
 
-                    {/* Median time-to-green on PR runs (success-only, PR-scoped; see #67398). */}
-                    <TrendCard
-                        title="PR time to green"
-                        series={timeToGreenSeries}
-                        formatValue={formatAxisMinutes}
-                        renderTooltipValue={formatAxisMinutes}
-                        goodWhenDown
+                    <SuccessfulPrWorkflowDurationCard
+                        comparison={successfulPrWorkflowDurationComparison}
                         loading={overviewPending}
-                        emptyText="Not enough successful PR CI runs in the window yet."
-                        caption="Median time-to-green on pull requests: successful runs only, default branch excluded."
+                        timezone={timezone}
+                        dateFrom={dateFrom}
+                        dateTo={dateTo}
+                        chartTheme={chartTheme}
                     />
 
                     {/* PR throughput: coarse created→merged time, bots and drafts excluded. */}

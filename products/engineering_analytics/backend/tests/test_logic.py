@@ -797,8 +797,87 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
             "github_workflow_runs",
             _WORKFLOW_RUNS_COLUMNS,
             [
-                _run_row(9500, "CI", "sha80", "completed", "success", _ago(2), _ago(2), pr_number=80),
-                _run_row(9501, "CI", "sha81", "completed", "success", _ago(3), _ago(3), pr_number=81, run_attempt=2),
+                _run_row(
+                    9500,
+                    "CI",
+                    "sha80",
+                    "completed",
+                    "success",
+                    *_ago_with_duration(2, 600),
+                    pr_number=80,
+                    head_branch="feature/current-a",
+                ),
+                _run_row(
+                    9501,
+                    "CI",
+                    "sha81",
+                    "completed",
+                    "success",
+                    *_ago_with_duration(3, 900),
+                    pr_number=81,
+                    run_attempt=2,
+                    head_branch="feature/current-b",
+                ),
+                _run_row(
+                    9502,
+                    "CI",
+                    "sha82",
+                    "completed",
+                    "success",
+                    *_ago_with_duration(4, 1800),
+                    pr_number=82,
+                    head_branch="feature/current-c",
+                ),
+                _run_row(
+                    9503,
+                    "CI",
+                    "sha83",
+                    "completed",
+                    "failure",
+                    *_ago_with_duration(5, 300),
+                    pr_number=83,
+                    head_branch="feature/failed",
+                ),
+                _run_row(
+                    9504,
+                    "CI",
+                    "sha84",
+                    "completed",
+                    "success",
+                    *_ago_with_duration(6, 3600),
+                    pr_number=84,
+                    head_branch="main",
+                ),
+                _run_row(
+                    9510,
+                    "CI",
+                    "sha90",
+                    "completed",
+                    "success",
+                    *_ago_with_duration(35, 1200),
+                    pr_number=90,
+                    head_branch="feature/previous-a",
+                ),
+                _run_row(
+                    9511,
+                    "CI",
+                    "sha91",
+                    "completed",
+                    "success",
+                    *_ago_with_duration(40, 1500),
+                    pr_number=91,
+                    head_branch="feature/previous-b",
+                ),
+                _run_row(
+                    9512,
+                    "CI",
+                    "sha92",
+                    "completed",
+                    "success",
+                    *_ago_with_duration(45, 2400),
+                    pr_number=92,
+                    head_branch="feature/previous-c",
+                ),
             ],
         )
         self._create_table(
@@ -811,12 +890,18 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         assert overview.merged_pr_count == 2  # 80 and 81; 82 merged long before the window
         assert overview.merged_pr_count_prev == 0
         assert overview.median_open_to_merge_seconds == pytest.approx(8 * 86400)  # bot PR 81 excluded
-        assert overview.run_count == 2
+        assert overview.run_count == 5
         assert overview.rerun_cycles == 1
+        assert overview.successful_pr_workflow_duration_sample_count == 3
+        assert overview.successful_pr_workflow_duration_sample_count_prev == 3
+        assert overview.successful_pr_workflow_duration_p50_seconds == pytest.approx(900)
+        assert overview.successful_pr_workflow_duration_p50_seconds_prev == pytest.approx(1500)
+        assert overview.successful_pr_workflow_duration_p95_seconds == pytest.approx(1800)
+        assert overview.successful_pr_workflow_duration_p95_seconds_prev == pytest.approx(2400)
         assert overview.billable_minutes == pytest.approx(2.0)  # one 120s job on a billable tier
         assert overview.estimated_cost_usd == pytest.approx(0.016)  # 2 min x $0.004 x 2 (4-core)
         assert overview.cost_series == []
-        assert overview.time_to_green_series == []
+        assert overview.successful_pr_workflow_duration_series == []
         assert overview.success_rate_series == []
         assert overview.open_to_merge_series == []
         assert overview.cost_series_granularity == "day"  # the grain the series would have used
@@ -824,6 +909,13 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         with_series = api.get_repo_overview(team=self.team)
         assert len(with_series.cost_series) > 0  # zero-filled spine across the default -30d window
         assert len(with_series.success_rate_series) > 0
+        duration_series = with_series.successful_pr_workflow_duration_series
+        assert sum(bucket.sample_count for bucket in duration_series) == 3
+        assert any(
+            bucket.sample_count == 0 and bucket.p50_seconds is None and bucket.p95_seconds is None
+            for bucket in duration_series
+        )
+        assert duration_series[-1].is_partial is True
 
     def test_pull_request_list_window_and_rollup(self) -> None:
         self._seed()

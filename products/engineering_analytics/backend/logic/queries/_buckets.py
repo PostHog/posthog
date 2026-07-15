@@ -54,6 +54,12 @@ def window_buckets(date_from: datetime, date_to: datetime | None, granularity: G
     return buckets
 
 
+def bucket_is_partial(bucket_start: datetime, window_end: datetime, granularity: Granularity) -> bool:
+    """Whether ``bucket_start``'s interval extends past the selected window end."""
+    end_naive = window_end.replace(tzinfo=None)
+    return normalize_bucket(bucket_start, granularity) + _BUCKET_STEP[granularity] > end_naive
+
+
 def normalize_bucket(value: datetime | date, granularity: Granularity) -> datetime:
     """Align a timestamp to its bucket start, tz-naive, so query rows and the zero-fill spine key alike.
 
