@@ -27,6 +27,7 @@ export const CodeInvitesRedeemCreateBody = /* @__PURE__ */ zod.object({
 export const loopsCreateBodyNameMax = 400
 
 export const loopsCreateBodyDescriptionDefault = ``
+export const loopsCreateBodyTakeOwnershipDefault = false
 export const loopsCreateBodyVisibilityDefault = `personal`
 export const loopsCreateBodyModelDefault = ``
 export const loopsCreateBodyRepositoriesItemFullNameMax = 255
@@ -46,6 +47,10 @@ export const loopsCreateBodyConnectorsOnePosthogMcpScopesDefault = `read_only`
 export const loopsCreateBodyNotificationsOnePushOneEnabledDefault = false
 export const loopsCreateBodyNotificationsOneEmailOneEnabledDefault = false
 export const loopsCreateBodyNotificationsOneSlackOneEnabledDefault = false
+export const loopsCreateBodyContextTargetOneNameMax = 128
+
+export const loopsCreateBodyContextTargetOneOutputsOnePostToFeedDefault = false
+export const loopsCreateBodyContextTargetOneOutputsOneUpdateContextDefault = false
 export const loopsCreateBodyTriggersItemEnabledDefault = true
 
 export const LoopsCreateBody = /* @__PURE__ */ zod
@@ -55,6 +60,12 @@ export const LoopsCreateBody = /* @__PURE__ */ zod
             .string()
             .default(loopsCreateBodyDescriptionDefault)
             .describe('Free-form description of what this loop does.'),
+        take_ownership: zod
+            .boolean()
+            .default(loopsCreateBodyTakeOwnershipDefault)
+            .describe(
+                'On a team loop, claim ownership as part of this update so you can edit identity-bearing config (instructions, model, triggers, ...) that only the owner may change. Ignored on personal loops and on create.'
+            ),
         visibility: zod
             .enum(['personal', 'team'])
             .describe('\* `personal` - personal\n\* `team` - team')
@@ -237,6 +248,44 @@ export const LoopsCreateBody = /* @__PURE__ */ zod
             })
             .optional()
             .describe('Per-channel notification configuration.'),
+        context_target: zod
+            .union([
+                zod.object({
+                    folder_id: zod.string().describe('Desktop folder id of the context this loop is attached to.'),
+                    name: zod
+                        .string()
+                        .max(loopsCreateBodyContextTargetOneNameMax)
+                        .describe('Context (channel) name, used to file runs into its feed.'),
+                    outputs: zod
+                        .object({
+                            post_to_feed: zod
+                                .boolean()
+                                .default(loopsCreateBodyContextTargetOneOutputsOnePostToFeedDefault)
+                                .describe(
+                                    "Whether each run is filed into the context's feed as a card (sets the run's channel)."
+                                ),
+                            update_context: zod
+                                .boolean()
+                                .default(loopsCreateBodyContextTargetOneOutputsOneUpdateContextDefault)
+                                .describe(
+                                    "Whether each run reads and republishes the context's context.md to reflect the latest state."
+                                ),
+                            canvas_id: zod
+                                .string()
+                                .nullish()
+                                .describe(
+                                    'Id of a canvas in this context the loop keeps up to date each run, or null to maintain none.'
+                                ),
+                        })
+                        .optional()
+                        .describe('What the loop maintains in this context each run.'),
+                }),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Context (channel) this loop is attached to, or null to detach. Drives feed placement and the context.md \/ canvas it keeps up to date.'
+            ),
         triggers: zod
             .array(
                 zod.object({
@@ -278,6 +327,7 @@ export const LoopsCreateBody = /* @__PURE__ */ zod
 export const loopsPartialUpdateBodyNameMax = 400
 
 export const loopsPartialUpdateBodyDescriptionDefault = ``
+export const loopsPartialUpdateBodyTakeOwnershipDefault = false
 export const loopsPartialUpdateBodyVisibilityDefault = `personal`
 export const loopsPartialUpdateBodyModelDefault = ``
 export const loopsPartialUpdateBodyRepositoriesItemFullNameMax = 255
@@ -297,6 +347,10 @@ export const loopsPartialUpdateBodyConnectorsOnePosthogMcpScopesDefault = `read_
 export const loopsPartialUpdateBodyNotificationsOnePushOneEnabledDefault = false
 export const loopsPartialUpdateBodyNotificationsOneEmailOneEnabledDefault = false
 export const loopsPartialUpdateBodyNotificationsOneSlackOneEnabledDefault = false
+export const loopsPartialUpdateBodyContextTargetOneNameMax = 128
+
+export const loopsPartialUpdateBodyContextTargetOneOutputsOnePostToFeedDefault = false
+export const loopsPartialUpdateBodyContextTargetOneOutputsOneUpdateContextDefault = false
 export const loopsPartialUpdateBodyTriggersItemEnabledDefault = true
 
 export const LoopsPartialUpdateBody = /* @__PURE__ */ zod
@@ -306,6 +360,12 @@ export const LoopsPartialUpdateBody = /* @__PURE__ */ zod
             .string()
             .default(loopsPartialUpdateBodyDescriptionDefault)
             .describe('Free-form description of what this loop does.'),
+        take_ownership: zod
+            .boolean()
+            .default(loopsPartialUpdateBodyTakeOwnershipDefault)
+            .describe(
+                'On a team loop, claim ownership as part of this update so you can edit identity-bearing config (instructions, model, triggers, ...) that only the owner may change. Ignored on personal loops and on create.'
+            ),
         visibility: zod
             .enum(['personal', 'team'])
             .describe('\* `personal` - personal\n\* `team` - team')
@@ -489,6 +549,44 @@ export const LoopsPartialUpdateBody = /* @__PURE__ */ zod
             })
             .optional()
             .describe('Per-channel notification configuration.'),
+        context_target: zod
+            .union([
+                zod.object({
+                    folder_id: zod.string().describe('Desktop folder id of the context this loop is attached to.'),
+                    name: zod
+                        .string()
+                        .max(loopsPartialUpdateBodyContextTargetOneNameMax)
+                        .describe('Context (channel) name, used to file runs into its feed.'),
+                    outputs: zod
+                        .object({
+                            post_to_feed: zod
+                                .boolean()
+                                .default(loopsPartialUpdateBodyContextTargetOneOutputsOnePostToFeedDefault)
+                                .describe(
+                                    "Whether each run is filed into the context's feed as a card (sets the run's channel)."
+                                ),
+                            update_context: zod
+                                .boolean()
+                                .default(loopsPartialUpdateBodyContextTargetOneOutputsOneUpdateContextDefault)
+                                .describe(
+                                    "Whether each run reads and republishes the context's context.md to reflect the latest state."
+                                ),
+                            canvas_id: zod
+                                .string()
+                                .nullish()
+                                .describe(
+                                    'Id of a canvas in this context the loop keeps up to date each run, or null to maintain none.'
+                                ),
+                        })
+                        .optional()
+                        .describe('What the loop maintains in this context each run.'),
+                }),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Context (channel) this loop is attached to, or null to detach. Drives feed placement and the context.md \/ canvas it keeps up to date.'
+            ),
         triggers: zod
             .array(
                 zod.object({

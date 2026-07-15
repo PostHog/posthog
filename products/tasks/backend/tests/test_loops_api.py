@@ -263,6 +263,21 @@ class LoopVisibilityAPITest(LoopsAPITestCase):
         else:
             self.assertNotEqual(current[field], new_value)
 
+    def test_take_ownership_lets_a_member_edit_a_team_loops_identity_config(self):
+        loop_id = self._create_loop(self.owner_client, visibility="team")["id"]
+
+        # Without takeover, the identity edit is rejected.
+        rejected = self.peer_client.patch(self._loop_url(loop_id), {"instructions": "new plan"}, format="json")
+        self.assertEqual(rejected.status_code, status.HTTP_403_FORBIDDEN, rejected.content)
+
+        # Claiming ownership in the same request lets it through and transfers ownership.
+        response = self.peer_client.patch(
+            self._loop_url(loop_id), {"instructions": "new plan", "take_ownership": True}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(response.json()["instructions"], "new plan")
+        self.assertEqual(response.json()["created_by_id"], self.peer.id)
+
 
 class LoopTriggerSyncAPITest(LoopsAPITestCase):
     def test_trigger_update_is_id_stable(self):
@@ -377,6 +392,50 @@ class LoopEnableToggleAPITest(LoopsAPITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         self.assertIsNone(response.json()["disabled_reason"])
+
+
+class LoopScheduleTriggerValidationAPITest(LoopsAPITestCase):
+    @parameterized.expand(
+        [
+            ("offset_aware_future", "2099-01-01T00:00:00+00:00", status.HTTP_201_CREATED),
+            # A naive (offset-less) datetime must be treated as UTC, not crash the comparison with a 500.
+            ("naive_future", "2099-01-01T00:00:00", status.HTTP_201_CREATED),
+            ("naive_past", "2000-01-01T00:00:00", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_run_at_datetime_handling(self, _name, run_at, expected_status):
+        response = self.owner_client.post(
+            self._loops_url(),
+            self._valid_loop_payload(triggers=[{"type": "schedule", "config": {"run_at": run_at}}]),
+            format="json",
+        )
+        self.assertEqual(response.status_code, expected_status, response.content)
+
+
+class LoopServiceReadbackAPITest(LoopsAPITestCase):
+    def _psak(self, scopes) -> str:
+        raw_token = generate_random_token_secret()
+        ProjectSecretAPIKey.objects.create(
+            team=self.team,
+            label="loop service key",
+            secure_value=hash_key_value(raw_token),
+            scopes=scopes,
+            mask_value=f"{raw_token[:4]}...{raw_token[-4:]}",
+        )
+        return raw_token
+
+    def test_psak_can_read_back_runs_of_a_loop_it_can_trigger(self):
+        # A service that fires a loop needs a documented way to poll the outcome. A PSAK with
+        # loop:read reads run history project-wide, without the personal-visibility filter.
+        loop_id = self._create_loop(self.owner_client, visibility="personal", triggers=[{"type": "api", "config": {}}])[
+            "id"
+        ]
+        token = self._psak(["loop:read", "loop:write"])
+
+        response = APIClient().get(f"{self._loop_url(loop_id)}runs/", headers={"authorization": f"Bearer {token}"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertIn("results", response.json())
 
 
 class LoopScopeAPITest(LoopsAPITestCase):

@@ -6134,6 +6134,21 @@
         },
         "feature_flag": "tasks"
     },
+    "loops-preview-create": {
+        "description": "Dry-run a loop: render the assembled instructions and trigger context for a sample payload (or a synthetic schedule fire when omitted) without creating a task, run, or any other side effect. Use it to check a loop's prompt before enabling it.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Preview a loop fire",
+        "title": "Preview a loop fire",
+        "required_scopes": ["loop:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "tasks"
+    },
     "loops-retrieve": {
         "description": "Get a specific loop by ID, including its full config (instructions, model, repositories, triggers, behaviors, connectors, notifications) and run bookkeeping.",
         "category": "Tasks",
@@ -6161,6 +6176,21 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
+        },
+        "feature_flag": "tasks"
+    },
+    "loops-runs-retrieve": {
+        "description": "List a loop's run history, newest first, cursor-paginated. Each entry carries the run's status, branch, error message and output (including any PR URL), so an agent can check whether a loop's runs succeeded and what they produced.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "List loop runs",
+        "title": "List loop runs",
+        "required_scopes": ["loop:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
         },
         "feature_flag": "tasks"
     },

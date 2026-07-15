@@ -79,7 +79,20 @@ tools:
         feature_flag: tasks
     loops-preview-create:
         operation: loops_preview_create
-        enabled: false
+        enabled: true
+        scopes:
+            - loop:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}/preview'
+        title: Preview a loop fire
+        description: >
+            Dry-run a loop: render the assembled instructions and trigger context for a sample payload (or a
+            synthetic schedule fire when omitted) without creating a task, run, or any other side effect. Use it to
+            check a loop's prompt before enabling it.
+        feature_flag: tasks
     loops-retrieve:
         operation: loops_retrieve
         enabled: true
@@ -112,7 +125,21 @@ tools:
         feature_flag: tasks
     loops-runs-retrieve:
         operation: loops_runs_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - loop:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}/runs'
+        list: true
+        title: List loop runs
+        description: >
+            List a loop's run history, newest first, cursor-paginated. Each entry carries the run's status, branch,
+            error message and output (including any PR URL), so an agent can check whether a loop's runs succeeded and
+            what they produced.
+        feature_flag: tasks
     loops-trigger-create:
         operation: loops_trigger_create
         enabled: false

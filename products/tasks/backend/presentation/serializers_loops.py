@@ -8,7 +8,7 @@ relations through facade-exposed queryset helpers, mirroring the existing patter
 `presentation/serializers.py` (`tasks_facade.channel_queryset()` et al.).
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import cast
 from zoneinfo import available_timezones
 
@@ -136,9 +136,15 @@ def _parse_iso_datetime(value: object) -> datetime | None:
     if not isinstance(value, str):
         return None
     try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         return None
+    # A caller can send an offset-less datetime; treat it as UTC (matching loop_service's
+    # _run_at_datetime) so comparing it against an aware `now` can't raise an uncaught
+    # TypeError and 500 the request instead of returning a clean validation error.
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed
 
 
 def _validate_schedule_trigger_config(config: dict, *, now: datetime) -> dict:
@@ -261,6 +267,16 @@ class LoopWriteSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=400, help_text="Display name for the loop.")
     description = serializers.CharField(
         required=False, allow_blank=True, default="", help_text="Free-form description of what this loop does."
+    )
+    take_ownership = serializers.BooleanField(
+        required=False,
+        default=False,
+        write_only=True,
+        help_text=(
+            "On a team loop, claim ownership as part of this update so you can edit identity-bearing "
+            "config (instructions, model, triggers, ...) that only the owner may change. Ignored on "
+            "personal loops and on create."
+        ),
     )
     visibility = serializers.ChoiceField(
         choices=[v.value for v in loops_facade.LoopVisibility],
@@ -570,7 +586,15 @@ class LoopFireRunSerializer(DataclassSerializer):
     """Response for a manual (`run/`) or external (`trigger/`) fire."""
 
     reason = serializers.ChoiceField(
-        choices=["created", "deduped", "overlap_skipped", "rate_capped", "disabled", "gate_blocked"],
+        choices=[
+            "created",
+            "deduped",
+            "overlap_skipped",
+            "rate_capped",
+            "team_rate_capped",
+            "disabled",
+            "gate_blocked",
+        ],
         help_text="Outcome of the fire attempt.",
     )
     task_id = serializers.UUIDField(allow_null=True, help_text="Id of the created task, when `created` is true.")

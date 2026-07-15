@@ -707,10 +707,18 @@ def update_loop(loop_id: str | UUID, team_id: int, user: User | None, validated_
     if loop is None:
         return None
 
-    _authorize_update(loop, user, validated_data)
-    validate_loop_write(team_id, validated_data)
-
     data = dict(validated_data)
+    # Explicit ownership takeover on a team loop: a member who wants to edit identity-bearing
+    # config claims ownership in the same request. Only a team loop can be taken over, and only
+    # by a member who can already reach it (fetched above). This is the documented mechanism for
+    # editing a teammate's team loop, replacing the never-implemented "implicit takeover".
+    take_ownership = bool(data.pop("take_ownership", False))
+    if take_ownership and loop.visibility == Loop.Visibility.TEAM and user is not None and not _is_owner(loop, user):
+        loop.created_by_id = user.id
+
+    _authorize_update(loop, user, data)
+    validate_loop_write(team_id, data)
+
     trigger_payloads = data.pop("triggers", None)
     # Detaching from a context sends `context_target: null`; the column is NOT NULL, so store {}.
     if "context_target" in data and data["context_target"] is None:
@@ -921,7 +929,25 @@ def list_loop_runs(
     loop = _visible_loop_queryset(team_id, user_id).filter(pk=loop_id).first()
     if loop is None:
         return None
+    return _loop_runs_page(loop, team_id, cursor=cursor, limit=limit)
 
+
+def list_loop_runs_for_service(
+    loop_id: str | UUID,
+    team_id: int,
+    *,
+    cursor: str | None = None,
+    limit: int = DEFAULT_LOOP_RUN_PAGE_SIZE,
+) -> LoopRunPageDTO | None:
+    """Run history for a PSAK-authenticated service caller: project-wide, no personal/team
+    visibility filter (a PSAK can already trigger any loop in the project — see `fire_loop_api`)."""
+    loop = Loop.objects.filter(team_id=team_id, deleted=False, internal=False, pk=loop_id).first()
+    if loop is None:
+        return None
+    return _loop_runs_page(loop, team_id, cursor=cursor, limit=limit)
+
+
+def _loop_runs_page(loop: Loop, team_id: int, *, cursor: str | None, limit: int) -> LoopRunPageDTO:
     page_size = max(1, min(limit, MAX_LOOP_RUN_PAGE_SIZE))
     queryset = (
         TaskRun.objects.filter(team_id=team_id)
@@ -987,6 +1013,7 @@ __all__ = [
     "list_internal_loops",
     "github_integration_ids_for_team",
     "list_loop_runs",
+    "list_loop_runs_for_service",
     "list_loops",
     "pause_loops_for_deactivated_user",
     "pause_loops_referencing_integrations",

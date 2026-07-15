@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 12 enabled ops
+ * PostHog API - MCP 14 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -41,6 +41,7 @@ export const LoopsCreateParams = /* @__PURE__ */ zod.object({
 export const loopsCreateBodyNameMax = 400
 
 export const loopsCreateBodyDescriptionDefault = ``
+export const loopsCreateBodyTakeOwnershipDefault = false
 export const loopsCreateBodyVisibilityDefault = `personal`
 export const loopsCreateBodyModelDefault = ``
 export const loopsCreateBodyRepositoriesItemFullNameMax = 255
@@ -60,6 +61,10 @@ export const loopsCreateBodyConnectorsOnePosthogMcpScopesDefault = `read_only`
 export const loopsCreateBodyNotificationsOnePushOneEnabledDefault = false
 export const loopsCreateBodyNotificationsOneEmailOneEnabledDefault = false
 export const loopsCreateBodyNotificationsOneSlackOneEnabledDefault = false
+export const loopsCreateBodyContextTargetOneNameMax = 128
+
+export const loopsCreateBodyContextTargetOneOutputsOnePostToFeedDefault = false
+export const loopsCreateBodyContextTargetOneOutputsOneUpdateContextDefault = false
 export const loopsCreateBodyTriggersItemEnabledDefault = true
 
 export const LoopsCreateBody = /* @__PURE__ */ zod
@@ -69,6 +74,12 @@ export const LoopsCreateBody = /* @__PURE__ */ zod
             .string()
             .default(loopsCreateBodyDescriptionDefault)
             .describe('Free-form description of what this loop does.'),
+        take_ownership: zod
+            .boolean()
+            .default(loopsCreateBodyTakeOwnershipDefault)
+            .describe(
+                'On a team loop, claim ownership as part of this update so you can edit identity-bearing config (instructions, model, triggers, ...) that only the owner may change. Ignored on personal loops and on create.'
+            ),
         visibility: zod
             .enum(['personal', 'team'])
             .describe('* `personal` - personal\n* `team` - team')
@@ -249,6 +260,44 @@ export const LoopsCreateBody = /* @__PURE__ */ zod
             })
             .optional()
             .describe('Per-channel notification configuration.'),
+        context_target: zod
+            .union([
+                zod.object({
+                    folder_id: zod.string().describe('Desktop folder id of the context this loop is attached to.'),
+                    name: zod
+                        .string()
+                        .max(loopsCreateBodyContextTargetOneNameMax)
+                        .describe('Context (channel) name, used to file runs into its feed.'),
+                    outputs: zod
+                        .object({
+                            post_to_feed: zod
+                                .boolean()
+                                .default(loopsCreateBodyContextTargetOneOutputsOnePostToFeedDefault)
+                                .describe(
+                                    "Whether each run is filed into the context's feed as a card (sets the run's channel)."
+                                ),
+                            update_context: zod
+                                .boolean()
+                                .default(loopsCreateBodyContextTargetOneOutputsOneUpdateContextDefault)
+                                .describe(
+                                    "Whether each run reads and republishes the context's context.md to reflect the latest state."
+                                ),
+                            canvas_id: zod
+                                .string()
+                                .nullish()
+                                .describe(
+                                    'Id of a canvas in this context the loop keeps up to date each run, or null to maintain none.'
+                                ),
+                        })
+                        .optional()
+                        .describe('What the loop maintains in this context each run.'),
+                }),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Context (channel) this loop is attached to, or null to detach. Drives feed placement and the context.md / canvas it keeps up to date.'
+            ),
         triggers: zod
             .array(
                 zod.object({
@@ -327,12 +376,22 @@ export const loopsPartialUpdateBodyConnectorsOnePosthogMcpScopesDefault = `read_
 export const loopsPartialUpdateBodyNotificationsOnePushOneEnabledDefault = false
 export const loopsPartialUpdateBodyNotificationsOneEmailOneEnabledDefault = false
 export const loopsPartialUpdateBodyNotificationsOneSlackOneEnabledDefault = false
+export const loopsPartialUpdateBodyContextTargetOneNameMax = 128
+
+export const loopsPartialUpdateBodyContextTargetOneOutputsOnePostToFeedDefault = false
+export const loopsPartialUpdateBodyContextTargetOneOutputsOneUpdateContextDefault = false
 export const loopsPartialUpdateBodyTriggersItemEnabledDefault = true
 
 export const LoopsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
         name: zod.string().max(loopsPartialUpdateBodyNameMax).optional().describe('Display name for the loop.'),
         description: zod.string().optional().describe('Free-form description of what this loop does.'),
+        take_ownership: zod
+            .boolean()
+            .optional()
+            .describe(
+                'On a team loop, claim ownership as part of this update so you can edit identity-bearing config (instructions, model, triggers, ...) that only the owner may change. Ignored on personal loops and on create.'
+            ),
         visibility: zod
             .enum(['personal', 'team'])
             .describe('* `personal` - personal\n* `team` - team')
@@ -514,6 +573,44 @@ export const LoopsPartialUpdateBody = /* @__PURE__ */ zod
             })
             .optional()
             .describe('Per-channel notification configuration.'),
+        context_target: zod
+            .union([
+                zod.object({
+                    folder_id: zod.string().describe('Desktop folder id of the context this loop is attached to.'),
+                    name: zod
+                        .string()
+                        .max(loopsPartialUpdateBodyContextTargetOneNameMax)
+                        .describe('Context (channel) name, used to file runs into its feed.'),
+                    outputs: zod
+                        .object({
+                            post_to_feed: zod
+                                .boolean()
+                                .default(loopsPartialUpdateBodyContextTargetOneOutputsOnePostToFeedDefault)
+                                .describe(
+                                    "Whether each run is filed into the context's feed as a card (sets the run's channel)."
+                                ),
+                            update_context: zod
+                                .boolean()
+                                .default(loopsPartialUpdateBodyContextTargetOneOutputsOneUpdateContextDefault)
+                                .describe(
+                                    "Whether each run reads and republishes the context's context.md to reflect the latest state."
+                                ),
+                            canvas_id: zod
+                                .string()
+                                .nullish()
+                                .describe(
+                                    'Id of a canvas in this context the loop keeps up to date each run, or null to maintain none.'
+                                ),
+                        })
+                        .optional()
+                        .describe('What the loop maintains in this context each run.'),
+                }),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Context (channel) this loop is attached to, or null to detach. Drives feed placement and the context.md / canvas it keeps up to date.'
+            ),
         triggers: zod
             .array(
                 zod.object({
@@ -562,6 +659,35 @@ export const LoopsDestroyParams = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Dry run: renders the assembled instructions and trigger context for a supplied sample payload (or a synthetic schedule fire when omitted), without creating a task, run, or any other side effect.
+ * @summary Preview a loop fire
+ */
+export const LoopsPreviewCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const loopsPreviewCreateBodyTriggerTypeDefault = `schedule`
+
+export const LoopsPreviewCreateBody = /* @__PURE__ */ zod.object({
+    trigger_type: zod
+        .enum(['schedule', 'github', 'api'])
+        .describe('* `schedule` - schedule\n* `github` - github\n* `api` - api')
+        .default(loopsPreviewCreateBodyTriggerTypeDefault)
+        .describe(
+            'Trigger type to simulate. Defaults to a synthetic schedule fire.\n\n* `schedule` - schedule\n* `github` - github\n* `api` - api'
+        ),
+    payload: zod
+        .unknown()
+        .optional()
+        .describe('Sample trigger payload, e.g. a GitHub webhook body or an API trigger body, to render into context.'),
+})
+
+/**
  * Manual fire from the UI. Owner-only for personal loops; any team member for team loops.
  * @summary Run a loop manually
  */
@@ -572,6 +698,36 @@ export const LoopsRunCreateParams = /* @__PURE__ */ zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
+})
+
+/**
+ * Run history for a loop, newest first, cursor-paginated.
+ * @summary List loop runs
+ */
+export const LoopsRunsRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const loopsRunsRetrieveQueryLimitDefault = 50
+export const loopsRunsRetrieveQueryLimitMax = 100
+
+export const LoopsRunsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    cursor: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe("Opaque pagination cursor from a previous response's `next_cursor`."),
+    limit: zod
+        .number()
+        .min(1)
+        .max(loopsRunsRetrieveQueryLimitMax)
+        .default(loopsRunsRetrieveQueryLimitDefault)
+        .describe('Max results per page (default 50, max 100).'),
 })
 
 /**

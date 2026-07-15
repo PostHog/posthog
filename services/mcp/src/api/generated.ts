@@ -35370,6 +35370,44 @@ export namespace Schemas {
       posthog_mcp_scopes?: string;
     }
 
+    export interface LoopContextOutputsDTO {
+      post_to_feed?: boolean;
+      update_context?: boolean;
+      /** @nullable */
+      canvas_id?: string | null;
+    }
+
+    export interface LoopContextOutputsWrite {
+      /** Whether each run is filed into the context's feed as a card (sets the run's channel). */
+      post_to_feed?: boolean;
+      /** Whether each run reads and republishes the context's context.md to reflect the latest state. */
+      update_context?: boolean;
+      /**
+         * Id of a canvas in this context the loop keeps up to date each run, or null to maintain none.
+         * @nullable
+         */
+      canvas_id?: string | null;
+    }
+
+    export interface LoopContextTargetDTO {
+      /** What the loop maintains in this context each run. */
+      outputs: LoopContextOutputsDTO;
+      folder_id: string;
+      name: string;
+    }
+
+    export interface LoopContextTargetWrite {
+      /** Desktop folder id of the context this loop is attached to. */
+      folder_id: string;
+      /**
+         * Context (channel) name, used to file runs into its feed.
+         * @maxLength 128
+         */
+      name: string;
+      /** What the loop maintains in this context each run. */
+      outputs?: LoopContextOutputsWrite;
+    }
+
     export interface LoopRepositoryEntryDTO {
       github_integration_id: number;
       full_name: string;
@@ -35429,6 +35467,8 @@ export namespace Schemas {
       /** @nullable */
       sandbox_environment_id: string | null;
       enabled: boolean;
+      /** @nullable */
+      disabled_reason: string | null;
       overlap_policy: string;
       /** PR / CI-follow-up behavior configuration. */
       behaviors: LoopBehaviorsDTO;
@@ -35436,6 +35476,8 @@ export namespace Schemas {
       connectors: LoopConnectorsDTO;
       /** Per-channel notification configuration. */
       notifications: LoopNotificationsDTO;
+      /** Context this loop is attached to, or null when unattached. */
+      context_target?: LoopContextTargetDTO | null;
       internal: boolean;
       origin_product: string;
       /** @nullable */
@@ -35456,6 +35498,7 @@ export namespace Schemas {
      * * `deduped` - deduped
      * * `overlap_skipped` - overlap_skipped
      * * `rate_capped` - rate_capped
+     * * `team_rate_capped` - team_rate_capped
      * * `disabled` - disabled
      * * `gate_blocked` - gate_blocked
      */
@@ -35467,6 +35510,7 @@ export namespace Schemas {
       Deduped: 'deduped',
       OverlapSkipped: 'overlap_skipped',
       RateCapped: 'rate_capped',
+      TeamRateCapped: 'team_rate_capped',
       Disabled: 'disabled',
       GateBlocked: 'gate_blocked',
     } as const;
@@ -35482,6 +35526,7 @@ export namespace Schemas {
        * * `deduped` - deduped
        * * `overlap_skipped` - overlap_skipped
        * * `rate_capped` - rate_capped
+       * * `team_rate_capped` - team_rate_capped
        * * `disabled` - disabled
        * * `gate_blocked` - gate_blocked */
       reason: LoopFireResultReasonEnum;
@@ -35662,6 +35707,8 @@ export namespace Schemas {
       name: string;
       /** Free-form description of what this loop does. */
       description?: string;
+      /** On a team loop, claim ownership as part of this update so you can edit identity-bearing config (instructions, model, triggers, ...) that only the owner may change. Ignored on personal loops and on create. */
+      take_ownership?: boolean;
       /** `personal` (owner-only) or `team` (visible and fireable by any team member).
        *
        * * `personal` - personal
@@ -35708,6 +35755,8 @@ export namespace Schemas {
       connectors?: LoopConnectors;
       /** Per-channel notification configuration. */
       notifications?: LoopNotifications;
+      /** Context (channel) this loop is attached to, or null to detach. Drives feed placement and the context.md / canvas it keeps up to date. */
+      context_target?: LoopContextTargetWrite | null;
       /** Full desired trigger list, id-stable: entries with a matching `id` are updated in place, entries without one are created, and existing triggers absent from this list are deleted. Omit the field entirely to leave triggers untouched. At most 25 triggers per loop. */
       triggers?: LoopTriggerWrite[];
     }
@@ -47038,6 +47087,8 @@ export namespace Schemas {
       name?: string;
       /** Free-form description of what this loop does. */
       description?: string;
+      /** On a team loop, claim ownership as part of this update so you can edit identity-bearing config (instructions, model, triggers, ...) that only the owner may change. Ignored on personal loops and on create. */
+      take_ownership?: boolean;
       /** `personal` (owner-only) or `team` (visible and fireable by any team member).
        *
        * * `personal` - personal
@@ -47084,6 +47135,8 @@ export namespace Schemas {
       connectors?: LoopConnectors;
       /** Per-channel notification configuration. */
       notifications?: LoopNotifications;
+      /** Context (channel) this loop is attached to, or null to detach. Drives feed placement and the context.md / canvas it keeps up to date. */
+      context_target?: LoopContextTargetWrite | null;
       /** Full desired trigger list, id-stable: entries with a matching `id` are updated in place, entries without one are created, and existing triggers absent from this list are deleted. Omit the field entirely to leave triggers untouched. At most 25 triggers per loop. */
       triggers?: LoopTriggerWrite[];
     }

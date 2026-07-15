@@ -78,6 +78,20 @@ export interface LoopNotificationsDTOApi {
     slack: LoopNotificationChannelDTOApi
 }
 
+export interface LoopContextOutputsDTOApi {
+    post_to_feed?: boolean
+    update_context?: boolean
+    /** @nullable */
+    canvas_id?: string | null
+}
+
+export interface LoopContextTargetDTOApi {
+    /** What the loop maintains in this context each run. */
+    outputs: LoopContextOutputsDTOApi
+    folder_id: string
+    name: string
+}
+
 export type LoopTriggerDTOApiConfig = { [key: string]: unknown }
 
 /**
@@ -118,6 +132,8 @@ export interface LoopDTOApi {
     /** @nullable */
     sandbox_environment_id: string | null
     enabled: boolean
+    /** @nullable */
+    disabled_reason: string | null
     overlap_policy: string
     /** PR / CI-follow-up behavior configuration. */
     behaviors: LoopBehaviorsDTOApi
@@ -125,6 +141,8 @@ export interface LoopDTOApi {
     connectors: LoopConnectorsDTOApi
     /** Per-channel notification configuration. */
     notifications: LoopNotificationsDTOApi
+    /** Context this loop is attached to, or null when unattached. */
+    context_target?: LoopContextTargetDTOApi | null
     internal: boolean
     origin_product: string
     /** @nullable */
@@ -285,6 +303,30 @@ export interface LoopNotificationsApi {
     slack?: LoopNotificationChannelApi
 }
 
+export interface LoopContextOutputsWriteApi {
+    /** Whether each run is filed into the context's feed as a card (sets the run's channel). */
+    post_to_feed?: boolean
+    /** Whether each run reads and republishes the context's context.md to reflect the latest state. */
+    update_context?: boolean
+    /**
+     * Id of a canvas in this context the loop keeps up to date each run, or null to maintain none.
+     * @nullable
+     */
+    canvas_id?: string | null
+}
+
+export interface LoopContextTargetWriteApi {
+    /** Desktop folder id of the context this loop is attached to. */
+    folder_id: string
+    /**
+     * Context (channel) name, used to file runs into its feed.
+     * @maxLength 128
+     */
+    name: string
+    /** What the loop maintains in this context each run. */
+    outputs?: LoopContextOutputsWriteApi
+}
+
 /**
  * * `schedule` - schedule
  * * `github` - github
@@ -325,6 +367,8 @@ export interface LoopWriteApi {
     name: string
     /** Free-form description of what this loop does. */
     description?: string
+    /** On a team loop, claim ownership as part of this update so you can edit identity-bearing config (instructions, model, triggers, ...) that only the owner may change. Ignored on personal loops and on create. */
+    take_ownership?: boolean
     /** `personal` (owner-only) or `team` (visible and fireable by any team member).
      *
      * * `personal` - personal
@@ -371,6 +415,8 @@ export interface LoopWriteApi {
     connectors?: LoopConnectorsApi
     /** Per-channel notification configuration. */
     notifications?: LoopNotificationsApi
+    /** Context (channel) this loop is attached to, or null to detach. Drives feed placement and the context.md / canvas it keeps up to date. */
+    context_target?: LoopContextTargetWriteApi | null
     /** Full desired trigger list, id-stable: entries with a matching `id` are updated in place, entries without one are created, and existing triggers absent from this list are deleted. Omit the field entirely to leave triggers untouched. At most 25 triggers per loop. */
     triggers?: LoopTriggerWriteApi[]
 }
@@ -387,6 +433,8 @@ export interface PatchedLoopWriteApi {
     name?: string
     /** Free-form description of what this loop does. */
     description?: string
+    /** On a team loop, claim ownership as part of this update so you can edit identity-bearing config (instructions, model, triggers, ...) that only the owner may change. Ignored on personal loops and on create. */
+    take_ownership?: boolean
     /** `personal` (owner-only) or `team` (visible and fireable by any team member).
      *
      * * `personal` - personal
@@ -433,6 +481,8 @@ export interface PatchedLoopWriteApi {
     connectors?: LoopConnectorsApi
     /** Per-channel notification configuration. */
     notifications?: LoopNotificationsApi
+    /** Context (channel) this loop is attached to, or null to detach. Drives feed placement and the context.md / canvas it keeps up to date. */
+    context_target?: LoopContextTargetWriteApi | null
     /** Full desired trigger list, id-stable: entries with a matching `id` are updated in place, entries without one are created, and existing triggers absent from this list are deleted. Omit the field entirely to leave triggers untouched. At most 25 triggers per loop. */
     triggers?: LoopTriggerWriteApi[]
 }
@@ -459,6 +509,7 @@ export interface LoopPreviewDTOApi {
  * * `deduped` - deduped
  * * `overlap_skipped` - overlap_skipped
  * * `rate_capped` - rate_capped
+ * * `team_rate_capped` - team_rate_capped
  * * `disabled` - disabled
  * * `gate_blocked` - gate_blocked
  */
@@ -469,6 +520,7 @@ export const LoopFireResultReasonEnumApi = {
     Deduped: 'deduped',
     OverlapSkipped: 'overlap_skipped',
     RateCapped: 'rate_capped',
+    TeamRateCapped: 'team_rate_capped',
     Disabled: 'disabled',
     GateBlocked: 'gate_blocked',
 } as const
@@ -484,6 +536,7 @@ export interface LoopFireResultApi {
      * * `deduped` - deduped
      * * `overlap_skipped` - overlap_skipped
      * * `rate_capped` - rate_capped
+     * * `team_rate_capped` - team_rate_capped
      * * `disabled` - disabled
      * * `gate_blocked` - gate_blocked */
     reason: LoopFireResultReasonEnumApi
@@ -1432,16 +1485,6 @@ export interface TaskCreateApi {
      * * `pi` - Pi */
     runtime?: RuntimeEnumApi
 }
-
-/**
- * * `implementation` - Implementation
- */
-export type SignalReportTaskRelationshipEnumApi =
-    (typeof SignalReportTaskRelationshipEnumApi)[keyof typeof SignalReportTaskRelationshipEnumApi]
-
-export const SignalReportTaskRelationshipEnumApi = {
-    Implementation: 'implementation',
-} as const
 
 /**
  * Request body for creating or updating a task.

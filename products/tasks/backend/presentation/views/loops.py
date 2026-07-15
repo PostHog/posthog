@@ -15,7 +15,7 @@ from rest_framework.views import APIView
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication
-from posthog.permissions import APIScopePermission
+from posthog.permissions import APIScopePermission, is_authenticated_via_project_secret_api_key
 from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
 
 from products.tasks.backend.facade import (
@@ -75,15 +75,17 @@ class LoopTriggerProjectSecretApiKeyTeamSustainedThrottle(ProjectSecretApiKeyTea
 class HasLoopsAccess(BasePermission):
     """Gate every Loops endpoint on `has_loops_access` (tasks access plus the `loops` flag).
 
-    Exempts `trigger`: that action authenticates a project-scoped service credential (PSAK),
-    not a real user, so the person-targeted `loops` flag doesn't apply — `loop:write` scope and
-    the trigger throttles gate it instead.
+    Exempts PSAK-authenticated service calls (`trigger`, and `runs` readback): a PSAK is a
+    project-scoped service credential, not a real user, so the person-targeted `loops` flag
+    doesn't apply — the scope (`loop:write`/`loop:read`) and the throttles gate it instead.
     """
 
     message = "This project does not have access to Loops."
 
     def has_permission(self, request: Request, view: APIView) -> bool:
-        if getattr(view, "action", None) == "trigger":
+        if getattr(view, "action", None) in ("trigger", "runs") and is_authenticated_via_project_secret_api_key(
+            request
+        ):
             return True
         if not request.user.is_authenticated:
             return False
@@ -114,9 +116,10 @@ class LoopViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     ]
     permission_classes = [IsAuthenticated, HasLoopsAccess, APIScopePermission]
     scope_object = "loop"
-    # Only the external-fire endpoint accepts a project secret API key; everything else
-    # (CRUD, manual run, run history, preview) stays session/PAT/OAuth-only.
-    psak_allowed_actions = ["trigger"]
+    # A project secret API key can fire a loop (`trigger`) and read back its run history
+    # (`runs`), so a service that triggers can also poll the outcome. Everything else (CRUD,
+    # manual run, preview) stays session/PAT/OAuth-only.
+    psak_allowed_actions = ["trigger", "runs"]
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
     pagination_class = LoopsPagination
     # Fallback for drf-spectacular introspection only; every action declares its own
@@ -293,13 +296,14 @@ class LoopViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(detail=True, methods=["get"], url_path="runs", required_scopes=["loop:read"], pagination_class=None)
     def runs(self, request, pk=None, **kwargs):
         query = request.validated_query_data
-        page = loops_facade.list_loop_runs(
-            pk,
-            self.team_id,
-            request.user,
-            cursor=query.get("cursor"),
-            limit=query.get("limit", loops_facade.DEFAULT_LOOP_RUN_PAGE_SIZE),
-        )
+        cursor = query.get("cursor")
+        limit = query.get("limit", loops_facade.DEFAULT_LOOP_RUN_PAGE_SIZE)
+        if is_authenticated_via_project_secret_api_key(request):
+            # PSAK is project-wide (it can already trigger any loop), so its readback skips the
+            # personal/team visibility split, same as the trigger path.
+            page = loops_facade.list_loop_runs_for_service(pk, self.team_id, cursor=cursor, limit=limit)
+        else:
+            page = loops_facade.list_loop_runs(pk, self.team_id, request.user, cursor=cursor, limit=limit)
         if page is None:
             raise NotFound()
         return Response(LoopRunPageSerializer({"results": page.runs, "next_cursor": page.next_cursor}).data)
