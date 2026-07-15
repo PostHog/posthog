@@ -10,8 +10,6 @@ import type { featureFlagLogicType } from './featureFlagLogicType'
 
 export type FeatureFlagsSet = {
     [flag in FeatureFlagKey]?: boolean | string
-} & {
-    toJSON?: () => { [flag in FeatureFlagKey]?: boolean | string }
 }
 
 const eventsNotified: Record<string, boolean> = {}

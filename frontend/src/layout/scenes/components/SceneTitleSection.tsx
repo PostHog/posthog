@@ -20,7 +20,7 @@ import { RenderKeybind } from 'lib/components/Shortcuts/ShortcutMenu'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { FEATURE_FLAGS, type FeatureFlagKey } from 'lib/constants'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive, buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
 import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
@@ -64,7 +64,8 @@ export function SceneTitlePanelButton({
         return null
     }
 
-    const rawFeatureFlags = featureFlags.toJSON?.() ?? featureFlags
+    const featureFlagsWithSnapshot = featureFlags as FeatureFlagsSet & { toJSON?: () => FeatureFlagsSet }
+    const rawFeatureFlags = featureFlagsWithSnapshot.toJSON?.() ?? featureFlags
     const maxButtonLabelVariant = maxButtonLabelFeatureFlag ? rawFeatureFlags[maxButtonLabelFeatureFlag] : undefined
     const maxButtonLabel =
         !sceneMenuBarEnabled &&

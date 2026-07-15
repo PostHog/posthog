@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render } from '@testing-library/react'
+import { act, cleanup, render } from '@testing-library/react'
 import { BindLogic } from 'kea'
 import posthog from 'posthog-js'
 
@@ -175,8 +175,10 @@ describe('DashboardHeader', () => {
             expect.objectContaining({ $feature_flag: FEATURE_FLAGS.DASHBOARD_POSTHOG_AI_BUTTON_LABEL })
         )
 
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DASHBOARD_POSTHOG_AI_BUTTON_LABEL], {
-            [FEATURE_FLAGS.DASHBOARD_POSTHOG_AI_BUTTON_LABEL]: 'test',
+        act(() => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DASHBOARD_POSTHOG_AI_BUTTON_LABEL], {
+                [FEATURE_FLAGS.DASHBOARD_POSTHOG_AI_BUTTON_LABEL]: 'test',
+            })
         })
 
         expect(captureSpy).toHaveBeenCalledWith('$feature_flag_called', {
