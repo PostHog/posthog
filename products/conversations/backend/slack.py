@@ -702,7 +702,7 @@ def handle_support_message(event: dict, team: Team, slack_team_id: str) -> None:
         # click "Open ticket" (handled by the interactivity endpoint). Heuristics
         # keep us from pestering the whole channel.
         if settings_dict.get("slack_nudge_enabled", True):
-            decision = _should_send_nudge(team, channel, slack_user_id, text, blocks, files)
+            decision = _should_send_nudge(team, channel, slack_user_id, text, blocks, files, message_ts or "")
             if decision.send:
                 post_ticket_confirmation_prompt(
                     team=team,
@@ -836,7 +836,9 @@ def _is_nudge_classifier_flag_enabled(team: Team) -> bool:
         return False
 
 
-def _nudge_classifier_verdict(team: Team, text: str, files: list[dict] | None) -> NudgeClassifierVerdict:
+def _nudge_classifier_verdict(
+    team: Team, text: str, files: list[dict] | None, channel: str, message_ts: str
+) -> NudgeClassifierVerdict:
     """Final nudge gate: ask a cheap LLM whether the message reads like a genuine support
     request rather than channel chatter.
 
@@ -867,6 +869,16 @@ def _nudge_classifier_verdict(team: Team, text: str, files: list[dict] | None) -
     content = (text or "")[:NUDGE_CLASSIFIER_MAX_TEXT_CHARS]
     if files:
         content += f"\n\n[the message has {len(files)} file attachment(s)]"
+    # $ai_span_name names the generation in the AI observability traces view; the slack_*
+    # keys mirror the nudge funnel events (nudge_event_properties) so a generation joins to
+    # its outcome (sent / clicked / dismissed) on slack_thread_ts.
+    attribution_headers = {
+        "x-posthog-property-feature": "slack_nudge_classifier",
+        "x-posthog-property-$ai_span_name": "slack_nudge_classifier",
+        "x-posthog-property-slack_channel_id": channel,
+    }
+    if message_ts:
+        attribution_headers["x-posthog-property-slack_thread_ts"] = message_ts
     try:
         client = get_llm_client(product="conversations", team_id=team_id)
         response = client.chat.completions.create(
@@ -875,7 +887,7 @@ def _nudge_classifier_verdict(team: Team, text: str, files: list[dict] | None) -
             temperature=0,
             timeout=NUDGE_CLASSIFIER_TIMEOUT_SECONDS,
             user=f"team-{team_id}",
-            extra_headers={"x-posthog-property-feature": "slack_nudge_classifier"},
+            extra_headers=attribution_headers,
             messages=[
                 {"role": "system", "content": NUDGE_CLASSIFIER_SYSTEM_PROMPT},
                 {"role": "user", "content": content},
@@ -902,6 +914,7 @@ def _should_send_nudge(
     text: str,
     blocks: list[dict] | None,
     files: list[dict] | None,
+    message_ts: str,
 ) -> NudgeDecision:
     """Heuristics to avoid pestering the channel: nudge only external users on substantive
     messages, skipping anyone recently nudged/dismissed or who @mentioned the bot (which
@@ -935,7 +948,7 @@ def _should_send_nudge(
     # message from a chatty author re-runs the classifier, unbounded; with it, the cadence
     # is what the pre-classifier nudge already established: one evaluation per
     # user/channel per window.
-    verdict = _nudge_classifier_verdict(team, text, files)
+    verdict = _nudge_classifier_verdict(team, text, files, channel, message_ts)
     if verdict == "no":
         suppress_nudge(team_id, channel, slack_user_id, NUDGE_COOLDOWN_TTL)
         return NudgeDecision(send=False, classifier_verdict=verdict)
