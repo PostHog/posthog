@@ -2955,6 +2955,10 @@ class ExperimentService:
                 update_data["excluded_variants"] if "excluded_variants" in update_data else experiment.excluded_variants
             )
             if effective_excluded:
+                # Not hoisted from the block above: the materialization there may have
+                # replaced update_data["stats_config"] with a pinned baseline, which this
+                # check must see. variant_keys is re-derived (same value) only because this
+                # branch also runs for excluded_variants-only PATCHes that skip that block.
                 variant_keys = self._resolved_variant_keys(experiment, feature_flag_config)
                 effective_stats_config = update_data.get("stats_config", experiment.stats_config)
                 baseline_key = get_baseline_variant_key(effective_stats_config, variant_keys)
