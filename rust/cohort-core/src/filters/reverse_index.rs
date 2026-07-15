@@ -8,21 +8,21 @@ use metrics::counter;
 use serde_json::Value;
 use tracing::warn;
 
+use crate::eligibility::refine_ref_bearing;
+use crate::eligibility::{classify, CohortEligibility, CohortParseFlags};
 use crate::filters::cohort_graph;
 use crate::filters::leaf_classifier::LeafDropReason;
 use crate::filters::tree::{parse_cohort_tree, CohortLeaf, CohortTree, FilterNode, LeafSink};
 use crate::filters::{CohortId, FilterError, TeamId};
+use crate::fingerprint::CatalogFingerprint;
+use crate::leaf_state::key::LeafStateKey;
+use crate::leaf_state::select::{
+    effective_window_days, pick_state_variant, EvictionWindow, PredicateOp,
+};
+use crate::leaf_state::variant::StateVariant;
 use crate::metrics::{
     COHORT_ELIGIBILITY_TOTAL, COHORT_IN_CYCLE_TOTAL, FILTER_CATALOG_SKIPPED_LEAVES,
 };
-use crate::stage1::fingerprint::CatalogFingerprint;
-use crate::stage1::key::LeafStateKey;
-use crate::stage1::pick_state::{
-    effective_window_days, pick_state_variant, EvictionWindow, PredicateOp,
-};
-use crate::stage1::variant::StateVariant;
-use crate::stage2::eligibility::refine_ref_bearing;
-use crate::stage2::{classify, CohortEligibility, CohortParseFlags};
 
 #[derive(Debug, Clone, Copy)]
 pub struct LeafStateMeta {
@@ -397,7 +397,7 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    use crate::stage2::ExcludedReason;
+    use crate::eligibility::ExcludedReason;
 
     const HASH: [u8; 16] = *b"0123456789abcdef";
 

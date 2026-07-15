@@ -9,7 +9,10 @@ pub mod predicate;
 pub mod state;
 pub mod transition;
 
-pub use cohort_core::stage1::{bucket_tz, key, pick_state, time};
+pub use cohort_core::bucket_tz;
+pub use cohort_core::leaf_state::key;
+pub use cohort_core::leaf_state::select as pick_state;
+pub use cohort_core::timestamp as time;
 
 pub use person_record::{
     apply_eval, apply_skip_eval, apply_stale, decide, CatalogFingerprint, Decision, DedupCoords,

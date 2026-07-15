@@ -160,7 +160,7 @@ mod tests {
 
     #[test]
     fn build_catalog_threads_the_cascade_gate_into_freeze() {
-        use crate::stage2::{CohortEligibility, ExcludedReason};
+        use crate::eligibility::{CohortEligibility, ExcludedReason};
 
         let referrer = json!({
             "properties": {

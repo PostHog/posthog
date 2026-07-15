@@ -126,13 +126,16 @@ impl CohortEvaluator {
     }
 
     /// Evaluate one condition's bytecode against the current globals, coercing failures and non-bool
-    /// results to `false` and emitting a per-class metric so a silently-failing cohort stays
-    /// observable. `bytecode` must be `RETURN`-terminated (the loader appends it).
+    /// results to `false`. Self-counting (the processor's hot path): a VM error or unknown-function
+    /// call increments a per-class `STAGE1_HOGVM_*` metric (keeping a genuinely failing cohort
+    /// observable); a non-bool result is coerced to `false` with no metric. `bytecode` must be
+    /// `RETURN`-terminated (the loader appends it).
     pub fn evaluate(&mut self, bytecode: Arc<Vec<Value>>) -> bool {
         outcome_to_bool(self.evaluate_detailed(bytecode))
     }
 
-    /// As [`Self::evaluate`] but returns the detailed [`EvalOutcome`].
+    /// As [`Self::evaluate`] but returns the detailed [`EvalOutcome`] and emits no metric — the
+    /// caller owns classification (the seeder's bring-your-own-metrics path).
     pub fn evaluate_detailed(&mut self, bytecode: Arc<Vec<Value>>) -> EvalOutcome {
         // `from_shared` clones the `Arc`, not the opcode vector, so swapping programs is just a refcount bump.
         let program = match Program::from_shared(bytecode) {
@@ -153,7 +156,8 @@ fn run(context: &ExecutionContext) -> EvalOutcome {
     }
 }
 
-/// One-shot evaluation building a fresh context (used by the parity test). `bytecode` must be
+/// One-shot evaluation building a fresh context (the seeder's path; also the parity test's). Emits
+/// no metric — the caller classifies the returned [`EvalOutcome`]. `bytecode` must be
 /// `RETURN`-terminated, as the catalog loader leaves it.
 pub fn evaluate_detailed(bytecode: &[Value], globals: Value) -> EvalOutcome {
     let program = match Program::new(bytecode.to_vec()) {
@@ -162,10 +166,6 @@ pub fn evaluate_detailed(bytecode: &[Value], globals: Value) -> EvalOutcome {
     };
     let context = cohort_execution_context(program).with_globals(globals);
     run(&context)
-}
-
-pub fn evaluate(bytecode: &[Value], globals: Value) -> bool {
-    outcome_to_bool(evaluate_detailed(bytecode, globals))
 }
 
 /// Collapse an [`EvalOutcome`] to `bool`, emitting a per-class metric on failure.
@@ -272,6 +272,12 @@ mod tests {
 
     fn header() -> Vec<Value> {
         vec![json!("_H"), json!(1)]
+    }
+
+    /// One-shot `bool` collapse for the fixtures below, matching [`CohortEvaluator::evaluate`] on a
+    /// fresh context. Kept local now that the public free helper is gone.
+    fn evaluate(bytecode: &[Value], globals: Value) -> bool {
+        outcome_to_bool(evaluate_detailed(bytecode, globals))
     }
 
     #[test]

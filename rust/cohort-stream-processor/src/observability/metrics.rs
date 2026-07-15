@@ -2,6 +2,7 @@
 
 use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
 
+// The `cohort-core`-owned metric names this binary emits: its metric-surface manifest.
 pub use cohort_core::metrics::{
     COHORT_ELIGIBILITY_TOTAL, COHORT_IN_CYCLE_TOTAL, FILTER_CATALOG_COHORT_PARSE_ERRORS,
     FILTER_CATALOG_SKIPPED_LEAVES, FILTER_CATALOG_TZ_FALLBACK, STAGE1_GLOBALS_PARSE_ERROR,

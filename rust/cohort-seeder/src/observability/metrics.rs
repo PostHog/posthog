@@ -1,3 +1,6 @@
+//! Observability leaf: the `seeder_*` metric-name constants (the seeder's metric manifest, which
+//! dashboards depend on) and the Prometheus recorder installer. Depends on the metrics exporter only.
+
 use metrics_exporter_prometheus::{BuildError, PrometheusBuilder, PrometheusHandle};
 
 pub const RUNS_DISCOVERED: &str = "seeder_runs_discovered_total";

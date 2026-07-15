@@ -1,3 +1,7 @@
+//! Domain layer (base): the crate's newtyped ids, epochs, instants, and ranges — `RunId`, `ChunkId`,
+//! `ClaimEpoch`, `SChunkMs`, `ConditionHash`, `UtcMillis`, `UtcMsRange`. Depends only on `cohort-core`
+//! (re-exporting its `DayIdx`); every other domain module builds on these.
+
 use std::borrow::Borrow;
 use std::fmt;
 use std::str::FromStr;
@@ -6,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::Type;
 use uuid::Uuid;
 
-pub use cohort_core::stage1::bucket_tz::DayIdx;
+pub use cohort_core::DayIdx;
 
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, Type,
@@ -34,6 +38,66 @@ pub struct Band(pub i16);
 #[sqlx(transparent)]
 pub struct SChunkMs(pub i64);
 
+impl SChunkMs {
+    pub const fn as_utc(self) -> UtcMillis {
+        UtcMillis::new(self.0)
+    }
+}
+
+/// Epoch milliseconds (UTC): the crate's single instant type. Unwrap to `i64` only at cohort-core
+/// calls, SQL rendering, and serde boundaries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct UtcMillis(i64);
+
+impl UtcMillis {
+    pub const fn new(value: i64) -> Self {
+        Self(value)
+    }
+
+    pub const fn as_i64(self) -> i64 {
+        self.0
+    }
+}
+
+/// A half-open `[start, end)` window of epoch milliseconds. The `start <= end` invariant is proven
+/// by [`UtcMsRange::new`], so consumers never re-check it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UtcMsRange {
+    start: UtcMillis,
+    end: UtcMillis,
+}
+
+impl UtcMsRange {
+    pub fn new(start: UtcMillis, end: UtcMillis) -> Result<Self, UtcRangeError> {
+        if start.0 > end.0 {
+            return Err(UtcRangeError {
+                start: start.0,
+                end: end.0,
+            });
+        }
+        Ok(Self { start, end })
+    }
+
+    pub const fn start(self) -> UtcMillis {
+        self.start
+    }
+
+    pub const fn end(self) -> UtcMillis {
+        self.end
+    }
+
+    pub const fn is_empty(self) -> bool {
+        self.start.0 == self.end.0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("UTC range start {start} exceeds end {end}")]
+pub struct UtcRangeError {
+    pub start: i64,
+    pub end: i64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ConditionHash([u8; 16]);
 
@@ -55,7 +119,8 @@ impl ConditionHash {
     }
 
     pub fn as_str(&self) -> &str {
-        std::str::from_utf8(&self.0).unwrap_or("")
+        std::str::from_utf8(&self.0)
+            .expect("ASCII by construction: parse() is the only constructor")
     }
 }
 

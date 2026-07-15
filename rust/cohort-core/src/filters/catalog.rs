@@ -41,8 +41,11 @@ impl FilterCatalog {
         self.generation
     }
 
-    pub fn set_generation(&mut self, generation: Generation) {
+    /// Stamp the content generation. Stamped once, pre-publication (by the refresh loop, before the
+    /// atomic swap), so it consumes `self` rather than mutating a published catalog.
+    pub fn with_generation(mut self, generation: Generation) -> Self {
         self.generation = generation;
+        self
     }
 
     pub fn team_count(&self) -> usize {
@@ -68,6 +71,10 @@ impl FilterCatalog {
     }
 }
 
+/// Hashes only the per-team condition sets (order-independent via the sorts), deliberately excluding
+/// `generation`. This backs the processor's `catalog_signature` memo invalidation: two catalogs with
+/// the same conditions must hash equal so a no-op refresh reuses the generation and keeps memo entries
+/// valid. `manager.rs`'s equivalence test guards the contract.
 impl Hash for FilterCatalog {
     fn hash<H: Hasher>(&self, state: &mut H) {
         let mut teams: Vec<(&TeamId, &Arc<TeamFilters>)> = self.teams.iter().collect();

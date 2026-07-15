@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
-pub use cohort_core::stage1::fingerprint::CatalogFingerprint;
+pub use cohort_core::fingerprint::CatalogFingerprint;
 
 use crate::stage1::state::{dedup_is_replay, dedup_record, AppliedOffsets};
 use crate::stage1::transition::TransitionKind;

@@ -15,10 +15,9 @@ use sqlx::PgPool;
 use tokio::sync::Notify;
 use tracing::{debug, info, warn};
 
-pub use cohort_core::filters::catalog::{FilterCatalog, Generation};
-
 use crate::filters::loader::{build_catalog_from_rows, load_realtime_cohorts, CohortRow};
 use crate::filters::FilterError;
+use crate::filters::{FilterCatalog, Generation};
 use crate::observability::metrics::{FILTER_CATALOG_TEAMS, FILTER_CATALOG_UNIQUE_CONDITIONS};
 
 /// Snapshot counts returned by [`CatalogHandle::refresh`] for logging.
@@ -99,7 +98,7 @@ impl CatalogHandle {
         handle
     }
 
-    fn store(&self, mut catalog: FilterCatalog) {
+    fn store(&self, catalog: FilterCatalog) {
         // Advance the generation only on a content change (`INITIAL` is the first store); a no-op
         // refresh reuses it so memo entries stay valid.
         let signature = catalog_signature(&catalog);
@@ -113,7 +112,7 @@ impl CatalogHandle {
         self.current_signature.store(signature, Ordering::Relaxed);
         self.current_generation
             .store(generation.0, Ordering::Relaxed);
-        catalog.set_generation(generation);
+        let catalog = catalog.with_generation(generation);
 
         gauge!(FILTER_CATALOG_TEAMS).set(catalog.team_count() as f64);
         gauge!(FILTER_CATALOG_UNIQUE_CONDITIONS).set(catalog.total_unique_conditions() as f64);

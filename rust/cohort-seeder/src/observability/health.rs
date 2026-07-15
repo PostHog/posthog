@@ -1,3 +1,6 @@
+//! Observability leaf: the liveness/readiness HTTP router served alongside the Prometheus scrape
+//! endpoint. Depends on `lifecycle`, `axum`, and the Prometheus exporter, never on another seeder module.
+
 use std::future::ready;
 
 use axum::response::IntoResponse;

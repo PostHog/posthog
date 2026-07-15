@@ -1,4 +1,6 @@
-//! Service configuration and infrastructure client builders.
+//! Service configuration and infrastructure client builders — the `envconfig` mirror plus the pool
+//! and Kafka builders. A leaf: it names no other seeder module, so dependency arrows point at it,
+//! never away.
 
 use std::fmt;
 use std::num::NonZeroU32;
@@ -9,9 +11,6 @@ use common_database::PoolConfig;
 use common_kafka::config::KafkaConfig;
 use common_types::cohort::TeamAllowlist;
 use envconfig::Envconfig;
-
-use crate::orchestrator::{OrchestratorSettings, OrchestratorSettingsError};
-use crate::producer::{ProducerSettings, ProducerSettingsError};
 
 const POOL_NAME: &str = "posthog_cohort_seeder";
 
@@ -209,70 +208,8 @@ impl Config {
         }
     }
 
-    pub fn clickhouse_endpoint(&self) -> String {
-        if !self.clickhouse_url.is_empty() {
-            return self.clickhouse_url.clone();
-        }
-        let host = if self.clickhouse_offline_cluster_host.is_empty() {
-            &self.clickhouse_host
-        } else {
-            &self.clickhouse_offline_cluster_host
-        };
-        if host.starts_with("http://") || host.starts_with("https://") {
-            return host.clone();
-        }
-        let scheme = if self.clickhouse_secure {
-            "https"
-        } else {
-            "http"
-        };
-        if has_explicit_port(host) {
-            format!("{scheme}://{host}")
-        } else {
-            let port = if self.clickhouse_secure { 8443 } else { 8123 };
-            format!("{scheme}://{host}:{port}")
-        }
-    }
-
-    pub fn build_clickhouse_client(&self) -> clickhouse::Client {
-        clickhouse::Client::default()
-            .with_url(self.clickhouse_endpoint())
-            .with_user(&self.clickhouse_user)
-            .with_password(&self.clickhouse_password)
-            .with_database(&self.clickhouse_database)
-            .with_option(
-                "max_execution_time",
-                self.seeder_ch_max_execution_time_secs.to_string(),
-            )
-            .with_option(
-                "max_bytes_before_external_group_by",
-                self.seeder_ch_max_bytes_before_external_group_by
-                    .to_string(),
-            )
-            .with_option(
-                "max_bytes_before_external_sort",
-                self.seeder_ch_max_bytes_before_external_sort.to_string(),
-            )
-            .with_option("join_algorithm", self.seeder_ch_join_algorithm.clone())
-    }
-
     pub fn tiles_per_second(&self) -> Result<NonZeroU32, ConfigValidationError> {
         NonZeroU32::new(self.seeder_tiles_per_sec).ok_or(ConfigValidationError::ZeroTileRate)
-    }
-
-    pub fn orchestrator_settings(&self) -> Result<OrchestratorSettings, ConfigValidationError> {
-        let producer = ProducerSettings::new(
-            self.seeder_max_inflight_tiles,
-            Duration::from_millis(self.seeder_queue_full_backoff_ms),
-        )?;
-        Ok(OrchestratorSettings::new(
-            Duration::from_secs(self.seeder_run_poll_secs),
-            self.seeder_max_concurrent_chunks,
-            Duration::from_secs(self.seeder_chunk_lease_secs),
-            self.seeder_max_chunk_attempts,
-            self.seeder_max_lookback_days,
-            producer,
-        )?)
     }
 }
 
@@ -280,22 +217,6 @@ impl Config {
 pub enum ConfigValidationError {
     #[error("seed tiles per second must be greater than zero")]
     ZeroTileRate,
-    #[error(transparent)]
-    Producer(#[from] ProducerSettingsError),
-    #[error(transparent)]
-    Orchestrator(#[from] OrchestratorSettingsError),
-}
-
-fn has_explicit_port(host: &str) -> bool {
-    if let Some(bracket_end) = host.find(']') {
-        return host
-            .get(bracket_end + 1..)
-            .is_some_and(|suffix| suffix.starts_with(':'));
-    }
-    let Some((_, port)) = host.rsplit_once(':') else {
-        return false;
-    };
-    host.matches(':').count() == 1 && port.parse::<u16>().is_ok()
 }
 
 #[cfg(test)]
@@ -337,61 +258,12 @@ mod tests {
     }
 
     #[test]
-    fn bare_clickhouse_hosts_get_the_canonical_port_for_the_scheme() {
-        for (secure, expected) in [
-            (false, "http://clickhouse.internal:8123"),
-            (true, "https://clickhouse.internal:8443"),
-        ] {
-            let mut config = default_config();
-            config.clickhouse_host = "clickhouse.internal".to_string();
-            config.clickhouse_secure = secure;
-            assert_eq!(config.clickhouse_endpoint(), expected);
-        }
-
-        let mut config = default_config();
-        config.clickhouse_host = "fallback.internal".to_string();
-        config.clickhouse_offline_cluster_host = "offline.internal".to_string();
-        config.clickhouse_secure = true;
-        assert_eq!(
-            config.clickhouse_endpoint(),
-            "https://offline.internal:8443"
-        );
-    }
-
-    #[test]
-    fn explicit_clickhouse_urls_and_ports_are_preserved() {
-        let mut config = default_config();
-        config.clickhouse_url = "https://proxy.example:9440/clickhouse".to_string();
-        assert_eq!(
-            config.clickhouse_endpoint(),
-            "https://proxy.example:9440/clickhouse"
-        );
-
-        config.clickhouse_url.clear();
-        config.clickhouse_host = "clickhouse.internal:9000".to_string();
-        config.clickhouse_secure = true;
-        assert_eq!(
-            config.clickhouse_endpoint(),
-            "https://clickhouse.internal:9000"
-        );
-    }
-
-    #[test]
-    fn service_limits_reject_disabled_pacing_and_concurrency() {
+    fn service_limits_reject_disabled_tile_rate() {
         let mut config = default_config();
         config.seeder_tiles_per_sec = 0;
         assert!(matches!(
             config.tiles_per_second(),
             Err(ConfigValidationError::ZeroTileRate)
-        ));
-
-        config.seeder_tiles_per_sec = 1;
-        config.seeder_max_concurrent_chunks = 0;
-        assert!(matches!(
-            config.orchestrator_settings(),
-            Err(ConfigValidationError::Orchestrator(
-                OrchestratorSettingsError::ZeroConcurrency
-            ))
         ));
     }
 }

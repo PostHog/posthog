@@ -1,3 +1,7 @@
+//! Binary entry point: parses `Config`, builds the infra clients, and hands the wired orchestrator to
+//! the `lifecycle::Manager`. Depends on `app`, `clickhouse`, `kafka`, `config`, and `observability` —
+//! the composition root at the top of the stack.
+
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -10,12 +14,15 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{fmt, EnvFilter, Layer};
 
+use cohort_seeder::app::{
+    OrchestratorSettings, SeederOrchestrator, ORCHESTRATOR_LIVENESS_DEADLINE,
+};
+use cohort_seeder::clickhouse::client::build_client;
+use cohort_seeder::clickhouse::scanner::ChunkScanner;
 use cohort_seeder::config::Config;
+use cohort_seeder::kafka::pacing::TilePacer;
+use cohort_seeder::kafka::producer::SeedTileProducer;
 use cohort_seeder::observability;
-use cohort_seeder::orchestrator::{SeederOrchestrator, ORCHESTRATOR_LIVENESS_DEADLINE};
-use cohort_seeder::pacing::TilePacer;
-use cohort_seeder::producer::SeedTileProducer;
-use cohort_seeder::scan::ChunkScanner;
 
 common_alloc::used!();
 
@@ -56,7 +63,7 @@ async fn async_main(config: Config) -> Result<()> {
 
     let pool = get_pool_with_config(&config.database_url, config.pool_config())
         .context("creating cohort-seeder PostgreSQL pool")?;
-    let scanner = ChunkScanner::new(config.build_clickhouse_client());
+    let scanner = ChunkScanner::new(build_client(&config).context("building ClickHouse client")?);
     let producer = SeedTileProducer::new(
         &config.build_kafka_config(),
         config.seed_events_topic.clone(),
@@ -68,9 +75,8 @@ async fn async_main(config: Config) -> Result<()> {
             .tiles_per_second()
             .context("validating seed tile rate")?,
     );
-    let settings = config
-        .orchestrator_settings()
-        .context("validating orchestrator settings")?;
+    let settings =
+        OrchestratorSettings::try_from(&config).context("validating orchestrator settings")?;
     let claimed_by = format!("cohort-seeder:{}", uuid::Uuid::now_v7());
     let orchestrator = SeederOrchestrator::new(
         pool,

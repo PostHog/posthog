@@ -1,3 +1,6 @@
+//! Run discovery, boundary establishment, and pinned-payload load in PostgreSQL. Owns the
+//! `cohort_backfill_runs`/`cohort_backfill_run_cohorts` SQL (Q1/Q2/Q8 + warnings). Depends on `domain`.
+
 use std::str::FromStr;
 
 use chrono::{DateTime, Utc};
@@ -7,35 +10,47 @@ use serde_json::Value;
 use sqlx::types::Json;
 use sqlx::{FromRow, PgPool};
 
-use crate::ids::RunId;
-use crate::pinned::{
+use crate::domain::{
     PinnedError, PinnedParticipation, PinnedParticipationState, PinnedRun, PinnedRunSnapshot,
-    TriggerKind, ValidatedPinnedRun,
+    RunId, TriggerKind, UtcMillis, ValidatedPinnedRun,
 };
 
-const DISCOVER_ALL: &str = r#"
-    SELECT id, team_id, cohort_id, trigger_kind, scope, status, timezone, boundary_at, pinned
-    FROM cohort_backfill_runs
-    WHERE status IN ('awaiting_boundary', 'seeding')
-      AND backfill_kind = 'behavioral'
-    ORDER BY created_at
-"#;
+use super::{RenderedError, PERSISTED_ERROR_LIMIT};
 
-const DISCOVER_ONLY: &str = r#"
-    SELECT id, team_id, cohort_id, trigger_kind, scope, status, timezone, boundary_at, pinned
-    FROM cohort_backfill_runs
-    WHERE status IN ('awaiting_boundary', 'seeding')
-      AND backfill_kind = 'behavioral'
-      AND team_id = ANY($1)
-    ORDER BY created_at
-"#;
+/// The one run-column list the three run SELECTs share. A macro (not a `const`) so it can feed
+/// `concat!`, which only accepts literals and macro expansions — the composed SQL text stays a
+/// compile-time constant, byte-identical to the former inline lists and pinned by the pg test.
+macro_rules! run_columns {
+    () => {
+        "id, team_id, cohort_id, trigger_kind, scope, status, timezone, boundary_at, pinned"
+    };
+}
 
-const READ_RUN: &str = r#"
-    SELECT id, team_id, cohort_id, trigger_kind, scope, status, timezone, boundary_at, pinned
-    FROM cohort_backfill_runs
-    WHERE id = $1 AND backfill_kind = 'behavioral'
-"#;
-const RUN_ERROR_LIMIT: i32 = 4_096;
+const DISCOVER_ALL: &str = concat!(
+    "\n    SELECT ",
+    run_columns!(),
+    "\n    FROM cohort_backfill_runs",
+    "\n    WHERE status IN ('awaiting_boundary', 'seeding')",
+    "\n      AND backfill_kind = 'behavioral'",
+    "\n    ORDER BY created_at\n"
+);
+
+const DISCOVER_ONLY: &str = concat!(
+    "\n    SELECT ",
+    run_columns!(),
+    "\n    FROM cohort_backfill_runs",
+    "\n    WHERE status IN ('awaiting_boundary', 'seeding')",
+    "\n      AND backfill_kind = 'behavioral'",
+    "\n      AND team_id = ANY($1)",
+    "\n    ORDER BY created_at\n"
+);
+
+const READ_RUN: &str = concat!(
+    "\n    SELECT ",
+    run_columns!(),
+    "\n    FROM cohort_backfill_runs",
+    "\n    WHERE id = $1 AND backfill_kind = 'behavioral'\n"
+);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RunWarningNote {
@@ -139,7 +154,31 @@ pub struct DiscoveredRun {
     pub pinned: Value,
 }
 
-impl DiscoveredRun {
+/// A run proven `seeding` with an established boundary — the only place the boundary `Option`
+/// narrows to a value and the trigger stays typed all the way into [`PinnedRunSnapshot`]. Minted
+/// only by [`establish_boundary`].
+#[derive(Debug, Clone)]
+pub struct SeedableRun {
+    pub run_id: RunId,
+    pub team_id: TeamId,
+    pub trigger: TriggerKind,
+    pub timezone: String,
+    pub boundary_at: UtcMillis,
+    pub pinned: Value,
+}
+
+impl SeedableRun {
+    fn promote(run: DiscoveredRun, boundary_at: DateTime<Utc>) -> Self {
+        Self {
+            run_id: run.run_id,
+            team_id: run.team_id,
+            trigger: run.trigger,
+            timezone: run.timezone,
+            boundary_at: UtcMillis::new(boundary_at.timestamp_millis()),
+            pinned: run.pinned,
+        }
+    }
+
     pub async fn load_pinned(&self, pool: &PgPool) -> Result<ValidatedPinnedRun, RunError> {
         let rows = sqlx::query_as::<_, ParticipationRow>(
             r#"
@@ -176,9 +215,9 @@ impl DiscoveredRun {
         let snapshot = PinnedRunSnapshot {
             run_id: self.run_id,
             team_id: self.team_id,
-            trigger_kind: self.trigger.as_str().to_string(),
+            trigger: self.trigger,
             timezone: self.timezone.clone(),
-            boundary_at_ms: self.boundary_at.map(|boundary| boundary.timestamp_millis()),
+            boundary_at_ms: self.boundary_at.as_i64(),
             pinned: self.pinned.clone(),
             participations,
         };
@@ -188,18 +227,9 @@ impl DiscoveredRun {
 
 #[derive(Debug, Clone)]
 pub enum BoundaryOutcome {
-    Established(DiscoveredRun),
-    AlreadyEstablished(DiscoveredRun),
+    Established(SeedableRun),
+    AlreadyEstablished(SeedableRun),
     NoLongerSeedable { run_id: RunId, status: RunStatus },
-}
-
-impl BoundaryOutcome {
-    pub fn seedable(self) -> Option<DiscoveredRun> {
-        match self {
-            Self::Established(run) | Self::AlreadyEstablished(run) => Some(run),
-            Self::NoLongerSeedable { .. } => None,
-        }
-    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -270,12 +300,13 @@ impl TryFrom<RunRow> for DiscoveredRun {
     type Error = RunError;
 
     fn try_from(row: RunRow) -> Result<Self, Self::Error> {
-        let trigger = TriggerKind::try_from(row.trigger_kind.as_str()).map_err(|_| {
-            RunError::InvalidTrigger {
-                run_id: row.id,
-                value: row.trigger_kind.clone(),
-            }
-        })?;
+        let trigger =
+            row.trigger_kind
+                .parse::<TriggerKind>()
+                .map_err(|_| RunError::InvalidTrigger {
+                    run_id: row.id,
+                    value: row.trigger_kind.clone(),
+                })?;
         let scope = row.scope.parse().map_err(|_| RunError::InvalidScope {
             run_id: row.id,
             value: row.scope.clone(),
@@ -333,6 +364,9 @@ mod tests {
 struct ParticipationRow {
     team_id: i32,
     cohort_id: i32,
+    /// B5 CAS-readiness / reconcile seam: the filters shape hash read from
+    /// `cohort_backfill_run_cohorts` for a future reconcile slice. Populated by Q1 (whose SQL stays
+    /// frozen) but not yet read, so the attr suppresses the dead-field lint until that slice lands.
     #[allow(dead_code)]
     filters_shape_hash: String,
     pinned_filters: Json<Value>,
@@ -368,13 +402,16 @@ pub async fn discover_runs(
 
 pub async fn establish_boundary(
     pool: &PgPool,
-    mut run: DiscoveredRun,
+    run: DiscoveredRun,
 ) -> Result<BoundaryOutcome, RunError> {
     if run.status == RunStatus::Seeding {
-        if run.boundary_at.is_none() {
-            return Err(RunError::SeedingBoundaryMissing(run.run_id));
-        }
-        return Ok(BoundaryOutcome::AlreadyEstablished(run));
+        return match run.boundary_at {
+            Some(boundary_at) => Ok(BoundaryOutcome::AlreadyEstablished(SeedableRun::promote(
+                run,
+                boundary_at,
+            ))),
+            None => Err(RunError::SeedingBoundaryMissing(run.run_id)),
+        };
     }
     if run.trigger == TriggerKind::DisasterRecovery && run.boundary_at.is_none() {
         return Err(RunError::DisasterRecoveryBoundaryMissing(run.run_id));
@@ -413,17 +450,21 @@ pub async fn establish_boundary(
     };
 
     if let Some(boundary) = boundary {
-        run.status = RunStatus::Seeding;
-        run.boundary_at = Some(boundary.boundary_at);
-        return Ok(BoundaryOutcome::Established(run));
+        return Ok(BoundaryOutcome::Established(SeedableRun::promote(
+            run,
+            boundary.boundary_at,
+        )));
     }
 
     let current = read_run(pool, run.run_id).await?;
     if current.status == RunStatus::Seeding {
-        if current.boundary_at.is_none() {
-            return Err(RunError::SeedingBoundaryMissing(current.run_id));
+        match current.boundary_at {
+            Some(boundary_at) => Ok(BoundaryOutcome::AlreadyEstablished(SeedableRun::promote(
+                current,
+                boundary_at,
+            ))),
+            None => Err(RunError::SeedingBoundaryMissing(current.run_id)),
         }
-        Ok(BoundaryOutcome::AlreadyEstablished(current))
     } else {
         Ok(BoundaryOutcome::NoLongerSeedable {
             run_id: current.run_id,
@@ -432,17 +473,18 @@ pub async fn establish_boundary(
     }
 }
 
-pub async fn fail_run(pool: &PgPool, run_id: RunId, error: &str) -> Result<(), RunError> {
+pub async fn fail_run(pool: &PgPool, run_id: RunId, error: &RenderedError) -> Result<(), RunError> {
     let failed = sqlx::query_scalar::<_, RunId>(
         r#"
         UPDATE cohort_backfill_runs
-        SET status = 'failed', error = left($2, 4096), finished_at = now(), updated_at = now()
+        SET status = 'failed', error = left($2, $3), finished_at = now(), updated_at = now()
         WHERE id = $1 AND status IN ('awaiting_boundary', 'seeding')
         RETURNING id
         "#,
     )
     .bind(run_id)
-    .bind(error)
+    .bind(error.as_str())
+    .bind(PERSISTED_ERROR_LIMIT)
     .fetch_optional(pool)
     .await?;
     failed.map(|_| ()).ok_or(RunError::NotActive(run_id))
@@ -467,7 +509,7 @@ pub async fn record_run_warning(
     )
     .bind(run_id)
     .bind(note.as_str())
-    .bind(RUN_ERROR_LIMIT)
+    .bind(PERSISTED_ERROR_LIMIT)
     .fetch_optional(pool)
     .await?;
     Ok(updated.is_some())

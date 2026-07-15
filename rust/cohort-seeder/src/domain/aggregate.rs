@@ -1,3 +1,6 @@
+//! Domain layer: `ChunkAccumulator` — folds scanned events through the shared HogVM evaluator into
+//! per-`(person, condition, day)` tiles. Depends on `plan`, `tile`, `window`, `ids`, and `cohort-core`.
+
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::num::NonZeroU32;
@@ -10,9 +13,10 @@ use cohort_core::hogvm::{
 };
 use uuid::Uuid;
 
-use crate::domain::{ActiveConditions, SeedDomain};
-use crate::ids::{ClaimEpoch, ConditionHash, RunId};
-use crate::tile::SeedTile;
+use super::ids::{ClaimEpoch, ConditionHash, RunId};
+use super::plan::ActiveConditions;
+use super::tile::SeedTile;
+use super::window::SeedDomain;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RecordOutcome {
@@ -55,7 +59,9 @@ impl VmFailureCounts {
             .ok_or(AggregateError::VmErrorClassInvariant(class))?;
         *count = count
             .checked_add(1)
-            .ok_or(AggregateError::OutcomeCountOverflow("vm_failures"))?;
+            .ok_or(AggregateError::OutcomeCountOverflow(
+                OutcomeKind::VmFailures,
+            ))?;
         Ok(())
     }
 }
@@ -115,7 +121,7 @@ impl ChunkAccumulator {
     ) -> Result<RecordOutcome, AggregateError> {
         if event.team_id != self.team_id.0 {
             return Err(AggregateError::TeamMismatch {
-                expected: self.team_id.0,
+                expected: self.team_id,
                 actual: event.team_id,
             });
         }
@@ -142,13 +148,15 @@ impl ChunkAccumulator {
                 .evaluator
                 .evaluate_detailed(Arc::clone(&candidate.bytecode))
             {
-                EvalOutcome::Matched(true) => increment_outcome(&mut stats.matched, "matched")?,
+                EvalOutcome::Matched(true) => {
+                    increment_outcome(&mut stats.matched, OutcomeKind::Matched)?;
+                }
                 EvalOutcome::Matched(false) => {
-                    increment_outcome(&mut stats.non_matched, "non_matched")?;
+                    increment_outcome(&mut stats.non_matched, OutcomeKind::NonMatched)?;
                     continue;
                 }
                 EvalOutcome::UnknownFunction(_) => {
-                    increment_outcome(&mut stats.unknown_functions, "unknown_functions")?;
+                    increment_outcome(&mut stats.unknown_functions, OutcomeKind::UnknownFunctions)?;
                     continue;
                 }
                 EvalOutcome::VmError(error) => {
@@ -161,16 +169,13 @@ impl ChunkAccumulator {
                     entry.insert(NonZeroU32::MIN);
                 }
                 Entry::Occupied(mut entry) => {
-                    let next =
-                        entry
-                            .get()
-                            .get()
-                            .checked_add(1)
-                            .ok_or(AggregateError::CountOverflow {
-                                person_id,
-                                hash: candidate.hash,
-                            })?;
-                    let next = NonZeroU32::new(next).ok_or(AggregateError::ZeroCountInvariant)?;
+                    let next = entry
+                        .get()
+                        .checked_add(1)
+                        .ok_or(AggregateError::CountOverflow {
+                            person_id,
+                            hash: candidate.hash,
+                        })?;
                     entry.insert(next);
                 }
             }
@@ -207,17 +212,36 @@ impl ChunkAccumulator {
     }
 }
 
-fn increment_outcome(value: &mut u32, field: &'static str) -> Result<(), AggregateError> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OutcomeKind {
+    Matched,
+    NonMatched,
+    UnknownFunctions,
+    VmFailures,
+}
+
+impl OutcomeKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Matched => "matched",
+            Self::NonMatched => "non_matched",
+            Self::UnknownFunctions => "unknown_functions",
+            Self::VmFailures => "vm_failures",
+        }
+    }
+}
+
+fn increment_outcome(value: &mut u32, kind: OutcomeKind) -> Result<(), AggregateError> {
     *value = value
         .checked_add(1)
-        .ok_or(AggregateError::OutcomeCountOverflow(field))?;
+        .ok_or(AggregateError::OutcomeCountOverflow(kind))?;
     Ok(())
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum AggregateError {
-    #[error("event team {actual} does not match accumulator team {expected}")]
-    TeamMismatch { expected: i32, actual: i32 },
+    #[error("event team {actual} does not match accumulator team {}", .expected.0)]
+    TeamMismatch { expected: TeamId, actual: i32 },
     #[error("invalid person UUID {value:?}: {source}")]
     InvalidPersonId {
         value: String,
@@ -226,8 +250,8 @@ pub enum AggregateError {
     },
     #[error("active condition {0} has no frozen bytecode")]
     MissingBytecode(ConditionHash),
-    #[error("record outcome counter {0} overflowed")]
-    OutcomeCountOverflow(&'static str),
+    #[error("record outcome counter {} overflowed", .0.as_str())]
+    OutcomeCountOverflow(OutcomeKind),
     #[error("VM error class {0:?} is outside the bounded counter set")]
     VmErrorClassInvariant(VmErrorClass),
     #[error("daily count overflowed for person {person_id}, condition {hash}")]
@@ -235,8 +259,6 @@ pub enum AggregateError {
         person_id: Uuid,
         hash: ConditionHash,
     },
-    #[error("nonzero accumulator produced a zero count")]
-    ZeroCountInvariant,
 }
 
 #[cfg(test)]
@@ -247,8 +269,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::domain::Boundary;
-    use crate::ids::SChunkMs;
+    use crate::domain::{Boundary, SChunkMs, UtcMillis};
 
     const HASH_A: &str = "aaaaaaaaaaaaaaaa";
     const HASH_B: &str = "bbbbbbbbbbbbbbbb";
@@ -324,8 +345,8 @@ mod tests {
     }
 
     fn domain() -> SeedDomain {
-        let boundary = Boundary::new(20 * 86_400_000, UTC);
-        SeedDomain::new(19, boundary, UTC, SChunkMs(boundary.at_ms())).unwrap()
+        let boundary = Boundary::new(UtcMillis::new(20 * 86_400_000), UTC);
+        SeedDomain::new(19, boundary, UTC, SChunkMs(boundary.at_ms().as_i64())).unwrap()
     }
 
     #[test]

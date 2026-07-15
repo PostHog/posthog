@@ -1,7 +1,9 @@
 //! The `cohort_stream_events` wire envelope and the group consumer that drives it.
 //!
-//! [`CohortStreamEvent`] remains decoupled from `cohort-event-shuffler`'s producer type: they share
-//! only the JSON field names, so neither can break the other by adding a one-sided field.
+//! [`CohortStreamEvent`] is defined in `cohort-core` and intentionally shared with the backfill
+//! seeder, which produces the same envelope. It stays decoupled from `cohort-event-shuffler`'s
+//! producer type — they share only the JSON field names, so neither can break the other by adding a
+//! one-sided field.
 //!
 //! The Kafka-free routing core lives in [`EventDispatcher`] so it can be unit-tested with an
 //! in-process router/store/catalog and no broker.

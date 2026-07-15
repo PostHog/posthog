@@ -1,8 +1,8 @@
 //! Calendar-day-in-team-timezone bucket math.
 //!
 //! Pure, zone-agnostic, and total: every function takes time as an `i64` (epoch ms) plus a
-//! [`Tz`] and returns without a `Result` and without reading a wall-clock "now". The bucket
-//! variants and the sweep consume it.
+//! [`Tz`] and returns without a `Result` and without reading a wall-clock "now". Consumers — the
+//! stream processor and the seeder — build calendar-day buckets and eviction windows from it.
 //!
 //! ## Window boundary (the highest-risk decision)
 //!
@@ -18,7 +18,7 @@
 //! instant ([`start_of_day_ms_in_tz`], [`start_of_hour_ms_in_tz`]) can be ambiguous (fall-back) or
 //! nonexistent (spring-forward gap); it picks the **earliest** instant on `Ambiguous` (= Python
 //! `ZoneInfo` fold=0) and the **post-gap** instant on `None`. Only this eviction-timing path is
-//! DST-tie-broken, and it rides the sweep's ±5 min `safety_margin` tolerance.
+//! DST-tie-broken, and a consumer's small eviction-timing tolerance (a few minutes) absorbs the tie.
 
 use chrono::{DateTime, Duration, LocalResult, NaiveDate, NaiveDateTime, TimeZone, Timelike, Utc};
 use chrono_tz::{Tz, UTC};
@@ -75,7 +75,7 @@ pub fn window_start_for_now(now_day: DayIdx, window_days: u32) -> DayIdx {
 
 /// The epoch-ms (team tz, local midnight) at which a day-`oldest_day` bucket/entry leaves an
 /// `N`-day window — the start of day `oldest_day + N + 1`. Computed in `i64` and, mirroring
-/// [`super::pick_state::EvictionWindow::earliest_eviction_at_ms`], returns [`i64::MAX`] (never
+/// [`crate::leaf_state::select::EvictionWindow::earliest_eviction_at_ms`], returns [`i64::MAX`] (never
 /// evict) when the leave-day overflows [`DayIdx`] for an astronomical window rather than wrapping
 /// to a near-epoch instant (which would flap entered/left).
 pub fn window_leave_day_ms(oldest_day: DayIdx, window_days: u32, tz: Tz) -> i64 {
@@ -95,12 +95,18 @@ pub fn day_idx_of_naive_date(date: NaiveDate) -> DayIdx {
 }
 
 /// The local hour-of-day `[0, 23]` of `epoch_ms` in `tz` — the bucket index for the 24-hour variant.
+///
+/// Future sub-day window seam (`Lookback::SubDay`): the seeder's day-granular scan does not call this,
+/// but it is the hook a sub-day (hourly) window would bucket through.
 pub fn hour_of_day_in_tz(epoch_ms: i64, tz: Tz) -> u32 {
     utc_instant(epoch_ms).with_timezone(&tz).hour()
 }
 
 /// Epoch-ms of the start of the local hour containing `epoch_ms` in `tz` — the hourly variant's
 /// eviction base. DST-tie-broken like [`start_of_day_ms_in_tz`].
+///
+/// Future sub-day window seam (`Lookback::SubDay`): the seeder's day-granular scan does not call this,
+/// but it is the hook a sub-day (hourly) window would compute its eviction base through.
 pub fn start_of_hour_ms_in_tz(epoch_ms: i64, tz: Tz) -> i64 {
     let local = utc_instant(epoch_ms).with_timezone(&tz);
     let on_the_hour = local

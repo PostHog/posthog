@@ -1,3 +1,9 @@
+//! Metric-name constants for the cohort evaluation surface.
+//!
+//! These counters are emitted by `cohort-core` itself, from any process that links it (both the
+//! stream processor and the backfill seeder do). A dashboard cannot assume a single emitter: scope
+//! every query by the job/service label to attribute a series to the process that produced it.
+
 /// Leaves dropped during parse, labelled by `reason` (counter).
 pub const FILTER_CATALOG_SKIPPED_LEAVES: &str = "filter_catalog_skipped_leaves_total";
 /// Cohorts skipped because their filter tree failed to parse (counter).

@@ -3,7 +3,7 @@
 pub mod evaluator;
 pub mod state;
 
-pub use cohort_core::stage2::eligibility;
+pub use cohort_core::eligibility;
 pub use eligibility::{classify, CohortEligibility, CohortParseFlags, ExcludedReason};
 pub use evaluator::{evaluate_tree, leaf_membership};
 pub use state::Stage2State;

@@ -1,3 +1,6 @@
+//! Kafka layer: the per-tile rate limiter that paces produce throughput. Depends only on the shared
+//! metric-name constants.
+
 use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::time::Instant;

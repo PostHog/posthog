@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-pub use cohort_core::stage1::variant::StateVariant;
+pub use cohort_core::leaf_state::StateVariant;
 
 /// The incremental per-`(team_id, leaf_state_key, person_id)` state a leaf maintains.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

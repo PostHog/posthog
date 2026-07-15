@@ -1,17 +1,23 @@
-use std::collections::{HashMap, HashSet};
+//! Domain layer: the pinned run — lenient payload parse plus `PinnedRun`'s staged validation into a
+//! typed, scannable run. Depends on `chunk`, `condition`, `window`, `ids`, and `cohort-core`.
+
+use std::collections::HashMap;
+use std::str::FromStr;
 use std::sync::Arc;
 
 use chrono_tz::Tz;
 use cohort_core::filters::tree::{BehavioralLeafConfig, BehavioralValue};
 use cohort_core::filters::{CohortId, FilterError, TeamFilters, TeamFiltersBuilder, TeamId};
-use cohort_core::stage1::bucket_tz::resolve_tz_or_utc;
-use cohort_core::stage1::key::LeafStateKey;
-use cohort_core::stage1::pick_state::EvictionWindow;
-use serde::Deserialize;
+use cohort_core::resolve_tz_or_utc;
+use cohort_core::EvictionWindow;
+use cohort_core::LeafStateKey;
+use serde::{Deserialize, Deserializer};
 use serde_json::Value;
 
-use crate::domain::Boundary;
-use crate::ids::{ConditionHash, ConditionHashError, DayIdx, RunId};
+use super::chunk::{ChunkDomainError, ChunkSpec};
+use super::condition::{EventNameSet, Lookback, PinnedCondition};
+use super::ids::{ConditionHash, ConditionHashError, RunId, UtcMillis};
+use super::window::{Boundary, SeedDomain};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TriggerKind {
@@ -32,38 +38,23 @@ impl TriggerKind {
     }
 }
 
-impl TryFrom<&str> for TriggerKind {
-    type Error = PinnedError;
+impl FromStr for TriggerKind {
+    type Err = UnknownTriggerKind;
 
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
             "team_enablement" => Ok(Self::TeamEnablement),
             "cohort_created" => Ok(Self::CohortCreated),
             "cohort_edited" => Ok(Self::CohortEdited),
             "disaster_recovery" => Ok(Self::DisasterRecovery),
-            other => Err(PinnedError::UnknownTrigger(other.to_string())),
+            other => Err(UnknownTriggerKind(other.to_string())),
         }
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Lookback {
-    SlidingDays(u32),
-    SubDay,
-    FixedRange {
-        from_day: Option<DayIdx>,
-        to_day: Option<DayIdx>,
-    },
-    Dropped,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PinnedCondition {
-    pub cohort_id: CohortId,
-    pub hash: ConditionHash,
-    pub event_name: Option<String>,
-    pub lookback: Lookback,
-}
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("unknown backfill trigger {0:?}")]
+pub struct UnknownTriggerKind(pub String);
 
 #[derive(Debug)]
 pub struct PinnedRun {
@@ -73,7 +64,7 @@ pub struct PinnedRun {
     pub tz: Tz,
     pub boundary: Boundary,
     pub conditions: Vec<PinnedCondition>,
-    pub event_names: Vec<String>,
+    pub event_names: EventNameSet,
     pub filters: TeamFilters,
 }
 
@@ -83,13 +74,16 @@ pub struct ValidatedPinnedRun {
     pub warnings: Vec<PinnedWarning>,
 }
 
+/// A run proven `seeding` with an established boundary, ready for pinned-payload validation. The
+/// `trigger`/`boundary_at_ms` are already typed and present — the store performs the sole
+/// `Option`→value narrowing before building this.
 #[derive(Debug)]
 pub struct PinnedRunSnapshot {
     pub run_id: RunId,
     pub team_id: TeamId,
-    pub trigger_kind: String,
+    pub trigger: TriggerKind,
     pub timezone: String,
-    pub boundary_at_ms: Option<i64>,
+    pub boundary_at_ms: i64,
     pub pinned: Value,
     pub participations: Vec<PinnedParticipation>,
 }
@@ -150,10 +144,6 @@ pub enum PinnedError {
     Payload(#[from] serde_json::Error),
     #[error("unsupported pinned schema version {0}")]
     SchemaVersion(u32),
-    #[error("unknown backfill trigger {0:?}")]
-    UnknownTrigger(String),
-    #[error("run has no established boundary")]
-    MissingBoundary,
     #[error("invalid conditionHash {value:?}: {source}")]
     InvalidConditionHash {
         value: String,
@@ -174,8 +164,6 @@ pub enum PinnedError {
 struct PinnedPayload {
     schema_version: u32,
     conditions: Vec<RawPinnedCondition>,
-    #[serde(rename = "event_names")]
-    _event_names: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -183,43 +171,128 @@ struct RawPinnedCondition {
     cohort_id: i32,
     condition_hash: String,
     value: Option<String>,
-    time_value: Option<Value>,
-    time_interval: Option<Value>,
-    explicit_datetime: Option<Value>,
-    explicit_datetime_to: Option<Value>,
-    operator: Option<Value>,
-    operator_value: Option<Value>,
+    #[serde(default, deserialize_with = "lenient_i32")]
+    time_value: Option<i32>,
+    #[serde(default, deserialize_with = "lenient_string")]
+    time_interval: Option<String>,
+    #[serde(default, deserialize_with = "lenient_string")]
+    explicit_datetime: Option<String>,
+    #[serde(default, deserialize_with = "lenient_string")]
+    explicit_datetime_to: Option<String>,
+    #[serde(default, deserialize_with = "lenient_string")]
+    operator: Option<String>,
+    #[serde(default, deserialize_with = "lenient_i32")]
+    operator_value: Option<i32>,
     window_days: u32,
     event_name: Option<String>,
     is_action: bool,
 }
 
+/// Coerce a JSON scalar to `Some(i32)` only for an integer in `i32` range; anything else
+/// (missing, null, string, float, bool, array, object, out-of-range) becomes `None`, never an
+/// error. Replicates the former `json_i32` tolerance byte-for-byte — a plain `Option<i32>` would
+/// instead reject a mistyped payload Django is allowed to send.
+fn lenient_i32<'de, D>(deserializer: D) -> Result<Option<i32>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::<Value>::deserialize(deserializer)?;
+    Ok(value
+        .as_ref()
+        .and_then(Value::as_i64)
+        .and_then(|number| i32::try_from(number).ok()))
+}
+
+/// Coerce a JSON scalar to `Some(String)` only for a string; anything else becomes `None`, never
+/// an error. Replicates the former `json_string` tolerance byte-for-byte.
+fn lenient_string<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::<Value>::deserialize(deserializer)?;
+    Ok(value.as_ref().and_then(Value::as_str).map(str::to_string))
+}
+
 impl PinnedRun {
     pub fn validate(snapshot: PinnedRunSnapshot) -> Result<ValidatedPinnedRun, PinnedError> {
-        let payload: PinnedPayload = serde_json::from_value(snapshot.pinned)?;
-        if payload.schema_version != 1 {
-            return Err(PinnedError::SchemaVersion(payload.schema_version));
-        }
-
-        let trigger = TriggerKind::try_from(snapshot.trigger_kind.as_str())?;
-        let tz = resolve_tz_or_utc(&snapshot.timezone);
+        let payload = parse_payload(snapshot.pinned)?;
         let mut warnings = Vec::new();
-        if snapshot.timezone.parse::<Tz>().is_err() {
-            warnings.push(PinnedWarning::TimezoneFallback {
-                configured: snapshot.timezone,
+        let tz = resolve_timezone(&snapshot.timezone, &mut warnings);
+        let boundary = Boundary::new(UtcMillis::new(snapshot.boundary_at_ms), tz);
+        let participation = ParticipationSet::build(snapshot.team_id, snapshot.participations, tz)?;
+        let conditions = resolve_conditions(payload.conditions, &participation, &mut warnings)?;
+        let event_names = EventNameSet::from_conditions(&conditions);
+
+        Ok(ValidatedPinnedRun {
+            run: PinnedRun {
+                run_id: snapshot.run_id,
+                team_id: snapshot.team_id,
+                trigger: snapshot.trigger,
+                tz,
+                boundary,
+                conditions,
+                event_names,
+                filters: participation.into_filters(),
+            },
+            warnings,
+        })
+    }
+
+    /// The seed domain for a claimed chunk, after proving the chunk belongs to this run/team. Named
+    /// here (not in the store) so the store never references a scan/ClickHouse type — cycle break.
+    pub fn domain_for(&self, spec: &ChunkSpec) -> Result<SeedDomain, ChunkDomainError> {
+        if self.run_id != spec.lease.run_id() || self.team_id != spec.team_id {
+            return Err(ChunkDomainError::RunMismatch {
+                chunk_run_id: spec.lease.run_id(),
+                chunk_team_id: spec.team_id.0,
+                pinned_run_id: self.run_id,
+                pinned_team_id: self.team_id.0,
             });
         }
-        let boundary = Boundary::new(
-            snapshot
-                .boundary_at_ms
-                .ok_or(PinnedError::MissingBoundary)?,
-            tz,
-        );
+        Ok(SeedDomain::new(
+            spec.day,
+            self.boundary,
+            self.tz,
+            spec.s_chunk,
+        )?)
+    }
+}
 
-        let mut participant_states = HashMap::with_capacity(snapshot.participations.len());
+fn parse_payload(pinned: Value) -> Result<PinnedPayload, PinnedError> {
+    let payload: PinnedPayload = serde_json::from_value(pinned)?;
+    if payload.schema_version != 1 {
+        return Err(PinnedError::SchemaVersion(payload.schema_version));
+    }
+    Ok(payload)
+}
+
+fn resolve_timezone(configured: &str, warnings: &mut Vec<PinnedWarning>) -> Tz {
+    let tz = resolve_tz_or_utc(configured);
+    if configured.parse::<Tz>().is_err() {
+        warnings.push(PinnedWarning::TimezoneFallback {
+            configured: configured.to_string(),
+        });
+    }
+    tz
+}
+
+/// The participations of a run, indexed for dedup-checked lookup with the frozen filter catalog
+/// already built from the active cohorts.
+struct ParticipationSet {
+    states: HashMap<CohortId, PinnedParticipationState>,
+    filters: TeamFilters,
+}
+
+impl ParticipationSet {
+    fn build(
+        team_id: TeamId,
+        participations: Vec<PinnedParticipation>,
+        tz: Tz,
+    ) -> Result<Self, PinnedError> {
+        let mut states = HashMap::with_capacity(participations.len());
         let mut builder = TeamFiltersBuilder::default();
-        for participation in snapshot.participations {
-            if participant_states
+        for participation in participations {
+            if states
                 .insert(participation.cohort_id, participation.state)
                 .is_some()
             {
@@ -230,113 +303,122 @@ impl PinnedRun {
             if participation.state == PinnedParticipationState::Active {
                 builder.add_cohort(
                     participation.cohort_id,
-                    snapshot.team_id,
+                    team_id,
                     &participation.pinned_filters,
                 )?;
             }
         }
-        let filters = builder.freeze(tz);
+        Ok(Self {
+            states,
+            filters: builder.freeze(tz),
+        })
+    }
 
-        let mut conditions = Vec::with_capacity(payload.conditions.len());
-        for raw in payload.conditions {
-            let cohort_id = CohortId(raw.cohort_id);
-            let Some(participation_state) = participant_states.get(&cohort_id) else {
-                return Err(PinnedError::MissingParticipation(raw.cohort_id));
-            };
-            let hash = ConditionHash::parse(&raw.condition_hash).map_err(|source| {
-                PinnedError::InvalidConditionHash {
-                    value: raw.condition_hash.clone(),
-                    source,
-                }
-            })?;
-            if *participation_state == PinnedParticipationState::Superseded {
-                warnings.push(PinnedWarning::ConditionSuperseded { cohort_id, hash });
-                continue;
+    fn state(&self, cohort_id: CohortId) -> Option<PinnedParticipationState> {
+        self.states.get(&cohort_id).copied()
+    }
+
+    fn into_filters(self) -> TeamFilters {
+        self.filters
+    }
+}
+
+fn resolve_conditions(
+    raw_conditions: Vec<RawPinnedCondition>,
+    participation: &ParticipationSet,
+    warnings: &mut Vec<PinnedWarning>,
+) -> Result<Vec<PinnedCondition>, PinnedError> {
+    let mut conditions = Vec::with_capacity(raw_conditions.len());
+    for raw in raw_conditions {
+        let cohort_id = CohortId(raw.cohort_id);
+        let Some(state) = participation.state(cohort_id) else {
+            return Err(PinnedError::MissingParticipation(raw.cohort_id));
+        };
+        let hash = ConditionHash::parse(&raw.condition_hash).map_err(|source| {
+            PinnedError::InvalidConditionHash {
+                value: raw.condition_hash.clone(),
+                source,
             }
-            let (lookback, drop_reason) = derive_lookback(&raw, hash, &filters)?;
-            if let Some(reason) = drop_reason {
+        })?;
+        if state == PinnedParticipationState::Superseded {
+            warnings.push(PinnedWarning::ConditionSuperseded { cohort_id, hash });
+            continue;
+        }
+        let lookback = match derive_lookback(&raw, hash, &participation.filters)? {
+            LookbackResolution::Dropped(reason) => {
                 warnings.push(PinnedWarning::ConditionDropped {
                     cohort_id,
                     hash,
                     reason,
                 });
+                continue;
             }
-            let derived_window_days = match lookback {
-                Lookback::SlidingDays(days) => days,
-                Lookback::SubDay | Lookback::FixedRange { .. } | Lookback::Dropped => 0,
-            };
-            if raw.window_days != derived_window_days && !matches!(lookback, Lookback::Dropped) {
-                warnings.push(PinnedWarning::WindowDaysMismatch {
-                    cohort_id,
-                    hash,
-                    pinned: raw.window_days,
-                    derived: derived_window_days,
-                });
-            }
-            conditions.push(PinnedCondition {
+            LookbackResolution::Resolved(lookback) => lookback,
+        };
+        let derived = derived_window_days(lookback);
+        if raw.window_days != derived {
+            warnings.push(PinnedWarning::WindowDaysMismatch {
                 cohort_id,
                 hash,
-                event_name: raw.event_name,
-                lookback,
+                pinned: raw.window_days,
+                derived,
             });
         }
-
-        let event_names = conditions
-            .iter()
-            .filter(|condition| !matches!(condition.lookback, Lookback::Dropped))
-            .filter_map(|condition| condition.event_name.clone())
-            .collect::<HashSet<_>>()
-            .into_iter()
-            .collect::<Vec<_>>();
-        let mut event_names = event_names;
-        event_names.sort_unstable();
-
-        Ok(ValidatedPinnedRun {
-            run: PinnedRun {
-                run_id: snapshot.run_id,
-                team_id: snapshot.team_id,
-                trigger,
-                tz,
-                boundary,
-                conditions,
-                event_names,
-                filters,
-            },
-            warnings,
-        })
+        let event_name = raw
+            .event_name
+            .expect("a resolved condition always carries a concrete event name");
+        conditions.push(PinnedCondition {
+            cohort_id,
+            hash,
+            event_name,
+            lookback,
+        });
     }
+    Ok(conditions)
+}
+
+const fn derived_window_days(lookback: Lookback) -> u32 {
+    match lookback {
+        Lookback::SlidingDays(days) => days,
+        Lookback::SubDay | Lookback::FixedRange { .. } => 0,
+    }
+}
+
+/// The outcome of resolving one raw condition against the frozen catalog: either a scannable
+/// [`Lookback`] to store, or a drop reason surfaced as a warning and never stored.
+enum LookbackResolution {
+    Resolved(Lookback),
+    Dropped(PinnedDropReason),
 }
 
 fn derive_lookback(
     raw: &RawPinnedCondition,
     hash: ConditionHash,
     filters: &TeamFilters,
-) -> Result<(Lookback, Option<PinnedDropReason>), PinnedError> {
+) -> Result<LookbackResolution, PinnedError> {
     if raw.is_action {
-        return Ok((Lookback::Dropped, Some(PinnedDropReason::ActionKeyed)));
+        return Ok(LookbackResolution::Dropped(PinnedDropReason::ActionKeyed));
     }
     let Some(value) = raw.value.as_deref().and_then(BehavioralValue::from_wire) else {
-        return Ok((
-            Lookback::Dropped,
-            Some(PinnedDropReason::AbsentFromFrozenCatalog),
+        return Ok(LookbackResolution::Dropped(
+            PinnedDropReason::AbsentFromFrozenCatalog,
         ));
     };
     let Some(event_name) = raw.event_name.as_ref() else {
-        return Ok((
-            Lookback::Dropped,
-            Some(PinnedDropReason::AbsentFromFrozenCatalog),
+        return Ok(LookbackResolution::Dropped(
+            PinnedDropReason::AbsentFromFrozenCatalog,
         ));
     };
     let leaf = BehavioralLeafConfig {
         condition_hash: hash.as_bytes(),
         value,
         event_key: event_name.clone(),
-        time_value: json_i32(raw.time_value.as_ref()),
-        operator_value: json_i32(raw.operator_value.as_ref()),
-        time_interval: json_string(raw.time_interval.as_ref()),
-        operator: json_string(raw.operator.as_ref()),
-        explicit_datetime: json_string(raw.explicit_datetime.as_ref()),
-        explicit_datetime_to: json_string(raw.explicit_datetime_to.as_ref()),
+        time_value: raw.time_value,
+        operator_value: raw.operator_value,
+        time_interval: raw.time_interval.clone(),
+        operator: raw.operator.clone(),
+        explicit_datetime: raw.explicit_datetime.clone(),
+        explicit_datetime_to: raw.explicit_datetime_to.clone(),
         leaf_state_key: LeafStateKey([0; 16]),
         state_variant: None,
         bytecode: Arc::new(Vec::new()),
@@ -344,9 +426,8 @@ fn derive_lookback(
     }
     .with_state_key();
     let Some(meta) = filters.by_lsk.get(&leaf.leaf_state_key) else {
-        return Ok((
-            Lookback::Dropped,
-            Some(PinnedDropReason::AbsentFromFrozenCatalog),
+        return Ok(LookbackResolution::Dropped(
+            PinnedDropReason::AbsentFromFrozenCatalog,
         ));
     };
     if meta.condition_hash != hash.as_bytes() {
@@ -361,24 +442,14 @@ fn derive_lookback(
         (None, Some(days)) => Lookback::SlidingDays(days),
         (None, None) => return Err(PinnedError::IncompleteMetadata(hash)),
     };
-    Ok((lookback, None))
-}
-
-fn json_i32(value: Option<&Value>) -> Option<i32> {
-    value?
-        .as_i64()
-        .and_then(|number| i32::try_from(number).ok())
-}
-
-fn json_string(value: Option<&Value>) -> Option<String> {
-    value?.as_str().map(str::to_string)
+    Ok(LookbackResolution::Resolved(lookback))
 }
 
 #[cfg(test)]
 mod tests {
     use chrono::NaiveDate;
     use chrono_tz::UTC;
-    use cohort_core::stage1::bucket_tz::day_idx_of_naive_date;
+    use cohort_core::day_idx_of_naive_date;
     use serde_json::json;
     use uuid::Uuid;
 
@@ -417,9 +488,9 @@ mod tests {
         PinnedRunSnapshot {
             run_id: RunId(Uuid::nil()),
             team_id: TeamId(2),
-            trigger_kind: "team_enablement".to_string(),
+            trigger: TriggerKind::TeamEnablement,
             timezone: "UTC".to_string(),
-            boundary_at_ms: Some(1_800_000_000_000),
+            boundary_at_ms: 1_800_000_000_000,
             pinned,
             participations,
         }
@@ -549,6 +620,8 @@ mod tests {
         let day = |year, month, day| {
             day_idx_of_naive_date(NaiveDate::from_ymd_opt(year, month, day).unwrap())
         };
+        // The action-keyed condition (`hashes[4]`, no event name) resolves to a drop and is absent
+        // from the stored conditions; its `ConditionDropped` warning is asserted below.
         let expected = [
             Lookback::SlidingDays(7),
             Lookback::SlidingDays(30),
@@ -557,7 +630,6 @@ mod tests {
                 to_day: Some(day(2026, 1, 5)),
             },
             Lookback::SubDay,
-            Lookback::Dropped,
             Lookback::SlidingDays(14),
         ];
         assert_eq!(
@@ -642,7 +714,7 @@ mod tests {
         let validated = PinnedRun::validate(snapshot(payload.clone(), participations)).unwrap();
         assert_eq!(validated.run.conditions.len(), 1);
         assert_eq!(validated.run.conditions[0].cohort_id, CohortId(1));
-        assert_eq!(validated.run.event_names, vec!["active-event"]);
+        assert_eq!(validated.run.event_names.as_slice(), &["active-event"]);
         assert!(validated
             .run
             .filters
@@ -669,5 +741,56 @@ mod tests {
             }],
         ));
         assert!(matches!(unknown, Err(PinnedError::MissingParticipation(2))));
+    }
+
+    #[test]
+    fn lenient_serde_coerces_mistyped_scalars_to_none_without_failing_validation() {
+        let hash = "lenient000000000";
+        let catalog = json!({
+            "properties": { "type": "AND", "values": [
+                { "type": "behavioral", "value": "performed_event", "key": "evt", "conditionHash": hash, "time_value": 7, "time_interval": "day", "bytecode": bytecode("evt") },
+            ]}
+        });
+        let validate = |condition: Value| {
+            PinnedRun::validate(snapshot(
+                json!({ "schema_version": 1, "conditions": [condition], "event_names": ["evt"] }),
+                vec![PinnedParticipation {
+                    cohort_id: CohortId(1),
+                    pinned_filters: catalog.clone(),
+                    state: PinnedParticipationState::Active,
+                }],
+            ))
+        };
+
+        // Well-typed scalars resolve against the frozen catalog.
+        let mut well_typed = condition(1, hash, "performed_event", Some("evt"), 7);
+        well_typed["time_value"] = json!(7);
+        well_typed["time_interval"] = json!("day");
+        let resolved = validate(well_typed).unwrap();
+        assert_eq!(
+            resolved
+                .run
+                .conditions
+                .iter()
+                .map(|condition| condition.lookback)
+                .collect::<Vec<_>>(),
+            [Lookback::SlidingDays(7)],
+        );
+
+        // A string where an int is expected and a number where a string is expected coerce to None
+        // exactly as json_i32/json_string did: validation still succeeds (a plain `Option<i32>`
+        // would reject this payload), but the mistyped scalars change the leaf-state key, so the
+        // condition drops out of the frozen catalog instead of erroring.
+        let mut mistyped = condition(1, hash, "performed_event", Some("evt"), 7);
+        mistyped["time_value"] = json!("7");
+        mistyped["time_interval"] = json!(5);
+        mistyped["operator_value"] = json!("2");
+        let dropped = validate(mistyped).unwrap();
+        assert!(dropped.run.conditions.is_empty());
+        assert!(dropped.warnings.contains(&PinnedWarning::ConditionDropped {
+            cohort_id: CohortId(1),
+            hash: ConditionHash::parse(hash).unwrap(),
+            reason: PinnedDropReason::AbsentFromFrozenCatalog,
+        }));
     }
 }

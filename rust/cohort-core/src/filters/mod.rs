@@ -32,7 +32,4 @@ pub enum FilterError {
 
     #[error("cohort {cohort_id} filters has no `properties`")]
     MissingProperties { cohort_id: i32 },
-
-    #[error("cohort {cohort_id} is malformed: {detail}")]
-    Malformed { cohort_id: i32, detail: String },
 }
