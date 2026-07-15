@@ -5,6 +5,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { metricsSamplesCreate } from 'products/metrics/frontend/generated/api'
 import type { _MetricEventSampleApi } from 'products/metrics/frontend/generated/api.schemas'
+import { canViewMetrics } from 'products/metrics/frontend/metricsAccess'
 
 import type { metricsSamplesLogicType } from './metricsSamplesLogicType'
 import { formatSeriesName, seriesColor } from './metricsSeries'
@@ -46,6 +47,9 @@ export const metricsSamplesLogic = kea<metricsSamplesLogicType>([
             [] as _MetricEventSampleApi[],
             {
                 loadSamples: async (_, breakpoint) => {
+                    if (!canViewMetrics()) {
+                        return []
+                    }
                     const metricName = values.metricName.trim()
                     const dateFrom = resolveDate(values.dateFrom)
                     if (!metricName || !dateFrom) {
