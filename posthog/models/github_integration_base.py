@@ -57,6 +57,15 @@ class GitHubCommitAuthor:
     file_paths: tuple[str, ...] = ()
 
 
+@dataclass(frozen=True)
+class GitHubCommitAttribution:
+    """GitHub's own commit→account attribution, from the commits listing."""
+
+    sha: str
+    login: str
+    is_bot: bool
+
+
 class GitHubIntegrationError(Exception):
     """A GitHub API call failed for a non-rate-limit reason (bad response, auth failure, network
     error after retry). Rate limits raise ``GitHubRateLimitError`` from ``posthog.egress.github``
@@ -620,6 +629,75 @@ class GitHubIntegrationBase:
             else ()
         )
         return GitHubCommitAuthor(login=author["login"], name=name, commit_url=commit_url, file_paths=file_paths)
+
+    def list_commit_attributions(
+        self,
+        repository: str,
+        *,
+        since: datetime,
+        # The listing includes merge commits, so it must run deeper than the non-merge
+        # git log it joins against (posthog/posthog: ~11k listed entries per 90 days).
+        max_pages: int = 150,
+    ) -> list[GitHubCommitAttribution]:
+        """GitHub's commit→login attribution for default-branch commits since ``since``.
+
+        The listing endpoint carries no file data — callers join on sha against their own
+        source of changed paths (e.g. a local ``git log``). Commits GitHub cannot attribute
+        to an account (unrecognized author emails) are skipped. The first page failing
+        raises; later pages are best-effort so a long history returns what was fetched.
+        Rate limits raise ``GitHubRateLimitError`` (from ``api_request``).
+        """
+        params: dict[str, str | int] = {
+            "per_page": 100,
+            "since": since.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }
+        attributions: list[GitHubCommitAttribution] = []
+        for page in range(1, max(1, max_pages) + 1):
+            response = self.api_request(
+                "GET",
+                f"/repos/{repository}/commits",
+                endpoint="/repos/{owner}/{repo}/commits",
+                params={**params, "page": page},
+            )
+            if response.status_code != 200:
+                if page == 1:
+                    raise GitHubIntegrationError(
+                        f"GitHubIntegration: commit listing failed for {repository}",
+                        status_code=response.status_code,
+                    )
+                logger.info(
+                    "GitHub API non-200 during commit listing pagination",
+                    status_code=response.status_code,
+                    repository=repository,
+                    page=page,
+                )
+                break
+            try:
+                body = response.json()
+            except Exception:
+                logger.warning(
+                    "GitHubIntegration: failed to parse commit listing JSON", repository=repository, exc_info=True
+                )
+                break
+            if not isinstance(body, list):
+                break
+            for entry in body:
+                if not isinstance(entry, dict):
+                    continue
+                sha = entry.get("sha")
+                author = entry.get("author")
+                if not isinstance(sha, str) or not isinstance(author, dict) or not author.get("login"):
+                    continue
+                attributions.append(
+                    GitHubCommitAttribution(
+                        sha=sha,
+                        login=author["login"],
+                        is_bot=author.get("type") == "Bot",
+                    )
+                )
+            if len(body) < 100:
+                break
+        return attributions
 
     @staticmethod
     def parse_pull_request_url(pr_url: str) -> tuple[str, str, int] | None:

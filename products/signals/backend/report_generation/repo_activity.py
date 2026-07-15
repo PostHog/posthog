@@ -2,30 +2,28 @@
 
 Supplies the recency signal blame resolution lacks: for each *area* (a path prefix like
 ``products/signals``) it knows who actually committed there in the last
-``ACTIVITY_WINDOW_DAYS`` days. Built from the repository's own git history (one
-``git log --name-only`` pass in a short-lived sandbox, via the tasks facade) and cached in
+``ACTIVITY_WINDOW_DAYS`` days. Two sources joined on commit sha: a local
+``git log --name-only`` pass in a short-lived sandbox (sha → changed paths, via the tasks
+facade) and GitHub's commits listing (sha → login — git author emails are unverified free
+text, so identity comes only from GitHub's own attribution). Cached in
 ``SignalRepositoryAreaActivity`` — reviewer resolution only ever reads the cache; rebuilds
 run async (on cache miss and weekly).
 """
 
 from __future__ import annotations
 
-import re
 import logging
-from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from django.db import transaction
 from django.utils import timezone
 
-from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.models.github_integration_base import GitHubCommitAttribution
 from posthog.models.integration import GitHubIntegration
 from posthog.models.scoping import team_scope
-from posthog.models.team.team import Team
-from posthog.models.user import User
 
-from products.tasks.backend.facade.repo_activity import RepositoryCommitActivity, collect_repository_commit_activity
+from products.tasks.backend.facade.repo_activity import collect_repository_commit_activity
 
 from ..models import SignalRepositoryAreaActivity
 
@@ -41,11 +39,6 @@ MAX_CONTRIBUTORS_PER_AREA = 50
 # Synthetic area holding every contributor to the repository; the last fallback level.
 # Distinct from "" (files at the repository root).
 REPO_WIDE_AREA = "*"
-# GitHub commit lookups per rebuild for author emails that neither noreply parsing nor
-# org-member matching resolved (people committing with personal emails).
-MAX_LOGIN_API_LOOKUPS = 50
-
-_NOREPLY_EMAIL_RE = re.compile(r"^(?:\d+\+)?([a-z0-9-]+)@users\.noreply\.github\.com$", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -134,27 +127,29 @@ def repository_activity_needs_rebuild(team_id: int, repository: str) -> bool:
 def rebuild_repository_activity(team_id: int, repository: str) -> int:
     """Rebuild the repository's whole area-activity map from its git history.
 
-    One facade call collects the recent commits (with touched paths); commits map to areas
-    locally and author emails resolve to GitHub logins (noreply-email parse, then org-member
-    email match). Each commit is indexed at every fallback level (its areas, their parents,
-    and ``REPO_WIDE_AREA``) so lookups can walk up when an area has no active contributors.
-    Every area row for the repository is replaced in one transaction — areas with no recent
-    commits are stamped refreshed with no contributors, which scoring reads as "nobody is
-    active here", distinct from a never-built row.
+    One facade call collects the recent commits with their touched paths (sandbox git log);
+    one paginated GitHub commits listing supplies sha→login attribution — the two join on
+    sha, so identity never depends on author emails. Commits GitHub can't attribute, and
+    bot accounts, are dropped. Each commit is indexed at every fallback level (its areas,
+    their parents, and ``REPO_WIDE_AREA``) so lookups can walk up when an area has no
+    active contributors. Every area row for the repository is replaced in one transaction —
+    areas with no recent commits are stamped refreshed with no contributors, which scoring
+    reads as "nobody is active here", distinct from a never-built row.
 
     Returns the number of areas with at least one contributor. Raises
-    ``RepositoryCommitActivityError`` when collection fails.
+    ``RepositoryCommitActivityError`` when collection fails; attribution failures
+    (including rate limits) propagate so a rebuild never writes a half-attributed map.
     """
     repository = repository.strip().lower()
     commits = collect_repository_commit_activity(team_id, repository, since_days=ACTIVITY_WINDOW_DAYS)
-    login_by_email = _github_logins_for_emails(team_id, {c.author_email.lower() for c in commits})
-    login_by_email.update(_logins_via_github_api(team_id, repository, commits, resolved_emails=set(login_by_email)))
+    attribution_by_sha = _commit_attributions_by_sha(team_id, repository)
 
     per_area: dict[str, dict[str, dict]] = {}
     for commit in commits:  # newest-first, so the first commit seen per login is their latest
-        login = login_by_email.get(commit.author_email.lower())
-        if login is None or login.endswith("[bot]"):
+        attribution = attribution_by_sha.get(commit.sha)
+        if attribution is None or attribution.is_bot:
             continue
+        login = attribution.login.lower()
         commit_areas: set[str] = set()
         for path in commit.paths:
             commit_areas.update(area_fallback_chain(area_for_path(path)))
@@ -200,83 +195,13 @@ def rebuild_repository_activity(team_id: int, repository: str) -> int:
     return len(per_area)
 
 
-def _github_logins_for_emails(team_id: int, emails: set[str]) -> dict[str, str]:
-    """Map lowercased author emails to GitHub logins.
-
-    GitHub noreply addresses carry the login directly (squash merges); other emails match
-    org members with a linked GitHub identity. Unresolvable emails are dropped — reviewer
-    routing needs addressable logins.
-    """
-    resolved: dict[str, str] = {}
-    remaining: set[str] = set()
-    for email in emails:
-        match = _NOREPLY_EMAIL_RE.match(email)
-        if match:
-            resolved[email] = match.group(1).lower()
-        else:
-            remaining.add(email)
-
-    if remaining:
-        # Local import: resolve_reviewers imports this module at load time.
-        from products.signals.backend.report_generation.resolve_reviewers import _github_identity_prefetches
-
-        try:
-            org_id = Team.objects.values_list("organization_id", flat=True).get(id=team_id)
-        except Team.DoesNotExist:
-            return resolved
-        users = (
-            User.objects.filter(organization_membership__organization_id=org_id, email__in=remaining)
-            .prefetch_related(*_github_identity_prefetches())
-            .order_by("id")
-        )
-        for user in users:
-            login = user.get_github_login()
-            if login:
-                resolved[user.email.lower()] = login.lower()
-
-    return resolved
-
-
-def _logins_via_github_api(
-    team_id: int,
-    repository: str,
-    commits: list[RepositoryCommitActivity],
-    *,
-    resolved_emails: set[str],
-) -> dict[str, str]:
-    """Resolve leftover author emails to logins via one GitHub commit lookup each.
-
-    People committing with personal emails match neither noreply parsing nor org-member
-    email matching (their git email differs from their PostHog account email), yet GitHub
-    itself maps their commits to a login. Bounded to ``MAX_LOGIN_API_LOOKUPS`` per rebuild,
-    most-active emails first; best-effort — a rate limit stops the pass, leaving those
-    contributors out of this rebuild.
-    """
-    latest_sha_by_email: dict[str, str] = {}
-    counts: Counter[str] = Counter()
-    for commit in commits:
-        email = commit.author_email.lower()
-        if email in resolved_emails:
-            continue
-        counts[email] += 1
-        latest_sha_by_email.setdefault(email, commit.sha)
-    if not counts:
-        return {}
-
+def _commit_attributions_by_sha(team_id: int, repository: str) -> dict[str, GitHubCommitAttribution]:
+    """GitHub's sha→login attribution for the activity window, keyed for the sha join."""
     github = GitHubIntegration.first_for_team_repository(team_id, repository, source="signals_activity_rebuild")
     if github is None:
-        return {}
-
-    resolved: dict[str, str] = {}
-    for email, _count in counts.most_common(MAX_LOGIN_API_LOOKUPS):
-        try:
-            info = github.get_commit_author_info(repository, latest_sha_by_email[email])
-        except GitHubRateLimitError:
-            logger.info("GitHub rate limited resolving author logins for %s", repository)
-            break
-        if info is not None:
-            resolved[email] = info.login.lower()
-    return resolved
+        raise RuntimeError(f"No GitHub integration for team {team_id} can access {repository}")
+    since = timezone.now() - timedelta(days=ACTIVITY_WINDOW_DAYS)
+    return {attribution.sha: attribution for attribution in github.list_commit_attributions(repository, since=since)}
 
 
 def _parse_contributors(raw: object) -> list[ContributorActivity]:

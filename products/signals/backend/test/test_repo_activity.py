@@ -5,10 +5,8 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
-from social_django.models import UserSocialAuth
-
-from posthog.models import Organization, Team, User
-from posthog.models.organization import OrganizationMembership
+from posthog.models import Organization, Team
+from posthog.models.github_integration_base import GitHubCommitAttribution
 from posthog.models.scoping import team_scope
 
 from products.signals.backend.models import SignalRepositoryAreaActivity
@@ -99,32 +97,54 @@ class TestAreaForPath:
         assert area_fallback_chain("") == ["", REPO_WIDE_AREA]
 
 
+class FakeAttributionGitHub:
+    """Stub of the commits-listing surface the rebuild joins against."""
+
+    def __init__(self, by_sha: dict[str, tuple[str, bool]]):
+        self.by_sha = by_sha
+
+    def list_commit_attributions(self, repository, *, since, max_pages=60):
+        return [
+            GitHubCommitAttribution(sha=sha, login=login, is_bot=is_bot) for sha, (login, is_bot) in self.by_sha.items()
+        ]
+
+
+def _patch_attributions(by_sha: dict[str, tuple[str, bool]]):
+    return patch(
+        "products.signals.backend.report_generation.repo_activity.GitHubIntegration.first_for_team_repository",
+        return_value=FakeAttributionGitHub(by_sha),
+    )
+
+
 @pytest.mark.django_db
 class TestRebuildRepositoryActivity:
-    def test_builds_area_map_from_git_history(self, team):
+    def test_builds_area_map_joining_git_history_with_github_attribution(self, team):
         commits = [
-            _commit("a" * 7, "123+alice@users.noreply.github.com", 2, ["products/signals/backend/models.py"]),
-            _commit("b" * 7, "123+alice@users.noreply.github.com", 9, ["products/signals/frontend/App.tsx"]),
+            _commit("a" * 7, "whatever@anything.com", 2, ["products/signals/backend/models.py"]),
+            _commit("b" * 7, "other@anything.com", 9, ["products/signals/frontend/App.tsx"]),
             _commit("c" * 7, "bob@example.com", 30, ["products/signals/backend/tasks.py", "posthog/models/user.py"]),
             _commit("d" * 7, "nobody@example.com", 1, ["products/signals/backend/views.py"]),
         ]
-        bob = User.objects.create(email="bob@example.com")
-        OrganizationMembership.objects.create(user=bob, organization=team.organization)
-        UserSocialAuth.objects.create(user=bob, provider="github", uid="gh-bob", extra_data={"login": "BobDev"})
+        attributions = {
+            # identity comes from GitHub's sha attribution — the git emails above are noise
+            "a" * 7: ("alice", False),
+            "b" * 7: ("alice", False),
+            "c" * 7: ("BobDev", False),
+            # "d" is absent: GitHub couldn't attribute it, so it drops
+        }
 
-        with patch(_COLLECT_PATCH_TARGET, return_value=commits):
+        with patch(_COLLECT_PATCH_TARGET, return_value=commits), _patch_attributions(attributions):
             rebuild_repository_activity(team.id, "acme/app")
 
         activity = get_area_activity(team.id, "acme/app", ["products/signals", "posthog/models"])
 
         signals_area = {c.login: c for c in activity["products/signals"]}
-        # alice via noreply email: both commits, latest one kept as evidence
+        # alice: both commits, latest one kept as evidence
         assert signals_area["alice"].commit_count == 2
         assert signals_area["alice"].last_commit_sha == "a" * 7
-        # bob via org-member email match, login lowercased
+        # login lowercased
         assert signals_area["bobdev"].commit_count == 1
         assert [c.login for c in activity["posthog/models"]] == ["bobdev"]
-        # nobody@example.com resolves to no login and is dropped
         assert "nobody" not in signals_area
 
         # commits are also indexed at the parent and repo-wide levels for walk-up
@@ -134,26 +154,17 @@ class TestRebuildRepositoryActivity:
         assert repo_wide["alice"].commit_count == 2
         assert repo_wide["bobdev"].commit_count == 1
 
-    def test_personal_email_resolves_via_github_commit_lookup_and_bots_are_excluded(self, team):
+    def test_bot_commits_are_excluded(self, team):
         commits = [
             _commit("a" * 7, "marius.andra@gmail.com", 3, ["frontend/src/notebooks/Notebook.tsx"]),
             _commit("b" * 7, "bot@example.com", 1, ["frontend/src/generated.ts"]),
         ]
+        attributions = {
+            "a" * 7: ("MariusAndra", False),
+            "b" * 7: ("posthog[bot]", True),
+        }
 
-        class FakeGitHub:
-            def get_commit_author_info(self, repository, sha):
-                from posthog.models.github_integration_base import GitHubCommitAuthor
-
-                login = "MariusAndra" if sha == "a" * 7 else "posthog[bot]"
-                return GitHubCommitAuthor(login=login, name=None, commit_url="")
-
-        with (
-            patch(_COLLECT_PATCH_TARGET, return_value=commits),
-            patch(
-                "products.signals.backend.report_generation.repo_activity.GitHubIntegration.first_for_team_repository",
-                return_value=FakeGitHub(),
-            ),
-        ):
+        with patch(_COLLECT_PATCH_TARGET, return_value=commits), _patch_attributions(attributions):
             rebuild_repository_activity(team.id, "acme/app")
 
         activity = get_area_activity(team.id, "acme/app", ["frontend/src"])
@@ -162,8 +173,8 @@ class TestRebuildRepositoryActivity:
     def test_replaces_previous_map_and_empties_dead_areas(self, team):
         _fresh_row(team, "products/old", refreshed_at=timezone.now() - timedelta(days=30))
 
-        commits = [_commit("a" * 7, "1+alice@users.noreply.github.com", 1, ["products/new/x.py"])]
-        with patch(_COLLECT_PATCH_TARGET, return_value=commits):
+        commits = [_commit("a" * 7, "alice@example.com", 1, ["products/new/x.py"])]
+        with patch(_COLLECT_PATCH_TARGET, return_value=commits), _patch_attributions({"a" * 7: ("alice", False)}):
             rebuild_repository_activity(team.id, "acme/app")
 
         with team_scope(team.id, canonical=True):
