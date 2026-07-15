@@ -150,7 +150,7 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
     const { currentProjectId } = useValues(projectLogic)
     const flagLogic = featureFlagsLogic({})
     const { featureFlagsUpdating } = useValues(flagLogic)
-    const { updateFeatureFlag, loadFeatureFlags } = useActions(flagLogic)
+    const { updateFeatureFlag, updateFeatureFlagArchived, loadFeatureFlags } = useActions(flagLogic)
 
     const isUpdating = featureFlag.id ? featureFlagsUpdating[featureFlag.id] : false
     const [isQuickSurveyModalOpen, setIsQuickSurveyModalOpen] = useState(false)
@@ -236,7 +236,13 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                                     openFeatureFlagDisableDialog({
                                         source: 'feature-flags-list',
                                         onDisable: () => applyUpdate({ active: false }),
-                                        onDisableAndArchive: () => applyUpdate({ archived: true, active: false }),
+                                        onDisableAndArchive: () =>
+                                            featureFlag.id &&
+                                            updateFeatureFlagArchived({
+                                                id: featureFlag.id,
+                                                archived: true,
+                                                via: 'disable-confirmation',
+                                            }),
                                         openControlDialog,
                                     })
                                 }}
@@ -308,17 +314,15 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                                     onClick={() => {
                                         if (featureFlag.archived) {
                                             featureFlag.id &&
-                                                updateFeatureFlag({
-                                                    id: featureFlag.id,
-                                                    payload: { archived: false },
-                                                })
+                                                updateFeatureFlagArchived({ id: featureFlag.id, archived: false })
                                             return
                                         }
                                         openFeatureFlagArchiveDialog(featureFlag, () => {
                                             featureFlag.id &&
-                                                updateFeatureFlag({
+                                                updateFeatureFlagArchived({
                                                     id: featureFlag.id,
-                                                    payload: { archived: true, active: false },
+                                                    archived: true,
+                                                    via: 'archive-dialog',
                                                 })
                                         })
                                     }}

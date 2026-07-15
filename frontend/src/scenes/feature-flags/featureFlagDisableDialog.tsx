@@ -5,8 +5,6 @@ import { LemonDialog } from '@posthog/lemon-ui'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 
-import { reportFeatureFlagArchived } from './featureFlagArchiveDialog'
-
 export type FeatureFlagDisableDialogSource = 'feature-flags-list' | 'feature-flag-detail'
 
 export type FeatureFlagDisableDialogOption = 'disable' | 'disable_and_archive' | 'cancel'
@@ -53,7 +51,6 @@ export function openFeatureFlagDisableDialog({
     const selectCancel = (): void => reportFeatureFlagDisableDialogOptionSelected(source, 'cancel')
     const selectDisableAndArchive = (): void => {
         reportFeatureFlagDisableDialogOptionSelected(source, 'disable_and_archive')
-        reportFeatureFlagArchived('disable-confirmation')
         onDisableAndArchive()
     }
 

@@ -2,7 +2,9 @@ import { MOCK_DEFAULT_BASIC_USER, MOCK_DEFAULT_PROJECT, MOCK_TEAM_ID } from 'lib
 
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
+import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { urls } from 'scenes/urls'
@@ -44,6 +46,12 @@ import {
     validateFeatureFlagKey,
 } from './featureFlagLogic'
 import { featureFlagsLogic } from './featureFlagsLogic'
+
+jest.mock('posthog-js')
+
+function capturesOf(event: string): any[][] {
+    return (posthog.capture as jest.Mock).mock.calls.filter(([name]) => name === event)
+}
 
 const MOCK_FEATURE_FLAG = {
     ...NEW_FLAG,
@@ -1333,6 +1341,34 @@ describe('featureFlagLogic', () => {
             expect(dialogProps.title).toBe('Disable feature flag "test-flag"?')
             expect(dialogProps.primaryButton?.children).toBe('Disable flag')
             dialogOpenSpy.mockRestore()
+        })
+    })
+
+    describe('updateFeatureFlagArchived archive telemetry', () => {
+        // One test here rejects the archive request on purpose; kea-loaders would log the failure
+        beforeEach(silenceKeaLoadersErrors)
+        afterEach(resumeKeaLoadersErrors)
+
+        beforeEach(() => {
+            ;(posthog.capture as jest.Mock).mockClear()
+        })
+
+        it('captures "feature flag archived" only after the archive succeeds', async () => {
+            jest.spyOn(api, 'update').mockResolvedValueOnce({ ...MOCK_FEATURE_FLAG, archived: true, active: false })
+
+            logic.actions.updateFeatureFlagArchived({ archived: true, via: 'archive-dialog' })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(capturesOf('feature flag archived')).toEqual([['feature flag archived', { via: 'archive-dialog' }]])
+        })
+
+        it('does not capture "feature flag archived" when the archive request fails', async () => {
+            jest.spyOn(api, 'update').mockRejectedValueOnce({ status: 409, data: { detail: 'Conflict' } })
+
+            logic.actions.updateFeatureFlagArchived({ archived: true, via: 'archive-dialog' })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(capturesOf('feature flag archived')).toHaveLength(0)
         })
     })
 })

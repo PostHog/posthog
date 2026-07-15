@@ -27,10 +27,7 @@ export function openFeatureFlagArchiveDialog(
         primaryButton: {
             children: 'Archive',
             type: 'primary',
-            onClick: () => {
-                reportFeatureFlagArchived('archive-dialog')
-                onArchive()
-            },
+            onClick: onArchive,
             size: 'small',
         },
         secondaryButton: {

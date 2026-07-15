@@ -86,6 +86,7 @@ import { teamLogic } from '../teamLogic'
 import { defaultEvaluationContextsLogic } from './defaultEvaluationContextsLogic'
 import { defaultReleaseConditionsLogic, resolveDefaultReleaseConditions } from './defaultReleaseConditionsLogic'
 import { uniformAggregationGroupTypeIndex } from './defaultReleaseConditionsUtils'
+import { FeatureFlagArchivedSource, reportFeatureFlagArchived } from './featureFlagArchiveDialog'
 import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 import type { FlagIntent } from './featureFlagIntentWarningLogic'
 import type { featureFlagLogicType } from './featureFlagLogicType'
@@ -1514,7 +1515,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     return variantKeyToIndexFeatureFlagPayloads(savedFlag)
                 },
                 // Shares the featureFlagActiveUpdate loader key (and its loading/success state)
-                updateFeatureFlagArchived: async (archived: boolean) => {
+                updateFeatureFlagArchived: async ({
+                    archived,
+                    via,
+                }: {
+                    archived: boolean
+                    /** Telemetry source; only meaningful (and only captured) when archiving, not unarchiving. */
+                    via?: FeatureFlagArchivedSource
+                }) => {
                     if (!values.featureFlag.id) {
                         throw new Error('Cannot archive an unsaved flag')
                     }
@@ -1524,6 +1532,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         archived ? { archived: true, active: false } : { archived: false }
                     )
                     savedFlag.id && refreshTreeItem('feature_flag', String(savedFlag.id))
+                    if (archived && via) {
+                        reportFeatureFlagArchived(via)
+                    }
                     return variantKeyToIndexFeatureFlagPayloads(savedFlag)
                 },
             },
@@ -2473,7 +2484,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     },
                     requireStatusConfirmation: true,
                     onDisableAndArchive: () => {
-                        actions.updateFeatureFlagArchived(true)
+                        actions.updateFeatureFlagArchived({ archived: true, via: 'disable-confirmation' })
                     },
                 },
                 breakpoint,
