@@ -93,8 +93,14 @@ impl Cohort {
             .as_ref()
             .and_then(|value| value.as_object())
             .map(|flags| {
-                flags.get("behavioral").and_then(Value::as_bool).unwrap_or(false)
-                    || flags.get("lifecycle").and_then(Value::as_bool).unwrap_or(false)
+                flags
+                    .get("behavioral")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+                    || flags
+                        .get("lifecycle")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false)
             })
             .unwrap_or(false)
     }
@@ -369,30 +375,120 @@ mod tests {
             (None, backfill_ts, None, None, false),
             (None, None, backfill_ts, None, false),
             (Some(CohortType::Static), None, None, None, false),
-            (Some(CohortType::Static), backfill_ts, None, behavioral.clone(), false),
+            (
+                Some(CohortType::Static),
+                backfill_ts,
+                None,
+                behavioral.clone(),
+                false,
+            ),
             (Some(CohortType::PersonProperty), None, None, None, false),
-            (Some(CohortType::PersonProperty), backfill_ts, None, behavioral.clone(), false),
+            (
+                Some(CohortType::PersonProperty),
+                backfill_ts,
+                None,
+                behavioral.clone(),
+                false,
+            ),
             (Some(CohortType::Analytical), None, None, None, false),
-            (Some(CohortType::Analytical), backfill_ts, None, behavioral.clone(), false),
+            (
+                Some(CohortType::Analytical),
+                backfill_ts,
+                None,
+                behavioral.clone(),
+                false,
+            ),
             // Realtime + behavioral condition: either timestamp enables realtime membership
-            (Some(CohortType::Realtime), None, None, behavioral.clone(), false),
-            (Some(CohortType::Realtime), backfill_ts, None, behavioral.clone(), true),
-            (Some(CohortType::Realtime), None, backfill_ts, behavioral.clone(), true),
-            (Some(CohortType::Realtime), backfill_ts, backfill_ts, behavioral.clone(), true),
+            (
+                Some(CohortType::Realtime),
+                None,
+                None,
+                behavioral.clone(),
+                false,
+            ),
+            (
+                Some(CohortType::Realtime),
+                backfill_ts,
+                None,
+                behavioral.clone(),
+                true,
+            ),
+            (
+                Some(CohortType::Realtime),
+                None,
+                backfill_ts,
+                behavioral.clone(),
+                true,
+            ),
+            (
+                Some(CohortType::Realtime),
+                backfill_ts,
+                backfill_ts,
+                behavioral.clone(),
+                true,
+            ),
             // Behavioral + behavioral condition: either timestamp enables realtime membership
-            (Some(CohortType::Behavioral), None, None, behavioral.clone(), false),
-            (Some(CohortType::Behavioral), backfill_ts, None, behavioral.clone(), true),
-            (Some(CohortType::Behavioral), None, backfill_ts, behavioral.clone(), true),
-            (Some(CohortType::Behavioral), backfill_ts, backfill_ts, behavioral.clone(), true),
+            (
+                Some(CohortType::Behavioral),
+                None,
+                None,
+                behavioral.clone(),
+                false,
+            ),
+            (
+                Some(CohortType::Behavioral),
+                backfill_ts,
+                None,
+                behavioral.clone(),
+                true,
+            ),
+            (
+                Some(CohortType::Behavioral),
+                None,
+                backfill_ts,
+                behavioral.clone(),
+                true,
+            ),
+            (
+                Some(CohortType::Behavioral),
+                backfill_ts,
+                backfill_ts,
+                behavioral.clone(),
+                true,
+            ),
             // Person-properties-only cohorts never use realtime membership, regardless of
             // cohort_type or backfill timestamps — there's no behavioral/lifecycle
             // condition to gain a realtime signal from.
-            (Some(CohortType::Realtime), backfill_ts, None, person_properties_only.clone(), false),
-            (Some(CohortType::Realtime), None, backfill_ts, person_properties_only.clone(), false),
-            (Some(CohortType::Realtime), backfill_ts, backfill_ts, person_properties_only.clone(), false),
+            (
+                Some(CohortType::Realtime),
+                backfill_ts,
+                None,
+                person_properties_only.clone(),
+                false,
+            ),
+            (
+                Some(CohortType::Realtime),
+                None,
+                backfill_ts,
+                person_properties_only.clone(),
+                false,
+            ),
+            (
+                Some(CohortType::Realtime),
+                backfill_ts,
+                backfill_ts,
+                person_properties_only.clone(),
+                false,
+            ),
             // Missing condition_type (e.g. a hypercache entry written before this field
             // existed) defaults to false — the safe choice.
-            (Some(CohortType::Realtime), backfill_ts, backfill_ts, None, false),
+            (
+                Some(CohortType::Realtime),
+                backfill_ts,
+                backfill_ts,
+                None,
+                false,
+            ),
         ];
 
         for (cohort_type, pp_ts, events_ts, condition_type, expected) in cases {
@@ -426,9 +522,9 @@ mod tests {
         }));
 
         let make_cohort = |id: i32,
-                            cohort_type: Option<CohortType>,
-                            ts: Option<DateTime<Utc>>,
-                            condition_type: Option<Value>| {
+                           cohort_type: Option<CohortType>,
+                           ts: Option<DateTime<Utc>>,
+                           condition_type: Option<Value>| {
             let mut c = create_test_cohort(None, None, serde_json::json!({}));
             c.id = id;
             c.cohort_type = cohort_type;
@@ -439,15 +535,40 @@ mod tests {
 
         let cohorts = [
             make_cohort(1, Some(CohortType::Static), None, None),
-            make_cohort(2, Some(CohortType::PersonProperty), backfill_ts, person_properties_only.clone()),
+            make_cohort(
+                2,
+                Some(CohortType::PersonProperty),
+                backfill_ts,
+                person_properties_only.clone(),
+            ),
             make_cohort(3, Some(CohortType::Realtime), None, behavioral.clone()), // no backfill
-            make_cohort(4, Some(CohortType::Realtime), backfill_ts, behavioral.clone()), // should be selected
+            make_cohort(
+                4,
+                Some(CohortType::Realtime),
+                backfill_ts,
+                behavioral.clone(),
+            ), // should be selected
             make_cohort(5, Some(CohortType::Behavioral), None, behavioral.clone()), // no backfill
-            make_cohort(6, Some(CohortType::Behavioral), backfill_ts, behavioral.clone()), // should be selected
-            make_cohort(7, Some(CohortType::Analytical), backfill_ts, behavioral.clone()),
+            make_cohort(
+                6,
+                Some(CohortType::Behavioral),
+                backfill_ts,
+                behavioral.clone(),
+            ), // should be selected
+            make_cohort(
+                7,
+                Some(CohortType::Analytical),
+                backfill_ts,
+                behavioral.clone(),
+            ),
             make_cohort(8, None, backfill_ts, behavioral.clone()),
             // Realtime + backfilled but person-properties-only: never selected
-            make_cohort(9, Some(CohortType::Realtime), backfill_ts, person_properties_only.clone()),
+            make_cohort(
+                9,
+                Some(CohortType::Realtime),
+                backfill_ts,
+                person_properties_only.clone(),
+            ),
         ];
 
         let realtime_ids: Vec<i32> = cohorts
