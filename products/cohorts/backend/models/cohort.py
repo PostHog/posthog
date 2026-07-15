@@ -423,7 +423,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         """Whether this cohort can be used in feature flag targeting via cohort_membership lookups.
 
         Gates on both person property and event backfills based on which filter types the cohort uses:
-        - Cohorts with person property filters require last_backfill_person_properties_at
+        - Cohorts with person property or person_metadata filters require last_backfill_person_properties_at
         - Cohorts with behavioral event filters require last_backfill_events_at
         - Cohorts with both require both timestamps
         - Cohorts with neither recognized filter type (empty filters, cohort-reference-only, etc.)
@@ -433,7 +433,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         if self.cohort_type != CohortType.REALTIME:
             return False
 
-        has_person_filters = self._has_filter_type("person")
+        has_person_filters = self._has_filter_type("person") or self._has_filter_type("person_metadata")
         has_behavioral_filters = self._has_filter_type("behavioral")
 
         if not (has_person_filters or has_behavioral_filters):

@@ -666,6 +666,30 @@ _COHORT_REF_FILTERS = {
     }
 }
 
+_PERSON_METADATA_FILTERS = {
+    "properties": {
+        "type": "AND",
+        "values": [
+            {"type": "AND", "values": [{"key": "created_at", "value": "2024-01-01", "type": "person_metadata"}]}
+        ],
+    }
+}
+
+_PERSON_METADATA_AND_BEHAVIORAL_FILTERS = {
+    "properties": {
+        "type": "AND",
+        "values": [
+            {"type": "AND", "values": [{"key": "created_at", "value": "2024-01-01", "type": "person_metadata"}]},
+            {
+                "type": "AND",
+                "values": [
+                    {"type": "behavioral", "value": "performed_event", "event_type": "events", "key": "$pageview"}
+                ],
+            },
+        ],
+    }
+}
+
 _FIXED_TS = datetime(2026, 1, 1, tzinfo=UTC)
 
 
@@ -705,6 +729,32 @@ class TestCohortIsFlagCompatible(BaseTest):
             ("realtime_empty_filters_no_ts", CohortType.REALTIME, {}, None, None, False),
             ("realtime_empty_filters_with_ts", CohortType.REALTIME, {}, _FIXED_TS, _FIXED_TS, False),
             ("realtime_cohort_ref_with_ts", CohortType.REALTIME, _COHORT_REF_FILTERS, _FIXED_TS, _FIXED_TS, False),
+            # Realtime + person_metadata filters: gate on person timestamp, same as plain person filters
+            ("realtime_person_metadata_no_ts", CohortType.REALTIME, _PERSON_METADATA_FILTERS, None, None, False),
+            (
+                "realtime_person_metadata_only_person_ts",
+                CohortType.REALTIME,
+                _PERSON_METADATA_FILTERS,
+                _FIXED_TS,
+                None,
+                True,
+            ),
+            (
+                "realtime_person_metadata_and_behavioral_only_events_ts",
+                CohortType.REALTIME,
+                _PERSON_METADATA_AND_BEHAVIORAL_FILTERS,
+                None,
+                _FIXED_TS,
+                False,
+            ),
+            (
+                "realtime_person_metadata_and_behavioral_both_ts",
+                CohortType.REALTIME,
+                _PERSON_METADATA_AND_BEHAVIORAL_FILTERS,
+                _FIXED_TS,
+                _FIXED_TS,
+                True,
+            ),
         ]
     )
     def test_is_flag_compatible(self, _label, cohort_type, filters, person_ts, events_ts, expected):
@@ -716,31 +766,6 @@ class TestCohortIsFlagCompatible(BaseTest):
             last_backfill_events_at=events_ts,
         )
         self.assertEqual(cohort.is_flag_compatible, expected)
-
-
-_PERSON_METADATA_FILTERS = {
-    "properties": {
-        "type": "AND",
-        "values": [
-            {"type": "AND", "values": [{"key": "created_at", "value": "2024-01-01", "type": "person_metadata"}]}
-        ],
-    }
-}
-
-_PERSON_METADATA_AND_BEHAVIORAL_FILTERS = {
-    "properties": {
-        "type": "AND",
-        "values": [
-            {"type": "AND", "values": [{"key": "created_at", "value": "2024-01-01", "type": "person_metadata"}]},
-            {
-                "type": "AND",
-                "values": [
-                    {"type": "behavioral", "value": "performed_event", "event_type": "events", "key": "$pageview"}
-                ],
-            },
-        ],
-    }
-}
 
 
 class TestCohortComputeConditionType(SimpleTestCase):
