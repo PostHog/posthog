@@ -44,8 +44,14 @@ def build_pull_request_event(
     deletions: int = 0,
     changed_files: int = 0,
     draft: bool = False,
+    author_association: str = "MEMBER",
+    user_type: str = "User",
 ) -> dict[str, Any]:
-    """Assemble one ``pull_request`` webhook body for ``action`` (opened/synchronize/closed)."""
+    """Assemble one ``pull_request`` webhook body for ``action`` (opened/synchronize/closed).
+
+    Defaults to a trusted-member, non-bot, non-draft PR so the review path proceeds; override
+    ``author_association`` / ``user_type`` / ``draft`` to exercise the pre-sandbox skips.
+    """
     return {
         "action": action,
         "installation": {"id": installation_id},
@@ -57,7 +63,8 @@ def build_pull_request_event(
             "html_url": f"https://github.com/{repo}/pull/{number}",
             "state": "closed" if action == "closed" else "open",
             "draft": draft,
-            "user": {"login": author_login},
+            "author_association": author_association,
+            "user": {"login": author_login, "type": user_type},
             "head": {"sha": head_sha, "ref": head_ref},
             "base": {"sha": base_sha, "ref": "master"},
             "merged": merged,
@@ -88,6 +95,8 @@ _PR_FILES_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/pulls/(?P<number>\d+)/
 _REVIEWS_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/pulls/(?P<number>\d+)/reviews$")
 _ISSUE_COMMENTS_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/issues/(?P<number>\d+)/comments$")
 _COMMENT_PATCH_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/issues/comments/(?P<cid>\d+)$")
+_DISMISS_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/pulls/(?P<number>\d+)/reviews/(?P<rid>\d+)/dismissals$")
+_LABEL_DELETE_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/issues/(?P<number>\d+)/labels/(?P<label>[^/]+)$")
 _CONTENTS_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/contents/(?P<path>.+)$")
 _CHECK_RUNS_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/commits/(?P<sha>[^/]+)/check-runs$")
 
@@ -162,6 +171,10 @@ class GitHubRecorder:
             return self._record_write("issue_comment", m.group("repo"), int(m.group("number")), json_body)
         if method == "PATCH" and (m := _COMMENT_PATCH_RE.match(path)):
             return self._record_write("issue_comment_edit", m.group("repo"), 0, json_body)
+        if method == "PUT" and (m := _DISMISS_RE.match(path)):
+            return self._dismiss_review(m.group("repo"), int(m.group("number")), int(m.group("rid")), json_body)
+        if method == "DELETE" and (m := _LABEL_DELETE_RE.match(path)):
+            return self._remove_label(m.group("repo"), int(m.group("number")), m.group("label"))
 
         raise AssertionError(f"fake github: unrouted {method} {path}")
 
@@ -206,6 +219,16 @@ class GitHubRecorder:
         new_id = self._alloc_id()
         self.github_writes.append({"kind": kind, "repo": repo, "number": number, "body": body or {}, "id": new_id})
         return FakeResponse(201 if kind != "issue_comment_edit" else 200, json_data={"id": new_id})
+
+    def _remove_label(self, repo: str, number: int, label: str) -> FakeResponse:
+        self.github_writes.append({"kind": "remove_label", "repo": repo, "number": number, "label": label})
+        return FakeResponse(200, json_data=[])
+
+    def _dismiss_review(self, repo: str, number: int, review_id: int, body: dict | None) -> FakeResponse:
+        self.github_writes.append(
+            {"kind": "dismiss_review", "repo": repo, "number": number, "review_id": review_id, "body": body or {}}
+        )
+        return FakeResponse(200, json_data={})
 
 
 def _extract(query: str, prefix: str) -> str:
@@ -295,8 +318,12 @@ def approved_engine_output() -> str:
     return "uv run: resolved 1 package\n" + json.dumps(payload)
 
 
-def make_fake_sandbox_class(engine_output: str) -> type:
-    """A sandbox class returning ``engine_output`` for the reviewer command, no-ops otherwise."""
+def make_fake_sandbox_class(engine_output: str, write_sink: list[tuple[str, bytes]] | None = None) -> type:
+    """A sandbox class returning ``engine_output`` for the reviewer command, no-ops otherwise.
+
+    ``write_sink``, when given, records every ``write_file`` as ``(path, payload)`` so a test can
+    assert what was injected into the checkout (e.g. the default policy files).
+    """
 
     class _FakeSandbox:
         @classmethod
@@ -308,6 +335,8 @@ def make_fake_sandbox_class(engine_output: str) -> type:
             return FakeExecResult(stdout=stdout, stderr="", exit_code=0)
 
         def write_file(self, path: str, payload: bytes) -> FakeExecResult:
+            if write_sink is not None:
+                write_sink.append((path, payload))
             return FakeExecResult(stdout="", stderr="", exit_code=0)
 
         def destroy(self) -> None:

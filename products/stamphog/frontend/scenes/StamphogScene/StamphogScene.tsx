@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconGithub } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonInput, LemonSwitch, LemonTable } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonSelect, LemonSwitch, LemonTable } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -10,7 +10,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import type { StamphogRepoConfigApi } from '../../generated/api.schemas'
+import { ReviewModeEnumApi, type StamphogRepoConfigApi } from '../../generated/api.schemas'
 import { stamphogSceneLogic } from './stamphogSceneLogic'
 
 export const scene: SceneExport = {
@@ -60,6 +60,48 @@ function SyncedBanner(): JSX.Element | null {
     )
 }
 
+function ReviewModeCell({ repo, updating }: { repo: StamphogRepoConfigApi; updating: boolean }): JSX.Element {
+    const { setReviewMode, setTriggerLabel } = useActions(stamphogSceneLogic)
+
+    const saveTriggerLabel = (value: string): void => {
+        const trimmed = value.trim()
+        // Save only real changes — blur after no edit (or after enter already saved) must not re-PATCH,
+        // and a blank label is rejected by the API anyway.
+        if (trimmed && trimmed !== repo.trigger_label) {
+            setTriggerLabel(repo.id, trimmed)
+        }
+    }
+
+    return (
+        <div className="flex items-center gap-2">
+            <LemonSelect
+                size="small"
+                value={repo.review_mode ?? ReviewModeEnumApi.All}
+                disabledReason={updating ? 'Updating' : undefined}
+                onChange={(mode) => setReviewMode(repo.id, mode)}
+                options={[
+                    { value: ReviewModeEnumApi.All, label: 'All PRs' },
+                    { value: ReviewModeEnumApi.Label, label: 'Label-triggered' },
+                ]}
+            />
+            {repo.review_mode === ReviewModeEnumApi.Label && (
+                <LemonInput
+                    // Uncontrolled on purpose: the label saves on blur/enter, not per keystroke.
+                    // Keying by the saved value resets the draft after a reload.
+                    key={`${repo.id}-${repo.trigger_label}`}
+                    size="small"
+                    className="w-40"
+                    defaultValue={repo.trigger_label}
+                    placeholder="Trigger label"
+                    disabled={updating}
+                    onBlur={(e) => saveTriggerLabel(e.currentTarget.value)}
+                    onPressEnter={(e) => saveTriggerLabel(e.currentTarget.value)}
+                />
+            )}
+        </div>
+    )
+}
+
 function RepoConfigsTable(): JSX.Element {
     const { filteredRepoConfigs, repoConfigs, repoConfigsLoading, updatingRepoIds, repoSearch } =
         useValues(stamphogSceneLogic)
@@ -81,6 +123,11 @@ function RepoConfigsTable(): JSX.Element {
                     onChange={(checked) => setRepoEnabled(repo.id, checked)}
                 />
             ),
+        },
+        {
+            title: 'Review mode',
+            key: 'review_mode',
+            render: (_, repo) => <ReviewModeCell repo={repo} updating={updatingRepoIds.includes(repo.id)} />,
         },
         {
             title: 'Digest enabled',

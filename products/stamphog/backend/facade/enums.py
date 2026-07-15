@@ -9,6 +9,13 @@ the implementation (logic/, models.py).
 from enum import StrEnum
 
 
+class ReviewMode(StrEnum):
+    # Every relevant PR event triggers a review (the default).
+    ALL = "all"
+    # Reviews run only for PRs carrying the repo's trigger label (Action-style opt-in).
+    LABEL = "label"
+
+
 class ReviewRunStatus(StrEnum):
     QUEUED = "queued"
     GATED = "gated"

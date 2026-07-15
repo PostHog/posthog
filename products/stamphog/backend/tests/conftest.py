@@ -119,6 +119,9 @@ class StamphogChain:
 
     recorder: fakes.GitHubRecorder
     client: Client
+    # Every file the fake sandbox had written into the checkout, as (path, payload) — lets a test
+    # assert what was injected (e.g. default policy files when the repo carries none).
+    sandbox_writes: list[tuple[str, bytes]]
 
     def post_webhook(self, payload: dict[str, Any], *, delivery_id: str) -> int:
         body = fakes.encode(payload)
@@ -146,7 +149,8 @@ def stamphog_chain() -> Iterator[StamphogChain]:
     recorder.policy_files[".stamphog/review-guidance.md"] = "Review PostHog PRs against the repo's norms.\n"
     fake_slack = fakes.FakeSlackIntegration
     fake_slack.reset(channels=[])
-    fake_sandbox = fakes.make_fake_sandbox_class(fakes.approved_engine_output())
+    sandbox_writes: list[tuple[str, bytes]] = []
+    fake_sandbox = fakes.make_fake_sandbox_class(fakes.approved_engine_output(), write_sink=sandbox_writes)
 
     with ExitStack() as stack:
         stack.enter_context(
@@ -191,4 +195,4 @@ def stamphog_chain() -> Iterator[StamphogChain]:
                 side_effect=RuntimeError("no gateway in tests"),
             )
         )
-        yield StamphogChain(recorder=recorder, client=Client())
+        yield StamphogChain(recorder=recorder, client=Client(), sandbox_writes=sandbox_writes)

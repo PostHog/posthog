@@ -63,6 +63,12 @@ class StamphogRepoConfigSerializer(serializers.ModelSerializer):
             fields["repository"].read_only = True
         return fields
 
+    def validate_trigger_label(self, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError("Trigger label cannot be blank.")
+        return value
+
     class Meta:
         model = StamphogRepoConfig
         fields = [
@@ -72,6 +78,8 @@ class StamphogRepoConfigSerializer(serializers.ModelSerializer):
             "enabled",
             "installation_id",
             "digest_enabled",
+            "review_mode",
+            "trigger_label",
             "created_at",
             "updated_at",
         ]
@@ -97,6 +105,19 @@ class StamphogRepoConfigSerializer(serializers.ModelSerializer):
             "digest_enabled": {
                 "required": False,
                 "help_text": "Whether merged PRs on this repo are captured for the daily Slack digest.",
+            },
+            "review_mode": {
+                "required": False,
+                "help_text": (
+                    "When reviews run: 'all' reviews every pull request (the default); 'label' reviews "
+                    "only pull requests carrying the trigger label, mirroring the Action's opt-in flow."
+                ),
+            },
+            "trigger_label": {
+                "required": False,
+                "help_text": (
+                    "Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'."
+                ),
             },
         }
 

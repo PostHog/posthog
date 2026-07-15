@@ -15,9 +15,13 @@ from django.views.decorators.csrf import csrf_exempt
 
 import structlog
 
-from products.stamphog.backend.tasks.tasks import process_pull_request_event
+from products.stamphog.backend.tasks.tasks import process_installation_event, process_pull_request_event
 
 logger = structlog.get_logger(__name__)
+
+# Installation lifecycle events keep the repo-config rows in step with GitHub (repos added/removed,
+# app uninstalled) so newly installed repos appear in the toggle list without a manual re-sync.
+_INSTALLATION_EVENTS = frozenset({"installation", "installation_repositories"})
 
 
 def _verify_signature(body: bytes, signature: str | None, secret: str) -> bool:
@@ -43,9 +47,10 @@ def stamphog_github_webhook(request: HttpRequest) -> HttpResponse:
     if not _verify_signature(request.body, signature, secret):
         return HttpResponse("Invalid signature", status=403)
 
-    # Only pull_request drives reviews; ack everything else so GitHub stops retrying.
+    # pull_request drives reviews; installation lifecycle events maintain the repo-config rows.
+    # Ack everything else so GitHub stops retrying.
     event_type = request.headers.get("X-GitHub-Event", "")
-    if event_type != "pull_request":
+    if event_type != "pull_request" and event_type not in _INSTALLATION_EVENTS:
         return HttpResponse(status=200)
 
     try:
@@ -54,5 +59,6 @@ def stamphog_github_webhook(request: HttpRequest) -> HttpResponse:
         return HttpResponse("Invalid JSON", status=400)
 
     delivery_id = request.headers.get("X-GitHub-Delivery", "")
-    cast(Any, process_pull_request_event).delay(payload=payload, delivery_id=delivery_id)
+    task = process_installation_event if event_type in _INSTALLATION_EVENTS else process_pull_request_event
+    cast(Any, task).delay(payload=payload, delivery_id=delivery_id)
     return HttpResponse(status=202)

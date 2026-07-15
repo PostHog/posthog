@@ -13,6 +13,7 @@ import base64
 import binascii
 from datetime import datetime
 from typing import Any
+from urllib.parse import quote
 
 from django.conf import settings
 from django.core.cache import cache
@@ -576,6 +577,57 @@ class StamphogGitHubClient:
                 f"Failed to approve PR {repo}#{number}: {response.text[:300]}", status_code=response.status_code
             )
         return self._json(response, path)
+
+    def remove_pr_label(self, repo: str, number: int, label: str) -> None:
+        """Remove a label from a PR (``DELETE .../issues/{number}/labels/{label}``).
+
+        Strips the trigger label after a refused/escalated verdict in label-triggered review mode, so
+        the author re-adds it to request another review — Action parity. A 404 means the label is
+        already gone (benign, swallowed); any other non-success raises so the activity can retry.
+        """
+        path = f"/repos/{repo}/issues/{number}/labels/{quote(label, safe='')}"
+        response = self._request(
+            "DELETE",
+            path,
+            endpoint="/repos/{owner}/{repo}/issues/{issue_number}/labels/{name}",
+        )
+        if response.status_code == 404:
+            logger.info("stamphog github: label already absent, skipping removal", repo=repo, pr_number=number)
+            return
+        if response.status_code != 200:
+            raise StamphogGitHubError(
+                f"Failed to remove label from {repo}#{number}: {response.text[:200]}",
+                status_code=response.status_code,
+            )
+
+    def dismiss_pr_review(self, repo: str, pr_number: int, review_id: int, message: str) -> None:
+        """Dismiss a previously submitted review (``PUT .../reviews/{review_id}/dismissals``).
+
+        Used to retract a stale stamphog APPROVE once the PR head moves — GitHub keeps an approval
+        satisfying required reviews until it is explicitly dismissed. A 422 means the review is no
+        longer active (already dismissed, or the PR state changed underneath us), a benign no-op we
+        swallow; any other non-success raises so a real failure isn't mistaken for a dismissal.
+        """
+        path = f"/repos/{repo}/pulls/{pr_number}/reviews/{review_id}/dismissals"
+        response = self._request(
+            "PUT",
+            path,
+            endpoint="/repos/{owner}/{repo}/pulls/{pull_number}/reviews/{review_id}/dismissals",
+            json_body={"message": message, "event": "DISMISS"},
+        )
+        if response.status_code == 422:
+            logger.info(
+                "stamphog github: review no longer active, skipping dismissal",
+                repo=repo,
+                pr_number=pr_number,
+                review_id=review_id,
+            )
+            return
+        if response.status_code != 200:
+            raise StamphogGitHubError(
+                f"Failed to dismiss review {review_id} on {repo}#{pr_number}: {response.text[:200]}",
+                status_code=response.status_code,
+            )
 
     def upsert_sticky_comment(self, repo: str, number: int, body: str) -> dict:
         """Create or update Stamphog's single status comment on a PR, identified by a hidden marker.

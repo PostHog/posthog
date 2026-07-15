@@ -15,7 +15,7 @@ from django.db.models import Q
 from posthog.models.scoping.product_mixin import ProductTeamModel
 from posthog.models.utils import uuid7
 
-from .facade.enums import ChannelResolutionSource, DigestRunStatus, ReviewRunStatus, ReviewVerdict
+from .facade.enums import ChannelResolutionSource, DigestRunStatus, ReviewMode, ReviewRunStatus, ReviewVerdict
 
 
 # Lives on a separate product database (see products/db_routing.yaml), so it
@@ -34,6 +34,14 @@ class StamphogRepoConfig(ProductTeamModel):
     # Opt-in: capture merged PRs and fold them into the daily Slack digest. Independent of
     # `enabled` (review) so a repo can be reviewed without digests, or vice versa.
     digest_enabled = models.BooleanField(default=False)
+    # ALL reviews every relevant PR event (the default); LABEL reviews only PRs carrying trigger_label,
+    # mirroring the Action's label-gated opt-in flow.
+    review_mode = models.CharField(
+        max_length=16,
+        choices=[(m.value, m.value) for m in ReviewMode],
+        default=ReviewMode.ALL,
+    )
+    trigger_label = models.CharField(max_length=100, default="stamphog")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -140,6 +148,10 @@ class ReviewRun(ProductTeamModel):
     # the post_verdict activity (and the gate-block path) from the API responses.
     verdict_posted_at = models.DateTimeField(null=True)
     posted_review_id = models.BigIntegerField(null=True)
+    # Set when this run's GitHub APPROVE review was dismissed because the head moved. GitHub never
+    # auto-dismisses an approval on a new push, so a later run stamps this after retracting the stale
+    # one (see the dismiss_stale_approvals activity) — the flag also keeps a retry from re-dismissing.
+    approval_dismissed_at = models.DateTimeField(null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     completed_at = models.DateTimeField(null=True)

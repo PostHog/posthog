@@ -13,6 +13,7 @@ import {
     stamphogRepoConfigsSyncInstallationCreate,
 } from '../../generated/api'
 import type {
+    ReviewModeEnumApi,
     StamphogInstallInfoApi,
     StamphogRepoConfigApi,
     StamphogSyncInstallationResponseApi,
@@ -29,6 +30,8 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
     actions({
         setRepoEnabled: (id: string, enabled: boolean) => ({ id, enabled }),
         setDigestEnabled: (id: string, enabled: boolean) => ({ id, enabled }),
+        setReviewMode: (id: string, reviewMode: ReviewModeEnumApi) => ({ id, reviewMode }),
+        setTriggerLabel: (id: string, triggerLabel: string) => ({ id, triggerLabel }),
         repoUpdateDone: (id: string) => ({ id }),
         setRepoSearch: (search: string) => ({ search }),
     }),
@@ -98,6 +101,8 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
             {
                 setRepoEnabled: (state, { id }) => (state.includes(id) ? state : [...state, id]),
                 setDigestEnabled: (state, { id }) => (state.includes(id) ? state : [...state, id]),
+                setReviewMode: (state, { id }) => (state.includes(id) ? state : [...state, id]),
+                setTriggerLabel: (state, { id }) => (state.includes(id) ? state : [...state, id]),
                 repoUpdateDone: (state, { id }) => state.filter((x) => x !== id),
             },
         ],
@@ -148,6 +153,30 @@ export const stamphogSceneLogic = kea<stamphogSceneLogicType>([
                 actions.loadRepoConfigs()
             } catch {
                 lemonToast.error('Failed to update digest setting')
+            } finally {
+                actions.repoUpdateDone(id)
+            }
+        },
+        setReviewMode: async ({ id, reviewMode }) => {
+            try {
+                await stamphogRepoConfigsPartialUpdate(String(values.currentProjectId), id, {
+                    review_mode: reviewMode,
+                })
+                actions.loadRepoConfigs()
+            } catch {
+                lemonToast.error('Failed to update review mode')
+            } finally {
+                actions.repoUpdateDone(id)
+            }
+        },
+        setTriggerLabel: async ({ id, triggerLabel }) => {
+            try {
+                await stamphogRepoConfigsPartialUpdate(String(values.currentProjectId), id, {
+                    trigger_label: triggerLabel,
+                })
+                actions.loadRepoConfigs()
+            } catch {
+                lemonToast.error('Failed to update trigger label')
             } finally {
                 actions.repoUpdateDone(id)
             }

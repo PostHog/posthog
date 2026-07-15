@@ -173,6 +173,12 @@ const stamphogRepoConfigsCreate = (): ToolBase<typeof StamphogRepoConfigsCreateS
         if (params.digest_enabled !== undefined) {
             body['digest_enabled'] = params.digest_enabled
         }
+        if (params.review_mode !== undefined) {
+            body['review_mode'] = params.review_mode
+        }
+        if (params.trigger_label !== undefined) {
+            body['trigger_label'] = params.trigger_label
+        }
         const result = await context.api.request<Schemas.StamphogRepoConfig>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/stamphog/repo_configs/`,

@@ -16,7 +16,7 @@ from django.utils.dateparse import parse_datetime
 import structlog
 from celery import shared_task
 
-from products.stamphog.backend.facade.enums import ReviewRunStatus, ReviewVerdict
+from products.stamphog.backend.facade.enums import ReviewMode, ReviewRunStatus, ReviewVerdict
 from products.stamphog.backend.logic.audiences import resolve_audience_key
 from products.stamphog.backend.models import PullRequest, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.temporal.client import execute_stamphog_review_workflow
@@ -28,17 +28,77 @@ logger = structlog.get_logger(__name__)
 STAMPHOG_PR_EVENT_IDEMPOTENCY_TTL_SECONDS = 6 * 60
 STAMPHOG_PR_EVENT_IDEMPOTENCY_KEY_PREFIX = "stamphog:github:pr_event:"
 
-# PR actions worth a (re)review. Anything else (closed, assigned, edited, labeled, ...) is dropped.
-# `labeled` is deliberately excluded: every add fires a new delivery id, so toggling any label would
-# re-run the sandbox + LLM review without a code change — a cheap way to burn review capacity. A
-# label-gated re-review, if wanted, belongs behind a dedicated label with a per-PR cooldown.
-RELEVANT_PR_ACTIONS = frozenset({"opened", "synchronize", "ready_for_review", "reopened"})
+# PR actions worth a (re)review. Anything else (closed, assigned, edited, ...) is dropped.
+# `labeled` passes this filter but only ever queues a run for repos in LABEL review mode, when the
+# added label is the repo's own trigger label, and under a per-PR cooldown (_review_mode_skip_reason).
+# In ALL mode it stays ignored: every label add fires a new delivery id, so toggling any label would
+# re-run the sandbox + LLM review without a code change.
+RELEVANT_PR_ACTIONS = frozenset({"opened", "synchronize", "ready_for_review", "reopened", "labeled"})
+
+# Per-PR cooldown for label-triggered re-reviews, so removing/re-adding the trigger label can't spam
+# sandbox + LLM runs. Set only when a `labeled` event actually queues a run in LABEL mode.
+STAMPHOG_LABEL_REREVIEW_COOLDOWN_SECONDS = 10 * 60
+STAMPHOG_LABEL_REREVIEW_KEY_PREFIX = "stamphog:label_rereview:"
 
 # A run in one of these states is done and must not be superseded.
 TERMINAL_STATUSES = frozenset({ReviewRunStatus.COMPLETED, ReviewRunStatus.FAILED, ReviewRunStatus.SUPERSEDED})
 
 # PR body is trimmed to this at capture time so rows (and the digest LLM prompt) stay bounded.
 PR_BODY_EXCERPT_MAX_CHARS = 2000
+
+# Only these author associations may be auto-reviewed. A fork/external-contributor PR must never be:
+# an auto-approval could satisfy required reviews with zero human in the loop, and anyone could open
+# PRs to burn sandbox + LLM credits. (GitHub's association vocabulary; the trusted subset.)
+TRUSTED_AUTHOR_ASSOCIATIONS = frozenset({"OWNER", "MEMBER", "COLLABORATOR"})
+
+
+def _review_skip_reason(pr: dict[str, Any]) -> str | None:
+    """Why this PR must not enter the sandbox review path, or None to proceed.
+
+    Cheap, payload-only pre-filters that would otherwise burn a full sandbox + LLM run just to be
+    gate-refused inside it. The engine keeps the same bot/draft refusals as defense in depth; this is
+    only the early-out. Fork/external PRs are dropped here for security, not just cost (see the
+    TRUSTED_AUTHOR_ASSOCIATIONS note).
+    """
+    if pr.get("draft"):
+        # Drafts re-trigger via ready_for_review once opened for review, so reviewing one now is wasted.
+        return "draft"
+    user = pr.get("user") or {}
+    if user.get("type") == "Bot" or "[bot]" in (user.get("login") or ""):
+        # Bot authors (dependabot, renovate, ...) always need a human.
+        return "bot_author"
+    if pr.get("author_association") not in TRUSTED_AUTHOR_ASSOCIATIONS:
+        return "untrusted_author_association"
+    return None
+
+
+def _label_cooldown_key(repo_config: StamphogRepoConfig, pr_number: int) -> str:
+    return f"{STAMPHOG_LABEL_REREVIEW_KEY_PREFIX}{repo_config.id}:{pr_number}"
+
+
+def _review_mode_skip_reason(
+    repo_config: StamphogRepoConfig, action: str, payload: dict[str, Any], pr: dict[str, Any]
+) -> str | None:
+    """Why the repo's review mode drops this event, or None to proceed.
+
+    ALL mode reviews every relevant action but ignores `labeled` (any label add would re-run the
+    review with no code change). LABEL mode requires the trigger label to be present on the PR for
+    every action, and for `labeled` specifically also requires that the trigger label is what was just
+    added — plus a per-PR cooldown so label toggling can't spam runs.
+    """
+    if repo_config.review_mode != ReviewMode.LABEL:
+        return "labeled_ignored_in_all_mode" if action == "labeled" else None
+
+    label_names = {(label or {}).get("name") for label in pr.get("labels") or []}
+    if repo_config.trigger_label not in label_names:
+        return "label_absent"
+    if action == "labeled":
+        added_label = (payload.get("label") or {}).get("name") or ""
+        if added_label != repo_config.trigger_label:
+            return "other_label_added"
+        if cache.get(_label_cooldown_key(repo_config, pr["number"])) is not None:
+            return "label_cooldown"
+    return None
 
 
 def _resolve_repo_config(installation_id: str, repo: str) -> StamphogRepoConfig | None:
@@ -228,6 +288,105 @@ def _record_merged_pull_request(payload: dict[str, Any], delivery_id: str) -> No
     logger.info("stamphog_merged_pr_recorded", repo=repo, pr_number=pr_number, team_id=team_id)
 
 
+def _resolve_installation_team_id(installation_id: str) -> int | None:
+    """Team owning this installation: the oldest config row carrying it, mirroring _resolve_repo_config."""
+    config = (
+        StamphogRepoConfig.objects.unscoped()
+        .filter(provider="github", installation_id=installation_id)
+        .order_by("created_at", "id")
+        .first()
+    )
+    return config.team_id if config else None
+
+
+def _add_installation_repos(team_id: int, installation_id: str, repos: list[dict[str, Any]]) -> None:
+    """Create a disabled config row per newly installed repo, skipping any that already exist.
+
+    Rows start disabled so a repo added on GitHub merely appears in the toggle list — enabling reviews
+    stays a human decision. Conflicts (another team owns the triple, or this team already has the repo)
+    skip that one repo, never the batch: the same cross-team uniqueness the sync endpoint enforces.
+    """
+    for repo in repos:
+        full_name = (repo or {}).get("full_name") or ""
+        if not full_name:
+            continue
+        exists = (
+            StamphogRepoConfig.objects.unscoped()
+            .filter(provider="github", installation_id=installation_id, repository=full_name)
+            .exists()
+        )
+        if exists:
+            continue
+        try:
+            with transaction.atomic():
+                StamphogRepoConfig.objects.for_team(team_id).create(
+                    team_id=team_id,
+                    provider="github",
+                    repository=full_name,
+                    installation_id=installation_id,
+                    enabled=False,
+                    digest_enabled=False,
+                )
+        except IntegrityError:
+            logger.info("stamphog_installation_repo_add_conflict", repository=full_name, team_id=team_id)
+
+
+def _disable_installation_repos(team_id: int, installation_id: str, repos: list[dict[str, Any]]) -> None:
+    """Tombstone configs for repos removed from the installation: disable, keep the rows and history."""
+    names = [name for repo in repos if (name := (repo or {}).get("full_name"))]
+    if not names:
+        return
+    # updated_at explicitly: auto_now doesn't fire on queryset update().
+    disabled = (
+        StamphogRepoConfig.objects.for_team(team_id)
+        .filter(provider="github", installation_id=installation_id, repository__in=names)
+        .update(enabled=False, digest_enabled=False, updated_at=timezone.now())
+    )
+    logger.info("stamphog_installation_repos_removed", installation_id=installation_id, disabled=disabled)
+
+
+@shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
+def process_installation_event(payload: dict[str, Any], delivery_id: str) -> None:
+    """Mirror installation lifecycle changes (repos added/removed, app uninstalled) onto config rows.
+
+    Without this, a repo added to the installation after the initial sync never appears in the toggle
+    list until a manual re-sync. `installation_repositories` payloads carry repositories_added/removed;
+    a plain `installation` event with action "deleted" means the app was uninstalled, which disables
+    every row for the installation (tombstone semantics — rows and history are kept).
+    """
+    if delivery_id and _is_duplicate_pr_event(delivery_id):
+        logger.info("stamphog_installation_event_duplicate_skipped", delivery_id=delivery_id)
+        return
+
+    installation_id = str((payload.get("installation") or {}).get("id", ""))
+    if not installation_id:
+        logger.warning("stamphog_installation_event_missing_installation")
+        return
+
+    team_id = _resolve_installation_team_id(installation_id)
+    if team_id is None:
+        # No config carries this installation yet — the user-driven sync flow will bind it to a team.
+        logger.info("stamphog_installation_event_unbound", installation_id=installation_id)
+        return
+
+    action = payload.get("action", "")
+    if "repositories_added" in payload or "repositories_removed" in payload:
+        _add_installation_repos(team_id, installation_id, payload.get("repositories_added") or [])
+        _disable_installation_repos(team_id, installation_id, payload.get("repositories_removed") or [])
+    elif action == "deleted":
+        disabled = (
+            StamphogRepoConfig.objects.for_team(team_id)
+            .filter(provider="github", installation_id=installation_id)
+            .update(enabled=False, digest_enabled=False, updated_at=timezone.now())
+        )
+        logger.info("stamphog_installation_uninstalled", installation_id=installation_id, disabled=disabled)
+    else:
+        logger.info("stamphog_installation_event_ignored", action=action)
+
+    if delivery_id:
+        _mark_pr_event_processed(delivery_id)
+
+
 @shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
 def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> None:
     """Turn one verified pull_request webhook delivery into a queued ReviewRun."""
@@ -268,6 +427,15 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
         )
         return
 
+    # Cheap pre-sandbox drops (drafts, bots, fork/external authors) before we resolve config or spend a
+    # sandbox. Only affects the review path — the merged/closed digest capture returned above already.
+    skip_reason = _review_skip_reason(pr)
+    if skip_reason is not None:
+        logger.info("stamphog_pr_event_skipped", repo=repo, pr_number=pr_number, reason=skip_reason)
+        if delivery_id:
+            _mark_pr_event_processed(delivery_id)
+        return
+
     # Creation is guarded against cross-team duplicates (see StamphogRepoConfigViewSet).
     repo_config = _resolve_repo_config(installation_id, repo)
     if not repo_config:
@@ -275,6 +443,13 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
         return
     if not repo_config.enabled:
         logger.info("stamphog_pr_event_repo_disabled", repo=repo)
+        return
+
+    mode_skip_reason = _review_mode_skip_reason(repo_config, action, payload, pr)
+    if mode_skip_reason is not None:
+        logger.info("stamphog_pr_event_skipped", repo=repo, pr_number=pr_number, reason=mode_skip_reason)
+        if delivery_id:
+            _mark_pr_event_processed(delivery_id)
         return
 
     team_id = repo_config.team_id
@@ -332,6 +507,11 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
     except Exception as e:
         logger.exception("stamphog_pr_event_create_run_failed", repo=repo, pr_number=pr_number, error=str(e))
         raise cast(Any, process_pull_request_event).retry(exc=e)
+
+    # Arm the cooldown only once a label-triggered run actually queued, so a skipped or failed
+    # attempt doesn't block the next legitimate label add.
+    if action == "labeled" and repo_config.review_mode == ReviewMode.LABEL:
+        cache.set(_label_cooldown_key(repo_config, pr_number), True, timeout=STAMPHOG_LABEL_REREVIEW_COOLDOWN_SECONDS)
 
     logger.info(
         "stamphog_pr_event_queued",

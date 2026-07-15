@@ -37665,6 +37665,18 @@ export namespace Schemas {
       results: StamphogPullRequest[];
     }
 
+    /**
+     * * `all` - all
+     * * `label` - label
+     */
+    export type ReviewModeEnum = typeof ReviewModeEnum[keyof typeof ReviewModeEnum];
+
+
+    export const ReviewModeEnum = {
+      All: 'all',
+      Label: 'label',
+    } as const;
+
     export interface StamphogRepoConfig {
       readonly id: string;
       /**
@@ -37683,6 +37695,16 @@ export namespace Schemas {
       readonly installation_id: string;
       /** Whether merged PRs on this repo are captured for the daily Slack digest. */
       digest_enabled?: boolean;
+      /** When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.
+       *
+       * * `all` - all
+       * * `label` - label */
+      review_mode?: ReviewModeEnum;
+      /**
+         * Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'.
+         * @maxLength 100
+         */
+      trigger_label?: string;
       readonly created_at: string;
       readonly updated_at: string;
     }
@@ -45186,6 +45208,16 @@ export namespace Schemas {
       readonly installation_id?: string;
       /** Whether merged PRs on this repo are captured for the daily Slack digest. */
       digest_enabled?: boolean;
+      /** When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.
+       *
+       * * `all` - all
+       * * `label` - label */
+      review_mode?: ReviewModeEnum;
+      /**
+         * Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'.
+         * @maxLength 100
+         */
+      trigger_label?: string;
       readonly created_at?: string;
       readonly updated_at?: string;
     }

@@ -7,6 +7,7 @@ stable import target: ``from products.stamphog.backend.temporal.registry import 
 from __future__ import annotations
 
 from products.stamphog.backend.temporal.activities import (
+    dismiss_stale_approvals,
     fetch_review_context,
     mark_review_failed,
     post_verdict,
@@ -18,6 +19,7 @@ WORKFLOWS = [StamphogReviewWorkflow]
 
 ACTIVITIES = [
     fetch_review_context,
+    dismiss_stale_approvals,
     run_review_in_sandbox,
     post_verdict,
     mark_review_failed,

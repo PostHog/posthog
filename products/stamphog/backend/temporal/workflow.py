@@ -28,6 +28,7 @@ with temporalio.workflow.unsafe.imports_passed_through():
     from products.stamphog.backend.temporal.activities import (
         MarkReviewFailedInput,
         StamphogReviewInput,
+        dismiss_stale_approvals,
         fetch_review_context,
         mark_review_failed,
         post_verdict,
@@ -46,6 +47,15 @@ class StamphogReviewWorkflow(PostHogWorkflow):
                 fetch_review_context,
                 input,
                 start_to_close_timeout=FETCH_CONTEXT_TIMEOUT,
+                retry_policy=ACTIVITY_RETRY_POLICY,
+            )
+
+            # Dismiss any approval from an earlier head before re-reviewing, so a crashed re-review
+            # can't leave a stale stamphog approval satisfying required reviews (fail-closed ordering).
+            await workflow.execute_activity(
+                dismiss_stale_approvals,
+                input,
+                start_to_close_timeout=POST_VERDICT_TIMEOUT,
                 retry_policy=ACTIVITY_RETRY_POLICY,
             )
 

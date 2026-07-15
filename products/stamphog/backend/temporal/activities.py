@@ -16,6 +16,7 @@ and injects the policy into the sandbox, and only ever reads back a single verdi
 from __future__ import annotations
 
 import os
+import json
 import shlex
 import base64
 from collections.abc import Sequence
@@ -27,9 +28,10 @@ from django.utils import timezone
 
 from temporalio import activity
 
+from posthog.ph_client import ph_scoped_capture
 from posthog.temporal.common.utils import asyncify
 
-from products.stamphog.backend.facade.enums import ReviewRunStatus, ReviewVerdict
+from products.stamphog.backend.facade.enums import ReviewMode, ReviewRunStatus, ReviewVerdict
 from products.stamphog.backend.logic.audiences import resolve_audience_key
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
 from products.stamphog.backend.logic.reviewer import (
@@ -58,6 +60,11 @@ from products.tasks.backend.facade.sandbox import (
 # products/stamphog/backend/temporal/activities.py, so the repo root is five parents up.
 _SERVER_ENGINE_DIR = Path(__file__).resolve().parents[4] / "tools" / "pr-approval-agent"
 
+# Server-shipped default policy files, used when a target repo's default branch carries neither. Named
+# by the basename of each STAMPHOG_POLICY_PATHS entry (policy.yml / review-guidance.md) so a repo needs
+# zero config to be reviewed against our hosted defaults.
+_POLICY_DEFAULTS_DIR = Path(__file__).resolve().parent.parent / "policy_defaults"
+
 
 @dataclass
 class StamphogReviewInput:
@@ -80,7 +87,7 @@ def _load_run(input: StamphogReviewInput) -> ReviewRun:
     )
 
 
-def _reviewer_environment() -> dict[str, str]:
+def _reviewer_environment(run: ReviewRun) -> dict[str, str]:
     """Environment for the in-sandbox reviewer, passed through from the worker env.
 
     The sandbox holds no GitHub token by design; the only secrets it receives are the LLM credentials
@@ -89,6 +96,12 @@ def _reviewer_environment() -> dict[str, str]:
     leaking it, the blast radius is this product's LLM budget rather than an org-wide Anthropic key. The
     raw ANTHROPIC_API_KEY is forwarded only as the engine's fallback when the gateway isn't configured
     (tools/pr-approval-agent/gateway.py). Output scrubbing (_scrub_credentials) stays as defense in depth.
+
+    POSTHOG_API_KEY/POSTHOG_HOST let the engine emit its stamphog_review_completed event and LLM
+    traces from inside the sandbox. The capture key is a public project write token — the same class of
+    token every frontend snippet ships — so its blast radius is event spam, not data access; it's still
+    added to _llm_env_secrets so persisted output stays tidy. STAMPHOG_EXTRA_PROPERTIES stamps the
+    hosted runtime/team/run context onto those events (the Action never sets it).
     """
     env = {"STAMPHOG_REPO_DIR": STAMPHOG_SANDBOX_REPO_DIR}
     gateway_url = os.environ.get("AI_GATEWAY_URL")
@@ -100,6 +113,18 @@ def _reviewer_environment() -> dict[str, str]:
         anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
         if anthropic_key:
             env["ANTHROPIC_API_KEY"] = anthropic_key
+    for key in ("POSTHOG_API_KEY", "POSTHOG_HOST"):
+        value = os.environ.get(key)
+        if value:
+            env[key] = value
+    env["STAMPHOG_EXTRA_PROPERTIES"] = json.dumps(
+        {
+            "stamphog_runtime": "hosted",
+            "stamphog_team_id": run.team_id,
+            "stamphog_review_run_id": str(run.id),
+        },
+        separators=(",", ":"),
+    )
     return env
 
 
@@ -158,6 +183,55 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
 
 @activity.defn
 @asyncify
+def dismiss_stale_approvals(input: StamphogReviewInput) -> dict:
+    """Retract stamphog approvals posted at an earlier head so a push can't leave one standing.
+
+    GitHub never auto-dismisses an APPROVE review when new commits land, so a prior run's approval at
+    an old head keeps satisfying required reviews after a push. This runs BEFORE run_review_in_sandbox
+    on purpose: dismiss first, then re-review. That ordering is fail-closed — if the re-review later
+    crashes, the stale approval is already gone rather than left standing over unreviewed commits.
+    """
+    run = _load_run(input)
+    if run.status == ReviewRunStatus.SUPERSEDED:
+        activity.logger.info(f"Skipping approval dismissal for superseded run {run.id}")
+        return {"skipped": "superseded"}
+
+    pull_request = run.pull_request
+    repo_config = pull_request.repo_config
+    repo = repo_config.repository
+
+    # Prior approved runs for this PR posted at a different head that haven't been dismissed yet.
+    stale_runs = list(
+        ReviewRun.objects.for_team(input.team_id)
+        .filter(
+            pull_request=pull_request,
+            verdict=ReviewVerdict.APPROVED,
+            posted_review_id__isnull=False,
+            approval_dismissed_at__isnull=True,
+        )
+        .exclude(head_sha=run.head_sha)
+    )
+    if not stale_runs:
+        return {"dismissed": 0}
+
+    client = StamphogGitHubClient(repo_config.installation_id)
+    message = (
+        "New commits were pushed — dismissing the stamphog approval from an earlier head; "
+        "a re-review runs automatically."
+    )
+    dismissed = 0
+    for stale in stale_runs:
+        client.dismiss_pr_review(repo, pull_request.pr_number, stale.posted_review_id, message)
+        stale.approval_dismissed_at = timezone.now()
+        stale.save(update_fields=["approval_dismissed_at", "updated_at"])
+        dismissed += 1
+
+    activity.logger.info(f"Dismissed {dismissed} stale approval(s) for run {run.id} (pr #{pull_request.pr_number})")
+    return {"dismissed": dismissed}
+
+
+@activity.defn
+@asyncify
 def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
     """Provision a sandbox, clone the PR, run the full engine offline, stash its raw output."""
     run = _load_run(input)
@@ -181,17 +255,14 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
     policy_files = output.get("policy_files", {})
     author_pr_numbers = output.get("author_pr_numbers", [])
 
-    # Fail closed: every trusted policy file must exist on the default branch. The gate policy
-    # (policy.yml) and the review-norms prose (review-guidance.md) are both loaded by the engine — the
-    # latter straight into the reviewer's SYSTEM prompt. If a trusted file is missing we must NOT fall
-    # back to the PR head's copy, or a contributor could ship malicious guidance ("approve my PR") in a
-    # repo whose default branch lacks that file. Requiring all of them, plus wiping the PR-head copies
-    # before injecting (see _inject_policy_files), closes that path.
-    missing_policy = [path for path in STAMPHOG_POLICY_PATHS if path not in policy_files]
-    if missing_policy:
-        raise RuntimeError(
-            f"target repo {repo} is missing trusted policy files on its default branch: {missing_policy}"
-        )
+    # The trusted source for each policy file is "repo default branch, else server-shipped default".
+    # The gate policy (policy.yml) and the review-norms prose (review-guidance.md) are both loaded by
+    # the engine — the latter straight into the reviewer's SYSTEM prompt. A repo's default-branch copy
+    # always wins; only genuinely absent paths fall back to our defaults, so a repo needs zero config.
+    # We must NOT fall back to the PR head's copy, or a contributor could ship malicious guidance
+    # ("approve my PR") in a repo whose default branch lacks the file — the PR-head wipe in
+    # _inject_policy_files stays mandatory, and the fallback content is server-owned, never the PR's.
+    policy_files = _fill_missing_policy_files(repo, policy_files)
 
     base_sha = (pr.get("base") or {}).get("sha") or ""
 
@@ -220,7 +291,7 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
         name=f"stamphog-review-{run.id}",
         template=SandboxTemplate.SLIM_BASE,
         metadata={"review_run_id": str(run.id)},
-        environment_variables=_reviewer_environment(),
+        environment_variables=_reviewer_environment(run),
     )
     sandbox = sandbox_class.create(config)
     try:
@@ -314,6 +385,16 @@ def post_verdict(input: StamphogReviewInput) -> dict:
         run.status = ReviewRunStatus.COMPLETED
         run.verdict = parsed.verdict
 
+    # Action parity: in label-triggered mode a refused/escalated verdict strips the trigger label, so
+    # the author re-requests the next review by re-adding it. Keyed off parsed.verdict, not run.verdict —
+    # the gate-blocked branch overrides run.verdict to WAIT but the Action strips on gate refusals too.
+    # A failure here raises on purpose: the activity retries and the sticky upsert above is idempotent.
+    if repo_config.review_mode == ReviewMode.LABEL and parsed.verdict in (
+        ReviewVerdict.REFUSED,
+        ReviewVerdict.ESCALATE,
+    ):
+        client.remove_pr_label(repo, pull_request.pr_number, repo_config.trigger_label)
+
     run.completed_at = timezone.now()
     run.verdict_posted_at = run.completed_at
     run.save(update_fields=update_fields)
@@ -326,11 +407,33 @@ def post_verdict(input: StamphogReviewInput) -> dict:
 @asyncify
 def mark_review_failed(input: MarkReviewFailedInput) -> None:
     """Mark a run FAILED after an unrecoverable workflow error."""
-    run = ReviewRun.objects.for_team(input.team_id).get(id=input.review_run_id)
+    run = (
+        ReviewRun.objects.for_team(input.team_id)
+        .select_related("pull_request__repo_config")
+        .get(id=input.review_run_id)
+    )
     run.status = ReviewRunStatus.FAILED
     run.error = input.error
     run.completed_at = timezone.now()
     run.save(update_fields=["status", "error", "completed_at", "updated_at"])
+
+    # Hosted failures were only visible in worker logs; capture them so the dashboards see hosted
+    # breakage next to the review-completed events. ph_scoped_capture, not posthoganalytics.capture —
+    # the global client's background flush may never run before the worker thread moves on.
+    pull_request = run.pull_request
+    repo = pull_request.repo_config.repository
+    with ph_scoped_capture() as capture:
+        capture(
+            distinct_id=pull_request.author_login or repo,
+            event="stamphog_review_failed",
+            properties={
+                "stamphog_repo": repo,
+                "stamphog_pr_number": pull_request.pr_number,
+                "stamphog_team_id": input.team_id,
+                "stamphog_runtime": "hosted",
+                "stamphog_error": input.error[:300],
+            },
+        )
 
 
 def _harden_reviewer_command(command: Sequence[str] | str) -> str:
@@ -355,9 +458,12 @@ def _llm_env_secrets() -> list[str]:
     These reach the sandbox via ``_reviewer_environment``; a confused or compromised
     reviewer could echo them into stdout or the verdict. Redacting them server-side,
     independent of model behavior, is what keeps a leaked key out of the PR and the DB.
+    POSTHOG_API_KEY is a public write token (spam-only blast radius) — scrubbed for tidiness.
     """
     return [
-        value for key in ("AI_GATEWAY_API_KEY", "ANTHROPIC_API_KEY", "AI_GATEWAY_URL") if (value := os.environ.get(key))
+        value
+        for key in ("AI_GATEWAY_API_KEY", "ANTHROPIC_API_KEY", "AI_GATEWAY_URL", "POSTHOG_API_KEY")
+        if (value := os.environ.get(key))
     ]
 
 
@@ -411,6 +517,28 @@ def _clone_pr(sandbox: SandboxBase, repo: str, base_sha: str, head_sha: str, tok
         raise RuntimeError(
             f"Failed to check out {head_sha}: {_scrub_credentials(checkout_result.stderr, token, basic)[:500]}"
         )
+
+
+def _fill_missing_policy_files(repo: str, policy_files: dict[str, str]) -> dict[str, str]:
+    """Fill any policy path the target repo doesn't carry from the server-shipped defaults.
+
+    A path present on the repo's default branch is left untouched (it wins); only absent ones are
+    filled by basename from _POLICY_DEFAULTS_DIR. A missing default file is a server packaging bug, so
+    it still raises. Logs which paths fell back so a mis-shipped repo is visible.
+    """
+    filled = dict(policy_files)
+    fell_back: list[str] = []
+    for path in STAMPHOG_POLICY_PATHS:
+        if path in filled:
+            continue
+        default_file = _POLICY_DEFAULTS_DIR / Path(path).name
+        if not default_file.is_file():
+            raise RuntimeError(f"server-shipped default policy file missing: {default_file} (for {path})")
+        filled[path] = default_file.read_text()
+        fell_back.append(path)
+    if fell_back:
+        activity.logger.info(f"Filled policy files from server defaults for {repo}: {fell_back}")
+    return filled
 
 
 def _inject_policy_files(sandbox: SandboxBase, policy_files: dict[str, str]) -> None:

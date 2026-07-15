@@ -122,6 +122,8 @@ export const stamphogRepoConfigsCreateBodyProviderMax = 32
 
 export const stamphogRepoConfigsCreateBodyRepositoryMax = 255
 
+export const stamphogRepoConfigsCreateBodyTriggerLabelMax = 100
+
 export const StamphogRepoConfigsCreateBody = /* @__PURE__ */ zod.object({
     provider: zod
         .string()
@@ -137,6 +139,18 @@ export const StamphogRepoConfigsCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .optional()
         .describe('Whether merged PRs on this repo are captured for the daily Slack digest.'),
+    review_mode: zod
+        .enum(['all', 'label'])
+        .describe('\* `all` - all\n\* `label` - label')
+        .optional()
+        .describe(
+            "When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.\n\n\* `all` - all\n\* `label` - label"
+        ),
+    trigger_label: zod
+        .string()
+        .max(stamphogRepoConfigsCreateBodyTriggerLabelMax)
+        .optional()
+        .describe("Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'."),
 })
 
 /**
@@ -146,6 +160,8 @@ export const stamphogRepoConfigsUpdateBodyProviderDefault = `github`
 export const stamphogRepoConfigsUpdateBodyProviderMax = 32
 
 export const stamphogRepoConfigsUpdateBodyRepositoryMax = 255
+
+export const stamphogRepoConfigsUpdateBodyTriggerLabelMax = 100
 
 export const StamphogRepoConfigsUpdateBody = /* @__PURE__ */ zod.object({
     provider: zod
@@ -162,6 +178,18 @@ export const StamphogRepoConfigsUpdateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .optional()
         .describe('Whether merged PRs on this repo are captured for the daily Slack digest.'),
+    review_mode: zod
+        .enum(['all', 'label'])
+        .describe('\* `all` - all\n\* `label` - label')
+        .optional()
+        .describe(
+            "When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.\n\n\* `all` - all\n\* `label` - label"
+        ),
+    trigger_label: zod
+        .string()
+        .max(stamphogRepoConfigsUpdateBodyTriggerLabelMax)
+        .optional()
+        .describe("Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'."),
 })
 
 /**
@@ -171,6 +199,8 @@ export const stamphogRepoConfigsPartialUpdateBodyProviderDefault = `github`
 export const stamphogRepoConfigsPartialUpdateBodyProviderMax = 32
 
 export const stamphogRepoConfigsPartialUpdateBodyRepositoryMax = 255
+
+export const stamphogRepoConfigsPartialUpdateBodyTriggerLabelMax = 100
 
 export const StamphogRepoConfigsPartialUpdateBody = /* @__PURE__ */ zod.object({
     provider: zod
@@ -188,6 +218,18 @@ export const StamphogRepoConfigsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .optional()
         .describe('Whether merged PRs on this repo are captured for the daily Slack digest.'),
+    review_mode: zod
+        .enum(['all', 'label'])
+        .describe('\* `all` - all\n\* `label` - label')
+        .optional()
+        .describe(
+            "When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.\n\n\* `all` - all\n\* `label` - label"
+        ),
+    trigger_label: zod
+        .string()
+        .max(stamphogRepoConfigsPartialUpdateBodyTriggerLabelMax)
+        .optional()
+        .describe("Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'."),
 })
 
 /**

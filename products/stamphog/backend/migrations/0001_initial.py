@@ -128,6 +128,15 @@ class Migration(migrations.Migration):
                 ("enabled", models.BooleanField(default=True)),
                 ("installation_id", models.CharField(max_length=64)),
                 ("digest_enabled", models.BooleanField(default=False)),
+                (
+                    "review_mode",
+                    models.CharField(
+                        choices=[("all", "all"), ("label", "label")],
+                        default=products.stamphog.backend.facade.enums.ReviewMode["ALL"],
+                        max_length=16,
+                    ),
+                ),
+                ("trigger_label", models.CharField(default="stamphog", max_length=100)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
             ],
@@ -251,6 +260,7 @@ class Migration(migrations.Migration):
                 ("error", models.TextField(blank=True)),
                 ("verdict_posted_at", models.DateTimeField(null=True)),
                 ("posted_review_id", models.BigIntegerField(null=True)),
+                ("approval_dismissed_at", models.DateTimeField(null=True)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
                 ("completed_at", models.DateTimeField(null=True)),
