@@ -35,7 +35,8 @@ export function AppMetricsTimeSeriesChart({
     showLegend = false,
     minimal = false,
 }: AppMetricsTimeSeriesChartProps): JSX.Element {
-    const theme = useChartTheme()
+    // Track the <body theme> attribute so dark-mode storybook snapshots render dark canvas colors.
+    const theme = useChartTheme(undefined, { trackBodyTheme: true })
 
     const series = useMemo<Series[]>(
         () =>

@@ -33,6 +33,8 @@ export function useChartStyleRefreshEnabled(): boolean {
     return !!featureFlags[FEATURE_FLAGS.QUILL_CHART_STYLE_REFRESH]
 }
 
+const noopSubscribe = (): (() => void) => () => {}
+
 function subscribeToBodyTheme(callback: () => void): () => void {
     if (typeof MutationObserver !== 'function') {
         return () => {}
@@ -43,22 +45,30 @@ function subscribeToBodyTheme(callback: () => void): () => void {
 }
 
 function getBodyTheme(): string | null {
-    return document.body.getAttribute('theme')
+    return typeof document !== 'undefined' ? document.body.getAttribute('theme') : null
+}
+
+export interface UseChartThemeOptions {
+    /** Also derive darkness from the `<body theme>` attribute, re-reading the theme when it flips.
+     *  themeLogic's `isDarkModeOn` is a selector that doesn't recompute on a bare DOM attribute
+     *  change, so storybook's snapshot runner — which flips `<body theme>` after mount without going
+     *  through themeLogic — leaves a canvas chart's colors stale (light chart on a dark page). Opt in
+     *  only for charts drawn to a canvas from CSS variables; leave off elsewhere so the memo key, and
+     *  every existing chart snapshot, stays unchanged. */
+    trackBodyTheme?: boolean
 }
 
 /** Theme for app quill charts. `buildTheme()` reads CSS variables from the DOM, so the memo re-reads
- *  them when the theme flips. Darkness is tracked via the `<body theme>` attribute rather than
- *  themeLogic alone: storybook snapshots flip that attribute directly on a mounted page without
- *  going through themeLogic, and canvas colors would otherwise stay stale (the app sets the same
- *  attribute via useThemedHtml, so both paths are covered). Behind `QUILL_CHART_STYLE_REFRESH` it
- *  also applies the refreshed chart colors (faint dashed grid, muted axis lines); caller `overrides`
- *  win over both. Pass a stable (memoized or module-level) `overrides` object — a fresh object every
- *  render defeats the memo. */
-export function useChartTheme(overrides?: Partial<ChartTheme>): ChartTheme {
+ *  them when darkness flips. Behind `QUILL_CHART_STYLE_REFRESH` it also applies the refreshed chart
+ *  colors (faint dashed grid, muted axis lines); caller `overrides` win over both. Pass a stable
+ *  (memoized or module-level) `overrides` object — a fresh object every render defeats the memo.
+ *  See {@link UseChartThemeOptions.trackBodyTheme} for the storybook dark-mode opt-in. */
+export function useChartTheme(overrides?: Partial<ChartTheme>, options?: UseChartThemeOptions): ChartTheme {
     const { isDarkModeOn } = useValues(themeLogic)
-    const bodyTheme = useSyncExternalStore(subscribeToBodyTheme, getBodyTheme)
     const refreshEnabled = useChartStyleRefreshEnabled()
-    const isDark = bodyTheme != null ? bodyTheme === 'dark' : isDarkModeOn
+    const trackBodyTheme = options?.trackBodyTheme ?? false
+    const bodyTheme = useSyncExternalStore(trackBodyTheme ? subscribeToBodyTheme : noopSubscribe, getBodyTheme)
+    const isDark = trackBodyTheme && bodyTheme != null ? bodyTheme === 'dark' : isDarkModeOn
     return useMemo(
         () => buildTheme({ ...(refreshEnabled ? refreshedThemeOverrides(isDark) : {}), ...overrides }),
         [isDark, refreshEnabled, overrides]
