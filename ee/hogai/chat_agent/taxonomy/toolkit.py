@@ -21,8 +21,10 @@ from posthog.schema import (
     TaskExecutionStatus,
 )
 
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES
 
+from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.event_usage import EventSource
 from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import ActorsPropertyTaxonomyQueryRunner
@@ -266,7 +268,16 @@ class TaxonomyAgentToolkit:
         else:
             query = EventTaxonomyQuery(actionId=action_id, maxPropertyValues=25, properties=properties)
             verbose_name = f"action with ID {action_id}"
-        runner = EventTaxonomyQueryRunner(query, self._team, user=self._user)
+        # Sampling property values scans up to 30 days of events, which can exceed the default 60s
+        # limit for high-volume teams. Route to the offline cluster with a longer budget, mirroring
+        # the offline snapshot DAG, so a slow scan degrades gracefully instead of failing the tool.
+        runner = EventTaxonomyQueryRunner(
+            query,
+            self._team,
+            user=self._user,
+            settings=HogQLGlobalSettings(max_execution_time=60 * 5),
+            workload=Workload.OFFLINE,
+        )
         with tags_context(
             product=Product.MAX_AI,
             feature=Feature.POSTHOG_AI,

@@ -22,6 +22,11 @@ from products.actions.backend.models.action import Action
 
 DEFAULT_LIMIT = 500
 
+# Cap how many events the property-values subquery scans. Without this, sampling values for a
+# property runs an unbounded 30-day aggregation that times out for high-volume events. We only
+# need a sample of values, so reading the most recent matching events is enough.
+PROPERTY_VALUES_SCAN_LIMIT = 100_000
+
 
 class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTaxonomyQueryResponse]):
     """
@@ -54,6 +59,8 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
                 timings=self.timings,
                 modifiers=self.modifiers,
                 limit_context=self.limit_context,
+                settings=self.settings,
+                workload=self.workload,
             )
 
         results: list[EventTaxonomyItem] = []
@@ -208,6 +215,8 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
                         FROM
                             events
                         WHERE {filter}
+                        ORDER BY timestamp DESC
+                        LIMIT {scan_limit}
                     )
                     ARRAY JOIN kv.1 AS key, kv.2 AS value
                     WHERE value IS NOT NULL AND value != ''
@@ -215,6 +224,7 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
                     ORDER BY count DESC
                 """,
                 placeholders={
+                    "scan_limit": ast.Constant(value=PROPERTY_VALUES_SCAN_LIMIT),
                     "props": ast.Array(
                         exprs=[
                             ast.Tuple(
