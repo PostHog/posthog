@@ -17,6 +17,7 @@ from llm_gateway.products.config import (
     TWIG_US_APP_ID,
     WIZARD_EU_APP_ID,
     WIZARD_US_APP_ID,
+    check_free_tier_model_access,
     check_product_access,
     get_product_config,
     resolve_product_alias,
@@ -440,3 +441,93 @@ class TestValidateProduct:
 
     def test_resolve_product_alias_returns_input_if_not_aliased(self):
         assert resolve_product_alias("wizard") == "wizard"
+
+
+class TestCheckFreeTierModelAccess:
+    @pytest.fixture(autouse=True)
+    def gate_enabled(self, monkeypatch: pytest.MonkeyPatch):
+        from llm_gateway.config import get_settings
+
+        monkeypatch.setenv("LLM_GATEWAY_POSTHOG_CODE_MODEL_GATE_ENABLED", "true")
+        get_settings.cache_clear()
+        yield
+        get_settings.cache_clear()
+
+    def test_gate_disabled_by_default_allows_premium_models(self, monkeypatch: pytest.MonkeyPatch):
+        # Constraint on the cutover: this deploys inert - behavior only changes
+        # once the env flag flips.
+        from llm_gateway.config import get_settings
+
+        monkeypatch.delenv("LLM_GATEWAY_POSTHOG_CODE_MODEL_GATE_ENABLED", raising=False)
+        get_settings.cache_clear()
+        allowed, error = check_free_tier_model_access(
+            product="posthog_code",
+            model="claude-fable-5",
+            provider=None,
+            code_usage_billed=False,
+            usage_unlimited=False,
+        )
+        assert allowed is True
+        assert error is None
+
+    @pytest.mark.parametrize(
+        "product,model,code_usage_billed,usage_unlimited,expected_allowed",
+        [
+            # Unbilled org on the Code surface: premium blocked, open model allowed
+            ("posthog_code", "claude-fable-5", False, False, False),
+            ("posthog_code", "@cf/zai-org/glm-5.2", False, False, True),
+            # The alias routes are the same surface - a URL spelling must not bypass
+            ("array", "claude-fable-5", False, False, False),
+            ("twig", "gpt-5.5", False, False, False),
+            # Org pays for Code usage: everything stays open
+            ("posthog_code", "claude-fable-5", True, False, True),
+            # Staff bypass mirrors the cost-throttle exemption
+            ("posthog_code", "claude-fable-5", False, True, True),
+            # Other products keep their own allowlists; the gate is Code-only
+            ("llm_gateway", "claude-fable-5", False, False, True),
+            # No model in the body: nothing to gate (product allowlist still applies)
+            ("posthog_code", None, False, False, True),
+        ],
+    )
+    def test_gate_matrix(
+        self,
+        product: str,
+        model: str | None,
+        code_usage_billed: bool,
+        usage_unlimited: bool,
+        expected_allowed: bool,
+    ):
+        allowed, error = check_free_tier_model_access(
+            product=product,
+            model=model,
+            provider=None,
+            code_usage_billed=code_usage_billed,
+            usage_unlimited=usage_unlimited,
+        )
+        assert allowed is expected_allowed
+        if expected_allowed:
+            assert error is None
+        else:
+            assert model is not None and model in error
+            assert "@cf/zai-org/glm-5.2" in error
+
+    def test_denied_model_alias_variant_is_also_denied(self):
+        # The old gate's hole: an exact-match list let date-suffixed aliases
+        # through. Prefix matching must not - but a free-listed model's own
+        # variants stay allowed.
+        allowed, _ = check_free_tier_model_access(
+            product="posthog_code",
+            model="claude-fable-5-20260301",
+            provider=None,
+            code_usage_billed=False,
+            usage_unlimited=False,
+        )
+        assert allowed is False
+        allowed, _ = check_free_tier_model_access(
+            product="posthog_code",
+            model="@cf/zai-org/glm-5.2-fp8",
+            provider=None,
+            code_usage_billed=False,
+            usage_unlimited=False,
+        )
+        assert allowed is True

@@ -17,11 +17,17 @@ from llm_gateway.services.plan_resolver import PlanInfo
 from llm_gateway.services.quota_resolver import QuotaResourceStatus
 
 
-def _make_request(body: dict | None = None, headers: dict[str, str] | None = None) -> Request:
+def _make_request(
+    body: dict | None = None,
+    headers: dict[str, str] | None = None,
+    path: str = "/openai/v1/chat/completions",
+) -> Request:
     request = MagicMock(spec=Request)
     request.state = MagicMock()
     del request.state._cached_body
     request.headers = Headers(headers or {})
+    # configure_mock dodges the read-only URL.path property the spec exposes
+    request.configure_mock(**{"url.path": path})
 
     if body is not None:
         raw = json.dumps(body).encode()
@@ -133,8 +139,6 @@ class TestEnforceThrottles:
         user_id: int = 1,
     ) -> ThrottleContext:
         request = _make_request(body)
-        request.url = MagicMock()
-        request.url.path = "/openai/v1/chat/completions"
         user = _make_user(auth_method=auth_method, user_id=user_id)
 
         captured_context: ThrottleContext | None = None
@@ -238,3 +242,30 @@ class TestResolvePlanAndQuota:
 
         quota_mock.assert_not_awaited()
         assert quota_status.limited is False
+
+
+class TestFreeTierModelGateWiring:
+    @pytest.mark.asyncio
+    async def test_gated_model_is_rejected_on_the_enforcement_path(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # The gate decision lives in products.config; this pins that
+        # enforce_throttles actually consults it on the request path (with the
+        # quota bit failing closed when unresolved).
+        from llm_gateway.config import get_settings
+
+        monkeypatch.setenv("LLM_GATEWAY_POSTHOG_CODE_MODEL_GATE_ENABLED", "true")
+        get_settings.cache_clear()
+        try:
+            request = _make_request({"model": "claude-fable-5", "messages": []}, path="/array/v1/messages")
+            user = _make_user(auth_method="oauth_access_token", user_id=7)
+
+            runner = MagicMock()
+            runner.check = AsyncMock(return_value=ThrottleResult.allow())
+
+            with patch("llm_gateway.dependencies.ensure_costs_fresh"):
+                with pytest.raises(HTTPException) as exc_info:
+                    await enforce_throttles(request=request, user=user, runner=runner)
+
+            assert exc_info.value.status_code == 403
+            assert "claude-fable-5" in exc_info.value.detail
+        finally:
+            get_settings.cache_clear()

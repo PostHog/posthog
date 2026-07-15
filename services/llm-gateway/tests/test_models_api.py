@@ -241,3 +241,52 @@ class TestResponsesModeModels:
             assert response.status_code == 200
             model_ids = {m["id"] for m in response.json()["data"]}
             assert "gpt-5.3-codex" in model_ids
+
+
+class TestFreeTierModelListing:
+    @pytest.fixture(autouse=True)
+    def gate_enabled(self, monkeypatch: pytest.MonkeyPatch):
+        from llm_gateway.config import get_settings
+
+        monkeypatch.setenv("LLM_GATEWAY_POSTHOG_CODE_MODEL_GATE_ENABLED", "true")
+        get_settings.cache_clear()
+        yield
+        get_settings.cache_clear()
+
+    def test_anonymous_caller_falls_closed_to_free_tier(self, client: TestClient):
+        # No token (or an unresolvable one) filters instead of erroring - the
+        # listing must agree with what enforcement would serve an unbilled org.
+        response = client.get("/posthog_code/v1/models")
+        assert response.status_code == 200
+        ids = {m["id"] for m in response.json()["data"]}
+        assert "claude-opus-4-5" not in ids
+        assert all(i.startswith("@cf/zai-org/glm") for i in ids)
+
+    def test_billed_org_sees_full_list(self, app, mock_db_pool):
+        from unittest.mock import AsyncMock
+
+        from llm_gateway.services.quota_resolver import QuotaResourceStatus
+
+        conn = AsyncMock()
+        conn.fetchrow = AsyncMock(
+            return_value={
+                "id": "key_id",
+                "user_id": 1,
+                "scopes": ["llm_gateway:read"],
+                "current_team_id": 1,
+                "distinct_id": "billed-user",
+                "is_staff": False,
+            }
+        )
+        mock_db_pool.acquire = AsyncMock(return_value=conn)
+        mock_db_pool.release = AsyncMock()
+
+        with TestClient(app) as c:
+            c.app.state.quota_resolver.get_resource_status = AsyncMock(
+                return_value=QuotaResourceStatus(limited=False, code_usage_billing_active=True)
+            )
+            response = c.get("/posthog_code/v1/models", headers={"Authorization": "Bearer phx_billed_org_models"})
+
+        assert response.status_code == 200
+        ids = {m["id"] for m in response.json()["data"]}
+        assert "claude-opus-4-5" in ids

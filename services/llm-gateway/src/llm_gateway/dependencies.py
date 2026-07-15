@@ -13,13 +13,14 @@ from llm_gateway.auth.service import AuthService, get_auth_service
 from llm_gateway.circuit_breaker import AnthropicCircuitBreaker
 from llm_gateway.products.config import (
     ALLOWED_PRODUCTS,
+    check_free_tier_model_access,
     check_product_access,
     get_product_config,
     resolve_product_alias,
 )
 from llm_gateway.rate_limiting.cost_refresh import ensure_costs_fresh
 from llm_gateway.rate_limiting.runner import ThrottleRunner
-from llm_gateway.rate_limiting.throttles import ThrottleContext
+from llm_gateway.rate_limiting.throttles import ThrottleContext, is_usage_unlimited
 from llm_gateway.request_context import (
     extract_posthog_provider_from_headers,
     get_request_id,
@@ -205,6 +206,22 @@ async def enforce_throttles(
         team_id=user.team_id,
         product=product,
     )
+
+    model_allowed, model_error = check_free_tier_model_access(
+        product=product,
+        model=await get_model_from_request(request),
+        provider=await get_provider_from_request(request),
+        code_usage_billed=quota_status.code_usage_billing_active,
+        usage_unlimited=is_usage_unlimited(user),
+    )
+    if not model_allowed:
+        logger.warning(
+            "free_tier_model_blocked",
+            user_id=user.user_id,
+            team_id=user.team_id,
+            product=product,
+        )
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=model_error)
 
     context = ThrottleContext(
         user=user,

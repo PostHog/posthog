@@ -184,6 +184,12 @@ class Settings(BaseSettings):
     user_cost_limits: dict[str, UserCostLimit] = DEFAULT_USER_COST_LIMITS
     user_cost_limits_disabled: bool = False
 
+    # Free-tier model gate for posthog_code: when enabled, users whose org
+    # doesn't pay for Code usage only get the open models below.
+    # TODO: flip to True when Code migrates all users to usage-based billing
+    posthog_code_model_gate_enabled: bool = False
+    posthog_code_free_tier_models: list[str] = ["@cf/zai-org/glm-5.2"]
+
     default_fallback_cost_usd: float = 0.01
 
     posthog_api_base_url: str = "https://us.posthog.com"

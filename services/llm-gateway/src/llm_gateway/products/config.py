@@ -296,6 +296,40 @@ def _model_matches_product_allowlist(
     )
 
 
+def check_free_tier_model_access(
+    product: str,
+    model: str | None,
+    provider: str | None,
+    code_usage_billed: bool,
+    usage_unlimited: bool,
+) -> tuple[bool, str | None]:
+    settings = get_settings()
+    if not settings.posthog_code_model_gate_enabled:
+        return True, None
+    if resolve_product_alias(product) != "posthog_code":
+        return True, None
+    if code_usage_billed or usage_unlimited or model is None:
+        return True, None
+
+    free_models = frozenset(settings.posthog_code_free_tier_models)
+    if _model_matches_product_allowlist(model, free_models, provider=provider, settings=settings):
+        return True, None
+
+    available = ", ".join(sorted(free_models))
+    return False, (
+        f"Model '{model}' needs a paid PostHog plan. Models available on the free tier: {available}. "
+        "Add a payment method to your organization to unlock all models."
+    )
+
+
+def filter_to_free_tier_models(model_ids: list[str]) -> list[str]:
+    """Subset of model_ids available on the posthog_code free tier (see
+    check_free_tier_model_access)."""
+    settings = get_settings()
+    free_models = frozenset(settings.posthog_code_free_tier_models)
+    return [m for m in model_ids if _model_matches_product_allowlist(m, free_models, settings=settings)]
+
+
 def check_product_access(
     product: str,
     auth_method: str,
