@@ -84,7 +84,6 @@ You can find or create an API key in your [Fireworks AI account settings](https:
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
