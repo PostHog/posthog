@@ -780,8 +780,8 @@
             "type": "boolean"
         },
         "session_recording_retention_period": {
-            "description": "How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).\n\n* `30d` - 30 Days\n* `90d` - 90 Days\n* `1y` - 1 Year\n* `5y` - 5 Years",
-            "enum": ["30d", "90d", "1y", "5y"],
+            "description": "How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).\n\n* `7d` - 7 Days\n* `30d` - 30 Days\n* `90d` - 90 Days\n* `1y` - 1 Year\n* `5y` - 5 Years",
+            "enum": ["7d", "30d", "90d", "1y", "5y"],
             "type": "string"
         },
         "session_recording_sample_rate": {
