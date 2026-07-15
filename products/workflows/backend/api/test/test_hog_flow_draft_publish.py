@@ -398,8 +398,10 @@ class TestHogFlowDraftPublish(APIBaseTest):
 
         entry = ActivityLog.objects.filter(scope="HogFlow", item_id=flow_id).order_by("-created_at").first()
         assert entry is not None
-        draft_changes = [c for c in entry.detail["changes"] if c["field"] == "draft"]
-        assert draft_changes, entry.detail["changes"]
+        detail = entry.detail
+        assert detail is not None
+        draft_changes = [c for c in detail["changes"] if c["field"] == "draft"]
+        assert draft_changes, detail["changes"]
         for change in draft_changes:
             # Draft snapshots carry action inputs (auth headers, API keys) — contents must never
             # land in team-readable activity rows, only the fact that the draft changed.
