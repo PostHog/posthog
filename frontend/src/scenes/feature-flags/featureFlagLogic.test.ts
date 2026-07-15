@@ -258,6 +258,51 @@ describe('featureFlagLogic', () => {
         })
     })
 
+    describe('saveFeatureFlag error handling', () => {
+        it('shows the friendly permission toast on a save-time 403', async () => {
+            useMocks({
+                patch: {
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/`]: () => [
+                        403,
+                        { type: 'authentication_error', code: 'permission_denied', detail: 'Nope' },
+                    ],
+                },
+            })
+            const toastSpy = jest.spyOn(lemonToast, 'error').mockReturnValue('toast-id')
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.saveFeatureFlag(logic.values.featureFlag)
+                }).toDispatchActions(['saveFeatureFlagFailure'])
+
+                expect(toastSpy).toHaveBeenCalledWith('Nope')
+            } finally {
+                toastSpy.mockRestore()
+            }
+        })
+
+        it('does not show the permission toast for other save errors', async () => {
+            useMocks({
+                patch: {
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/`]: () => [
+                        500,
+                        { type: 'server_error', detail: 'boom' },
+                    ],
+                },
+            })
+            const toastSpy = jest.spyOn(lemonToast, 'error').mockReturnValue('toast-id')
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.saveFeatureFlag(logic.values.featureFlag)
+                }).toDispatchActions(['saveFeatureFlagFailure'])
+
+                // The permission-specific branch must not fire; the generic loaders toast owns this case.
+                expect(toastSpy).not.toHaveBeenCalledWith('Nope')
+            } finally {
+                toastSpy.mockRestore()
+            }
+        })
+    })
+
     describe('setMultivariateEnabled functionality', () => {
         it('adds default variants when enabling multivariate', async () => {
             await expectLogic(logic).toMatchValues({
