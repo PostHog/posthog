@@ -532,7 +532,7 @@ def _iter_time_range_pagination(
                 else:
                     # Unreachable: on the non-resume path chunk_params is always
                     # set, and on the resume path last_paging_url is always set.
-                    raise RuntimeError("Cannot retry truncated JSON: no cursor and no initial chunk params")
+                    raise RuntimeError("Cannot retry truncated JSON: no cursor and no initial chunk params")  # noqa: B904
                 continue
             malformed_json_attempts = 0
 

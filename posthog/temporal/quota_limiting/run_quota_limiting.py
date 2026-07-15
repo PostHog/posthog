@@ -57,7 +57,7 @@ async def run_quota_limiting_all_orgs(
         except Exception as e:
             capture_exception(e)
             # Raise exception without large context to avoid "Failure exceeds size limit"
-            raise Exception(f"Quota limiting failed: {type(e).__name__}: {str(e)[:200]}...")
+            raise Exception(f"Quota limiting failed: {type(e).__name__}: {str(e)[:200]}...")  # noqa: B904
     return result
 
 

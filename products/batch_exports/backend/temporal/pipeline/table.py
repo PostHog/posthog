@@ -422,7 +422,7 @@ class Table(TableBase, typing.Generic[FieldType]):
         try:
             return next(field for field in self.fields if field.name == key or field.alias == key)
         except StopIteration:
-            raise KeyError(key)
+            raise KeyError(key)  # noqa: B904
 
     def is_mutable(self) -> bool:
         return len(self.primary_key) > 0 and len(self.version_key) > 0

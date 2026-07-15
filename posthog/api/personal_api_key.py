@@ -160,7 +160,7 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
                         f"You must be a member of all organizations that you are scoping the key to."
                     )
         except ValueError:
-            raise serializers.ValidationError("Invalid organization UUID")
+            raise serializers.ValidationError("Invalid organization UUID")  # noqa: B904
 
         return scoped_organizations
 

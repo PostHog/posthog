@@ -90,7 +90,7 @@ def _parse_team_id(raw_team_id: Any) -> int | None:
     try:
         return int(raw_team_id)
     except (TypeError, ValueError):
-        raise ValueError("Team id must be an integer")
+        raise ValueError("Team id must be an integer")  # noqa: B904
 
 
 def _parse_batch_size(raw_batch_size: Any) -> int | None:
@@ -99,7 +99,7 @@ def _parse_batch_size(raw_batch_size: Any) -> int | None:
     try:
         batch_size = int(raw_batch_size)
     except (TypeError, ValueError):
-        raise ValueError("Batch size must be an integer")
+        raise ValueError("Batch size must be an integer")  # noqa: B904
     if batch_size < 1:
         raise ValueError("Batch size must be at least 1")
     if batch_size > notebooks_api.MAX_NOTEBOOK_MIGRATION_BATCH_SIZE:

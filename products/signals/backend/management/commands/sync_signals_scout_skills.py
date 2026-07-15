@@ -109,7 +109,7 @@ class Command(BaseCommand):
             try:
                 return [Team.objects.get(id=team_id)]
             except Team.DoesNotExist:
-                raise CommandError(f"Team {team_id} not found")
+                raise CommandError(f"Team {team_id} not found")  # noqa: B904
         # all_enabled — pull every team that has at least one enabled SignalScoutConfig.
         # `.unscoped()` is intentional: this is a cross-team management scan, same as the
         # Temporal coordinator. The default `.objects` manager is fail-closed

@@ -55,7 +55,7 @@ def resolve_effective_team_id(team_id: int) -> int:
     try:
         team = Team.objects.using("default").only("parent_team_id").get(id=team_id)
     except Team.DoesNotExist:
-        raise TeamScopeError(f"Team {team_id} not found on default DB")
+        raise TeamScopeError(f"Team {team_id} not found on default DB")  # noqa: B904
     return team.parent_team_id or team_id
 
 

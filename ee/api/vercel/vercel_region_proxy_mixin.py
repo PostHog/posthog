@@ -155,7 +155,7 @@ class VercelRegionProxyMixin:
                 error=str(e),
                 integration="vercel",
             )
-            raise exceptions.APIException("Unable to proxy request to EU region")
+            raise exceptions.APIException("Unable to proxy request to EU region")  # noqa: B904
 
     def _should_proxy_to_eu(self, installation_id: str | None, request: HttpRequest) -> bool:
         if not installation_id or self.current_region != "us":

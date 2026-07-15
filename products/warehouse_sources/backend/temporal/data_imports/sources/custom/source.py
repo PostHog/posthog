@@ -786,7 +786,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         try:
             manifest = json.loads(config.manifest_json)
         except json.JSONDecodeError as exc:
-            raise ManifestValidationError(f"Manifest is not valid JSON: {exc.msg} (line {exc.lineno}, col {exc.colno})")
+            raise ManifestValidationError(f"Manifest is not valid JSON: {exc.msg} (line {exc.lineno}, col {exc.colno})")  # noqa: B904
         # Structural validation only — no resource-graph checks. This runs on
         # every sync and schema listing of already-stored manifests, so a
         # graph problem on one resource must not take down the source's other

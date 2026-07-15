@@ -596,4 +596,4 @@ def get_table_name(query):
     try:
         return re.findall(r"[\.\s]`?([a-z0-9_]+)`?\s+(?:ON CLUSTER '[a-z0-9_]+'\s+)?|\(", query)[0]
     except Exception:
-        raise ValueError(f"No table name found in query {query}")
+        raise ValueError(f"No table name found in query {query}")  # noqa: B904

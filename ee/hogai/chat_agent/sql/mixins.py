@@ -202,7 +202,7 @@ class HogQLOutputParserMixin(HogQLDatabaseMixin):
                 )
             ):
                 err_msg = "HogQL parsing error: this query isn't valid HogQL."
-            raise PydanticOutputParserException(llm_output=cleaned_query, validation_message=err_msg)
+            raise PydanticOutputParserException(llm_output=cleaned_query, validation_message=err_msg)  # noqa: B904
 
         return AssistantHogQLQuery(query=cleaned_query)
 

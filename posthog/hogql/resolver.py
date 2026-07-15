@@ -1070,7 +1070,7 @@ class Resolver(CloningVisitor):
         try:
             pattern = re2.compile(regex)
         except re2.error as e:
-            raise QueryError(f"COLUMNS() has an invalid regex pattern: {e}")
+            raise QueryError(f"COLUMNS() has an invalid regex pattern: {e}")  # noqa: B904
         scope = self.scopes[-1]
         all_table_types: list[ast.TableOrSelectType] = list(scope.tables.values()) + list(scope.anonymous_tables)
         regex_matched_fields: list[ast.Expr] = []
@@ -2015,7 +2015,7 @@ class Resolver(CloningVisitor):
                         try:
                             value = value[int(link)]
                         except (ValueError, IndexError):
-                            raise QueryError(f"Cannot resolve field: {'.'.join(parsed_chain)}")
+                            raise QueryError(f"Cannot resolve field: {'.'.join(parsed_chain)}")  # noqa: B904
                     else:
                         raise QueryError(f"Cannot resolve field: {'.'.join(parsed_chain)}")
                 global_type = resolve_constant_data_type(value)
@@ -2071,7 +2071,7 @@ class Resolver(CloningVisitor):
             try:
                 loop_type = loop_type.get_child(str(next_chain), self.context)
             except NotImplementedError:
-                raise QueryError(
+                raise QueryError(  # noqa: B904
                     f"Cannot access property '{next_chain}' on '{'.'.join(resolved_chain)}'. "
                     f"This can happen when a column alias shadows a table field. Try renaming the alias."
                 )

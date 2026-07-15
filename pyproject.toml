@@ -328,7 +328,6 @@ exclude = [
 [tool.ruff.lint]
 ignore = [
     "B017",  # ~38: assertRaises(Exception) too broad
-    "B904",  # ~488: raise without from in except
     "B905",  # ~153: zip() without strict=
     "C901",  # ~527: function too complex
     "E501",  # ~4697: line too long

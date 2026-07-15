@@ -188,7 +188,7 @@ async def _get_snowflake_integration(integration_id: int, team_id: int) -> Snowf
             id=integration_id, team_id=team_id, kind=Integration.IntegrationKind.SNOWFLAKE
         )
     except Integration.DoesNotExist:
-        raise SnowflakeIntegrationNotFoundError(integration_id, team_id)
+        raise SnowflakeIntegrationNotFoundError(integration_id, team_id)  # noqa: B904
 
     return SnowflakeIntegration(integration)
 
@@ -517,7 +517,7 @@ def load_private_key(private_key: str, passphrase: str | None) -> bytes:
                     return loaded
             msg = "Could not load private key: passphrase was given but private key is not encrypted"
 
-        raise InvalidPrivateKeyError(msg)
+        raise InvalidPrivateKeyError(msg)  # noqa: B904
 
     return p_key.private_bytes(
         encoding=serialization.Encoding.DER,
@@ -699,7 +699,7 @@ class SnowflakeClient:
             await self.execute_async_query(f'USE WAREHOUSE "{self.warehouse}"', fetch_results=False)
         except snowflake.connector.errors.ProgrammingError as exc:
             if exc.msg is not None and "Object does not exist" in exc.msg:
-                raise SnowflakeWarehouseUsageError(self.warehouse)
+                raise SnowflakeWarehouseUsageError(self.warehouse)  # noqa: B904
             raise
 
     async def get_query_status(self, query_id: str, throw_if_error: bool = True) -> QueryStatus:
@@ -862,7 +862,7 @@ class SnowflakeClient:
             _, metadata = result
         except snowflake.connector.errors.ProgrammingError as e:
             if "does not exist" in str(e):
-                raise SnowflakeTableNotFoundError(table.name)
+                raise SnowflakeTableNotFoundError(table.name)  # noqa: B904
             else:
                 raise
 
@@ -1102,17 +1102,17 @@ class SnowflakeClient:
                 )
                 if e.msg is not None:
                     err_msg += f": {e.msg}"
-                raise SnowflakeWarehouseSuspendedError(err_msg)
+                raise SnowflakeWarehouseSuspendedError(err_msg)  # noqa: B904
             elif e.errno in (630, 604) and e.msg is not None:
-                raise SnowflakeQueryServerTimeoutError(e.msg)
+                raise SnowflakeQueryServerTimeoutError(e.msg)  # noqa: B904
             elif e.errno == 904 and e.msg is not None and "invalid identifier" in e.msg:
-                raise SnowflakeIncompatibleSchemaError(e.msg)
+                raise SnowflakeIncompatibleSchemaError(e.msg)  # noqa: B904
             elif e.errno == 3001:
-                raise SnowflakeInsufficientPrivilegesError(
+                raise SnowflakeInsufficientPrivilegesError(  # noqa: B904
                     f"Failed to execute COPY INTO due to insufficient privileges: {e.msg or 'no message provided'}"
                 )
 
-            raise SnowflakeFileNotLoadedError(
+            raise SnowflakeFileNotLoadedError(  # noqa: B904
                 table.name,
                 "NO STATUS",
                 0,

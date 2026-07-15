@@ -187,7 +187,7 @@ class CallMCPServerTool(MaxTool):
             result = await self._call_server(server_url, tool_name, arguments)
             return result, None
         except MCPClientError as e:
-            raise MaxToolRetryableError(f"MCP server error: {e}")
+            raise MaxToolRetryableError(f"MCP server error: {e}")  # noqa: B904
 
     async def _get_cached_tool_list(self, server_url: str) -> str | None:
         """Return a formatted tool list from Postgres, or None if the cache is empty."""
@@ -316,7 +316,7 @@ class CallMCPServerTool(MaxTool):
         except Exception:
             inst = self._get_installation(server_url)
             await database_sync_to_async(_mark_needs_reauth_sync)(inst["id"])
-            raise MaxToolFatalError(
+            raise MaxToolFatalError(  # noqa: B904
                 f"Authentication failed for {server_url} and token refresh failed. "
                 "Ask the user to re-authenticate with this MCP server in the MCP store settings page."
             )

@@ -713,7 +713,7 @@ class ButtonTileSerializer(serializers.ModelSerializer):
             try:
                 validator(value)
             except Exception:
-                raise serializers.ValidationError("Must be a valid URL or a pathname starting with /")
+                raise serializers.ValidationError("Must be a valid URL or a pathname starting with /")  # noqa: B904
         return value
 
 
@@ -1049,7 +1049,7 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
             try:
                 normalized.append(str(uuid.UUID(v)))
             except ValueError:
-                raise serializers.ValidationError(f"Invalid UUID: {v}")
+                raise serializers.ValidationError(f"Invalid UUID: {v}")  # noqa: B904
 
         valid_ids = self._filter_out_non_existing_quick_filter_ids(normalized, self.context["get_team"]().id)
         if len(valid_ids) != len(normalized):
@@ -1283,7 +1283,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                     id=use_dashboard, team__project_id=self.context["get_team"]().project_id
                 )
             except Dashboard.DoesNotExist:
-                raise serializers.ValidationError({"use_dashboard": "Invalid value provided"})
+                raise serializers.ValidationError({"use_dashboard": "Invalid value provided"})  # noqa: B904
 
             # Duplicating a dashboard reads and copies all of its content (filters, variables, tiles, insights),
             # so the caller must have at least viewer access to the source — mirrors the copy_tile/move_tile checks.
@@ -1332,7 +1332,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                     error=error,
                     exc_info=True,
                 )
-                raise serializers.ValidationError({"use_template": f"Invalid template provided: {use_template}"})
+                raise serializers.ValidationError({"use_template": f"Invalid template provided: {use_template}"})  # noqa: B904
 
         elif existing_dashboard:
             existing_tiles = (
@@ -1759,7 +1759,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                         organization_membership__organization_id=instance.team.organization_id,
                     )
                 except User.DoesNotExist:
-                    raise serializers.ValidationError("User not found in this organization.")
+                    raise serializers.ValidationError("User not found in this organization.")  # noqa: B904
             else:
                 created_by = user
                 last_modified_by = None
@@ -1784,7 +1784,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                         setattr(text, attr, val)
                     text.save()
                 except Text.DoesNotExist:
-                    raise serializers.ValidationError({"text": "Text tile not found in this team."})
+                    raise serializers.ValidationError({"text": "Text tile not found in this team."})  # noqa: B904
             else:
                 text = Text.objects.create(**validated_data)
             tile, created = DashboardSerializer._upsert_tile(instance, tile_data, text=text)
@@ -1800,7 +1800,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                         organization_membership__organization_id=instance.team.organization_id,
                     )
                 except User.DoesNotExist:
-                    raise serializers.ValidationError("User not found in this organization.")
+                    raise serializers.ValidationError("User not found in this organization.")  # noqa: B904
             else:
                 created_by = user
                 last_modified_by = None
@@ -1825,7 +1825,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                         setattr(button_tile, attr, val)
                     button_tile.save()
                 except ButtonTile.DoesNotExist:
-                    raise serializers.ValidationError({"button_tile": "Button tile not found in this team."})
+                    raise serializers.ValidationError({"button_tile": "Button tile not found in this team."})  # noqa: B904
             else:
                 button_tile = ButtonTile.objects.create(**validated_data)
             tile, created = DashboardSerializer._upsert_tile(instance, tile_data, button_tile=button_tile)
@@ -1854,7 +1854,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                         request=request,
                     )
                 except DashboardWidget.DoesNotExist:
-                    raise serializers.ValidationError({"widget": "Widget not found in this team."})
+                    raise serializers.ValidationError({"widget": "Widget not found in this team."})  # noqa: B904
             else:
                 try:
                     canonical_widget_type, config = prepare_widget_tile_create(
@@ -2473,7 +2473,7 @@ class DashboardsViewSet(
                 tile.save(update_fields=["dashboard_id", "team_id"])
         except DjangoValidationError:
             logger.exception("validation_error_while_moving_dashboard_tile")
-            raise exceptions.ValidationError("Invalid request data for moving tile.")
+            raise exceptions.ValidationError("Invalid request data for moving tile.")  # noqa: B904
 
         serializer = DashboardSerializer(
             from_dashboard,
@@ -2520,7 +2520,7 @@ class DashboardsViewSet(
                     DashboardSerializer._clone_widget_tile_to_dashboard(tile, destination, cast(User, request.user))
             except DjangoValidationError:
                 logger.warning("validation_error_while_copying_dashboard_tile", exc_info=True)
-                raise exceptions.ValidationError("Unable to copy tile due to invalid data.")
+                raise exceptions.ValidationError("Unable to copy tile due to invalid data.")  # noqa: B904
             return Response(
                 DashboardSerializer(
                     get_object_or_404(Dashboard, id=destination.pk, team__project_id=self.team.project_id),
@@ -2546,9 +2546,9 @@ class DashboardsViewSet(
                 tile.copy_to_dashboard(destination)
         except DjangoValidationError:
             logger.warning("validation_error_while_copying_dashboard_tile", exc_info=True)
-            raise exceptions.ValidationError("Unable to copy tile due to invalid data.")
+            raise exceptions.ValidationError("Unable to copy tile due to invalid data.")  # noqa: B904
         except IntegrityError:
-            raise exceptions.ValidationError(
+            raise exceptions.ValidationError(  # noqa: B904
                 "This insight is already on the destination dashboard."
                 if tile.insight is not None
                 else "This text card is already on the destination dashboard."

@@ -138,7 +138,7 @@ async def _get_azure_blob_integration(integration_id: int, team_id: int) -> Azur
     try:
         integration = await Integration.objects.aget(id=integration_id, team_id=team_id)
     except Integration.DoesNotExist:
-        raise AzureBlobIntegrationNotFoundError(integration_id, team_id)
+        raise AzureBlobIntegrationNotFoundError(integration_id, team_id)  # noqa: B904
 
     return AzureBlobIntegration(integration)
 
@@ -203,7 +203,7 @@ class AzureBlobConsumer(Consumer):
                 retry_policy=ExponentialRetry(initial_backoff=15, increment_base=3, retry_total=3),
             )
         except ValueError:
-            raise MalformedConnectionStringError()
+            raise MalformedConnectionStringError()  # noqa: B904
 
         container_client = blob_service_client.get_container_client(inputs.container_name)
 
@@ -261,7 +261,7 @@ class AzureBlobConsumer(Consumer):
             )
         except HttpResponseError as exc:
             if _is_authorization_failure_response_error(exc):
-                raise MissingRequiredPermissionsError()
+                raise MissingRequiredPermissionsError()  # noqa: B904
             else:
                 raise
 
@@ -287,7 +287,7 @@ class AzureBlobConsumer(Consumer):
             )
         except HttpResponseError as exc:
             if _is_authorization_failure_response_error(exc):
-                raise MissingRequiredPermissionsError()
+                raise MissingRequiredPermissionsError()  # noqa: B904
             else:
                 raise
 

@@ -169,7 +169,7 @@ async def session() -> aioboto3.Session:
         botocore.exceptions.ClientError,
         botocore.exceptions.NoRegionError,
     ):
-        raise pytest.skip("Missing AWS credentials")
+        raise pytest.skip("Missing AWS credentials")  # noqa: B904
 
     return session
 
@@ -196,7 +196,7 @@ async def kms_key(session: aioboto3.Session) -> collections.abc.AsyncIterator[di
         botocore.exceptions.ClientError,
         botocore.exceptions.NoRegionError,
     ):
-        raise pytest.skip("Could not create KMS key")
+        raise pytest.skip("Could not create KMS key")  # noqa: B904
 
 
 @pytest.fixture(scope="module")
@@ -232,7 +232,7 @@ async def s3_bucket(bucket_name: str, s3_client: "S3Client", region: str):
         botocore.exceptions.PartialCredentialsError,
         botocore.exceptions.ClientError,
     ):
-        raise pytest.skip("Could not setup S3 bucket")
+        raise pytest.skip("Could not setup S3 bucket")  # noqa: B904
 
     yield bucket_name
 
@@ -253,7 +253,7 @@ async def account_id(session) -> str:
             botocore.exceptions.PartialCredentialsError,
             botocore.exceptions.ClientError,
         ):
-            raise pytest.skip("Could not obtain current identity")
+            raise pytest.skip("Could not obtain current identity")  # noqa: B904
 
     return identity["Account"]
 
@@ -269,7 +269,7 @@ async def identity_role(session) -> str:
             botocore.exceptions.PartialCredentialsError,
             botocore.exceptions.ClientError,
         ):
-            raise pytest.skip("Could not obtain current identity")
+            raise pytest.skip("Could not obtain current identity")  # noqa: B904
 
     return identity_role_name
 
@@ -452,10 +452,10 @@ async def aws_role(
                     exc.response["Error"]["Code"] != "MalformedPolicyDocument"
                     or "Invalid principal" not in exc.response["Error"]["Message"]
                 ) and exc.response["Error"]["Code"] != "EntityAlreadyExists":
-                    raise pytest.skip(f"Failed with an unknown error when creating role: {type(exc)} {exc}")
+                    raise pytest.skip(f"Failed with an unknown error when creating role: {type(exc)} {exc}")  # noqa: B904
 
                 if attempt >= max_attempts:
-                    raise pytest.skip("Failed multiple times to create role")
+                    raise pytest.skip("Failed multiple times to create role")  # noqa: B904
 
                 await asyncio.sleep(delay)
 
@@ -463,7 +463,7 @@ async def aws_role(
                 botocore.exceptions.NoCredentialsError,
                 botocore.exceptions.PartialCredentialsError,
             ):
-                raise pytest.skip("Credentials error when attempting to create role")
+                raise pytest.skip("Credentials error when attempting to create role")  # noqa: B904
 
             else:
                 break

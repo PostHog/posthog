@@ -60,7 +60,7 @@ def execute_task_in_sandbox(input: ExecuteTaskInput) -> ExecuteTaskOutput:
                 task_id=ctx.task_id, run_id=ctx.run_id, repository=ctx.repository, create_pr=ctx.create_pr
             )
         except Exception as e:
-            raise SandboxExecutionError(
+            raise SandboxExecutionError(  # noqa: B904
                 "Failed to execute task in sandbox",
                 {
                     "task_id": ctx.task_id,

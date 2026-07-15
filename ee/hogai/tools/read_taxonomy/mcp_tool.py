@@ -29,4 +29,4 @@ class ReadTaxonomyMCPTool(MCPTool[ReadTaxonomyToolArgs]):
 
             return await _execute_query()
         except ValueError as e:
-            raise MaxToolRetryableError(str(e))
+            raise MaxToolRetryableError(str(e))  # noqa: B904

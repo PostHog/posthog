@@ -609,7 +609,7 @@ def enable_team_backfill(*, team_id: int, organization_id: str | UUID, table_nam
     try:
         server = DuckgresServer.objects.get(organization_id=organization_id)
     except DuckgresServer.DoesNotExist:
-        raise DucklingBackfillEnableError(
+        raise DucklingBackfillEnableError(  # noqa: B904
             "No managed warehouse is provisioned for this organization. Provision one first."
         )
 

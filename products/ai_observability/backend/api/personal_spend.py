@@ -105,7 +105,7 @@ def _parse_date_param(value: str, field: str, now: datetime.datetime) -> datetim
     try:
         return relative_date_parse(value, UTC, now=now)
     except Exception as exc:
-        raise exceptions.ValidationError({field: f"Could not parse `{value}`: {exc}"})
+        raise exceptions.ValidationError({field: f"Could not parse `{value}`: {exc}"})  # noqa: B904
 
 
 def _resolve_window(date_from: str, date_to: str | None) -> tuple[datetime.datetime, datetime.datetime]:
@@ -867,7 +867,7 @@ def _compute_spend_analysis(
         team = Team.objects.get(pk=team_id)
     except Team.DoesNotExist:
         logger.exception("personal_spend.team_missing", team_id=team_id)
-        raise exceptions.NotFound("Internal analytics team is not provisioned on this deployment.")
+        raise exceptions.NotFound("Internal analytics team is not provisioned on this deployment.")  # noqa: B904
 
     # Tag the underlying ClickHouse reads with the LLM_ANALYTICS product so they show up
     # in the existing per-product Prometheus + cost-attribution dashboards alongside the
@@ -1072,7 +1072,7 @@ class PersonalSpendCrossRegionAuthentication(WebhookSignatureAuthentication):
         except UnicodeDecodeError:
             # The base class decodes the raw body before verifying; garbage
             # bytes must be an auth failure, not a 500.
-            raise exceptions.AuthenticationFailed("Invalid request body encoding.")
+            raise exceptions.AuthenticationFailed("Invalid request body encoding.")  # noqa: B904
 
 
 class _InternalSpendRequestSerializer(_SpendQueryParamsSerializer):
@@ -1158,14 +1158,14 @@ class PersonalSpendEUProxyViewSet(_PersonalSpendUserViewSet):
             )
         except requests.RequestException as exc:
             logger.exception("personal_spend.cross_region_proxy_failed", error=str(exc))
-            raise _CrossRegionUpstreamError()
+            raise _CrossRegionUpstreamError()  # noqa: B904
 
         if upstream.status_code == status.HTTP_200_OK:
             try:
                 payload = upstream.json()
             except ValueError:
                 logger.exception("personal_spend.cross_region_proxy_bad_json")
-                raise _CrossRegionUpstreamError()
+                raise _CrossRegionUpstreamError()  # noqa: B904
             cache.set(cache_key, payload, timeout=CACHE_TIMEOUT_SECONDS)
             return Response(payload, status=status.HTTP_200_OK)
 

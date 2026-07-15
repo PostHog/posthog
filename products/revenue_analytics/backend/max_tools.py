@@ -209,5 +209,5 @@ class FilterRevenueAnalyticsTool(MaxTool):
                 content = "✅ Updated revenue analytics filters."
                 filters = RevenueAnalyticsAssistantFilters.model_validate(result["output"])
             except Exception as e:
-                raise ValueError(f"Failed to generate RevenueAnalyticsAssistantFilters: {e}")
+                raise ValueError(f"Failed to generate RevenueAnalyticsAssistantFilters: {e}")  # noqa: B904
         return content, filters

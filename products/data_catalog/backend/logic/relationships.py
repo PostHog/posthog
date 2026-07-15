@@ -131,7 +131,7 @@ def propose_relationship(
         # A concurrent reverse-orientation proposal won the fingerprint (the DB constraint kills the
         # race the logic check alone cannot).
         existing = RelationshipProposal.objects.for_team(team.id).filter(undirected_fingerprint=fingerprint).first()
-        raise CatalogConflict(
+        raise CatalogConflict(  # noqa: B904
             detail={
                 "error": "A proposal for this join pair already exists.",
                 "proposal_id": str(existing.id) if existing else None,
@@ -216,10 +216,10 @@ def _probe_join(
     except ValidationError:
         raise
     except ExposedHogQLError as e:
-        raise ValidationError({"join": f"The join does not work: {e}"})
+        raise ValidationError({"join": f"The join does not work: {e}"})  # noqa: B904
     except Exception as e:
         capture_exception(e)
-        raise ValidationError({"join": "The join could not be validated against the data."})
+        raise ValidationError({"join": "The join could not be validated against the data."})  # noqa: B904
 
 
 def _acquire_accessor_lock(proposal: RelationshipProposal) -> None:

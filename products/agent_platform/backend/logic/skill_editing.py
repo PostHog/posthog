@@ -128,11 +128,11 @@ def _publish_next_version(team: Team, *, user: User, skill_name: str, fields: di
     try:
         return publish_skill_version(team, user=user, skill_name=skill_name, base_version=latest.version, **fields)
     except LLMSkillNotFoundError:
-        raise ValidationError(f"Skill '{skill_name}' was not found in the skill store.")
+        raise ValidationError(f"Skill '{skill_name}' was not found in the skill store.")  # noqa: B904
     except LLMSkillVersionConflictError:
-        raise SkillStoreConflict()
+        raise SkillStoreConflict()  # noqa: B904
     except LLMSkillVersionLimitError as e:
-        raise ValidationError(
+        raise ValidationError(  # noqa: B904
             f"Skill '{skill_name}' has reached the maximum of {e.max_version} versions. "
             "Archive and recreate the skill to continue publishing."
         )
@@ -169,7 +169,7 @@ def publish_skill_md_edit(team: Team, *, user: User, skill_name: str, content: s
         parsed = parse_skill_md(content)
     except SkillImportError as e:
         if content.startswith("---"):
-            raise ValidationError(f"SKILL.md frontmatter is invalid: {e}")
+            raise ValidationError(f"SKILL.md frontmatter is invalid: {e}")  # noqa: B904
         parsed = None
     if parsed is None:
         fields: dict[str, Any] = {"body": content}
@@ -195,4 +195,4 @@ def create_store_skill(team: Team, *, user: User, name: str, description: str, b
     except LLMSkillDuplicateNameConflictError:
         # A concurrent create won the race — surface as a conflict so the caller
         # retries and takes the publish-new-version path instead.
-        raise SkillStoreConflict(f"A skill named '{name}' was just created in the store. Retry the import.")
+        raise SkillStoreConflict(f"A skill named '{name}' was just created in the store. Retry the import.")  # noqa: B904

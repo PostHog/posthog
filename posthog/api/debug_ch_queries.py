@@ -424,7 +424,7 @@ class DebugCHQueries(viewsets.ViewSet):
         try:
             team = Team.objects.select_related("organization").get(id=int(team_id))
         except (Team.DoesNotExist, TypeError, ValueError):
-            raise exceptions.NotFound(f"Team {team_id} not found.")
+            raise exceptions.NotFound(f"Team {team_id} not found.")  # noqa: B904
 
         config = get_or_create_team_extension(team, TeamExperimentsConfig)
         config.experiment_precomputation_enabled = enabled
@@ -484,7 +484,7 @@ class DebugCHQueries(viewsets.ViewSet):
         try:
             hours = int(request.query_params.get("hours", 1))
         except (TypeError, ValueError):
-            raise exceptions.ValidationError("hours must be an integer.")
+            raise exceptions.ValidationError("hours must be an integer.")  # noqa: B904
         hours = max(1, min(hours, 168))  # clamp to 1h–7d
 
         team_id_filter: Optional[int] = None
@@ -492,7 +492,7 @@ class DebugCHQueries(viewsets.ViewSet):
             try:
                 team_id_filter = int(request.query_params["team_id"])
             except (TypeError, ValueError):
-                raise exceptions.ValidationError("team_id must be an integer.")
+                raise exceptions.ValidationError("team_id must be an integer.")  # noqa: B904
             if team_id_filter <= 0:
                 raise exceptions.ValidationError("team_id must be a positive integer.")
 
@@ -501,7 +501,7 @@ class DebugCHQueries(viewsets.ViewSet):
             try:
                 experiment_id_filter = int(request.query_params["experiment_id"])
             except (TypeError, ValueError):
-                raise exceptions.ValidationError("experiment_id must be an integer.")
+                raise exceptions.ValidationError("experiment_id must be an integer.")  # noqa: B904
             if experiment_id_filter <= 0:
                 raise exceptions.ValidationError("experiment_id must be a positive integer.")
 
@@ -521,7 +521,7 @@ class DebugCHQueries(viewsets.ViewSet):
             try:
                 exception_code_filter = int(request.query_params["exception_code"])
             except (TypeError, ValueError):
-                raise exceptions.ValidationError("exception_code must be an integer.")
+                raise exceptions.ValidationError("exception_code must be an integer.")  # noqa: B904
             if exception_code_filter <= 0:
                 raise exceptions.ValidationError("exception_code must be a positive integer.")
 
@@ -720,7 +720,7 @@ class DebugCHQueries(viewsets.ViewSet):
         try:
             hours = int(request.query_params.get("hours", 24))
         except (TypeError, ValueError):
-            raise exceptions.ValidationError("hours must be an integer.")
+            raise exceptions.ValidationError("hours must be an integer.")  # noqa: B904
         hours = max(1, min(hours, 168))  # clamp to 1h–7d
 
         params: dict = {
@@ -935,7 +935,7 @@ class DebugCHQueries(viewsets.ViewSet):
         try:
             hours = int(request.query_params.get("hours", 168))
         except (TypeError, ValueError):
-            raise exceptions.ValidationError("hours must be an integer.")
+            raise exceptions.ValidationError("hours must be an integer.")  # noqa: B904
         hours = max(1, min(hours, 504))  # clamp to 1h–21d
 
         bucket_fn = "toStartOfHour" if hours <= 48 else "toStartOfDay"

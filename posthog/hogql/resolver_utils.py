@@ -252,7 +252,7 @@ def expand_hogqlx_query(node: ast.HogQLXTag, team_id: Optional[int]):
         query = clone_expr(runner.to_query(), clear_locations=True)
         return query
     except Exception as e:
-        raise ResolutionError(f"Error parsing query tag: {e}", start=node.start, end=node.end)
+        raise ResolutionError(f"Error parsing query tag: {e}", start=node.start, end=node.end)  # noqa: B904
 
 
 def extract_select_queries(select: ast.SelectSetQuery | ast.SelectQuery) -> Generator[ast.SelectQuery]:

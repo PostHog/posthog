@@ -1166,7 +1166,7 @@ class BasePrinter(Visitor[str]):
                 try:
                     rendered = clickhouse_name.format(*arg_arr)
                 except (KeyError, IndexError) as e:
-                    raise QueryError(f"Invalid argument reference in function '{node.name}': {str(e)}")
+                    raise QueryError(f"Invalid argument reference in function '{node.name}': {str(e)}")  # noqa: B904
             else:
                 placeholder_count = clickhouse_name.count("{}")
                 if len(node.args) != placeholder_count:

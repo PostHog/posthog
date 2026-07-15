@@ -753,7 +753,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         except Exception as e:
             # If anything goes wrong with hog function creation, capture the error but continue with plugin creation
             capture_exception(e)
-            raise ValidationError(
+            raise ValidationError(  # noqa: B904
                 "Plugin creation is no longer possible. Please refer to the Hog Functions documentation for more information."
             )
 

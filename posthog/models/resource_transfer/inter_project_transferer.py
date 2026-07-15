@@ -299,7 +299,7 @@ def build_resource_duplication_graph(
                 target_model=edge.target_model.__name__,
                 target_pk=str(edge.target_primary_key),
             )
-            raise ValueError(
+            raise ValueError(  # noqa: B904
                 f"Could not fetch dynamic relationship {edge.target_model.__name__}:{edge.target_primary_key}"
             )
 
@@ -572,7 +572,7 @@ def _get_mapped_substitutions(
                 source_kind=source_kind,
                 source_pk=str(source_pk),
             )
-            raise ValueError(f"Could not find source resource: {source_kind} {source_pk}")
+            raise ValueError(f"Could not find source resource: {source_kind} {source_pk}")  # noqa: B904
 
         dest_model = dest_visitor.get_model()
         try:
@@ -587,7 +587,7 @@ def _get_mapped_substitutions(
                 dest_kind=dest_kind,
                 dest_pk=str(dest_pk),
             )
-            raise ValueError(f"Could not find substituted resource: {dest_kind} {dest_pk}")
+            raise ValueError(f"Could not find substituted resource: {dest_kind} {dest_pk}")  # noqa: B904
 
         normalized_key: ResourceTransferKey = (source_kind, source_resource.pk)
         mapped_substitutions[normalized_key] = dest_resource

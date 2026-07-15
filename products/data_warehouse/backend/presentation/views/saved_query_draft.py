@@ -28,7 +28,7 @@ class DataWarehouseSavedQueryDraftSerializer(serializers.ModelSerializer):
             try:
                 saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id, team_id=validated_data["team_id"])
             except DataWarehouseSavedQuery.DoesNotExist:
-                raise serializers.ValidationError({"saved_query_id": "Saved query not found."})
+                raise serializers.ValidationError({"saved_query_id": "Saved query not found."})  # noqa: B904
             count = DataWarehouseSavedQueryDraft.objects.filter(
                 saved_query_id=saved_query_id,
                 team_id=validated_data["team_id"],

@@ -68,7 +68,7 @@ def calculation_interval_to_order(interval: AlertCalculationInterval | None) -> 
     try:
         return CALCULATION_INTERVAL_ORDER[interval]
     except KeyError:
-        raise ValueError(f"Unhandled alert calculation interval: {interval!r}")
+        raise ValueError(f"Unhandled alert calculation interval: {interval!r}")  # noqa: B904
 
 
 def alert_calculation_interval_to_relativedelta(alert_calculation_interval: AlertCalculationInterval) -> relativedelta:

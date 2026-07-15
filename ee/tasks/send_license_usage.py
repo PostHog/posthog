@@ -102,4 +102,4 @@ def send_license_usage():
             raise err
         except:
             # If the posthoganalytics call errors, just throw the original error rather than that error
-            raise err
+            raise err  # noqa: B904

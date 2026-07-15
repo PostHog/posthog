@@ -99,7 +99,7 @@ class InsightContext:
             if return_exceptions:
                 results = error_message
             else:
-                raise MaxToolRetryableError(error_message)
+                raise MaxToolRetryableError(error_message)  # noqa: B904
 
         return format_prompt_string(
             prompt_template,

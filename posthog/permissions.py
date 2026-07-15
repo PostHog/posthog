@@ -161,7 +161,7 @@ class OrganizationAdminWritePermissions(BasePermission):
         try:
             membership = OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization)
         except OrganizationMembership.DoesNotExist:
-            raise NotFound("Organization not found.")
+            raise NotFound("Organization not found.")  # noqa: B904
 
         return membership.level >= OrganizationMembership.Level.ADMIN
 
@@ -175,7 +175,7 @@ class OrganizationAdminWritePermissions(BasePermission):
         try:
             membership = OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization)
         except OrganizationMembership.DoesNotExist:
-            raise NotFound("Organization not found.")
+            raise NotFound("Organization not found.")  # noqa: B904
 
         return membership.level >= OrganizationMembership.Level.ADMIN
 
@@ -195,7 +195,7 @@ class OrganizationAdminReadPermissions(BasePermission):
         try:
             membership = OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization)
         except OrganizationMembership.DoesNotExist:
-            raise NotFound("Organization not found.")
+            raise NotFound("Organization not found.")  # noqa: B904
 
         return membership.level >= OrganizationMembership.Level.ADMIN
 
@@ -205,7 +205,7 @@ class OrganizationAdminReadPermissions(BasePermission):
         try:
             membership = OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization)
         except OrganizationMembership.DoesNotExist:
-            raise NotFound("Organization not found.")
+            raise NotFound("Organization not found.")  # noqa: B904
 
         return membership.level >= OrganizationMembership.Level.ADMIN
 
@@ -636,7 +636,7 @@ class APIScopePermission(ScopeBasePermission):
         try:
             team_id = view.team.id
         except (AttributeError, KeyError, Team.DoesNotExist):
-            raise PermissionDenied("Project secret API keys are only supported on project-based endpoints.")
+            raise PermissionDenied("Project secret API keys are only supported on project-based endpoints.")  # noqa: B904
 
         if team_id != psak.team_id:
             raise PermissionDenied(f"API key does not have access to the requested project: ID {team_id}.")
@@ -686,7 +686,7 @@ class APIScopePermission(ScopeBasePermission):
                 if team.id not in scoped_teams:
                     raise PermissionDenied(f"API key does not have access to the requested project: ID {team.id}.")
             except (KeyError, AttributeError):
-                raise PermissionDenied("API keys with scoped projects are only supported on project-based endpoints.")
+                raise PermissionDenied("API keys with scoped projects are only supported on project-based endpoints.")  # noqa: B904
 
         if scoped_organizations and not skip_team_and_org:
             # The flag also opts out of org enforcement — INTERNAL views aren't
@@ -971,7 +971,7 @@ class UserCanInvitePermission(BasePermission):
         try:
             membership = OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization)
         except OrganizationMembership.DoesNotExist:
-            raise NotFound("Organization not found.")
+            raise NotFound("Organization not found.")  # noqa: B904
 
         members_can_invite = bool(organization.members_can_invite)
         user_is_admin = membership.level >= OrganizationMembership.Level.ADMIN
@@ -1000,7 +1000,7 @@ class UserCanCreateProjectPermission(BasePermission):
         try:
             membership = OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization)
         except OrganizationMembership.DoesNotExist:
-            raise NotFound("Organization not found.")
+            raise NotFound("Organization not found.")  # noqa: B904
 
         if membership.level >= OrganizationMembership.Level.ADMIN:
             return True

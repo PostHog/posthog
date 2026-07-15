@@ -478,7 +478,7 @@ def refresh_oauth_token(
             or (DEFAULT_CONFIDENTIAL_TOKEN_ENDPOINT_AUTH_METHOD if client_secret else "none"),
         )
     except ValueError as exc:
-        raise TokenRefreshError(str(exc))
+        raise TokenRefreshError(str(exc))  # noqa: B904
 
     try:
         _validate_url(token_url)
@@ -487,7 +487,7 @@ def refresh_oauth_token(
             raise TokenRefreshError("Token refresh endpoint redirected")
         resp.raise_for_status()
     except SSRFBlockedError:
-        raise TokenRefreshError(f"Token refresh URL blocked by SSRF protection: {token_url}")
+        raise TokenRefreshError(f"Token refresh URL blocked by SSRF protection: {token_url}")  # noqa: B904
     except requests.RequestException as exc:
         failed_status_code = getattr(getattr(exc, "response", None), "status_code", None)
         logger.warning(
@@ -495,7 +495,7 @@ def refresh_oauth_token(
             token_url=token_url,
             status_code=failed_status_code,
         )
-        raise TokenRefreshError("Token refresh request failed")
+        raise TokenRefreshError("Token refresh request failed")  # noqa: B904
 
     token_data = resp.json()
     if "access_token" not in token_data:
@@ -517,7 +517,7 @@ def refresh_installation_token(installation: MCPServerInstallation) -> dict:
             installation
         )
     except ValueError as exc:
-        raise TokenRefreshError(str(exc))
+        raise TokenRefreshError(str(exc))  # noqa: B904
 
     token_url = metadata.get("token_endpoint", "")
     if not token_url:
@@ -569,7 +569,7 @@ def exchange_oauth_token(
             installation
         )
     except ValueError as exc:
-        raise OAuthTokenExchangeError(str(exc))
+        raise OAuthTokenExchangeError(str(exc))  # noqa: B904
 
     token_endpoint = metadata.get("token_endpoint", "")
     if not token_endpoint:
@@ -600,7 +600,7 @@ def exchange_oauth_token(
             token_endpoint_auth_method=token_endpoint_auth_method,
         )
     except ValueError as exc:
-        raise OAuthTokenExchangeError(str(exc))
+        raise OAuthTokenExchangeError(str(exc))  # noqa: B904
 
     token_response = requests.post(token_endpoint, data=form, auth=auth, timeout=TIMEOUT, allow_redirects=False)
 

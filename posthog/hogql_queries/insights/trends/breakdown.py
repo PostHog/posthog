@@ -366,7 +366,7 @@ class Breakdown:
                     ]
                 )
             except json.JSONDecodeError:
-                raise ValueError("Breakdown value must be a valid JSON array if the the bin count is selected.")
+                raise ValueError("Breakdown value must be a valid JSON array if the the bin count is selected.")  # noqa: B904
 
         return ast.CompareOperation(
             left=self._get_breakdown_values_transform(left, normalize_url=normalize_url, path_cleaning=path_cleaning),

@@ -147,7 +147,7 @@ async def fetch_tagger_activity(inputs: RunTaggerInputs) -> dict[str, Any]:
             )
         except Tagger.DoesNotExist:
             logger.exception("Tagger not found", tagger_id=inputs.tagger_id)
-            raise ValueError(f"Tagger {inputs.tagger_id} not found")
+            raise ValueError(f"Tagger {inputs.tagger_id} not found")  # noqa: B904
 
         # Short-circuit when the tagger has been disabled (e.g. by a prior trial-limit
         # trip) before we run a lagging event through it. The workflow surfaces this
@@ -261,7 +261,7 @@ Output: {output_data}"""
         )
     except AuthenticationError:
         if is_byok:
-            raise ApplicationError(
+            raise ApplicationError(  # noqa: B904
                 "API key is invalid or has been deleted.",
                 {"error_type": "auth_error", "key_id": key_id, "provider": provider},
                 non_retryable=True,
@@ -269,7 +269,7 @@ Output: {output_data}"""
         raise
     except ModelPermissionError:
         if is_byok:
-            raise ApplicationError(
+            raise ApplicationError(  # noqa: B904
                 "API key doesn't have access to this model.",
                 {"error_type": "permission_error", "key_id": key_id, "provider": provider},
                 non_retryable=True,
@@ -277,7 +277,7 @@ Output: {output_data}"""
         raise
     except QuotaExceededError:
         if is_byok:
-            raise ApplicationError(
+            raise ApplicationError(  # noqa: B904
                 "API key has exceeded its quota.",
                 {"error_type": "quota_error", "key_id": key_id, "provider": provider},
                 non_retryable=True,
@@ -285,14 +285,14 @@ Output: {output_data}"""
         raise
     except RateLimitError:
         if is_byok:
-            raise ApplicationError(
+            raise ApplicationError(  # noqa: B904
                 "API key is being rate limited.",
                 {"error_type": "rate_limit", "key_id": key_id, "provider": provider},
                 non_retryable=True,
             )
         raise
     except ModelNotFoundError:
-        raise ApplicationError(
+        raise ApplicationError(  # noqa: B904
             f"Model '{model}' not found.",
             non_retryable=True,
         )
@@ -482,7 +482,7 @@ async def emit_tagger_event_activity(inputs: EmitTaggerEventInputs) -> None:
             team = Team.objects.get(id=event_data["team_id"])
         except Team.DoesNotExist:
             logger.exception("Team not found", team_id=event_data["team_id"])
-            raise ValueError(f"Team {event_data['team_id']} not found")
+            raise ValueError(f"Team {event_data['team_id']} not found")  # noqa: B904
 
         properties_raw = (
             json.loads(event_data["properties"])

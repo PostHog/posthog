@@ -403,7 +403,7 @@ class InputsItemSerializer(serializers.Serializer):
                             if "transpiled" in attrs:
                                 del attrs["transpiled"]
         except Exception as e:
-            raise serializers.ValidationError({"input": f"Invalid template: {str(e)}"})
+            raise serializers.ValidationError({"input": f"Invalid template: {str(e)}"})  # noqa: B904
 
         return attrs
 
@@ -425,7 +425,7 @@ class InputsSerializer(serializers.DictField):
         try:
             inputs_schema = parent_serializer.initial_data["inputs_schema"]
         except:
-            raise serializers.ValidationError("Missing inputs_schema.")
+            raise serializers.ValidationError("Missing inputs_schema.")  # noqa: B904
 
         # Validate each input against the schema
         for schema in inputs_schema:
@@ -634,4 +634,4 @@ def compile_hog(
         raise
     except Exception as e:
         logger.error(f"Failed to compile hog {e}", exc_info=True)
-        raise serializers.ValidationError({"hog": "Hog code has errors."})
+        raise serializers.ValidationError({"hog": "Hog code has errors."})  # noqa: B904

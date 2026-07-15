@@ -344,7 +344,7 @@ class DatabricksClient:
                 self.server_hostname,
                 self.http_path,
             )
-            raise DatabricksConnectionError(
+            raise DatabricksConnectionError(  # noqa: B904
                 f"Timed out while trying to connect to Databricks. Please check that the server_hostname and http_path are valid."
             )
         # for some reason, Databricks reports some connection failures as a ValueError
@@ -355,7 +355,7 @@ class DatabricksClient:
                 self.server_hostname,
                 self.http_path,
             )
-            raise DatabricksConnectionError(
+            raise DatabricksConnectionError(  # noqa: B904
                 "Failed to connect to Databricks. Please check that your connection details are valid."
             )
         except OperationalError as err:
@@ -529,7 +529,7 @@ class DatabricksClient:
                 await self.execute_query(f"USE CATALOG `{catalog}`", fetch_results=False, timeout=timeout)
             except ServerOperationError as err:
                 if err.message and "[NO_SUCH_CATALOG_EXCEPTION]" in err.message:
-                    raise DatabricksCatalogNotFoundError(catalog)
+                    raise DatabricksCatalogNotFoundError(catalog)  # noqa: B904
                 raise
 
     async def use_schema(self, schema: str):
@@ -539,10 +539,10 @@ class DatabricksClient:
                 await self.execute_query(f"USE SCHEMA `{schema}`", fetch_results=False, timeout=timeout)
             except ServerOperationError as err:
                 if err.message and "[SCHEMA_NOT_FOUND]" in err.message:
-                    raise DatabricksSchemaNotFoundError(schema)
+                    raise DatabricksSchemaNotFoundError(schema)  # noqa: B904
                 if _is_insufficient_permissions_error(err):
                     # Use a more descriptive message than the raw err.message
-                    raise DatabricksInsufficientPermissionsError(
+                    raise DatabricksInsufficientPermissionsError(  # noqa: B904
                         "USE SCHEMA",
                         f"PERMISSION_DENIED: User does not have USE SCHEMA on Schema {schema}",
                     )
@@ -739,7 +739,7 @@ class DatabricksClient:
                 raise
             except DatabaseError as err:
                 if "Expected field named: DataAccessConfigID" in str(err):
-                    raise DatabricksInsufficientPermissionsError(
+                    raise DatabricksInsufficientPermissionsError(  # noqa: B904
                         "GET TABLE COLUMNS", str(err), "Please check that you have SELECT permissions on the table."
                     )
                 raise
@@ -1013,7 +1013,7 @@ async def _get_databricks_integration(inputs: DatabricksInsertInputs) -> Databri
     try:
         integration = await Integration.objects.aget(id=inputs.integration_id, team_id=inputs.team_id)
     except Integration.DoesNotExist:
-        raise DatabricksIntegrationNotFoundError(f"Databricks integration with id '{inputs.integration_id}' not found")
+        raise DatabricksIntegrationNotFoundError(f"Databricks integration with id '{inputs.integration_id}' not found")  # noqa: B904
     return DatabricksIntegration(integration)
 
 
@@ -1039,23 +1039,23 @@ async def handle_common_errors(operation: str, timeout: float) -> AsyncGenerator
     try:
         yield
     except TimeoutError:
-        raise DatabricksOperationTimeoutError(operation=operation, timeout=timeout)
+        raise DatabricksOperationTimeoutError(operation=operation, timeout=timeout)  # noqa: B904
     except ServerOperationError as err:
         message = err.message or ""
         message_lower = message.lower()
         # Databricks currently returns "Statement has timed out after N seconds." but we
         # also match the SQLSTATE keyword "STATEMENT_TIMEOUT" in case the wording changes.
         if "statement_timeout" in message_lower or "statement has timed out" in message_lower:
-            raise DatabricksOperationTimeoutError(operation=operation, timeout=timeout)
+            raise DatabricksOperationTimeoutError(operation=operation, timeout=timeout)  # noqa: B904
         if "warehouse" in message_lower and "stopped" in message_lower:
-            raise DatabricksWarehouseStoppedError(operation, message)
+            raise DatabricksWarehouseStoppedError(operation, message)  # noqa: B904
         if _is_insufficient_permissions_error(err):
-            raise DatabricksInsufficientPermissionsError(operation, message)
+            raise DatabricksInsufficientPermissionsError(operation, message)  # noqa: B904
         raise
     except OperationalError as err:
         # PUT raises OperationalError on permission failures rather than ServerOperationError.
         if _is_insufficient_permissions_error(err):
-            raise DatabricksInsufficientPermissionsError(operation, err.message or "")
+            raise DatabricksInsufficientPermissionsError(operation, err.message or "")  # noqa: B904
         raise
 
 

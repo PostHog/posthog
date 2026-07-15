@@ -201,12 +201,12 @@ class TaggerBaseWriteSerializer(serializers.ModelSerializer):
                 # Only surface pydantic field messages, never the raw exception string —
                 # avoids leaking anything beyond intended validation feedback.
                 messages = [err.get("msg", "Invalid value") for err in e.errors()]
-                raise serializers.ValidationError({"tagger_config": messages})
+                raise serializers.ValidationError({"tagger_config": messages})  # noqa: B904
             except ValueError:
                 # validate_tagger_config only raises ValueError for unknown tagger_type, which is
                 # already constrained upstream by the ChoiceField. Use a static message so we don't
                 # surface user-controlled input in the response (CodeQL py/stack-trace-exposure).
-                raise serializers.ValidationError({"tagger_config": "Unsupported tagger type"})
+                raise serializers.ValidationError({"tagger_config": "Unsupported tagger type"})  # noqa: B904
         return data
 
     def _resolve_provider_key(self, model_config_data: dict[str, Any], team_id: int) -> LLMProviderKey | None:
@@ -216,7 +216,7 @@ class TaggerBaseWriteSerializer(serializers.ModelSerializer):
         try:
             return LLMProviderKey.objects.get(id=provider_key_id, team_id=team_id)
         except LLMProviderKey.DoesNotExist:
-            raise serializers.ValidationError({"model_configuration": {"provider_key_id": "Provider key not found"}})
+            raise serializers.ValidationError({"model_configuration": {"provider_key_id": "Provider key not found"}})  # noqa: B904
 
     def _create_or_update_model_configuration(
         self,

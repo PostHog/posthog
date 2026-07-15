@@ -141,11 +141,11 @@ class CreateHogTransformationFunctionTool(MaxTool):
             try:
                 parse_program(hog_code)
             except hogql_errors.SyntaxError as parse_err:
-                raise PydanticOutputParserException(
+                raise PydanticOutputParserException(  # noqa: B904
                     llm_output=hog_code,
                     validation_message=f"The Hog code failed to compile: {parse_err}",
                 )
-            raise PydanticOutputParserException(
+            raise PydanticOutputParserException(  # noqa: B904
                 llm_output=hog_code,
                 validation_message="The Hog code failed to compile.",
             )
@@ -237,7 +237,7 @@ class CreateHogFunctionFiltersTool(MaxTool):
         try:
             filters = json.loads(json_str)
         except json.JSONDecodeError as e:
-            raise PydanticOutputParserException(
+            raise PydanticOutputParserException(  # noqa: B904
                 llm_output=json_str, validation_message=f"The filters JSON failed to parse: {str(e)}"
             )
 
@@ -330,7 +330,7 @@ class CreateHogFunctionInputsTool(MaxTool):
                     llm_output=output, validation_message="Inputs schema must be a list."
                 )
         except json.JSONDecodeError as e:
-            raise PydanticOutputParserException(
+            raise PydanticOutputParserException(  # noqa: B904
                 llm_output=output, validation_message=f"Invalid JSON in inputs schema: {str(e)}"
             )
 

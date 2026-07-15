@@ -581,11 +581,11 @@ class UpsertDashboardTool(MaxTool):
         try:
             parsed_id = int(float(dashboard_id))
         except (ValueError, TypeError):
-            raise MaxToolFatalError(DASHBOARD_NOT_FOUND_PROMPT.format(dashboard_id=dashboard_id))
+            raise MaxToolFatalError(DASHBOARD_NOT_FOUND_PROMPT.format(dashboard_id=dashboard_id))  # noqa: B904
         try:
             dashboard = await Dashboard.objects.aget(id=parsed_id, team=self._team, deleted=False)
         except Dashboard.DoesNotExist:
-            raise MaxToolFatalError(DASHBOARD_NOT_FOUND_PROMPT.format(dashboard_id=dashboard_id))
+            raise MaxToolFatalError(DASHBOARD_NOT_FOUND_PROMPT.format(dashboard_id=dashboard_id))  # noqa: B904
 
         await self.check_object_access(dashboard, "editor", action="edit")
 

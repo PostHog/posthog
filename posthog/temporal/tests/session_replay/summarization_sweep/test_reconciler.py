@@ -109,7 +109,7 @@ class _AsyncIter:
         try:
             return next(self._iter)
         except StopIteration:
-            raise StopAsyncIteration
+            raise StopAsyncIteration  # noqa: B904
 
 
 @pytest.mark.asyncio

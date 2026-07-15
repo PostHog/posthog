@@ -42,7 +42,7 @@ class EmailVerifier:
             send_email_verification(user.pk, token, next_url)
         except Exception as e:
             capture_exception(Exception(f"Verification email failed: {e}"))
-            raise exceptions.APIException(
+            raise exceptions.APIException(  # noqa: B904
                 detail="Could not send email verification email. Please try again by logging in with your email and password."
             )
 

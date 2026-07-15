@@ -765,7 +765,7 @@ class PropertyDefinitionViewSet(
         try:
             uuid.UUID(str(id))
         except ValueError:
-            raise Http404("Property definition not found.")
+            raise Http404("Property definition not found.")  # noqa: B904
         non_enterprise_property = get_object_or_404(
             PropertyDefinition.objects.alias(
                 effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())

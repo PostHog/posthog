@@ -554,6 +554,6 @@ def _fetch_esp_suppression_from_api(email: str) -> ESPSuppressionAPIResponse:
             )
 
     except requests.Timeout:
-        raise ESPSuppressionAPIError("timeout")
+        raise ESPSuppressionAPIError("timeout")  # noqa: B904
     except requests.RequestException as e:
-        raise ESPSuppressionAPIError("network_error", str(e))
+        raise ESPSuppressionAPIError("network_error", str(e))  # noqa: B904

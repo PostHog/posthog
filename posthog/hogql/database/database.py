@@ -529,7 +529,7 @@ class Database(BaseModel):
         try:
             self._timezone = str(ZoneInfo(timezone)) if timezone else None
         except ZoneInfoNotFoundError:
-            raise ValueError(f"Unknown timezone: '{str(timezone)}'")
+            raise ValueError(f"Unknown timezone: '{str(timezone)}'")  # noqa: B904
 
         self._week_start_day = week_start_day
         self._warehouse_table_names = []

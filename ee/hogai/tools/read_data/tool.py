@@ -700,7 +700,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                 .aget(id=int(dashboard_id), team=self._team, deleted=False)
             )
         except (Dashboard.DoesNotExist, ValueError):
-            raise MaxToolFatalError(DASHBOARD_NOT_FOUND_PROMPT.format(dashboard_id=dashboard_id))
+            raise MaxToolFatalError(DASHBOARD_NOT_FOUND_PROMPT.format(dashboard_id=dashboard_id))  # noqa: B904
 
         await self.check_object_access(dashboard, "viewer", action="read")
 
@@ -792,7 +792,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         try:
             content = await self._context_manager.artifacts.aget(artifact_id)
         except AgentArtifact.DoesNotExist:
-            raise MaxToolRetryableError(f"Artifact with id={artifact_id} not found.")
+            raise MaxToolRetryableError(f"Artifact with id={artifact_id} not found.")  # noqa: B904
 
         match content:
             case VisualizationArtifactContent():
@@ -835,7 +835,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         try:
             notebook = await Notebook.objects.aget(short_id=notebook_id, team=self._team, deleted=False)
         except Notebook.DoesNotExist:
-            raise MaxToolRetryableError(f"Notebook with short_id={notebook_id} not found.")
+            raise MaxToolRetryableError(f"Notebook with short_id={notebook_id} not found.")  # noqa: B904
 
         await self.check_object_access(notebook, "viewer", action="read")
 
@@ -1006,7 +1006,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         try:
             doc_uuid = UUID(document_id)
         except ValueError:
-            raise MaxToolRetryableError(f"Invalid document_id '{document_id}'. Must be a valid UUID.")
+            raise MaxToolRetryableError(f"Invalid document_id '{document_id}'. Must be a valid UUID.")  # noqa: B904
 
         results = await database_sync_to_async(get_document_window, thread_sensitive=False)(
             self._team.id, doc_uuid, around_ordinal, radius=radius

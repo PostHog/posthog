@@ -139,18 +139,18 @@ class GeminiAdapter:
             error_message = str(e).lower()
             status_code = getattr(e, "code", None) or getattr(e, "status_code", None)
             if status_code == 401 or "authentication" in error_message or "api key" in error_message:
-                raise AuthenticationError(str(e))
+                raise AuthenticationError(str(e))  # noqa: B904
             if status_code == 403 or "permission denied" in error_message:
-                raise ModelPermissionError(request.model)
+                raise ModelPermissionError(request.model)  # noqa: B904
             if status_code == 429 or "rate limit" in error_message or "resource exhausted" in error_message:
                 if "quota" in error_message or "billing" in error_message:
-                    raise QuotaExceededError(str(e))
-                raise RateLimitError(str(e))
+                    raise QuotaExceededError(str(e))  # noqa: B904
+                raise RateLimitError(str(e))  # noqa: B904
             # Google returns a 404-class error (often with "no longer available") when a
             # model is retired/deprecated. Map it so call_llm_judge disables the eval
             # gracefully instead of burning Temporal retries on an unhandled exception.
             if status_code == 404 or "no longer available" in error_message or "not found" in error_message:
-                raise ModelNotFoundError(request.model)
+                raise ModelNotFoundError(request.model)  # noqa: B904
             raise
 
     def stream(

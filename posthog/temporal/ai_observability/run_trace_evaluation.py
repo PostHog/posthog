@@ -426,7 +426,7 @@ async def emit_trace_evaluation_event_activity(inputs: EmitTraceEvaluationEventI
             team = Team.objects.get(id=inputs.team_id)
         except Team.DoesNotExist:
             logger.exception("Team not found", team_id=inputs.team_id)
-            raise ValueError(f"Team {inputs.team_id} not found")
+            raise ValueError(f"Team {inputs.team_id} not found")  # noqa: B904
 
         # No single source event to inherit from, so SOURCE_AI_PROPERTIES_TO_COPY (span/parent
         # linkage copied in the generation path) intentionally does not apply here.

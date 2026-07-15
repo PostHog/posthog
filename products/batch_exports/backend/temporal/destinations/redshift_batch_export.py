@@ -543,7 +543,7 @@ class RedshiftClient(PostgreSQLClient):
                         except Exception:
                             column = "unknown"
 
-                        raise StringLimitExceededError(column, table_name, schema_name)
+                        raise StringLimitExceededError(column, table_name, schema_name)  # noqa: B904
                     raise
 
 
@@ -1114,7 +1114,7 @@ async def upload_manifest_file(
                         error_code,
                     )
 
-            raise ClientErrorGroup(top_level_errors)
+            raise ClientErrorGroup(top_level_errors)  # noqa: B904
 
         manifest = {"entries": entries}
 

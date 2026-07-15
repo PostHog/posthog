@@ -175,7 +175,7 @@ def _load_task(ctx: TaskProcessingContext) -> Task:
             id=ctx.task_id
         )
     except Task.DoesNotExist as e:
-        raise TaskNotFoundError(f"Task {ctx.task_id} not found", {"task_id": ctx.task_id}, cause=e)
+        raise TaskNotFoundError(f"Task {ctx.task_id} not found", {"task_id": ctx.task_id}, cause=e)  # noqa: B904
 
 
 def _get_image_source_label(
@@ -383,7 +383,7 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
                     or ""
                 )
             except Exception as e:
-                raise GitHubAuthenticationError(
+                raise GitHubAuthenticationError(  # noqa: B904
                     f"Failed to get GitHub token for integration {ctx.github_integration_id}",
                     {"github_integration_id": ctx.github_integration_id, "task_id": ctx.task_id, "error": str(e)},
                     cause=e,
@@ -392,7 +392,7 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         try:
             access_token = create_oauth_access_token_for_run(task, ctx.state)
         except Exception as e:
-            raise OAuthTokenError(
+            raise OAuthTokenError(  # noqa: B904
                 f"Failed to create OAuth access token for task {ctx.task_id}",
                 {"task_id": ctx.task_id, "error": str(e)},
                 cause=e,
@@ -691,7 +691,7 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
                     or ""
                 )
             except Exception as e:
-                raise GitHubAuthenticationError(
+                raise GitHubAuthenticationError(  # noqa: B904
                     f"Failed to refresh GitHub token for integration {ctx.github_integration_id}",
                     {
                         "github_integration_id": ctx.github_integration_id,
@@ -704,7 +704,7 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
         try:
             access_token = create_oauth_access_token_for_run(task, ctx.state)
         except Exception as e:
-            raise OAuthTokenError(
+            raise OAuthTokenError(  # noqa: B904
                 f"Failed to refresh OAuth access token for task {ctx.task_id}",
                 {"task_id": ctx.task_id, "error": str(e)},
                 cause=e,

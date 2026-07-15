@@ -42,7 +42,7 @@ def get_snapshot_context(input: GetSnapshotContextInput) -> SnapshotContext:
     try:
         Integration.objects.get(id=input.github_integration_id)
     except Integration.DoesNotExist as e:
-        raise TaskInvalidStateError(
+        raise TaskInvalidStateError(  # noqa: B904
             f"Integration {input.github_integration_id} not found",
             {"github_integration_id": input.github_integration_id},
             cause=e,

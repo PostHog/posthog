@@ -454,7 +454,7 @@ async def assign_events_to_patterns_activity(
     except User.DoesNotExist:
         msg = f"User with id {inputs.user_id} not found, when trying to store session group summary in DB"
         temporalio.activity.logger.error(msg, extra={"user_id": inputs.user_id, "signals_type": "session-summaries"})
-        raise ValueError(msg)
+        raise ValueError(msg)  # noqa: B904
     session_group_summary = await SessionGroupSummary.objects.acreate(
         team_id=inputs.team_id,
         title=inputs.summary_title or "Group summary",

@@ -456,9 +456,9 @@ async def get_service_account_description(
             "Have you granted 'iam.serviceAccounts.get' to the PostHog service account to operate on it?",
             service_account_email,
         )
-        raise MissingRequiredPermissionsError()
+        raise MissingRequiredPermissionsError()  # noqa: B904
     except NotFound:
-        raise ServiceAccountNotFoundError(service_account_email)
+        raise ServiceAccountNotFoundError(service_account_email)  # noqa: B904
 
     return sa.description
 
@@ -1073,7 +1073,7 @@ class BigQueryClient:
                     error_code=err.code,
                     exc_info=True,
                 )
-                raise BigQueryIncompatibleSchemaError(repr(field_name))
+                raise BigQueryIncompatibleSchemaError(repr(field_name))  # noqa: B904
 
             else:
                 return result
@@ -1317,7 +1317,7 @@ async def _get_google_cloud_service_account_integration(
     try:
         integration = await Integration.objects.aget(id=inputs.integration_id, team_id=inputs.team_id)
     except Integration.DoesNotExist:
-        raise BigQueryIntegrationNotFoundError(
+        raise BigQueryIntegrationNotFoundError(  # noqa: B904
             f"Google Cloud service account integration with id '{inputs.integration_id}' not found"
         )
     return GoogleCloudServiceAccountIntegration(integration)

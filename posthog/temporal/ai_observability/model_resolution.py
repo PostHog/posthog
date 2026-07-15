@@ -126,7 +126,7 @@ def _resolve_key_by_id(team_id: int, key_id: str) -> LLMProviderKey:
     try:
         key = LLMProviderKey.objects.get(id=key_id, team_id=team_id)
     except LLMProviderKey.DoesNotExist:
-        raise ApplicationError(
+        raise ApplicationError(  # noqa: B904
             "Provider key not found.",
             {"error_type": "key_not_found", "key_id": key_id},
             non_retryable=True,

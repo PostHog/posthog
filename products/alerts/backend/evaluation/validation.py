@@ -70,7 +70,7 @@ def _validate_condition_threshold_compatibility(
     try:
         threshold = InsightThreshold.model_validate(threshold_config)
     except Exception:
-        raise ValueError(f"Alert has invalid threshold configuration: {threshold_config}")
+        raise ValueError(f"Alert has invalid threshold configuration: {threshold_config}")  # noqa: B904
     if parsed_condition.type == AlertConditionType.ABSOLUTE_VALUE and threshold.type != InsightThresholdType.ABSOLUTE:
         raise ValueError(
             "Absolute value alerts require an absolute threshold, but a percentage threshold was configured"
@@ -86,7 +86,7 @@ def _validate_hogql_alert_config(ctx: _AlertConfigValidationContext) -> None:
     try:
         parsed = HogQLAlertConfig.model_validate(ctx.config)
     except Exception:
-        raise ValueError(f"Alert has invalid HogQLAlertConfig: {ctx.config}")
+        raise ValueError(f"Alert has invalid HogQLAlertConfig: {ctx.config}")  # noqa: B904
     if parsed.evaluation == HogQLAlertEvaluation.ANY_ROW and ctx.parsed_condition.type != (
         AlertConditionType.ABSOLUTE_VALUE
     ):
@@ -105,7 +105,7 @@ def _validate_trends_alert_config(ctx: _AlertConfigValidationContext) -> None:
     try:
         parsed_config = TrendsAlertConfig.model_validate(ctx.config)
     except Exception:
-        raise ValueError(f"Alert has invalid TrendsAlertConfig: {ctx.config}")
+        raise ValueError(f"Alert has invalid TrendsAlertConfig: {ctx.config}")  # noqa: B904
 
     if ctx.query_kind != NodeKind.TRENDS_QUERY:
         raise ValueError(f"Alert's insight query kind '{ctx.query_kind}' is not supported (only TrendsQuery)")
@@ -113,7 +113,7 @@ def _validate_trends_alert_config(ctx: _AlertConfigValidationContext) -> None:
     try:
         trends_query = TrendsQuery.model_validate(ctx.query)
     except Exception as e:
-        raise ValueError(f"Alert's insight has an invalid TrendsQuery: {e}")
+        raise ValueError(f"Alert's insight has an invalid TrendsQuery: {e}")  # noqa: B904
 
     if ctx.detector_config is not None and is_non_time_series_trend(trends_query):
         raise ValueError("Anomaly detection isn't supported for non time series trends")
@@ -156,11 +156,11 @@ def _validate_funnels_alert_config(ctx: _AlertConfigValidationContext) -> None:
     try:
         parsed = FunnelsAlertConfig.model_validate(ctx.config)
     except Exception:
-        raise ValueError(f"Alert has invalid FunnelsAlertConfig: {ctx.config}")
+        raise ValueError(f"Alert has invalid FunnelsAlertConfig: {ctx.config}")  # noqa: B904
     try:
         funnels_query = FunnelsQuery.model_validate(ctx.query)
     except Exception as e:
-        raise ValueError(f"Alert's insight has an invalid FunnelsQuery: {e}")
+        raise ValueError(f"Alert's insight has an invalid FunnelsQuery: {e}")  # noqa: B904
     # Resolve the strategy first (rejects unsupported viz types), then delegate viz-specific rules to
     # the same strategy the extractor uses at eval time, so config-time and eval-time views can't drift.
     viz = funnels_query.funnelsFilter.funnelVizType if funnels_query.funnelsFilter else None
@@ -180,11 +180,11 @@ def _validate_metrics_alert_config(ctx: _AlertConfigValidationContext) -> None:
     try:
         parsed = MetricsAlertConfig.model_validate(ctx.config)
     except Exception:
-        raise ValueError(f"Alert has invalid MetricsAlertConfig: {ctx.config}")
+        raise ValueError(f"Alert has invalid MetricsAlertConfig: {ctx.config}")  # noqa: B904
     try:
         MetricsQuery.model_validate(ctx.query)
     except Exception as e:
-        raise ValueError(f"Alert's insight has an invalid MetricsQuery: {e}")
+        raise ValueError(f"Alert's insight has an invalid MetricsQuery: {e}")  # noqa: B904
     threshold = _validate_condition_threshold_compatibility(ctx.parsed_condition, ctx.threshold_config)
     # An ongoing (still accumulating) bucket only under-counts, so a lower bound would false-fire
     # on every partial bucket — same guard as trends.
@@ -327,12 +327,12 @@ def validate_alert_config(
     try:
         AlertCalculationInterval(calculation_interval)
     except ValueError:
-        raise ValueError(f"Invalid calculation interval: {calculation_interval}")
+        raise ValueError(f"Invalid calculation interval: {calculation_interval}")  # noqa: B904
 
     try:
         parsed_condition = AlertCondition.model_validate(condition)
     except Exception:
-        raise ValueError(f"Alert has invalid condition: {condition}")
+        raise ValueError(f"Alert has invalid condition: {condition}")  # noqa: B904
 
     config_type = config.get("type") if isinstance(config, dict) else None
 

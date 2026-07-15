@@ -92,7 +92,7 @@ class ColumnConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except ColumnConfiguration.DoesNotExist:
             # The queryset is visibility-scoped, so a row outside it (another user's private
             # view, or a wrong id) is a 404 — not an unhandled 500.
-            raise NotFound("View not found")
+            raise NotFound("View not found")  # noqa: B904
 
         if self.request.method not in SAFE_METHODS and object.created_by != self.request.user:
             raise PermissionDenied("You do not have permission to change this view")
@@ -145,9 +145,9 @@ class ColumnConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except IntegrityError as e:
             error_str = str(e)
             if "unique_user_view_name" in error_str:
-                raise Conflict(detail="A private view with this name already exists")
+                raise Conflict(detail="A private view with this name already exists")  # noqa: B904
             elif "unique_team_view_name" in error_str:
-                raise Conflict(detail="A shared view with this name already exists")
+                raise Conflict(detail="A shared view with this name already exists")  # noqa: B904
             raise
 
     def perform_update(self, serializer):

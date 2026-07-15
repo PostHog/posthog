@@ -99,7 +99,7 @@ class Threshold(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
             config = InsightThreshold.model_validate(self.configuration)
         except pydantic.ValidationError as e:
-            raise ValidationError(f"Invalid threshold configuration: {e}")
+            raise ValidationError(f"Invalid threshold configuration: {e}")  # noqa: B904
 
         if not config or not config.bounds:
             return

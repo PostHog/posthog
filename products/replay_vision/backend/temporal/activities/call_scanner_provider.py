@@ -164,7 +164,7 @@ def _load_team_name(team_id: int) -> str:
     try:
         return Team.objects.values_list("name", flat=True).get(pk=team_id)
     except Team.DoesNotExist:
-        raise ScannerFailureError(f"Team {team_id} not found", kind=FailureKind.INTERNAL_ERROR)
+        raise ScannerFailureError(f"Team {team_id} not found", kind=FailureKind.INTERNAL_ERROR)  # noqa: B904
 
 
 async def _load_llm_inputs(observation_id: UUID) -> ScannerLlmInputs:

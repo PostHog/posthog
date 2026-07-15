@@ -357,7 +357,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
                         else None,
                     },
                 )
-                raise exceptions.ValidationError(ERROR_INVALID_OPENAI_JSON)
+                raise exceptions.ValidationError(ERROR_INVALID_OPENAI_JSON)  # noqa: B904
 
         else:
             raise exceptions.ValidationError(f"Model '{model}' is not supported.")
@@ -408,7 +408,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
                     "ai_product": "wizard",
                 },
             )
-            raise serializers.ValidationError({"projectId": [ERROR_PROJECT_NOT_FOUND]}, code="not_found")
+            raise serializers.ValidationError({"projectId": [ERROR_PROJECT_NOT_FOUND]}, code="not_found")  # noqa: B904
 
         wizard_data = {
             "project_api_key": project_api_token,
@@ -470,7 +470,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
             # nosemgrep: idor-lookup-without-org, idor-taint-user-input-to-org-model (permission check below)
             project = Project.objects.get(id=project_id)
         except Project.DoesNotExist:
-            raise serializers.ValidationError({"project_id": [ERROR_PROJECT_NOT_FOUND]}, code="not_found")
+            raise serializers.ValidationError({"project_id": [ERROR_PROJECT_NOT_FOUND]}, code="not_found")  # noqa: B904
         if project.id not in visible_project_ids:
             raise exceptions.PermissionDenied("You don't have access to this project.")
 
@@ -483,7 +483,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
             )
         except ValueError as e:
             # e.g. the team/user has no GitHub integration with access to the repository.
-            raise exceptions.ValidationError(str(e))
+            raise exceptions.ValidationError(str(e))  # noqa: B904
 
         latest_run = result.latest_run
         return Response(

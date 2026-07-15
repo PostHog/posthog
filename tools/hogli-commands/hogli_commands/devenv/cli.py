@@ -52,7 +52,7 @@ def dev_generate(
     except FileNotFoundError as e:
         click.echo(f"Error: {e}", err=True)
         click.echo("Are you in the PostHog repository root?", err=True)
-        raise SystemExit(1)
+        raise SystemExit(1)  # noqa: B904
 
     output_path = get_generated_mprocs_path()
 
@@ -83,7 +83,7 @@ def dev_generate(
         )
     except ValueError as e:
         click.echo(f"Error: {e}", err=True)
-        raise SystemExit(1)
+        raise SystemExit(1)  # noqa: B904
 
     # Generate mprocs config
     registry = create_mprocs_registry()
@@ -121,14 +121,14 @@ def dev_explain(intents: tuple[str, ...]) -> None:
         resolver = _create_resolver()
     except FileNotFoundError:
         click.echo("Error: intent-map.yaml not found in devenv/", err=True)
-        raise SystemExit(1)
+        raise SystemExit(1)  # noqa: B904
 
     if intents:
         try:
             resolved = resolver.resolve(list(intents))
         except ValueError as e:
             click.echo(f"Error: {e}", err=True)
-            raise SystemExit(1)
+            raise SystemExit(1)  # noqa: B904
     else:
         # Use saved config
         output_path = get_generated_mprocs_path()
@@ -152,7 +152,7 @@ def dev_explain(intents: tuple[str, ...]) -> None:
             )
         except ValueError as e:
             click.echo(f"Error: {e}", err=True)
-            raise SystemExit(1)
+            raise SystemExit(1)  # noqa: B904
 
     click.echo(resolver.explain_resolution(resolved))
 
@@ -164,7 +164,7 @@ def dev_intents() -> None:
         resolver = _create_resolver()
     except FileNotFoundError:
         click.echo("Error: intent-map.yaml not found", err=True)
-        raise SystemExit(1)
+        raise SystemExit(1)  # noqa: B904
 
     click.echo("Available intents:")
     click.echo("")
@@ -187,13 +187,13 @@ def dev_list_units(intents: tuple[str, ...]) -> None:
         resolver = IntentResolver(intent_map, registry)
     except FileNotFoundError as e:
         click.echo(f"Error: {e}", err=True)
-        raise SystemExit(1)
+        raise SystemExit(1)  # noqa: B904
 
     try:
         resolved = resolver.resolve(list(intents))
     except ValueError as e:
         click.echo(f"Error: {e}", err=True)
-        raise SystemExit(1)
+        raise SystemExit(1)  # noqa: B904
 
     for unit in sorted(resolved.units):
         proc_config = registry.get_process_config(unit)
@@ -245,7 +245,7 @@ def dev_apply(
         resolver = IntentResolver(intent_map, registry)
     except FileNotFoundError as e:
         click.echo(f"Error: {e}", err=True)
-        raise SystemExit(1)
+        raise SystemExit(1)  # noqa: B904
 
     output_path = get_generated_mprocs_path()
 
@@ -277,7 +277,7 @@ def dev_apply(
         )
     except ValueError as e:
         click.echo(f"Error: {e}", err=True)
-        raise SystemExit(1)
+        raise SystemExit(1)  # noqa: B904
 
     generator = MprocsGenerator(registry)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -297,7 +297,7 @@ def dev_setup(log_to_files: bool) -> None:
     except FileNotFoundError:
         click.echo("Error: intent-map.yaml not found in devenv/", err=True)
         click.echo("Are you in the PostHog repository root?", err=True)
-        raise SystemExit(1)
+        raise SystemExit(1)  # noqa: B904
 
     run_setup_wizard(intent_map, log_to_files=log_to_files)
 

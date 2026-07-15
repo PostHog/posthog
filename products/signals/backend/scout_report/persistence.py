@@ -544,4 +544,4 @@ def _validate_report_id(report_id: str) -> None:
     try:
         uuid.UUID(str(report_id))
     except (ValueError, AttributeError, TypeError):
-        raise InvalidScoutReportError(f"report_id is not a valid UUID: {report_id!r}")
+        raise InvalidScoutReportError(f"report_id is not a valid UUID: {report_id!r}")  # noqa: B904

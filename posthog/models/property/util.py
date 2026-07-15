@@ -871,7 +871,7 @@ def get_session_property_filter_statement(prop: Property, idx: int, prepend: str
         try:
             duration = float(cast(str | int, prop.value))
         except ValueError:
-            raise (exceptions.ValidationError(f"$session_duration value must be a number. Received '{prop.value}'"))
+            raise (exceptions.ValidationError(f"$session_duration value must be a number. Received '{prop.value}'"))  # noqa: B904
         value = f"session_duration_value{prepend}_{idx}"
 
         operator = get_count_operator(prop.operator)

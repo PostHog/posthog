@@ -569,7 +569,7 @@ class EndpointExecutionService(PydanticModelMixin):
                 endpoint_name=endpoint.name,
                 code_name=getattr(e, "code_name", None),
             )
-            raise ValidationError(str(e), getattr(e, "code_name", None))
+            raise ValidationError(str(e), getattr(e, "code_name", None))  # noqa: B904
         except HogVMException:
             execution_status = "user_error"
             error_label = "HogVMException"
@@ -577,7 +577,7 @@ class EndpointExecutionService(PydanticModelMixin):
                 "Endpoint execution failed (HogVM)",
                 endpoint_name=endpoint.name,
             )
-            raise ValidationError("Query execution failed: HogQL virtual machine error")
+            raise ValidationError("Query execution failed: HogQL virtual machine error")  # noqa: B904
         except ResolutionError:
             execution_status = "user_error"
             error_label = "ResolutionError"
@@ -585,21 +585,21 @@ class EndpointExecutionService(PydanticModelMixin):
                 "Endpoint resolution failed",
                 endpoint_name=endpoint.name,
             )
-            raise ValidationError("Query resolution failed: unable to resolve table or field references.")
+            raise ValidationError("Query resolution failed: unable to resolve table or field references.")  # noqa: B904
         except ConcurrencyLimitExceeded:
             ENDPOINT_CONCURRENCY_REJECTED_TOTAL.labels(team_id=str(self.team.pk)).inc()
-            raise Throttled(detail="Too many concurrent requests. Please try again later.")
+            raise Throttled(detail="Too many concurrent requests. Please try again later.")  # noqa: B904
         except tuple(_QUERY_PERFORMANCE_ERRORS) as e:
             execution_status = "query_performance"
             error_label = type(e).__name__
             code, detail = _query_performance_code_and_detail(e)
             logger.warning("Endpoint query hit a performance limit", endpoint_name=endpoint.name, reason=error_label)
-            raise EndpointQueryTooExpensive(detail, code=code)
+            raise EndpointQueryTooExpensive(detail, code=code)  # noqa: B904
         except ClickHouseAtCapacity:
             execution_status = "capacity"
             error_label = "ClickHouseAtCapacity"
             logger.warning("Endpoint query hit shared ClickHouse capacity", endpoint_name=endpoint.name)
-            raise EndpointAtCapacity()
+            raise EndpointAtCapacity()  # noqa: B904
         except Exception as e:
             execution_status = "error"
             error_label = type(e).__name__

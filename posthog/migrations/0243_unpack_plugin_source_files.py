@@ -29,7 +29,7 @@ def forwards_func(apps, schema_editor):
         try:
             plugin_json, index_ts, frontend_tsx, site_ts = extract_plugin_code(plugin.archive)
         except ValueError as e:
-            raise exceptions.ValidationError(f"{e} in plugin {plugin}")
+            raise exceptions.ValidationError(f"{e} in plugin {plugin}")  # noqa: B904
         # Save plugin.json
         PluginSourceFile.objects.create(plugin=plugin, filename="plugin.json", source=plugin_json)
         # Save frontend.tsx

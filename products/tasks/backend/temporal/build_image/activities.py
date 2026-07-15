@@ -110,7 +110,7 @@ def _judge_spec_safety(spec_yaml: str, repository: str = "") -> ScanImageSpecOut
     try:
         verdict = json.loads(text)
     except json.JSONDecodeError:
-        raise RuntimeError("Security scan returned an unparseable verdict; retry the build")
+        raise RuntimeError("Security scan returned an unparseable verdict; retry the build")  # noqa: B904
     findings = verdict.get("findings") or []
     if not isinstance(findings, list):
         findings = []

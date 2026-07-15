@@ -40,9 +40,9 @@ class Command(BaseCommand):
                 batch_export: BatchExport = BatchExport.objects.get(id=batch_export_id, deleted=False)
                 batch_exports.append(batch_export)
             except BatchExport.DoesNotExist:
-                raise CommandError("Batch export not found")
+                raise CommandError("Batch export not found")  # noqa: B904
             except BatchExport.MultipleObjectsReturned:
-                raise CommandError("More than one existing batch export found (this should never happen)!")
+                raise CommandError("More than one existing batch export found (this should never happen)!")  # noqa: B904
         elif options["destination_type"] or options["team_id"]:
             query_set = BatchExport.objects.filter(deleted=False)
 

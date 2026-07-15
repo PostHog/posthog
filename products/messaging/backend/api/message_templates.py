@@ -148,7 +148,7 @@ class MessageTemplateSerializer(serializers.ModelSerializer):
             try:
                 email["html"] = render_design_html(email["design"])
             except UnlayerNotConfiguredError:
-                raise serializers.ValidationError(
+                raise serializers.ValidationError(  # noqa: B904
                     {
                         "content": {
                             "email": {
@@ -159,7 +159,7 @@ class MessageTemplateSerializer(serializers.ModelSerializer):
                     }
                 )
             except UnlayerRenderError as e:
-                raise serializers.ValidationError(
+                raise serializers.ValidationError(  # noqa: B904
                     {"content": {"email": {"design": f"Rendering the design to HTML failed: {e}"}}}
                 )
         return data

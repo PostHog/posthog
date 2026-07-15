@@ -334,7 +334,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 error_type=type(err).__name__,
                 error_message=str(err),
             )
-            raise exceptions.APIException(
+            raise exceptions.APIException(  # noqa: B904
                 f"Failed to generate session summaries for sessions {logging_session_ids(session_ids)}. Please try again later."
             )
 
@@ -491,7 +491,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 error_type=type(err).__name__,
                 error_message=str(err),
             )
-            raise exceptions.APIException(
+            raise exceptions.APIException(  # noqa: B904
                 f"Failed to generate individual session summaries for sessions {logging_session_ids(session_ids)}. Please try again later."
             )
 
@@ -1038,7 +1038,7 @@ class SingleSessionSummaryViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModel
             try:
                 uuid.UUID(created_by)
             except (ValueError, TypeError):
-                raise exceptions.ValidationError({"created_by": "Must be a valid UUID."})
+                raise exceptions.ValidationError({"created_by": "Must be a valid UUID."})  # noqa: B904
             queryset = queryset.filter(created_by__uuid=created_by)
         # Multi-value filter: agents typically arrive with a list of session IDs from `query-session-recordings-list`
         # and want the persisted summaries for that exact set.

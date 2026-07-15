@@ -165,7 +165,7 @@ class Command(BaseCommand):
         try:
             team = Team.objects.get(id=team_id)
         except Team.DoesNotExist:
-            raise CommandError(f"Team with ID {team_id} does not exist")
+            raise CommandError(f"Team with ID {team_id} does not exist")  # noqa: B904
 
         self.stdout.write(f"Generating bot demo data for team {team_id} ({team.name})...")
 

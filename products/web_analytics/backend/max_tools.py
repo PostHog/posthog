@@ -265,7 +265,7 @@ class FilterWebAnalyticsTool(MaxTool):
                 content = "✅ Updated web analytics filters."
                 filters = WebAnalyticsAssistantFilters.model_validate(result["output"])
             except Exception as e:
-                raise ValueError(f"Failed to generate WebAnalyticsAssistantFilters: {e}")
+                raise ValueError(f"Failed to generate WebAnalyticsAssistantFilters: {e}")  # noqa: B904
         return content, filters
 
 

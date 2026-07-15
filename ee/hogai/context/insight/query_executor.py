@@ -446,7 +446,7 @@ class AssistantQueryExecutor:
                     err_message = ", ".join(map(str, err.detail))
             if debug_timing:
                 logger.exception(f"{TIMING_LOG_PREFIX} Query execution failed after {elapsed:.3f}s: {err_message}")
-            raise MaxToolRetryableError(err_message)
+            raise MaxToolRetryableError(err_message)  # noqa: B904
         except Exception as err:
             elapsed = time.time() - start_time
             # Catch-all for unexpected errors during query execution. Surface the underlying error
@@ -458,7 +458,7 @@ class AssistantQueryExecutor:
             max_len = 500
             if len(err_message) > max_len:
                 err_message = err_message[:max_len] + "… (truncated)"
-            raise Exception(f"There was an unknown error running this query: {err_message}")
+            raise Exception(f"There was an unknown error running this query: {err_message}")  # noqa: B904
 
         # A failed query can come back as a structurally-valid response that carries an `error`
         # field and empty `results` instead of raising — e.g. a direct-SQL adapter statement

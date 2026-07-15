@@ -235,15 +235,15 @@ class WorkflowsConsumer(Consumer):
 
                     match err.status:
                         case 404:
-                            raise _make_exception(NotFound, err)
+                            raise _make_exception(NotFound, err)  # noqa: B904
                         case 429:
-                            raise _make_exception(TooManyRequests, err)
+                            raise _make_exception(TooManyRequests, err)  # noqa: B904
                         case n if n >= 400 and n < 500:
-                            raise _make_exception(BadRequest, err)
+                            raise _make_exception(BadRequest, err)  # noqa: B904
                         case 503:
-                            raise _make_exception(ServiceUnavailable, err)
+                            raise _make_exception(ServiceUnavailable, err)  # noqa: B904
                         case n if n >= 500:
-                            raise _make_exception(InternalServerError, err)
+                            raise _make_exception(InternalServerError, err)  # noqa: B904
                 else:
                     response_body = await response.json()
                     self.records_handled_count += 1
@@ -497,7 +497,7 @@ async def insert_into_workflows_activity_from_stage(inputs: WorkflowsInsertInput
                     latest_error=consumer.latest_hog_function_error,
                 )
                 external_logger.exception(str(exc))
-                raise exc
+                raise exc  # noqa: B904
 
         return consumer.collect_result()
 

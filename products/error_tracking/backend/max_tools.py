@@ -102,7 +102,7 @@ class ErrorTrackingIssueFilteringTool(MaxTool):
         try:
             data = json.loads(json_str)
         except json.JSONDecodeError as e:
-            raise PydanticOutputParserException(
+            raise PydanticOutputParserException(  # noqa: B904
                 llm_output=json_str, validation_message=f"The filters JSON failed to parse: {str(e)}"
             )
 

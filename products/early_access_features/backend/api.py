@@ -277,7 +277,7 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
             try:
                 feature_flag = FeatureFlag.objects.get(pk=feature_flag_id, team_id=self.context["team_id"])
             except FeatureFlag.DoesNotExist:
-                raise serializers.ValidationError("Feature Flag with this ID does not exist")
+                raise serializers.ValidationError("Feature Flag with this ID does not exist")  # noqa: B904
 
             if feature_flag.features.exists():
                 raise serializers.ValidationError(

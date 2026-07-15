@@ -163,7 +163,7 @@ def handle_billing_service_error(res: requests.Response, valid_codes=(200, 201, 
             response = res.json()
             raise Exception(f"Billing service returned bad status code: {res.status_code}", f"body:", response)
         except JSONDecodeError:
-            raise Exception(f"Billing service returned bad status code: {res.status_code}", f"body:", res.text)
+            raise Exception(f"Billing service returned bad status code: {res.status_code}", f"body:", res.text)  # noqa: B904
 
 
 class BillingManager:

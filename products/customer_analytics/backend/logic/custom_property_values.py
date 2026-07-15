@@ -249,7 +249,7 @@ def _coerce_numeric(definition: CustomPropertyDefinition, value: Any) -> float:
     try:
         result = float(value)
     except (TypeError, ValueError):
-        raise InvalidCustomPropertyValue(_expects(definition, "a numeric value"))
+        raise InvalidCustomPropertyValue(_expects(definition, "a numeric value"))  # noqa: B904
     # Reject NaN/inf: float() accepts "nan"/"inf", but a non-finite value silently corrupts
     # AVG/SUM aggregates over this column downstream.
     if not math.isfinite(result):
@@ -277,7 +277,7 @@ def _coerce_datetime(definition: CustomPropertyDefinition, value: Any) -> dateti
             # trailing "Z", which parse_datetime does not.
             parsed = datetime.fromisoformat(value)
         except ValueError:
-            raise InvalidCustomPropertyValue(_expects(definition, "an ISO-8601 datetime"))
+            raise InvalidCustomPropertyValue(_expects(definition, "an ISO-8601 datetime"))  # noqa: B904
         return timezone.make_aware(parsed, UTC) if timezone.is_naive(parsed) else parsed
     raise InvalidCustomPropertyValue(_expects(definition, "an ISO-8601 datetime"))
 

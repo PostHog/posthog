@@ -146,7 +146,7 @@ def semver_range_compare(
     try:
         lower_bound, upper_bound = bounds_calculator(value)
     except (ValueError, IndexError):
-        raise QueryError(f"{operator_name} operator requires a valid semver string (e.g., '1.2.3')")
+        raise QueryError(f"{operator_name} operator requires a valid semver string (e.g., '1.2.3')")  # noqa: B904
 
     return ast.And(
         exprs=[
@@ -446,7 +446,7 @@ def _validate_between_values(value: ValueT, operator: PropertyOperator) -> TypeG
         if float(value[0]) > float(value[1]):
             raise QueryError(f"{operator} operator requires min value to be less than or equal to max value")
     except (ValueError, TypeError):
-        raise QueryError(f"{operator} operator requires numeric values")
+        raise QueryError(f"{operator} operator requires numeric values")  # noqa: B904
     return True
 
 
@@ -1369,7 +1369,7 @@ def entity_to_expr(entity: RetentionEntity, team: Team) -> ast.Expr:
         try:
             action = Action.objects.get(pk=action_id, team=team)
         except Action.DoesNotExist:
-            raise ValidationError(f"Action ID {entity.id} does not exist!")
+            raise ValidationError(f"Action ID {entity.id} does not exist!")  # noqa: B904
         event_expr = action_to_expr(action)
     elif entity.id is None:
         # all events

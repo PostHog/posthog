@@ -118,7 +118,7 @@ class Command(BaseCommand):
             job.latest_error = WORKFLOW_START_FAILED_MESSAGE
             job.finished_at = timezone.now()
             job.save(update_fields=["status", "latest_error", "finished_at", "updated_at"])
-            raise CommandError(f"Failed to start workflow: {exc}")
+            raise CommandError(f"Failed to start workflow: {exc}")  # noqa: B904
 
         self.stdout.write(
             self.style.SUCCESS(

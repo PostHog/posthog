@@ -77,7 +77,7 @@ def parse_and_validate_positive_integer(value: Optional[Union[str, int]], value_
     try:
         parsed_value = int(value)
     except (ValueError, TypeError):
-        raise ValueError(f"{value_name} must be an integer, got {value}")
+        raise ValueError(f"{value_name} must be an integer, got {value}")  # noqa: B904
     if parsed_value <= 0:
         raise ValueError(f"{value_name} must be greater than 0, got {value}")
     return parsed_value

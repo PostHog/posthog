@@ -639,7 +639,7 @@ class ModalSandbox(SandboxBase):
 
         except Exception as e:
             logger.exception(f"Failed to create sandbox: {e}")
-            raise SandboxProvisionError(
+            raise SandboxProvisionError(  # noqa: B904
                 "Failed to create sandbox", {"config_name": config.name, "error": str(e)}, cause=e
             )
 
@@ -682,7 +682,7 @@ class ModalSandbox(SandboxBase):
 
         except Exception as e:
             logger.exception(f"Failed to retrieve sandbox {sandbox_id}: {e}")
-            raise SandboxNotFoundError(
+            raise SandboxNotFoundError(  # noqa: B904
                 f"Sandbox {sandbox_id} not found", {"sandbox_id": sandbox_id, "error": str(e)}, cause=e
             )
 
@@ -724,7 +724,7 @@ class ModalSandbox(SandboxBase):
 
         except TimeoutError as e:
             capture_exception(e)
-            raise SandboxTimeoutError(
+            raise SandboxTimeoutError(  # noqa: B904
                 f"Execution timed out after {timeout_seconds} seconds",
                 {"sandbox_id": self.id, "timeout_seconds": timeout_seconds},
                 cause=e,
@@ -735,7 +735,7 @@ class ModalSandbox(SandboxBase):
             logger.error(  # noqa: TRY400
                 "Failed to execute command", extra={"sandbox_id": self.id, "redacted_error": redacted_error}
             )
-            raise SandboxExecutionError(
+            raise SandboxExecutionError(  # noqa: B904
                 "Failed to execute command",
                 {"sandbox_id": self.id, "command": redacted_command, "error": redacted_error},
                 cause=RuntimeError(redacted_error),
@@ -761,7 +761,7 @@ class ModalSandbox(SandboxBase):
             process = self._sandbox.exec("bash", "-c", command, timeout=timeout_seconds)
         except TimeoutError as e:
             capture_exception(e)
-            raise SandboxTimeoutError(
+            raise SandboxTimeoutError(  # noqa: B904
                 f"Execution timed out after {timeout_seconds} seconds",
                 {"sandbox_id": self.id, "timeout_seconds": timeout_seconds},
                 cause=e,
@@ -772,7 +772,7 @@ class ModalSandbox(SandboxBase):
             logger.error(  # noqa: TRY400
                 "Failed to execute command", extra={"sandbox_id": self.id, "redacted_error": redacted_error}
             )
-            raise SandboxExecutionError(
+            raise SandboxExecutionError(  # noqa: B904
                 "Failed to execute command",
                 {"sandbox_id": self.id, "command": redacted_command, "error": redacted_error},
                 cause=RuntimeError(redacted_error),
@@ -832,7 +832,7 @@ class ModalSandbox(SandboxBase):
         except Exception as e:
             capture_exception(e)
             logger.exception(f"Failed to write file to sandbox: {e}")
-            raise SandboxExecutionError(
+            raise SandboxExecutionError(  # noqa: B904
                 "Failed to write file",
                 {"sandbox_id": self.id, "path": path, "error": str(e)},
                 cause=e,
@@ -1224,7 +1224,7 @@ class ModalSandbox(SandboxBase):
             # Transient Modal infra timeout — Temporal retries the activity, so log at warning and
             # skip error-tracking capture to avoid a fresh issue for every recoverable deadline.
             logger.warning(f"Transient error creating snapshot for sandbox {self.id}, will retry: {e}")
-            raise SnapshotTimeoutError(
+            raise SnapshotTimeoutError(  # noqa: B904
                 f"Transient error creating snapshot: {e}",
                 {"sandbox_id": self.id, "error": str(e)},
                 cause=e,
@@ -1233,7 +1233,7 @@ class ModalSandbox(SandboxBase):
 
         except Exception as e:
             logger.exception(f"Failed to create snapshot: {e}")
-            raise SnapshotCreationError(
+            raise SnapshotCreationError(  # noqa: B904
                 f"Failed to create snapshot: {e}", {"sandbox_id": self.id, "error": str(e)}, cause=e
             )
 
@@ -1265,7 +1265,7 @@ class ModalSandbox(SandboxBase):
 
         except TRANSIENT_SNAPSHOT_ERRORS as e:
             logger.warning(f"Transient error creating directory snapshot for sandbox {self.id}, will retry: {e}")
-            raise SnapshotTimeoutError(
+            raise SnapshotTimeoutError(  # noqa: B904
                 f"Transient error creating directory snapshot: {e}",
                 {"sandbox_id": self.id, "path": path, "error": str(e)},
                 cause=e,
@@ -1274,7 +1274,7 @@ class ModalSandbox(SandboxBase):
 
         except Exception as e:
             logger.exception(f"Failed to create directory snapshot: {e}")
-            raise SnapshotCreationError(
+            raise SnapshotCreationError(  # noqa: B904
                 f"Failed to create directory snapshot: {e}",
                 {"sandbox_id": self.id, "path": path, "error": str(e)},
                 cause=e,
@@ -1294,7 +1294,7 @@ class ModalSandbox(SandboxBase):
             logger.info(f"Destroyed sandbox {self.id}")
         except Exception as e:
             logger.exception(f"Failed to destroy sandbox: {e}")
-            raise SandboxCleanupError(
+            raise SandboxCleanupError(  # noqa: B904
                 f"Failed to destroy sandbox: {e}", {"sandbox_id": self.id, "error": str(e)}, cause=e
             )
 

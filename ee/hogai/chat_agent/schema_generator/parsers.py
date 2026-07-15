@@ -25,7 +25,7 @@ def parse_pydantic_structured_output(model: type[T]) -> Callable[[dict], T]:
         try:
             return model.model_validate(output)
         except ValidationError as e:
-            raise PydanticOutputParserException(
+            raise PydanticOutputParserException(  # noqa: B904
                 llm_output=json.dumps(output), validation_message=e.json(include_url=False)
             )
 

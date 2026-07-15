@@ -1368,21 +1368,21 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             try:
                 linked_flag = FeatureFlag.objects.get(pk=linked_flag_id, team_id=self.context["team_id"])
             except FeatureFlag.DoesNotExist:
-                raise serializers.ValidationError("Feature Flag with this ID does not exist")
+                raise serializers.ValidationError("Feature Flag with this ID does not exist")  # noqa: B904
 
         targeting_flag_id = data.get("targeting_flag_id")
         if targeting_flag_id:
             try:
                 FeatureFlag.objects.get(pk=targeting_flag_id, team_id=self.context["team_id"])
             except FeatureFlag.DoesNotExist:
-                raise serializers.ValidationError("Targeting Feature Flag with this ID does not exist")
+                raise serializers.ValidationError("Targeting Feature Flag with this ID does not exist")  # noqa: B904
 
         linked_insight_id = data.get("linked_insight_id")
         if linked_insight_id:
             try:
                 Insight.objects.get(pk=linked_insight_id, team_id=self.context["team_id"])
             except Insight.DoesNotExist:
-                raise serializers.ValidationError("Insight with this ID does not exist")
+                raise serializers.ValidationError("Insight with this ID does not exist")  # noqa: B904
 
         # Validate linkedFlagVariant if provided
         conditions = data.get("conditions") or {}
@@ -2436,7 +2436,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         try:
             survey = self.get_object()
         except Survey.DoesNotExist:
-            raise exceptions.NotFound("Survey not found")
+            raise exceptions.NotFound("Survey not found")  # noqa: B904
 
         response_data = self._get_survey_stats(date_from, date_to, survey_id, exclude_archived)
 
@@ -2931,7 +2931,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                 error_type=type(e).__name__,
                 error=str(e),
             )
-            raise exceptions.APIException("Failed to generate summary. Please try again.")
+            raise exceptions.APIException("Failed to generate summary. Please try again.")  # noqa: B904
 
         generated_at = datetime.now(UTC).isoformat()
 
@@ -3250,7 +3250,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                 target_team_ids=target_team_ids,
             )
             capture_exception(e)
-            raise exceptions.ValidationError(
+            raise exceptions.ValidationError(  # noqa: B904
                 {
                     "error": "Bulk duplication failed due to an unexpected error",
                 }
@@ -3602,7 +3602,7 @@ def create_flag_with_survey_errors():
         ]
         if matching_errors:
             original_detail = str(matching_errors[0].get("message"))
-            raise serializers.ValidationError(
+            raise serializers.ValidationError(  # noqa: B904
                 detail=original_detail.replace("feature flags", "surveys"),
                 code=BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
             )

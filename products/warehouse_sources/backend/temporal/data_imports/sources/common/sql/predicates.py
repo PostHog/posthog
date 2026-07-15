@@ -246,7 +246,7 @@ def _coerce_integer(value: Any) -> int:
         try:
             return int(value.strip())
         except ValueError:
-            raise RowFilterValidationError(f"Expected an integer value, got {value!r}")
+            raise RowFilterValidationError(f"Expected an integer value, got {value!r}")  # noqa: B904
     raise RowFilterValidationError(f"Expected an integer value, got {type(value).__name__}")
 
 
@@ -259,7 +259,7 @@ def _coerce_numeric(value: Any) -> int | float | Decimal:
         try:
             return Decimal(value.strip())
         except InvalidOperation:
-            raise RowFilterValidationError(f"Expected a numeric value, got {value!r}")
+            raise RowFilterValidationError(f"Expected a numeric value, got {value!r}")  # noqa: B904
     raise RowFilterValidationError(f"Expected a numeric value, got {type(value).__name__}")
 
 
@@ -290,7 +290,7 @@ def _coerce_date(value: Any) -> date:
     try:
         return date.fromisoformat(value.strip())
     except ValueError:
-        raise RowFilterValidationError(f"Expected an ISO date string (YYYY-MM-DD), got {value!r}")
+        raise RowFilterValidationError(f"Expected an ISO date string (YYYY-MM-DD), got {value!r}")  # noqa: B904
 
 
 def _coerce_timestamp(value: Any) -> datetime:
@@ -306,7 +306,7 @@ def _coerce_timestamp(value: Any) -> datetime:
         try:
             return datetime.combine(date.fromisoformat(raw), time())
         except ValueError:
-            raise RowFilterValidationError(f"Expected an ISO datetime string, got {value!r}")
+            raise RowFilterValidationError(f"Expected an ISO datetime string, got {value!r}")  # noqa: B904
 
 
 _COERCERS = {

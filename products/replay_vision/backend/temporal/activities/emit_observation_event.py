@@ -38,7 +38,7 @@ def _emit_event(inputs: EmitObservationEventInputs) -> None:
     try:
         team: Team = observation.team
     except Team.DoesNotExist:
-        raise ScannerFailureError(
+        raise ScannerFailureError(  # noqa: B904
             f"Team for observation {inputs.observation_id} not found", kind=FailureKind.INTERNAL_ERROR
         )
 

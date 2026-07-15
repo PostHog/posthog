@@ -270,9 +270,9 @@ class CustomPropertyDefinitionViewSet(
                 was_impersonated=is_impersonated(request),
             )
         except api.CustomPropertyDefinitionConflictError as e:
-            raise Conflict(str(e))
+            raise Conflict(str(e))  # noqa: B904
         except api.InvalidCustomPropertyOptions as e:
-            raise ValidationError({"options": str(e)})
+            raise ValidationError({"options": str(e)})  # noqa: B904
         return Response(CustomPropertyDefinitionSerializer(instance=definition).data, status=status.HTTP_201_CREATED)
 
     def update(self, request: Request, *args, **kwargs) -> Response:
@@ -289,9 +289,9 @@ class CustomPropertyDefinitionViewSet(
                 was_impersonated=is_impersonated(request),
             )
         except api.CustomPropertyDefinitionConflictError as e:
-            raise Conflict(str(e))
+            raise Conflict(str(e))  # noqa: B904
         except api.InvalidCustomPropertyOptions as e:
-            raise ValidationError({"options": str(e)})
+            raise ValidationError({"options": str(e)})  # noqa: B904
         if definition is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(CustomPropertyDefinitionSerializer(instance=definition).data)
@@ -374,7 +374,7 @@ class AccountRelationshipDefinitionViewSet(
                 created_by=cast(User, request.user),
             )
         except api.AccountRelationshipDefinitionConflictError as e:
-            raise Conflict(str(e))
+            raise Conflict(str(e))  # noqa: B904
         return Response(
             AccountRelationshipDefinitionSerializer(instance=definition).data, status=status.HTTP_201_CREATED
         )
@@ -390,7 +390,7 @@ class AccountRelationshipDefinitionViewSet(
                 fields=_account_relationship_definition_write_fields(serializer.validated_data, request.data),
             )
         except api.AccountRelationshipDefinitionConflictError as e:
-            raise Conflict(str(e))
+            raise Conflict(str(e))  # noqa: B904
         if definition is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(AccountRelationshipDefinitionSerializer(instance=definition).data)
@@ -456,7 +456,7 @@ class CustomPropertySourceViewSet(
                 user=cast(User, request.user),
             )
         except api.CustomPropertySourceValidationError as e:
-            raise ValidationError(str(e))
+            raise ValidationError(str(e))  # noqa: B904
         return Response(CustomPropertySourceSerializer(instance=source).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(request=CustomPropertySourceUpdateSerializer)
@@ -517,7 +517,7 @@ class CustomerJourneyViewSet(
         except api.CustomerJourney_DoesNotExist:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         except api.ResourceForbiddenError:
-            raise PermissionDenied()
+            raise PermissionDenied()  # noqa: B904
         return Response(CustomerJourneySerializer(instance=journey).data)
 
     def create(self, request: Request, *args, **kwargs) -> Response:
@@ -537,7 +537,7 @@ class CustomerJourneyViewSet(
                 was_impersonated=is_impersonated(request),
             )
         except api.CustomerJourneyConflictError as e:
-            raise Conflict(str(e))
+            raise Conflict(str(e))  # noqa: B904
         return Response(CustomerJourneySerializer(instance=journey).data, status=status.HTTP_201_CREATED)
 
     def update(self, request: Request, *args, **kwargs) -> Response:
@@ -561,7 +561,7 @@ class CustomerJourneyViewSet(
         except api.CustomerJourney_DoesNotExist:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         except api.ResourceForbiddenError:
-            raise PermissionDenied()
+            raise PermissionDenied()  # noqa: B904
         return Response(CustomerJourneySerializer(instance=journey).data)
 
     def partial_update(self, request: Request, *args, **kwargs) -> Response:
@@ -582,7 +582,7 @@ class CustomerJourneyViewSet(
         except api.CustomerJourney_DoesNotExist:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         except api.ResourceForbiddenError:
-            raise PermissionDenied()
+            raise PermissionDenied()  # noqa: B904
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -604,7 +604,7 @@ def _parse_tags_param(request: Request) -> list[str] | None:
     try:
         tags_list = json.loads(tags_param)
     except json.JSONDecodeError:
-        raise ValidationError({"tags": "Must be a JSON-encoded list of strings."})
+        raise ValidationError({"tags": "Must be a JSON-encoded list of strings."})  # noqa: B904
     if not isinstance(tags_list, list) or not all(isinstance(t, str) for t in tags_list):
         raise ValidationError({"tags": "Must be a JSON-encoded list of strings."})
     return tags_list
@@ -723,7 +723,7 @@ class AccountViewSet(
         except api.Account_DoesNotExist:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         except api.ResourceForbiddenError:
-            raise PermissionDenied()
+            raise PermissionDenied()  # noqa: B904
         return Response(AccountSerializer(instance=account).data)
 
     def create(self, request: Request, *args, **kwargs) -> Response:
@@ -745,9 +745,9 @@ class AccountViewSet(
                 was_impersonated=is_impersonated(request),
             )
         except api.AccountPropertiesValidationError as e:
-            raise ValidationError({"properties": e.messages})
+            raise ValidationError({"properties": e.messages})  # noqa: B904
         except api.AccountConflictError as e:
-            raise Conflict(str(e))
+            raise Conflict(str(e))  # noqa: B904
         return Response(AccountSerializer(instance=account).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(parameters=[_ACCOUNT_ID_PARAM])
@@ -777,11 +777,11 @@ class AccountViewSet(
         except api.Account_DoesNotExist:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         except api.ResourceForbiddenError:
-            raise PermissionDenied()
+            raise PermissionDenied()  # noqa: B904
         except api.AccountPropertiesValidationError as e:
-            raise ValidationError({"properties": e.messages})
+            raise ValidationError({"properties": e.messages})  # noqa: B904
         except api.AccountConflictError as e:
-            raise Conflict(str(e))
+            raise Conflict(str(e))  # noqa: B904
         return Response(AccountSerializer(instance=account).data)
 
     @extend_schema(parameters=[_ACCOUNT_ID_PARAM])
@@ -804,7 +804,7 @@ class AccountViewSet(
         except api.Account_DoesNotExist:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         except api.ResourceForbiddenError:
-            raise PermissionDenied()
+            raise PermissionDenied()  # noqa: B904
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -962,7 +962,7 @@ def _parse_uuid_param(request: Request, name: str) -> UUID | None:
         try:
             return UUID(raw)
         except ValueError:
-            raise ValidationError({name: "Must be a valid UUID."})
+            raise ValidationError({name: "Must be a valid UUID."})  # noqa: B904
     return None
 
 
@@ -1081,13 +1081,13 @@ class CustomPropertyValueViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
             # The account passed the access pre-check but was deleted before the write committed.
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         except api.CustomPropertyDefinitionNotFound:
-            raise ValidationError({"definition": "Custom property definition not found."})
+            raise ValidationError({"definition": "Custom property definition not found."})  # noqa: B904
         except api.CustomPropertyValueSourceManaged as exc:
-            raise ValidationError({"definition": str(exc)})
+            raise ValidationError({"definition": str(exc)})  # noqa: B904
         except api.InvalidCustomPropertyValue as exc:
-            raise ValidationError({"value": str(exc)})
+            raise ValidationError({"value": str(exc)})  # noqa: B904
         except api.CustomPropertyValueConflict as exc:
-            raise Conflict(str(exc))
+            raise Conflict(str(exc))  # noqa: B904
 
         return Response(CustomPropertyValueSerializer(value).data, status=status.HTTP_201_CREATED)
 
@@ -1154,9 +1154,9 @@ class AccountRelationshipViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
         except api.Account_DoesNotExist:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         except api.AccountRelationshipDefinitionNotFound:
-            raise ValidationError({"definition": "Relationship definition not found."})
+            raise ValidationError({"definition": "Relationship definition not found."})  # noqa: B904
         except api.AccountRelationshipAssigneeNotInOrganization:
-            raise ValidationError({"user": "User is not a member of this organization."})
+            raise ValidationError({"user": "User is not a member of this organization."})  # noqa: B904
         return Response(AccountRelationshipSerializer(relationship).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(request=None, responses={200: AccountRelationshipSerializer})

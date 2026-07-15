@@ -189,7 +189,7 @@ class Table(TableBase, typing.Generic[ColumnType]):
         try:
             return next(column for column in self.columns if column.name == key)
         except StopIteration:
-            raise KeyError(key)
+            raise KeyError(key)  # noqa: B904
 
     def to_arrow_schema(self) -> pa.Schema:
         """Generate a `pyarrow.Schema` that matches this `Table`'s columns."""

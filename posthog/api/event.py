@@ -604,7 +604,7 @@ class EventViewSet(
         try:
             parsed = json.loads(raw)
         except json.JSONDecodeError:
-            raise serializers.ValidationError("Properties are unparsable!")
+            raise serializers.ValidationError("Properties are unparsable!")  # noqa: B904
         if isinstance(parsed, dict) and isinstance(parsed.get("values"), list):
             return _clean_property_node(parsed)
         if isinstance(parsed, list):

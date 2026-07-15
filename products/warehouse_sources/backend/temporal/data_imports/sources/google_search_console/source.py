@@ -82,7 +82,7 @@ class GoogleSearchConsoleSource(
         try:
             session = google_search_console_session(integration_id, team_id)
         except Integration.DoesNotExist:
-            raise IntegrationAccountListingError(
+            raise IntegrationAccountListingError(  # noqa: B904
                 "The Google Search Console connection for this source no longer exists. "
                 "Please reconnect your Google account."
             )
@@ -94,7 +94,7 @@ class GoogleSearchConsoleSource(
                 # The token refreshed fine but the connected Google account isn't authorized to read
                 # Search Console — a customer-side connection issue. Surface an actionable message the
                 # endpoint turns into a 400 rather than an unhandled 500.
-                raise IntegrationAccountListingError(
+                raise IntegrationAccountListingError(  # noqa: B904
                     "Google Search Console rejected the credentials. Please reconnect your account "
                     "and ensure it has read access to the property."
                 )
@@ -103,7 +103,7 @@ class GoogleSearchConsoleSource(
             # The stored OAuth token is revoked/expired/missing scopes — raised while AuthorizedSession
             # refreshes it. Not a server bug, so surface an actionable reconnect message (400) rather
             # than letting the raw RefreshError escape as a 500.
-            raise IntegrationAccountListingError(
+            raise IntegrationAccountListingError(  # noqa: B904
                 "Could not authenticate with Google Search Console. Please reconnect the integration."
             )
         # GSC has no name distinct from the site url, so value and display_name are the same.

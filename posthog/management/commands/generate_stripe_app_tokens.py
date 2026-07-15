@@ -165,7 +165,7 @@ class Command(BaseCommand):
             try:
                 return OAuthApplication.objects.get(client_id=client_id)
             except OAuthApplication.DoesNotExist:
-                raise CommandError(
+                raise CommandError(  # noqa: B904
                     f"{ENV_KEY} is set to '{client_id}' but no OAuthApplication with that client_id exists."
                 )
 

@@ -278,11 +278,11 @@ class TaskRunRedisStream:
             except (TaskRunStreamError, GeneratorExit):
                 raise
             except redis_exceptions.ConnectionError:
-                raise TaskRunStreamError("Connection lost to task run stream")
+                raise TaskRunStreamError("Connection lost to task run stream")  # noqa: B904
             except redis_exceptions.TimeoutError:
-                raise TaskRunStreamError("Stream read timeout")
+                raise TaskRunStreamError("Stream read timeout")  # noqa: B904
             except redis_exceptions.RedisError:
-                raise TaskRunStreamError("Stream read error")
+                raise TaskRunStreamError("Stream read error")  # noqa: B904
 
     async def write_event(self, event: dict) -> str:
         """Write a single event to the stream.

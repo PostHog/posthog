@@ -30,7 +30,7 @@ def validate_uuid_param(value: str | None, name: str) -> str | None:
     try:
         return str(UUID(value))
     except ValueError:
-        raise DRFValidationError(f"{name} must be a valid UUID")
+        raise DRFValidationError(f"{name} must be a valid UUID")  # noqa: B904
 
 
 def search_tokenizer(query: str) -> list[str]:

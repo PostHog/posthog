@@ -359,7 +359,7 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
         try:
             RecordingsQuery.model_validate(attrs["query"])
         except PydanticValidationError:
-            raise serializers.ValidationError({"query": "Recording filter is invalid."})
+            raise serializers.ValidationError({"query": "Recording filter is invalid."})  # noqa: B904
         # Persist exactly what the user sent (validated), minus the date keys the schedule controls.
         attrs["query"] = {k: v for k, v in attrs["query"].items() if k not in _QUERY_FIELDS_TO_STRIP}
 
@@ -576,7 +576,7 @@ class EstimateRequestSerializer(serializers.Serializer):
         try:
             RecordingsQuery.model_validate(value)
         except PydanticValidationError:
-            raise serializers.ValidationError("Recording filter is invalid.")
+            raise serializers.ValidationError("Recording filter is invalid.")  # noqa: B904
         return {k: v for k, v in value.items() if k not in _QUERY_FIELDS_TO_STRIP}
 
 

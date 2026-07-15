@@ -38,7 +38,7 @@ class MCPClient:
             await self._connect_sse()
         except Exception:
             await self._stack.aclose()
-            raise MCPClientError("Failed to connect to MCP server")
+            raise MCPClientError("Failed to connect to MCP server")  # noqa: B904
 
     async def _connect_streamable_http(self) -> None:
         http_client = await self._stack.enter_async_context(
@@ -72,7 +72,7 @@ class MCPClient:
         try:
             result = await self._session.list_tools()
         except Exception:
-            raise MCPClientError("Failed to list tools")
+            raise MCPClientError("Failed to list tools")  # noqa: B904
         return [tool.model_dump(by_alias=True) for tool in result.tools]
 
     async def call_tool(self, tool_name: str, arguments: dict | None = None) -> str:
@@ -81,7 +81,7 @@ class MCPClient:
         try:
             result = await self._session.call_tool(tool_name, arguments or {})
         except Exception:
-            raise MCPClientError("Failed to call tool")
+            raise MCPClientError("Failed to call tool")  # noqa: B904
 
         if result.isError:
             text_parts = [c.text for c in result.content if isinstance(c, TextContent)]

@@ -197,7 +197,7 @@ class ExternalAccountUpdateSerializer(serializers.Serializer):
         try:
             return int(raw_id)
         except (TypeError, ValueError):
-            raise serializers.ValidationError({field: "Assignee id must be a user id"})
+            raise serializers.ValidationError({field: "Assignee id must be a user id"})  # noqa: B904
 
 
 class ExternalAccountView(APIView):

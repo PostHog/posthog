@@ -285,7 +285,7 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
                 try:
                     slack_ids_to_verify.add(int(integration_id))
                 except (TypeError, ValueError):
-                    raise serializers.ValidationError("Slack integration_id must be an integer.")
+                    raise serializers.ValidationError("Slack integration_id must be an integer.")  # noqa: B904
         if slack_ids_to_verify:
             # Enforce tenant + kind boundary: only integrations that belong to this team AND
             # are Slack integrations are valid. Prevents cross-team reuse of integration ids

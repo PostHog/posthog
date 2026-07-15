@@ -164,7 +164,7 @@ async def assert_metrics_in_clickhouse(
         try:
             expected_count = expected_metrics[(ingested_metric_kind, ingested_metric_name)]
         except KeyError:
-            raise ValueError(f"Ingested unexpected metric: '{ingested_metric_kind}'")
+            raise ValueError(f"Ingested unexpected metric: '{ingested_metric_kind}'")  # noqa: B904
 
         assert ingested_count == expected_count, (
             f"Ingested metric '{ingested_metric_kind}' with count {ingested_count} does not match expected {expected_count}"

@@ -162,9 +162,9 @@ class Command(BaseCommand):
         try:
             workflow = next(workflow for workflow in WORKFLOWS if workflow.is_named(workflow_name))
         except StopIteration:
-            raise ValueError(f"No workflow with name '{workflow_name}'")
+            raise ValueError(f"No workflow with name '{workflow_name}'")  # noqa: B904
         except AttributeError:
-            raise TypeError(
+            raise TypeError(  # noqa: B904
                 f"Workflow '{workflow_name}' is not a `PostHogWorkflow` that can invoked by `start_temporal_workflow`."
             )
 

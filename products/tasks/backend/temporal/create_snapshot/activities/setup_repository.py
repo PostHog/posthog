@@ -32,7 +32,7 @@ def setup_repository(input: SetupRepositoryInput) -> str:
         try:
             result = sandbox.setup_repository(ctx.repository)
         except Exception as e:
-            raise RetryableRepositorySetupError(
+            raise RetryableRepositorySetupError(  # noqa: B904
                 f"Failed to setup repository {ctx.repository}",
                 {
                     "repository": ctx.repository,

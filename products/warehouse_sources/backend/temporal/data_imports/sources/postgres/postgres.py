@@ -2345,7 +2345,7 @@ def _get_rows_to_sync(
         logger.debug(f"_get_rows_to_sync: Error: {e}. Using 0 as rows to sync", exc_info=e)
 
         if "temporary file size exceeds temp_file_limit" in str(e):
-            raise TemporaryFileSizeExceedsLimitException(
+            raise TemporaryFileSizeExceedsLimitException(  # noqa: B904
                 f"Error: {e}. Please ensure your incremental field has an appropriate index created"
             )
 
@@ -2411,7 +2411,7 @@ def _get_partition_settings(
         logger.debug(f"_get_partition_settings: returning None due to error: {e}", exc_info=e)
 
         if "temporary file size exceeds temp_file_limit" in str(e):
-            raise TemporaryFileSizeExceedsLimitException(
+            raise TemporaryFileSizeExceedsLimitException(  # noqa: B904
                 f"Error: {e}. Please ensure your incremental field has an appropriate index created"
             )
 
@@ -3126,7 +3126,7 @@ def postgres_source(
                                     raise _pk_uniqueness_probe_timeout_error() from e
                         except psycopg.errors.QueryCanceled:
                             if should_use_incremental_field:
-                                raise QueryTimeoutException(
+                                raise QueryTimeoutException(  # noqa: B904
                                     f"10 min timeout statement reached. Please ensure your incremental field ({incremental_field}) has an appropriate index created"
                                 )
                             raise

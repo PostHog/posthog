@@ -51,7 +51,7 @@ class ParserRecipeSerializer(serializers.ModelSerializer):
         try:
             yaml.safe_load(value)
         except (yaml.YAMLError, RecursionError) as e:
-            raise serializers.ValidationError(f"Recipe source is not valid YAML: {e}")
+            raise serializers.ValidationError(f"Recipe source is not valid YAML: {e}")  # noqa: B904
         return value
 
 

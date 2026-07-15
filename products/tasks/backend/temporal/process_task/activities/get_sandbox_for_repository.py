@@ -152,7 +152,7 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
                 id=ctx.task_id
             )
         except Task.DoesNotExist as e:
-            raise TaskNotFoundError(f"Task {ctx.task_id} not found", {"task_id": ctx.task_id}, cause=e)
+            raise TaskNotFoundError(f"Task {ctx.task_id} not found", {"task_id": ctx.task_id}, cause=e)  # noqa: B904
 
         # Signal report research sandboxes need full history for git blame.
         # All other sandboxes use shallow clone (--depth 1) for faster boot.
@@ -178,7 +178,7 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
                     or ""
                 )
             except Exception as e:
-                raise GitHubAuthenticationError(
+                raise GitHubAuthenticationError(  # noqa: B904
                     f"Failed to get GitHub token for integration {github_integration_id}",
                     {"github_integration_id": github_integration_id, "task_id": ctx.task_id, "error": str(e)},
                     cause=e,
@@ -187,7 +187,7 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
         try:
             access_token = create_oauth_access_token_for_run(task, ctx.state)
         except Exception as e:
-            raise OAuthTokenError(
+            raise OAuthTokenError(  # noqa: B904
                 f"Failed to create OAuth access token for task {ctx.task_id}",
                 {"task_id": ctx.task_id, "error": str(e)},
                 cause=e,

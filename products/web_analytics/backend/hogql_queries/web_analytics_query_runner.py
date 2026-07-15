@@ -370,7 +370,7 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
                     pk=self.query.conversionGoal.actionId, team__project_id=self.team.project_id
                 )
             except Action.DoesNotExist:
-                raise QueryError(
+                raise QueryError(  # noqa: B904
                     f"Conversion goal action with id={self.query.conversionGoal.actionId} not found in this project."
                 )
             return action_to_expr(action)

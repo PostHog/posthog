@@ -268,7 +268,7 @@ def generate_heatmap_screenshot(self: Task, screenshot_id: str) -> None:
                 failure_type=_classify_failure(e),
                 exception=str(e),
             )
-            raise self.retry(exc=e, countdown=countdown)
+            raise self.retry(exc=e, countdown=countdown)  # noqa: B904
 
 
 def _build_browserless_screenshot_url() -> str | None:

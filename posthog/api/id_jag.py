@@ -178,10 +178,10 @@ def _get_jwks_client(issuer: str, jwks_url: str | None = None) -> jwt.PyJWKClien
             resp.raise_for_status()
             metadata = resp.json()
         except requests.RequestException as e:
-            raise InvalidGrantError(f"IdP {issuer} OIDC discovery request failed: {e}")
+            raise InvalidGrantError(f"IdP {issuer} OIDC discovery request failed: {e}")  # noqa: B904
         except ValueError as e:
             # `resp.json()` raises `json.JSONDecodeError` (a ValueError subclass).
-            raise InvalidGrantError(f"IdP {issuer} OIDC discovery response was not valid JSON: {e}")
+            raise InvalidGrantError(f"IdP {issuer} OIDC discovery response was not valid JSON: {e}")  # noqa: B904
         jwks_uri = metadata.get("jwks_uri")
         if not jwks_uri:
             raise InvalidGrantError(f"IdP {issuer} discovery metadata missing jwks_uri")
@@ -246,7 +246,7 @@ def _verify_and_extract_id_jag_token(assertion: str) -> tuple[IdJagClaims, str, 
     try:
         header = jwt.get_unverified_header(assertion)
     except jwt.PyJWTError as e:
-        raise InvalidGrantError(f"ID-JAG header could not be parsed: {e}")
+        raise InvalidGrantError(f"ID-JAG header could not be parsed: {e}")  # noqa: B904
 
     if header.get("typ") != ID_JAG_TOKEN_TYPE:
         raise InvalidGrantError(f"ID-JAG typ header is not {ID_JAG_TOKEN_TYPE}")
@@ -261,7 +261,7 @@ def _verify_and_extract_id_jag_token(assertion: str) -> tuple[IdJagClaims, str, 
         # nosemgrep: python.jwt.security.unverified-jwt-decode.unverified-jwt-decode
         unverified_claims = jwt.decode(assertion, options={"verify_signature": False})
     except jwt.PyJWTError as e:
-        raise InvalidGrantError(f"ID-JAG payload could not be parsed: {e}")
+        raise InvalidGrantError(f"ID-JAG payload could not be parsed: {e}")  # noqa: B904
 
     issuer = (unverified_claims.get("iss") or "").rstrip("/")
     if not issuer:
@@ -288,7 +288,7 @@ def _verify_and_extract_id_jag_token(assertion: str) -> tuple[IdJagClaims, str, 
         jwks_client = _get_jwks_client(expected_issuer, jwks_url=idp_config.id_jag_jwks_url or None)
         signing_key = jwks_client.get_signing_key_from_jwt(assertion)
     except jwt.PyJWTError as e:
-        raise InvalidGrantError(f"ID-JAG signing key resolution failed: {e}")
+        raise InvalidGrantError(f"ID-JAG signing key resolution failed: {e}")  # noqa: B904
 
     allowed_audiences = _get_allowed_audiences()
 
@@ -316,18 +316,18 @@ def _verify_and_extract_id_jag_token(assertion: str) -> tuple[IdJagClaims, str, 
             ),
         )
     except jwt.ExpiredSignatureError:
-        raise InvalidGrantError("ID-JAG has expired")
+        raise InvalidGrantError("ID-JAG has expired")  # noqa: B904
     except jwt.ImmatureSignatureError as e:
         # PyJWT raises this for both `nbf > now+leeway` and `iat > now+leeway`,
         # and the message disambiguates between them.
         # https://xaa.dev/docs/token-structure#clock-skew-tolerance
-        raise InvalidGrantError(f"ID-JAG is not yet valid (clock-skew window exceeded): {e}")
+        raise InvalidGrantError(f"ID-JAG is not yet valid (clock-skew window exceeded): {e}")  # noqa: B904
     except jwt.InvalidAudienceError:
-        raise InvalidGrantError("ID-JAG aud doesn't match this Auth Server's URL")
+        raise InvalidGrantError("ID-JAG aud doesn't match this Auth Server's URL")  # noqa: B904
     except jwt.MissingRequiredClaimError as e:
-        raise InvalidGrantError(f"ID-JAG is missing required claim: {e.claim}")
+        raise InvalidGrantError(f"ID-JAG is missing required claim: {e.claim}")  # noqa: B904
     except jwt.PyJWTError as e:
-        raise InvalidGrantError(f"ID-JAG signature verification failed: {e}")
+        raise InvalidGrantError(f"ID-JAG signature verification failed: {e}")  # noqa: B904
 
     claim_issuer = (claims.get("iss") or "").rstrip("/")
     if claim_issuer != expected_issuer:

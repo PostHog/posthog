@@ -184,7 +184,7 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
         try:
             accepted_name = AssistantTool(cls.name)
         except ValueError:
-            raise ValueError(
+            raise ValueError(  # noqa: B904
                 f"MaxTool name '{cls.name}' is not a recognized AssistantTool value. Fix this name, or update AssistantTool in schema-assistant-messages.ts and run `pnpm schema:build`"
             )
         CONTEXTUAL_TOOL_NAME_TO_TOOL[accepted_name] = cls
@@ -391,7 +391,7 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
         try:
             approval_resume_payload = ApprovalResumePayload.model_validate(response)
         except ValidationError as e:
-            raise MaxToolRetryableError(f"Invalid response from the user: {e}")
+            raise MaxToolRetryableError(f"Invalid response from the user: {e}")  # noqa: B904
 
         # Handle the response from the user
         if approval_resume_payload.action == "approve":
@@ -426,7 +426,7 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
         try:
             payload = ClientToolResultPayload.model_validate(response)
         except ValidationError as e:
-            raise MaxToolRetryableError(f"Invalid client tool result: {e}")
+            raise MaxToolRetryableError(f"Invalid client tool result: {e}")  # noqa: B904
         # All interrupts pending in one superstep receive the same resume value — fail loudly on misdelivery
         if payload.tool_call_id and self._original_tool_call_id and payload.tool_call_id != self._original_tool_call_id:
             raise MaxToolRetryableError("The client tool result was addressed to a different tool call")

@@ -556,7 +556,7 @@ async def _start_session_group_summary_workflow(
             except SessionGroupSummary.DoesNotExist:
                 msg = f"SessionGroupSummary with id {summary_id} not found in DB after workflow {workflow_id} completed"
                 logger.exception(msg, workflow_id=workflow_id, summary_id=summary_id, signals_type="session-summaries")
-                raise ApplicationError(msg)
+                raise ApplicationError(msg)  # noqa: B904
             # Parse the summary JSON into EnrichedSessionGroupSummaryPatternsList
             patterns = EnrichedSessionGroupSummaryPatternsList.model_validate_json(session_group_summary.summary)
             # Re-read failed_sessions so callers can distinguish partial from clean runs.

@@ -274,7 +274,7 @@ def truncated_normal_mean(mu: float, sigma: float, lower_bound: float, upper_bou
         # Handle numerical issues
         if np.isfinite(lower_bound) and np.isfinite(upper_bound):
             return mu  # Fallback to original mean
-        raise StatisticError(f"Failed to calculate truncated normal mean: {e}")
+        raise StatisticError(f"Failed to calculate truncated normal mean: {e}")  # noqa: B904
 
 
 def validate_inputs(

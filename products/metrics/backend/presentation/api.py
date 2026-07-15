@@ -588,7 +588,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 team=self.team, search=params.validated_data["value"], limit=params.validated_data["limit"]
             )
         except ValueError as exc:
-            raise ParseError(str(exc))
+            raise ParseError(str(exc))  # noqa: B904
 
         return Response({"results": results}, status=status.HTTP_200_OK)
 
@@ -620,7 +620,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 limit=params.validated_data["limit"],
             )
         except ValueError as exc:
-            raise ParseError(str(exc))
+            raise ParseError(str(exc))  # noqa: B904
 
         return Response({"results": results, "count": len(results)}, status=status.HTTP_200_OK)
 
@@ -652,7 +652,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 limit=params.validated_data["limit"],
             )
         except ValueError as exc:
-            raise ParseError(str(exc))
+            raise ParseError(str(exc))  # noqa: B904
 
         return Response({"results": results}, status=status.HTTP_200_OK)
 
@@ -685,7 +685,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             )
             series = run_metric_query(team=self.team, request=metric_request)
         except ValueError as exc:
-            raise ParseError(str(exc))
+            raise ParseError(str(exc))  # noqa: B904
 
         report_user_action(
             request.user,
@@ -724,7 +724,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 limit=query_data.get("limit") or 100,
             )
         except ValueError as exc:
-            raise ParseError(str(exc))
+            raise ParseError(str(exc))  # noqa: B904
 
         report_user_action(
             request.user,
@@ -770,7 +770,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 candidate_keys=tuple(query_data["candidateKeys"]) if query_data.get("candidateKeys") else None,
             )
         except ValueError as exc:
-            raise ParseError(str(exc))
+            raise ParseError(str(exc))  # noqa: B904
 
         report_user_action(
             request.user,

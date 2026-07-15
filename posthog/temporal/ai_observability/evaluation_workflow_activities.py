@@ -75,7 +75,7 @@ async def fetch_evaluation_activity(inputs: RunEvaluationInputs) -> dict[str, An
             }
         except Evaluation.DoesNotExist:
             logger.exception("Evaluation not found", evaluation_id=inputs.evaluation_id)
-            raise ValueError(f"Evaluation {inputs.evaluation_id} not found")
+            raise ValueError(f"Evaluation {inputs.evaluation_id} not found")  # noqa: B904
 
     return await database_sync_to_async(_fetch)()
 
@@ -407,7 +407,7 @@ async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> N
             team = Team.objects.get(id=event_data["team_id"])
         except Team.DoesNotExist:
             logger.exception("Team not found", team_id=event_data["team_id"])
-            raise ValueError(f"Team {event_data['team_id']} not found")
+            raise ValueError(f"Team {event_data['team_id']} not found")  # noqa: B904
 
         source_props = (
             json.loads(event_data["properties"])

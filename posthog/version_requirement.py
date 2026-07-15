@@ -18,7 +18,7 @@ class ServiceVersionRequirement:
         try:
             self.supported_version = SimpleSpec(supported_version)
         except:
-            raise Exception(
+            raise Exception(  # noqa: B904
                 f"The provided supported_version for service {service} is invalid. See the Docs for SimpleSpec: https://pypi.org/project/semantic-version/"
             )
 

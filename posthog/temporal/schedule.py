@@ -868,7 +868,7 @@ async def a_init_general_queue_schedules():
         for exc in eg.exceptions:
             logger.exception("Failed to initialize temporal schedules", error=exc)
             if not isinstance(exc, ScheduleAlreadyRunningError):
-                raise exc
+                raise exc  # noqa: B904
 
 
 @async_to_sync

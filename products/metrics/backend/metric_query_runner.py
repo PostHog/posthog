@@ -214,7 +214,7 @@ def _filter_condition(filter: MetricFilter) -> ast.Expr:
         try:
             re.compile(filter.value)
         except re.error as exc:
-            raise ValueError(f"Invalid regular expression for filter {filter.key!r}: {exc}")
+            raise ValueError(f"Invalid regular expression for filter {filter.key!r}: {exc}")  # noqa: B904
     placeholders: dict[str, ast.Expr] = {"field": field, "value": ast.Constant(value=filter.value)}
     if filter.op == FilterOp.EQ:
         return parse_expr("{field} = {value}", placeholders=placeholders)

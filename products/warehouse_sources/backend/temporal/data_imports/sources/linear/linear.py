@@ -102,7 +102,7 @@ def _make_paginated_request(
             # transport-level retry. Route transient network failures (read timeout, connection reset,
             # a connection broken mid-body which surfaces as ChunkedEncodingError) through the same
             # backoff path as 5xx/429 instead of failing the whole activity on one blip.
-            raise LinearRetryableError(f"Linear: transient network error - {e}")
+            raise LinearRetryableError(f"Linear: transient network error - {e}") from e
 
         if response.status_code >= 500:
             raise LinearRetryableError(f"Linear: server error {response.status_code}")

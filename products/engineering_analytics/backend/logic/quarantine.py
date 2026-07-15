@@ -578,7 +578,7 @@ def _load_writable(text: str | None) -> tuple[list[dict], dict]:
     try:
         data = json.loads(text)
     except json.JSONDecodeError as exc:
-        raise QuarantineWriteError(f"The quarantine file isn't valid JSON ({exc}); fix it before editing here.")
+        raise QuarantineWriteError(f"The quarantine file isn't valid JSON ({exc}); fix it before editing here.")  # noqa: B904
     if not isinstance(data, dict) or data.get("version") != _SCHEMA_VERSION:
         raise QuarantineWriteError("The quarantine file is malformed or an unsupported version; fix it before editing.")
     raw_entries = data.get("entries")

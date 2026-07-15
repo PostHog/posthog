@@ -65,7 +65,7 @@ class Command(BaseCommand):
                 booster = xgb.Booster()
                 booster.load_model(str(source))
             except Exception as e:
-                raise CommandError(f"xgboost rejected {source!r}: {e}")
+                raise CommandError(f"xgboost rejected {source!r}: {e}")  # noqa: B904
             names = tuple(booster.feature_names or ())
             if not names:
                 raise CommandError(
@@ -74,7 +74,7 @@ class Command(BaseCommand):
             try:
                 assert_serving_schema_parity(names)
             except (FeatureSchemaDriftError, MissingFeatureRangeError) as e:
-                raise CommandError(f"booster doesn't match current SQL/FEATURE_RANGES:\n{e}")
+                raise CommandError(f"booster doesn't match current SQL/FEATURE_RANGES:\n{e}")  # noqa: B904
             self.stdout.write(f"  validated: {len(names)} features, {source.stat().st_size} bytes")
 
         bucket = options["bucket"] or settings.OBJECT_STORAGE_BUCKET

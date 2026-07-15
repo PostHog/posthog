@@ -480,14 +480,14 @@ class DockerSandbox(SandboxBase):
             raise
         except subprocess.CalledProcessError as e:
             logger.exception(f"Failed to create Docker sandbox: {e.stderr}")
-            raise SandboxProvisionError(
+            raise SandboxProvisionError(  # noqa: B904
                 "Failed to create Docker sandbox",
                 {"config_name": config.name, "error": _truncate_output(e.stderr)},
                 cause=e,
             )
         except Exception as e:
             logger.exception(f"Failed to create Docker sandbox: {e}")
-            raise SandboxProvisionError(
+            raise SandboxProvisionError(  # noqa: B904
                 "Failed to create Docker sandbox",
                 {"config_name": config.name, "error": _truncate_output(str(e))},
                 cause=e,
@@ -529,7 +529,7 @@ class DockerSandbox(SandboxBase):
             return DockerSandbox(container_id=full_id, config=config, host_port=host_port)
 
         except subprocess.CalledProcessError as e:
-            raise SandboxNotFoundError(
+            raise SandboxNotFoundError(  # noqa: B904
                 f"Docker sandbox {sandbox_id} not found",
                 {"sandbox_id": sandbox_id, "error": e.stderr},
                 cause=e,
@@ -577,14 +577,14 @@ class DockerSandbox(SandboxBase):
             )
 
         except subprocess.TimeoutExpired as e:
-            raise SandboxTimeoutError(
+            raise SandboxTimeoutError(  # noqa: B904
                 f"Execution timed out after {timeout_seconds} seconds",
                 {"sandbox_id": self.id, "timeout_seconds": timeout_seconds},
                 cause=e,
             )
         except Exception as e:
             logger.exception(f"Failed to execute command: {e}")
-            raise SandboxExecutionError(
+            raise SandboxExecutionError(  # noqa: B904
                 "Failed to execute command",
                 {"sandbox_id": self.id, "command": redacted_command, "error": str(e)},
                 cause=e,
@@ -617,7 +617,7 @@ class DockerSandbox(SandboxBase):
             )
         except Exception as e:
             logger.exception(f"Failed to start streaming command: {e}")
-            raise SandboxExecutionError(
+            raise SandboxExecutionError(  # noqa: B904
                 "Failed to execute command",
                 {"sandbox_id": self.id, "command": redacted_command, "error": str(e)},
                 cause=e,
@@ -647,7 +647,7 @@ class DockerSandbox(SandboxBase):
                     self._process.wait(timeout=self._timeout)
                 except subprocess.TimeoutExpired as e:
                     self._process.kill()
-                    raise SandboxTimeoutError(
+                    raise SandboxTimeoutError(  # noqa: B904
                         f"Execution timed out after {self._timeout} seconds",
                         {"sandbox_id": self._sandbox_id, "timeout_seconds": self._timeout},
                         cause=e,
@@ -1093,14 +1093,14 @@ class DockerSandbox(SandboxBase):
 
         except subprocess.CalledProcessError as e:
             logger.exception(f"Failed to create snapshot: {e.stderr}")
-            raise SnapshotCreationError(
+            raise SnapshotCreationError(  # noqa: B904
                 f"Failed to create snapshot: {e.stderr}",
                 {"sandbox_id": self.id, "error": e.stderr},
                 cause=e,
             )
         except Exception as e:
             logger.exception(f"Failed to create snapshot: {e}")
-            raise SnapshotCreationError(
+            raise SnapshotCreationError(  # noqa: B904
                 f"Failed to create snapshot: {e}",
                 {"sandbox_id": self.id, "error": str(e)},
                 cause=e,
@@ -1126,7 +1126,7 @@ class DockerSandbox(SandboxBase):
             logger.info(f"Destroyed Docker sandbox {self.id}")
         except Exception as e:
             logger.exception(f"Failed to destroy Docker sandbox: {e}")
-            raise SandboxCleanupError(
+            raise SandboxCleanupError(  # noqa: B904
                 f"Failed to destroy Docker sandbox: {e}",
                 {"sandbox_id": self.id, "error": str(e)},
                 cause=e,

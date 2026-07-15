@@ -207,7 +207,7 @@ def _parse_iso(raw: str, arg_name: str) -> datetime:
     try:
         dt = datetime.fromisoformat(raw)
     except ValueError as e:
-        raise CommandError(f"--{arg_name}: could not parse ISO-8601 datetime {raw!r}: {e}")
+        raise CommandError(f"--{arg_name}: could not parse ISO-8601 datetime {raw!r}: {e}")  # noqa: B904
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=UTC)
     return dt.astimezone(UTC)

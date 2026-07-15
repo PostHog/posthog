@@ -115,7 +115,7 @@ def get_pr_context(input: GetPrContextInput) -> GetPrContextOutput | None:
             # blip, a rate limit, or a 200-with-`errors` GraphQL server error). Raise it as
             # transient so the activity's retry policy retries it, rather than a fatal
             # non-retryable error that permanently kills the in-flight follow-up run.
-            raise ProcessTaskTransientError(
+            raise ProcessTaskTransientError(  # noqa: B904
                 f"Failed to fetch PR details from GitHub for URL {pr_url}",
                 context={
                     "pr_url": pr_url,

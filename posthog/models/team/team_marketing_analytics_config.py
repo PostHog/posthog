@@ -221,7 +221,7 @@ def validate_conversion_goals(conversion_goals: list) -> None:
             try:
                 goal["id"] = int(goal["id"])
             except ValueError:
-                raise ValidationError(
+                raise ValidationError(  # noqa: B904
                     f"Conversion goal id must be convertible to an integer, got {type(goal.get('id'))}"
                 )
         elif goal.get("kind") == NodeKind.DATA_WAREHOUSE_NODE:
@@ -356,7 +356,7 @@ class TeamMarketingAnalyticsConfig(models.Model):
             validate_sources_map(value)
             self._sources_map = value
         except ValidationError as e:
-            raise ValidationError(f"Invalid sources map schema: {str(e)}")
+            raise ValidationError(f"Invalid sources map schema: {str(e)}")  # noqa: B904
 
     @property
     def sources_map_typed(self) -> dict[str, "SourceMap"]:
@@ -382,7 +382,7 @@ class TeamMarketingAnalyticsConfig(models.Model):
             validate_conversion_goals(value)
             self._conversion_goals = value
         except ValidationError as e:
-            raise ValidationError(f"Invalid conversion goals: {str(e)}")
+            raise ValidationError(f"Invalid conversion goals: {str(e)}")  # noqa: B904
 
     @property
     def campaign_name_mappings(self) -> dict[str, dict[str, list[str]]]:
@@ -395,7 +395,7 @@ class TeamMarketingAnalyticsConfig(models.Model):
             validate_campaign_name_mappings(value)
             self._campaign_name_mappings = value
         except ValidationError as e:
-            raise ValidationError(f"Invalid campaign name mappings: {str(e)}")
+            raise ValidationError(f"Invalid campaign name mappings: {str(e)}")  # noqa: B904
 
     @property
     def custom_source_mappings(self) -> dict[str, list[str]]:
@@ -408,7 +408,7 @@ class TeamMarketingAnalyticsConfig(models.Model):
             validate_custom_source_mappings(value)
             self._custom_source_mappings = value
         except ValidationError as e:
-            raise ValidationError(f"Invalid custom source mappings: {str(e)}")
+            raise ValidationError(f"Invalid custom source mappings: {str(e)}")  # noqa: B904
 
     @property
     def campaign_field_preferences(self) -> dict[str, dict]:
@@ -421,7 +421,7 @@ class TeamMarketingAnalyticsConfig(models.Model):
             validate_campaign_field_preferences(value)
             self._campaign_field_preferences = value
         except ValidationError as e:
-            raise ValidationError(f"Invalid campaign field preferences: {str(e)}")
+            raise ValidationError(f"Invalid campaign field preferences: {str(e)}")  # noqa: B904
 
     def update_source_mapping(self, source_id: str, field_mapping: dict) -> None:
         """Update or add a single source mapping while preserving existing sources."""

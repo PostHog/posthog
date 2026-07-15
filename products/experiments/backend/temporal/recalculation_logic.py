@@ -450,7 +450,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
     try:
         query_to_dt = datetime.fromisoformat(query_to)
     except ValueError as e:
-        raise ApplicationError(
+        raise ApplicationError(  # noqa: B904
             f"query_to {query_to!r} is not a valid ISO datetime string: {e}",
             type="invalid_input",
             non_retryable=True,

@@ -217,7 +217,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
         try:
             record = self.organization.proxy_records.get(id=pk)
         except ProxyRecord.DoesNotExist:
-            raise NotFound()
+            raise NotFound()  # noqa: B904
         serializer = self.get_serializer(record)
         return Response(serializer.data)
 
@@ -293,7 +293,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
         try:
             record = self.organization.proxy_records.get(id=pk)
         except ProxyRecord.DoesNotExist:
-            raise NotFound()
+            raise NotFound()  # noqa: B904
 
         # Per-user, per-record cooldown. Each diagnose makes ~5–10 outbound requests
         # against the customer's domain (DNS CAA walk, HTTP probes, TLS handshake) plus a
@@ -334,7 +334,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
         try:
             record = self.organization.proxy_records.get(id=pk)
         except ProxyRecord.DoesNotExist:
-            raise NotFound()
+            raise NotFound()  # noqa: B904
 
         if record.status not in (
             ProxyRecord.Status.ERRORING,
@@ -388,7 +388,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
         try:
             record = self.organization.proxy_records.get(id=pk)
         except ProxyRecord.DoesNotExist:
-            raise NotFound()
+            raise NotFound()  # noqa: B904
 
         if record.status in (
             ProxyRecord.Status.WAITING,

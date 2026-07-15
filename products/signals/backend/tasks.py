@@ -131,7 +131,7 @@ def sync_signals_refund_credit(self, refund_id: str) -> None:
     except Exception as exc:
         if self.request.retries < _REFUND_SYNC_MAX_RETRIES:
             countdown = min(_REFUND_SYNC_RETRY_BASE_SECONDS * (2**self.request.retries), _REFUND_SYNC_RETRY_MAX_SECONDS)
-            raise self.retry(exc=exc, countdown=countdown)
+            raise self.retry(exc=exc, countdown=countdown)  # noqa: B904
         # Terminal for this delivery — record the error for the weekly review; the hourly sweeper
         # keeps re-enqueueing the row for up to 7 days, after which recovery is operational. The
         # conditional update mirrors the success-path claim below: never stamp an error (or emit

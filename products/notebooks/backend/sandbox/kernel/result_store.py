@@ -30,7 +30,7 @@ def read_page(result_id: str, offset: int, limit: int, results_dir: str = _RESUL
     try:
         frame_id = str(uuid.UUID(result_id))  # also confines the path join to a UUID filename
     except (TypeError, ValueError):
-        raise ResultStoreError("Invalid result id.")
+        raise ResultStoreError("Invalid result id.")  # noqa: B904
     path = os.path.join(results_dir, f"{frame_id}.arrow")
     if not os.path.exists(path):
         raise ResultStoreError("This result is no longer in the sandbox — re-run the node.")
@@ -38,7 +38,7 @@ def read_page(result_id: str, offset: int, limit: int, results_dir: str = _RESUL
         with pa.memory_map(path) as source:
             table = pa.ipc.open_file(source).read_all()
     except pa.ArrowInvalid as exc:
-        raise ResultStoreError(f"Stored result frame is unreadable: {exc}")
+        raise ResultStoreError(f"Stored result frame is unreadable: {exc}")  # noqa: B904
     columns, rows, types = _table_to_rows_and_types(table.slice(offset, limit))
     return {
         "columns": columns,

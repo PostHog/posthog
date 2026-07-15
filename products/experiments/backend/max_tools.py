@@ -128,7 +128,7 @@ class CreateExperimentTool(MaxTool):
             try:
                 feature_flag = FeatureFlag.objects.get(team=self._team, key=feature_flag_key)
             except FeatureFlag.DoesNotExist:
-                raise ValueError(f"Feature flag '{feature_flag_key}' does not exist")
+                raise ValueError(f"Feature flag '{feature_flag_key}' does not exist")  # noqa: B904
 
             eligibility_error = experiment_eligibility_error(feature_flag.variants)
             if eligibility_error:
@@ -425,7 +425,7 @@ class SessionReplaySummaryTool(MaxTool):
                         id=experiment_id, team=self._team
                     )
                 except Experiment.DoesNotExist:
-                    raise ValueError(f"Experiment {experiment_id} not found")
+                    raise ValueError(f"Experiment {experiment_id} not found")  # noqa: B904
 
             experiment = await get_experiment()
 

@@ -340,13 +340,13 @@ class ConversationRedisStream:
                             yield data
 
             except redis_exceptions.ConnectionError:
-                raise StreamError("Connection lost to conversation stream")
+                raise StreamError("Connection lost to conversation stream")  # noqa: B904
             except redis_exceptions.TimeoutError:
-                raise StreamError("Stream read timeout")
+                raise StreamError("Stream read timeout")  # noqa: B904
             except redis_exceptions.RedisError:
-                raise StreamError("Stream read error")
+                raise StreamError("Stream read error")  # noqa: B904
             except Exception:
-                raise StreamError("Unexpected error reading conversation stream")
+                raise StreamError("Unexpected error reading conversation stream")  # noqa: B904
 
     async def delete_stream(self) -> bool:
         """Delete the Redis stream for this conversation.
@@ -415,4 +415,4 @@ class ConversationRedisStream:
 
         except Exception as e:
             await self._write_status(StatusPayload(status="error", error=str(e)))
-            raise StreamError("Failed to write to stream")
+            raise StreamError("Failed to write to stream")  # noqa: B904

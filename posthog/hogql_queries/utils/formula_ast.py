@@ -61,7 +61,7 @@ class FormulaAST:
             except ZeroDivisionError:
                 return 0
             except KeyError:
-                raise ValueError(f"Operator {op.__class__.__name__} not supported")
+                raise ValueError(f"Operator {op.__class__.__name__} not supported")  # noqa: B904
 
         elif isinstance(node, ast.UnaryOp):
             operand = self._evaluate(node.operand, const_map)
@@ -86,7 +86,7 @@ class FormulaAST:
             except KeyError:
                 available = sorted(k.upper() for k in const_map if k.isalpha() and len(k) == 1)
                 series_word = "series is" if len(available) == 1 else "series are"
-                raise ExposedHogQLError(
+                raise ExposedHogQLError(  # noqa: B904
                     f"Formula references series {node.id.upper()}, "
                     f"but only {len(available)} {series_word} defined ({', '.join(available) or 'none'})"
                 )

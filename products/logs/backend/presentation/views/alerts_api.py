@@ -641,7 +641,7 @@ class LogsAlertSimulateRequestSerializer(serializers.Serializer):
         try:
             parsed = relative_date_parse(value, ZoneInfo("UTC"))
         except Exception:
-            raise ValidationError("Invalid date_from value.")
+            raise ValidationError("Invalid date_from value.")  # noqa: B904
         min_allowed = datetime.now(UTC) - dt.timedelta(days=MAX_SIMULATE_LOOKBACK_DAYS)
         if parsed < min_allowed:
             raise ValidationError(f"date_from cannot be more than {MAX_SIMULATE_LOOKBACK_DAYS} days in the past.")
@@ -694,8 +694,8 @@ class LogsAlertCreateDestinationSerializer(serializers.Serializer):
             validate_destination_data(data, allowed_destination_types=LOGS_DESTINATION_TYPES)
         except AlertDestinationValidationError as error:
             if error.field:
-                raise ValidationError({error.field: error.message})
-            raise ValidationError(error.message)
+                raise ValidationError({error.field: error.message})  # noqa: B904
+            raise ValidationError(error.message)  # noqa: B904
         return attrs
 
 
@@ -983,7 +983,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         try:
             outcome = apply_user_reset(alert.to_snapshot())
         except InvalidTransition:
-            raise ValidationError({"state": "Only broken alerts can be reset."})
+            raise ValidationError({"state": "Only broken alerts can be reset."})  # noqa: B904
         with transaction.atomic():
             update_fields = apply_outcome(alert, outcome, kind=LogsAlertEvent.Kind.RESET)
             update_fields.extend(alert.clear_next_check())

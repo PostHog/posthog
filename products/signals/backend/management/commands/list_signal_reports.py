@@ -34,7 +34,7 @@ class Command(BaseCommand):
         try:
             team = Team.objects.get(id=options["team_id"])
         except Team.DoesNotExist:
-            raise CommandError(f"Team {options['team_id']} not found")
+            raise CommandError(f"Team {options['team_id']} not found")  # noqa: B904
 
         qs = SignalReport.objects.filter(team=team).order_by("-signal_count")
 

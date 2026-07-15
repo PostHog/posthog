@@ -223,9 +223,9 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             else:
                 raise UnsupportedMediaType(file.content_type)
         except KeyError:
-            raise ValidationError(code="no-image-provided", detail="An image file must be provided")
+            raise ValidationError(code="no-image-provided", detail="An image file must be provided")  # noqa: B904
         except ObjectStorageUnavailable:
-            raise ValidationError(
+            raise ValidationError(  # noqa: B904
                 code="object_storage_required",
                 detail="Object storage must be available to allow media uploads.",
             )

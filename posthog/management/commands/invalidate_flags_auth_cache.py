@@ -50,7 +50,7 @@ class Command(BaseCommand):
         try:
             counts = token_auth_cache.invalidate_team_tokens(team_id, dry_run=dry_run)
         except Team.DoesNotExist:
-            raise CommandError(f"Team {team_id} not found.")
+            raise CommandError(f"Team {team_id} not found.")  # noqa: B904
 
         self._print_counts(team_id, counts, dry_run)
 

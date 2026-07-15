@@ -23,7 +23,7 @@ class MaxCoreMemorySerializer(serializers.ModelSerializer):
             validated_data["scraping_status"] = CoreMemory.ScrapingStatus.COMPLETED
             return super().create(validated_data)
         except IntegrityError:
-            raise Conflict("Core memory already exists for this environment.")
+            raise Conflict("Core memory already exists for this environment.")  # noqa: B904
 
 
 class MaxCoreMemoryViewSet(

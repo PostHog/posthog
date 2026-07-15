@@ -1397,7 +1397,7 @@ class QueryMatchingTest:
         except AssertionError:
             diff_lines = "\n".join(self.snapshot.get_assert_diff())
             error_message = f"Query does not match snapshot. Update snapshots with --snapshot-update.\n\n{diff_lines}"
-            raise AssertionError(error_message)
+            raise AssertionError(error_message)  # noqa: B904
 
         if params is not None:
             del params["team_id"]  # Changes every run
@@ -1406,7 +1406,7 @@ class QueryMatchingTest:
             except AssertionError:
                 params_diff_lines = "\n".join(self.snapshot.get_assert_diff())
                 params_error_message = f"Query parameters do not match snapshot. Update snapshots with --snapshot-update.\n\n{params_diff_lines}"
-                raise AssertionError(params_error_message)
+                raise AssertionError(params_error_message)  # noqa: B904
 
 
 @contextmanager

@@ -55,7 +55,7 @@ class TeamRevenueAnalyticsConfig(models.Model):
                         event[key] = None
             self._events = dumped_value
         except Exception as e:
-            raise ValidationError(f"Invalid events schema: {str(e)}")
+            raise ValidationError(f"Invalid events schema: {str(e)}")  # noqa: B904
 
     @property
     def goals(self) -> list["RevenueAnalyticsGoal"]:
@@ -75,7 +75,7 @@ class TeamRevenueAnalyticsConfig(models.Model):
             )
             self._goals = dumped_value
         except Exception as e:
-            raise ValidationError(f"Invalid goals schema: {str(e)}")
+            raise ValidationError(f"Invalid goals schema: {str(e)}")  # noqa: B904
 
     # `goals` arent included here because they aren't used for computations (yet)
     def to_cache_key_dict(self) -> dict:

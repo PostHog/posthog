@@ -277,7 +277,7 @@ class SignupSerializer(serializers.Serializer):
                 is_passkey_signup=bool(passkey_credential),
                 error=str(e),
             )
-            raise exceptions.ValidationError(
+            raise exceptions.ValidationError(  # noqa: B904
                 {"email": "There is already an account with this email address."},
                 code="unique",
             )
@@ -522,7 +522,7 @@ class InviteSignupSerializer(serializers.Serializer):
             # nosemgrep: idor-lookup-without-org, idor-taint-user-input-to-org-model (invite UUID serves as auth token)
             invite: OrganizationInvite = OrganizationInvite.objects.select_related("organization").get(id=invite_id)
         except OrganizationInvite.DoesNotExist:
-            raise serializers.ValidationError("The provided invite ID is not valid.")
+            raise serializers.ValidationError("The provided invite ID is not valid.")  # noqa: B904
 
         if not user and invite.target_email:
             auth_method = RadarAuthMethod.PASSKEY if passkey_credential else RadarAuthMethod.PASSWORD
@@ -593,7 +593,7 @@ class InviteSignupSerializer(serializers.Serializer):
                         **extra_fields,
                     )
                 except IntegrityError:
-                    raise serializers.ValidationError(
+                    raise serializers.ValidationError(  # noqa: B904
                         f"There already exists an account with email address {invite.target_email}. Please log in instead."
                     )
 
@@ -606,7 +606,7 @@ class InviteSignupSerializer(serializers.Serializer):
             try:
                 invite.use(user)
             except ValueError as e:
-                raise serializers.ValidationError(str(e))
+                raise serializers.ValidationError(str(e))  # noqa: B904
 
             if is_delegation:
                 self.context["delegated_onboarding"] = True
@@ -679,7 +679,7 @@ class InviteSignupViewset(generics.CreateAPIView):
             # nosemgrep: idor-lookup-without-org, idor-taint-user-input-to-org-model (invite UUID serves as auth token)
             invite: OrganizationInvite = OrganizationInvite.objects.get(id=invite_id)
         except (OrganizationInvite.DoesNotExist, ValidationError):
-            raise serializers.ValidationError("The provided invite ID is not valid.")
+            raise serializers.ValidationError("The provided invite ID is not valid.")  # noqa: B904
 
         user = request.user if request.user.is_authenticated else None
 
@@ -835,7 +835,7 @@ def process_social_invite_signup(
         except Exception as e:
             capture_exception(e)
             message = "Account unable to be created. This account may already exist. Please try again or use different credentials."
-            raise ValidationError(message, code="unknown", params={"source": "social_create_user"})
+            raise ValidationError(message, code="unknown", params={"source": "social_create_user"})  # noqa: B904
 
         if is_delegation:
             strategy.session_set("next", "/onboarding")
@@ -883,7 +883,7 @@ def process_social_domain_jit_provisioning_signup(
                     except Exception as e:
                         capture_exception(e)
                         message = "Account unable to be created. This account may already exist. Please try again or use different credentials."
-                        raise ValidationError(message, code="unknown", params={"source": "social_create_user"})
+                        raise ValidationError(message, code="unknown", params={"source": "social_create_user"})  # noqa: B904
 
                     if is_delegation:
                         strategy.session_set("next", "/onboarding")

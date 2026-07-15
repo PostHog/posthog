@@ -197,7 +197,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes) -> _La
     except OAuthTokenError:
         raise
     except Exception as e:
-        raise OAuthTokenError(
+        raise OAuthTokenError(  # noqa: B904
             f"Failed to create OAuth access token for MCP auth in task {ctx.task_id}",
             {"task_id": ctx.task_id, "error": str(e)},
             cause=e,
@@ -221,7 +221,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes) -> _La
         try:
             event_ingest_token = create_sandbox_event_ingest_token(task_run)
         except Exception as e:
-            raise SandboxExecutionError(
+            raise SandboxExecutionError(  # noqa: B904
                 "Failed to create sandbox event ingest token",
                 {"task_id": ctx.task_id, "run_id": ctx.run_id, "error": str(e)},
                 cause=e,
@@ -356,7 +356,7 @@ def _invoke_start_agent_server(
         if params.agentsh_domains is not None:
             _emit_agentsh_log_tail(ctx, sandbox)
         _emit_agent_server_log_tail(ctx, sandbox)
-        raise SandboxExecutionError(
+        raise SandboxExecutionError(  # noqa: B904
             "Failed to start agent server in sandbox",
             {
                 "task_id": ctx.task_id,

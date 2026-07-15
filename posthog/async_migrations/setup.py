@@ -98,7 +98,7 @@ def get_async_migration_definition(migration_name: str) -> AsyncMigrationDefinit
     try:
         return ALL_ASYNC_MIGRATIONS[migration_name]
     except:
-        raise LookupError(f"Async migration definition for {migration_name} not available")
+        raise LookupError(f"Async migration definition for {migration_name} not available")  # noqa: B904
 
 
 def get_async_migration_dependency(migration_name: str) -> Optional[str]:

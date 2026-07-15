@@ -116,7 +116,7 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> None:
         _write_error_and_complete(input.run_id, error_msg)
         # Raise so the workflow can mark the run as failed. Without this,
         # background-mode runs hang until the inactivity timeout because
-        raise ApplicationError(f"send_followup failed: {error_msg}", non_retryable=True)
+        raise ApplicationError(f"send_followup failed: {error_msg}", non_retryable=True)  # noqa: B904
 
     auth_token = None
     actor_user = get_task_run_credential_user(task_run.task, task_run.state)

@@ -1427,7 +1427,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         try:
             project = get_object_or_404(queryset, **filter_kwargs)
         except ValueError as error:
-            raise exceptions.ValidationError(str(error))
+            raise exceptions.ValidationError(str(error))  # noqa: B904
         return project
 
     # :KLUDGE: Exposed for compatibility reasons for permission classes.
@@ -1797,7 +1797,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
                 )
 
         except (OrganizationMembership.DoesNotExist, Organization.DoesNotExist):
-            raise exceptions.ValidationError("You must be a member of the target organization to move a project.")
+            raise exceptions.ValidationError("You must be a member of the target organization to move a project.")  # noqa: B904
 
         if project.organization_id == target_organization_id:
             raise exceptions.ValidationError("Project is already in the target organization.")

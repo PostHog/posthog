@@ -162,7 +162,7 @@ class EndpointCrudService:
                     "endpoint_name": data.name,
                 },
             )
-            raise ValidationError("Failed to create endpoint.")
+            raise ValidationError("Failed to create endpoint.")  # noqa: B904
 
     # ------------------------------------------------------------------
     # Update
@@ -259,7 +259,7 @@ class EndpointCrudService:
                     "update_step": step,
                 },
             )
-            raise ValidationError("Failed to update endpoint.")
+            raise ValidationError("Failed to update endpoint.")  # noqa: B904
 
     def _resolve_target_version_override(
         self, endpoint: Endpoint, data: EndpointRequest, version_number: int | None
@@ -269,7 +269,7 @@ class EndpointCrudService:
         try:
             target_version_override = endpoint.get_version(version_number)
         except EndpointVersion.DoesNotExist:
-            raise ValidationError({"version": f"Version {version_number} not found for this endpoint."})
+            raise ValidationError({"version": f"Version {version_number} not found for this endpoint."})  # noqa: B904
         if data.query is not None:
             raise ValidationError(
                 {"query": "Cannot change query when targeting a specific version. Query changes create a new version."}

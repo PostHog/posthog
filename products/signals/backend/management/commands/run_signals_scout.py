@@ -37,7 +37,7 @@ class Command(BaseCommand):
                 verbose=options["verbose"],
             )
         except SkillNotFoundError as exc:
-            raise CommandError(str(exc))
+            raise CommandError(str(exc))  # noqa: B904
 
         self.stdout.write(self.style.SUCCESS(f"Run {result.run_id} {result.status}"))
         self.stdout.write(f"  skill:    {result.skill_name} v{result.skill_version}")

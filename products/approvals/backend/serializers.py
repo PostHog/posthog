@@ -198,7 +198,7 @@ class ApprovalPolicySerializer(serializers.ModelSerializer):
         try:
             return [int(lvl) for lvl in value]
         except (ValueError, TypeError):
-            raise serializers.ValidationError("All membership levels must be integers")
+            raise serializers.ValidationError("All membership levels must be integers")  # noqa: B904
 
     def validate_bypass_roles(self, value):
         if not value:
@@ -207,7 +207,7 @@ class ApprovalPolicySerializer(serializers.ModelSerializer):
         try:
             from ee.models.rbac.role import Role
         except ImportError:
-            raise serializers.ValidationError("RBAC roles are not available")
+            raise serializers.ValidationError("RBAC roles are not available")  # noqa: B904
 
         if self.instance:
             # Update: get organization from existing policy

@@ -359,7 +359,7 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
                     try:
                         action = Action.objects.get(pk=int(series.id), team__project_id=self.team.project_id)
                     except Action.DoesNotExist:
-                        raise ValidationError(f"Action ID {series.id} does not exist!")
+                        raise ValidationError(f"Action ID {series.id} does not exist!")  # noqa: B904
                     event_filters.append(action_to_expr(action))
                 elif isinstance(series, EventsNode):
                     if series.event is not None:

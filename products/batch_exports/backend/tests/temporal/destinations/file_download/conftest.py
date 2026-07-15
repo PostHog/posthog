@@ -78,7 +78,7 @@ async def s3_bucket(bucket_name, s3_client, region):
         botocore.exceptions.PartialCredentialsError,
         botocore.exceptions.ClientError,
     ):
-        raise pytest.skip("Could not setup S3 bucket")
+        raise pytest.skip("Could not setup S3 bucket")  # noqa: B904
 
     yield bucket_name
 
@@ -120,7 +120,7 @@ async def aws_role_arn(session, bucket_name, role_name):
             botocore.exceptions.PartialCredentialsError,
             botocore.exceptions.ClientError,
         ):
-            raise pytest.skip("Could not create test role")
+            raise pytest.skip("Could not create test role")  # noqa: B904
 
         s3_policy = {
             "Version": "2012-10-17",

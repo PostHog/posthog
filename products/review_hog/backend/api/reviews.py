@@ -548,7 +548,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         try:
             report_uuid = uuid.UUID(str(pk))
         except ValueError:
-            raise NotFound("Review not found.")
+            raise NotFound("Review not found.") from None
         # Project-wide on purpose: the detail must open for any review the everyone-scope list shows.
         team_id, queryset = self._reports(request, scope=SCOPE_EVERYONE)
         # Detail describes a completed turn — a first run still in flight has nothing to show yet.

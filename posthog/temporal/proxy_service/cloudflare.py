@@ -108,7 +108,7 @@ def _handle_response(response: requests.Response) -> dict:
     try:
         data = response.json()
     except requests.exceptions.JSONDecodeError:
-        raise CloudflareAPIError(f"Invalid JSON response (status {response.status_code}): {response.text[:200]}")
+        raise CloudflareAPIError(f"Invalid JSON response (status {response.status_code}): {response.text[:200]}")  # noqa: B904
 
     if not data.get("success", False):
         errors = data.get("errors", [])

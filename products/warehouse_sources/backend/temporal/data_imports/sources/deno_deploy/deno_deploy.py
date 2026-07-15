@@ -36,7 +36,7 @@ def _require_deno_deploy_url(url: str) -> str:
     try:
         parts = urlsplit(url)
     except ValueError as e:
-        raise ValueError(f"Refusing to fetch malformed Deno Deploy URL: {e}")
+        raise ValueError(f"Refusing to fetch malformed Deno Deploy URL: {e}")  # noqa: B904
     if parts.scheme != "https" or parts.hostname != DENO_DEPLOY_HOST:
         raise ValueError(f"Refusing to fetch off-host Deno Deploy URL (host={parts.hostname!r})")
     return url

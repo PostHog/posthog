@@ -53,7 +53,7 @@ def create_sandbox_from_snapshot(input: CreateSandboxFromSnapshotInput) -> Creat
         try:
             snapshot = SandboxSnapshot.objects.get(id=input.snapshot_id)
         except SandboxSnapshot.DoesNotExist as e:
-            raise SnapshotNotFoundError(
+            raise SnapshotNotFoundError(  # noqa: B904
                 f"Snapshot {input.snapshot_id} not found", {"snapshot_id": input.snapshot_id}, cause=e
             )
 
@@ -69,7 +69,7 @@ def create_sandbox_from_snapshot(input: CreateSandboxFromSnapshotInput) -> Creat
                 id=ctx.task_id
             )
         except Task.DoesNotExist as e:
-            raise TaskNotFoundError(f"Task {ctx.task_id} not found", {"task_id": ctx.task_id}, cause=e)
+            raise TaskNotFoundError(f"Task {ctx.task_id} not found", {"task_id": ctx.task_id}, cause=e)  # noqa: B904
 
         actor_user = get_task_run_credential_user(task, ctx.state)
         github_token = ""
@@ -88,7 +88,7 @@ def create_sandbox_from_snapshot(input: CreateSandboxFromSnapshotInput) -> Creat
                     or ""
                 )
             except Exception as e:
-                raise GitHubAuthenticationError(
+                raise GitHubAuthenticationError(  # noqa: B904
                     f"Failed to get GitHub token for integration {ctx.github_integration_id}",
                     {
                         "github_integration_id": ctx.github_integration_id,
@@ -102,7 +102,7 @@ def create_sandbox_from_snapshot(input: CreateSandboxFromSnapshotInput) -> Creat
         try:
             access_token = create_oauth_access_token_for_run(task, ctx.state)
         except Exception as e:
-            raise OAuthTokenError(
+            raise OAuthTokenError(  # noqa: B904
                 f"Failed to create OAuth access token for task {ctx.task_id}",
                 {"task_id": ctx.task_id, "team_id": ctx.team_id, "error": str(e)},
                 cause=e,

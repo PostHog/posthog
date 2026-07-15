@@ -149,7 +149,7 @@ def propose_certification(
         existing = certifications.filter(table=target_table, saved_query=target_saved_query).first()
         if existing is None:
             raise
-        raise _duplicate_target_conflict(existing)
+        raise _duplicate_target_conflict(existing)  # noqa: B904
 
     _log(user, cert, "created")
     _capture(user, team, "data catalog certification proposed", cert)

@@ -52,9 +52,9 @@ class Command(BaseCommand):
             app_label, model_label = model_name.split(".")
             model = apps.get_model(app_label, model_label)
         except ValueError:
-            raise CommandError(f"Model name must be in format 'app_label.model_name', got: {model_name}")
+            raise CommandError(f"Model name must be in format 'app_label.model_name', got: {model_name}")  # noqa: B904
         except LookupError as e:
-            raise CommandError(f"Model not found: {e}")
+            raise CommandError(f"Model not found: {e}")  # noqa: B904
 
         # Check if model has team_id field
         team_field = None

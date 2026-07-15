@@ -48,7 +48,7 @@ class HealthCheckTriggerForm(forms.Form):
         try:
             return [int(x.strip()) for x in raw.split(",") if x.strip()]
         except ValueError:
-            raise forms.ValidationError("Team IDs must be comma-separated integers")
+            raise forms.ValidationError("Team IDs must be comma-separated integers")  # noqa: B904
 
 
 def health_check_list_view(request):

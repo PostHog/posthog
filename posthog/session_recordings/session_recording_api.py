@@ -539,7 +539,7 @@ class SessionRecordingSnapshotsRequestSerializer(serializers.Serializer):
                 data["min_blob_key"] = int(start_blob_key)
                 data["max_blob_key"] = int(end_blob_key)
             except (ValueError, TypeError):
-                raise serializers.ValidationError("Blob keys must be integers")
+                raise serializers.ValidationError("Blob keys must be integers")  # noqa: B904
 
             max_blobs_allowed = 20 if is_personal_api_key else 100
             if int(end_blob_key) - int(start_blob_key) > max_blobs_allowed:
@@ -954,12 +954,12 @@ class SessionRecordingViewSet(
                     return response
         except CHQueryErrorTooManySimultaneousQueries:
             _count_session_recording_throttled(location="too_many_simultaneous_queries", auth_type=auth_type)
-            raise Throttled(detail="Too many simultaneous queries. Try again later.")
+            raise Throttled(detail="Too many simultaneous queries. Try again later.")  # noqa: B904
         except (ExposedHogQLError, ExposedCHQueryError) as e:
             # A bad filter or query (e.g. a property referencing a field that doesn't exist on the
             # event) is the caller's problem, not a server error. Surface the actual reason as a 400
             # instead of collapsing it into a generic 500.
-            raise exceptions.ValidationError(str(e), getattr(e, "code_name", None))
+            raise exceptions.ValidationError(str(e), getattr(e, "code_name", None))  # noqa: B904
         except exceptions.APIException:
             # ValidationError, Throttled, and the ClickHouse capacity / timeout / memory-limit
             # exceptions already carry a correct status code and a user-safe message. Let DRF render
@@ -968,7 +968,7 @@ class SessionRecordingViewSet(
         except (ServerException, Exception) as e:
             if isinstance(e, ServerException) and "CHQueryErrorTimeoutExceeded" in str(e):
                 _count_session_recording_throttled(location="query_timeout_exceeded", auth_type=auth_type)
-                raise Throttled(detail="Query timeout exceeded. Try again later.")
+                raise Throttled(detail="Query timeout exceeded. Try again later.")  # noqa: B904
 
             posthoganalytics.capture_exception(
                 e,
@@ -1989,7 +1989,7 @@ class SessionRecordingViewSet(
         try:
             response_data = json.loads(completion.choices[0].message.content)
         except JSONDecodeError:
-            raise exceptions.ValidationError("Invalid JSON response from OpenAI")
+            raise exceptions.ValidationError("Invalid JSON response from OpenAI")  # noqa: B904
 
         return Response(response_data)
 

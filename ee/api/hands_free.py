@@ -136,7 +136,7 @@ class MaxHandsFreeViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         except requests.RequestException:
             HANDS_FREE_TOKEN_COUNTER.labels(outcome="provider_unreachable").inc()
             logger.exception("max_hands_free_token_failed")
-            raise HandsFreeProviderError("Failed to reach the hands-free provider.")
+            raise HandsFreeProviderError("Failed to reach the hands-free provider.")  # noqa: B904
 
         if upstream.status_code != status.HTTP_200_OK:
             HANDS_FREE_TOKEN_COUNTER.labels(outcome="provider_rejected").inc()
@@ -151,7 +151,7 @@ class MaxHandsFreeViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         except ValueError:
             HANDS_FREE_TOKEN_COUNTER.labels(outcome="provider_rejected").inc()
             logger.warning("max_hands_free_token_malformed_json", status_code=upstream.status_code)
-            raise HandsFreeProviderError("Hands-free provider returned a malformed response.")
+            raise HandsFreeProviderError("Hands-free provider returned a malformed response.")  # noqa: B904
         if not token:
             HANDS_FREE_TOKEN_COUNTER.labels(outcome="empty_token").inc()
             logger.warning("max_hands_free_token_empty")
@@ -199,7 +199,7 @@ class MaxHandsFreeViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         except requests.RequestException:
             HANDS_FREE_SYNTHESIZE_COUNTER.labels(outcome="provider_unreachable").inc()
             logger.exception("max_hands_free_synthesize_failed")
-            raise HandsFreeProviderError("Failed to reach the hands-free provider.")
+            raise HandsFreeProviderError("Failed to reach the hands-free provider.")  # noqa: B904
 
         if upstream.status_code != status.HTTP_200_OK:
             HANDS_FREE_SYNTHESIZE_COUNTER.labels(outcome="provider_rejected").inc()

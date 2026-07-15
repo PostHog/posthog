@@ -571,7 +571,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                     created_by=request.user,
                 )
             except DatabricksIntegrationError as e:
-                raise ValidationError(str(e))
+                raise ValidationError(str(e))  # noqa: B904
             return instance
 
         elif validated_data["kind"] == "snowflake":
@@ -589,7 +589,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                     created_by=request.user,
                 )
             except SnowflakeIntegrationError as e:
-                raise ValidationError(str(e))
+                raise ValidationError(str(e))  # noqa: B904
             return instance
 
         elif validated_data["kind"] == "google-cloud-service-account":
@@ -635,7 +635,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                     created_by=request.user,
                 )
             except AzureBlobIntegrationError as e:
-                raise ValidationError(str(e))
+                raise ValidationError(str(e))  # noqa: B904
             return instance
 
         elif validated_data["kind"] == "apns":
@@ -675,7 +675,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                     **config,
                 )
             except S3CredentialIntegrationError as e:
-                raise ValidationError(str(e))
+                raise ValidationError(str(e))  # noqa: B904
             return instance
 
         elif validated_data["kind"] == "s3-compatible":
@@ -703,7 +703,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                     created_by=request.user,
                 )
             except S3CredentialIntegrationError as e:
-                raise ValidationError(str(e))
+                raise ValidationError(str(e))  # noqa: B904
             return instance
 
         elif validated_data["kind"] == "postgresql":
@@ -726,12 +726,12 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             try:
                 resolve_and_validate_host(host)
             except ValueError:
-                raise ValidationError(f"Invalid host: '{host}'")
+                raise ValidationError(f"Invalid host: '{host}'")  # noqa: B904
 
             try:
                 port = int(port)
             except (TypeError, ValueError):
-                raise ValidationError("Port must be an integer")
+                raise ValidationError("Port must be an integer")  # noqa: B904
 
             if port < 0 or port > 65535:
                 raise ValidationError("Port must be between 0 and 65535")
@@ -808,7 +808,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                     validated_data["kind"], team_id, request.user, validated_data["config"]
                 )
             except NotImplementedError:
-                raise ValidationError("Kind not configured")
+                raise ValidationError("Kind not configured")  # noqa: B904
 
             if validated_data["kind"] == "stripe":
                 try:
@@ -1041,7 +1041,7 @@ class IntegrationViewSet(
 
                 return response
             except NotImplementedError:
-                raise ValidationError("Kind not configured")
+                raise ValidationError("Kind not configured")  # noqa: B904
         elif kind == "github":
             if next and not is_relative_url(next):
                 raise ValidationError("next must be a relative path starting with /")
@@ -1356,7 +1356,7 @@ class IntegrationViewSet(
         try:
             limit = int(request.query_params.get("limit", ANTHROPIC_MANAGED_AGENT_LIST_PAGE_LIMIT))
         except (TypeError, ValueError):
-            raise ValidationError("`limit` must be an integer")
+            raise ValidationError("`limit` must be an integer")  # noqa: B904
         after = request.query_params.get("after") or None
         force_refresh = request.query_params.get("force_refresh", "false").lower() == "true"
 
@@ -1374,19 +1374,19 @@ class IntegrationViewSet(
             data, next_cursor = self._anthropic_resource_list(anthropic, resource=resource, after=after, limit=limit)
         except AuthenticationError:
             self._record_anthropic_auth_failure(instance, "Anthropic API key is no longer valid")
-            raise ValidationError("Anthropic API key is no longer valid. Please reconnect the integration.")
+            raise ValidationError("Anthropic API key is no longer valid. Please reconnect the integration.")  # noqa: B904
         except PermissionDeniedError:
             self._record_anthropic_auth_failure(instance, "Anthropic API key is missing required permissions")
-            raise ValidationError(
+            raise ValidationError(  # noqa: B904
                 "Anthropic API key is missing required permissions. Please reconnect with a key that has access "
                 "to the Managed Agents beta."
             )
         except APIConnectionError:
             logger.warning("anthropic_list_connection_error", resource=resource, exc_info=True)
-            raise ValidationError("Could not reach Anthropic. Please try again.")
+            raise ValidationError("Could not reach Anthropic. Please try again.")  # noqa: B904
         except APIStatusError as e:
             logger.warning("anthropic_list_status_error", resource=resource, status_code=e.status_code, exc_info=True)
-            raise ValidationError(f"Anthropic returned an error (HTTP {e.status_code}). Please try again.")
+            raise ValidationError(f"Anthropic returned an error (HTTP {e.status_code}). Please try again.")  # noqa: B904
 
         body: dict[str, Any] = {"next_cursor": next_cursor, "has_more": bool(next_cursor)}
         if resource == "agents":
@@ -1701,7 +1701,7 @@ class IntegrationViewSet(
                 domain, service_id, variables = resolve_email_context(integration_id, self.team_id)
             except ValueError as e:
                 capture_exception(e, {"integration_id": integration_id, "team_id": self.team_id, "context": context})
-                raise ValidationError(
+                raise ValidationError(  # noqa: B904
                     "Validation error resolving email context. Please try again later or contact support."
                 )
 
@@ -1716,7 +1716,7 @@ class IntegrationViewSet(
                 capture_exception(
                     e, {"proxy_record_id": proxy_record_id, "organization_id": organization.id, "context": context}
                 )
-                raise ValidationError(
+                raise ValidationError(  # noqa: B904
                     "Validation error resolving proxy context. Please try again later or contact support."
                 )
         else:
@@ -1733,7 +1733,7 @@ class IntegrationViewSet(
             )
         except DomainConnectSigningKeyMissing as e:
             capture_exception(e, {"context": context, "domain": domain, "provider_endpoint": provider_endpoint})
-            raise ValidationError(
+            raise ValidationError(  # noqa: B904
                 "Automatic DNS configuration is temporarily unavailable for this provider. "
                 "Please configure your DNS records manually."
             )
@@ -1749,6 +1749,6 @@ class IntegrationViewSet(
                     "redirect_uri": redirect_uri,
                 },
             )
-            raise ValidationError("Error generating apply URL. Please try again later or contact support.")
+            raise ValidationError("Error generating apply URL. Please try again later or contact support.")  # noqa: B904
 
         return Response({"url": url})

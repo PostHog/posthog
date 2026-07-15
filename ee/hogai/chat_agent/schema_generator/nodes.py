@@ -130,8 +130,8 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
                 )
 
             if isinstance(e, PydanticOutputParserException):
-                raise SchemaGenerationException(e.llm_output, e.validation_message)
-            raise SchemaGenerationException(e.llm_output or "No input was provided.", str(e))
+                raise SchemaGenerationException(e.llm_output, e.validation_message)  # noqa: B904
+            raise SchemaGenerationException(e.llm_output or "No input was provided.", str(e))  # noqa: B904
 
         # We've got a result that either passed the quality check or we've exhausted all attempts at iterating - return
         # Create an artifact with the visualization content

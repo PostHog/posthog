@@ -139,7 +139,7 @@ class HogQLCursorPaginator:
                         pass
                 self.cursor_data = cursor_data
             except (ValueError, json.JSONDecodeError):
-                raise ValueError("Invalid cursor format")
+                raise ValueError("Invalid cursor format")  # noqa: B904
 
     @classmethod
     def from_limit_context(

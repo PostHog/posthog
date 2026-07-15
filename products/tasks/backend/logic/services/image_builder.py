@@ -151,7 +151,7 @@ def read_spec_from_builder_sandbox(image: SandboxCustomImage) -> SandboxImageSpe
             "custom_image_spec_read_failed",
             extra={"image_id": str(image.id), "sandbox_id": sandbox_id, "error": str(e)},
         )
-        raise SandboxImageSpecError(
+        raise SandboxImageSpecError(  # noqa: B904
             "Could not reach the builder sandbox (it may have expired); resume the conversation and try again"
         )
 

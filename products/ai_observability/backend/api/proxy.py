@@ -145,7 +145,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
         try:
             key = LLMProviderKey.objects.get(id=provider_key_id, team=team)
         except LLMProviderKey.DoesNotExist:
-            raise ValueError("Provider key not found")
+            raise ValueError("Provider key not found")  # noqa: B904
 
         api_key = key.encrypted_config.get("api_key")
         if not api_key:

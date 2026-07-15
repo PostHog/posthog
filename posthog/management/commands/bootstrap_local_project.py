@@ -91,7 +91,7 @@ class Command(BaseCommand):
         try:
             config.validate(require_identity=team_id is None)
         except BootstrapConfigError as error:
-            raise CommandError(str(error))
+            raise CommandError(str(error))  # noqa: B904
 
         plans = self._discover(config)
         self._print_plan_report(config, plans)
@@ -154,7 +154,7 @@ class Command(BaseCommand):
             try:
                 files = list_files(table_config)
             except Exception as error:
-                raise CommandError(f"Failed to list {table_config.table} files: {error}")
+                raise CommandError(f"Failed to list {table_config.table} files: {error}")  # noqa: B904
             if not files:
                 self.stdout.write(
                     self.style.WARNING(

@@ -892,7 +892,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             logger.debug(f"get_rows_to_sync: Error: {e}. Using 0 as rows to sync", exc_info=e)
             capture_exception(e)
             if "temporary file size exceeds temp_file_limit" in str(e):
-                raise TemporaryFileSizeExceedsLimitException(
+                raise TemporaryFileSizeExceedsLimitException(  # noqa: B904
                     f"Error: {e}. Please ensure your incremental field is set as a SORTKEY on the table"
                 )
             return 0
@@ -1115,7 +1115,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                         )
                 except psycopg.errors.QueryCanceled:
                     if should_use_incremental_field:
-                        raise QueryTimeoutException(
+                        raise QueryTimeoutException(  # noqa: B904
                             f"10 min timeout statement reached. Please ensure your incremental field ({incremental_field}) is set as a SORTKEY on the table"
                         )
                     raise

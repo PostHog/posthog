@@ -502,7 +502,7 @@ class JwtAuthentication(authentication.BaseAuthentication):
                         # If it doesn't look like a JWT then we allow the PersonalAPIKeyAuthentication to have a go
                         return None
                     except Exception:
-                        raise AuthenticationFailed(detail=f"Token invalid.")
+                        raise AuthenticationFailed(detail=f"Token invalid.")  # noqa: B904
                 else:
                     # We don't throw so that the PersonalAPIKeyAuthentication can have a go
                     return None
@@ -624,17 +624,17 @@ class IDJagAccessTokenAuthentication(authentication.BaseAuthentication):
                 except jwt.InvalidSignatureError:
                     continue
                 except jwt.ExpiredSignatureError:
-                    raise AuthenticationFailed(detail="ID-JAG access token has expired.")
+                    raise AuthenticationFailed(detail="ID-JAG access token has expired.")  # noqa: B904
                 except jwt.InvalidAudienceError:
-                    raise AuthenticationFailed(
+                    raise AuthenticationFailed(  # noqa: B904
                         detail="ID-JAG access token audience does not match this resource server."
                     )
                 except jwt.InvalidIssuerError:
-                    raise AuthenticationFailed(detail="ID-JAG access token has an unexpected issuer.")
+                    raise AuthenticationFailed(detail="ID-JAG access token has an unexpected issuer.")  # noqa: B904
                 except jwt.MissingRequiredClaimError as e:
-                    raise AuthenticationFailed(detail=f"ID-JAG access token is missing required claim: {e.claim}.")
+                    raise AuthenticationFailed(detail=f"ID-JAG access token is missing required claim: {e.claim}.")  # noqa: B904
                 except jwt.PyJWTError:
-                    raise AuthenticationFailed(detail="ID-JAG access token is invalid.")
+                    raise AuthenticationFailed(detail="ID-JAG access token is invalid.")  # noqa: B904
 
             if claims is None:
                 raise AuthenticationFailed(detail="ID-JAG access token is invalid.")
@@ -717,7 +717,7 @@ class ExportRendererAuthentication(authentication.BaseAuthentication):
         except (jwt.DecodeError, jwt.InvalidAudienceError):
             return None
         except Exception:
-            raise AuthenticationFailed(detail="Token invalid.")
+            raise AuthenticationFailed(detail="Token invalid.")  # noqa: B904
 
     def authenticate_header(self, request) -> str:
         return self.keyword
@@ -759,7 +759,7 @@ class SharingAccessTokenAuthentication(authentication.BaseAuthentication):
                     return None
 
             except SharingConfiguration.DoesNotExist:
-                raise AuthenticationFailed(detail="Sharing access token is invalid.")
+                raise AuthenticationFailed(detail="Sharing access token is invalid.")  # noqa: B904
             else:
                 if _organization_disallows_public_sharing(sharing_configuration):
                     raise AuthenticationFailed(detail="Sharing access token is invalid.")
@@ -882,7 +882,7 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
             except AuthenticationFailed:
                 raise
             except Exception:
-                raise AuthenticationFailed(detail="Invalid access token.")
+                raise AuthenticationFailed(detail="Invalid access token.")  # noqa: B904
 
     def _extract_token(self, request: Union[HttpRequest, Request]) -> Optional[str]:
         if "authorization" in request.headers:
@@ -918,7 +918,7 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
         except AuthenticationFailed:
             raise
         except Exception:
-            raise AuthenticationFailed(detail="Failed to validate access token.")
+            raise AuthenticationFailed(detail="Failed to validate access token.")  # noqa: B904
 
     def authenticate_header(self, request):
         return self.keyword
@@ -944,7 +944,7 @@ class WidgetAuthentication(authentication.BaseAuthentication):
             Team = apps.get_model(app_label="posthog", model_name="Team")
             team = Team.objects.get(conversations_settings__widget_public_token=token, conversations_enabled=True)
         except Team.DoesNotExist:
-            raise AuthenticationFailed("Invalid token or conversations not enabled")
+            raise AuthenticationFailed("Invalid token or conversations not enabled")  # noqa: B904
 
         return (None, team)
 
@@ -1001,7 +1001,7 @@ class InternalAPIAuthentication(authentication.BaseAuthentication):
         try:
             team = Team.objects.only("id", "organization_id").get(id=team_id)
         except (Team.DoesNotExist, ValueError):
-            raise AuthenticationFailed("Invalid internal API team.")
+            raise AuthenticationFailed("Invalid internal API team.")  # noqa: B904
 
         return InternalAPIUser(current_organization_id=team.organization_id, current_team_id=team.id)
 
@@ -1252,7 +1252,7 @@ class WebhookSignatureAuthentication(authentication.BaseAuthentication):
         try:
             ts = int(timestamp)
         except (ValueError, TypeError):
-            raise AuthenticationFailed("Invalid webhook timestamp.")
+            raise AuthenticationFailed("Invalid webhook timestamp.")  # noqa: B904
         if abs(time.time() - ts) > self.timestamp_tolerance:
             raise AuthenticationFailed("Webhook timestamp too old.")
 

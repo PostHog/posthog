@@ -86,11 +86,11 @@ class SchemaPropertyGroupSerializer(serializers.ModelSerializer):
             return property_group
         except IntegrityError as e:
             if "unique_schema_property_group_team_name" in str(e):
-                raise serializers.ValidationError(
+                raise serializers.ValidationError(  # noqa: B904
                     {"name": "A property group with this name already exists for this team"}
                 )
             logging.error(f"Database integrity error while creating property group: {e}", exc_info=True)
-            raise serializers.ValidationError("Could not create property group due to a database error.")
+            raise serializers.ValidationError("Could not create property group due to a database error.")  # noqa: B904
 
     def update(self, instance, validated_data):
         properties_data = validated_data.pop("properties", None)
@@ -136,19 +136,19 @@ class SchemaPropertyGroupSerializer(serializers.ModelSerializer):
                 match = re.search(r"\(property_group_id, name\)=\([^,]+, ([^)]+)\)", error_str)
                 if match:
                     property_name = match.group(1)
-                    raise serializers.ValidationError(
+                    raise serializers.ValidationError(  # noqa: B904
                         {"properties": f"A property named '{property_name}' already exists in this group"}
                     )
-                raise serializers.ValidationError(
+                raise serializers.ValidationError(  # noqa: B904
                     {"properties": "A property with this name already exists in this group"}
                 )
 
             # Handle duplicate property group name
             if "unique_schema_property_group_team_name" in error_str:
-                raise serializers.ValidationError({"name": "A property group with this name already exists"})
+                raise serializers.ValidationError({"name": "A property group with this name already exists"})  # noqa: B904
 
             logging.error(f"Database integrity error while updating property group: {e}", exc_info=True)
-            raise serializers.ValidationError("Could not update property group due to a database error.")
+            raise serializers.ValidationError("Could not update property group due to a database error.")  # noqa: B904
 
 
 class SchemaPropertyGroupViewSet(

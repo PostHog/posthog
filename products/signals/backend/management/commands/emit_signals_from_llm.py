@@ -147,7 +147,7 @@ class Command(BaseCommand):
         try:
             team = Team.objects.get(id=options["team_id"])
         except Team.DoesNotExist:
-            raise CommandError(f"Team {options['team_id']} not found")
+            raise CommandError(f"Team {options['team_id']} not found")  # noqa: B904
 
         rng = random.Random(options["seed"])
         all_canonical: list[CanonicalSignal] = []
@@ -321,7 +321,7 @@ class Command(BaseCommand):
         try:
             count = int(parts[1])
         except ValueError:
-            raise CommandError(f"Invalid count in cluster spec {spec!r}: {parts[1]!r} is not an integer")
+            raise CommandError(f"Invalid count in cluster spec {spec!r}: {parts[1]!r} is not an integer")  # noqa: B904
         if count < 1 or count > 20:
             raise CommandError(f"Cluster count must be between 1 and 20, got {count} in {spec!r}")
         variation = parts[2].strip() if len(parts) == 3 else "paraphrase"
@@ -358,7 +358,7 @@ class Command(BaseCommand):
             try:
                 n = int(kv[1])
             except ValueError:
-                raise CommandError(f"Invalid count in mix entry {part!r}: {kv[1]!r} is not an integer")
+                raise CommandError(f"Invalid count in mix entry {part!r}: {kv[1]!r} is not an integer")  # noqa: B904
             if n < 0:
                 raise CommandError(f"Mix count must be non-negative, got {n} in {part!r}")
             assignments.extend([kind] * n)

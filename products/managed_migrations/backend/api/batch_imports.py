@@ -56,7 +56,7 @@ class BatchImportSerializer(serializers.ModelSerializer):
         try:
             resolve_and_validate_url(value)
         except ValueError:
-            raise serializers.ValidationError(f"Invalid endpoint URL: '{value}'")
+            raise serializers.ValidationError(f"Invalid endpoint URL: '{value}'")  # noqa: B904
         return value
 
     def create(self, validated_data: dict) -> BatchImport:

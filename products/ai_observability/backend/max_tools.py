@@ -139,7 +139,7 @@ class CreateParserRecipeTool(MaxTool):
         try:
             verdict = ParserRecipeVerdict.model_validate(response)
         except ValidationError as e:
-            raise MaxToolRetryableError(f"Invalid validation verdict from the client: {e}")
+            raise MaxToolRetryableError(f"Invalid validation verdict from the client: {e}")  # noqa: B904
 
         if not verdict.valid:
             if verdict.wrong_event:

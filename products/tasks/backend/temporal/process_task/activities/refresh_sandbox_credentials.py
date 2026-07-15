@@ -96,7 +96,7 @@ def refresh_sandbox_credentials(input: RefreshSandboxCredentialsInput) -> Refres
                 id=ctx.task_id
             )
         except Task.DoesNotExist as e:
-            raise TaskNotFoundError(f"Task {ctx.task_id} not found", {"task_id": ctx.task_id}, cause=e)
+            raise TaskNotFoundError(f"Task {ctx.task_id} not found", {"task_id": ctx.task_id}, cause=e)  # noqa: B904
 
         refreshed_kinds: list[str] = []
         orphaned_kinds: list[str] = []

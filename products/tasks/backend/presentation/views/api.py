@@ -818,7 +818,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         try:
             UUID(task_id)
         except (ValueError, TypeError):
-            raise NotFound("Task not found")
+            raise NotFound("Task not found")  # noqa: B904
         return task_id
 
     def _user_id(self) -> int | None:
@@ -2067,7 +2067,7 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         try:
             UUID(task_id)
         except (ValueError, TypeError):
-            raise NotFound("Task not found")
+            raise NotFound("Task not found")  # noqa: B904
         return task_id
 
     def _run_id(self) -> str:
@@ -2299,7 +2299,7 @@ class SandboxEnvironmentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
         try:
             env = tasks_facade.create_sandbox_environment(self.team_id, request.user.id, **serializer.validated_data)
         except ValueError as e:
-            raise ValidationError(str(e))
+            raise ValidationError(str(e))  # noqa: B904
         return Response(SandboxEnvironmentSerializer(env).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(request=SandboxEnvironmentWriteSerializer, responses={200: SandboxEnvironmentSerializer})
@@ -2311,7 +2311,7 @@ class SandboxEnvironmentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
                 pk, self.team_id, request.user.id, **serializer.validated_data
             )
         except ValueError as e:
-            raise ValidationError(str(e))
+            raise ValidationError(str(e))  # noqa: B904
         if env is None:
             raise NotFound()
         return Response(SandboxEnvironmentSerializer(env).data)
@@ -2374,7 +2374,7 @@ class SandboxCustomImageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
         try:
             image = tasks_facade.create_sandbox_custom_image(self.team_id, request.user.id, **serializer.validated_data)
         except ValueError as e:
-            raise ValidationError(str(e))
+            raise ValidationError(str(e))  # noqa: B904
         return Response(SandboxCustomImageSerializer(image).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(
@@ -2388,7 +2388,7 @@ class SandboxCustomImageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
         try:
             image = tasks_facade.ensure_sandbox_custom_image_builder_task(pk, self.team_id, request.user.id)
         except ValueError as e:
-            raise ValidationError(str(e))
+            raise ValidationError(str(e))  # noqa: B904
         if image is None:
             raise NotFound()
         return Response(SandboxCustomImageSerializer(image).data)
@@ -2408,7 +2408,7 @@ class SandboxCustomImageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
                 pk, self.team_id, request.user.id, spec_yaml=serializer.validated_data.get("spec_yaml")
             )
         except ValueError as e:
-            raise ValidationError(str(e))
+            raise ValidationError(str(e))  # noqa: B904
         if image is None:
             raise NotFound()
         return Response(SandboxCustomImageSerializer(image).data)

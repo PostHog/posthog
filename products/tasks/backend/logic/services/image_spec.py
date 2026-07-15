@@ -123,20 +123,20 @@ def parse_image_spec_yaml(raw: str) -> SandboxImageSpec:
     try:
         data = yaml.safe_load(raw)
     except yaml.YAMLError as e:
-        raise SandboxImageSpecError(f"Invalid YAML: {e}")
+        raise SandboxImageSpecError(f"Invalid YAML: {e}")  # noqa: B904
     if not isinstance(data, dict):
         raise SandboxImageSpecError("Image spec must be a YAML mapping")
     try:
         return SandboxImageSpec.model_validate(data)
     except ValueError as e:
-        raise SandboxImageSpecError(str(e))
+        raise SandboxImageSpecError(str(e))  # noqa: B904
 
 
 def parse_image_spec_json(data: dict) -> SandboxImageSpec:
     try:
         return SandboxImageSpec.model_validate(data)
     except ValueError as e:
-        raise SandboxImageSpecError(str(e))
+        raise SandboxImageSpecError(str(e))  # noqa: B904
 
 
 def spec_json_to_yaml(spec: dict) -> str:

@@ -389,7 +389,7 @@ class SnapchatAdsPaginator(BasePaginator):
         except Exception as e:
             self._has_next_page = False
             logger.exception("snapchat_ads_paginator_error", error=str(e))
-            raise SnapchatAdsAPIError(f"Failed to parse Snapchat API response: {str(e)}", response=response)
+            raise SnapchatAdsAPIError(f"Failed to parse Snapchat API response: {str(e)}", response=response)  # noqa: B904
 
     def _apply_next_link_cursor(self, request: Request) -> None:
         """Extract cursor from next_link and add to request params."""

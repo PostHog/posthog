@@ -207,7 +207,7 @@ class KernelExecutor:
                 reply = self._kc.get_shell_msg(timeout=_SHELL_POLL_SECONDS)
             except queue.Empty:
                 if self._km is None or not self._km.is_alive():
-                    raise RuntimeError("the kernel process died")
+                    raise RuntimeError("the kernel process died")  # noqa: B904
                 continue
             if reply.get("parent_header", {}).get("msg_id") != msg_id:
                 continue  # a stale reply from an earlier run

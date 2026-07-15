@@ -1097,7 +1097,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                     try:
                         re.compile(url_config["url"])
                     except re.error:
-                        raise exceptions.ValidationError(
+                        raise exceptions.ValidationError(  # noqa: B904
                             f"Group {idx}: invalid regex pattern in URL: '{url_config['url']}'."
                         )
 
@@ -1399,7 +1399,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                         "Only organization owners and admins can modify the receive_org_level_activity_logs setting."
                     )
             except OrganizationMembership.DoesNotExist:
-                raise exceptions.PermissionDenied("You must be a member of this organization.")
+                raise exceptions.PermissionDenied("You must be a member of this organization.")  # noqa: B904
 
         return value
 
@@ -1463,7 +1463,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         try:
             HogQLQueryModifiers(**value)
         except Exception:
-            raise exceptions.ValidationError(f"Invalid modifier key.")
+            raise exceptions.ValidationError(f"Invalid modifier key.")  # noqa: B904
 
         return value
 
@@ -1964,7 +1964,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         try:
             team = get_object_or_404(queryset, **filter_kwargs)
         except ValueError as error:
-            raise exceptions.ValidationError(str(error))
+            raise exceptions.ValidationError(str(error))  # noqa: B904
         return team
 
     # :KLUDGE: Exposed for compatibility reasons for permission classes.
@@ -2527,7 +2527,7 @@ class PremiumMultiEnvironmentPermission(BasePermission):
         try:
             project = view.project
         except KeyError:  # KeyError occurs when "project_id" is not in parents_query_dict
-            raise exceptions.ValidationError(
+            raise exceptions.ValidationError(  # noqa: B904
                 "Environments must be created under a specific project. Send the POST request to /api/projects/<project_id>/environments/ instead."
             )
 

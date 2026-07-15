@@ -131,7 +131,7 @@ def run_chdb_query(query: str, timeout: float = CHDB_QUERY_TIMEOUT_SECONDS) -> s
             timeout=timeout,
         )
     except subprocess.TimeoutExpired:
-        raise RuntimeError(f"chdb query timed out after {timeout}s")
+        raise RuntimeError(f"chdb query timed out after {timeout}s")  # noqa: B904
 
     if process.returncode != 0:
         raise RuntimeError(process.stderr.strip() or f"chdb subprocess exited with code {process.returncode}")
@@ -834,7 +834,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         except ClickHouseServerException as e:
             if e.code in self._CSV_PARSE_ERROR_CODES:
                 other_label = "Literal quotes" if setting else "RFC 4180 double quotes"
-                raise Exception(
+                raise Exception(  # noqa: B904
                     f"CSV parsing failed with the selected quote setting. Try selecting '{other_label}' instead."
                 )
             raise

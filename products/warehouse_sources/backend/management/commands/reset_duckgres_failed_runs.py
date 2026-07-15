@@ -50,7 +50,7 @@ class Command(BaseCommand):
             try:
                 state = DuckgresSinkSchemaState.objects.get(schema_id=replan_schema)
             except (DuckgresSinkSchemaState.DoesNotExist, ValueError, ValidationError) as e:
-                raise CommandError(f"No duckgres sink state for schema {replan_schema!r}: {e}")
+                raise CommandError(f"No duckgres sink state for schema {replan_schema!r}: {e}")  # noqa: B904
             if options.get("dry_run"):
                 self.stdout.write(
                     f"Would retire backfill run {state.backfill_run_uuid!r} "

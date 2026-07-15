@@ -420,7 +420,7 @@ class TikTokAdsPaginator(BasePaginator):
         except Exception as e:
             self._has_next_page = False
             logger.exception("tiktok_ads_paginator_error", error=str(e))
-            raise TikTokAdsAPIError(f"Failed to parse TikTok API response: {str(e)}", response=response)
+            raise TikTokAdsAPIError(f"Failed to parse TikTok API response: {str(e)}", response=response)  # noqa: B904
 
     def update_request(self, request: Request) -> None:
         """Update the request with pagination parameters."""

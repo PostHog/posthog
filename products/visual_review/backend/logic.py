@@ -2740,7 +2740,7 @@ def mark_snapshot_as_tolerated(run_id: UUID, snapshot_id: UUID, user_id: int, te
     try:
         snapshot = RunSnapshot.objects.get(id=snapshot_id, run=run, team_id=team_id)
     except RunSnapshot.DoesNotExist:
-        raise RunNotFoundError(f"Snapshot {snapshot_id} not found in run {run_id}")
+        raise RunNotFoundError(f"Snapshot {snapshot_id} not found in run {run_id}")  # noqa: B904
 
     if snapshot.result != SnapshotResult.CHANGED:
         raise ValueError(f"Can only mark CHANGED snapshots as tolerated (current: {snapshot.result})")

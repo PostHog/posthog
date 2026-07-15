@@ -195,7 +195,7 @@ class MultitenantSAMLAuth(SAMLAuth):
             )
         except (OrganizationDomain.DoesNotExist, DjangoValidationError):
             saml_logger.warning("saml_idp_lookup_failed", idp_id=str(organization_domain_or_id))
-            raise AuthFailed(self, "Authentication request is invalid. Invalid RelayState.")
+            raise AuthFailed(self, "Authentication request is invalid. Invalid RelayState.")  # noqa: B904
 
         if not organization_domain.organization.is_feature_available(AvailableFeature.SAML):
             saml_logger.warning(
@@ -348,7 +348,7 @@ class MultitenantSAMLAuth(SAMLAuth):
                 idp_id=str(idp_name),
                 **_saml_log_context(email),
             )
-            raise AuthFailed(self, "Authentication request is invalid. Invalid IdP identifier.")
+            raise AuthFailed(self, "Authentication request is invalid. Invalid IdP identifier.")  # noqa: B904
 
         if email.split("@")[-1].lower() != organization_domain.domain.lower():
             saml_logger.warning(
@@ -486,10 +486,10 @@ class VercelAuthentication(authentication.BaseAuthentication):
             return VercelUser(claims=payload), None
         except jwt.InvalidTokenError as e:
             logger.warning("Vercel auth failed", auth_type=auth_type, error=str(e), integration="vercel")
-            raise AuthenticationFailed(f"Invalid {auth_type} authentication token")
+            raise AuthenticationFailed(f"Invalid {auth_type} authentication token")  # noqa: B904
         except Exception as e:
             logger.exception("Vercel auth error", auth_type=auth_type, error=str(e), integration="vercel")
-            raise AuthenticationFailed(f"{auth_type.title()} authentication failed")
+            raise AuthenticationFailed(f"{auth_type.title()} authentication failed")  # noqa: B904
 
     def _get_vercel_auth_type(self, request: Request) -> "VercelAuthentication.VercelAuthType":
         auth_type = request.headers.get("X-Vercel-Auth", "").lower()
@@ -577,7 +577,7 @@ class VercelAuthentication(authentication.BaseAuthentication):
         try:
             key = RSAAlgorithm.from_jwk(next(k for k in jwks["keys"] if k.get("kid") == kid))
         except StopIteration:
-            raise jwt.InvalidTokenError(f"Unable to find key with ID: {kid}")
+            raise jwt.InvalidTokenError(f"Unable to find key with ID: {kid}")  # noqa: B904
 
         if not settings.VERCEL_CLIENT_INTEGRATION_ID:
             raise jwt.InvalidTokenError("VERCEL_CLIENT_INTEGRATION_ID not configured")
@@ -632,15 +632,15 @@ class BillingServiceAuthentication(authentication.BaseAuthentication):
         except jwt.ExpiredSignatureError as e:
             capture_exception(e)
             logger.warning("Billing service token expired")
-            raise AuthenticationFailed("Token has expired")
+            raise AuthenticationFailed("Token has expired")  # noqa: B904
         except jwt.InvalidAudienceError as e:
             capture_exception(e)
             logger.warning("Billing service token has invalid audience")
-            raise AuthenticationFailed("Invalid token audience")
+            raise AuthenticationFailed("Invalid token audience")  # noqa: B904
         except jwt.InvalidTokenError as e:
             capture_exception(e)
             logger.exception("Billing service auth failed", error=str(e))
-            raise AuthenticationFailed("Invalid authentication token")
+            raise AuthenticationFailed("Invalid authentication token")  # noqa: B904
 
         organization_id = payload.get("organization_id")
         if not organization_id:
@@ -663,7 +663,7 @@ class BillingServiceAuthentication(authentication.BaseAuthentication):
         except IndexError:
             capture_exception(ValueError("Billing service auth failed: invalid license key format"))
             logger.exception("Billing service auth failed: invalid license key format")
-            raise AuthenticationFailed("Invalid license key format")
+            raise AuthenticationFailed("Invalid license key format")  # noqa: B904
 
         decoded_payload = jwt.decode(
             token,

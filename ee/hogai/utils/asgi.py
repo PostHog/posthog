@@ -31,4 +31,4 @@ class SyncIterableToAsync(AsyncIterator[T]):
         try:
             return next(it)
         except StopIteration:
-            raise StopAsyncIteration
+            raise StopAsyncIteration  # noqa: B904

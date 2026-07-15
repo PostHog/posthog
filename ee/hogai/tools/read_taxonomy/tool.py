@@ -87,14 +87,14 @@ class ReadTaxonomyTool(MaxTool):
         try:
             validated_query = ReadTaxonomyToolArgs(query=query).query
         except ValidationError as e:
-            raise MaxToolRetryableError(str(e))
+            raise MaxToolRetryableError(str(e))  # noqa: B904
 
         toolkit = TaxonomyAgentToolkit(self._team, self._user)
 
         try:
             res = execute_taxonomy_query(validated_query, toolkit, self._team, self._user)
         except ValueError as e:
-            raise MaxToolRetryableError(str(e))
+            raise MaxToolRetryableError(str(e))  # noqa: B904
 
         return res, None
 

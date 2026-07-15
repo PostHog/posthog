@@ -555,7 +555,7 @@ def validate_credentials(
         if "errors" in data:
             raise Exception(f"Failed to verify your Shopify credentials: {data['errors']}")
     except Exception as e:
-        raise Exception(f"Failed to verify your Shopify credentials: {e}")
+        raise Exception(f"Failed to verify your Shopify credentials: {e}")  # noqa: B904
 
     if resources is None:
         return True

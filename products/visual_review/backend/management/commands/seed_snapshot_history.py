@@ -48,7 +48,7 @@ class Command(BaseCommand):
         try:
             repo = Repo.objects.get(id=repo_id)
         except Repo.DoesNotExist:
-            raise CommandError(f"Repo {repo_id} not found")
+            raise CommandError(f"Repo {repo_id} not found")  # noqa: B904
 
         repo_root = Path(__file__).resolve().parents[5]
         pool = list((repo_root / "frontend" / "__snapshots__").glob("*.png")) or list(

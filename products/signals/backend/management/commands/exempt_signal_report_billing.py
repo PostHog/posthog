@@ -35,7 +35,7 @@ class Command(BaseCommand):
         try:
             changed = mark_report_billing_exempt(report, options["reason"])
         except BillingExemptionError as e:
-            raise CommandError(str(e))
+            raise CommandError(str(e))  # noqa: B904
 
         if not changed:
             self.stdout.write(

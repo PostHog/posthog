@@ -1439,7 +1439,7 @@ class FeatureFlagSerializer(
                                     cohort, allow_realtime_backfilled=self._allow_realtime_backfilled
                                 )
                     except Cohort.DoesNotExist:
-                        raise serializers.ValidationError(
+                        raise serializers.ValidationError(  # noqa: B904
                             detail=f"Cohort with id {prop.value} does not exist",
                             code="cohort_does_not_exist",
                         )
@@ -1499,7 +1499,7 @@ class FeatureFlagSerializer(
                                 code="invalid_value",
                             )
                     except (ValueError, TypeError):
-                        raise serializers.ValidationError(
+                        raise serializers.ValidationError(  # noqa: B904
                             detail=f"{prop.operator} operator requires numeric values",
                             code="invalid_value",
                         )
@@ -1527,7 +1527,7 @@ class FeatureFlagSerializer(
                             semver_value = semver_value.rstrip(".*")
                         parse_semver(semver_value)
                     except (ValueError, IndexError):
-                        raise serializers.ValidationError(
+                        raise serializers.ValidationError(  # noqa: B904
                             detail=f"Invalid semver value for operator {prop.operator}: {prop.value}",
                             code="invalid_value",
                         )
@@ -1557,11 +1557,11 @@ class FeatureFlagSerializer(
                     # to a JSON string, matching what the UI sends.
                     payloads[key] = json.dumps(value)
             except json.JSONDecodeError:
-                raise serializers.ValidationError("Payload value is not valid JSON")
+                raise serializers.ValidationError("Payload value is not valid JSON")  # noqa: B904
             except (TypeError, ValueError):
                 # Defensive: request bodies are JSON-parsed, so values are always JSON-native
                 # (str/int/float/bool/None/dict/list) and serializable. Unreachable via the API.
-                raise serializers.ValidationError("Payload value could not be serialized to JSON")
+                raise serializers.ValidationError("Payload value could not be serialized to JSON")  # noqa: B904
 
         if filters.get("multivariate"):
             if not all(key in variants for key in payloads):
@@ -1606,7 +1606,7 @@ class FeatureFlagSerializer(
 
             return flag.key
         except FeatureFlag.DoesNotExist:
-            raise serializers.ValidationError(f"Flag dependency references non-existent flag with ID {flag_id}")
+            raise serializers.ValidationError(f"Flag dependency references non-existent flag with ID {flag_id}")  # noqa: B904
 
     def _get_properties_from_filters(self, filters: dict, property_type: PropertyFilterType | None = None):
         """
@@ -1730,7 +1730,7 @@ class FeatureFlagSerializer(
                 if eaf_count:
                     blockers.append(f"{eaf_count} early access feature(s)")
                 if blockers:
-                    raise exceptions.ValidationError(
+                    raise exceptions.ValidationError(  # noqa: B904
                         f"Cannot reuse key '{flag.key}': a soft-deleted flag with this key is still "
                         f"referenced by {' and '.join(blockers)}. Please contact support."
                     )
@@ -2234,7 +2234,7 @@ class GroupsJSONField(serializers.CharField):
                 raise serializers.ValidationError("groups must be a JSON object")
             return parsed
         except (json.JSONDecodeError, ValueError):
-            raise serializers.ValidationError("Invalid JSON in groups parameter")
+            raise serializers.ValidationError("Invalid JSON in groups parameter")  # noqa: B904
 
 
 class MyFlagsQuerySerializer(serializers.Serializer):

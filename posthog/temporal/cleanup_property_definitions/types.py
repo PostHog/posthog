@@ -46,7 +46,7 @@ class CleanupPropertyDefinitionsInput(BaseModel):
         try:
             re.compile(v)
         except re.error as e:
-            raise ValueError(f"Invalid regex pattern: {e}")
+            raise ValueError(f"Invalid regex pattern: {e}")  # noqa: B904
 
         # Check for RE2-incompatible features
         for incompatible_pattern, feature_name in RE2_INCOMPATIBLE_PATTERNS:

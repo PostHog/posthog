@@ -50,7 +50,7 @@ class ErrorTrackingRecommendationViewSet(TeamAndOrgViewSetMixin, viewsets.Generi
         try:
             recommendation = recommendations_facade.refresh_recommendation(self.team.id, pk, force=force)
         except recommendations_facade.RecommendationNotFoundError:
-            raise NotFound()
+            raise NotFound()  # noqa: B904
         except recommendations_facade.UnknownRecommendationTypeError:
             return Response({"detail": "Unknown recommendation type."}, status=status.HTTP_400_BAD_REQUEST)
         return Response(self.get_serializer(recommendation).data, status=status.HTTP_200_OK)
@@ -61,7 +61,7 @@ class ErrorTrackingRecommendationViewSet(TeamAndOrgViewSetMixin, viewsets.Generi
         try:
             recommendation = recommendations_facade.dismiss_recommendation(self.team.id, pk)
         except recommendations_facade.RecommendationNotFoundError:
-            raise NotFound()
+            raise NotFound()  # noqa: B904
         return Response(self.get_serializer(recommendation).data, status=status.HTTP_200_OK)
 
     @extend_schema(request=None, responses=ErrorTrackingRecommendationSerializer)
@@ -70,5 +70,5 @@ class ErrorTrackingRecommendationViewSet(TeamAndOrgViewSetMixin, viewsets.Generi
         try:
             recommendation = recommendations_facade.restore_recommendation(self.team.id, pk)
         except recommendations_facade.RecommendationNotFoundError:
-            raise NotFound()
+            raise NotFound()  # noqa: B904
         return Response(self.get_serializer(recommendation).data, status=status.HTTP_200_OK)

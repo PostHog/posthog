@@ -296,7 +296,7 @@ class QuerySchemaParser(JSONParser):
             if query:
                 schema.QuerySchemaRoot.model_validate(query)
         except Exception as error:
-            raise ParseError(detail=str(error))
+            raise ParseError(detail=str(error))  # noqa: B904
         else:
             return data
 
@@ -1183,7 +1183,7 @@ class InsightSerializer(InsightBasicSerializer):
                         analytics_props=get_request_analytics_properties(self.context["request"]),
                     )
             except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
-                raise ValidationError(str(e), getattr(e, "code_name", None))
+                raise ValidationError(str(e), getattr(e, "code_name", None))  # noqa: B904
             except ConcurrencyLimitExceeded as e:
                 logger.warn(
                     "concurrency_limit_exceeded_api", exception=e, insight_id=insight.id, team_id=insight.team_id
@@ -1286,7 +1286,7 @@ class MCPInsightSerializer(InsightSerializer):
             )
         except PydanticValidationError as exc:
             details = "; ".join(f"{'.'.join(str(part) for part in e['loc'])}: {e['msg']}" for e in exc.errors())
-            raise serializers.ValidationError(f"This query can't be saved: {details}")
+            raise serializers.ValidationError(f"This query can't be saved: {details}")  # noqa: B904
 
 
 # Insights can be looked up by either the numeric primary key or the 8-character `short_id`
@@ -1719,7 +1719,7 @@ class InsightViewSet(
             days = int(request.GET.get("days", "7"))
             limit = min(int(request.GET.get("limit", "10")), 100)
         except (ValueError, TypeError):
-            raise ValidationError("days and limit must be valid integers")
+            raise ValidationError("days and limit must be valid integers")  # noqa: B904
 
         cutoff_date = now() - timedelta(days=days)
 
@@ -1982,7 +1982,7 @@ When set, the specified dashboard's filters and date range override will be appl
         try:
             serialized_data = self.get_serializer(instance, context=serializer_context).data
         except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
-            raise ValidationError(str(e), getattr(e, "code_name", None))
+            raise ValidationError(str(e), getattr(e, "code_name", None))  # noqa: B904
 
         if dashboard_tile is not None:
             serialized_data["color"] = dashboard_tile.color
@@ -2121,16 +2121,16 @@ When set, the specified dashboard's filters and date range override will be appl
             else:
                 validated_query = schema.InsightVizNode.model_validate(query_data)
         except Exception:
-            raise ValidationError("Invalid query format")
+            raise ValidationError("Invalid query format")  # noqa: B904
 
         try:
             metadata = generate_insight_metadata(validated_query, self.team)
         except InsightMetadataTimeoutError as e:
             capture_exception(e)
-            raise APIException("Generating a name took too long. Please try again.")
+            raise APIException("Generating a name took too long. Please try again.")  # noqa: B904
         except Exception as e:
             capture_exception(e)
-            raise APIException("Failed to generate insight metadata. Please try again.")
+            raise APIException("Failed to generate insight metadata. Please try again.")  # noqa: B904
 
         return Response({"name": metadata.name, "description": metadata.description})
 
@@ -2192,11 +2192,11 @@ When set, the specified dashboard's filters and date range override will be appl
             with timings.measure("calculate"):
                 result = self._run_legacy_query(request)
         except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
-            raise ValidationError(str(e), getattr(e, "code_name", None))
+            raise ValidationError(str(e), getattr(e, "code_name", None))  # noqa: B904
         except UserAccessControlError as e:
-            raise ValidationError(str(e))
+            raise ValidationError(str(e))  # noqa: B904
         except Cohort.DoesNotExist as e:
-            raise ValidationError(str(e))
+            raise ValidationError(str(e))  # noqa: B904
 
         filter = Filter(request=request, team=self.team)
 
@@ -2248,7 +2248,7 @@ When set, the specified dashboard's filters and date range override will be appl
             with timings.measure("calculate"):
                 funnel = self._run_legacy_query(request, filter_overrides={"insight": "FUNNELS"})
         except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
-            raise ValidationError(str(e), getattr(e, "code_name", None))
+            raise ValidationError(str(e), getattr(e, "code_name", None))  # noqa: B904
 
         if isinstance(funnel["result"], BaseModel):
             funnel["result"] = funnel["result"].model_dump()

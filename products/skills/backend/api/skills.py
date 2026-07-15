@@ -375,7 +375,7 @@ class LLMSkillViewSet(
             )
         except IntegrityError as err:
             if "unique_skill_file_path" in str(err):
-                raise serializers.ValidationError({"files": "Duplicate file paths are not allowed."}, code="unique")
+                raise serializers.ValidationError({"files": "Duplicate file paths are not allowed."}, code="unique")  # noqa: B904
             raise
         except LLMSkillNotFoundError:
             return self._skill_not_found_response(skill_name)
@@ -1078,8 +1078,8 @@ class LLMSkillViewSet(
                 constraint_name in err_str
                 for constraint_name in ["unique_llm_skill_latest_per_team", "unique_llm_skill_version_per_team"]
             ):
-                raise serializers.ValidationError({"name": "A skill with this name already exists."}, code="unique")
+                raise serializers.ValidationError({"name": "A skill with this name already exists."}, code="unique")  # noqa: B904
             if "unique_skill_file_path" in err_str:
-                raise serializers.ValidationError({"files": "Duplicate file paths are not allowed."}, code="unique")
+                raise serializers.ValidationError({"files": "Duplicate file paths are not allowed."}, code="unique")  # noqa: B904
             raise
         return Response(self._serialize_skill(cast(LLMSkill, serializer.instance)), status=status.HTTP_201_CREATED)

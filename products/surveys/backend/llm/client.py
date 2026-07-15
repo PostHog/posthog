@@ -82,4 +82,4 @@ def generate_structured_output(
         raise
     except Exception:
         logger.exception("Gemini API call failed", model=model, properties=properties)
-        raise exceptions.APIException("Failed to generate response")
+        raise exceptions.APIException("Failed to generate response")  # noqa: B904

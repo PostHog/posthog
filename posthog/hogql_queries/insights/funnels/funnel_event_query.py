@@ -358,7 +358,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
             try:
                 action = Action.objects.get(pk=int(step_entity.id), team__project_id=self.context.team.project_id)
             except Action.DoesNotExist:
-                raise ValidationError(f"Action ID {step_entity.id} does not exist!")
+                raise ValidationError(f"Action ID {step_entity.id} does not exist!")  # noqa: B904
             event_expr = action_to_expr(action)
         elif isinstance(step_entity, FunnelsDataWarehouseNode):
             event_expr = ast.Constant(value=1)
@@ -664,7 +664,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                     action = Action.objects.get(pk=int(node.id), team__project_id=self.context.team.project_id)
                     events.update(action.get_step_events())
                 except Action.DoesNotExist:
-                    raise ValidationError(f"Action ID {node.id} does not exist!")
+                    raise ValidationError(f"Action ID {node.id} does not exist!")  # noqa: B904
             elif isinstance(node, FunnelsDataWarehouseNode):
                 continue  # Data warehouse nodes aren't based on events
             elif isinstance(node, GroupNode):
@@ -676,7 +676,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                             action = Action.objects.get(pk=int(child.id), team__project_id=self.context.team.project_id)
                             events.update(action.get_step_events())
                         except Action.DoesNotExist:
-                            raise ValidationError(f"Action ID {child.id} does not exist!")
+                            raise ValidationError(f"Action ID {child.id} does not exist!")  # noqa: B904
                     else:
                         continue
             else:

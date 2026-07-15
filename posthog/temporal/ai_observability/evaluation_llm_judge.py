@@ -391,7 +391,7 @@ def call_llm_judge(
                 is_byok=True,
             )
         increment_errors("model_not_found", provider=provider)
-        raise ApplicationError(
+        raise ApplicationError(  # noqa: B904
             f"Model '{model}' not found.",
             {"error_type": "model_not_found", "provider": provider, "model": model},
             non_retryable=True,

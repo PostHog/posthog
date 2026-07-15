@@ -189,7 +189,7 @@ class CohortTypeValidationSerializer(serializers.Serializer):
         try:
             referenced_cohort = Cohort.objects.get(id=cohort_id, team_id=self.team_id)
         except Cohort.DoesNotExist:
-            raise ValidationError(f"Referenced cohort {cohort_id} not found")
+            raise ValidationError(f"Referenced cohort {cohort_id} not found")  # noqa: B904
 
         # Build data for the referenced cohort
         referenced_data = {

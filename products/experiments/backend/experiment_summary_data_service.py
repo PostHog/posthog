@@ -164,7 +164,7 @@ class ExperimentSummaryDataService:
         try:
             experiment = await fetch_experiment()
         except Experiment.DoesNotExist:
-            raise ValueError(f"Experiment {experiment_id} not found or access denied")
+            raise ValueError(f"Experiment {experiment_id} not found or access denied")  # noqa: B904
 
         if experiment.is_draft:
             raise ValueError(f"Experiment {experiment_id} has not been started yet")

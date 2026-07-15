@@ -206,7 +206,7 @@ class ReplayScannerPromptSuggestionViewSet(
         try:
             scanner_id = uuid.UUID(self.kwargs["parent_lookup_scanner_id"])
         except (KeyError, ValueError):
-            raise NotFound()
+            raise NotFound()  # noqa: B904
         scanner = ReplayScanner.objects.filter(team_id=self.team_id, id=scanner_id).first()
         if scanner is None:
             raise NotFound()
@@ -285,8 +285,8 @@ class ReplayScannerPromptSuggestionViewSet(
             suggestion = generate_prompt_suggestion(scanner, user)
         except PromptSuggestionError as e:
             if str(e) == "no rated observations":
-                raise ValidationError("Rate some results first, then generate a suggestion from them.")
-            raise ValidationError("Couldn't generate a suggestion right now. Try again in a moment.")
+                raise ValidationError("Rate some results first, then generate a suggestion from them.")  # noqa: B904
+            raise ValidationError("Couldn't generate a suggestion right now. Try again in a moment.")  # noqa: B904
         return Response(ReplayScannerPromptSuggestionSerializer(suggestion).data)
 
     @extend_schema(

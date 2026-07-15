@@ -516,7 +516,7 @@ class ClickHouseClient:
                 await self.acheck_response(response, query)
                 yield response
         except TimeoutError:
-            raise ClickHouseClientTimeoutError(query, query_id)
+            raise ClickHouseClientTimeoutError(query, query_id)  # noqa: B904
 
     @contextlib.contextmanager
     def post_query(self, query, *data, query_parameters, query_id) -> collections.abc.Iterator:

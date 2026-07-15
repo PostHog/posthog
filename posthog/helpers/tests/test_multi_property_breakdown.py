@@ -13,7 +13,7 @@ class TestMultiPropertyBreakdown(TestCase):
         try:
             protect_old_clients_from_multi_property_default(data, result)
         except KeyError:
-            raise AssertionError("should not raise any KeyError")
+            raise AssertionError("should not raise any KeyError")  # noqa: B904
 
     def test_handles_empty_breakdowns_array(self):
         data: dict[str, Any] = {
@@ -26,7 +26,7 @@ class TestMultiPropertyBreakdown(TestCase):
         try:
             protect_old_clients_from_multi_property_default(data, result)
         except KeyError:
-            raise AssertionError("should not raise any KeyError")
+            raise AssertionError("should not raise any KeyError")  # noqa: B904
 
     def test_keeps_multi_property_breakdown_for_multi_property_requests(self):
         data: dict[str, Any] = {

@@ -190,17 +190,17 @@ class OpenAIAdapter:
                     usage=usage,
                 )
         except openai.AuthenticationError as e:
-            raise AuthenticationError(str(e))
+            raise AuthenticationError(str(e))  # noqa: B904
         except openai.NotFoundError:
-            raise ModelNotFoundError(request.model)
+            raise ModelNotFoundError(request.model)  # noqa: B904
         except openai.PermissionDeniedError:
-            raise ModelPermissionError(request.model)
+            raise ModelPermissionError(request.model)  # noqa: B904
         except openai.RateLimitError as e:
             error_body = getattr(e, "body", {}) or {}
             error_code = error_body.get("code", "") or error_body.get("error", {}).get("code", "")
             if error_code == "insufficient_quota":
-                raise QuotaExceededError(str(e))
-            raise RateLimitError(str(e))
+                raise QuotaExceededError(str(e))  # noqa: B904
+            raise RateLimitError(str(e))  # noqa: B904
         except openai.APIStatusError as e:
             if isinstance(e, openai.BadRequestError) and is_context_window_error_message(str(e)):
                 raise ContextWindowExceededError(str(e)) from e
@@ -208,7 +208,7 @@ class OpenAIAdapter:
             # max_tokens (or is out of credits). Retrying never helps — mirror
             # the quota path so the workflow marks the key errored and stops.
             if getattr(e, "status_code", None) == 402:
-                raise QuotaExceededError(str(e))
+                raise QuotaExceededError(str(e))  # noqa: B904
             raise
 
     def _complete_with_json_fallback(

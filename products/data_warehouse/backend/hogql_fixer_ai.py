@@ -266,6 +266,6 @@ The newly updated query gave us this error:
                 ("no viable alternative", "trailing tokens after expression", "unexpected token in expression")
             ):
                 err_msg = "HogQL parsing error: this query isn't valid HogQL."
-            raise PydanticOutputParserException(llm_output=result.query, validation_message=err_msg)
+            raise PydanticOutputParserException(llm_output=result.query, validation_message=err_msg)  # noqa: B904
 
         return result.query

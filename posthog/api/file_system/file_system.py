@@ -687,7 +687,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     logging.exception(
                         "Exception during undo_delete_object (type=%s, ref=%s)", item.get("type"), item.get("ref")
                     )
-                    raise serializers.ValidationError({"detail": "An internal error occurred during undo delete."})
+                    raise serializers.ValidationError({"detail": "An internal error occurred during undo delete."})  # noqa: B904
                 self._restore_file_system_path(restored_instance, item)
                 undo_results.append({"type": item["type"], "ref": item["ref"]})
 

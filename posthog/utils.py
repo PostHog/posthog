@@ -1251,7 +1251,7 @@ def decompress(data: Any, compression: str):
         try:
             data = gzip.decompress(data)
         except (EOFError, OSError, zlib.error) as error:
-            raise RequestParsingError("Failed to decompress data. {}".format(str(error)))
+            raise RequestParsingError("Failed to decompress data. {}".format(str(error)))  # noqa: B904
 
     if compression == "lz64":
         KLUDGES_COUNTER.labels(kludge="lz64_compression").inc()
@@ -1289,9 +1289,9 @@ def decompress(data: Any, compression: str):
                 # We do this because we're no longer tracking these fallbacks in error tracking (since they're not actionable defects),
                 # but we still want to know how often they occur.
                 KLUDGES_COUNTER.labels(kludge="json_parse_failure_after_unspecified_gzip_fallback").inc()
-                raise UnspecifiedCompressionFallbackParsingError(f"Invalid JSON: {error_main}")
+                raise UnspecifiedCompressionFallbackParsingError(f"Invalid JSON: {error_main}")  # noqa: B904
         else:
-            raise RequestParsingError(f"Invalid JSON: {error_main}")
+            raise RequestParsingError(f"Invalid JSON: {error_main}")  # noqa: B904
 
     # TODO: data can also be an array, function assumes it's either None or a dictionary.
     return data
@@ -1740,7 +1740,7 @@ def filters_override_requested_by_client(
     try:
         request_filters = json.loads(raw_override)
     except Exception:
-        raise serializers.ValidationError({"filters_override": "Invalid JSON passed in filters_override parameter"})
+        raise serializers.ValidationError({"filters_override": "Invalid JSON passed in filters_override parameter"})  # noqa: B904
 
     return {**dashboard_filters, **request_filters}
 
@@ -1777,7 +1777,7 @@ def variables_override_requested_by_client(
     try:
         request_variables = json.loads(raw_override)
     except Exception:
-        raise serializers.ValidationError({"variables_override": "Invalid JSON passed in variables_override parameter"})
+        raise serializers.ValidationError({"variables_override": "Invalid JSON passed in variables_override parameter"})  # noqa: B904
 
     return map_stale_to_latest({**dashboard_variables, **request_variables}, variables)
 
@@ -1806,7 +1806,7 @@ def tile_filters_override_requested_by_client(
     try:
         request_filters = json.loads(raw_override)
     except Exception:
-        raise serializers.ValidationError(
+        raise serializers.ValidationError(  # noqa: B904
             {"tile_filters_override": "Invalid JSON passed in tile_filters_override parameter"}
         )
 

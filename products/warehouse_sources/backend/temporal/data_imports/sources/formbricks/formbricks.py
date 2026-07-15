@@ -245,7 +245,7 @@ def _fetch_page(
     try:
         data = json.loads(body or b"null")
     except ValueError:
-        raise FormbricksRetryableError(f"Formbricks returned a non-JSON payload for {url}")
+        raise FormbricksRetryableError(f"Formbricks returned a non-JSON payload for {url}")  # noqa: B904
     # Both v1 and v2 management endpoints wrap rows in {"data": [...]}.
     if not isinstance(data, dict) or not isinstance(data.get("data"), list):
         raise FormbricksRetryableError(f"Formbricks returned an unexpected payload for {url}: {type(data).__name__}")

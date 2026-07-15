@@ -87,7 +87,7 @@ class VercelAPIClient:
             return response.json()
         except json.JSONDecodeError as e:
             logger.exception("Failed to parse JSON response", integration="vercel")
-            raise APIError("Invalid JSON response", detail=str(e))
+            raise APIError("Invalid JSON response", detail=str(e))  # noqa: B904
 
     def _crud_operation(
         self,
@@ -117,15 +117,15 @@ class VercelAPIClient:
             return response
         except Timeout as e:
             logger.exception("Request timeout", method=method, url=url, integration="vercel")
-            raise APIError("Request timed out", detail=str(e))
+            raise APIError("Request timed out", detail=str(e))  # noqa: B904
         except HTTPError as e:
             status_code = e.response.status_code if e.response else None
             detail = e.response.text if e.response else str(e)
             logger.exception("HTTP error", method=method, url=url, status_code=status_code, integration="vercel")
-            raise APIError("HTTP error", status_code=status_code, detail=detail)
+            raise APIError("HTTP error", status_code=status_code, detail=detail)  # noqa: B904
         except RequestException as e:
             logger.exception("Network error", method=method, url=url, integration="vercel")
-            raise APIError("Network error", detail=str(e))
+            raise APIError("Network error", detail=str(e))  # noqa: B904
 
     def create_experimentation_items(
         self, integration_config_id: str, resource_id: str, items: list[dict[str, Any]]

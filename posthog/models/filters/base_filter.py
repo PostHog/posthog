@@ -37,7 +37,7 @@ class BaseFilter(BaseParamMixin):
                 try:
                     properties = json.loads(request.GET[PROPERTIES])
                 except json.decoder.JSONDecodeError:
-                    raise ValidationError("Properties are unparsable!")
+                    raise ValidationError("Properties are unparsable!")  # noqa: B904
             elif request.data and request.data.get(PROPERTIES):
                 properties = request.data[PROPERTIES]
 

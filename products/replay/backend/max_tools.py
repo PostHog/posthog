@@ -163,5 +163,5 @@ class SearchSessionRecordingsTool(MaxTool):
                 content = "✅ Updated session recordings filters."
                 filters = MaxRecordingUniversalFilters.model_validate(result["output"])
             except Exception as e:
-                raise ValueError(f"Failed to generate MaxRecordingUniversalFilters: {e}")
+                raise ValueError(f"Failed to generate MaxRecordingUniversalFilters: {e}")  # noqa: B904
         return content, filters

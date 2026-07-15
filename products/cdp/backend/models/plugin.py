@@ -105,7 +105,7 @@ def update_validated_data_from_url(validated_data: dict[str, Any], url: str) -> 
         try:
             spec = SimpleSpec(posthog_version.replace(" ", ""))
         except ValueError:
-            raise ValidationError(f'Invalid PostHog semantic version requirement "{posthog_version}"!')
+            raise ValidationError(f'Invalid PostHog semantic version requirement "{posthog_version}"!')  # noqa: B904
         if FROZEN_POSTHOG_VERSION not in spec:
             raise ValidationError(
                 f'Currently running PostHog version {FROZEN_POSTHOG_VERSION} does not match this plugin\'s semantic version requirement "{posthog_version}".'
@@ -360,7 +360,7 @@ class PluginSourceFileManager(models.Manager):
             archive = bytes(plugin.archive) if plugin.archive else None
             plugin_json, index_ts, frontend_tsx, site_ts = extract_plugin_code(archive, plugin_json_parsed)
         except ValueError as e:
-            raise exceptions.ValidationError(f"{e} in plugin {plugin}")
+            raise exceptions.ValidationError(f"{e} in plugin {plugin}")  # noqa: B904
 
         # If frontend.tsx or index.ts are not present in the archive, make sure they aren't found in the DB either
         filenames_to_delete = []

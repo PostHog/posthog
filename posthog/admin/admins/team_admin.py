@@ -105,7 +105,7 @@ class TeamAdminForm(ModelForm):
         try:
             return validate_overspend_allowance_usd(value)
         except ValueError as e:
-            raise ValidationError(str(e))
+            raise ValidationError(str(e))  # noqa: B904
 
 
 @admin.register(Team)

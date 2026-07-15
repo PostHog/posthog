@@ -77,7 +77,7 @@ class LegalDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         try:
             document_id = UUID(pk)
         except (ValueError, DjangoValidationError):
-            raise exceptions.NotFound()
+            raise exceptions.NotFound()  # noqa: B904
         dto = api.get_for_organization(document_id, self.organization.id)
         if dto is None:
             raise exceptions.NotFound()
@@ -95,7 +95,7 @@ class LegalDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         try:
             document_id = UUID(pk)
         except (ValueError, DjangoValidationError):
-            raise exceptions.NotFound()
+            raise exceptions.NotFound()  # noqa: B904
         presigned_url = api.get_signed_pdf_download_url(document_id, self.organization.id)
         if not presigned_url:
             raise exceptions.NotFound()
@@ -117,15 +117,15 @@ class LegalDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         try:
             document_id = UUID(pk)
         except (ValueError, DjangoValidationError):
-            raise exceptions.NotFound()
+            raise exceptions.NotFound()  # noqa: B904
         try:
             api.delete_document(document_id, self.organization.id)
         except api.LegalDocumentNotFound:
-            raise exceptions.NotFound()
+            raise exceptions.NotFound()  # noqa: B904
         except api.LegalDocumentAlreadySigned:
-            raise exceptions.PermissionDenied(
+            raise exceptions.PermissionDenied(  # noqa: B904
                 "Signed documents can't be deleted from the UI. Contact PostHog support if you need to remove a signed record."
             )
         except api.LegalDocumentVoidFailed:
-            raise _PandaDocUnavailable()
+            raise _PandaDocUnavailable()  # noqa: B904
         return Response(status=status.HTTP_204_NO_CONTENT)

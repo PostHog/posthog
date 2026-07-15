@@ -66,7 +66,7 @@ def validate_support_request(request: HttpRequest | Request) -> None:
         if timestamp_diff > 300 or timestamp_diff < -60:
             raise SlackIntegrationError("Expired")
     except ValueError:
-        raise SlackIntegrationError("Invalid")
+        raise SlackIntegrationError("Invalid")  # noqa: B904
 
     sig_basestring = f"v0:{slack_time}:{request.body.decode('utf-8')}"
     expected_signature = (

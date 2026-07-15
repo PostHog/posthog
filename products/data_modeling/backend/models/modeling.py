@@ -662,7 +662,7 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
         try:
             self.get_hogql_database(team).get_table(posthog_source_name)
         except QueryError:
-            raise ValueError(f"Provided source {posthog_source_name} is not a PostHog table")
+            raise ValueError(f"Provided source {posthog_source_name} is not a PostHog table")  # noqa: B904
 
         return self.get_or_create(path=[posthog_source_name], team=team, defaults={"saved_query": None})
 
@@ -829,7 +829,7 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
                                         .get()
                                     )
                             except (ObjectDoesNotExist, QueryError):
-                                raise UnknownParentError(parent, model_query)
+                                raise UnknownParentError(parent, model_query)  # noqa: B904
                             else:
                                 parent_id = parent_table.id.hex
                         else:

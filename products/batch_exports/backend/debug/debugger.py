@@ -213,14 +213,14 @@ class BatchExportsDebugger:
         try:
             return next(be for be in self.loaded_batch_exports if str(be.id) == batch_export or be.name == batch_export)
         except StopIteration:
-            raise ValueError(f"No batch export found with name: '{batch_export}'")
+            raise ValueError(f"No batch export found with name: '{batch_export}'")  # noqa: B904
 
     @get_batch_export.register
     def _(self, batch_export: uuid.UUID) -> BatchExport:
         try:
             return next(be for be in self.loaded_batch_exports if be.id == batch_export)
         except StopIteration:
-            raise ValueError(f"No batch export found with id: '{batch_export}'")
+            raise ValueError(f"No batch export found with id: '{batch_export}'")  # noqa: B904
 
     @get_batch_export.register
     def _(self, batch_export: int) -> BatchExport:

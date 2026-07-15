@@ -119,7 +119,7 @@ class PublicHogFunctionTemplateViewSet(
         try:
             return Team.objects.select_related("organization").get(id=project_id)
         except (Team.DoesNotExist, ValueError, TypeError):
-            raise NotFound("Project not found.")
+            raise NotFound("Project not found.")  # noqa: B904
 
     def get_permissions(self):
         # The dedicated public catalog endpoint is intentionally anonymous. The project-nested

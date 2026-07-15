@@ -372,7 +372,7 @@ def _lookup_str_type(type_to_resolve: str, module) -> type:
         try:
             return globals()[type_to_resolve]
         except KeyError:
-            raise TypeError(f"Unknown type: '{type_to_resolve}'")
+            raise TypeError(f"Unknown type: '{type_to_resolve}'")  # noqa: B904
 
 
 def _try_get_meta(t: type) -> MetaConfig | None:

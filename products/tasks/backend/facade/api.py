@@ -1374,7 +1374,7 @@ def build_sandbox_custom_image(
         if spec_yaml is None and image.spec:
             spec = parse_image_spec_json(image.spec)
         else:
-            raise ValueError(str(e))
+            raise ValueError(str(e))  # noqa: B904
     if spec.is_empty:
         raise ValueError("The image spec is empty; add packages, commands, or env vars before building")
     validate_spec_buildable(spec, image.repository)

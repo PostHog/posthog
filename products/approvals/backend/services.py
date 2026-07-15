@@ -154,7 +154,7 @@ def apply_change_request(change_request: ChangeRequest, request=None) -> Any:
             },
             exc_info=True,
         )
-        raise ApplyFailed(f"Apply failed: {str(e)}")
+        raise ApplyFailed(f"Apply failed: {str(e)}")  # noqa: B904
 
 
 @dataclass

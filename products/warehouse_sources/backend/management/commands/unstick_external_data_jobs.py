@@ -341,7 +341,7 @@ class Command(BaseCommand):
         try:
             cutoff = datetime.fromisoformat(raw.replace("Z", "+00:00"))
         except ValueError:
-            raise CommandError(f"{flag} is not a valid ISO-8601 timestamp: {raw!r}")
+            raise CommandError(f"{flag} is not a valid ISO-8601 timestamp: {raw!r}")  # noqa: B904
         if cutoff.tzinfo is None:
             cutoff = cutoff.replace(tzinfo=UTC)
         return cutoff

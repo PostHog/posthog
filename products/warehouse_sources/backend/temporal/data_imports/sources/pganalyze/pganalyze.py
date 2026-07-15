@@ -76,10 +76,10 @@ def _post_graphql(
             payload = response.json()
         except Exception:
             if not response.ok:
-                raise Exception(
+                raise Exception(  # noqa: B904
                     f"{response.status_code} Client Error: {response.reason} (pganalyze API: {response.text})"
                 )
-            raise Exception(f"Unexpected pganalyze response: {response.text}")
+            raise Exception(f"Unexpected pganalyze response: {response.text}")  # noqa: B904
 
         if "errors" in payload:
             error_messages = "; ".join(e.get("message", "") for e in payload["errors"])

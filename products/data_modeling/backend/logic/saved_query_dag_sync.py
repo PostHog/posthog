@@ -51,7 +51,7 @@ def resolve_dependency_to_node(
     try:
         table = database.get_table(dependency_name)
     except QueryError:
-        raise UnknownParentError(dependency_name, "")
+        raise UnknownParentError(dependency_name, "")  # noqa: B904
     # ephemeral view
     if isinstance(table, HogQLSavedQuery):
         saved_query = DataWarehouseSavedQuery.objects.get(team=team, name=dependency_name, deleted=False)

@@ -87,7 +87,7 @@ def get_paginator_class(paginator_type: PaginatorType) -> type[BasePaginator] | 
         return PAGINATOR_MAP[paginator_type]
     except KeyError:
         available_options = ", ".join(PAGINATOR_MAP.keys())
-        raise ValueError(f"Invalid paginator: {paginator_type}. Available options: {available_options}")
+        raise ValueError(f"Invalid paginator: {paginator_type}. Available options: {available_options}")  # noqa: B904
 
 
 def create_paginator(
@@ -101,7 +101,7 @@ def create_paginator(
         try:
             return paginator_class() if paginator_class else None
         except TypeError:
-            raise ValueError(
+            raise ValueError(  # noqa: B904
                 f"Paginator {paginator_config} requires arguments to create an instance. Use {paginator_class} instance instead."
             )
 
@@ -118,7 +118,7 @@ def get_auth_class(auth_type: AuthType) -> type[AuthConfigBase]:
         return AUTH_MAP[auth_type]
     except KeyError:
         available_options = ", ".join(AUTH_MAP.keys())
-        raise ValueError(f"Invalid auth type: {auth_type}. Available options: {available_options}")
+        raise ValueError(f"Invalid auth type: {auth_type}. Available options: {available_options}")  # noqa: B904
 
 
 def create_auth(auth_config: Optional[AuthConfig]) -> Optional[AuthConfigBase]:

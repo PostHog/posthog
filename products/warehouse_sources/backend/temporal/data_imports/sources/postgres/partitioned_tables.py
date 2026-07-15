@@ -450,7 +450,7 @@ def iterate_date_windows(
                 logger.exception(
                     f"iterate_date_windows: exhausted QueryCanceled retries at lo={lo} hi={hi} window={window}"
                 )
-                raise QueryTimeoutException(
+                raise QueryTimeoutException(  # noqa: B904
                     f"window {lo}..{hi} hit statement_timeout after {qc_retries} retries. "
                     f"Please ensure {incremental_field} has an appropriate index."
                 )

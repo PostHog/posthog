@@ -80,7 +80,7 @@ async def load_session_id_chunk(prefix: str, chunk_index: int) -> list[str]:
                 Key=key,
             )
         except client.exceptions.NoSuchKey:
-            raise ValueError(f"Chunk file not found: {key}")
+            raise ValueError(f"Chunk file not found: {key}")  # noqa: B904
         raw = await response["Body"].read()
 
     return [line for line in raw.decode("utf-8").split("\n") if line]

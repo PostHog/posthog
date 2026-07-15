@@ -68,7 +68,7 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
                 suggestion = await self._maybe_import_suggestion(e.validation_message)
                 if suggestion:
                     message = f"{message}\n\n{suggestion}"
-                raise MaxToolRetryableError(message)
+                raise MaxToolRetryableError(message)  # noqa: B904
 
             variables = await self._abuild_query_variables(validated.query)
             query = HogQLQuery(query=validated.query, variables=variables) if variables else validated

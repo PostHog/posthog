@@ -82,7 +82,7 @@ class QueryEventsExtractor:
         try:
             kind = get_from_dict_or_attr(query, "kind")
         except AttributeError:
-            raise ValueError(f"unknown query type: {query}")
+            raise ValueError(f"unknown query type: {query}")  # noqa: B904
 
         events = []
 

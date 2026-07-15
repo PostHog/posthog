@@ -595,7 +595,7 @@ class ReplayObservationViewSet(
         try:
             scanner_id = uuid.UUID(self.kwargs["parent_lookup_scanner_id"])
         except (KeyError, ValueError):
-            raise NotFound()
+            raise NotFound()  # noqa: B904
         scanner = ReplayScanner.objects.filter(team_id=self.team_id, id=scanner_id).first()
         if scanner is None:
             raise NotFound()

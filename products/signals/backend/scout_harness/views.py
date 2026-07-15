@@ -270,7 +270,7 @@ def _parse_run_id_or_404(kwargs: dict) -> uuid.UUID:
     try:
         return uuid.UUID(str(raw))
     except (ValueError, TypeError):
-        raise exceptions.NotFound()
+        raise exceptions.NotFound()  # noqa: B904
 
 
 def _canonical_team_id(view: TeamAndOrgViewSetMixin) -> int:
@@ -755,7 +755,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 tags=data.get("tags") or None,
             )
         except InvalidEmitError as exc:
-            raise exceptions.ValidationError({"detail": str(exc)})
+            raise exceptions.ValidationError({"detail": str(exc)})  # noqa: B904
 
         return Response(
             EmitFindingResponseSerializer(
@@ -806,7 +806,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         try:
             skill = load_skill_for_run(run.team, run.skill_name, version=run.skill_version)
         except SkillNotFoundError:
-            raise exceptions.PermissionDenied(
+            raise exceptions.PermissionDenied(  # noqa: B904
                 f"Report channel is opt-in; skill '{run.skill_name}' (v{run.skill_version}) could not be "
                 "resolved to verify its allowed_tools."
             )
@@ -873,7 +873,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 suggested_reviewers=_to_reviewer_inputs(data.get("suggested_reviewers")),
             )
         except InvalidScoutReportError as exc:
-            raise exceptions.ValidationError({"detail": str(exc)})
+            raise exceptions.ValidationError({"detail": str(exc)})  # noqa: B904
         return Response(
             EmitReportResponseSerializer(
                 {
@@ -928,7 +928,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 suggested_reviewers=_to_reviewer_inputs(data.get("suggested_reviewers")),
             )
         except InvalidScoutReportError as exc:
-            raise exceptions.ValidationError({"detail": str(exc)})
+            raise exceptions.ValidationError({"detail": str(exc)})  # noqa: B904
         return Response(
             EditReportResponseSerializer(
                 {
@@ -1044,7 +1044,7 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 run_id=str(run_id) if run_id is not None else None,
             )
         except InvalidScratchpadError as exc:
-            raise exceptions.ValidationError({"detail": str(exc)})
+            raise exceptions.ValidationError({"detail": str(exc)})  # noqa: B904
         return Response(ScratchpadEntrySerializer(entry.as_dict()).data, status=status.HTTP_200_OK)
 
     @validated_request(
@@ -1581,7 +1581,7 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except WorkflowAlreadyStartedError:
             # A run for this scout was dispatched between the in-flight check and the start call —
             # the Temporal server's id-conflict policy single-flights it. Surface the same 409.
-            raise Conflict()
+            raise Conflict()  # noqa: B904
 
         logger.info(
             "signals_scout: manual run dispatched",

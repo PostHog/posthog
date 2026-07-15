@@ -42,7 +42,7 @@ async def plan_group_type_created_at_backfill(input: PlanBackfillInput) -> dict:
         except Team.DoesNotExist:
             # Fatal: a missing team won't appear on retry. The workflow marks this type
             # non-retryable so Temporal fails fast instead of spinning.
-            raise BackfillGroupTypeCreatedAtError(f"Team {input.team_id} not found")
+            raise BackfillGroupTypeCreatedAtError(f"Team {input.team_id} not found")  # noqa: B904
 
         project_id = team.project_id
         # Group types are project-scoped, but events carry team_id, so the earliest

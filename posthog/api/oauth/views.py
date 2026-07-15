@@ -254,7 +254,7 @@ class OAuthAuthorizationSerializer(serializers.Serializer):
                     if org_uuid not in org_memberships or not org_memberships[org_uuid].level:
                         raise serializers.ValidationError("Invalid organization specified or you do not have access.")
             except ValueError:
-                raise serializers.ValidationError("Invalid organization UUID provided in scoped_organizations.")
+                raise serializers.ValidationError("Invalid organization UUID provided in scoped_organizations.")  # noqa: B904
             return scoped_organization_ids
         elif scoped_organization_ids and len(scoped_organization_ids) > 0:
             raise serializers.ValidationError(

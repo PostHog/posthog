@@ -19,7 +19,7 @@ class TestSiteURLReachability(APIBaseTest):
             try:
                 exporter_utils.log_error_if_site_url_not_reachable()
             except Exception as e:
-                raise pytest.fail(f"Should not have raised exception: {e}")
+                raise pytest.fail(f"Should not have raised exception: {e}")  # noqa: B904
 
             assert logger_mock.error.call_count == 1
             assert logger_mock.error.call_args[0][0] == "site_url_not_reachable"
@@ -35,7 +35,7 @@ class TestSiteURLReachability(APIBaseTest):
                 try:
                     exporter_utils.log_error_if_site_url_not_reachable()
                 except Exception as e:
-                    raise pytest.fail(f"Should not have raised exception: {e}")
+                    raise pytest.fail(f"Should not have raised exception: {e}")  # noqa: B904
 
                 assert logger_mock.error.call_count == 1
                 assert logger_mock.error.call_args[0][0] == "site_url_not_reachable"
@@ -51,6 +51,6 @@ class TestSiteURLReachability(APIBaseTest):
                 try:
                     exporter_utils.log_error_if_site_url_not_reachable()
                 except Exception as e:
-                    raise pytest.fail(f"Should not have raised exception: {e}")
+                    raise pytest.fail(f"Should not have raised exception: {e}")  # noqa: B904
 
                 assert logger_mock.error.call_count == 0

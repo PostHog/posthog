@@ -99,7 +99,7 @@ class ProductPushCampaignViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             try:
                 team_id = int(team_id_param)
             except ValueError:
-                raise ValidationError({"team_id": "Must be an integer team id."})
+                raise ValidationError({"team_id": "Must be an integer team id."})  # noqa: B904
             team = Team.objects.filter(id=team_id, organization=self.organization).first()
             if team is None:
                 raise NotFound("Team not found.")

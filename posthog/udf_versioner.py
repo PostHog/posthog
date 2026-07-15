@@ -32,7 +32,7 @@ def prepare_version(force=False):
         os.mkdir(VERSION_STR)
     except FileExistsError:
         if not args.force:
-            raise FileExistsError(
+            raise FileExistsError(  # noqa: B904
                 f"A directory already exists for this version at posthog/user_scripts/{VERSION_STR}. Did you forget to increment the version? If not, delete the folder and run this again, or run this script with a -f"
             )
     for file in os.listdir():

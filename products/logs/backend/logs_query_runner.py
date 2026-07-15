@@ -377,7 +377,7 @@ class LogsFilterBuilder:
             try:
                 checkpoint = dt.datetime.fromisoformat(self.query.liveLogsCheckpoint)
             except ValueError as e:
-                raise ValueError(f"Invalid liveLogsCheckpoint format: {e}")
+                raise ValueError(f"Invalid liveLogsCheckpoint format: {e}")  # noqa: B904
             if checkpoint.tzinfo is None:
                 checkpoint = checkpoint.replace(tzinfo=ZoneInfo("UTC"))
             exprs.append(
@@ -393,7 +393,7 @@ class LogsFilterBuilder:
                 cursor_ts = dt.datetime.fromisoformat(cursor["timestamp"])
                 cursor_uuid = cursor["uuid"]
             except (KeyError, ValueError, json.JSONDecodeError) as e:
-                raise ValueError(f"Invalid cursor format: {e}")
+                raise ValueError(f"Invalid cursor format: {e}")  # noqa: B904
             # For ASC (earliest first): get rows where (timestamp, uuid) > cursor
             # For DESC (latest first, default): get rows where (timestamp, uuid) < cursor
             op = ">" if self.query.orderBy == "earliest" else "<"
@@ -574,7 +574,7 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
             try:
                 expr = column_to_expr(text)
             except (ValueError, ExposedHogQLError) as e:
-                raise QueryError(f"Invalid custom column {text!r}: {e}")
+                raise QueryError(f"Invalid custom column {text!r}: {e}")  # noqa: B904
             selects.append(ast.Alias(alias=alias, expr=expr))
         return selects
 

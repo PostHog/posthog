@@ -220,8 +220,8 @@ def _make_paginated_request(
             payload = response.json()
         except Exception:
             if not response.ok:
-                raise Exception(f"{response.status_code} Client Error: {response.reason} (Plain API: {response.text})")
-            raise Exception(f"Unexpected Plain response: {response.text}")
+                raise Exception(f"{response.status_code} Client Error: {response.reason} (Plain API: {response.text})")  # noqa: B904
+            raise Exception(f"Unexpected Plain response: {response.text}")  # noqa: B904
 
         if "errors" in payload:
             error_messages = [e.get("message", "") for e in payload["errors"]]

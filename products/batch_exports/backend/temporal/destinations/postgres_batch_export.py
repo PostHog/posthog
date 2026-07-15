@@ -570,7 +570,7 @@ class PostgreSQLClient:
                     async with asyncio.timeout(timeout):
                         await cursor.execute(merge_query)
                 except psycopg.errors.InvalidColumnReference:
-                    raise MissingPrimaryKeyError(final_table_identifier, conflict_fields)
+                    raise MissingPrimaryKeyError(final_table_identifier, conflict_fields)  # noqa: B904
                 except TimeoutError as e:
                     self.external_logger.exception(
                         "Final merge into '%s.%s' is taking too long to complete and will be rolled-back. Perhaps the database is under too much load?",
@@ -855,7 +855,7 @@ async def _get_postgresql_integration(
     try:
         integration = await Integration.objects.aget(id=inputs.integration_id, team_id=inputs.team_id)
     except Integration.DoesNotExist:
-        raise PostgreSQLIntegrationNotFoundError(f"PostgreSQL integration with id '{inputs.integration_id}' not found")
+        raise PostgreSQLIntegrationNotFoundError(f"PostgreSQL integration with id '{inputs.integration_id}' not found")  # noqa: B904
     return PostgreSQLIntegration(integration)
 
 

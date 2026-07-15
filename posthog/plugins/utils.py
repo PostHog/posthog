@@ -63,7 +63,7 @@ def parse_github_url(url: str, get_latest_if_none=False) -> Optional[dict[str, O
                     raise Exception(f"Could not find a commit with a hash in {commits}")
 
         except Exception as e:
-            raise Exception(f"Could not get latest commit for {parsed['root_url']}. Reason: {e}")
+            raise Exception(f"Could not get latest commit for {parsed['root_url']}. Reason: {e}")  # noqa: B904
 
     if parsed["tag"]:
         parsed["tagged_url"] = "https://github.com/{}/{}/tree/{}{}{}".format(
@@ -116,7 +116,7 @@ def parse_gitlab_url(url: str, get_latest_if_none=False) -> Optional[dict[str, O
             else:
                 raise
         except Exception:
-            raise Exception("Could not get latest commit for: {}".format(parsed["root_url"]))
+            raise Exception("Could not get latest commit for: {}".format(parsed["root_url"]))  # noqa: B904
 
     if parsed["tag"]:
         parsed["tagged_url"] = "https://gitlab.com/{}/-/tree/{}{}".format(
@@ -157,7 +157,7 @@ def parse_npm_url(url: str, get_latest_if_none=False) -> Optional[dict[str, Opti
             ).json()
             parsed["tag"] = details["version"]
         except Exception:
-            raise Exception("Could not get latest version for: {}".format(url))
+            raise Exception("Could not get latest version for: {}".format(url))  # noqa: B904
     if parsed["tag"]:
         parsed["tagged_url"] = "https://www.npmjs.com/package/{}/v/{}{}".format(
             parsed["pkg"],

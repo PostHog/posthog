@@ -142,7 +142,7 @@ class GitHubIntegrationBase:
             )
         except Exception:
             logger.error("Failed to encode JWT token", exc_info=True)
-            raise ValidationError(
+            raise ValidationError(  # noqa: B904
                 "Failed to create GitHub App JWT token. Please check your GITHUB_APP_PRIVATE_KEY format."
             )
 
@@ -338,7 +338,7 @@ class GitHubIntegrationBase:
         try:
             expires_in = datetime.fromisoformat(data["expires_at"]).timestamp() - int(time.time())
         except ValueError as e:
-            raise Exception(f"Invalid expires_at format from GitHub: {e}")
+            raise Exception(f"Invalid expires_at format from GitHub: {e}")  # noqa: B904
 
         config = {
             **self.integration.config,
@@ -1047,7 +1047,7 @@ class GitHubIntegrationBase:
                 integration_id=self.integration.id,
                 status_code=response.status_code,
             )
-            raise GitHubIntegrationError("GitHubIntegration: list_repositories non-JSON response")
+            raise GitHubIntegrationError("GitHubIntegration: list_repositories non-JSON response")  # noqa: B904
         if response.status_code == 200 and isinstance(body, dict):
             page_repos = extract_repos(body)
             has_more = len(page_repos) == per_page

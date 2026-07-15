@@ -36,7 +36,7 @@ def backfill_experiment_timeseries(recalculation_id: str, *, backfill_until: dat
     try:
         recalculation_request = ExperimentTimeseriesRecalculation.objects.get(id=recalculation_id)
     except ExperimentTimeseriesRecalculation.DoesNotExist:
-        raise ValueError(f"Recalculation request {recalculation_id} not found")
+        raise ValueError(f"Recalculation request {recalculation_id} not found")  # noqa: B904
 
     if recalculation_request.status in (
         ExperimentTimeseriesRecalculation.Status.PENDING,

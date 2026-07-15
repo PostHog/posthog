@@ -60,11 +60,11 @@ class SessionStore(DBStore):
                 self._persist(obj, must_create, using)
         except IntegrityError:
             if must_create:
-                raise CreateError
+                raise CreateError  # noqa: B904
             raise
         except DatabaseError:
             if not must_create:
-                raise UpdateError
+                raise UpdateError  # noqa: B904
             raise
 
     async def acreate_model_instance(self, data: dict[str, Any]) -> "Session":
@@ -89,11 +89,11 @@ class SessionStore(DBStore):
             await run()
         except IntegrityError:
             if must_create:
-                raise CreateError
+                raise CreateError  # noqa: B904
             raise
         except DatabaseError:
             if not must_create:
-                raise UpdateError
+                raise UpdateError  # noqa: B904
             raise
 
     def _persist(self, obj: "Session", must_create: bool, using: str) -> None:

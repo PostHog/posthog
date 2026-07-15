@@ -456,7 +456,7 @@ class DataWarehouseSavedQuerySerializer(
             except Exception as e:
                 capture_exception(e)
                 logger.exception("Failed to retrieve types for view %s", view.name)
-                raise serializers.ValidationError("Failed to retrieve types for view")
+                raise serializers.ValidationError("Failed to retrieve types for view")  # noqa: B904
 
         with transaction.atomic():
             view.save()
@@ -507,7 +507,7 @@ class DataWarehouseSavedQuerySerializer(
                 try:
                     dag_obj = DAG.objects.get(id=dag_id, team_id=view.team_id)
                 except DAG.DoesNotExist:
-                    raise serializers.ValidationError({"dag_id": "Invalid DAG ID or DAG does not belong to this team"})
+                    raise serializers.ValidationError({"dag_id": "Invalid DAG ID or DAG does not belong to this team"})  # noqa: B904
             sync_saved_query_to_dag(view, dag=dag_obj)
         except Exception as e:
             capture_exception(e)
@@ -595,11 +595,11 @@ class DataWarehouseSavedQuerySerializer(
 
                     view.external_tables = view.s3_tables
                 except RecursionError:
-                    raise serializers.ValidationError("Model contains a cycle")
+                    raise serializers.ValidationError("Model contains a cycle")  # noqa: B904
                 except Exception as e:
                     capture_exception(e)
                     logger.exception("Failed to retrieve types for view %s", view.name)
-                    raise serializers.ValidationError("Failed to retrieve types for view")
+                    raise serializers.ValidationError("Failed to retrieve types for view")  # noqa: B904
 
                 view.status = DataWarehouseSavedQuery.Status.MODIFIED
                 view.save()
@@ -703,7 +703,7 @@ class DataWarehouseSavedQuerySerializer(
             find_placeholders = FindPlaceholders()
             find_placeholders.visit(select_ast)
         except ExposedHogQLError as err:
-            raise exceptions.ValidationError(detail=f"Invalid query: {err}")
+            raise exceptions.ValidationError(detail=f"Invalid query: {err}")  # noqa: B904
         if len(find_placeholders.placeholder_fields) > 0:
             placeholder = find_placeholders.placeholder_fields.pop()
             placeholder_string = ".".join(str(field) for field in placeholder if field is not None)
@@ -724,10 +724,10 @@ class DataWarehouseSavedQuerySerializer(
         except Exception as err:
             if isinstance(err, ExposedHogQLError):
                 error = str(err)
-                raise exceptions.ValidationError(detail=f"Invalid query: {error}")
+                raise exceptions.ValidationError(detail=f"Invalid query: {error}")  # noqa: B904
             elif not settings.DEBUG:
                 # We don't want to accidentally expose too much data via errors
-                raise exceptions.ValidationError(detail=f"Unexpected {err.__class__.__name__}")
+                raise exceptions.ValidationError(detail=f"Unexpected {err.__class__.__name__}")  # noqa: B904
 
         return query
 
@@ -960,7 +960,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         try:
             delete_saved_query(instance)
         except HasDependentsError:
-            raise serializers.ValidationError(
+            raise serializers.ValidationError(  # noqa: B904
                 "Cannot delete this view because other views depend on it. Delete or update those views first."
             )
 

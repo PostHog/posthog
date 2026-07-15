@@ -382,7 +382,7 @@ class FunnelCorrelationActorsMixin(BaseParamMixin):
             try:
                 loaded_props = json.loads(_props)
             except json.decoder.JSONDecodeError:
-                raise ValidationError("Properties are unparsable!")
+                raise ValidationError("Properties are unparsable!")  # noqa: B904
         else:
             loaded_props = _props
 

@@ -484,7 +484,7 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
             cursor_ts = dt.datetime.fromisoformat(cursor["timestamp"])
             cursor_id_b64 = base64.b64encode(bytes.fromhex(cursor[secondary_key])).decode("ascii")
         except (KeyError, ValueError, json.JSONDecodeError) as e:
-            raise ValueError(f"Invalid cursor format: {e}")
+            raise ValueError(f"Invalid cursor format: {e}")  # noqa: B904
         return cursor_ts, cursor_id_b64
 
     def to_query(self) -> ast.SelectQuery:

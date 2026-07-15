@@ -248,7 +248,7 @@ class HeatmapsRequestSerializer(serializers.Serializer):
         try:
             cohort_ids = loads(value)
         except JSONDecodeError:
-            raise serializers.ValidationError("cohort_ids must be valid JSON")
+            raise serializers.ValidationError("cohort_ids must be valid JSON")  # noqa: B904
         if not isinstance(cohort_ids, list) or not all(isinstance(cid, int) for cid in cohort_ids):
             raise serializers.ValidationError("cohort_ids must be a JSON array of integers")
         if not cohort_ids:
@@ -277,7 +277,7 @@ class HeatmapsRequestSerializer(serializers.Serializer):
             else:
                 raise serializers.ValidationError(f"Invalid {label} provided: {value}")
         except Exception:
-            raise serializers.ValidationError(f"Error parsing provided {label}: {value}")
+            raise serializers.ValidationError(f"Error parsing provided {label}: {value}")  # noqa: B904
 
     def validate_date_from(self, value) -> date:
         return self.validate_date(value, "date_from")
@@ -403,7 +403,7 @@ class HeatmapEventsRequestSerializer(HeatmapsRequestSerializer):
                     raise serializers.ValidationError("each point must have x and y")
             return points
         except JSONDecodeError:
-            raise serializers.ValidationError("points must be valid JSON")
+            raise serializers.ValidationError("points must be valid JSON")  # noqa: B904
 
 
 class HeatmapEventItemSerializer(serializers.Serializer):

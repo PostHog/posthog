@@ -59,12 +59,12 @@ def _parse_scim_pagination(request: Request) -> tuple[int, int]:
     try:
         start_index = int(request.query_params.get("startIndex", 1))
     except (ValueError, TypeError):
-        raise SCIMPaginationError("Invalid startIndex value")
+        raise SCIMPaginationError("Invalid startIndex value")  # noqa: B904
 
     try:
         count = int(request.query_params.get("count", MAX_ITEMS_PER_PAGE))
     except (ValueError, TypeError):
-        raise SCIMPaginationError("Invalid count value")
+        raise SCIMPaginationError("Invalid count value")  # noqa: B904
 
     if start_index < 1:
         raise SCIMPaginationError("Invalid startIndex (must be >= 1)")

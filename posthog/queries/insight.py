@@ -25,7 +25,7 @@ def insight_sync_execute(
     try:
         return sync_execute(query, args=args, team_id=team_id, **kwargs)
     except ExposedCHQueryError as e:
-        raise ValidationError(str(e), e.code_name)
+        raise ValidationError(str(e), e.code_name)  # noqa: B904
 
 
 def _tag_query(query, query_type, filter: Optional["FilterType"]):

@@ -210,7 +210,7 @@ class TestActivityLogModel(BaseTest):
                         detail=Detail(),
                     )
                 except Exception as e:
-                    raise pytest.fail(f"Should not have raised exception: {e}")
+                    raise pytest.fail(f"Should not have raised exception: {e}")  # noqa: B904
 
             warning = mock_logger.warn.call_args
             self.assertIsNotNone(warning)

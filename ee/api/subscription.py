@@ -434,7 +434,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                     insight.id if insight else None, dashboard.id if dashboard else None, attrs.get("prompt")
                 )
         except ValueError as exc:
-            raise ValidationError(str(exc))
+            raise ValidationError(str(exc))  # noqa: B904
         content_validators: dict[str, Callable[[dict, Optional[Subscription]], None]] = {
             Subscription.ResourceType.INSIGHT: self._validate_insight_content,
             Subscription.ResourceType.DASHBOARD: self._validate_dashboard_content,
@@ -482,7 +482,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 try:
                     sanitize_prompt(prompt_after)
                 except PromptRejectedError as exc:
-                    raise ValidationError(
+                    raise ValidationError(  # noqa: B904
                         {"enabled": [f"Cannot re-enable AI subscription: prompt is invalid ({exc})."]}
                     )
 
@@ -510,7 +510,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             try:
                 integration = Integration.objects.get(id=integration_id, team_id=self.context["team_id"])
             except Integration.DoesNotExist:
-                raise ValidationError(
+                raise ValidationError(  # noqa: B904
                     {"integration_id": ["This integration does not exist or does not belong to your team."]}
                 )
             if integration.kind != "slack":

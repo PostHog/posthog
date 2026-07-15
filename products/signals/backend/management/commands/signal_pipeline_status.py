@@ -46,7 +46,7 @@ class Command(BaseCommand):
         try:
             team = Team.objects.get(id=options["team_id"])
         except Team.DoesNotExist:
-            raise CommandError(f"Team {options['team_id']} not found")
+            raise CommandError(f"Team {options['team_id']} not found")  # noqa: B904
 
         if options["wait"]:
             self._wait_loop(team, options)

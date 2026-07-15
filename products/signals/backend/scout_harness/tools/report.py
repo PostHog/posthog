@@ -153,7 +153,7 @@ def _build_actionability(*, explanation: str, choice: str, already_addressed: bo
         actionability_choice = ActionabilityChoice(choice)
     except ValueError:
         valid = ", ".join(c.value for c in ActionabilityChoice)
-        raise InvalidScoutReportError(f"actionability must be one of [{valid}], got {choice!r}")
+        raise InvalidScoutReportError(f"actionability must be one of [{valid}], got {choice!r}")  # noqa: B904
     return ActionabilityAssessment(
         explanation=explanation, actionability=actionability_choice, already_addressed=already_addressed
     )
@@ -232,7 +232,7 @@ def _build_priority(priority: str | None, explanation: str | None) -> PriorityAs
         priority_level = Priority(priority)
     except ValueError:
         valid = ", ".join(p.value for p in Priority)
-        raise InvalidScoutReportError(f"priority must be one of [{valid}], got {priority!r}")
+        raise InvalidScoutReportError(f"priority must be one of [{valid}], got {priority!r}")  # noqa: B904
     if not explanation or not explanation.strip():
         raise InvalidScoutReportError("priority_explanation is required when priority is set")
     return PriorityAssessment(priority=priority_level, explanation=explanation)

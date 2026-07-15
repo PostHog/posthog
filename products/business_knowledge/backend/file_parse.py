@@ -153,9 +153,9 @@ def _check_zip_bomb(zf: zipfile.ZipFile) -> None:
                             f"Decompressed size exceeds the {MAX_FILE_DECOMPRESSED_BYTES // (1024 * 1024)} MB cap."
                         )
     except zipfile.BadZipFile:
-        raise FileParseError("File appears corrupt — cannot read ZIP contents.")
+        raise FileParseError("File appears corrupt — cannot read ZIP contents.")  # noqa: B904
     except (RuntimeError, NotImplementedError):
-        raise FileParseError("File is encrypted or uses an unsupported compression method.")
+        raise FileParseError("File is encrypted or uses an unsupported compression method.")  # noqa: B904
 
 
 def sanitize_filename(filename: str) -> str:
@@ -179,10 +179,10 @@ def _parse_pdf(data: bytes, filename: str) -> ParsedFile:
     try:
         reader = PdfReader(io.BytesIO(data))
     except PdfReadError as exc:
-        raise FileParseError(f"Could not read PDF: {exc}")
+        raise FileParseError(f"Could not read PDF: {exc}")  # noqa: B904
     except Exception as exc:
         logger.warning("pdf_reader_unexpected_error", error=str(exc), exc_info=True)
-        raise FileParseError(f"Could not read PDF: {exc}")
+        raise FileParseError(f"Could not read PDF: {exc}")  # noqa: B904
 
     if reader.is_encrypted:
         raise EncryptedPDFError("Encrypted PDFs are not supported. Remove the password and re-upload.")
@@ -191,7 +191,7 @@ def _parse_pdf(data: bytes, filename: str) -> ParsedFile:
         page_count = len(reader.pages)
     except Exception as exc:
         logger.warning("pdf_page_count_error", error=str(exc), exc_info=True)
-        raise FileParseError(f"Could not read PDF: {exc}")
+        raise FileParseError(f"Could not read PDF: {exc}")  # noqa: B904
 
     if page_count > MAX_PDF_PAGES:
         raise FileTooLargeError(
@@ -224,9 +224,9 @@ def _parse_docx(data: bytes, filename: str) -> ParsedFile:
     try:
         doc = Document(io.BytesIO(data))
     except PackageNotFoundError as exc:
-        raise FileParseError(f"Could not read DOCX: {exc}")
+        raise FileParseError(f"Could not read DOCX: {exc}")  # noqa: B904
     except (KeyError, ValueError, zipfile.BadZipFile) as exc:
-        raise FileParseError(f"Could not read DOCX: {exc}")
+        raise FileParseError(f"Could not read DOCX: {exc}")  # noqa: B904
 
     parts: list[str] = []
     for block in doc.iter_inner_content():
@@ -309,7 +309,7 @@ def _parse_csv(data: bytes, filename: str) -> ParsedFile:
                 rows.append("\n".join(line_parts))
                 data_row_count += 1
     except csv.Error as exc:
-        raise FileParseError(f"Could not parse CSV: {exc}")
+        raise FileParseError(f"Could not parse CSV: {exc}")  # noqa: B904
 
     content = "\n\n".join(rows)
     if not content.strip():

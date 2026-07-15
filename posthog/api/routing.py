@@ -468,7 +468,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             try:
                 team = Team.objects.select_related("organization").get(id=self.team_id)
             except (Team.DoesNotExist, ValueError):
-                raise NotFound(
+                raise NotFound(  # noqa: B904
                     detail="Project not found."  # TODO: "Environment" instead of "Project" when project environments are rolled out
                 )
 
@@ -503,7 +503,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             # nosemgrep: idor-lookup-without-org (routing validates org access via permissions)
             return Project.objects.get(id=self.project_id)
         except (Project.DoesNotExist, ValueError):
-            raise NotFound(detail="Project not found.")
+            raise NotFound(detail="Project not found.")  # noqa: B904
 
     @cached_property
     def organization_id(self) -> str:
@@ -521,7 +521,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
                 current_organization_id = user.current_organization_id
 
             if not current_organization_id:
-                raise NotFound("You need to belong to an organization.")
+                raise NotFound("You need to belong to an organization.")  # noqa: B904
             return str(current_organization_id)
 
     @cached_property
@@ -529,7 +529,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         try:
             return Organization.objects.get(id=self.organization_id)
         except (Organization.DoesNotExist, ValueError):
-            raise NotFound(detail="Organization not found.")
+            raise NotFound(detail="Organization not found.")  # noqa: B904
 
     def _filter_queryset_by_parents_lookups(self, queryset):
         if hasattr(self, "_should_skip_parents_filter") and callable(self._should_skip_parents_filter):
@@ -551,7 +551,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             try:
                 return queryset.filter(**parents_query_dict)
             except ValueError:
-                raise NotFound()
+                raise NotFound()  # noqa: B904
         else:
             return queryset
 
@@ -612,17 +612,17 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
                 try:
                     query_value = team_from_request.id if team_from_request else int(query_value)
                 except ValueError:
-                    raise NotFound("Project not found.")  # TODO: "Environment"
+                    raise NotFound("Project not found.")  # TODO: "Environment"  # noqa: B904
             elif query_lookup == "project_id":
                 try:
                     query_value = team_from_request.project_id if team_from_request else int(query_value)
                 except ValueError:
-                    raise NotFound("Project not found.")
+                    raise NotFound("Project not found.")  # noqa: B904
             elif query_lookup == "organization_id":
                 try:
                     query_value = UUID(query_value)
                 except ValueError:
-                    raise NotFound("Organization not found.")
+                    raise NotFound("Organization not found.")  # noqa: B904
 
             result[query_lookup] = query_value
 

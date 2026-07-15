@@ -68,7 +68,7 @@ class _UrlValidationMixin:
         try:
             normalized = url_fetch.normalize_url(value)
         except url_fetch.UrlFetchError:
-            raise serializers.ValidationError("Invalid URL.")
+            raise serializers.ValidationError("Invalid URL.")  # noqa: B904
         allowed, _reason = is_url_allowed(normalized)
         if not allowed:
             raise serializers.ValidationError("URL is not reachable.")

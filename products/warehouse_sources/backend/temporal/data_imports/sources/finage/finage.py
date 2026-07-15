@@ -78,7 +78,7 @@ def validate_source_config(symbols: list[str], start_date: str) -> None:
     try:
         parsed_start = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=UTC).date()
     except ValueError:
-        raise FinageConfigError(f"Invalid backfill start date '{start_date}'. Use the format YYYY-MM-DD.")
+        raise FinageConfigError(f"Invalid backfill start date '{start_date}'. Use the format YYYY-MM-DD.")  # noqa: B904
     floor = datetime.strptime(MIN_START_DATE, "%Y-%m-%d").date()
     today = datetime.now(UTC).date()
     if parsed_start < floor:

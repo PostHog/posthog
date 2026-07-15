@@ -105,7 +105,7 @@ class OrganizationIntegrationViewSet(
                     integration_id=instance.integration_id,
                     reason=e.message,
                 )
-                raise OpenInvoicesError(detail=e.message)
+                raise OpenInvoicesError(detail=e.message)  # noqa: B904
             except Exception as e:
                 capture_exception(
                     e,

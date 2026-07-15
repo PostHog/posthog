@@ -161,7 +161,7 @@ def populate_user_product_list(
             if not allowed_emails:
                 context.log.warning("Email filter from S3 is empty, no users will match")
         except Exception as e:
-            raise dagster.Failure(f"Failed to download or process email filter from S3: {str(e)}")
+            raise dagster.Failure(f"Failed to download or process email filter from S3: {str(e)}")  # noqa: B904
 
     # Respect user preference for sidebar suggestions
     users = users.exclude(allow_sidebar_suggestions=False)

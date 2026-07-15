@@ -73,7 +73,7 @@ def execute_op_clickhouse(
             client.sync_execute(sql, args, settings=settings)
     except Exception as e:
         reset_query_tags()
-        raise Exception(f"Failed to execute ClickHouse op: sql={sql},\nquery_id={query_id},\nexception={str(e)}")
+        raise Exception(f"Failed to execute ClickHouse op: sql={sql},\nquery_id={query_id},\nexception={str(e)}")  # noqa: B904
 
     reset_query_tags()
 
@@ -133,7 +133,7 @@ def execute_op_postgres(sql: str, query_id: str):
         with connection.cursor() as cursor:
             cursor.execute(f"/* {query_id} */ " + sql)
     except Exception as e:
-        raise Exception(f"Failed to execute postgres op: sql={sql},\nquery_id={query_id},\nexception={str(e)}")
+        raise Exception(f"Failed to execute postgres op: sql={sql},\nquery_id={query_id},\nexception={str(e)}")  # noqa: B904
 
 
 def _get_number_running_on_cluster(query_pattern: str) -> int:

@@ -906,7 +906,7 @@ def create_custom_property_definition(
             options=normalize_options(DisplayType(display_type), options),
         )
     except IntegrityError:
-        raise CustomPropertyDefinitionConflictError("A custom property with this name already exists for this team.")
+        raise CustomPropertyDefinitionConflictError("A custom property with this name already exists for this team.")  # noqa: B904
     _log_activity_swallowing(
         instance=definition,
         scope="CustomPropertyDefinition",
@@ -956,7 +956,7 @@ def update_custom_property_definition(
                     new_options=definition.options,
                 )
     except IntegrityError:
-        raise CustomPropertyDefinitionConflictError("A custom property with this name already exists for this team.")
+        raise CustomPropertyDefinitionConflictError("A custom property with this name already exists for this team.")  # noqa: B904
     _log_activity_swallowing(
         instance=definition,
         scope="CustomPropertyDefinition",
@@ -1143,7 +1143,7 @@ def create_custom_property_source(
         # one-to-one uniqueness; re-raise anything else instead of mislabeling it as a duplicate.
         if "unique" not in str(exc).lower() and "duplicate" not in str(exc).lower():
             raise
-        raise CustomPropertySourceValidationError("This custom property already has a source.")
+        raise CustomPropertySourceValidationError("This custom property already has a source.")  # noqa: B904
     _enqueue_sync_if_enabled(source)
     return _to_custom_property_source_view(source)
 
@@ -1243,7 +1243,7 @@ def create_customer_journey(
             team_id=team_id, created_by=user, insight_id=insight_id, name=name, description=description
         )
     except IntegrityError:
-        raise CustomerJourneyConflictError("A customer journey already exists for this insight.")
+        raise CustomerJourneyConflictError("A customer journey already exists for this insight.")  # noqa: B904
     _log_activity_swallowing(
         instance=journey,
         scope="CustomerJourney",
@@ -1448,9 +1448,9 @@ def create_account_for_view(
             if any(field in (account._properties or {}) for field in ACCOUNT_ASSIGNMENT_ROLE_FIELDS):
                 _relationships_logic.sync_from_account_properties(account, created_by=user)
     except PydanticValidationError as exc:
-        raise AccountPropertiesValidationError(_format_pydantic_errors(exc))
+        raise AccountPropertiesValidationError(_format_pydantic_errors(exc))  # noqa: B904
     except IntegrityError:
-        raise AccountConflictError("An account with this external_id already exists for this team.")
+        raise AccountConflictError("An account with this external_id already exists for this team.")  # noqa: B904
     _log_activity_swallowing(
         instance=account,
         scope="Account",
@@ -1494,9 +1494,9 @@ def update_account_for_view(
             if input.properties_provided:
                 _relationships_logic.sync_from_account_properties(account, created_by=user)
     except PydanticValidationError as exc:
-        raise AccountPropertiesValidationError(_format_pydantic_errors(exc))
+        raise AccountPropertiesValidationError(_format_pydantic_errors(exc))  # noqa: B904
     except IntegrityError:
-        raise AccountConflictError("An account with this external_id already exists for this team.")
+        raise AccountConflictError("An account with this external_id already exists for this team.")  # noqa: B904
     _log_activity_swallowing(
         instance=account,
         scope="Account",
@@ -1761,7 +1761,7 @@ def _get_object_or_raise(queryset, pk: str, model):
     try:
         obj = queryset.filter(pk=pk).first()
     except (ValidationError, ValueError):
-        raise model.DoesNotExist()
+        raise model.DoesNotExist()  # noqa: B904
     if obj is None:
         raise model.DoesNotExist()
     return obj
@@ -1899,7 +1899,7 @@ def create_account_relationship_definition(
             created_by=created_by,
         )
     except IntegrityError:
-        raise AccountRelationshipDefinitionConflictError(
+        raise AccountRelationshipDefinitionConflictError(  # noqa: B904
             "A relationship definition with this name already exists for this team."
         )
     return _to_account_relationship_definition(definition)
@@ -1925,7 +1925,7 @@ def update_account_relationship_definition(
     try:
         definition.save()
     except IntegrityError:
-        raise AccountRelationshipDefinitionConflictError(
+        raise AccountRelationshipDefinitionConflictError(  # noqa: B904
             "A relationship definition with this name already exists for this team."
         )
     return _to_account_relationship_definition(definition)

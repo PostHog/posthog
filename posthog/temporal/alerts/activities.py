@@ -202,7 +202,7 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
         try:
             alert = AlertConfiguration.objects.select_related("insight", "team", "threshold").get(id=inputs.alert_id)
         except AlertConfiguration.DoesNotExist:
-            raise ApplicationError(
+            raise ApplicationError(  # noqa: B904
                 f"Alert {inputs.alert_id} not found between prepare and evaluate",
                 non_retryable=True,
             )

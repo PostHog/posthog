@@ -24,7 +24,7 @@ class PublicIntegrationViewSet(viewsets.GenericViewSet):
         try:
             SlackIntegration.validate_request(request)
         except SlackIntegrationError:
-            raise AuthenticationFailed()
+            raise AuthenticationFailed()  # noqa: B904
 
         if request.data["type"] == "url_verification":
             return Response({"challenge": request.data["challenge"]})

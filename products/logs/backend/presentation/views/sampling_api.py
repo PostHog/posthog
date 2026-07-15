@@ -262,7 +262,7 @@ class LogsSamplingRuleSerializer(serializers.ModelSerializer):
         try:
             PropertyGroupFilter.model_validate(filter_group)
         except PydanticValidationError as e:
-            raise ValidationError({"config": {"filter_group": f"Invalid filter_group shape: {e.errors()[0]['msg']}"}})
+            raise ValidationError({"config": {"filter_group": f"Invalid filter_group shape: {e.errors()[0]['msg']}"}})  # noqa: B904
         # Bound nesting depth — the Node ingestion worker recurses per
         # record over this tree, so an adversarially deep group is a
         # stack-overflow + CPU footgun on every log line. Matches

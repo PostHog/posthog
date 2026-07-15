@@ -154,7 +154,7 @@ Some tables (users, projects, variables) require an owner/admin key or an Enterp
         try:
             host_valid, host_error = self.is_database_host_valid(hostname_of(config.host), inputs.team_id)
         except ValueError:
-            raise ValueError("Invalid n8n instance URL")
+            raise ValueError("Invalid n8n instance URL")  # noqa: B904
         if not host_valid:
             raise ValueError(host_error or "Invalid n8n host")
 

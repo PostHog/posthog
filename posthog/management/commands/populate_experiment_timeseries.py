@@ -56,7 +56,7 @@ class Command(BaseCommand):
         try:
             experiment = Experiment.objects.get(id=experiment_id, deleted=False)
         except Experiment.DoesNotExist:
-            raise ValueError(f"Experiment {experiment_id} not found or deleted")
+            raise ValueError(f"Experiment {experiment_id} not found or deleted")  # noqa: B904
 
         all_metrics = (experiment.metrics or []) + (experiment.metrics_secondary or [])
         metric = next((m for m in all_metrics if m.get("uuid") == metric_uuid), None)

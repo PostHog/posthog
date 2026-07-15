@@ -60,7 +60,7 @@ class TestGroupsLimitPushdown(ClickhouseTestMixin, APIBaseTest):
         try:
             self._run(team, "SELECT key FROM groups LIMIT NULL")
         except TypeError:
-            raise AssertionError("LIMIT NULL crashed the HogQL compiler with a TypeError")
+            raise AssertionError("LIMIT NULL crashed the HogQL compiler with a TypeError")  # noqa: B904
         except Exception:
             pass
 

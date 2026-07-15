@@ -51,7 +51,7 @@ class RealtimeCohortCalculationForm(forms.Form):
                 raise forms.ValidationError("At least one valid team ID is required.")
             return team_ids_str
         except ValueError:
-            raise forms.ValidationError("Team IDs must be comma-separated integers (e.g., '2,42,100').")
+            raise forms.ValidationError("Team IDs must be comma-separated integers (e.g., '2,42,100').")  # noqa: B904
 
     global_percentage = forms.FloatField(
         required=False,

@@ -434,7 +434,7 @@ def raise_if_user_provided_url_unsafe(url: str):
     try:
         addrinfo = socket.getaddrinfo(parsed_url.hostname, None)
     except socket.gaierror:
-        raise ValueError("Invalid hostname")
+        raise ValueError("Invalid hostname")  # noqa: B904
     for _, _, _, _, sockaddr in addrinfo:
         if ip_address(sockaddr[0]).is_private:  # Prevent addressing internal services
             raise ValueError("Internal hostname")

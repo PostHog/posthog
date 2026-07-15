@@ -177,7 +177,7 @@ class ExperimentQueryRunner(QueryRunner):
         try:
             self.experiment = Experiment.objects.get(id=self.query.experiment_id, team=self.team)
         except Experiment.DoesNotExist:
-            raise ValidationError(f"Experiment with id {self.query.experiment_id} not found")
+            raise ValidationError(f"Experiment with id {self.query.experiment_id} not found")  # noqa: B904
 
         # Evaluation point for the analysis window; experiment_window_end caps it at end_date. An
         # explicit as_of is a recalc's frozen run snapshot or a timeseries backfill's per-day point.

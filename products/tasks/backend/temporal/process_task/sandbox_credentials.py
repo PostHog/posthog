@@ -296,13 +296,13 @@ class GitHubSandboxCredential:
                 repository=ctx.repository,
             )
         except (Integration.DoesNotExist, UserIntegration.DoesNotExist) as e:
-            raise CredentialUnavailableError(
+            raise CredentialUnavailableError(  # noqa: B904
                 "GitHub integration for this run no longer exists",
                 {"run_id": ctx.run_id, "task_id": ctx.task_id},
                 cause=e,
             )
         except ReauthorizationRequired as e:
-            raise CredentialUnavailableError(
+            raise CredentialUnavailableError(  # noqa: B904
                 "GitHub user integration for this run requires reauthorization",
                 {"run_id": ctx.run_id, "task_id": ctx.task_id},
                 cause=e,
@@ -348,7 +348,7 @@ class GitHubSandboxCredential:
         try:
             return get_github_token(task.github_integration_id)
         except Integration.DoesNotExist as e:
-            raise CredentialUnavailableError(
+            raise CredentialUnavailableError(  # noqa: B904
                 "GitHub integration for this run no longer exists",
                 {"run_id": ctx.run_id, "task_id": ctx.task_id},
                 cause=e,

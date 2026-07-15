@@ -471,7 +471,7 @@ class DevLoginSerializer(serializers.Serializer):
         try:
             user = User.objects.get(email__iexact=validated_data["email"], is_active=True)
         except User.DoesNotExist:
-            raise serializers.ValidationError("User not found", code="user_not_found")
+            raise serializers.ValidationError("User not found", code="user_not_found")  # noqa: B904
 
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         request.session["reauth"] = "false"
@@ -623,7 +623,7 @@ class TwoFactorViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
             raise
         except Exception as e:
             mfa_logger.exception("webauthn_2fa_error", user_id=user.pk, error=str(e))
-            raise serializers.ValidationError(
+            raise serializers.ValidationError(  # noqa: B904
                 detail="Passkey verification failed. Please try again.", code="2fa_passkey_failed"
             )
 
@@ -679,7 +679,7 @@ class TwoFactorViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
         try:
             user = User.objects.get(pk=user_id)
         except User.DoesNotExist:
-            raise serializers.ValidationError(
+            raise serializers.ValidationError(  # noqa: B904
                 detail="Invalid 2FA session. Please log in again.",
                 code="invalid_2fa_session",
             )
@@ -857,7 +857,7 @@ class CodeBasedVerificationViewSet(NonCreatingViewSetMixin, viewsets.GenericView
             user = User.objects.get(pk=user_id, is_active=True)
         except User.DoesNotExist:
             code_based_verifier.clear_pending(request)
-            raise invalid_error
+            raise invalid_error  # noqa: B904
 
         if not code or not code_based_verifier.check_code(request, user, code):
             mfa_logger.warning("Code-based verification attempt failed", user_id=user.pk, attempt=attempts)
@@ -908,7 +908,7 @@ class CodeBasedVerificationViewSet(NonCreatingViewSetMixin, viewsets.GenericView
         try:
             user = User.objects.get(pk=code_based_verifier.get_pending_code_based_verification_user_id(request))
         except User.DoesNotExist:
-            raise serializers.ValidationError({"detail": "User not found."}, code="user_not_found")
+            raise serializers.ValidationError({"detail": "User not found."}, code="user_not_found")  # noqa: B904
 
         if not code_based_verifier.create_and_send_code_based_verification(request, user, is_resend=True):
             raise serializers.ValidationError(
@@ -982,7 +982,7 @@ class PasswordResetCompleteSerializer(serializers.Serializer):
                 Exception("User not found in password reset serializer"),
                 {"user_uuid": self.context["view"].kwargs["user_uuid"]},
             )
-            raise serializers.ValidationError(
+            raise serializers.ValidationError(  # noqa: B904
                 {"token": ["This reset token is invalid or has expired."]},
                 code="invalid_token",
             )
@@ -1000,7 +1000,7 @@ class PasswordResetCompleteSerializer(serializers.Serializer):
         try:
             validate_password(password, user)
         except ValidationError as e:
-            raise serializers.ValidationError({"password": e.messages})
+            raise serializers.ValidationError({"password": e.messages})  # noqa: B904
 
         user.set_password(password)
         user.requested_password_reset_at = None
@@ -1050,7 +1050,7 @@ class PasswordResetCompleteViewSet(NonCreatingViewSetMixin, mixins.RetrieveModel
             capture_exception(
                 Exception("User not found in password reset viewset"), {"user_uuid": user_uuid, "token": token}
             )
-            raise serializers.ValidationError(
+            raise serializers.ValidationError(  # noqa: B904
                 {"token": ["This reset token is invalid or has expired."]},
                 code="invalid_token",
             )

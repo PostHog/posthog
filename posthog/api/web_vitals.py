@@ -89,7 +89,7 @@ class WebVitalsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 analytics_props=get_request_analytics_properties(request),
             )
         except UserAccessControlError as e:
-            raise ValidationError(str(e))
+            raise ValidationError(str(e))  # noqa: B904
 
         if result is None:
             return Response({"error": "Failed to calculate web vitals"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

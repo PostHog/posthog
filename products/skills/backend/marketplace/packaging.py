@@ -167,7 +167,7 @@ def parse_skill_md(content: str) -> dict:
     try:
         frontmatter = yaml.safe_load(match.group(1))
     except yaml.YAMLError as err:
-        raise SkillImportError(f"SKILL.md frontmatter is not valid YAML: {err}")
+        raise SkillImportError(f"SKILL.md frontmatter is not valid YAML: {err}")  # noqa: B904
     if not isinstance(frontmatter, dict):
         raise SkillImportError("SKILL.md frontmatter must be a key/value mapping.")
 
@@ -209,7 +209,7 @@ def parse_skill_zip(data: bytes) -> SkillExport:
     try:
         archive = zipfile.ZipFile(io.BytesIO(data))
     except zipfile.BadZipFile:
-        raise SkillImportError("The uploaded file is not a valid zip archive.")
+        raise SkillImportError("The uploaded file is not a valid zip archive.")  # noqa: B904
 
     with archive:
         infos = archive.infolist()
@@ -258,7 +258,7 @@ def _read_zip_text(archive: zipfile.ZipFile, member: str, label: str) -> str:
     try:
         return raw.decode("utf-8")
     except UnicodeDecodeError:
-        raise SkillImportError(f"'{label}' must be UTF-8 text; binary files are not supported.")
+        raise SkillImportError(f"'{label}' must be UTF-8 text; binary files are not supported.")  # noqa: B904
 
 
 def compute_plugin_version(latest_change_epoch_millis: int) -> str:

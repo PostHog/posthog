@@ -83,7 +83,7 @@ def create_observation_activity(inputs: CreateObservationInputs) -> CreateObserv
         existing = ReplayObservation.objects.filter(scanner_id=inputs.scanner_id, session_id=inputs.session_id).first()
         if existing is None:
             # Conflicting row was deleted between INSERT and SELECT; let Temporal retry the INSERT.
-            raise ApplicationError(
+            raise ApplicationError(  # noqa: B904
                 f"Observation for ({inputs.scanner_id}, {inputs.session_id}) was deleted mid-create",
                 non_retryable=False,
             )

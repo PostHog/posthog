@@ -169,7 +169,7 @@ def process_supporthog_event(event: dict[str, Any], slack_team_id: str, event_id
             event_type=event_type,
             error=str(e),
         )
-        raise cast(Any, process_supporthog_event).retry(exc=e)
+        raise cast(Any, process_supporthog_event).retry(exc=e)  # noqa: B904
 
 
 def _delete_supporthog_prompt(team: Team, channel: str, message_ts: str) -> None:
@@ -475,7 +475,7 @@ def post_reply_to_slack(
             ticket_id=ticket_id,
             error=str(e),
         )
-        raise cast(Any, post_reply_to_slack).retry(exc=e)
+        raise cast(Any, post_reply_to_slack).retry(exc=e)  # noqa: B904
 
 
 def _filename_for_slack_image(alt: str | None, image_url: str | None) -> str:
@@ -884,7 +884,7 @@ def send_teams_help(self, activity: dict[str, Any], reply: bool = False) -> None
         )
     except Exception as exc:
         logger.exception("supporthog_teams_help_failed", error=str(exc), reply=reply)
-        raise cast(Any, self).retry(exc=exc)
+        raise cast(Any, self).retry(exc=exc)  # noqa: B904
     if not ok:
         raise cast(Any, self).retry(exc=Exception("teams_help_card_post_failed"))
 
@@ -928,7 +928,7 @@ def process_teams_event(activity: dict[str, Any], tenant_id: str, activity_id: s
             handle_teams_message(activity, team, tenant_id)
     except Exception as e:
         logger.exception("supporthog_teams_event_handler_failed", error=str(e))
-        raise cast(Any, process_teams_event).retry(exc=e)
+        raise cast(Any, process_teams_event).retry(exc=e)  # noqa: B904
 
 
 @shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
@@ -1002,7 +1002,7 @@ def post_reply_to_teams(
         logger.info("teams_reply_posted", ticket_id=ticket_id, conversation_id=teams_conversation_id)
     except requests.RequestException as e:
         logger.exception("teams_reply_post_error", ticket_id=ticket_id, error=str(e))
-        raise cast(Any, post_reply_to_teams).retry(exc=e)
+        raise cast(Any, post_reply_to_teams).retry(exc=e)  # noqa: B904
 
 
 @shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
@@ -1771,7 +1771,7 @@ def process_github_event(
             _handle_github_comment_event(team, repo, action, payload)
     except Exception as e:
         logger.exception("github_event_handler_failed", event_type=event_type, action=action, error=str(e))
-        raise cast(Any, process_github_event).retry(exc=e)
+        raise cast(Any, process_github_event).retry(exc=e)  # noqa: B904
 
     if delivery_id:
         _mark_github_event_processed(delivery_id)
@@ -1940,7 +1940,7 @@ def post_reply_to_github(
     except GitHubRateLimitError as e:
         # The access probe hit GitHub's limit — retry the reply later rather than dropping it.
         logger.warning("github_reply_rate_limited", ticket_id=ticket_id)
-        raise cast(Any, post_reply_to_github).retry(exc=e, countdown=min(e.retry_after or 60, 600))
+        raise cast(Any, post_reply_to_github).retry(exc=e, countdown=min(e.retry_after or 60, 600))  # noqa: B904
     if not github:
         logger.warning("github_reply_no_integration", team_id=team_id, repo=ticket.github_repo)
         return
@@ -1984,10 +1984,10 @@ def post_reply_to_github(
         logger.info("github_reply_posted", ticket_id=ticket_id, repo=ticket.github_repo)
     except GitHubRateLimitError as e:
         logger.warning("github_reply_rate_limited", ticket_id=ticket_id)
-        raise cast(Any, post_reply_to_github).retry(exc=e, countdown=min(e.retry_after or 60, 600))
+        raise cast(Any, post_reply_to_github).retry(exc=e, countdown=min(e.retry_after or 60, 600))  # noqa: B904
     except (GitHubIntegrationError, requests.RequestException) as e:
         logger.exception("github_reply_post_error", ticket_id=ticket_id, error=str(e))
-        raise cast(Any, post_reply_to_github).retry(exc=e)
+        raise cast(Any, post_reply_to_github).retry(exc=e)  # noqa: B904
 
 
 @shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
@@ -2021,10 +2021,10 @@ def create_github_issue(
         issue_data = github.create_issue({"title": title, "body": body, "repository": repo, "labels": labels})
     except GitHubRateLimitError as e:
         logger.warning("github_create_issue_rate_limited", repo=repo)
-        raise cast(Any, create_github_issue).retry(exc=e, countdown=min(e.retry_after or 60, 600))
+        raise cast(Any, create_github_issue).retry(exc=e, countdown=min(e.retry_after or 60, 600))  # noqa: B904
     except GitHubIntegrationError as e:
         logger.exception("github_create_issue_failed", repo=repo, error=str(e))
-        raise cast(Any, create_github_issue).retry(exc=e)
+        raise cast(Any, create_github_issue).retry(exc=e)  # noqa: B904
 
     issue_number = issue_data.get("number")
 

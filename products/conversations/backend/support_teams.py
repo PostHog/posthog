@@ -283,7 +283,7 @@ def validate_teams_request(request: HttpRequest) -> dict:
             exp=unverified_claims.get("exp"),
             kid=unverified_header.get("kid"),
         )
-        raise ValueError("JWT token expired")
+        raise ValueError("JWT token expired")  # noqa: B904
     except jwt.InvalidTokenError as e:
         logger.warning(
             "teams_jwt_rejected",
@@ -295,7 +295,7 @@ def validate_teams_request(request: HttpRequest) -> dict:
             kid=unverified_header.get("kid"),
             alg=unverified_header.get("alg"),
         )
-        raise ValueError(f"JWT validation failed: {e}")
+        raise ValueError(f"JWT validation failed: {e}")  # noqa: B904
     except jwt.PyJWKClientError as e:
         logger.warning(
             "teams_jwt_rejected",
@@ -305,7 +305,7 @@ def validate_teams_request(request: HttpRequest) -> dict:
             aud=unverified_claims.get("aud"),
             kid=unverified_header.get("kid"),
         )
-        raise ValueError(f"JWKS lookup failed: {e}")
+        raise ValueError(f"JWKS lookup failed: {e}")  # noqa: B904
 
 
 def invalidate_bot_framework_token() -> None:

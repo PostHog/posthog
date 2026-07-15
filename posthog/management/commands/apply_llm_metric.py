@@ -38,7 +38,7 @@ class Command(BaseCommand):
         try:
             experiment = Experiment.objects.get(id=options["experiment_id"])
         except Experiment.DoesNotExist:
-            raise CommandError(f"Experiment id={options['experiment_id']} not found")
+            raise CommandError(f"Experiment id={options['experiment_id']} not found")  # noqa: B904
 
         user = User.objects.filter(last_login__isnull=False).order_by("-last_login").first()
         if user is None:

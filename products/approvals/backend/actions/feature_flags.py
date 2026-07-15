@@ -137,7 +137,7 @@ def _apply_create(validated_intent: dict[str, Any], context: Optional[dict[str, 
         with transaction.atomic():
             return serializer.save()
     except Exception as e:
-        raise ApplyFailed(f"Serializer save failed: {str(e)}")
+        raise ApplyFailed(f"Serializer save failed: {str(e)}")  # noqa: B904
 
 
 class FeatureFlagActionBase(BaseAction):
@@ -299,7 +299,7 @@ class FeatureFlagActionBase(BaseAction):
             try:
                 flag = serializer.save(last_modified_by=user)
             except Exception as e:
-                raise ApplyFailed(f"Serializer save failed: {str(e)}")
+                raise ApplyFailed(f"Serializer save failed: {str(e)}")  # noqa: B904
 
         return flag
 
@@ -591,7 +591,7 @@ class UpdateFeatureFlagAction(BaseAction):
             try:
                 flag = serializer.save(last_modified_by=user)
             except Exception as e:
-                raise ApplyFailed(f"Serializer save failed: {str(e)}")
+                raise ApplyFailed(f"Serializer save failed: {str(e)}")  # noqa: B904
 
         return flag
 

@@ -554,7 +554,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         try:
             validated = DetectorConfig.model_validate(value)
         except pydantic.ValidationError:
-            raise ValidationError("Invalid detector configuration.")
+            raise ValidationError("Invalid detector configuration.")  # noqa: B904
 
         # Ensemble requires at least 2 sub-detectors
         root = validated.root if hasattr(validated, "root") else validated
@@ -621,7 +621,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         try:
             return validate_and_normalize_schedule_restriction(value)
         except ValueError:
-            raise serializers.ValidationError("Invalid schedule restriction.")
+            raise serializers.ValidationError("Invalid schedule restriction.")  # noqa: B904
 
     def validate(self, attrs):
         if attrs.get("insight") and attrs["insight"].team.id != self.context["team_id"]:
@@ -691,8 +691,8 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             )
         except ValueError as e:
             if str(e) == THRESHOLD_BOUNDS_REQUIRED_MESSAGE:
-                raise ValidationError({"threshold": {"configuration": [THRESHOLD_BOUNDS_REQUIRED_MESSAGE]}})
-            raise ValidationError(str(e))
+                raise ValidationError({"threshold": {"configuration": [THRESHOLD_BOUNDS_REQUIRED_MESSAGE]}})  # noqa: B904
+            raise ValidationError(str(e))  # noqa: B904
 
         organization = self.context["get_organization"]()
         _validate_interval_entitlement(
@@ -809,7 +809,7 @@ class AlertSimulateSerializer(serializers.Serializer):
         try:
             validated = DetectorConfig.model_validate(value)
         except pydantic.ValidationError:
-            raise ValidationError("Invalid detector configuration.")
+            raise ValidationError("Invalid detector configuration.")  # noqa: B904
 
         root = validated.root if hasattr(validated, "root") else validated
         if getattr(root, "type", None) == "ensemble" and hasattr(root, "detectors"):
@@ -1111,9 +1111,9 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 config=config,
             )
         except (ValueError, IndexError, AlertExtractionError) as e:
-            raise ValidationError(str(e))
+            raise ValidationError(str(e))  # noqa: B904
         except RuntimeError:
-            raise ValidationError("Simulation failed: unable to compute results for this insight.")
+            raise ValidationError("Simulation failed: unable to compute results for this insight.")  # noqa: B904
 
         response_serializer = AlertSimulateResponseSerializer(result)
         return Response(response_serializer.data)

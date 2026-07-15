@@ -31,7 +31,7 @@ def clone_repository(input: CloneRepositoryInput) -> str:
         try:
             github_token = get_github_token(ctx.github_integration_id)
         except Exception as e:
-            raise GitHubAuthenticationError(
+            raise GitHubAuthenticationError(  # noqa: B904
                 f"Failed to get GitHub token for integration {ctx.github_integration_id}",
                 {"github_integration_id": ctx.github_integration_id, "error": str(e)},
                 cause=e,
@@ -42,7 +42,7 @@ def clone_repository(input: CloneRepositoryInput) -> str:
         try:
             result = sandbox.clone_repository(ctx.repository, github_token)
         except Exception as e:
-            raise RepositoryCloneError(
+            raise RepositoryCloneError(  # noqa: B904
                 f"Failed to clone repository {ctx.repository}",
                 {
                     "repository": ctx.repository,

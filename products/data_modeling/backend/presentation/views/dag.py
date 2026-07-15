@@ -54,7 +54,7 @@ class DAGSerializer(serializers.ModelSerializer):
             try:
                 sync_frequency_to_sync_frequency_interval(value)
             except ValueError:
-                raise serializers.ValidationError(f"Invalid sync frequency: {value}")
+                raise serializers.ValidationError(f"Invalid sync frequency: {value}")  # noqa: B904
         return value
 
     def validate_name(self, value: str) -> str:

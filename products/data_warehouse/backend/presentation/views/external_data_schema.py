@@ -699,7 +699,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             try:
                 validate_and_coerce_row_filters(validated_data["row_filters"], instance.schema_metadata)
             except RowFilterValidationError as e:
-                raise ValidationError(f"Invalid row filter: {e}")
+                raise ValidationError(f"Invalid row filter: {e}")  # noqa: B904
 
         sync_type = data.get("sync_type")
 
@@ -910,7 +910,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             try:
                 new_time = dt.datetime.strptime(str(sync_time_of_day), "%H:%M:%S").time()
             except ValueError:
-                raise ValidationError("Invalid sync time of day")
+                raise ValidationError("Invalid sync time of day")  # noqa: B904
 
             if new_time != instance.sync_time_of_day:
                 was_sync_time_of_day_updated = True

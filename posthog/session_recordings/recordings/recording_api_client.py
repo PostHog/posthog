@@ -62,7 +62,7 @@ class RecordingApiClient:
                 error=str(e),
                 exc_info=False,
             )
-            raise BlockFetchError(f"Failed to fetch block from Recording API: {str(e)}")
+            raise BlockFetchError(f"Failed to fetch block from Recording API: {str(e)}")  # noqa: B904
 
     async def list_blocks(self, session_id: str, team_id: int) -> list[dict]:
         url = f"{self.base_url}/api/projects/{team_id}/recordings/{session_id}/blocks"

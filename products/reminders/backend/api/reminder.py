@@ -106,7 +106,7 @@ class ReminderSerializer(serializers.ModelSerializer):
         try:
             ZoneInfo(value)
         except (ZoneInfoNotFoundError, ValueError):
-            raise ValidationError(f"Unknown timezone: {value}")
+            raise ValidationError(f"Unknown timezone: {value}")  # noqa: B904
         return value
 
     def _validate_membership(self, organization: Organization | None, team: Team | None) -> None:

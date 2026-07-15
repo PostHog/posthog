@@ -21,7 +21,7 @@ class PropertyMixin(BaseParamMixin):
             try:
                 loaded_props = json.loads(_props)
             except json.decoder.JSONDecodeError:
-                raise ValidationError("Data is unparsable!")
+                raise ValidationError("Data is unparsable!")  # noqa: B904
         else:
             loaded_props = _props
 
@@ -32,7 +32,7 @@ class PropertyMixin(BaseParamMixin):
             except ValidationError:
                 raise
             except ValueError as e:
-                raise ValidationError(f"PropertyGroup is unparsable: {e}")
+                raise ValidationError(f"PropertyGroup is unparsable: {e}")  # noqa: B904
         # already a PropertyGroup just return
         elif isinstance(loaded_props, PropertyGroup):
             return loaded_props
@@ -47,7 +47,7 @@ class PropertyMixin(BaseParamMixin):
             try:
                 loaded_props = json.loads(_props)
             except json.decoder.JSONDecodeError:
-                raise ValidationError("Properties are unparsable!")
+                raise ValidationError("Properties are unparsable!")  # noqa: B904
         else:
             loaded_props = _props
 

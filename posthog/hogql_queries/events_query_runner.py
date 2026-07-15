@@ -251,7 +251,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                         try:
                             action = Action.objects.get(pk=self.query.actionId, team__project_id=self.team.project_id)
                         except Action.DoesNotExist:
-                            raise Exception("Action does not exist")
+                            raise Exception("Action does not exist")  # noqa: B904
                         if not action.steps:
                             raise Exception("Action does not have any match groups")
                         where_exprs.append(action_to_expr(action))

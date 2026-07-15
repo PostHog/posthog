@@ -542,7 +542,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     except ObjectDoesNotExist:
         # The row may simply not be visible yet (creating transaction not committed) or
         # be mid-cancel/delete. Retry rather than fail fatally so the transient window recovers.
-        raise TaskRunNotReadyError(f"TaskRun {run_id} not found", {"run_id": run_id})
+        raise TaskRunNotReadyError(f"TaskRun {run_id} not found", {"run_id": run_id})  # noqa: B904
 
     emit_agent_log(run_id, "debug", "Fetching task details")
 

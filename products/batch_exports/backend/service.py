@@ -628,7 +628,7 @@ def pause_batch_export(temporal: Client, batch_export_id: str, note: str | None 
         # nosemgrep: idor-lookup-without-team (internal service, team_id passed as parameter)
         batch_export = BatchExport.objects.get(id=batch_export_id)
     except BatchExport.DoesNotExist:
-        raise BatchExportIdError(batch_export_id)
+        raise BatchExportIdError(batch_export_id)  # noqa: B904
 
     if batch_export.paused is True:
         return False
@@ -657,7 +657,7 @@ async def apause_batch_export(temporal: Client, batch_export_id: str, note: str 
         # nosemgrep: idor-lookup-without-team (internal service called from Temporal, not user-facing)
         batch_export = await BatchExport.objects.aget(id=batch_export_id)
     except BatchExport.DoesNotExist:
-        raise BatchExportIdError(batch_export_id)
+        raise BatchExportIdError(batch_export_id)  # noqa: B904
 
     if batch_export.paused is True:
         return False
@@ -698,7 +698,7 @@ def unpause_batch_export(
         # nosemgrep: idor-lookup-without-team (internal service, team_id passed as parameter)
         batch_export = BatchExport.objects.get(id=batch_export_id)
     except BatchExport.DoesNotExist:
-        raise BatchExportIdError(batch_export_id)
+        raise BatchExportIdError(batch_export_id)  # noqa: B904
 
     if batch_export.paused is False:
         return
@@ -782,7 +782,7 @@ def batch_export_delete_schedule(temporal: Client, schedule_id: str) -> None:
         delete_schedule(temporal, schedule_id)
     except temporalio.service.RPCError as e:
         if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
-            raise BatchExportServiceScheduleNotFound(schedule_id)
+            raise BatchExportServiceScheduleNotFound(schedule_id)  # noqa: B904
         else:
             raise BatchExportServiceRPCError() from e
 
@@ -888,7 +888,7 @@ def backfill_export(
     try:
         batch_export = BatchExport.objects.select_related("destination").get(id=batch_export_id, team_id=team_id)
     except BatchExport.DoesNotExist:
-        raise BatchExportIdError(batch_export_id)
+        raise BatchExportIdError(batch_export_id)  # noqa: B904
 
     # Ensure we don't allow users access to this feature until we are ready.
     if not end_at and batch_export.destination.type not in (

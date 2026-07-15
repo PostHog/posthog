@@ -136,7 +136,7 @@ def delete_document(document_id: UUID, organization_id: UUID) -> None:
                     id=document_id, organization_id=organization_id
                 )
             except LegalDocument.DoesNotExist:
-                raise LegalDocumentNotFound(
+                raise LegalDocumentNotFound(  # noqa: B904
                     f"Legal document {document_id} not found for organization {organization_id}"
                 )
             if document.status == LegalDocumentStatus.SIGNED:

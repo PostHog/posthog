@@ -79,7 +79,7 @@ def parse_locations(raw: str | None) -> list[Location]:
             lat = float(parts[0].strip())
             lon = float(parts[1].strip())
         except ValueError:
-            raise ValueError(f"Line {line_number} ({stripped!r}) has a non-numeric latitude or longitude.")
+            raise ValueError(f"Line {line_number} ({stripped!r}) has a non-numeric latitude or longitude.")  # noqa: B904
 
         if not (-90.0 <= lat <= 90.0) or not (-180.0 <= lon <= 180.0):
             raise ValueError(

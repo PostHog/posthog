@@ -671,7 +671,7 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
             description = await schedule_handle.describe()
         except temporalio.service.RPCError as e:
             if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
-                raise TemporalScheduleNotFoundError(inputs.schedule_id)
+                raise TemporalScheduleNotFoundError(inputs.schedule_id)  # noqa: B904
             else:
                 raise
 

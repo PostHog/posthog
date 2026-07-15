@@ -547,10 +547,10 @@ def _get_file_download_for_run(
         try:
             index = int(file_id_or_index) if file_id_or_index is not None else 0
         except (ValueError, TypeError):
-            raise ValidationError(f"Invalid file id or index: '{file_id_or_index}'")
+            raise ValidationError(f"Invalid file id or index: '{file_id_or_index}'")  # noqa: B904
 
         if index < 0 or index >= len(file_downloads):
-            raise NotFound(f"No files with index {index}")
+            raise NotFound(f"No files with index {index}")  # noqa: B904
 
         file_download = file_downloads[index]
 

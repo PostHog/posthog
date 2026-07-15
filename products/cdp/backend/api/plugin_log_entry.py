@@ -28,7 +28,7 @@ class PluginLogEntryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             try:
                 limit = int(limit_raw)
             except ValueError:
-                raise exceptions.ValidationError("Query param limit must be omitted or an integer!")
+                raise exceptions.ValidationError("Query param limit must be omitted or an integer!")  # noqa: B904
         else:
             limit = None
 

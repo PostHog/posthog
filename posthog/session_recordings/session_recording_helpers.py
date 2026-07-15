@@ -282,14 +282,14 @@ def is_unprocessed_snapshot_event(event: dict) -> bool:
     try:
         is_snapshot = event["event"] == "$snapshot"
     except KeyError:
-        raise ValueError('All events must have the event name field "event"!')
+        raise ValueError('All events must have the event name field "event"!')  # noqa: B904
     except TypeError:
-        raise ValueError(f"All events must be dictionaries not '{type(event).__name__}'!")
+        raise ValueError(f"All events must be dictionaries not '{type(event).__name__}'!")  # noqa: B904
     try:
         return is_snapshot and "compression" not in event["properties"]["$snapshot_data"]
     except KeyError:
         capture_exception()
-        raise ValueError('$snapshot events must contain property "$snapshot_data"!')
+        raise ValueError('$snapshot events must contain property "$snapshot_data"!')  # noqa: B904
 
 
 # this is kept around as we upgrade older recordings in long term storage on demand.

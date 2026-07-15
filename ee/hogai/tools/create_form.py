@@ -247,7 +247,7 @@ class CreateFormTool(MaxTool):
             try:
                 FormDismissPayload.model_validate(response)
             except ValidationError as e:
-                raise MaxToolRetryableError(f"Invalid response from the user: {e}")
+                raise MaxToolRetryableError(f"Invalid response from the user: {e}")  # noqa: B904
 
             return (
                 "The user dismissed the form and chose not to answer these questions. "

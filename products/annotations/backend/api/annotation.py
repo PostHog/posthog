@@ -182,14 +182,14 @@ class AnnotationsViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mo
                 date_from_parsed = datetime.fromisoformat(date_from.replace("Z", "+00:00"))
                 queryset = queryset.filter(date_marker__gte=date_from_parsed)
             except ValueError:
-                raise serializers.ValidationError("Invalid date range: date_from must be a valid ISO 8601 date")
+                raise serializers.ValidationError("Invalid date range: date_from must be a valid ISO 8601 date")  # noqa: B904
 
         if date_to:
             try:
                 date_to_parsed = datetime.fromisoformat(date_to.replace("Z", "+00:00"))
                 queryset = queryset.filter(date_marker__lte=date_to_parsed)
             except ValueError:
-                raise serializers.ValidationError("Invalid date range: date_to must be a valid ISO 8601 date")
+                raise serializers.ValidationError("Invalid date range: date_to must be a valid ISO 8601 date")  # noqa: B904
 
         if date_from_parsed and date_to_parsed and date_from_parsed > date_to_parsed:
             raise serializers.ValidationError("Invalid date range: date_from must be before date_to")

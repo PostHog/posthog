@@ -207,4 +207,4 @@ def web_pre_aggregated_accuracy(context: AssetExecutionContext, config: Accuracy
 
     except Exception as e:
         context.log.exception(f"Error executing accuracy comparison: {str(e)}")
-        raise dagster.Failure(f"Accuracy comparison failed: {str(e)}")
+        raise dagster.Failure(f"Accuracy comparison failed: {str(e)}")  # noqa: B904

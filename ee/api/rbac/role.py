@@ -112,7 +112,7 @@ class RoleMembershipSerializer(serializers.ModelSerializer):
             # nosemgrep: idor-lookup-without-org (organization filter on next line)
             role = Role.objects.get(id=self.context["role_id"])
         except Role.DoesNotExist:
-            raise serializers.ValidationError("Role does not exist.")
+            raise serializers.ValidationError("Role does not exist.")  # noqa: B904
 
         if role.organization_id != self.context["organization_id"]:
             raise serializers.ValidationError("Role does not exist.")
@@ -124,12 +124,12 @@ class RoleMembershipSerializer(serializers.ModelSerializer):
 
             validated_data["user"] = validated_data["organization_member"].user
         except OrganizationMembership.DoesNotExist:
-            raise serializers.ValidationError("User does not exist.")
+            raise serializers.ValidationError("User does not exist.")  # noqa: B904
         validated_data["role_id"] = self.context["role_id"]
         try:
             return super().create(validated_data)
         except IntegrityError:
-            raise serializers.ValidationError("User is already part of the role.")
+            raise serializers.ValidationError("User is already part of the role.")  # noqa: B904
 
 
 @extend_schema(extensions={"x-product": "platform_features"})

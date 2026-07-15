@@ -92,7 +92,7 @@ class ArtifactManager(
         try:
             artifact = await AgentArtifact.objects.aget(short_id=artifact_id, team=self._team)
         except AgentArtifact.DoesNotExist:
-            raise ValueError(f"Artifact with short_id={artifact_id} not found")
+            raise ValueError(f"Artifact with short_id={artifact_id} not found")  # noqa: B904
         artifact.data = content.model_dump(mode="json", exclude_none=True)
         await artifact.asave()
         return artifact

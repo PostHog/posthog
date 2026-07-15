@@ -97,7 +97,7 @@ class MockAsyncQuerySet:
             return next(self._iter)
         except StopIteration:
             delattr(self, "_iter")
-            raise StopAsyncIteration
+            raise StopAsyncIteration  # noqa: B904
 
 
 @pytest.fixture

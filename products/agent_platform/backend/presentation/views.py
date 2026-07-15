@@ -1148,7 +1148,7 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             limit = int(limit_param) if limit_param is not None else None
             offset = int(offset_param) if offset_param is not None else None
         except ValueError:
-            raise ValidationError("limit and offset must be integers")
+            raise ValidationError("limit and offset must be integers")  # noqa: B904
         try:
             payload = _janitor().list_sessions(
                 str(application.id),
@@ -1359,7 +1359,7 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         try:
             last_n = int(last_n_param) if last_n_param is not None else None
         except ValueError:
-            raise ValidationError("last_n must be a non-negative integer")
+            raise ValidationError("last_n must be a non-negative integer")  # noqa: B904
         if last_n is not None and last_n < 0:
             raise ValidationError("last_n must be a non-negative integer")
         try:
@@ -1554,7 +1554,7 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             limit = int(limit_param) if limit_param is not None else None
             offset = int(offset_param) if offset_param is not None else None
         except ValueError:
-            raise ValidationError("limit and offset must be integers")
+            raise ValidationError("limit and offset must be integers")  # noqa: B904
         try:
             payload = _janitor().list_approvals(
                 str(application.id),
@@ -3230,7 +3230,7 @@ class AgentMemoryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             try:
                 limit = int(limit_raw)
             except ValueError:
-                raise ValidationError("limit must be an integer")
+                raise ValidationError("limit must be an integer")  # noqa: B904
         try:
             payload = _janitor().read_table(int(self.team_id), str(application.id), str(name), limit=limit)
         except JanitorClientError as e:
@@ -3425,7 +3425,7 @@ class AgentMemoryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         try:
             limit = int(limit_param) if limit_param is not None else None
         except ValueError:
-            raise ValidationError("limit must be an integer")
+            raise ValidationError("limit must be an integer")  # noqa: B904
         application = self._get_application()
         try:
             payload = _janitor().search_memory(
@@ -3596,7 +3596,7 @@ class AgentFleetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         try:
             limit = int(limit_param) if limit_param is not None else None
         except ValueError:
-            raise ValidationError("limit must be an integer")
+            raise ValidationError("limit must be an integer")  # noqa: B904
         try:
             payload = _janitor().list_live_for_team(int(self.team_id), limit=limit)
         except JanitorClientError as e:
@@ -3653,7 +3653,7 @@ class AgentFleetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             limit = int(limit_param) if limit_param is not None else None
             offset = int(offset_param) if offset_param is not None else None
         except ValueError:
-            raise ValidationError("limit and offset must be integers")
+            raise ValidationError("limit and offset must be integers")  # noqa: B904
         try:
             payload = _janitor().list_approvals_for_team(
                 int(self.team_id),

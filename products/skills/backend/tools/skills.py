@@ -397,11 +397,11 @@ class CreateLLMSkillTool(MaxTool):
                 files=files,
             )
         except LLMSkillDuplicateNameConflictError:
-            raise MaxToolFatalError(f"A skill named '{name}' already exists.")
+            raise MaxToolFatalError(f"A skill named '{name}' already exists.")  # noqa: B904
         except LLMSkillFilePathConflictError:
-            raise MaxToolFatalError("Duplicate file paths are not allowed in `files`.")
+            raise MaxToolFatalError("Duplicate file paths are not allowed in `files`.")  # noqa: B904
         except LLMSkillFileLimitError as err:
-            raise MaxToolFatalError(f"Cannot attach more than {err.max_count} bundled files to a skill.")
+            raise MaxToolFatalError(f"Cannot attach more than {err.max_count} bundled files to a skill.")  # noqa: B904
 
         return (
             f"Created skill '{skill.name}' at v{skill.version}. It is now discoverable via `list_llm_skills`.",
@@ -456,7 +456,7 @@ class UpdateLLMSkillTool(MaxTool):
             LLMSkillFileLimitError,
             LLMSkillEditError,
         ) as err:
-            raise MaxToolFatalError(_publish_error_message(err, skill_name))
+            raise MaxToolFatalError(_publish_error_message(err, skill_name))  # noqa: B904
 
         return f"Updated skill '{skill.name}' — new version v{skill.version}.", None
 
@@ -473,7 +473,7 @@ class ArchiveLLMSkillTool(MaxTool):
         try:
             versions = await database_sync_to_async(archive_skill)(self._team, skill_name)
         except LLMSkillNotFoundError:
-            raise MaxToolFatalError(
+            raise MaxToolFatalError(  # noqa: B904
                 f"Skill '{skill_name}' was not found. Use `list_llm_skills` to discover available skills."
             )
 

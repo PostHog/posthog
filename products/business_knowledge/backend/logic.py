@@ -722,7 +722,7 @@ def _validate_url(url: str) -> str:
     try:
         normalized = url_fetch.normalize_url(url)
     except url_fetch.UrlFetchError:
-        raise InvalidUrlError("Invalid URL.")
+        raise InvalidUrlError("Invalid URL.")  # noqa: B904
     allowed, _reason = is_url_allowed(normalized)
     if not allowed:
         raise InvalidUrlError("URL is not reachable from this environment.")
@@ -782,7 +782,7 @@ def _fetch_and_parse(url: str, *, etag: str | None) -> tuple[url_fetch.FetchResu
     try:
         result = url_fetch.fetch_url(url, etag=etag)
     except url_fetch.UrlFetchError as exc:
-        raise UrlFetchFailedError(str(exc))
+        raise UrlFetchFailedError(str(exc))  # noqa: B904
 
     if result.status == 304:
         return result, "", ""

@@ -82,7 +82,7 @@ class Command(BaseCommand):
             try:
                 return Organization.objects.get(id=org_id)
             except Organization.DoesNotExist:
-                raise CommandError(f"Organization {org_id} not found")
+                raise CommandError(f"Organization {org_id} not found")  # noqa: B904
 
         if not user:
             raise CommandError(f"No user with email {email} - pass --org-id to pick the digest organization")

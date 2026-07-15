@@ -160,7 +160,7 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
             try:
                 OrganizationInvite.objects.select_for_update().get(pk=self.pk)
             except OrganizationInvite.DoesNotExist:
-                raise InviteExpiredException("This invite has already been used.")
+                raise InviteExpiredException("This invite has already been used.")  # noqa: B904
 
             membership = user.join(organization=self.organization, level=cast(OrganizationMembership.Level, self.level))
             if self.created_by_id is not None:

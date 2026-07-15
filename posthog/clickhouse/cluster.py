@@ -371,7 +371,7 @@ class ClickhouseCluster:
             try:
                 host = next(iter(self.__hosts_by_roles(self.__hosts, node_roles, workload)))
             except StopIteration:
-                raise ValueError(f"No hosts found with roles {node_roles}")
+                raise ValueError(f"No hosts found with roles {node_roles}")  # noqa: B904
             return executor.submit(self.__get_task_function(host, fn))
 
     def map_all_hosts(self, fn: Callable[[Client], T], concurrency: int | None = None) -> FuturesMap[HostInfo, T]:
@@ -525,7 +525,7 @@ class ClickhouseCluster:
                 host = next(iter(self.__hosts_by_roles(self.__shards[shard], node_roles, workload)))
                 shard_host_fns[host] = fn
             except StopIteration:
-                raise ValueError(
+                raise ValueError(  # noqa: B904
                     f"No hosts found with role {node_roles} and workload {workload.value} in shard {shard}"
                 )
 

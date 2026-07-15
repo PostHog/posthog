@@ -66,7 +66,7 @@ class Command(BaseCommand):
             try:
                 team_ids = [int(tid) for tid in options["team_ids"].split(",")]
             except ValueError:
-                raise CommandError("team_ids must be a comma separated list of team IDs")
+                raise CommandError("team_ids must be a comma separated list of team IDs")  # noqa: B904
             queryset = queryset.filter(team_id__in=team_ids)
 
         if options.get("start_after_saved_query_id") is not None:

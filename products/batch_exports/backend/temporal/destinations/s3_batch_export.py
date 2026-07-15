@@ -147,7 +147,7 @@ async def _get_s3_integration(
     try:
         integration = await Integration.objects.aget(id=integration_id, team_id=team_id)
     except Integration.DoesNotExist:
-        raise S3IntegrationNotFoundError(integration_id, team_id)
+        raise S3IntegrationNotFoundError(integration_id, team_id)  # noqa: B904
 
     if integration.kind == Integration.IntegrationKind.AWS_S3:
         if "aws_role_arn" in integration.config:

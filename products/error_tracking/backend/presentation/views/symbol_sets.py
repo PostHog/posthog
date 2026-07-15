@@ -207,7 +207,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
         try:
             result = symbol_sets_facade.get_download(self.team.id, pk)
         except symbol_sets_facade.SymbolSetNotFoundError:
-            raise NotFound()
+            raise NotFound()  # noqa: B904
 
         if not result.has_file:
             return Response({"detail": "Symbol set has no uploaded file."}, status=status.HTTP_404_NOT_FOUND)
@@ -281,7 +281,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
         try:
             symbol_sets_facade.finish_upload(self.team.id, pk, content_hash)
         except symbol_sets_facade.SymbolSetNotFoundError:
-            raise NotFound()
+            raise NotFound()  # noqa: B904
 
         return Response({"success": True}, status=status.HTTP_200_OK)
 

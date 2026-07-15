@@ -58,9 +58,9 @@ class CustomerIOClient:
                 logger.exception(f"API request failed. {error_msg}. {status_info}")
             else:
                 logger.exception(f"API request failed. {error_msg}")
-            raise CustomerIOAPIError(error_msg)
+            raise CustomerIOAPIError(error_msg)  # noqa: B904
         except requests.exceptions.RequestException as e:
-            raise CustomerIOAPIError(f"Request failed: {e}")
+            raise CustomerIOAPIError(f"Request failed: {e}")  # noqa: B904
 
     def get_subscription_topics(self) -> list[dict[str, Any]]:
         # Note: Customer.io uses 'subscription_topics' endpoint
@@ -139,9 +139,9 @@ class CustomerIOTrackClient:
         except requests.exceptions.HTTPError as e:
             status_info = f"Status: {e.response.status_code}" if e.response is not None else ""
             logger.exception(f"Customer.io Track API error: {e}. {status_info}")
-            raise CustomerIOAPIError(f"Track API error: {e}")
+            raise CustomerIOAPIError(f"Track API error: {e}")  # noqa: B904
         except requests.exceptions.RequestException as e:
-            raise CustomerIOAPIError(f"Track API request failed: {e}")
+            raise CustomerIOAPIError(f"Track API request failed: {e}")  # noqa: B904
 
     def update_subscription_preferences(self, email: str, topic_prefs: dict[str, bool]) -> None:
         """Update per-topic subscription preferences using dot-notation (preserves other topics)."""
