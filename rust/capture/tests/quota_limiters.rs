@@ -195,7 +195,7 @@ fn create_recording_payload(token: &str) -> String {
         "event": "$snapshot",
         "distinct_id": "test_user_id",
         "properties": {
-            "$session_id": "test_session_id",
+            "$session_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
             "$window_id": "test_window_id",
             "$snapshot_data": [{"type": 2, "data": {"source": 0}, "timestamp": 1753963200000_i64}]
         }
