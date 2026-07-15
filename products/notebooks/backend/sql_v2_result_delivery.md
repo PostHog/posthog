@@ -12,9 +12,16 @@ terminal state.
   by reading the `NotebookNodeRun` row (one indexed query). No held connection,
   no busy-loop.
 - **Frontend:** the node polls that endpoint (~1s) while it has a `runId` and the
-  run is `running`; stops on `done`/`failed`. In-progress state is derived from
-  the run status, so it survives remounts and reloads. The poll timer lives in
-  `cache.disposables` (auto-cleanup + pause on hidden tab).
+  run is `running`; stops on `done`/`failed`/`interrupted`. In-progress state is
+  derived from the run status, so it survives remounts and reloads. The poll timer
+  lives in `cache.disposables` (auto-cleanup + pause on hidden tab).
+- **Interrupt (Journey 9):** `POST .../sql_v2/runs/<run_id>/interrupt` proxies a
+  run-scoped stop to the kernel-server; the terminal state (`interrupted`) still
+  arrives via the callback → run row → poll, keeping one source of truth. The
+  interrupted envelope carries the stdout/stderr captured before the stop, and the
+  result endpoint surfaces it like a `done` envelope. When no kernel is reachable
+  the endpoint marks the run `interrupted` itself, so a user can always break out
+  of a RUNNING-forever row (there is no backend watchdog yet).
 
 Chosen because the result is a **single terminal value**, not a live event stream.
 Polling a durable row is simpler than SSE and inherently resilient to connection

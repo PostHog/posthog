@@ -1,12 +1,29 @@
 use std::{
     fmt::Display,
     io::{self, BufRead},
+    num::NonZeroUsize,
     path::PathBuf,
 };
 
 use anyhow::{bail, Result};
 
-use crate::{api::releases::ReleaseBuilder, utils::files::FileSelection};
+use crate::{
+    api::{releases::ReleaseBuilder, symbol_sets::DEFAULT_UPLOAD_CONCURRENCY},
+    utils::files::FileSelection,
+};
+
+pub const SOURCEMAP_UPLOAD_CONCURRENCY_ENV: &str = "POSTHOG_CLI_SOURCEMAP_UPLOAD_CONCURRENCY";
+
+#[derive(clap::Args, Clone, Debug)]
+pub struct UploadConcurrencyArgs {
+    /// The number of sourcemap files to upload concurrently
+    #[arg(
+        long,
+        env = SOURCEMAP_UPLOAD_CONCURRENCY_ENV,
+        default_value_t = DEFAULT_UPLOAD_CONCURRENCY
+    )]
+    pub concurrency: NonZeroUsize,
+}
 
 #[derive(clap::Args, Clone)]
 pub struct FileSelectionArgs {
@@ -141,6 +158,35 @@ impl From<ReleaseArgs> for ReleaseBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use clap::Parser;
+    use std::sync::Mutex;
+
+    static CONCURRENCY_ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    #[derive(Debug, Parser)]
+    struct ConcurrencyCli {
+        #[command(flatten)]
+        upload: UploadConcurrencyArgs,
+    }
+
+    fn parse_concurrency(args: &[&str], env: Option<&str>) -> clap::error::Result<ConcurrencyCli> {
+        let _guard = CONCURRENCY_ENV_LOCK.lock().unwrap();
+        let original = std::env::var_os(SOURCEMAP_UPLOAD_CONCURRENCY_ENV);
+
+        match env {
+            Some(value) => std::env::set_var(SOURCEMAP_UPLOAD_CONCURRENCY_ENV, value),
+            None => std::env::remove_var(SOURCEMAP_UPLOAD_CONCURRENCY_ENV),
+        }
+
+        let parsed = ConcurrencyCli::try_parse_from(args);
+
+        match original {
+            Some(value) => std::env::set_var(SOURCEMAP_UPLOAD_CONCURRENCY_ENV, value),
+            None => std::env::remove_var(SOURCEMAP_UPLOAD_CONCURRENCY_ENV),
+        }
+
+        parsed
+    }
 
     fn make_args(name: Option<&str>, version: Option<&str>, build: Option<&str>) -> ReleaseArgs {
         ReleaseArgs {
@@ -168,6 +214,54 @@ mod tests {
                 builder.has_version(),
                 expect_version,
                 "version={version:?} build={build:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn upload_concurrency_defaults_to_ten() {
+        let parsed = parse_concurrency(&["test"], None).unwrap();
+
+        assert_eq!(parsed.upload.concurrency.get(), 10);
+    }
+
+    #[test]
+    fn upload_concurrency_accepts_cli_override() {
+        let parsed = parse_concurrency(&["test", "--concurrency", "32"], None).unwrap();
+
+        assert_eq!(parsed.upload.concurrency.get(), 32);
+    }
+
+    #[test]
+    fn upload_concurrency_accepts_environment_override() {
+        let parsed = parse_concurrency(&["test"], Some("48")).unwrap();
+
+        assert_eq!(parsed.upload.concurrency.get(), 48);
+    }
+
+    #[test]
+    fn upload_concurrency_prefers_cli_override() {
+        let parsed = parse_concurrency(&["test", "--concurrency", "32"], Some("48")).unwrap();
+
+        assert_eq!(parsed.upload.concurrency.get(), 32);
+    }
+
+    #[test]
+    fn upload_concurrency_rejects_zero_cli_value() {
+        let error = parse_concurrency(&["test", "--concurrency", "0"], None).unwrap_err();
+
+        assert!(error.to_string().contains("invalid value '0'"));
+    }
+
+    #[test]
+    fn upload_concurrency_rejects_invalid_environment_values() {
+        for value in ["0", "many"] {
+            let error = parse_concurrency(&["test"], Some(value)).unwrap_err();
+            let message = error.to_string();
+            assert!(
+                message.contains(&format!("invalid value '{value}'"))
+                    && message.contains("--concurrency"),
+                "unexpected error for {value:?}: {message}"
             );
         }
     }
