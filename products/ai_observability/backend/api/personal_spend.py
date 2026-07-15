@@ -266,9 +266,10 @@ class _BucketBreakdownRowSerializer(serializers.Serializer):
     )
     input_cost_usd = serializers.FloatField(
         help_text=(
-            "Cost of uncached (full-price) input tokens in USD (sum of `$ai_input_cost_usd`). Only a true "
-            "uncached split when the event carried a gateway-provided cost breakdown; events priced by "
-            "PostHog's ingestion pipeline fold cache costs into this figure and leave the cache columns at 0."
+            "Cost of uncached (full-price) input tokens in USD, derived per event as `$ai_input_cost_usd` "
+            "minus the cache read/write costs (the stored input cost includes them), clamped at zero. "
+            "The four component columns are disjoint: they sum to `cost_usd` when the full breakdown is "
+            "present, so they can be stacked without double counting cache costs."
         )
     )
     output_cost_usd = serializers.FloatField(help_text="Cost of output tokens in USD (sum of `$ai_output_cost_usd`).")
@@ -724,9 +725,14 @@ def _fetch_by_bucket(
     product: str,
     bucket_minutes: int,
 ) -> dict[str, Any]:
-    # Cost components come from LiteLLM's cost_breakdown forwarded by the LLM gateway
-    # ($ai_input_cost_usd is uncached input only; cache read/creation are priced
-    # separately). Events that went through the token-estimation fallback carry only
+    # The stored $ai_input_cost_usd INCLUDES prompt-cache read/write costs: on events
+    # carrying the cache cost columns, input + output reconciles to total and the cache
+    # costs sit inside input (verified against production events; the ingestion cost
+    # pipeline prices cache tokens inside input cost the same way). Uncached input is
+    # therefore derived per event as input minus cache read/write, clamped at zero so a
+    # future switch to exclusive reporting degrades to undercounting rather than
+    # double-subtracting. Events without the cache columns carry no cached tokens, so
+    # the subtraction is a no-op there. Fallback-priced events carry only
     # $ai_total_cost_usd, so the components can undershoot cost_usd; the serializer
     # help_text tells clients to render the remainder as uncategorized.
     query = parse_select(
@@ -735,7 +741,12 @@ def _fetch_by_bucket(
             toStartOfInterval(timestamp, toIntervalMinute({bucket_minutes})) AS bucket_start,
             count() AS event_count,
             round(sum(toFloat(properties.$ai_total_cost_usd)), 6) AS cost_usd,
-            round(sum(toFloat(properties.$ai_input_cost_usd)), 6) AS input_cost_usd,
+            round(sum(greatest(
+                toFloat(properties.$ai_input_cost_usd)
+                    - coalesce(toFloat(properties.$ai_cache_read_cost_usd), 0)
+                    - coalesce(toFloat(properties.$ai_cache_creation_cost_usd), 0),
+                0
+            )), 6) AS input_cost_usd,
             round(sum(toFloat(properties.$ai_output_cost_usd)), 6) AS output_cost_usd,
             round(sum(toFloat(properties.$ai_cache_read_cost_usd)), 6) AS cache_read_cost_usd,
             round(sum(toFloat(properties.$ai_cache_creation_cost_usd)), 6) AS cache_creation_cost_usd,

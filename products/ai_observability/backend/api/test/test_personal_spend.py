@@ -504,7 +504,9 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
     def test_by_bucket_groups_cost_components_per_utc_hour(self) -> None:
         warm = datetime(2026, 6, 15, 9, 30, tzinfo=UTC)
         cold = datetime(2026, 6, 15, 11, 5, tzinfo=UTC)
-        # Warm turn: most of the prompt served from cache.
+        # As stored on real events, $ai_input_cost_usd INCLUDES the cache read/write
+        # costs (input + output = total); the endpoint must derive the uncached split.
+        # Warm turn: most of the prompt served from cache (0.1 uncached inside 0.8).
         self._create_generation(
             cost=1.0,
             trace_id="warm",
@@ -512,7 +514,7 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
             input_tokens=1000,
             output_tokens=500,
             extra_props={
-                "$ai_input_cost_usd": 0.1,
+                "$ai_input_cost_usd": 0.8,
                 "$ai_output_cost_usd": 0.2,
                 "$ai_cache_read_cost_usd": 0.6,
                 "$ai_cache_creation_cost_usd": 0.1,
@@ -520,7 +522,8 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
                 "$ai_cache_creation_input_tokens": 20000,
             },
         )
-        # Cold-revival turn: the whole context re-written to cache, nothing read back.
+        # Cold-revival turn: the whole context re-written to cache, nothing read back
+        # (0.2 uncached inside 2.7).
         self._create_generation(
             cost=3.0,
             trace_id="cold",
@@ -528,7 +531,7 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
             input_tokens=2000,
             output_tokens=800,
             extra_props={
-                "$ai_input_cost_usd": 0.2,
+                "$ai_input_cost_usd": 2.7,
                 "$ai_output_cost_usd": 0.3,
                 "$ai_cache_read_cost_usd": 0.0,
                 "$ai_cache_creation_cost_usd": 2.5,
