@@ -35,6 +35,9 @@ tools:
             short Logs retention, or a fork PR has no run association to resolve. Use pr-runs or workflow-jobs for the
             run/job metadata behind these logs.
         feature_flag: engineering-analytics
+    engineering-analytics-current-branch-health:
+        operation: engineering_analytics_current_branch_health
+        enabled: false
     engineering-analytics-flaky-tests:
         operation: engineering_analytics_flaky_tests
         enabled: true
@@ -96,6 +99,9 @@ tools:
         enabled: false
     engineering-analytics-repo-run-activity:
         operation: engineering_analytics_repo_run_activity
+        enabled: false
+    engineering-analytics-resolve-branch:
+        operation: engineering_analytics_resolve_branch
         enabled: false
     engineering-analytics-run-failure-logs:
         operation: engineering_analytics_run_failure_logs

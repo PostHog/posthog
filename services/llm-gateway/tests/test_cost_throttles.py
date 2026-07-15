@@ -25,6 +25,7 @@ def make_context(
     end_user_id: str | None = None,
     plan_key: str | None = "posthog-code-200-20260301",
     seat_created_at: str | None = None,
+    seat_missing: bool = False,
     billing_period_start: str | None = None,
 ) -> ThrottleContext:
     user = user or make_user()
@@ -36,6 +37,7 @@ def make_context(
         end_user_id=end_user_id,
         plan_key=plan_key,
         seat_created_at=seat_created_at,
+        seat_missing=seat_missing,
         billing_period_start=billing_period_start,
     )
 
@@ -1376,6 +1378,34 @@ class TestPlanAwareThrottling:
         await throttle.record_cost(context, 4.0)
         result = await throttle.allow_request(context)
         assert result.allowed is True
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("seat_missing", "expected_allowed"),
+        [
+            # Confirmed no seat (404) → free cap: $80 spent exceeds the $75 limit.
+            (True, False),
+            # Plan resolution failed → default limits ($500/day): fail loose so an
+            # outage never clamps paying users whose plan couldn't be resolved.
+            (False, True),
+        ],
+    )
+    async def test_seatless_user_limit_depends_on_seat_missing(
+        self, seat_missing: bool, expected_allowed: bool
+    ) -> None:
+        from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
+
+        throttle = UserCostBurstThrottle(redis=None)
+        context = make_context(
+            product="posthog_code",
+            plan_key=None,
+            seat_created_at=None,
+            seat_missing=seat_missing,
+        )
+
+        await throttle.record_cost(context, 80.0)
+        result = await throttle.allow_request(context)
+        assert result.allowed is expected_allowed
 
     @pytest.mark.asyncio
     async def test_non_code_product_ignores_plan(self) -> None:

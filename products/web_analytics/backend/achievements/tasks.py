@@ -253,6 +253,7 @@ def _send_unlock_notification(ctx: EvalContext, track: TrackDefinition, stage: i
                 target_type=target_type,
                 target_id=target_id,
                 priority=Priority.NORMAL,
+                archivable=True,
                 source_url=f"/project/{ctx.team.id}/web",
             )
         )

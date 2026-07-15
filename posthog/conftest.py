@@ -11,7 +11,7 @@ from posthog.test.base import PostHogTestCase, run_clickhouse_statement_in_paral
 
 try:
     from hogli_commands.quarantine.pytest_support import apply_quarantine_markers
-except ImportError:  # fail-open: runs without tools/hogli-commands on pythonpath (e.g. ee/pytest.ini)
+except ImportError:  # fail-open: runs without tools/hogli-commands on pythonpath
     apply_quarantine_markers = None
 
 from django.conf import settings
@@ -470,19 +470,19 @@ def mock_two_factor_sso_enforcement_check(request, mocker):
 
 
 @pytest.fixture(autouse=True)
-def mock_email_mfa_verifier(request, mocker):
+def mock_code_based_verifier(request, mocker):
     """
-    Mock the EmailMFAVerifier.should_send_email_mfa_verification method to return False for all tests.
-    Can be disabled by using @pytest.mark.disable_mock_email_mfa_verifier decorator.
+    Mock the CodeBasedVerifier.should_send_code_based_verification method to return False for all tests.
+    Can be disabled by using @pytest.mark.disable_mock_code_based_verifier decorator.
     """
-    from posthog.helpers.two_factor_session import EmailMFACheckResult
+    from posthog.helpers.two_factor_session import CodeBasedVerificationCheckResult
 
-    if "disable_mock_email_mfa_verifier" in request.keywords:
+    if "disable_mock_code_based_verifier" in request.keywords:
         return
 
     mocker.patch(
-        "posthog.helpers.two_factor_session.EmailMFAVerifier.should_send_email_mfa_verification",
-        return_value=EmailMFACheckResult(should_send=False),
+        "posthog.helpers.two_factor_session.CodeBasedVerifier.should_send_code_based_verification",
+        return_value=CodeBasedVerificationCheckResult(should_send=False),
     )
 
 

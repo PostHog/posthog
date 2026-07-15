@@ -1,4 +1,4 @@
-"""Owns the ipykernel child and runs Python nodes through it (Journey 4, arch build step 2).
+"""Owns the ipykernel child and runs kernel nodes through it (Journeys 4/5, arch build steps 2+5).
 
 Sandbox-only: this is the one module that imports `jupyter_client` and drives a live
 kernel, both of which exist only in the notebook sandbox image — so it is exercised there,
@@ -7,7 +7,7 @@ in test_kernel_bootstrap). Everything network/credential-bearing stays in this p
 kernel receives only local file paths and node code, never a token (division of labor in
 sql_v2_kernel_architecture.md).
 
-Flow for a Python node:
+Flow for a kernel node (python or duckdb — the kernel branches on node.type):
   1. materialize each HogQL input — the server streams the full CH result to a local Arrow
      file keyed by query_hash (reused when the upstream query is unchanged);
   2. hand the kernel `_ph.run_node(payload)` (paths only) and read back the envelope it writes;
@@ -15,10 +15,12 @@ Flow for a Python node:
 """
 
 import os
+import glob
 import json
 import time
 import queue
 import shutil
+import hashlib
 import threading
 from typing import Any
 
@@ -47,7 +49,7 @@ class KernelExecutor:
         self._kc: Any = None
         self._lock = threading.Lock()
 
-    def run_python_node(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def run_kernel_node(self, payload: dict[str, Any]) -> dict[str, Any]:
         with self._lock:  # a kernel has one namespace — concurrent runs are meaningless
             try:
                 self._ensure_kernel()
@@ -104,8 +106,15 @@ class KernelExecutor:
             if spec.get("kind") == "local":
                 kernel_inputs.append({"name": name, "kind": "local"})
                 continue
-            frame_path = os.path.join(self._frames_dir, f"{spec['query_hash']}.arrow")
-            if not os.path.exists(frame_path):  # unchanged upstream query → reuse the frame
+            # Keyed by the upstream run_id, so the same run reuses its frame while a re-run (new
+            # run_id) fetches fresh data instead of the stale cached rows. node_id comes from
+            # user-controlled notebook content, so hash it to a filesystem-safe token — a raw
+            # "../x" id would otherwise escape the frames dir on write and in the eviction glob.
+            # run_id is a server-generated UUID.
+            node_token = hashlib.sha256(spec["node_id"].encode()).hexdigest()
+            frame_path = os.path.join(self._frames_dir, f"{node_token}.{spec['run_id']}.arrow")
+            if not os.path.exists(frame_path):
+                self._evict_superseded_frames(node_token, keep=frame_path)
                 data_plane.materialize_query_to_file(
                     payload["data_plane_url"],
                     payload["data_plane_token"],
@@ -115,6 +124,15 @@ class KernelExecutor:
                 )
             kernel_inputs.append({"name": name, "kind": "hogql", "path": frame_path})
         return kernel_inputs
+
+    def _evict_superseded_frames(self, node_token: str, keep: str) -> None:
+        """Drop this upstream node's older frames so iterating a query doesn't pile up unread frames."""
+        for stale in glob.glob(os.path.join(self._frames_dir, f"{node_token}.*.arrow")):
+            if stale != keep:
+                try:
+                    os.remove(stale)
+                except OSError:
+                    pass  # best-effort: a concurrent run or teardown may have removed it already
 
     def _invoke_run_node(self, payload: dict[str, Any], inputs: list[dict[str, Any]]) -> dict[str, Any]:
         run_id = str(payload.get("run_id") or "run")
