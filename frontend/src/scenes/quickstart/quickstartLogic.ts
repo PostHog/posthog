@@ -587,6 +587,11 @@ const isFullTeam = (team: TeamType | TeamPublicType | null): team is TeamType =>
 const ACTIVATION_DATA_CACHE_TTL_MS = 5 * 60 * 1000
 let activationDataCache: { teamId: number; fetchedAt: number; data: QuickstartActivationData } | null = null
 
+/** The cache outlives logic mounts by design; stories and tests switching mock data must drop it. */
+export function clearQuickstartActivationCache(): void {
+    activationDataCache = null
+}
+
 function buildProduct(key: ProductKey, ctx: StatusContext): QuickstartProduct | null {
     const definition = QUICKSTART_PRODUCT_DEFINITIONS[key]
     const meta = (availableOnboardingProducts as Partial<Record<ProductKey, OnboardingProduct>>)[key]

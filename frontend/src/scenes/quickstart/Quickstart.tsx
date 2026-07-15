@@ -18,7 +18,7 @@ import {
     IconSparkles,
     IconTerminal,
 } from '@posthog/icons'
-import { LemonButton, LemonDropdown, LemonSkeleton, LemonTag, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonButton, LemonDropdown, LemonSkeleton, LemonTag, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -334,12 +334,24 @@ function SubsectionHeader({ title }: { title: string }): JSX.Element {
 
 function ProductStatusTag({ level }: { level: QuickstartToolStatus['level'] }): JSX.Element {
     if (level === 'live') {
-        return <LemonTag type="success">Live</LemonTag>
+        return (
+            <Tooltip title="Real data came in during the last 30 days" delayMs={0}>
+                <LemonTag type="success">Live</LemonTag>
+            </Tooltip>
+        )
     }
     if (level === 'ready') {
-        return <LemonTag type="highlight">Ready</LemonTag>
+        return (
+            <Tooltip title="Set up and waiting for its first data" delayMs={0}>
+                <LemonTag type="highlight">Ready</LemonTag>
+            </Tooltip>
+        )
     }
-    return <LemonTag type="muted">Needs setup</LemonTag>
+    return (
+        <Tooltip title="Needs an install or configuration before it can collect data" delayMs={0}>
+            <LemonTag type="muted">Needs setup</LemonTag>
+        </Tooltip>
+    )
 }
 
 function JourneyOverlay({ journey }: { journey: QuickstartJourneyStep[] }): JSX.Element {
@@ -401,7 +413,7 @@ function JourneyMeter({ status, productKey }: { status: QuickstartToolStatus; pr
     )
 }
 
-function ProductCard({ product }: { product: QuickstartProduct }): JSX.Element {
+export function ProductCard({ product }: { product: QuickstartProduct }): JSX.Element {
     const { enablingProducts } = useValues(quickstartLogic)
     const { enableProduct, openToolSetupModal } = useActions(quickstartLogic)
     const { status } = product
