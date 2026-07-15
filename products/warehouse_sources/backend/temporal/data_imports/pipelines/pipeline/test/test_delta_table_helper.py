@@ -910,7 +910,7 @@ def _create_int_price_table(path: str, *, partitioned: bool = False, prices: lis
     """Seed a Delta table whose price column got locked to int64 by whole-valued first
     deliveries — the wedge `widen_stored_column_types` exists to escape."""
     prices = prices if prices is not None else [0, 10, None]
-    fields = [pa.field("id", pa.int64()), pa.field("price", pa.int64())]
+    fields: list[pa.Field] = [pa.field("id", pa.int64()), pa.field("price", pa.int64())]
     data: dict[str, Any] = {
         "id": pa.array(range(1, len(prices) + 1), type=pa.int64()),
         "price": pa.array(prices, type=pa.int64()),
@@ -985,7 +985,7 @@ class TestWidenStoredColumnTypes:
         assert untouched.version() == 0
         final = untouched.to_pyarrow_table()
         assert final.schema.field("price").type == pa.int64()
-        assert sorted(final.column("price").to_pylist()) == sorted(stored_prices)
+        assert final.column("price").to_pylist() == stored_prices
 
 
 class TestIsTableCorrupted:
