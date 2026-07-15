@@ -116,11 +116,19 @@ interface ToolMilestone {
     achieved: (ctx: StatusContext) => boolean
 }
 
+export interface QuickstartJourneyStep {
+    key: string
+    label: string
+    kind: 'activation' | 'quality'
+    achieved: boolean
+}
+
 export interface QuickstartToolStatus {
     level: QuickstartToolLevel
-    /** Quality rungs achieved / total, meaningful once live. Total 0 hides the meter. */
-    qualityAchieved: number
-    qualityTotal: number
+    /** The full ladder, activation rungs first — every card shows the same shape of progress */
+    journey: QuickstartJourneyStep[]
+    stepsAchieved: number
+    stepsTotal: number
     /** The next rung worth climbing, activation first, then quality. Null when topped out. */
     nextStep: string | null
     /** The tool's headline number, e.g. sources connected or custom events captured */
@@ -181,7 +189,20 @@ function deriveToolStatus(definition: QuickstartProductDefinition, ctx: StatusCo
         level = definition.usableByDefault ? 'ready' : 'needs_setup'
     }
 
-    const qualityAchieved = definition.quality.filter((rung) => rung.achieved(ctx)).length
+    const journey: QuickstartJourneyStep[] = [
+        ...definition.activation.map((rung) => ({
+            key: rung.key,
+            label: rung.label,
+            kind: 'activation' as const,
+            achieved: rung.achieved(ctx),
+        })),
+        ...definition.quality.map((rung) => ({
+            key: rung.key,
+            label: rung.label,
+            kind: 'quality' as const,
+            achieved: rung.achieved(ctx),
+        })),
+    ]
     const nextStep = live
         ? (definition.quality.find((rung) => !rung.achieved(ctx))?.label ?? null)
         : (definition.activation.find((rung) => !rung.achieved(ctx))?.label ?? null)
@@ -200,8 +221,9 @@ function deriveToolStatus(definition: QuickstartProductDefinition, ctx: StatusCo
     const stat = definition.stat?.(ctx) ?? null
     return {
         level,
-        qualityAchieved,
-        qualityTotal: definition.quality.length,
+        journey,
+        stepsAchieved: journey.filter((step) => step.achieved).length,
+        stepsTotal: journey.length,
         nextStep,
         stat: stat && stat.value > 0 ? stat : null,
         cta,
@@ -405,7 +427,7 @@ const QUICKSTART_PRODUCT_DEFINITIONS: Partial<Record<ProductKey, QuickstartProdu
                 achieved: ({ signals }) => signals.surveyResponses > 0,
             },
         ],
-        quality: [],
+        quality: [{ ...productionTraffic, label: 'Collect responses from production traffic' }],
         stat: ({ signals }) => ({ value: signals.surveyResponses, label: 'responses · 30d' }),
     },
     [ProductKey.EXPERIMENTS]: {

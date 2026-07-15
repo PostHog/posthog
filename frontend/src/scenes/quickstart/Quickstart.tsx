@@ -8,6 +8,7 @@ import {
     IconArrowLeft,
     IconBook,
     IconBuilding,
+    IconCheckCircle,
     IconFolder,
     IconGear,
     IconGraduationCap,
@@ -17,7 +18,7 @@ import {
     IconSparkles,
     IconTerminal,
 } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, LemonTag, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDropdown, LemonSkeleton, LemonTag, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -72,7 +73,7 @@ import {
     QUICKSTART_NEWSLETTER_URL,
     QuickstartPublication,
 } from './publications'
-import { QuickstartProduct, QuickstartToolStatus, quickstartLogic } from './quickstartLogic'
+import { QuickstartJourneyStep, QuickstartProduct, QuickstartToolStatus, quickstartLogic } from './quickstartLogic'
 
 export const scene: SceneExport = {
     component: Quickstart,
@@ -341,18 +342,62 @@ function ProductStatusTag({ level }: { level: QuickstartToolStatus['level'] }): 
     return <LemonTag type="muted">Needs setup</LemonTag>
 }
 
-function QualityMeter({ achieved, total }: { achieved: number; total: number }): JSX.Element {
+function JourneyOverlay({ journey }: { journey: QuickstartJourneyStep[] }): JSX.Element {
+    const sections = [
+        { title: 'Get it live', steps: journey.filter((step) => step.kind === 'activation') },
+        { title: 'Level it up', steps: journey.filter((step) => step.kind === 'quality') },
+    ].filter((section) => section.steps.length > 0)
+
     return (
-        <Tooltip title={`Instrumentation quality: ${achieved} of ${total} steps done`} delayMs={0}>
-            <div className="flex items-center gap-1 w-fit">
-                {Array.from({ length: total }, (_, index) => (
-                    <span
-                        key={index}
-                        className={`h-1 w-4 rounded-full ${index < achieved ? 'bg-success' : 'bg-fill-tertiary'}`}
-                    />
-                ))}
-            </div>
-        </Tooltip>
+        <div className="p-2 max-w-100 flex flex-col gap-3">
+            {sections.map((section) => (
+                <div key={section.title}>
+                    <div className="text-xs font-semibold text-secondary mb-1">{section.title}</div>
+                    <ul className="flex flex-col gap-1 mb-0">
+                        {section.steps.map((step) => (
+                            <li key={step.key} className="flex items-start gap-2 text-sm">
+                                {step.achieved ? (
+                                    <IconCheckCircle className="text-success mt-0.5 shrink-0" />
+                                ) : (
+                                    <span className="w-3 h-3 mt-1 rounded-full border-2 border-current text-muted-alt shrink-0" />
+                                )}
+                                <span className={step.achieved ? 'text-tertiary' : ''}>{step.label}</span>
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            ))}
+        </div>
+    )
+}
+
+function JourneyMeter({ status, productKey }: { status: QuickstartToolStatus; productKey: ProductKey }): JSX.Element {
+    return (
+        <LemonDropdown
+            overlay={<JourneyOverlay journey={status.journey} />}
+            placement="bottom-start"
+            closeOnClickInside={false}
+            onVisibilityChange={(visible) => visible && captureQuickstartAction('view_tool_journey', productKey)}
+        >
+            <button
+                type="button"
+                className="flex items-center gap-2 w-fit p-0 border-0 bg-transparent cursor-pointer"
+                aria-label="Show the full setup journey"
+                data-attr={`quickstart-journey-${productKey}`}
+            >
+                <span className="flex items-center gap-1">
+                    {status.journey.map((step) => (
+                        <span
+                            key={step.key}
+                            className={`h-1 w-4 rounded-full ${step.achieved ? 'bg-success' : 'bg-fill-tertiary'}`}
+                        />
+                    ))}
+                </span>
+                <span className="text-xs text-tertiary">
+                    {status.stepsAchieved}/{status.stepsTotal} steps
+                </span>
+            </button>
+        </LemonDropdown>
     )
 }
 
@@ -413,19 +458,15 @@ function ProductCard({ product }: { product: QuickstartProduct }): JSX.Element {
                 <div className="text-xs text-tertiary">Best for {product.bestFor}</div>
             </div>
             <p className="text-secondary text-sm mb-0 flex-1">{product.description}</p>
-            {(status.stat || status.nextStep || (status.level === 'live' && status.qualityTotal > 0)) && (
-                <div className="flex flex-col gap-1">
-                    {status.stat && (
-                        <div className="text-sm font-medium">
-                            {humanFriendlyLargeNumber(status.stat.value)} {status.stat.label}
-                        </div>
-                    )}
-                    {status.level === 'live' && status.qualityTotal > 0 && (
-                        <QualityMeter achieved={status.qualityAchieved} total={status.qualityTotal} />
-                    )}
-                    {status.nextStep && <p className="text-xs text-tertiary mb-0">Next: {status.nextStep}</p>}
-                </div>
-            )}
+            <div className="flex flex-col gap-1">
+                {status.stat && (
+                    <div className="text-sm font-medium">
+                        {humanFriendlyLargeNumber(status.stat.value)} {status.stat.label}
+                    </div>
+                )}
+                <JourneyMeter status={status} productKey={product.key} />
+                {status.nextStep && <p className="text-xs text-tertiary mb-0">Next: {status.nextStep}</p>}
+            </div>
             <div className="flex items-center gap-2 mt-1">
                 {status.level === 'live' ? (
                     <>
