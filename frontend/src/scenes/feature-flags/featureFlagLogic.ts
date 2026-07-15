@@ -2189,9 +2189,24 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 ])
                 warnings.forEach((warning) => lemonToast.warning(warning))
             } else {
-                const errorMessage = JSON.stringify(featureFlagCopy?.failed) || featureFlagCopy
-                lemonToast.error(`Error while saving feature flag: ${errorMessage}`)
-                eventUsageLogic.actions.reportFeatureFlagCopyFailure(errorMessage)
+                // This flow copies to a single target project, so at most one failure entry comes back.
+                const failure = featureFlagCopy?.failed[0]
+                if (failure?.approval_pending) {
+                    const projectName = values.currentOrganization?.teams.find(
+                        (team) => team.id === (failure.project_id ?? values.copyDestinationProject)
+                    )?.name
+                    lemonToast.warning(
+                        `A change request was created for ${
+                            projectName ?? 'the destination project'
+                        }; the copy will apply once approved.`
+                    )
+                    eventUsageLogic.actions.reportFeatureFlagCopyFailure(failure.error_message ?? 'Approval pending')
+                } else {
+                    const errorMessage =
+                        failure?.error_message ?? JSON.stringify(featureFlagCopy?.failed ?? featureFlagCopy)
+                    lemonToast.error(`Error while copying feature flag: ${errorMessage}`)
+                    eventUsageLogic.actions.reportFeatureFlagCopyFailure(errorMessage)
+                }
             }
 
             actions.loadProjectsWithCurrentFlag()
