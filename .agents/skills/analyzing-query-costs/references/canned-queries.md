@@ -282,6 +282,9 @@ LIMIT 15
 
 ## 17. Month-over-month trajectory (per-day normalized — months can be partially covered)
 
+Deliberately single-region: the two archives start on different dates (§0), so a cross-region union over months mixes unequal coverage into misleading totals.
+Run it once per region (swap the table name) and report regions separately — only union regions for a window both fully cover.
+
 ```sql
 SELECT toStartOfMonth(event_date) AS month, count() AS queries,
        round(sum(read_bytes)/1e9, 0) AS read_gb,
