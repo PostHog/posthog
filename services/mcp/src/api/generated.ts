@@ -12295,6 +12295,74 @@ export namespace Schemas {
     }
 
     /**
+     * * `breaking_master` - BREAKING_MASTER
+     * * `novel_burst` - NOVEL_BURST
+     * * `potentially_resolved` - POTENTIALLY_RESOLVED
+     * * `flaky` - FLAKY
+     * * `pr_only` - PR_ONLY
+     */
+    export type BrokenTestRowStateEnum = typeof BrokenTestRowStateEnum[keyof typeof BrokenTestRowStateEnum];
+
+
+    export const BrokenTestRowStateEnum = {
+      BreakingMaster: 'breaking_master',
+      NovelBurst: 'novel_burst',
+      PotentiallyResolved: 'potentially_resolved',
+      Flaky: 'flaky',
+      PrOnly: 'pr_only',
+    } as const;
+
+    export interface BrokenTestRow {
+      /** Stable identity of this distinct failure: the failing test's node id plus a normalized error signature, so the same failure across runs groups into one row. */
+      fingerprint: string;
+      /** The pytest node id from the CI 'FAILED <id>' line — the failing test. */
+      test_id: string;
+      /** The trailing failure detail with volatile bits (numbers, hashes) normalized, shared across runs of the same failure. Empty when the FAILED line carried no detail. */
+      error_signature: string;
+      /** The CI job the failure most recently came from. Matched against default-branch job status to decide whether trunk is currently broken by it. */
+      job_name: string;
+      /** 'owner/name' repository the failure belongs to. */
+      repo: string;
+      /** The classifier's verdict on how this failure is behaving right now: 'breaking_master' (failing on trunk, latest trunk run still red), 'novel_burst' (new within a day and spreading across branches, not on trunk yet), 'potentially_resolved' (hit trunk but trunk is green again), 'flaky' (sporadic across branches over more than a day), or 'pr_only' (confined to one branch — one PR's own problem).
+       *
+       * * `breaking_master` - BREAKING_MASTER
+       * * `novel_burst` - NOVEL_BURST
+       * * `potentially_resolved` - POTENTIALLY_RESOLVED
+       * * `flaky` - FLAKY
+       * * `pr_only` - PR_ONLY */
+      state: BrokenTestRowStateEnum;
+      /** Earliest failure line for this fingerprint in the analysis window. */
+      first_seen: string;
+      /** Most recent failure line for this fingerprint in the analysis window. */
+      last_seen: string;
+      /** Total failure lines for this fingerprint in the window. An absolute count, never a rate — passing runs aren't in this data. */
+      occurrences: number;
+      /** Distinct branches the failure appeared on in the window. */
+      branches: number;
+      /** Failure lines on the default branch (master/main). 0 means it never reached trunk. */
+      master_hits: number;
+      /** The most recent failing workflow run for this fingerprint — pass it to run_failure_logs to fetch the actual failing log lines. */
+      latest_run_id: number;
+      /** The branch of the most recent failing run. */
+      latest_branch: string;
+      /** Hourly failure counts over the last 24 hours, oldest first (fixed 24-slot array), for the row sparkline. All zeros when nothing failed in the last day. */
+      trend_24h?: number[];
+    }
+
+    export interface BrokenTestsResult {
+      /** Classified failures ranked by triage urgency — breaking trunk first, single-PR failures last. */
+      rows: BrokenTestRow[];
+      /** Default-branch job names whose latest completed run is failing — the 'what's on fire right now' summary. Empty when the job-level source isn't synced or trunk is green. */
+      breaking_master_jobs: string[];
+      /** Length in days of the analysis window the counts cover. */
+      window_days: number;
+      /** True when more failures qualified than the cap; `rows` is the top `limit` by urgency. */
+      truncated: boolean;
+      /** Maximum number of rows returned. */
+      limit: number;
+    }
+
+    /**
      * * `distinct_id` - User ID (default)
      * * `device_id` - Device ID
      */
@@ -19919,11 +19987,11 @@ export namespace Schemas {
      */
     export interface SuggestedReviewer {
       /**
-         * GitHub login (case-insensitive, stored lowercased) — e.g. `octocat`, no `@`, no display name. Resolve one via `signals-scout-members-list` (each member row carries a resolved `github_login`) or git history when you only have a name.
+         * GitHub login (case-insensitive, stored lowercased) — e.g. `octocat`, no `@`, no display name. Resolve one via `scout-members-list` (each member row carries a resolved `github_login`) or git history when you only have a name.
          * @maxLength 200
          */
       github_login?: string;
-      /** PostHog user UUID (e.g. from `signals-scout-members-list`, or an entity's `created_by`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here. */
+      /** PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here. */
       user_uuid?: string;
     }
 
@@ -22721,28 +22789,118 @@ export namespace Schemas {
       readonly created_at: string;
     }
 
+    export interface EvaluationReportCitation {
+      /** Generation UUID referenced by this citation. */
+      generation_id?: string;
+      /** Trace identifier containing the referenced generation. */
+      trace_id?: string;
+      /** Short explanation of why the generation is cited. */
+      reason?: string;
+    }
+
+    /**
+     * Count by output-specific result label, such as pass/fail/N/A or positive/neutral/negative.
+     */
+    export type EvaluationReportMetricsResultCounts = {[key: string]: number};
+
+    /**
+     * Percentage by output-specific result label, from 0 to 100.
+     */
+    export type EvaluationReportMetricsResultRates = {[key: string]: number};
+
+    /**
+     * Count by result label for the previous period, or null when unavailable.
+     * @nullable
+     */
+    export type EvaluationReportMetricsPreviousResultCounts = {[key: string]: number} | null;
+
+    /**
+     * Percentage by result label for the previous period, or null when unavailable.
+     * @nullable
+     */
+    export type EvaluationReportMetricsPreviousResultRates = {[key: string]: number} | null;
+
+    export interface EvaluationReportMetrics {
+      /** Evaluation result type. Stored metrics without this field represent boolean evaluations.
+       *
+       * * `boolean` - Boolean (Pass/Fail)
+       * * `sentiment` - Sentiment */
+      output_type?: OutputTypeEnum;
+      /** Number of evaluation results in the report period. */
+      total_runs?: number;
+      /** Count by output-specific result label, such as pass/fail/N/A or positive/neutral/negative. */
+      result_counts?: EvaluationReportMetricsResultCounts;
+      /** Percentage by output-specific result label, from 0 to 100. */
+      result_rates?: EvaluationReportMetricsResultRates;
+      /** ISO 8601 start of the evaluation window represented by these metrics. */
+      period_start?: string;
+      /** ISO 8601 end of the evaluation window represented by these metrics. */
+      period_end?: string;
+      /**
+         * Number of evaluation results in the previous comparison period, or null when unavailable.
+         * @nullable
+         */
+      previous_total_runs?: number | null;
+      /**
+         * Count by result label for the previous period, or null when unavailable.
+         * @nullable
+         */
+      previous_result_counts?: EvaluationReportMetricsPreviousResultCounts;
+      /**
+         * Percentage by result label for the previous period, or null when unavailable.
+         * @nullable
+         */
+      previous_result_rates?: EvaluationReportMetricsPreviousResultRates;
+      /** Boolean pass percentage, excluding results marked not applicable. */
+      pass_rate?: number;
+      /**
+         * Boolean pass percentage for the previous period, or null when unavailable.
+         * @nullable
+         */
+      previous_pass_rate?: number | null;
+    }
+
+    export interface EvaluationReportSection {
+      /** Agent-generated section heading. */
+      title?: string;
+      /** Markdown narrative for this section. */
+      content?: string;
+    }
+
+    export interface EvaluationReportRunContent {
+      /** Agent-generated report headline. */
+      title?: string;
+      /** Ordered narrative sections in the report. */
+      sections?: EvaluationReportSection[];
+      /** Trace references grounding findings in the report. */
+      citations?: EvaluationReportCitation[];
+      /** Structured metrics computed for the report period. */
+      metrics?: EvaluationReportMetrics | null;
+    }
+
     export interface EvaluationReportRun {
       /** UUID of this report run. */
       readonly id: string;
       /** UUID of the report config that generated this run. */
       readonly report: string;
-      /** Generated report content (markdown or structured text). */
-      readonly content: unknown;
-      /** Run metadata including model used, token counts, and generation stats. */
-      readonly metadata: unknown;
+      /** Structured report narrative, citations, and metrics. Legacy runs may contain only some fields. */
+      readonly content: EvaluationReportRunContent;
+      /** Legacy mirror of content.metrics. May contain partial boolean metrics on older runs. */
+      readonly metadata: EvaluationReportMetrics | null;
       /** Start of the evaluation window covered by this report. */
       readonly period_start: string;
       /** End of the evaluation window covered by this report. */
       readonly period_end: string;
-      /** 'pending', 'delivered', or 'failed'.
+      /** Delivery result: 'pending', 'delivered', 'partial_failure', or 'failed'.
        *
        * * `pending` - Pending
        * * `delivered` - Delivered
        * * `partial_failure` - Partial Failure
        * * `failed` - Failed */
       readonly delivery_status: DeliveryStatusEnum;
-      /** List of delivery error messages if delivery failed. */
-      readonly delivery_errors: unknown;
+      /** Delivery error messages. Empty when all configured deliveries succeeded. */
+      readonly delivery_errors: readonly string[];
+      /** When this report run was created. */
       readonly created_at: string;
     }
 
@@ -27290,6 +27448,8 @@ export namespace Schemas {
       failed_count: number;
       /** Distinct pull requests among the failed/error spans. Failures on master or unattributed branches carry no PR number and are excluded here (still in failed_count). */
       failed_pr_count: number;
+      /** Failed/error spans on the default branch (master/main approximation) — the 'matters right now' signal that a flake is breaking the trunk, not just PR branches. */
+      master_failed_count: number;
       /** Distinct git branches across all of the test's flaky-signal spans in the window. */
       branch_count: number;
       /** Runs where the test failed while quarantined (xfail) — already masked in CI but still flaky. */
@@ -29910,6 +30070,8 @@ export namespace Schemas {
       dateRange: DateRange;
       /** Drop filters targeting the breakdown key itself (including `serviceNames` for a `service_name` breakdown) so a facet's value list stays complete while one of its values is selected. */
       excludeBreakdownFilter?: boolean | null;
+      /** Type-ahead filter over the breakdown field's own values (case-insensitive substring match). Lets a facet's value search reach past the row limit. */
+      facetSearch?: string | null;
       filterGroup?: PropertyGroupFilter | null;
       kind?: 'TraceSpansAttributeBreakdownQuery';
       /** Modifiers used when performing the query */
@@ -54455,7 +54617,7 @@ export namespace Schemas {
 
     /**
      * One finding a scout run emitted to the inbox — the persisted, queryable record of
-     * *what* the run surfaced, returned by `signals-scout-runs-emissions-list`. The emitted text
+     * *what* the run surfaced, returned by `scout-runs-emissions-list`. The emitted text
      * lives in `description`; `source_id` is the join key (`run:<run_id>:finding:<finding_id>`)
      * back into the underlying signal store.
      */
@@ -54500,7 +54662,7 @@ export namespace Schemas {
      *
      * The run executes asynchronously on the Temporal worker, so there is no `SignalScoutRun`
      * row yet at response time — the bridge row is created once the run's first turn starts.
-     * Poll the scout's runs (`signals-scout-runs-list`) to see the resulting run and its findings.
+     * Poll the scout's runs (`scout-runs-list`) to see the resulting run and its findings.
      */
     export interface SignalScoutManualRun {
       /** The `signals-scout-*` skill that was dispatched. */
@@ -62227,6 +62389,8 @@ export namespace Schemas {
       breakdownType: SpanPropertyTypeEnum;
       /** Drop filters targeting the breakdown key itself (including serviceNames for a service_name breakdown), so a facet's value list stays complete while one of its values is selected. */
       excludeBreakdownFilter?: boolean;
+      /** Type-ahead filter over the breakdown field's own values (case-insensitive substring match). An empty string means no filter. Lets a facet's value search reach past the row limit. */
+      facetSearch?: string;
       /** Order rows by span count or error count, descending. Defaults to count.
        *
        * * `count` - count
@@ -69953,6 +70117,13 @@ export namespace Schemas {
      * Window end: relative or ISO8601. Defaults to now.
      */
     date_to?: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
+    export type EngineeringAnalyticsBrokenTestsParams = {
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */

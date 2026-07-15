@@ -182,6 +182,7 @@ the row lists both.
 | flexmail                  | HTTP                        | requests                                                        | ✅                          |
 | float_app                 | HTTP                        | requests                                                        | ✅                          |
 | fly_io                    | HTTP                        | requests                                                        | ✅                          |
+| formbricks                | HTTP                        | requests                                                        | ✅                          |
 | front                     | HTTP                        | requests                                                        | ✅                          |
 | fulcrum                   | HTTP                        | requests                                                        | ✅                          |
 | fullstory                 | HTTP                        | requests                                                        | ✅                          |
@@ -422,6 +423,7 @@ the row lists both.
 | unleash                   | HTTP                        | requests                                                        | ✅                          |
 | upstash                   | HTTP                        | requests                                                        | ✅                          |
 | vantage                   | HTTP                        | requests                                                        | ✅                          |
+| vapi                      | HTTP                        | requests                                                        | ✅                          |
 | vellum                    | HTTP                        | requests                                                        | ✅                          |
 | vercel                    | HTTP                        | requests                                                        | ✅                          |
 | vitally                   | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -571,6 +573,7 @@ doesn't conflict with concurrent PRs.
 - flexmail
 - flexport
 - flowlu
+- fly_io
 - formbricks
 - freeagent
 - freightview
@@ -839,7 +842,6 @@ doesn't conflict with concurrent PRs.
 - uptick
 - us_census
 - uservoice
-- vapi
 - veeqo
 - vespa
 - visma_economic
