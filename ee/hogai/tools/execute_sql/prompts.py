@@ -19,8 +19,15 @@ Use this tool to generate a HogQL query, which is PostHog's variant of SQL that 
   Instead, use CROSS JOIN with WHERE: `CROSS JOIN persons p WHERE e.person_id = p.id AND e.timestamp > p.created_at`.
   If asked to use relational operators in JOIN, you should refuse and suggest CROSS JOIN with WHERE clause.
 - A WHERE clause should be after all the JOIN clauses.
-- For performance, every SELECT from the `events` table should have a `WHERE` clause narrowing down the timestamp to the relevant period.
 - HogQL queries should not end in semicolons.
+
+# Query performance — avoid slow-query anti-patterns
+These are hard requirements, not suggestions. Each anti-pattern below produces a query that is slow, expensive, or semantically wrong.
+- Timestamp bound is REQUIRED: every SELECT that reads from `events` MUST have a `WHERE` clause bounding `timestamp` to the relevant period (for example `timestamp >= now() - INTERVAL 30 DAY`). Never scan `events` unbounded. If the user gives no range, default to a recent window such as the last 30 days.
+- No leading wildcards: do NOT use leading-wildcard matches like `LIKE '%term%'` or `ILIKE '%term%'` on event or person columns — they force a full scan. Use a prefix match (`LIKE 'term%'`) or `startsWith(column, 'term')` instead. A leading wildcard is acceptable only on tiny metadata tables (e.g. `system.insight_variables`, `system.information_schema`), never on `events`, `persons`, or their properties.
+- Count users with `person_id`, never `distinct_id`: to count unique users, use `uniq(person_id)` (or `count(DISTINCT person_id)`). Do NOT use `uniq(distinct_id)` — a single user can have many distinct IDs, so it is both high-cardinality (slow) and semantically wrong for PostHog's person model.
+- Extract specific property keys: select the individual keys you need (e.g. `properties.$browser`, `properties.foo`). Never serialize the whole blob with `toString(properties)` — that reads and materializes every property on every row.
+- Pre-aggregate before joining: when joining `events` to another table, first aggregate or filter the `events` side in a subquery (bounded by `timestamp`), then join the reduced result. Joining raw, unaggregated `events` rows balloons intermediate rows — avoid bare `JOIN events` on an unbounded event stream.
 
 # Events and properties
 Standardized events/properties such as pageview or screen start with `$`. Custom events/properties start with any other character.
@@ -48,7 +55,7 @@ Metadata (token counts, costs, model, $ai_trace_id, latency, error flags) stays 
 Event metadata unspecified above (emails, names, etc.) is stored under `properties`, accessed like: `events.properties.foo`.
 The metadata of the person associated with an event is similarly accessed like: `events.person.properties.foo`.
 "Person" is a synonym of "user" – instead of a "users" table, we have a "persons" table.
-For calculating unique users, default to `events.person_id` - where each unique person ID counted means one user.
+For calculating unique users, default to `events.person_id` - where each unique person ID counted means one user (use `uniq(person_id)`). Never count users with `uniq(distinct_id)` - one user can have many distinct IDs, so it is both slower and semantically wrong.
 
 # Joining persons
 There is a known issue with queries that join multiple events tables where join constraints reference person_id fields. The person_id fields are ExpressionFields that expand to expressions referencing override tables (e.g., e_all__override). However, these expressions are resolved during type resolution (in printer.py) BEFORE lazy table processing begins. This creates forward references to override tables that don't exist yet.
@@ -103,6 +110,8 @@ WHERE e.event IN (SELECT event FROM events WHERE ...)
 # SQL variables
 SQL variables are stored in `system.insight_variables`. There is no list/get tool for reading them. When asked to find, search, or inspect SQL variables, query this system table directly:
 ```sql
+-- system.insight_variables is a small metadata table, so a contains-match is fine here.
+-- On events/persons columns, never use a leading wildcard - use a prefix match or startsWith().
 SELECT id, name, code_name, type, default_value, values
 FROM system.insight_variables
 WHERE name ILIKE '%term%' OR code_name ILIKE '%term%'
