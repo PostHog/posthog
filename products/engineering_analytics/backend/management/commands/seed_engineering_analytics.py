@@ -583,6 +583,46 @@ _SPAN_TEAMS: list[tuple[str, str, list[tuple[str, str, int, int]]]] = [
 ]
 
 
+# Synthetic merged-PR stream: the captured snapshot holds only ~115 merges, which spreads to
+# well under one merge per team-day across the 30-team roster — too thin for the per-team
+# merge-timing chart (a day with fewer than 3 merges has median == average by definition, so
+# the two lines would always coincide). Real PostHog/posthog merges ~40 PRs a day, so the
+# stream also makes repo-wide merge volume honest. Deterministic; numbered from 90000 and
+# titled "seeded:" so rows read as seeded in the UI. Timing/durations come from _spread_merges,
+# which rewrites every merged PR's merged_at/created_at anyway.
+_DEMO_MERGES_PER_DAY = 40
+_SEED_BOT_HANDLES = {"posthog-bot", "dependabot", "renovate", "github-actions"}
+
+
+def _demo_merged_prs(prs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    logins = sorted({(pr.get("user") or {}).get("login") or "" for pr in prs} - {""})
+    authors = [login for login in logins if not login.endswith("[bot]") and login not in _SEED_BOT_HANDLES]
+    template_ts = next(pr["created_at"] for pr in prs if pr.get("created_at"))
+    rows: list[dict[str, Any]] = []
+    for index in range(_DEMO_MERGES_PER_DAY * _MERGE_SPREAD_DAYS):
+        number = 90_000 + index
+        rows.append(
+            {
+                "id": 9_910_000_000 + index,
+                "number": number,
+                "title": f"seeded: merged PR {number}",
+                "state": "closed",
+                "draft": False,
+                # Placeholder timestamps inside the fixture's range (so the rebase anchor is
+                # unchanged); _spread_merges rewrites created_at/merged_at deterministically.
+                "created_at": template_ts,
+                "updated_at": template_ts,
+                "merged_at": template_ts,
+                "closed_at": template_ts,
+                "user": {"login": authors[index % len(authors)], "avatar_url": ""},
+                "head": {"sha": f"seed{index:04d}" + "a" * 32, "ref": f"seed/pr-{number}"},
+                "base": {"ref": "master", "repo": {"full_name": SEED_REPOSITORY}},
+                "labels": [],
+            }
+        )
+    return rows
+
+
 # GitHub org team membership for the merge-trend join (PR author login → team slug). Fixture
 # authors are assigned deterministically across the roster teams (no random, stable between
 # runs); local-seed only, so the mapping is synthetic — it exists to light up the per-team
@@ -597,16 +637,18 @@ def _team_membership_rows(prs: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if login:
             merged_counts[login] = merged_counts.get(login, 0) + (1 if pr.get("merged_at") else 0)
     # Deal authors across teams round-robin in merge-volume order, so every team gets a share of
-    # active mergers instead of hash luck leaving some team lines empty. A scattered second
-    # membership mirrors how org teams really overlap and thickens each team's series.
+    # active mergers instead of hash luck leaving some team lines empty. Scattered extra
+    # memberships mirror how org teams really overlap and thicken each team's series enough that
+    # days see 3+ merges — below that, a day's median and average are mathematically identical
+    # and the trend's two lines would always coincide.
     logins = sorted(merged_counts, key=lambda login: (-merged_counts[login], login))
     team_count = len(_GITHUB_TEAM_SLUGS)
     rows: list[dict[str, Any]] = []
     for member_index, login in enumerate(logins):
         primary = member_index % team_count
-        secondary = (member_index * 7 + 3) % team_count
-        for slot, team_index in enumerate((primary, secondary)):
-            if slot and team_index == primary:
+        memberships = (primary, (member_index * 7 + 3) % team_count, (member_index * 13 + 11) % team_count)
+        for slot, team_index in enumerate(memberships):
+            if slot and team_index in memberships[:slot]:
                 continue
             slug = _GITHUB_TEAM_SLUGS[team_index]
             rows.append(
@@ -731,6 +773,8 @@ class Command(BaseCommand):
         prs = self._load_fixture(options["fixture_dir"], "github_pull_requests.json")
         runs = self._load_fixture(options["fixture_dir"], "github_workflow_runs.json")
 
+        # Synthetic merged-PR stream so per-team merge timing has realistic daily volume.
+        prs.extend(_demo_merged_prs(prs))
         # Append a synthetic multi-push PR (the fixture has none rich enough to show the progression).
         demo_pr, demo_runs = _demo_multi_push(prs, runs)
         prs.append(demo_pr)
