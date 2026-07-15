@@ -105,7 +105,7 @@ interface InsightMetaProps extends Pick<
     onCreateAnomalyAlert?: () => void
 }
 
-// Tile and dashboard overrides merge (backend `merge_dashboard_and_tile_filters`); the date range is a
+// Tile and dashboard overrides merge (backend `merge_filters_by_priority`); the date range is a
 // unit, so the tile's range wins only when the tile sets a bound, otherwise the dashboard's range applies.
 // `!= null` (not truthiness) matches the backend's `is not None`, so an explicit empty-string bound counts.
 // `mergeEnabled` mirrors the `DASHBOARD_TILE_FILTER_MERGE` flag — off, any tile override (even

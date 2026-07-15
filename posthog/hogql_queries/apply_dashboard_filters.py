@@ -11,15 +11,15 @@ from posthog.models import Team
 
 WRAPPER_NODE_KINDS = [NodeKind.DATA_TABLE_NODE, NodeKind.DATA_VISUALIZATION_NODE, NodeKind.INSIGHT_VIZ_NODE]
 
-# Fields where a tile override replaces the dashboard value outright when set.
-# Property filters are handled separately (merged per key).
-_TILE_SCALAR_OVERRIDE_FIELDS = ["breakdown_filter", "interval", "filterTestAccounts"]
+# Fields where the higher-priority (override) layer replaces the lower-priority (base) value outright
+# when set. Property filters are handled separately (merged per key).
+_SCALAR_OVERRIDE_FIELDS = ["breakdown_filter", "interval", "filterTestAccounts"]
 
 TILE_FILTER_MERGE_FLAG = "dashboard-tile-filter-merge"
 
 
 def tile_filter_merge_enabled(team: Team) -> bool:
-    """Gates the tile-filters-merge-with-dashboard-filters behavior (`merge_dashboard_and_tile_filters`).
+    """Gates the tile-filters-merge-with-dashboard-filters behavior (`merge_filters_by_priority`).
     Off, tile overrides replace dashboard filters wholesale, matching pre-merge behavior."""
     return bool(
         posthoganalytics.feature_enabled(
@@ -31,55 +31,58 @@ def tile_filter_merge_enabled(team: Team) -> bool:
 
 
 def _property_identity(prop: dict) -> tuple[str, Any]:
-    """The (type, key) a property filter targets — the unit at which a tile takes precedence.
-    `type` defaults to "event" to match how untyped property filters are interpreted downstream.
-    `key` is coerced to a hashable form since it comes from unvalidated client JSON and must be
-    usable in a set/dict — an unhashable key (e.g. a list) would otherwise raise TypeError."""
+    """The (type, key) a property filter targets — the unit at which one layer takes precedence over
+    another. `type` defaults to "event" to match how untyped property filters are interpreted
+    downstream. `key` is coerced to a hashable form since it comes from unvalidated client JSON and
+    must be usable in a set/dict — an unhashable key (e.g. a list) would otherwise raise TypeError."""
     key = prop.get("key")
     if isinstance(key, (list, dict)):
         key = json.dumps(key, sort_keys=True)
     return (prop.get("type") or "event", key)
 
 
-def merge_dashboard_and_tile_filters(dashboard_filters: dict | None, tile_filters: dict | None) -> dict:
-    """Merge a tile's filter overrides on top of the dashboard-level filters.
+def merge_filters_by_priority(base_filters: dict | None, override_filters: dict | None) -> dict:
+    """Merge two filter layers, with `override_filters` taking priority over `base_filters`.
 
-    The tile wins per field. Scalars (breakdown, interval, test-account filtering) are replaced outright
-    when the tile sets them. Property filters merge per (type, key): a tile property replaces the
-    dashboard's filter on the same key, while non-overlapping keys from both layers are kept and
-    AND-combined. The date range is treated as one unit — a tile that sets either bound supplies both
-    bounds and explicitDate, so a tile date_from is never paired with a stale dashboard date_to or a
-    stale dashboard explicitDate.
+    The override wins per field. Scalars (breakdown, interval, test-account filtering) are replaced
+    outright when the override sets them. Property filters merge per (type, key): an override property
+    replaces the base's filter on the same key, while non-overlapping keys from both layers are kept and
+    AND-combined. The date range is treated as one unit — an override that sets either bound supplies
+    both bounds and explicitDate, so an override date_from is never paired with a stale base date_to or
+    a stale base explicitDate.
 
-    Overriding the insight's own base filters (not just the dashboard's) is handled separately by
-    `remove_query_properties_overridden_by_tile`, which the tile-aware call sites apply to the query.
+    Callers today use this for the dashboard/tile layer pair (dashboard as base, tile as override), but
+    the algorithm itself is generic priority merging and isn't tied to that pairing.
+
+    Overriding the insight's own base filters (not just the lower-priority layer's) is handled separately
+    by `remove_query_properties_overridden_by`, which the override-aware call sites apply to the query.
 
     The frontend re-derives this same precedence in `getEffectiveFilterOverrides` (InsightDetails.tsx)
     to attribute each shown filter to its source; keep the two in step when changing the tie-break here.
     """
-    if not tile_filters:
-        return dashboard_filters or {}
-    if not dashboard_filters:
-        return tile_filters or {}
+    if not override_filters:
+        return base_filters or {}
+    if not base_filters:
+        return override_filters or {}
 
-    merged = {**dashboard_filters}
+    merged = {**base_filters}
 
-    for field in _TILE_SCALAR_OVERRIDE_FIELDS:
-        if tile_filters.get(field) is not None:
-            merged[field] = tile_filters[field]
+    for field in _SCALAR_OVERRIDE_FIELDS:
+        if override_filters.get(field) is not None:
+            merged[field] = override_filters[field]
 
-    if tile_filters.get("date_from") is not None or tile_filters.get("date_to") is not None:
-        merged["date_from"] = tile_filters.get("date_from")
-        merged["date_to"] = tile_filters.get("date_to")
-        # The date range is one unit — drop the dashboard's explicitDate before adopting the tile's.
+    if override_filters.get("date_from") is not None or override_filters.get("date_to") is not None:
+        merged["date_from"] = override_filters.get("date_from")
+        merged["date_to"] = override_filters.get("date_to")
+        # The date range is one unit — drop the base's explicitDate before adopting the override's.
         merged.pop("explicitDate", None)
-        if tile_filters.get("explicitDate") is not None:
-            merged["explicitDate"] = tile_filters["explicitDate"]
+        if override_filters.get("explicitDate") is not None:
+            merged["explicitDate"] = override_filters["explicitDate"]
 
-    tile_props = tile_filters.get("properties") or []
-    dashboard_props = dashboard_filters.get("properties") or []
-    tile_keys = {_property_identity(p) for p in tile_props}
-    combined_properties = [p for p in dashboard_props if _property_identity(p) not in tile_keys] + tile_props
+    override_props = override_filters.get("properties") or []
+    base_props = base_filters.get("properties") or []
+    override_keys = {_property_identity(p) for p in override_props}
+    combined_properties = [p for p in base_props if _property_identity(p) not in override_keys] + override_props
     if combined_properties:
         merged["properties"] = combined_properties
 
@@ -118,12 +121,13 @@ def _strip_query_properties(query: dict, keys: set[tuple[str, Any]]) -> dict:
     return query
 
 
-def remove_query_properties_overridden_by_tile(query: dict, tile_filters: dict | None) -> dict:
-    """Drop the insight's own property filters that a tile override replaces on the same (type, key),
-    so a tile filter takes precedence over the insight's base filter instead of merely AND-ing with it.
-    Only the tile layer gets this precedence — dashboard-level filters still stack onto the insight."""
-    tile_props = (tile_filters or {}).get("properties") or []
-    keys = {_property_identity(p) for p in tile_props}
+def remove_query_properties_overridden_by(query: dict, overriding_filters: dict | None) -> dict:
+    """Drop the insight's own property filters that `overriding_filters` replaces on the same (type, key),
+    so the higher-priority layer takes precedence over the insight's base filter instead of merely AND-ing
+    with it. Only the layer passed here gets this precedence — a lower-priority layer (e.g. dashboard-level
+    filters when the caller passes the tile layer) still stacks onto the insight as usual."""
+    overriding_props = (overriding_filters or {}).get("properties") or []
+    keys = {_property_identity(p) for p in overriding_props}
     if not keys:
         return query
     return _strip_query_properties(query, keys)

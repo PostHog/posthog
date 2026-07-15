@@ -75,8 +75,8 @@ from posthog.hogql_queries.apply_dashboard_filters import (
     WRAPPER_NODE_KINDS,
     apply_dashboard_filters_to_dict,
     apply_dashboard_variables_to_dict,
-    merge_dashboard_and_tile_filters,
-    remove_query_properties_overridden_by_tile,
+    merge_filters_by_priority,
+    remove_query_properties_overridden_by,
     tile_filter_merge_enabled,
 )
 from posthog.hogql_queries.legacy_compatibility.feature_flag import get_query_method
@@ -1014,10 +1014,10 @@ class InsightSerializer(InsightBasicSerializer):
                     else {}
                 )
                 if tile_filters_override and tile_filter_merge_enabled(instance.team):
-                    effective_filters = merge_dashboard_and_tile_filters(base_filters, tile_filters_override)
+                    effective_filters = merge_filters_by_priority(base_filters, tile_filters_override)
                     # A tile property filter replaces the insight's own filter on the same key (not just
                     # the dashboard's), so the returned query matches what the compute path computed.
-                    query = remove_query_properties_overridden_by_tile(query, tile_filters_override)
+                    query = remove_query_properties_overridden_by(query, tile_filters_override)
                 elif tile_filters_override:
                     # Flag off: tile filters replace dashboard filters wholesale (pre-merge behavior).
                     effective_filters = tile_filters_override

@@ -3,12 +3,12 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from posthog.hogql_queries.apply_dashboard_filters import (
-    merge_dashboard_and_tile_filters,
-    remove_query_properties_overridden_by_tile,
+    merge_filters_by_priority,
+    remove_query_properties_overridden_by,
 )
 
 
-class TestMergeDashboardAndTileFilters(SimpleTestCase):
+class TestMergeFiltersByPriority(SimpleTestCase):
     @parameterized.expand(
         [
             ("both empty", None, None, {}),
@@ -18,17 +18,17 @@ class TestMergeDashboardAndTileFilters(SimpleTestCase):
         ]
     )
     def test_returns_single_layer_when_other_absent(self, _name, dashboard, tile, expected):
-        assert merge_dashboard_and_tile_filters(dashboard, tile) == expected
+        assert merge_filters_by_priority(dashboard, tile) == expected
 
     def test_tile_scalar_fields_win_over_dashboard(self):
-        merged = merge_dashboard_and_tile_filters(
+        merged = merge_filters_by_priority(
             {"interval": "day", "filterTestAccounts": False},
             {"interval": "week", "filterTestAccounts": True},
         )
         assert merged == {"interval": "week", "filterTestAccounts": True}
 
     def test_dashboard_scalar_kept_when_tile_leaves_it_unset(self):
-        merged = merge_dashboard_and_tile_filters(
+        merged = merge_filters_by_priority(
             {"interval": "day", "filterTestAccounts": True},
             {"breakdown_filter": {"breakdown": "$browser", "breakdown_type": "event"}},
         )
@@ -40,7 +40,7 @@ class TestMergeDashboardAndTileFilters(SimpleTestCase):
         dashboard_prop = {"key": "$country", "value": "US", "type": "event"}
         tile_prop = {"key": "$browser", "value": "Chrome", "type": "event"}
 
-        merged = merge_dashboard_and_tile_filters(
+        merged = merge_filters_by_priority(
             {"properties": [dashboard_prop]},
             {"properties": [tile_prop]},
         )
@@ -52,7 +52,7 @@ class TestMergeDashboardAndTileFilters(SimpleTestCase):
         dashboard_prop = {"key": "$browser", "value": ["Chrome", "Safari"], "type": "event", "operator": "exact"}
         tile_prop = {"key": "$browser", "value": ["Firefox"], "type": "event", "operator": "exact"}
 
-        merged = merge_dashboard_and_tile_filters(
+        merged = merge_filters_by_priority(
             {"properties": [dashboard_prop]},
             {"properties": [tile_prop]},
         )
@@ -61,7 +61,7 @@ class TestMergeDashboardAndTileFilters(SimpleTestCase):
 
     def test_date_range_treated_as_a_unit_when_tile_sets_a_bound(self):
         # Tile sets only date_from, so the dashboard's date_to must not leak through.
-        merged = merge_dashboard_and_tile_filters(
+        merged = merge_filters_by_priority(
             {"date_from": "-30d", "date_to": "-1d"},
             {"date_from": "-7d"},
         )
@@ -85,12 +85,12 @@ class TestMergeDashboardAndTileFilters(SimpleTestCase):
         ]
     )
     def test_explicit_date_follows_the_tile_range_not_the_dashboards(self, _name, dashboard, tile, expected):
-        merged = merge_dashboard_and_tile_filters(dashboard, tile)
+        merged = merge_filters_by_priority(dashboard, tile)
         assert merged["date_from"] == "-7d"
         assert merged.get("explicitDate") is expected
 
     def test_dashboard_date_range_kept_when_tile_has_no_dates(self):
-        merged = merge_dashboard_and_tile_filters(
+        merged = merge_filters_by_priority(
             {"date_from": "-30d", "date_to": "-1d"},
             {"properties": [{"key": "$browser", "value": "Chrome", "type": "event"}]},
         )
@@ -99,14 +99,14 @@ class TestMergeDashboardAndTileFilters(SimpleTestCase):
 
     def test_tile_property_with_unhashable_key_does_not_raise(self):
         # `key` comes from unvalidated client JSON and can be a list; must not crash the set-building.
-        merged = merge_dashboard_and_tile_filters(
+        merged = merge_filters_by_priority(
             {"properties": [{"key": "browser", "type": "event", "value": "x"}]},
             {"properties": [{"key": ["a", "b"], "type": "event", "value": "y"}]},
         )
         assert len(merged["properties"]) == 2
 
 
-class TestRemoveQueryPropertiesOverriddenByTile(SimpleTestCase):
+class TestRemoveQueryPropertiesOverriddenBy(SimpleTestCase):
     def _query(self, properties):
         return {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "properties": properties}}
 
@@ -119,14 +119,14 @@ class TestRemoveQueryPropertiesOverriddenByTile(SimpleTestCase):
         )
         tile = {"properties": [{"key": "$browser", "value": "Firefox", "type": "event"}]}
 
-        stripped = remove_query_properties_overridden_by_tile(query, tile)
+        stripped = remove_query_properties_overridden_by(query, tile)
 
         assert stripped["source"]["properties"] == [{"key": "$country", "value": "US", "type": "event"}]
 
     def test_no_op_when_tile_has_no_properties(self):
         query = self._query([{"key": "$browser", "value": "Chrome", "type": "event"}])
 
-        assert remove_query_properties_overridden_by_tile(query, {"date_from": "-7d"}) == query
+        assert remove_query_properties_overridden_by(query, {"date_from": "-7d"}) == query
 
     def test_prunes_matching_leaf_from_property_group(self):
         query = self._query(
@@ -145,7 +145,7 @@ class TestRemoveQueryPropertiesOverriddenByTile(SimpleTestCase):
         )
         tile = {"properties": [{"key": "$browser", "value": "Firefox", "type": "event"}]}
 
-        stripped = remove_query_properties_overridden_by_tile(query, tile)
+        stripped = remove_query_properties_overridden_by(query, tile)
 
         assert stripped["source"]["properties"]["values"][0]["values"] == [
             {"key": "$country", "value": "US", "type": "event"}
@@ -175,7 +175,7 @@ class TestRemoveQueryPropertiesOverriddenByTile(SimpleTestCase):
         )
         tile = {"properties": [{"key": "$browser", "value": "Firefox", "type": "event"}]}
 
-        stripped = remove_query_properties_overridden_by_tile(query, tile)
+        stripped = remove_query_properties_overridden_by(query, tile)
 
         innermost = stripped["source"]["properties"]["values"][0]["values"][0]["values"]
         assert innermost == [{"key": "$country", "value": "US", "type": "event"}]

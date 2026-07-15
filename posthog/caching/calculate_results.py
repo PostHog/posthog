@@ -11,8 +11,8 @@ from posthog.api.services.query import ExecutionMode, process_query_dict
 from posthog.clickhouse.query_tagging import get_team_query_tags, tag_queries
 from posthog.event_usage import AnalyticsProps
 from posthog.hogql_queries.apply_dashboard_filters import (
-    merge_dashboard_and_tile_filters,
-    remove_query_properties_overridden_by_tile,
+    merge_filters_by_priority,
+    remove_query_properties_overridden_by,
     tile_filter_merge_enabled,
 )
 from posthog.hogql_queries.query_runner import get_query_runner_or_none, response_results_contain_models
@@ -111,7 +111,7 @@ def calculate_for_query_based_insight(
     if tile_filters_override:
         if merge_tile_filters:
             # Tile filters merge on top of dashboard filters — tile wins per field, properties merge per key.
-            dashboard_filters_json = merge_dashboard_and_tile_filters(dashboard_filters_json, tile_filters_override)
+            dashboard_filters_json = merge_filters_by_priority(dashboard_filters_json, tile_filters_override)
         else:
             # Flag off: tile filters replace dashboard filters wholesale (pre-merge behavior).
             dashboard_filters_json = tile_filters_override
@@ -123,7 +123,7 @@ def calculate_for_query_based_insight(
     # A tile property filter takes precedence over the insight's own filter on the same key — drop the
     # insight's so the merged tile filter replaces it rather than AND-ing (which could zero out results).
     if merge_tile_filters:
-        query_json = remove_query_properties_overridden_by_tile(query_json, tile_filters_override)
+        query_json = remove_query_properties_overridden_by(query_json, tile_filters_override)
 
     process_response = process_query_dict(
         team,
