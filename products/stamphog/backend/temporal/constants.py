@@ -21,6 +21,9 @@ STAMPHOG_TASK_QUEUE = "stamphog-task-queue"
 STAMPHOG_SANDBOX_REPO_DIR = "/tmp/stamphog/target"
 STAMPHOG_SANDBOX_WORKSPACE_DIR = "/tmp/stamphog/workspace"
 STAMPHOG_SANDBOX_ENGINE_DIR = f"{STAMPHOG_SANDBOX_REPO_DIR}/tools/pr-approval-agent"
+# The posthog-owners resolver package, expected by the engine as a sibling of its own dir
+# (gates.py resolves `../owners` for the hogli-resolver ownership format).
+STAMPHOG_SANDBOX_OWNERS_DIR = f"{STAMPHOG_SANDBOX_REPO_DIR}/tools/owners"
 STAMPHOG_SANDBOX_CONTEXT_PATH = f"{STAMPHOG_SANDBOX_REPO_DIR}/.stamphog_review_context.json"
 
 # Trusted review-norms prose the engine reads as its reviewer system guidance, and

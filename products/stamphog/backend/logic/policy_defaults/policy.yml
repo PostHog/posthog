@@ -194,12 +194,11 @@ familiarity:
     moderate:
         min_prior_prs: 5
         max_days_since_touch: 180
-# Ownership sources feeding the reviewer's team context — advisory only, never a gate. Read from the
-# default branch (a PR editing them cannot influence its own review). The resolver returns empty for a
-# missing file, so listing both common CODEOWNERS locations is graceful when a repo has neither.
+# Ownership sources feeding the reviewer's team context — advisory only, never a gate. hogli-resolver
+# is the engine's only registered format (it walks distributed owners.yaml / product.yaml files); the
+# server ships the resolver package into the sandbox alongside the engine, and a repo carrying no
+# ownership files simply resolves to "no ownership-source match".
 ownership:
     sources:
-        - path: CODEOWNERS
-          format: gh-codeowners
-        - path: .github/CODEOWNERS
-          format: gh-codeowners
+        - path: .
+          format: hogli-resolver

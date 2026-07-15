@@ -210,6 +210,7 @@ def test_guidance_unchanged_without_steering(tmp_path: Path, monkeypatch: pytest
     _fake_stamphog_dir(tmp_path, monkeypatch, "norms prose\n")
     assert _load_review_guidance() == "norms prose\n"
 
+
 @pytest.mark.parametrize(
     "ownership, summary, expected_head",
     [

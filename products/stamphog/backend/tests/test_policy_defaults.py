@@ -10,6 +10,7 @@ import yaml
 _ENGINE_DIR = Path(__file__).resolve().parents[4] / "tools" / "pr-approval-agent"
 sys.path.insert(0, str(_ENGINE_DIR))
 
+import gates  # noqa: E402
 import policy  # noqa: E402
 
 from products.stamphog.backend.temporal.activities import _effective_policy_files, _inject_policy_files  # noqa: E402
@@ -25,10 +26,13 @@ _SIZE_GATE_ONLY = "size_gate:\n    max_lines: 123\n    max_files: 7\n"
 
 
 def _load_engine_policy(path: Path) -> policy.Policy:
+    # The REAL registries, exactly as review_local.py loads them. Hand-faked stand-ins here once let
+    # the engine drop an ownership format on master while this suite stayed green — every hosted
+    # zero-config review then crashed at policy load.
     return policy.load_policy(
         path,
-        lockfile_names=["package-lock.json", "uv.lock"],
-        ownership_formats={"gh-codeowners": "path", "ph-product": "glob"},
+        lockfile_names=gates._ALL_LOCKFILE_NAMES,
+        ownership_formats=gates.OWNERSHIP_FORMAT_LOCATORS,
     )
 
 

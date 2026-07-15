@@ -53,6 +53,7 @@ from products.stamphog.backend.temporal.constants import (
     STAMPHOG_REVIEW_GUIDANCE_PATH,
     STAMPHOG_SANDBOX_CONTEXT_PATH,
     STAMPHOG_SANDBOX_ENGINE_DIR,
+    STAMPHOG_SANDBOX_OWNERS_DIR,
     STAMPHOG_SANDBOX_REPO_DIR,
 )
 from products.tasks.backend.facade.sandbox import (
@@ -694,6 +695,25 @@ def _ship_engine(sandbox: SandboxBase) -> None:
     sandbox.execute(f"rm -rf {engine_dir} && mkdir -p {engine_dir}", timeout_seconds=30)
     for name, content in files.items():
         sandbox.write_file(f"{STAMPHOG_SANDBOX_ENGINE_DIR}/{name}", content.encode())
+    _ship_owners_package(sandbox)
+
+
+def _ship_owners_package(sandbox: SandboxBase) -> None:
+    """Ship the posthog-owners resolver package the engine's ownership format imports.
+
+    The default policy declares a ``hogli-resolver`` ownership source, and gates.py imports
+    ``posthog_owners`` from ``tools/owners`` next to the engine dir. Same trust posture as the
+    engine: always our copy, wiping whatever the PR head carried at that path. Repos without
+    owners.yaml/product.yaml files simply resolve to "no ownership-source match".
+    """
+    package_dir = _SERVER_ENGINE_DIR.parent / "owners" / "posthog_owners"
+    if not package_dir.is_dir():
+        raise RuntimeError(f"owners package source dir not found: {package_dir}")
+    target = f"{STAMPHOG_SANDBOX_OWNERS_DIR}/posthog_owners"
+    quoted = shlex.quote(STAMPHOG_SANDBOX_OWNERS_DIR)
+    sandbox.execute(f"rm -rf {quoted} && mkdir -p {shlex.quote(target)}", timeout_seconds=30)
+    for path in sorted(package_dir.glob("*.py")):
+        sandbox.write_file(f"{target}/{path.name}", path.read_text().encode())
 
 
 def _engine_source_files() -> dict[str, str]:
