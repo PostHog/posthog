@@ -298,6 +298,7 @@ the row lists both.
 | onepagecrm                | HTTP                        | requests                                                        | ✅                          |
 | onfleet                   | HTTP (cursor pagination)    | requests                                                        | ✅                          |
 | open_exchange_rates       | HTTP                        | requests                                                        | ✅                          |
+| openai                    | HTTP                        | requests                                                        | ✅                          |
 | opinion_stage             | HTTP                        | requests                                                        | ✅                          |
 | orb                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | openaq                    | HTTP                        | requests                                                        | ✅                          |
@@ -697,7 +698,6 @@ doesn't conflict with concurrent PRs.
 - onehundredms
 - onesignal
 - open_data_dc
-- openai
 - opsgenie
 - opuswatch
 - oracle

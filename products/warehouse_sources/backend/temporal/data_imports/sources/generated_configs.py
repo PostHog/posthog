@@ -2594,7 +2594,7 @@ class OpenAIAdsSourceConfig(config.Config):
 
 @config.config
 class OpenAISourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
