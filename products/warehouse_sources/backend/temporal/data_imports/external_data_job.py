@@ -320,6 +320,11 @@ def trigger_schedule_buffer_one_activity(schedule_id: str) -> None:
 
 
 # TODO: update retry policies
+#
+# DETERMINISM: adding, removing, or reordering activities / child-workflow starts in `run` breaks
+# every in-flight execution with a non-deterministic replay error on deploy. Gate new commands with
+# `workflow.patched("...")`, or on a new `create_job_model` output field that defaults to the skip
+# value — see .claude/rules/temporal-workflow-versioning.md.
 @workflow.defn(name="external-data-job")
 class ExternalDataJobWorkflow(PostHogWorkflow):
     @staticmethod

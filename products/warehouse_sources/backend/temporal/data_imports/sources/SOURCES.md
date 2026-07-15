@@ -181,6 +181,7 @@ the row lists both.
 | firehydrant               | HTTP                        | requests                                                        | ✅                          |
 | flexmail                  | HTTP                        | requests                                                        | ✅                          |
 | float_app                 | HTTP                        | requests                                                        | ✅                          |
+| flowlu                    | HTTP                        | requests                                                        | ✅                          |
 | fly_io                    | HTTP                        | requests                                                        | ✅                          |
 | formbricks                | HTTP                        | requests                                                        | ✅                          |
 | front                     | HTTP                        | requests                                                        | ✅                          |
