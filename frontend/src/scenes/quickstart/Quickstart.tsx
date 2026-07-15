@@ -64,10 +64,19 @@ import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { BillingProductV2Type, OnboardingStepKey, SDK, SDKInstructionsMap, SDKKey, SDKTagOverrides } from '~/types'
+import {
+    BillingProductV2Type,
+    OnboardingStepKey,
+    SDK,
+    SDKInstructionsMap,
+    SDKKey,
+    SDKTagOverrides,
+    SidePanelTab,
+} from '~/types'
 
 import {
     PublicationFeedKey,
@@ -82,8 +91,12 @@ export const scene: SceneExport = {
     logic: quickstartLogic,
 }
 
-function captureQuickstartAction(action: string, productKey?: string): void {
-    posthog.capture('quickstart action clicked', { action, ...(productKey ? { product_key: productKey } : {}) })
+function captureQuickstartAction(action: string, productKey?: string, properties?: Record<string, string>): void {
+    posthog.capture('quickstart action clicked', {
+        action,
+        ...(productKey ? { product_key: productKey } : {}),
+        ...properties,
+    })
 }
 
 function SectionHeader({ title, subtitle }: { title: string; subtitle?: string }): JSX.Element {
@@ -676,6 +689,13 @@ function ToolSetupModal({ installationComplete }: { installationComplete: boolea
     )
 }
 
+interface LearnQuickLink {
+    label: string
+    to?: string
+    targetBlank?: boolean
+    onClick?: () => void
+}
+
 function LearnCard({
     icon,
     title,
@@ -683,28 +703,57 @@ function LearnCard({
     buttonLabel,
     to,
     targetBlank,
+    onClick,
     action,
+    quickLinks,
 }: {
     icon: JSX.Element
     title: string
     description: string
     buttonLabel: string
-    to: string
+    to?: string
     targetBlank?: boolean
+    onClick?: () => void
     action: string
+    quickLinks?: LearnQuickLink[]
 }): JSX.Element {
     return (
         <LemonCard hoverEffect={false} className="flex flex-col gap-2 p-4 rounded-lg border-transparent shadow-sm">
             <span className="text-xl text-secondary">{icon}</span>
             <h3 className="font-semibold text-base mb-0">{title}</h3>
-            <p className="text-secondary text-sm mb-0 flex-1">{description}</p>
-            <div>
+            <p className="text-secondary text-sm mb-0">{description}</p>
+            {quickLinks && (
+                <div className="flex flex-col gap-0.5 flex-1">
+                    {quickLinks.map((link) => (
+                        <LemonButton
+                            key={link.label}
+                            size="xsmall"
+                            fullWidth
+                            to={link.to}
+                            targetBlank={link.targetBlank}
+                            onClick={() => {
+                                captureQuickstartAction(`${action}_quick_link`, undefined, {
+                                    link_label: link.label,
+                                })
+                                link.onClick?.()
+                            }}
+                            data-attr={`quickstart-learn-${action}-quick-link`}
+                        >
+                            <span className="truncate font-normal">{link.label}</span>
+                        </LemonButton>
+                    ))}
+                </div>
+            )}
+            <div className={quickLinks ? undefined : 'mt-auto'}>
                 <LemonButton
                     type="secondary"
                     size="small"
                     to={to}
                     targetBlank={targetBlank}
-                    onClick={() => captureQuickstartAction(action)}
+                    onClick={() => {
+                        captureQuickstartAction(action)
+                        onClick?.()
+                    }}
                     data-attr={`quickstart-learn-${action}`}
                 >
                     {buttonLabel}
@@ -926,6 +975,7 @@ export function Quickstart(): JSX.Element {
     const { products, activeProductCount, totalProductCount } = useValues(quickstartLogic)
     const { showInviteModal } = useActions(inviteLogic)
     const { showConfigureHomeModal } = useActions(navigationLogic)
+    const { openSidePanel } = useActions(sidePanelStateLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const installationComplete = useInstallationComplete('ingested_event')
 
@@ -966,8 +1016,10 @@ export function Quickstart(): JSX.Element {
                                 type="primary"
                                 size="small"
                                 icon={<IconSparkles />}
-                                to={urls.projectHomepage()}
-                                onClick={() => captureQuickstartAction('ask_posthog_ai_header')}
+                                onClick={() => {
+                                    captureQuickstartAction('ask_posthog_ai_header')
+                                    openSidePanel(SidePanelTab.Max)
+                                }}
                                 data-attr="quickstart-header-ask-posthog-ai"
                             >
                                 Ask PostHog AI
@@ -1034,28 +1086,71 @@ export function Quickstart(): JSX.Element {
                             <LearnCard
                                 icon={<IconSparkles />}
                                 title="Ask PostHog AI anything"
-                                description='Once events are flowing, ask PostHog AI questions in plain English, like "What are my most visited pages this week?"'
+                                description="Once events are flowing, ask questions in plain English and get answers from your live data. Try one:"
                                 buttonLabel="Ask PostHog AI"
-                                to={urls.projectHomepage()}
+                                onClick={() => openSidePanel(SidePanelTab.Max)}
                                 action="ask_posthog_ai"
+                                quickLinks={[
+                                    'What are my most visited pages this week?',
+                                    'How many daily active users did I have this week?',
+                                    'Where do users drop off in my app?',
+                                ].map((question) => ({
+                                    label: question,
+                                    // The ! prefix makes the side panel submit the question right away
+                                    onClick: () => openSidePanel(SidePanelTab.Max, `!${question}`),
+                                }))}
                             />
                             <LearnCard
                                 icon={<IconBook />}
                                 title="Read the docs"
-                                description="Guides for every tool, SDK, and framework, from first install to advanced setups."
+                                description="Guides for every tool, SDK, and framework, from first install to advanced setups. Start here:"
                                 buttonLabel="Open docs"
                                 to="https://posthog.com/docs"
                                 targetBlank
                                 action="open_docs_home"
+                                quickLinks={[
+                                    {
+                                        label: 'Capture custom events',
+                                        to: 'https://posthog.com/docs/product-analytics/capture-events',
+                                        targetBlank: true,
+                                    },
+                                    {
+                                        label: 'Identify your users',
+                                        to: 'https://posthog.com/docs/product-analytics/identify',
+                                        targetBlank: true,
+                                    },
+                                    {
+                                        label: 'Define actions from events',
+                                        to: 'https://posthog.com/docs/data/actions',
+                                        targetBlank: true,
+                                    },
+                                ]}
                             />
                             <LearnCard
                                 icon={<IconGraduationCap />}
                                 title="Follow a tutorial"
-                                description="Step-by-step walkthroughs of real setups: funnels, feature flags, A/B tests, and more."
+                                description="Step-by-step walkthroughs of real setups: funnels, feature flags, A/B tests, and more. Popular picks:"
                                 buttonLabel="Browse tutorials"
                                 to="https://posthog.com/tutorials"
                                 targetBlank
                                 action="open_tutorials"
+                                quickLinks={[
+                                    {
+                                        label: 'Complete guide to event tracking',
+                                        to: 'https://posthog.com/tutorials/event-tracking-guide',
+                                        targetBlank: true,
+                                    },
+                                    {
+                                        label: 'Understand behavior with session replays',
+                                        to: 'https://posthog.com/tutorials/explore-insights-session-recordings',
+                                        targetBlank: true,
+                                    },
+                                    {
+                                        label: 'Track new and returning users',
+                                        to: 'https://posthog.com/tutorials/track-new-returning-users',
+                                        targetBlank: true,
+                                    },
+                                ]}
                             />
                         </div>
                     </div>
