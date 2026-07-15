@@ -294,6 +294,33 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         mock_dispatch.assert_not_called()
 
+    def test_put_adding_reviewer_still_notifies_when_source_product_lookup_fails(self):
+        # Source products are cosmetic; a failure fetching them must not suppress the ping.
+        report = self._create_report()
+        artefact = self._create_artefact(report, content=[{"github_login": "alice"}])
+
+        with (
+            patch(
+                "products.signals.backend.views.fetch_source_products_for_reports",
+                side_effect=Exception("clickhouse unavailable"),
+            ),
+            patch("products.signals.backend.views.dispatch_reviewer_added_notifications") as mock_dispatch,
+            patch(
+                "products.signals.backend.auto_start.maybe_autostart_from_report_artefacts",
+                new_callable=AsyncMock,
+            ),
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.put(
+                    self._detail_url(str(report.id), str(artefact.id)),
+                    data=json.dumps({"content": [{"github_login": "alice"}, {"github_login": "bob"}]}),
+                    content_type="application/json",
+                )
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_dispatch.assert_called_once()
+        assert mock_dispatch.call_args.kwargs["source_products"] is None
+
     def test_put_reviewers_autostart_delegates_when_report_complete(self):
         # With actionability + repo + priority + reviewers all present, the reconstruction reaches
         # the actual autostart decision (delegated to maybe_autostart_implementation_task).

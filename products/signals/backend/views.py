@@ -2242,13 +2242,25 @@ class SignalReportArtefactViewSet(
         team = self.team
 
         def _notify() -> None:
+            # Source products are cosmetic (one metadata line in the Slack message), so a failure
+            # fetching them must not suppress the ping itself — resolve them separately, best-effort.
+            source_products: list[str] | None = None
             try:
                 meta = fetch_source_products_for_reports(team, [report_id]).get(report_id)
+                source_products = meta.source_products if meta else None
+            except Exception:
+                logger.exception(
+                    "Failed to fetch source products for reviewer-added notification",
+                    report_id=report_id,
+                    team_id=team.id,
+                )
+
+            try:
                 dispatch_reviewer_added_notifications(
                     report_id=report_id,
                     team_id=team.id,
                     added_github_logins=added_logins,
-                    source_products=meta.source_products if meta else None,
+                    source_products=source_products,
                     exclude_user_id=actor_user_id,
                 )
             except Exception:
