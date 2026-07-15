@@ -228,6 +228,11 @@ def response_results_contain_models(response_class: type[BaseModel]) -> bool:
     Responses are only ever built by validating plain data (a cached JSON blob, or the dict a fresh
     calculation was dumped to), so model instances can appear in `results` exactly where the
     annotation declares a model type — `Any`/`dict[str, Any]` positions stay plain data.
+
+    Response classes are split on this roughly down the middle: many type `results` items as models,
+    while others — including the largest payloads (trends, funnels) — type them as plain data.
+    That split is historical, not a pattern to extend; this helper only exists to serve both
+    correctly, and should disappear if the response classes ever converge on one style.
     """
     field = response_class.model_fields.get("results")
     if field is None:
