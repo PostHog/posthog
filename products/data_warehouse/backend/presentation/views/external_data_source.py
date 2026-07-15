@@ -43,8 +43,9 @@ from posthog.hogql.direct_sql.capability import direct_capable_source_types
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.event_usage import EventSource, get_event_source, report_user_action
+from posthog.event_usage import EventSource, get_event_source, is_wizard_self_driving_program, report_user_action
 from posthog.exceptions_capture import capture_exception
+from posthog.models.integration import Integration
 from posthog.models.user import User
 from posthog.permissions import (
     AccessControlPermission,
@@ -240,6 +241,30 @@ def get_sensitive_field_names(fields: list[FieldType]) -> set[str]:
                 if option.fields:
                     sensitive.update(get_sensitive_field_names(option.fields))
     return sensitive
+
+
+def get_oauth_integration_kinds(fields: list[FieldType]) -> set[str]:
+    """The integration kinds a source connects with, declared by its `oauth` fields (`kind`) and its
+    `oauth-account-select` fields (`integrationKind`). Every OAuth account listing is served by one
+    endpoint that takes an integration id from the caller, so this is what the endpoint checks that id
+    against — a Google integration id must not be able to route its token into the LinkedIn Ads client
+    just because both rows belong to the caller's team.
+
+    Both field types are read because a source can list accounts without rendering a picker: GitHub
+    serves repositories to its own component off a plain `oauth` field."""
+    kinds: set[str] = set()
+    for field in fields:
+        if isinstance(field, SourceFieldOauthAccountSelectConfig):
+            kinds.add(field.integrationKind)
+        elif isinstance(field, SourceFieldOauthConfig):
+            kinds.add(field.kind)
+        elif isinstance(field, SourceFieldSwitchGroupConfig):
+            kinds.update(get_oauth_integration_kinds(field.fields))
+        elif isinstance(field, SourceFieldSelectConfig):
+            for option in field.options:
+                if option.fields:
+                    kinds.update(get_oauth_integration_kinds(option.fields))
+    return kinds
 
 
 def _add_name_variants(target: set[str], name: str) -> None:
@@ -1284,9 +1309,9 @@ class ExternalDataSourceCreateSerializer(serializers.Serializer):
     )
     created_via = serializers.ChoiceField(
         # `wizard` and `self_driving` are intentionally omitted: they are never accepted from a
-        # caller (that would let any client self-label as wizard- or PostHog Code-created). They
-        # are derived server-side by upgrading a machine-injected `mcp` value when the request
-        # comes from the wizard or PostHog Code transport.
+        # caller (that would let any client self-label as wizard- or self-driving-created). They
+        # are derived server-side by upgrading a machine-injected `mcp` value based on the request
+        # transport (the wizard, PostHog Code, or the wizard's self-driving program).
         choices=[
             ExternalDataSource.CreatedVia.WEB,
             ExternalDataSource.CreatedVia.API,
@@ -1846,6 +1871,23 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         if not isinstance(source, OAuthMixin):
             raise ValidationError(f"Source type {source_type} does not support listing OAuth accounts")
 
+        # The integration id is caller-supplied and each source looks it up by (id, team_id) only, so
+        # without this a same-team integration of a different provider would be accepted here and its
+        # OAuth token handed to this source's provider. Pin it to the kind(s) the source's picker
+        # declares before any of that runs.
+        expected_kinds = get_oauth_integration_kinds(source.get_source_config.fields)
+        if not expected_kinds:
+            raise ValidationError(f"Source type {source_type} does not support listing OAuth accounts")
+        if not Integration.objects.filter(
+            id=integration_id_int, team_id=self.team_id, kind__in=expected_kinds
+        ).exists():
+            # One message for "gone" and "wrong kind" alike: from the UI both mean the picker is holding
+            # a connection this source can't use, and neither tells the caller anything about ids it
+            # isn't already allowed to see.
+            raise ValidationError(
+                f"No {source_type} connection was found for this integration. Please reconnect the integration."
+            )
+
         cache_key = f"oauth_accounts/{self.team_id}/{source_type}/{integration_id_int}/{search or ''}"
         cached = cache.get(cache_key)
         if cached is not None:
@@ -1918,6 +1960,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 EventSource.POSTHOG_CODE: ExternalDataSource.CreatedVia.SELF_DRIVING,
             }
             created_via = transport_created_via.get(get_event_source(request), created_via)
+            # The wizard's `self-driving` onboarding program shares the generic `posthog/wizard`
+            # transport but marks its UA distinctly — attribute its sources as self_driving too, so
+            # a source connected during a self-driving run isn't lumped in with plain wizard setups.
+            if created_via == ExternalDataSource.CreatedVia.WIZARD and is_wizard_self_driving_program(request):
+                created_via = ExternalDataSource.CreatedVia.SELF_DRIVING
         is_direct_query = access_method == ExternalDataSource.AccessMethod.DIRECT
         is_direct_mysql = is_direct_query and source_type == ExternalDataSourceType.MYSQL
         is_direct_snowflake = is_direct_query and source_type == ExternalDataSourceType.SNOWFLAKE
@@ -4169,7 +4216,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     )
     @action(methods=["GET"], detail=False)
     def wizard(self, request: Request, *arg: Any, **kwargs: Any):
-        configs = build_source_configs()
+        # The documented-tables catalog is only consumed by the posthog.com docs build (via the
+        # public endpoint) — skipping it here cuts ~40% off an already >1 MB response.
+        configs = build_source_configs(include_tables=False)
 
         requested = request.query_params.get("source_type")
         if requested:

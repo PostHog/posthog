@@ -55,7 +55,6 @@ Create an organization access token in your [Deno Deploy dashboard](https://app.
             iconPath="/static/services/deno_deploy.png",
             docsUrl="https://posthog.com/docs/cdp/sources/deno-deploy",
             keywords=["deno", "deploy", "serverless", "edge"],
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [

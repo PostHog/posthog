@@ -96,6 +96,7 @@ ActivityScope = Literal[
     "StreamlitApp",
     "Metric",
     "TableCertification",
+    "Billing",
 ]
 ChangeAction = Literal[
     "changed", "created", "deleted", "merged", "split", "exported", "revoked", "logged_in", "logged_out", "copied"
