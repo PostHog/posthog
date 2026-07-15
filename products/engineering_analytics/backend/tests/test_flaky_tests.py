@@ -50,13 +50,15 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
         old = now - timedelta(days=10)
 
         rows = [
-            # Qualifies via distinct PRs (3): 4 failed + 1 error spans, one PR hit twice (dedup),
-            # one master error with no PR (counts as a failure, not a PR), plus one xfail.
+            # Qualifies via distinct PRs (3): failed/error spans, one PR hit twice (dedup), two
+            # master failures with no PR (count as failures, not PRs, and drive master_failed_count),
+            # plus one xfail on master that must NOT count as a master failure.
             cls._span(1, T_PRS, "failed", ts=earlier, pr="101", branch="f1"),
             cls._span(2, T_PRS, "failed", ts=earlier, pr="101", branch="f1"),
             cls._span(3, T_PRS, "failed", ts=earlier, pr="102", branch="f2"),
             cls._span(4, T_PRS, "error", ts=earlier, pr="103", branch="f3"),
             cls._span(5, T_PRS, "error", ts=earlier, branch="master"),
+            cls._span(19, T_PRS, "failed", ts=earlier, branch="main"),
             cls._span(6, T_PRS, "xfailed", ts=cls.recent, branch="master"),
             # Qualifies via pass-on-retry; the passing span must not leak into any count. The
             # emitter stamped test.selector here, so it wins over the nodeid reconstruction.
@@ -147,13 +149,18 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
         # reconstruction (folded '/' → '.py' boundary).
         assert by_rerun["selector"] == T_RERUN_SELECTOR
         assert by_prs["selector"] == "posthog/api/test/test_prs.py::TestPRs::test_flaky_on_prs"
-        assert (by_prs["rerun_passed_count"], by_prs["failed_count"], by_prs["failed_pr_count"]) == (0, 5, 3)
-        assert (by_prs["branch_count"], by_prs["xfailed_count"]) == (4, 1)
+        assert (by_prs["rerun_passed_count"], by_prs["failed_count"], by_prs["failed_pr_count"]) == (0, 6, 3)
+        assert (by_prs["branch_count"], by_prs["xfailed_count"]) == (5, 1)
+        # Only failed/error spans on master/main: the master error (5) and the main failure (19).
+        # The master xfail (6) is not a failure and doesn't count.
+        assert by_prs["master_failed_count"] == 2
         # max() over the signal spans — the xfail at `recent` is newer than the failures.
         assert by_prs["last_seen_at"].startswith(self.recent.strftime("%Y-%m-%dT%H:%M:%S"))
         assert (by_rerun["rerun_passed_count"], by_rerun["failed_count"], by_rerun["failed_pr_count"]) == (2, 0, 0)
         # 2, not 3: the plain 'passed' span (branch 'pass-branch') is outside the signal set.
         assert (by_rerun["branch_count"], by_rerun["xfailed_count"]) == (2, 0)
+        # T_RERUN's only master span (8) is a rerun_passed, not a failure — so no master failures.
+        assert by_rerun["master_failed_count"] == 0
 
     @parameterized.expand(
         [

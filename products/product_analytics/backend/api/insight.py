@@ -134,7 +134,10 @@ from products.alerts.backend.models.alert import AlertConfiguration
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.product_analytics.backend.api.insight_metadata import generate_insight_metadata
+from products.product_analytics.backend.api.insight_metadata import (
+    InsightMetadataTimeoutError,
+    generate_insight_metadata,
+)
 from products.product_analytics.backend.api.insight_suggestions import get_insight_analysis, get_insight_suggestions
 from products.product_analytics.backend.api.insight_variable import map_stale_to_latest
 from products.product_analytics.backend.models.insight import Insight, InsightViewed
@@ -1555,7 +1558,11 @@ class InsightViewSet(
                 ),
                 Prefetch(
                     "alertconfiguration_set",
-                    queryset=AlertConfiguration.objects.select_related("created_by"),
+                    # AlertSerializer emits threshold and subscribed_users per alert; without these,
+                    # every alert in the list costs two extra queries
+                    queryset=AlertConfiguration.objects.select_related("created_by", "threshold").prefetch_related(
+                        "subscribed_users"
+                    ),
                     to_attr="_prefetched_alerts",
                 ),
             )
@@ -2057,6 +2064,9 @@ When set, the specified dashboard's filters and date range override will be appl
 
         try:
             metadata = generate_insight_metadata(validated_query, self.team)
+        except InsightMetadataTimeoutError as e:
+            capture_exception(e)
+            raise APIException("Generating a name took too long. Please try again.")
         except Exception as e:
             capture_exception(e)
             raise APIException("Failed to generate insight metadata. Please try again.")

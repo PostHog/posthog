@@ -19,7 +19,7 @@
         "@testing-library/react": "*",
         "@types/react": "*",
         "clsx": "*",
-        "fast-deep-equal": "*",
+        "fast-equals": "catalog:",
         "react": "*",
         "react-window": "*"
     }

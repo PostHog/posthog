@@ -68,7 +68,6 @@ The RSS.com API is available on Network plans. You can create an API key under *
             # Hidden until the source has been validated against a live RSS.com Network-plan
             # account — the API launched in public beta in early 2026 and behavior was verified
             # against its OpenAPI spec only.
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

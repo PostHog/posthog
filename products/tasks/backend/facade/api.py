@@ -882,6 +882,20 @@ def update_task_run_state(
     return TaskRun.update_state_atomic(run_id, updates=updates, remove_keys=remove_keys)
 
 
+def set_task_run_created_at_for_seeding(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, created_at: datetime
+) -> None:
+    """Backdate a run's ``created_at`` — DEBUG-only escape hatch for dev seeding.
+
+    Signals' billing/refund seeding needs runs whose billable moment falls on an earlier UTC
+    day; ``created_at`` is deliberately not writable through the PATCH surface, so the hatch
+    lives here rather than callers reaching into the ORM.
+    """
+    if not settings.DEBUG:
+        raise RuntimeError("set_task_run_created_at_for_seeding is DEBUG-only")
+    TaskRun.objects.filter(pk=run_id, task_id=task_id, team_id=team_id).update(created_at=created_at)
+
+
 def fail_task_run(run_id: str | UUID, error: str, error_type: str | None = None) -> bool:
     """Mark a QUEUED run as failed. Returns whether a run was acted on.
 
@@ -3243,9 +3257,11 @@ async def select_repository_for_message(team_id: int, user_id: int, message: str
     )
 
 
-def _list_tasks_queryset(team_id: int, user_id: int | None, *, filters: dict) -> QuerySet[Task]:
+def _list_tasks_queryset(
+    team_id: int, user_id: int | None, *, filters: dict, bypass_visibility: bool = False
+) -> QuerySet[Task]:
     latest_run = TaskRun.objects.filter(task=OuterRef("pk"), team_id=team_id).order_by("-created_at", "-id")
-    qs = _visible_task_qs(team_id, user_id).order_by("-created_at", "-id")
+    qs = _visible_task_qs(team_id, user_id, bypass_visibility=bypass_visibility).order_by("-created_at", "-id")
 
     origin_product = filters.get("origin_product")
     if origin_product:
@@ -3423,7 +3439,7 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
     from posthog.models import Team  # noqa: PLC0415
 
     from products.signals.backend.task_run_artefacts import (  # noqa: PLC0415 — cross-product write kept off the api import path
-        record_implementation_task,
+        record_report_task,
     )
     from products.tasks.backend.logic.services.title_generator import generate_task_title  # noqa: PLC0415
     from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
@@ -3502,9 +3518,9 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
             )
             return _task_detail_to_dto(_task_detail_queryset().get(pk=warm_task.pk))
 
-    # Only IMPLEMENTATION is accepted; pop it so it isn't forwarded to the model. The link itself
-    # is recorded by record_implementation_task below.
-    validated_data.pop("signal_report_task_relationship", None)
+    # The relationship the client asserted (validated by the serializer, which rejects `research`).
+    # Popped so it isn't forwarded to the model; the link itself is recorded by record_report_task below.
+    signal_report_task_relationship = validated_data.pop("signal_report_task_relationship", None)
 
     if not validated_data.get("github_integration"):
         default_integration = Integration.objects.filter(team=team, kind="github").first()
@@ -3538,12 +3554,14 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
     with transaction.atomic():
         task = Task.objects.create(**validated_data)
         if task.signal_report_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT:
-            # Dual-write the implementation gate row + task_run work-log artefact (see
-            # record_implementation_task) so a manually-started task matches autostarted ones.
-            record_implementation_task(
+            # Record the task↔report association + work-log artefact for the asserted relationship
+            # (defaults to implementation, which also writes the auto-start spend gate row) so a
+            # manually-started task matches autostarted ones.
+            record_report_task(
                 team_id=task.team_id,
                 report_id=str(task.signal_report_id),
                 task_id=str(task.id),
+                relationship=signal_report_task_relationship,
             )
 
     return _task_detail_to_dto(_task_detail_queryset().get(pk=task.pk))

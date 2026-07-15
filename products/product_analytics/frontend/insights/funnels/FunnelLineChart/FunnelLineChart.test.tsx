@@ -112,11 +112,12 @@ describe('FunnelLineChart', () => {
             // Current and previous of the same breakdown are separate tooltip rows, keyed by
             // breakdown_value/compare_label. Regression guard: without compare_label threaded into
             // the tooltip datum, both rows collapsed into one shared column and only the current
-            // value rendered, leaving the previous row showing "–".
-            expect(tooltip.row('Spike · Current')).toContain('50%')
-            expect(tooltip.row('Spike · Previous')).toContain('45%')
-            expect(tooltip.row('Bramble · Current')).toContain('30%')
-            expect(tooltip.row('Bramble · Previous')).toContain('25%')
+            // value rendered, leaving the previous row showing "–". Rows are sorted by value
+            // descending, so the four distinct conversion values must all render.
+            const rowValues = Array.from(tooltip.element.querySelectorAll('[data-attr="hog-chart-tooltip-row"]')).map(
+                (row) => row.querySelector('[data-attr="hog-chart-tooltip-value"]')?.textContent
+            )
+            expect(rowValues).toEqual(['50%', '45%', '30%', '25%'])
         })
     })
 

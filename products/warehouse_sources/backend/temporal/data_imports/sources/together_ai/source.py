@@ -65,7 +65,6 @@ You can find or create an API key in your [Together AI settings](https://api.tog
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

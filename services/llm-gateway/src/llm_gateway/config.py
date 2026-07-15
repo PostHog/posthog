@@ -69,6 +69,13 @@ FREE_PLAN_COST_LIMIT = UserCostLimit(
     sustained_window_seconds=2592000,
 )
 
+ORG_BILLED_USER_COST_LIMIT = UserCostLimit(
+    burst_limit_usd=float("inf"),
+    burst_window_seconds=86400,
+    sustained_limit_usd=float("inf"),
+    sustained_window_seconds=2592000,
+)
+
 
 _COST_LIMIT_KEY_ALIASES: dict[str, str] = {
     "array": "posthog_code",
