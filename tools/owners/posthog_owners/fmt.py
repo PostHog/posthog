@@ -33,6 +33,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
+from .matcher import compile_pattern
 from .resolver import OWNERS_FILENAME, PRODUCT_FILENAME, OwnersFile, OwnersResolver, ParsedOwnershipFile
 from .schema import OwnersRule, _Unset, is_simple_owners_file, match_is_glob
 
@@ -403,7 +404,7 @@ class CanonicalPlacer:
         proposed = self._proposed_files(entries, placements, open_dirs)
         self._prove(proposed, all_owners)  # raises on any resolution mismatch
 
-        creations, deletions, additions = self._diff(entries, proposed, open_dirs, pinned_dirs)
+        creations, deletions, additions = self._diff(entries, proposed, open_dirs, pinned_dirs, code_files)
         return CanonicalPlan(
             current_cost=self._current_cost(entries),
             canonical_cost=self._layout_cost(open_dirs, placements, pinned_dirs),
@@ -474,6 +475,7 @@ class CanonicalPlacer:
         proposed: dict[str, OwnersFile],
         open_dirs: set[str],
         pinned_dirs: set[str],
+        code_files: list[str],
     ) -> tuple[list[str], list[str], dict[str, list[str]]]:
         current_simple_dirs: set[str] = set()  # dirs whose file fmt may delete
         # dir -> {match: owners as written} — last occurrence wins, mirroring the
@@ -516,7 +518,22 @@ class CanonicalPlacer:
                     added.append(f"{m} -> {_fmt_owners(o)}")
                 elif o != cur_rules[m]:
                     changed.append(f"{m}: {_fmt_owners(cur_rules[m])} -> {_fmt_owners(o)}")
-            edits += sorted(changed) + sorted(added)
+            removed: list[str] = []
+            # Rebuilt simple carriers can shed rules the canonical layout proved
+            # redundant; those drops are part of the plan too. Rules that match no
+            # code file under the carrier stay silent — they act outside fmt's
+            # domain (e.g. the root rule routing owners.yaml edits) and the proof
+            # never reasons about them, so fmt must not propose touching them.
+            if carrier not in pinned_dirs:
+                for m in cur_rules.keys() - proposed_rules.keys():
+                    matcher = compile_pattern(m)
+                    prefix = f"{carrier}/" if carrier else ""
+                    in_domain = any(
+                        matcher.test(p[len(prefix) :]) for p in code_files if not prefix or p.startswith(prefix)
+                    )
+                    if in_domain:
+                        removed.append(f"drop {m} (was {_fmt_owners(cur_rules[m])})")
+            edits += sorted(changed) + sorted(added) + sorted(removed)
             if edits:
                 additions[path] = edits
 

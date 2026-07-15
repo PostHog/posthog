@@ -490,6 +490,30 @@ def test_fmt_preserves_unowned_by_design_exemptions(tmp_path: Path) -> None:
         assert "/a/ -> (unowned)" in plan.additions.get("owners.yaml", [])
 
 
+def test_fmt_reports_stale_rule_removals(tmp_path: Path) -> None:
+    # `/b/` restates what the file's own owners already provide; canonical layout
+    # drops it. The product.yaml alias above blocks carry-up, so the backend file
+    # must stay open — a plan that stayed silent about the shed rule would report
+    # is_canonical while the stale rule (and the cost difference) persists.
+    plan = _fmt_plan(
+        tmp_path,
+        {
+            "owners.yaml": "version: 1\nowners: []\n",
+            "products/foo/product.yaml": "name: Foo\nowners:\n    - team-p\n",
+            "products/foo/x.py": "x",
+            "products/foo/backend/owners.yaml": (
+                "version: 1\nowners: [team-a]\nrules:\n  - match: '/b/'\n    owners: [team-a]\n"
+            ),
+            "products/foo/backend/b/f.py": "x",
+            "products/foo/backend/g.py": "x",
+            "r1.py": "x",
+        },
+    )
+    assert not plan.is_canonical
+    assert "drop /b/ (was [team-a])" in plan.additions.get("products/foo/backend/owners.yaml", [])
+    assert "products/foo/backend/owners.yaml" not in plan.deletions
+
+
 def test_fmt_pins_files_with_rule_level_metadata(tmp_path: Path) -> None:
     # Relocation only preserves match+owners, so a rule carrying status/inherit
     # must pin its file exactly like a glob does — otherwise folding this child
