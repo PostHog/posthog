@@ -18,7 +18,7 @@ import posthoganalytics
 import posthoganalytics.ai.openai
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
 from posthoganalytics.ai.openai import OpenAI
 from rest_framework import filters, response, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -649,6 +649,56 @@ class UserInterviewTopicSerializer(serializers.ModelSerializer):
         return topic
 
 
+class UserInterviewTopicSummarySerializer(serializers.ModelSerializer):
+    """Lightweight serializer for the topics list.
+
+    Deliberately omits interviewee contact details, voice-agent configuration,
+    questions, and invite copy — those are sensitive and payload-heavy, and are
+    served only by the detail (retrieve) endpoint. List callers get metadata plus
+    counts, which is all the topics table needs to render.
+    """
+
+    created_by = UserBasicSerializer(read_only=True)
+    topic = serializers.CharField(
+        read_only=True,
+        help_text="The product, feature, or idea interviewees are asked about.",
+    )
+    interviewee_email_count = serializers.SerializerMethodField(
+        help_text="Number of email addresses targeted by this topic.",
+    )
+    interviewee_distinct_id_count = serializers.SerializerMethodField(
+        help_text="Number of PostHog distinct IDs targeted by this topic.",
+    )
+    question_count = serializers.SerializerMethodField(
+        help_text="Number of questions the voice agent works through in this interview.",
+    )
+
+    class Meta:
+        model = UserInterviewTopic
+        fields = (
+            "id",
+            "created_by",
+            "created_at",
+            "topic",
+            "interviewee_email_count",
+            "interviewee_distinct_id_count",
+            "question_count",
+        )
+        read_only_fields = fields
+
+    @extend_schema_field(OpenApiTypes.INT)
+    def get_interviewee_email_count(self, obj: UserInterviewTopic) -> int:
+        return len(obj.interviewee_emails or [])
+
+    @extend_schema_field(OpenApiTypes.INT)
+    def get_interviewee_distinct_id_count(self, obj: UserInterviewTopic) -> int:
+        return len(obj.interviewee_distinct_ids or [])
+
+    @extend_schema_field(OpenApiTypes.INT)
+    def get_question_count(self, obj: UserInterviewTopic) -> int:
+        return len(obj.questions or [])
+
+
 def _parse_identifier(identifier: str) -> tuple[str, str | None]:
     """Tuple-shaped shim around the facade's identifier parser for legacy internal callers."""
     identity = parse_interviewee_identifier(identifier)
@@ -987,6 +1037,13 @@ class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     search_fields = ["topic"]
     posthog_feature_flag = "user-interviews"
     permission_classes = [PostHogFeatureFlagPermission]
+
+    def get_serializer_class(self) -> type[serializers.BaseSerializer]:
+        # Keep interviewee contact details and agent configuration off the list
+        # response — only the detail endpoint serves the full targeting fields.
+        if self.action == "list":
+            return UserInterviewTopicSummarySerializer
+        return UserInterviewTopicSerializer
 
     @extend_schema(
         request=None,

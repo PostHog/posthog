@@ -7,7 +7,7 @@ import { urls } from 'scenes/urls'
 import { Breadcrumb } from '~/types'
 
 import { userInterviewTopicsList, userInterviewsSearchCreate } from './generated/api'
-import type { UserInterviewSearchResultApi, UserInterviewTopicApi } from './generated/api.schemas'
+import type { UserInterviewSearchResultApi, UserInterviewTopicSummaryApi } from './generated/api.schemas'
 import type { userInterviewsLogicType } from './userInterviewsLogicType'
 
 export const userInterviewsLogic = kea<userInterviewsLogicType>([
@@ -25,7 +25,7 @@ export const userInterviewsLogic = kea<userInterviewsLogicType>([
     }),
     loaders(({ values }) => ({
         topics: {
-            __default: [] as UserInterviewTopicApi[],
+            __default: [] as UserInterviewTopicSummaryApi[],
             loadTopics: async () => {
                 const projectId = String(teamLogic.values.currentTeamId)
                 const response = await userInterviewTopicsList(projectId)
