@@ -92,6 +92,14 @@ pub async fn apply_quota_limits(
         return Err(Error::BillingLimitExceeded);
     }
 
+    let ingested_event_count = events
+        .iter()
+        .filter(|event| event.result == EventResult::Ok)
+        .count() as u64;
+    limiter
+        .report_grace_period_ingestion(token, ingested_event_count)
+        .await;
+
     Ok(())
 }
 
@@ -105,14 +113,13 @@ mod tests {
     use chrono::{DateTime, Utc};
     use common_continuous_profiling::ContinuousProfilingConfig;
     use common_redis::MockRedisClient;
-    use limiters::redis::QUOTA_LIMITER_CACHE_KEY;
+    use limiters::redis::{QUOTA_LIMITER_CACHE_KEY, QUOTA_LIMITING_SUSPENDED_CACHE_KEY};
     use serde_json::value::RawValue;
     use tracing::Level;
     use uuid::Uuid;
 
-    use crate::config::EnvelopeCompression;
-
-    use crate::config::{CaptureMode, Config, KafkaConfig};
+    use crate::config::{CaptureMode, Config, EnvelopeCompression, KafkaConfig};
+    use crate::prometheus::CAPTURE_EVENTS_INGESTED_DURING_BILLING_GRACE_PERIOD_TOTAL;
     use crate::v1::analytics::types::{Event, Options, RawOptions};
 
     fn test_config() -> Config {
@@ -261,15 +268,37 @@ mod tests {
         set_global_limit: bool,
         resources_to_limit: &[QuotaResource],
     ) -> CaptureQuotaLimiter {
+        build_limiter_with_grace(token, set_global_limit, false, resources_to_limit).await
+    }
+
+    async fn build_limiter_with_grace(
+        token: &str,
+        set_global_limit: bool,
+        set_grace_period: bool,
+        resources_to_limit: &[QuotaResource],
+    ) -> CaptureQuotaLimiter {
         let cfg = test_config();
         let global_resource = CaptureQuotaLimiter::get_resource_for_mode(cfg.capture_mode);
         let global_key = format!("{}{}", QUOTA_LIMITER_CACHE_KEY, global_resource.as_str());
+        let grace_period_key = format!(
+            "{}{}",
+            QUOTA_LIMITING_SUSPENDED_CACHE_KEY,
+            global_resource.as_str()
+        );
 
         let mut redis = if set_global_limit {
             MockRedisClient::new().zrangebyscore_ret(&global_key, vec![token.to_string()])
         } else {
             MockRedisClient::new().zrangebyscore_ret(&global_key, vec![])
         };
+        redis = redis.zrangebyscore_ret(
+            &grace_period_key,
+            if set_grace_period {
+                vec![token.to_string()]
+            } else {
+                vec![]
+            },
+        );
 
         for resource in &[
             QuotaResource::Exceptions,
@@ -388,6 +417,53 @@ mod tests {
         assert!(result.is_ok());
         assert_eq!(ok_event_names(&events).len(), 4);
         assert!(quota_dropped_event_names(&events).is_empty());
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn grace_period_counts_only_events_that_remain_ingestable() {
+        use metrics_util::debugging::{DebugValue, DebuggingRecorder};
+
+        let limiter = build_limiter_with_grace(
+            "tok",
+            false,
+            true,
+            &[QuotaResource::Exceptions],
+        )
+        .await;
+        let mut events = vec![make_event("$pageview", None), make_event("$exception", None)];
+
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let _guard = metrics::set_default_local_recorder(&recorder);
+
+        let result = apply_quota_limits(&limiter, "tok", &mut events).await;
+
+        assert!(result.is_ok());
+        assert_eq!(ok_event_names(&events), vec!["$pageview"]);
+        let grace_period_count = snapshotter
+            .snapshot()
+            .into_vec()
+            .into_iter()
+            .find_map(|(key, _, _, value)| {
+                if key.key().name()
+                    != CAPTURE_EVENTS_INGESTED_DURING_BILLING_GRACE_PERIOD_TOTAL
+                {
+                    return None;
+                }
+                let resource = key
+                    .key()
+                    .labels()
+                    .find(|label| label.key() == "resource")
+                    .map(|label| label.value());
+                if resource != Some("events") {
+                    return None;
+                }
+                match value {
+                    DebugValue::Counter(count) => Some(count),
+                    _ => None,
+                }
+            });
+        assert_eq!(grace_period_count, Some(1));
     }
 
     // -----------------------------------------------------------------------

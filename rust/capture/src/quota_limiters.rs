@@ -4,14 +4,20 @@ use std::time::Duration;
 
 use common_redis::Client;
 use common_types::HasEventName;
-use limiters::redis::{QuotaResource, RedisLimiter, ServiceName, QUOTA_LIMITER_CACHE_KEY};
+use limiters::redis::{
+    QuotaResource, RedisLimiter, ServiceName, QUOTA_LIMITER_CACHE_KEY,
+    QUOTA_LIMITING_SUSPENDED_CACHE_KEY,
+};
 use metrics::counter;
 
 use crate::{
     api::CaptureError,
     config::CaptureMode,
     config::Config,
-    prometheus::{report_quota_limit_exceeded, CAPTURE_EVENTS_DROPPED_TOTAL},
+    prometheus::{
+        report_quota_limit_exceeded, CAPTURE_EVENTS_DROPPED_TOTAL,
+        CAPTURE_EVENTS_INGESTED_DURING_BILLING_GRACE_PERIOD_TOTAL,
+    },
 };
 
 #[derive(Clone, Copy)]
@@ -65,6 +71,8 @@ pub struct CaptureQuotaLimiter {
     // all events are dropped for the incoming payload. Due to this, this limiter
     // IS ALWAYS APPLIED LAST in the chain.
     global_limiter: RedisLimiter,
+
+    grace_period_limiter: RedisLimiter,
 }
 
 impl CaptureQuotaLimiter {
@@ -86,6 +94,15 @@ impl CaptureQuotaLimiter {
             ServiceName::Capture,
         )
         .expect(&err_msg);
+        let grace_period_limiter = RedisLimiter::new(
+            redis_timeout,
+            redis_client.clone(),
+            QUOTA_LIMITING_SUSPENDED_CACHE_KEY.to_string(),
+            config.redis_key_prefix.clone(),
+            Self::get_resource_for_mode(config.capture_mode),
+            ServiceName::Capture,
+        )
+        .expect("failed to create billing grace period limiter");
 
         Self {
             capture_mode: config.capture_mode,
@@ -93,6 +110,7 @@ impl CaptureQuotaLimiter {
             redis_key_prefix: config.redis_key_prefix.clone(),
             redis_client: redis_client.clone(),
             global_limiter,
+            grace_period_limiter,
             scoped_limiters: vec![],
         }
     }
@@ -209,6 +227,19 @@ impl CaptureQuotaLimiter {
             .map(|i| indices_to_events.remove(i).unwrap())
             .collect();
         Ok(filtered_events)
+    }
+
+    pub async fn report_grace_period_ingestion(&self, token: &str, event_count: u64) {
+        if event_count == 0 || !self.grace_period_limiter.is_limited(token).await {
+            return;
+        }
+
+        let resource = Self::get_resource_for_mode(self.capture_mode).as_str();
+        counter!(
+            CAPTURE_EVENTS_INGESTED_DURING_BILLING_GRACE_PERIOD_TOTAL,
+            "resource" => resource
+        )
+        .increment(event_count);
     }
 
     /// Check if a token is limited for a specific quota resource bucket.

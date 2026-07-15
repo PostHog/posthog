@@ -5,6 +5,8 @@ use metrics::counter;
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 
 pub const CAPTURE_EVENTS_DROPPED_TOTAL: &str = "capture_events_dropped_total";
+pub const CAPTURE_EVENTS_INGESTED_DURING_BILLING_GRACE_PERIOD_TOTAL: &str =
+    "capture_events_ingested_during_billing_grace_period_total";
 
 pub fn report_dropped_events(cause: &'static str, quantity: u64) {
     counter!(CAPTURE_EVENTS_DROPPED_TOTAL, "cause" => cause).increment(quantity);

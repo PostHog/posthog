@@ -35,6 +35,7 @@ use tokio::time::interval;
 // due to historical reasons we use different suffixes for quota limits and overflow
 // hopefully we can unify these in the future
 pub const QUOTA_LIMITER_CACHE_KEY: &str = "@posthog/quota-limits/";
+pub const QUOTA_LIMITING_SUSPENDED_CACHE_KEY: &str = "@posthog/quota-limiting-suspended/";
 pub const OVERFLOW_LIMITER_CACHE_KEY: &str = "@posthog/capture-overflow/";
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
