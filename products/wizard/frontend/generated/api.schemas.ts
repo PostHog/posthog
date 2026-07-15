@@ -137,6 +137,42 @@ export interface UpsertWizardSessionRequestApi {
     error?: UpsertWizardSessionRequestApiError
 }
 
+/**
+ * One row of the wizard audit's check ledger (.posthog-audit-checks.json).
+ */
+export interface SetupReviewCheckApi {
+    /** @maxLength 200 */
+    id: string
+    /** @maxLength 500 */
+    label: string
+    /** @maxLength 50 */
+    status: string
+    /**
+     * @maxLength 200
+     * @nullable
+     */
+    area?: string | null
+    /**
+     * @maxLength 1000
+     * @nullable
+     */
+    file?: string | null
+    /** @nullable */
+    details?: string | null
+}
+
+/**
+ * Input: a local wizard audit's check ledger, posted for the signals setup review.
+ */
+export interface SetupReviewRequestApi {
+    /**
+     * GitHub repository the audited project lives in, as 'owner/repo'. The signals pipeline uses it to pick the implementation repo for the review's PRs.
+     * @maxLength 300
+     */
+    repository: string
+    checks: SetupReviewCheckApi[]
+}
+
 export type WizardSessionsListParams = {
     /**
      * Number of results to return per page.

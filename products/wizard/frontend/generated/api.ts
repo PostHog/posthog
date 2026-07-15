@@ -10,6 +10,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     PaginatedWizardSessionDTOListApi,
+    SetupReviewRequestApi,
     UpsertWizardSessionRequestApi,
     WizardSessionDTOApi,
     WizardSessionsLatestRetrieveParams,
@@ -112,6 +113,26 @@ export const wizardSessionsLatestRetrieve = async (
     return apiMutator<WizardSessionDTOApi | void>(getWizardSessionsLatestRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getWizardSessionsSetupReviewCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/wizard/sessions/setup_review/`
+}
+
+/**
+ * Submit a local wizard audit's check ledger for the post-onboarding setup review. The signals pipeline turns the strongest failing checks into a handful of complimentary implementation PRs in the inbox. This should only be called by the PostHog Wizard. Fire-and-forget: always 202 once the payload validates — the review itself is idempotent (one per team, ever) and gated server-side on org AI consent.
+ */
+export const wizardSessionsSetupReviewCreate = async (
+    projectId: string,
+    setupReviewRequestApi: SetupReviewRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getWizardSessionsSetupReviewCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(setupReviewRequestApi),
     })
 }
 
