@@ -508,7 +508,8 @@ class TestCheckFreeTierModelAccess:
         if expected_allowed:
             assert error is None
         else:
-            assert model is not None and model in error
+            assert model is not None and error is not None
+            assert model in error
             assert "@cf/zai-org/glm-5.2" in error
 
     def test_denied_model_alias_variant_is_also_denied(self):
