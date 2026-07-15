@@ -148,9 +148,9 @@ class TestDashboardPropertyOverrides(BaseTest):
                     distinct_id_field="distinct_id",
                     table_name="warehouse_table",
                     timestamp_field="timestamp",
+                    properties=[insight_property],
                 )
-            ],
-            properties=[insight_property],
+            ]
         ).model_dump()
 
         query, effective_filters = resolve_effective_dashboard_filters(
@@ -158,4 +158,4 @@ class TestDashboardPropertyOverrides(BaseTest):
         )
         result = apply_dashboard_filters_to_dict(query, effective_filters, self.team)
 
-        assert [prop["value"] for prop in result["properties"]] == ["US"]
+        assert [prop["value"] for prop in result["series"][0]["properties"]] == ["US"]

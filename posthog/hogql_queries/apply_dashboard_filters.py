@@ -94,6 +94,19 @@ def _strip_query_properties(query: dict, overriding_props: list[dict]) -> dict:
         return {**query, "source": _strip_query_properties(query["source"], overriding_props)}
     if query.get("properties") is not None:
         query = {**query, "properties": _without_contradicted(query["properties"], overriding_props)}
+    series = query.get("series")
+    if isinstance(series, list):
+        query = {
+            **query,
+            "series": [
+                (
+                    {**node, "properties": _without_contradicted(node["properties"], overriding_props)}
+                    if isinstance(node, dict) and node.get("properties") is not None
+                    else node
+                )
+                for node in series
+            ],
+        }
     filters = query.get("filters")
     if isinstance(filters, dict) and filters.get("properties") is not None:
         query = {

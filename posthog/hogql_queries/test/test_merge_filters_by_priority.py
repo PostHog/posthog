@@ -148,6 +148,30 @@ class TestRemoveQueryPropertiesOverriddenBy(SimpleTestCase):
 
         assert stripped["source"]["properties"] == [{"key": "$country", "value": "US", "type": "event"}]
 
+    @parameterized.expand([("TrendsQuery",), ("FunnelsQuery",), ("LifecycleQuery",)])
+    def test_strips_contradicted_series_property(self, query_kind):
+        query = {
+            "kind": "InsightVizNode",
+            "source": {
+                "kind": query_kind,
+                "series": [
+                    {
+                        "kind": "EventsNode",
+                        "event": "$pageview",
+                        "properties": [
+                            {"key": "$browser", "value": "Chrome", "type": "event"},
+                            {"key": "$country", "value": "US", "type": "event"},
+                        ],
+                    }
+                ],
+            },
+        }
+        overriding = {"properties": [{"key": "$browser", "value": "Firefox", "type": "event"}]}
+
+        stripped = remove_query_properties_overridden_by(query, overriding)
+
+        assert stripped["source"]["series"][0]["properties"] == [{"key": "$country", "value": "US", "type": "event"}]
+
     def test_keeps_insight_property_compatible_with_the_override(self):
         # Insight `utm_source = google` and dashboard `utm_source is set` combine into a valid set, so the
         # insight's own filter is kept to stack rather than dropped.
