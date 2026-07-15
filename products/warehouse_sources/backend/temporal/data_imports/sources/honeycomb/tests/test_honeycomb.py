@@ -1,4 +1,5 @@
 import json
+from collections.abc import Mapping
 from typing import Any
 
 import pytest
@@ -62,7 +63,7 @@ def _not_found(url: str) -> requests.HTTPError:
 
 def _collect(
     endpoint: str,
-    lists: dict[str, list[dict] | Exception],
+    lists: Mapping[str, list[dict[str, Any]] | Exception],
     manager: _FakeResumableManager,
     monkeypatch: Any,
     region: str = "us",
