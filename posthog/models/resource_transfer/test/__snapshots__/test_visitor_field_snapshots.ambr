@@ -612,6 +612,7 @@
     'copy_to_dashboard',
     'dashboard_id',
     'dashboard_queryset',
+    'delete',
     'filters_hash',
     'id',
     'insight_id',
