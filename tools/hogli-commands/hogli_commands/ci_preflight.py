@@ -65,8 +65,8 @@ class DiffCheck:
     fix: list[str] | None = None  # remediation for --fix
     requires: tuple[Requirement, ...] = ()  # capabilities the check needs, else it skips
     takes_files: bool = False  # append matched files to the command
-    file_filter: Callable[[str], bool] | None = None
-    file_args_separator: str | None = None
+    file_filter: Callable[[str], bool] | None = None  # keep explicit files aligned with CI discovery
+    file_args_separator: str | None = None  # terminate option parsing before Git-derived paths
     matched: list[str] = field(default_factory=list)
 
 

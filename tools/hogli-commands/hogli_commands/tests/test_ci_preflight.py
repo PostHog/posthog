@@ -91,7 +91,7 @@ class TestStrictAndFixContracts:
     @patch("hogli_commands.ci_preflight.shutil.which", return_value="/usr/bin/tool")
     @patch("hogli_commands.ci_preflight.subprocess.run")
     @patch("hogli_commands.ci_preflight.changed_files", return_value=["--config-file=attacker.py"])
-    def test_python_changes_run_authoritative_type_check(
+    def test_mypy_terminates_options_before_changed_paths(
         self,
         mock_changed: MagicMock,
         mock_run: MagicMock,
