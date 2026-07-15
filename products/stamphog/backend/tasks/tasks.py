@@ -280,6 +280,8 @@ def _retract_stale_approvals_on_skip(repo_config: StamphogRepoConfig, pr: dict[s
     """
     team_id = repo_config.team_id
     pr_number = pr.get("number")
+    if pr_number is None:
+        return
     head_sha = (pr.get("head") or {}).get("sha") or ""
     pull_request = PullRequest.objects.for_team(team_id).filter(repo_config=repo_config, pr_number=pr_number).first()
     if pull_request is None:

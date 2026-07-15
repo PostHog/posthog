@@ -26,6 +26,7 @@ from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
+from rest_framework.views import APIView
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.scoping.manager import resolve_effective_team_id
@@ -94,13 +95,14 @@ class StamphogCanonicalTeamAccessPermission(BasePermission):
 
     message = "You don't have access to the project that owns this data."
 
-    def has_permission(self, request: Request, view: "_StamphogTeamScopedViewSet") -> bool:
+    def has_permission(self, request: Request, view: APIView) -> bool:
         if not request.user.is_authenticated:
             return True  # IsAuthenticated handles the unauthenticated case first
+        assert isinstance(view, _StamphogTeamScopedViewSet)  # only ever attached to the shared base
         team = view.team
         # parent_team_id is null (or equals self) for a root team; then canonical == URL team and the
         # default membership gate already authorized the right team.
-        if team.parent_team_id is None or team.parent_team_id == team.id:
+        if team.parent_team_id is None or team.parent_team_id == team.id or team.parent_team is None:
             return True
         # Same helper the default gate uses (effective_membership_level), just re-pointed at the parent.
         # It already accounts for a private parent team, so None means genuinely no access -> 403.

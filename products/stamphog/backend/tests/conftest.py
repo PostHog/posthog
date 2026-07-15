@@ -125,8 +125,9 @@ class StamphogChain:
     # Every file the fake sandbox had written into the checkout, as (path, payload) — lets a test
     # assert what was injected (e.g. default policy files when the repo carries none).
     sandbox_writes: list[tuple[str, bytes]]
-    # The fake sandbox class itself, so a test can script failure modes (e.g. destroy_error).
-    sandbox_class: type
+    # The fake sandbox class itself, so a test can script failure modes (destroy_error) and read
+    # captured create() configs (created_configs). Typed Any: the class attrs are fake-only.
+    sandbox_class: Any
 
     def post_webhook(self, payload: dict[str, Any], *, delivery_id: str) -> int:
         body = fakes.encode(payload)
