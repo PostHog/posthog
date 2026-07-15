@@ -68,7 +68,7 @@ _SERVER_ENGINE_DIR = Path(__file__).resolve().parents[4] / "tools" / "pr-approva
 # basename of each STAMPHOG_POLICY_PATHS entry (policy.yml / review-guidance.md): a repo with no
 # config reviews under these as-is, a repo's policy.yml overlays its sections onto the default's
 # (see _effective_policy_files), and a repo's review-guidance.md replaces the default wholesale.
-_POLICY_DEFAULTS_DIR = Path(__file__).resolve().parent.parent / "policy_defaults"
+_POLICY_DEFAULTS_DIR = Path(__file__).resolve().parent.parent / "logic" / "policy_defaults"
 
 
 @dataclass
@@ -226,6 +226,8 @@ def dismiss_stale_approvals(input: StamphogReviewInput) -> dict:
     )
     dismissed = 0
     for stale in stale_runs:
+        if stale.posted_review_id is None:
+            continue  # excluded by the query filter; narrows the Optional for the type checker
         client.dismiss_pr_review(repo, pull_request.pr_number, stale.posted_review_id, message)
         stale.approval_dismissed_at = timezone.now()
         stale.save(update_fields=["approval_dismissed_at", "updated_at"])

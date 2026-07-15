@@ -19,7 +19,7 @@ from products.stamphog.backend.temporal.constants import (  # noqa: E402
     STAMPHOG_STEERING_PATH,
 )
 
-_DEFAULT_POLICY = Path(__file__).resolve().parents[1] / "policy_defaults" / "policy.yml"
+_DEFAULT_POLICY = Path(__file__).resolve().parents[1] / "logic" / "policy_defaults" / "policy.yml"
 
 _SIZE_GATE_ONLY = "size_gate:\n    max_lines: 123\n    max_files: 7\n"
 

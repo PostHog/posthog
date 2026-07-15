@@ -27,12 +27,12 @@ from products.stamphog.backend.temporal.activities import (
 )
 from products.stamphog.backend.temporal.constants import STAMPHOG_SANDBOX_REPO_DIR
 from products.stamphog.backend.tests import fakes
-from products.stamphog.backend.tests.conftest import PRODUCT_DATABASES, StamphogChain
+from products.stamphog.backend.tests.conftest import PRODUCT_DATABASES, StamphogChain, _run_activity
 
 REPO = "acme/widgets"
 INSTALLATION_ID = "2001"
 BASE_SHA = "base000"
-POLICY_DEFAULTS_DIR = Path(__file__).resolve().parents[1] / "policy_defaults"
+POLICY_DEFAULTS_DIR = Path(__file__).resolve().parents[1] / "logic" / "policy_defaults"
 
 
 def _repo_config(team_id: int, *, digest_enabled: bool = True) -> StamphogRepoConfig:
@@ -229,7 +229,7 @@ def test_dismiss_stale_approvals(
         team_id=team.id, pull_request=pull_request, head_sha="sha-new", status=ReviewRunStatus.QUEUED
     )
 
-    dismiss_stale_approvals.__wrapped__(StamphogReviewInput(review_run_id=str(current.id), team_id=team.id))
+    _run_activity(dismiss_stale_approvals, StamphogReviewInput(review_run_id=str(current.id), team_id=team.id))
 
     dismissals = [w for w in stamphog_chain.recorder.github_writes if w["kind"] == "dismiss_review"]
     prior.refresh_from_db()
@@ -273,7 +273,7 @@ def test_mark_review_failed_captures_failure_event(team, raw_error, expected_sto
     with patch("products.stamphog.backend.temporal.activities.ph_scoped_capture") as mock_capture_cm:
         mock_capture_cm.return_value.__enter__.return_value = capture_fn
         mock_capture_cm.return_value.__exit__.return_value = False
-        mark_review_failed.__wrapped__(MarkReviewFailedInput(str(run.id), team.id, raw_error))
+        _run_activity(mark_review_failed, MarkReviewFailedInput(str(run.id), team.id, raw_error))
 
     run.refresh_from_db()
     assert run.status == ReviewRunStatus.FAILED
@@ -322,7 +322,7 @@ def test_refused_verdict_strips_trigger_label_only_in_label_mode(
         output={"reviewer_raw": _refused_engine_output()},
     )
 
-    post_verdict.__wrapped__(StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
+    _run_activity(post_verdict, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
 
     run.refresh_from_db()
     assert run.verdict == ReviewVerdict.REFUSED
