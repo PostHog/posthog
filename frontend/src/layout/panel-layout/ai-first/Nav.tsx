@@ -28,6 +28,7 @@ import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { urls } from 'scenes/urls'
 
 import {
+    DESKTOP_PANEL_NAVBAR_DEFAULT_WIDTH,
     NavExperimentTab,
     PANEL_NAVBAR_COLLAPSE_THRESHOLD,
     PANEL_NAVBAR_DEFAULT_WIDTH,
@@ -157,7 +158,8 @@ export function Nav(): JSX.Element {
 
     // Grow to any width upward; never render narrower than the collapse snap so the live drag
     // stays in sync with where onToggleClosed flips to collapsed mode.
-    const openWidth = Math.max(Math.round(desiredSize ?? PANEL_NAVBAR_DEFAULT_WIDTH), PANEL_NAVBAR_COLLAPSE_THRESHOLD)
+    const defaultNavbarWidth = isDesktopApp() ? DESKTOP_PANEL_NAVBAR_DEFAULT_WIDTH : PANEL_NAVBAR_DEFAULT_WIDTH
+    const openWidth = Math.max(Math.round(desiredSize ?? defaultNavbarWidth), PANEL_NAVBAR_COLLAPSE_THRESHOLD)
 
     useEffect(() => {
         if (!isLayoutNavCollapsed && !isMobileLayout) {

@@ -23,6 +23,8 @@ export const PANEL_LAYOUT_MIN_WIDTH: number = 160
 
 // Navbar resize: any width upward, snapping to collapsed below the threshold.
 export const PANEL_NAVBAR_DEFAULT_WIDTH: number = 215
+// Desktop app default: wide enough that the four tab labels (Apps/Files/Chat/Code) render next to their icons.
+export const DESKTOP_PANEL_NAVBAR_DEFAULT_WIDTH: number = 310
 // Below this the drag snaps to collapsed mode.
 export const PANEL_NAVBAR_COLLAPSE_THRESHOLD: number = 140
 
