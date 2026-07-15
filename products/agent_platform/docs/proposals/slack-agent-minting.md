@@ -9,7 +9,7 @@ Getting a Slack-triggered agent live today requires roughly ten manual steps acr
 The user creates a Slack app, configures scopes, copies credentials, installs the app, sets two agent secrets, promotes the revision, and then returns to Slack to configure request URLs.
 The promote-before-URL ordering trap is particularly confusing.
 
-The goal is that a user can ask either the agent builder or the PostHog Slack app:
+The goal is that a user can ask from any agent-authoring surface, including the agent builder or the PostHog Slack app:
 
 > Create a Slack agent named @JokerHog that tells jokes.
 
@@ -19,22 +19,65 @@ The only per-agent Slack ceremony should be authorizing the new Slack app.
 The Slack app is the agent's durable communication adapter and identity.
 The PostHog agent application remains the product entity, and revisions continue to represent versioned behavior.
 
-## Product entry points
+## Authoring surfaces and control-plane contract
 
-Provisioning must not depend on starting inside Slack.
-Both entry points call the same agent-builder workflow and connector control plane.
+Provisioning must not depend on starting inside Slack or using the PostHog Code UI.
+The canonical implementation is the connector control-plane API and its generated MCP tools.
+The agent builder, PostHog Slack app, PostHog Code, CLI clients, and future authoring experiences are clients of the same contract.
 
-### From the agent builder
+The origin contributes context and chooses how to present progress and required user input:
 
-The builder authors the agent, asks the user to select a connected Slack workspace, requests provisioning, presents the authorization link, and monitors activation.
+- The agent builder can ask the user to select a connected Slack workspace and render installation progress inline.
+- The existing PostHog Slack app can supply the Slack workspace, user, channel, and thread context, then report progress in the originating thread.
+- An API or MCP client can provide its own user experience while driving the same lifecycle.
 
-### From Slack
+The existing PostHog Slack app remains a concierge rather than becoming the runtime identity for every agent.
+No authoring agent or conversation receives Slack configuration tokens, signing secrets, client secrets, bot tokens, or other submitted secret values.
+Clients work with opaque request, enrollment, and connector IDs through typed control-plane tools.
 
-The existing PostHog Slack app supplies the Slack workspace, user, channel, and thread context, then starts the same builder task.
-It remains a concierge and progress surface rather than becoming the runtime identity for every agent.
+## Surface-independent user input
 
-The builder never receives Slack configuration tokens, signing secrets, client secrets, or bot tokens.
-It works with opaque enrollment and connector IDs through typed control-plane tools.
+Agent authoring frequently needs input that does not belong in a text conversation, including secrets, OAuth authorization, files, confirmations, and structured configuration.
+Slack provisioning should use a general transient-input primitive rather than hardcode a PostHog Code secrets punchout.
+
+When provisioning needs configuration credentials, the control plane creates an expiring, single-use input request that declares:
+
+- The fields or authorization required.
+- Which values are secret.
+- The authenticated user or team allowed to complete it.
+- The storage destination for submitted values.
+- Expiration, consumption, and cancellation state.
+- The status and non-sensitive metadata that the requesting agent may observe.
+
+For example:
+
+```text
+AgentInputRequest
+- team_id
+- requested_by_user_id
+- kind: secret | oauth | file | confirmation | structured_input
+- schema
+- destination_type
+- destination_id
+- expires_at
+- consumed_at
+- status
+```
+
+The active client decides how to render the request:
+
+- An inline protected form in PostHog Code.
+- A builder UI app.
+- A temporary page hosted alongside the agent experience.
+- A short-lived browser handoff from Slack.
+- A CLI prompt or customer-owned UI.
+
+Presentation is surface-specific, but submission and custody are not.
+Secret values submit directly to a platform-controlled endpoint, are encrypted into the declared destination, and are never returned to the authoring agent, MCP tool result, conversation history, or general agent runtime.
+An agent-hosted page may compose the experience, but agent-authored code must not receive the submitted secret values.
+
+The requesting workflow receives only state such as `pending`, `completed`, `expired`, or `cancelled`, then resumes from the corresponding opaque resource ID.
+The PostHog Code punchout is therefore one renderer for this contract, not the required authoring surface.
 
 ## Prior art: Vercel Connect and Eve
 
@@ -89,13 +132,16 @@ References:
 ### Documented fallback: workspace configuration token
 
 A Slack user with app-creation rights generates a configuration access token and refresh token for a workspace.
-PostHog stores the pair through a secure enrollment form, rotates it when necessary, and uses it to call the same manifest APIs.
+The control plane creates a secret input request targeting a `SlackAppProvisioningEnrollment`.
+Whichever client is driving the workflow renders that request and submits the pair directly to encrypted enrollment storage.
+PostHog rotates the credentials when necessary and uses them to call the same manifest APIs.
 
 The access token is not needed at runtime after an app is created and installed.
 The refresh chain is needed for future app creation, manifest updates, reconciliation, and deletion.
 
 This enrollment is less smooth than the manager path but uses Slack's documented public API.
-The token must never be pasted into Slack or an agent conversation.
+The token must never be pasted into an agent conversation or returned through an agent tool call.
+Clients that cannot safely render secret input should use a short-lived browser handoff rather than accepting the credential as conversational text.
 
 References:
 
@@ -182,14 +228,15 @@ It must reject stale callbacks rather than promoting a revision that has since b
 
 ## End-to-end flow
 
-1. **Author.** The builder creates or edits an agent with a Slack trigger.
+1. **Author.** Any authoring client creates or edits an agent with a Slack trigger through the shared control-plane contract.
 2. **Select.** The origin supplies or asks for the target Slack workspace and optional channels.
-3. **Enroll if needed.** The control plane checks provisioning authority. Manager enrollment is preferred; otherwise it returns a secure configuration-token enrollment URL.
-4. **Mint.** The builder calls `slack-app-mint` with the application, revision, workspace, and enrollment IDs. The provisioner renders `buildSlackManifest()` with stable connector URLs and creates the child app.
-5. **Authorize.** The user follows a one-time Slack OAuth URL for the child app.
-6. **Install.** The callback verifies state and workspace identity, then stores the bot token and installation metadata on the connector.
-7. **Activate.** An idempotent job updates `trusted_workspaces`, validates and freezes the target draft, promotes it, joins requested public channels, and reports completion.
-8. **Run.** Slack routes `@JokerHog` events to the connector URL, which dispatches them to the application's live revision.
+3. **Request input if needed.** The control plane checks provisioning authority. Manager enrollment is preferred; otherwise it creates an expiring secret input request targeting a workspace enrollment.
+4. **Render and submit.** The active client renders the request inline or through a short-lived handoff. Credentials submit directly to encrypted control-plane storage, and the authoring agent observes only completion status.
+5. **Mint.** The client calls `slack-app-mint` with the application, revision, workspace, and enrollment IDs. The provisioner renders `buildSlackManifest()` with stable connector URLs and creates the child app.
+6. **Authorize.** The client renders or links the one-time Slack OAuth request for the child app.
+7. **Install.** The callback verifies state and workspace identity, then stores the bot token and installation metadata on the connector.
+8. **Activate.** An idempotent job updates `trusted_workspaces`, validates and freezes the target draft, promotes it, joins requested public channels, and reports completion.
+9. **Run.** Slack routes `@JokerHog` events to the connector URL, which dispatches them to the application's live revision.
 
 The configuration token or manager credential is never used on the runtime message path.
 
@@ -223,11 +270,19 @@ It drives status UI, ingress resolution, reinstall requirements, revocation, and
 
 Single-use installation state used by the unauthenticated child-app OAuth callback.
 
+### `AgentInputRequest`
+
+Expiring request for input that should not be represented as ordinary conversational text.
+It records the schema, authorized submitter, opaque storage destination, lifecycle state, and non-sensitive status exposed to the requesting workflow.
+The first use case is Slack configuration-token enrollment, but the contract should support OAuth, file uploads, confirmations, and other structured authoring interactions.
+
 ### Service placement
 
 - Provisioning, installation, and lifecycle logic live in `products/agent_platform/backend/`.
 - All Slack control-plane calls use a new `posthog/egress/slack/` transport.
-- The existing `products/slack_app` integration only resolves Slack context, starts builder tasks, and reports progress.
+- The connector control-plane API and generated MCP tools are the canonical lifecycle interface.
+- Authoring clients render input requests and progress without handling submitted secret values.
+- The existing `products/slack_app` integration only resolves Slack context, starts authoring workflows, and reports progress.
 - Agent ingress owns stable connector webhook routes and runtime dispatch.
 
 ## Build plan
@@ -245,33 +300,42 @@ Before committing to either enrollment UX:
 
 ### Phase A: common connector foundation
 
-- Add the enrollment, connector, and installation-attempt models.
+- Add the enrollment, connector, installation-attempt, and transient-input models.
 - Add the provisioner interface and Slack egress transport.
 - Add stable connector ingress routes and connector-based credential resolution.
 - Add status and reconciliation primitives before exposing conversational creation.
 
-### Phase B: provisioning strategy
+### Phase B: surface-independent input
+
+- Add an expiring input-request contract with typed schemas and opaque destinations.
+- Add a protected submission endpoint that writes secrets directly to destination-specific encrypted storage.
+- Expose only request metadata and completion state through API and MCP tools.
+- Implement PostHog Code inline rendering as one client, plus a generic short-lived browser handoff for clients without secure input components.
+- Ensure agent sessions, tool traces, analytics, and logs never capture submitted secret values.
+
+### Phase C: provisioning strategy
 
 - Implement the manager provisioner if Slack enables it.
 - Otherwise implement secure configuration-token enrollment and serialized rotation.
 - Add `slack-workspace-enrollment-status`, `slack-app-mint`, and `slack-app-status` endpoints and generated MCP tools.
 
-### Phase C: installation and activation
+### Phase D: installation and activation
 
 - Add the state-bound OAuth callback and idempotent activation job.
 - Add reinstall-required handling for scope expansion.
 - Handle `tokens_revoked`, `app_uninstalled`, and Slack authentication failures.
 - Add Connections-tab status, recovery, and teardown actions.
 
-### Phase D: agent entry points
+### Phase E: authoring clients
 
-- Make the agent builder the canonical workflow for Slack deployment.
-- Add the `@PostHog` lifecycle intent as a context-rich shortcut into that workflow.
+- Make the agent builder, PostHog Code, and generated MCP tools clients of the canonical control-plane lifecycle.
+- Add the `@PostHog` lifecycle intent as a context-rich client of the same contract.
 - Rewrite the `setting-up-slack-app` playbook around the managed path while retaining the manual bring-your-own-app escape hatch.
 
 ### Testing and rollout
 
 - Django tests for tenant isolation, OAuth state consumption, token rotation races, mint idempotency, and stale callback rejection.
+- Input-request tests for authorization, expiry, single-use submission, destination binding, redaction, and agent-visible status.
 - Agent ingress tests for pre-live URL verification, signature validation, inactive connectors, and live revision routing.
 - End-to-end tests for mint, install, activation, revision promotion, reinstall-required, revocation, and deletion.
 - Feature-flag the full path and dogfood with an internal agent before broader rollout.
@@ -285,11 +349,15 @@ Before committing to either enrollment UX:
 5. **Stale installation callbacks.** An old authorization link must not overwrite a newer installation or promote an outdated revision.
 6. **Workspace app sprawl.** Provide consistent naming, managed-by metadata, inventory, and best-effort cleanup with retries.
 7. **Scope changes.** Updating a manifest may require reauthorization. Model `reinstall_required` as a real connector state rather than relying only on a thread message.
+8. **Secret exposure through renderers.** A flexible rendering model creates more places where values could be logged or captured. Keep submission platform-controlled, make secret fields non-observable to agent code, and require renderers to opt out of analytics and replay capture.
+9. **Over-generalizing the first implementation.** Slack enrollment should establish the reusable request contract without delaying provisioning on a complete form-building platform.
 
 ## Open questions
 
 - Can Slack enable the manager-app capability for PostHog, and is Vercel Connect using the same program?
 - Should configuration-token enrollment recommend or require a service account?
+- Should configuration credentials be retained for automatic lifecycle management or requested just in time for each manifest operation?
 - Should the connector credential broker replace revision-level Slack secrets immediately or through a compatibility phase?
-- Where should workspace-level enrollment and minted-app inventory live in the UI?
+- Which authoring clients should render secret requests inline in the first release, and which should use the generic browser handoff?
+- How should workspace-level enrollment and minted-app inventory surface consistently across clients?
 - When a user starts from the builder, how should they choose channels before the child app is installed?
