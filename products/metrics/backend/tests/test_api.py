@@ -1,6 +1,6 @@
-import pytest
-from posthog.test.base import APIBaseTest
 from unittest.mock import patch
+
+import pytest
 
 from django.apps import apps
 from django.test import SimpleTestCase
@@ -12,6 +12,7 @@ from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 from posthog.rbac.user_access_control import ACCESS_CONTROL_RESOURCES, AccessControlLevelResource
+from posthog.test.base import APIBaseTest
 
 try:
     from ee.models.rbac.access_control import AccessControl
@@ -86,3 +87,27 @@ class TestMetricsAccessControl(APIBaseTest):
 
         assert response.status_code == expected_status
         assert team_has_metrics_mock.call_count == (1 if expected_status == status.HTTP_200_OK else 0)
+
+    @parameterized.expand(
+        [
+            ("values", "GET", {"limit": "0"}),
+            ("attributes", "GET", {"limit": "0"}),
+            ("attribute_values", "GET", {}),
+            ("query", "POST", {}),
+            ("samples", "POST", {}),
+            ("characterize", "POST", {}),
+        ]
+    )
+    def test_none_access_blocks_every_metrics_action_before_validation(
+        self, action: str, method: str, payload: dict[str, object]
+    ) -> None:
+        self._create_access_control(self.no_access_user, "none")
+        self.client.force_login(self.no_access_user)
+        url = f"/api/projects/{self.team.id}/metrics/{action}/"
+
+        if method == "GET":
+            response = self.client.get(url, payload)
+        else:
+            response = self.client.post(url, payload, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
