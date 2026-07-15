@@ -35,11 +35,14 @@ class IdentityProviderConfig(ModelActivityMixin, UUIDModel):
     updated_at = models.DateTimeField(auto_now=True)
 
     # ---- SAML attributes ----
-    # Field shapes intentionally mirror `OrganizationDomain` (including nullability) so
-    # values can be copied verbatim while domains remain the source of truth.
     saml_entity_id = models.CharField(max_length=512, blank=True, null=True)
     saml_acs_url = models.CharField(max_length=512, blank=True, null=True)
     saml_x509_cert = models.TextField(blank=True, null=True)
+    saml_relay_state = models.CharField(
+        max_length=36,
+        blank=True,
+        null=True,
+    )
 
     # ---- SCIM attributes ----
     scim_enabled = models.BooleanField(default=False)
