@@ -528,8 +528,11 @@ export interface HogFlowApi {
     readonly user_access_level: string | null
     /** Staged content changes awaiting publish — a full snapshot of the workflow's actions, edges and settings. Null when there's nothing staged. Test it with a use_draft test run, then promote it with the publish endpoint or throw it away with discard_draft. */
     readonly draft: unknown
-    /** When the draft was last written. Pass this to publish (and as base_updated_at on further draft edits) so a concurrent editor's changes aren't clobbered — a mismatch returns 409. */
-    readonly draft_updated_at: string
+    /**
+     * When the draft was last written; null when there's no staged draft. Pass this to publish (and as base_updated_at on further draft edits) so a concurrent editor's changes aren't clobbered — a mismatch returns 409.
+     * @nullable
+     */
+    readonly draft_updated_at: string | null
 }
 
 /**
@@ -590,8 +593,11 @@ export interface PatchedHogFlowApi {
     readonly user_access_level?: string | null
     /** Staged content changes awaiting publish — a full snapshot of the workflow's actions, edges and settings. Null when there's nothing staged. Test it with a use_draft test run, then promote it with the publish endpoint or throw it away with discard_draft. */
     readonly draft?: unknown
-    /** When the draft was last written. Pass this to publish (and as base_updated_at on further draft edits) so a concurrent editor's changes aren't clobbered — a mismatch returns 409. */
-    readonly draft_updated_at?: string
+    /**
+     * When the draft was last written; null when there's no staged draft. Pass this to publish (and as base_updated_at on further draft edits) so a concurrent editor's changes aren't clobbered — a mismatch returns 409.
+     * @nullable
+     */
+    readonly draft_updated_at?: string | null
 }
 
 export interface MessageAssetApi {
