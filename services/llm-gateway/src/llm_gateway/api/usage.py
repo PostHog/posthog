@@ -47,6 +47,11 @@ class UsageResponse(BaseModel):
     ai_credits: AiCreditsStatus
     is_rate_limited: bool
     is_pro: bool
+    # Whether the org pays for Code usage (usage-based billing). Clients use it
+    # to pick billing copy and to hide the free-tier meter for billed orgs,
+    # whose per-user limits are unbounded. Same bit enforcement reads, so the
+    # UI can never disagree with what a request would do.
+    code_usage_billed: bool = False
     billing_period_end: datetime | None = None
 
 
@@ -141,6 +146,7 @@ async def get_usage(
         ai_credits=AiCreditsStatus(exhausted=credits_exhausted),
         is_rate_limited=burst_status.exceeded or sustained_status.exceeded or credits_exhausted,
         is_pro=is_pro_plan(plan_info.plan_key),
+        code_usage_billed=quota_status.code_usage_billing_active,
         billing_period_end=billing_period_end,
     )
 
