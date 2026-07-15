@@ -2417,7 +2417,6 @@ dependencies = [
  "rdkafka",
  "rstest",
  "serde_json",
- "tokio",
  "tracing",
  "uuid",
 ]
