@@ -1,7 +1,7 @@
 import { Message } from 'node-rdkafka'
 
 import { PostgresRouter } from '~/common/utils/db/postgres'
-import { runSessionReplayPipeline } from '~/ingestion/pipelines/sessionreplay'
+import { SessionReplayPipeline, runSessionReplayPipeline } from '~/ingestion/pipelines/sessionreplay'
 import { KeyStore, RecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/types'
 import { RedisPool } from '~/types'
 
@@ -54,19 +54,20 @@ describe('SessionRecordingIngester', () => {
 
     const runPipelineMock = jest.mocked(runSessionReplayPipeline)
 
-    beforeEach(() => {
-        events = []
-        runPipelineMock.mockReset()
+    const consumeTopic = getDefaultSessionRecordingConfig().INGESTION_SESSION_REPLAY_CONSUMER_CONSUME_TOPIC
 
+    const createIngester = (configOverrides: Partial<SessionRecordingIngesterConfig> = {}): void => {
         const config: SessionRecordingIngesterConfig = {
             ...getDefaultSessionRecordingConfig(),
             ...getDefaultSessionRecordingApiConfig(),
             INGESTION_OVERFLOW_MODE: 'disabled',
             INGESTION_PIPELINE: 'sessionreplay',
             INGESTION_LANE: 'main',
-            // Age/size flushes would interleave with the stop() flush under test; keep them out of reach.
+            // Age/size flushes would interleave with the flush under test; keep them out of
+            // reach unless a test opts in via overrides.
             SESSION_RECORDING_MAX_BATCH_AGE_MS: 60 * 60 * 1000,
             SESSION_RECORDING_MAX_BATCH_SIZE_KB: 1024 * 1024,
+            ...configOverrides,
         }
 
         const fakeKeyStore = {
@@ -87,6 +88,7 @@ describe('SessionRecordingIngester', () => {
                 fileStorage: new BlackholeSessionBatchFileStorage(),
                 keyStore: fakeKeyStore,
                 encryptor: fakeEncryptor,
+                createPipeline: () => ({}) as unknown as SessionReplayPipeline,
             }
         )
 
@@ -97,6 +99,12 @@ describe('SessionRecordingIngester', () => {
             events.push('disconnected')
             return Promise.resolve()
         })
+    }
+
+    beforeEach(() => {
+        events = []
+        runPipelineMock.mockReset()
+        createIngester()
     })
 
     it('stop() stores the in-flight batch offsets only after its side effects settle, before disconnect', async () => {
@@ -141,5 +149,52 @@ describe('SessionRecordingIngester', () => {
         // The shutdown contract: the batch's produce must be durable before its offset is stored,
         // and the offset must be stored before disconnect commits it to the broker.
         expect(events).toEqual(['side_effect_settled', 'offsets_stored', 'disconnected'])
+    })
+
+    it('flushes on the age trigger: side effects drain before the batch offsets are stored, at exactly highest+1', async () => {
+        createIngester({ SESSION_RECORDING_MAX_BATCH_AGE_MS: 0 })
+
+        // The pipeline schedules a side effect (a DLQ/overflow produce that takes one macrotask
+        // to become durable) and reports its offsets; the age trigger then flushes immediately.
+        runPipelineMock.mockImplementation((_pipeline, _messages, _recorder, scheduler) => {
+            void scheduler.schedule(
+                new Promise<void>((resolve) =>
+                    setImmediate(() => {
+                        events.push('side_effect_settled')
+                        resolve()
+                    })
+                )
+            )
+            return Promise.resolve(new Map([[0, 42]]))
+        })
+
+        await ingester.handleEachBatch([kafkaMessage(0, 42)])
+
+        // Never commit a message's offset before its produce is durable — and commit at
+        // exactly the next-to-process offset.
+        expect(events).toEqual(['side_effect_settled', 'offsets_stored'])
+        expect(jest.mocked(ingester.kafkaConsumer).offsetsStore).toHaveBeenCalledWith([
+            { topic: consumeTopic, partition: 0, offset: 43 },
+        ])
+    })
+
+    it('start() wires the revoke hook, and the hook flushes the tracked offsets', async () => {
+        await ingester.start()
+        const connectMock = jest.mocked(ingester.kafkaConsumer).connect
+        expect(connectMock).toHaveBeenCalledTimes(1)
+        const [eachBatch, onPartitionsRevoked] = connectMock.mock.calls[0]
+        expect(onPartitionsRevoked).toBeDefined()
+
+        runPipelineMock.mockImplementation(() => Promise.resolve(new Map([[0, 7]])))
+        await eachBatch([kafkaMessage(0, 7)])
+        // Age/size are out of reach, so nothing has flushed yet.
+        expect(events).toEqual([])
+
+        await onPartitionsRevoked!([{ topic: consumeTopic, partition: 0 }])
+        expect(jest.mocked(ingester.kafkaConsumer).offsetsStore).toHaveBeenCalledWith([
+            { topic: consumeTopic, partition: 0, offset: 8 },
+        ])
+
+        await ingester.stop()
     })
 })
