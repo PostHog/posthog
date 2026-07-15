@@ -1227,6 +1227,8 @@ class TestWebOverviewSessionIdSetFastPath(ClickhouseTestMixin, APIBaseTest):
                 False,
             ),
             ("conversion_goal", {"conversionGoal": CustomEventConversionGoal(customEventName="purchase")}, False),
+            ("sampling_enabled", {"sampling": WebAnalyticsSampling(enabled=True)}, False),
+            ("sampling_factor", {"samplingFactor": 0.1}, False),
         ]
     )
     def test_session_id_set_eligibility(self, _name: str, query_kwargs: dict, expected: bool):
@@ -1301,12 +1303,39 @@ class TestWebOverviewSessionIdSetFastPath(ClickhouseTestMixin, APIBaseTest):
         # in review as a snapshot diff.
         assert self.generalize_sql(sql) == self.snapshot
 
+    def test_session_id_set_executes_with_pushdown_modifier_and_tag(self):
+        # The fast path only pays off if _calculate actually flips the
+        # sessionIdPushdown modifier on the executed query — the rewrite fails
+        # open, so dropping the modifier wiring would keep every parity test
+        # green while silently regressing the sessions scan.
+        self._create_pageviews()
+        calls: list[tuple[Optional[str], Optional[HogQLQueryModifiers]]] = []
+
+        def record_calls(*args, **kwargs):
+            calls.append((kwargs.get("query_type"), kwargs.get("modifiers")))
+            return execute_hogql_query(*args, **kwargs)
+
+        with freeze_time(self.QUERY_TIMESTAMP):
+            with override_settings(WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS=[self.team.pk]):
+                with patch(
+                    "products.web_analytics.backend.hogql_queries.web_overview.execute_hogql_query",
+                    side_effect=record_calls,
+                ):
+                    self._make_runner().calculate()
+
+        main_calls = [c for c in calls if c[0] == "web_overview_session_id_set_query"]
+        assert len(main_calls) == 1, calls
+        modifiers = main_calls[0][1]
+        assert modifiers is not None and modifiers.sessionIdPushdown is True
+
     def test_session_id_set_falls_back_to_join_when_preflight_query_fails(self):
         self._create_pageviews()
+        calls: list[Optional[str]] = []
 
         def fail_preflight(*args, **kwargs):
             if kwargs.get("query_type") == "web_overview_session_id_set_preflight":
                 raise Exception("clickhouse unavailable")
+            calls.append(kwargs.get("query_type"))
             return execute_hogql_query(*args, **kwargs)
 
         with freeze_time(self.QUERY_TIMESTAMP):
@@ -1321,23 +1350,39 @@ class TestWebOverviewSessionIdSetFastPath(ClickhouseTestMixin, APIBaseTest):
 
             join_results = self._make_runner().calculate().results
 
+        # The fallback must be observable, not just an internal flag: the main
+        # query has to run as the plain join (results alone can't distinguish the
+        # branches — the two paths are result-equivalent by design).
+        assert calls == ["web_overview_query"]
         for fallback, join in zip(fallback_results, join_results):
             assert fallback.value == join.value, f"{fallback.key}: {fallback.value} != {join.value}"
 
     def test_session_id_set_falls_back_to_join_when_filter_is_unselective(self):
         self._create_pageviews()
+        calls: list[Optional[str]] = []
+
+        def record_calls(*args, **kwargs):
+            calls.append(kwargs.get("query_type"))
+            return execute_hogql_query(*args, **kwargs)
 
         with freeze_time(self.QUERY_TIMESTAMP):
             with override_settings(WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS=[self.team.pk]):
                 with patch(
                     "products.web_analytics.backend.hogql_queries.web_overview.SESSION_ID_SET_MAX_MATCHING_SESSIONS", 0
                 ):
-                    runner = self._make_runner()
-                    gated_results = runner.calculate().results
-                    assert runner._session_id_set_selectivity_ok is False
+                    with patch(
+                        "products.web_analytics.backend.hogql_queries.web_overview.execute_hogql_query",
+                        side_effect=record_calls,
+                    ):
+                        runner = self._make_runner()
+                        gated_results = runner.calculate().results
+                        assert runner._session_id_set_selectivity_ok is False
 
             join_results = self._make_runner().calculate().results
 
+        # Over-cap must observably serve the join — this is the memory guard
+        # against shipping unbounded GLOBAL IN sets to shards.
+        assert calls == ["web_overview_session_id_set_preflight", "web_overview_query"]
         for gated, join in zip(gated_results, join_results):
             assert gated.value == join.value, f"{gated.key}: {gated.value} != {join.value}"
 

@@ -398,7 +398,11 @@ CROSS JOIN {sessions_agg} AS sessions_agg
 
         pre_aggregated_response = self.get_pre_aggregated_response()
 
-        if self.should_use_session_id_set and not self.should_skip_session_join:
+        # Preflight only when the main query will actually run — if the
+        # pre-aggregated builder already served the response, spending a
+        # filtered-events scan on selectivity would be pure waste (and would emit
+        # orphan preflight tags into query_log).
+        if self.should_use_session_id_set and not self.should_skip_session_join and not pre_aggregated_response:
             self._session_id_set_selectivity_ok = self._check_session_id_set_selectivity()
 
         execution_modifiers = self.modifiers

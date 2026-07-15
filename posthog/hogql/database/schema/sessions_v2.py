@@ -455,7 +455,32 @@ def select_from_sessions_table_v2(
     )
 
 
-def build_direct_session_id_in_pushdown(node: ast.SelectQuery, context: HogQLContext) -> Optional[ast.Expr]:
+def _single_sessions_occurrence_type(node: ast.SelectQuery, lazy_table: "SessionsTableV2") -> Optional[ast.Type]:
+    """The resolved type of the query's only ``sessions`` occurrence, or None.
+
+    Returns None when the sessions table appears more than once in the FROM/JOIN
+    chain (a self-join — ownership of a ``session_id`` filter is then ambiguous
+    because lazy expansion processes occurrences one at a time against the same
+    node), or when it cannot be identified. Used to prove a WHERE term belongs to
+    the occurrence currently being expanded before pushing it down.
+    """
+    found: Optional[ast.Type] = None
+    join: Optional[ast.JoinExpr] = node.select_from
+    while join is not None:
+        if isinstance(join.table, ast.Field):
+            table_type = join.table.type
+            unwrapped = table_type.table_type if isinstance(table_type, ast.TableAliasType) else table_type
+            if isinstance(unwrapped, ast.LazyTableType) and unwrapped.table is lazy_table:
+                if found is not None:
+                    return None
+                found = table_type
+        join = join.next_join
+    return found
+
+
+def build_direct_session_id_in_pushdown(
+    node: ast.SelectQuery, context: HogQLContext, lazy_table: "SessionsTableV2"
+) -> Optional[ast.Expr]:
     """Push a top-level ``session_id IN (SELECT …)`` filter below the per-session GROUP BY.
 
     A direct select over ``sessions`` aggregates every session in the date range
@@ -473,7 +498,11 @@ def build_direct_session_id_in_pushdown(node: ast.SelectQuery, context: HogQLCon
     (including SQL editor queries) can hit this rewrite, not just the web overview
     runner. That is safe because the rewrite is semantics-preserving: the filter is
     on the GROUP BY key itself, so pruning before aggregation returns the same rows
-    as filtering after (locked by the parity tests in
+    as filtering after, string ids are matched only in their canonical (lowercase)
+    UUID form exactly like the un-rewritten string comparison, and the rewrite only
+    fires when the filtered column provably belongs to this sessions occurrence —
+    the query's single one; joined tables' own ``session_id`` columns and sessions
+    self-joins are left untouched (locked by the parity and hijack tests in
     test_session_v2_where_clause_extractor.py). Fails open (returns None, outer
     term untouched) on any shape it doesn't recognize — NOT IN, literal lists,
     OR-nested terms, multi-column subqueries — preserving exact original semantics
@@ -482,6 +511,9 @@ def build_direct_session_id_in_pushdown(node: ast.SelectQuery, context: HogQLCon
     if not context.modifiers or not context.modifiers.sessionIdPushdown:
         return None
     if node.where is None:
+        return None
+    occurrence_type = _single_sessions_occurrence_type(node, lazy_table)
+    if occurrence_type is None:
         return None
 
     def flatten_and(expr: ast.Expr) -> list[ast.Expr]:
@@ -504,6 +536,13 @@ def build_direct_session_id_in_pushdown(node: ast.SelectQuery, context: HogQLCon
             or not isinstance(term.right, ast.SelectQuery)
         ):
             continue
+        # Ownership: the field must resolve to THIS sessions occurrence. Chain
+        # names alone would also match e.g. `events.properties.session_id`, a
+        # replay/warehouse table's own session_id column, or the other side of a
+        # sessions self-join — rewriting those would silently drop the user's
+        # filter and apply a different one to a different table.
+        if not isinstance(left.type, ast.FieldType) or left.type.table_type is not occurrence_type:
+            continue
 
         subquery = cast(ast.SelectQuery, clone_expr(term.right, clear_types=True, clear_locations=True))
         if len(subquery.select) != 1:
@@ -521,13 +560,33 @@ def build_direct_session_id_in_pushdown(node: ast.SelectQuery, context: HogQLCon
         else:
             # String session ids: accurateCastOrNull keeps malformed values from
             # aborting the query (they become NULL and drop out of the set, which
-            # matches the join path leaving them unmatched).
+            # matches the join path leaving them unmatched). The toString
+            # round-trip keeps only canonical (lowercase) UUID strings: the
+            # un-rewritten predicate is a byte-exact string comparison against
+            # sessions.session_id (always canonical), so a non-canonical form
+            # like an uppercased UUID must not match here either.
+            # Two separate cast nodes on purpose — sharing one AST node between
+            # parents breaks cloning/resolution assumptions.
+            cast_for_check = ast.Call(
+                name="accurateCastOrNull", args=[ast.Field(chain=[alias]), ast.Constant(value="UUID")]
+            )
+            cast_for_value = ast.Call(
+                name="accurateCastOrNull", args=[ast.Field(chain=[alias]), ast.Constant(value="UUID")]
+            )
             id_expr = ast.Call(
                 name="_toUInt128",
                 args=[
                     ast.Call(
-                        name="accurateCastOrNull",
-                        args=[ast.Field(chain=[alias]), ast.Constant(value="UUID")],
+                        name="if",
+                        args=[
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.Eq,
+                                left=ast.Call(name="toString", args=[cast_for_check]),
+                                right=ast.Field(chain=[alias]),
+                            ),
+                            cast_for_value,
+                            ast.Constant(value=None),
+                        ],
                     )
                 ],
             )
@@ -565,7 +624,7 @@ class SessionsTableV2(LazyTable):
         context,
         node: ast.SelectQuery,
     ):
-        extra_where = build_direct_session_id_in_pushdown(node, context)
+        extra_where = build_direct_session_id_in_pushdown(node, context, self)
         return select_from_sessions_table_v2(table_to_add.fields_accessed, node, context, extra_where=extra_where)
 
     def to_printed_clickhouse(self, context):
