@@ -82,7 +82,7 @@ function getTooltipTitle(titleElement: HTMLHeadingElement | null): string {
 
     while (textNodeWalker.nextNode()) {
         const ariaHiddenAncestor = textNodeWalker.currentNode.parentElement?.closest('[aria-hidden="true"]')
-        if (ariaHiddenAncestor && titleElement.contains(ariaHiddenAncestor)) {
+        if (ariaHiddenAncestor) {
             continue
         }
 
