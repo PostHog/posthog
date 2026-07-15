@@ -23,13 +23,19 @@ from products.ai_observability.backend.models.evaluation_reports import Evaluati
 from products.ai_observability.backend.models.evaluations import Evaluation
 
 
+@pytest.mark.parametrize(
+    ("output_type", "evaluation_target"),
+    [("sentiment", "generation"), ("boolean", "trace")],
+)
 @pytest.mark.asyncio
-async def test_run_agent_activity_forwards_sentiment_output_type() -> None:
+async def test_run_agent_activity_loads_target_and_forwards_output_type(
+    output_type: str, evaluation_target: str
+) -> None:
     @asynccontextmanager
     async def noop_heartbeater():
         yield
 
-    content = EvalReportContent(metrics=EvalReportMetrics(output_type="sentiment"))
+    content = EvalReportContent(metrics=EvalReportMetrics(output_type=output_type))
     inputs = RunEvalReportAgentInput(
         report_id="report-id",
         team_id=1,
@@ -38,7 +44,7 @@ async def test_run_agent_activity_forwards_sentiment_output_type() -> None:
         evaluation_description="",
         evaluation_prompt="",
         evaluation_type="sentiment",
-        output_type="sentiment",
+        output_type=output_type,
         period_start="2026-07-01T00:00:00+00:00",
         period_end="2026-07-02T00:00:00+00:00",
         previous_period_start="2026-06-30T00:00:00+00:00",
@@ -53,11 +59,18 @@ async def test_run_agent_activity_forwards_sentiment_output_type() -> None:
             "posthog.temporal.ai_observability.eval_reports.report_agent.run_eval_report_agent",
             return_value=content,
         ) as run_agent,
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.activities._load_evaluation_target",
+            return_value=evaluation_target,
+        ) as load_target,
     ):
         result = await run_eval_report_agent_activity(inputs)
 
-    assert result.content["metrics"]["output_type"] == "sentiment"
-    assert run_agent.call_args.kwargs["output_type"] == "sentiment"
+    assert result.content["metrics"]["output_type"] == output_type
+    assert result.content["evaluation_target"] == evaluation_target
+    assert run_agent.call_args.kwargs["output_type"] == output_type
+    assert run_agent.call_args.kwargs["evaluation_target"] == evaluation_target
+    load_target.assert_called_once_with(inputs.team_id, inputs.evaluation_id)
 
 
 @pytest.mark.asyncio
@@ -105,13 +118,20 @@ async def test_store_sentiment_report_emits_generic_metrics_only() -> None:
 async def test_store_legacy_boolean_report_emits_normalized_generic_metrics() -> None:
     report_run = MagicMock(id="run-id", report_id="report-id")
     content = {
+        "citations": [
+            {
+                "generation_id": "generation-id",
+                "trace_id": "customer/trace:42",
+                "reason": "example",
+            }
+        ],
         "metrics": {
             "total_runs": 10,
             "pass_count": 6,
             "fail_count": 3,
             "na_count": 1,
             "pass_rate": 66.67,
-        }
+        },
     }
     inputs = StoreReportRunInput(
         report_id="report-id",
@@ -144,11 +164,15 @@ async def test_store_legacy_boolean_report_emits_normalized_generic_metrics() ->
     assert properties["$ai_report_result_counts"] == {"pass": 6, "fail": 3, "na": 1}
     assert properties["$ai_report_result_rates"] == {"pass": 60.0, "fail": 30.0, "na": 10.0}
     assert properties["$ai_report_pass_rate"] == 66.67
+    assert properties["$ai_report_evaluation_target"] == "generation"
+    assert properties["$ai_report_referenced_generation_ids"] == ["generation-id"]
+    assert properties["$ai_report_referenced_trace_ids"] == ["customer/trace:42"]
 
 
 def test_count_trigger_uses_current_output_type() -> None:
     report = MagicMock(team_id=1, team=MagicMock(), evaluation_id="evaluation-id")
     report.evaluation.output_type = "sentiment"
+    report.evaluation.target = "trace"
 
     with (
         patch("posthog.hogql.parser.parse_select", return_value=MagicMock()) as parse_select,
@@ -158,6 +182,7 @@ def test_count_trigger_uses_current_output_type() -> None:
 
     assert result == 4
     assert "properties.$ai_evaluation_result_type = 'sentiment'" in parse_select.call_args.args[0]
+    assert "properties.$ai_target_type = 'trace_id'" in parse_select.call_args.args[0]
 
 
 def test_manual_count_window_uses_current_output_type() -> None:
@@ -173,6 +198,7 @@ def test_manual_count_window_uses_current_output_type() -> None:
 
     assert result == expected
     assert "properties.$ai_evaluation_result_type = 'sentiment'" in parse_select.call_args.args[0]
+    assert "isNull(properties.$ai_target_type)" in parse_select.call_args.args[0]
 
 
 def _prepare_sync(report_id: str, manual: bool = False):

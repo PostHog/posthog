@@ -5,7 +5,7 @@ The v2 schema splits the report into:
   the agent cannot fabricate these
 - `title`: the agent's punchline headline (required, one line)
 - `sections`: 1-6 agent-chosen titled markdown sections
-- `citations`: structured trace references (generation_id + trace_id + reason)
+- `citations`: structured target references (generation_id + trace_id + reason)
 
 This separation lets downstream consumers (signals, inbox, coding agents) query
 `metrics` and `citations` without parsing prose, and lets the agent focus on
@@ -65,12 +65,12 @@ def calculate_boolean_pass_rate(counts: dict[str, int], *, empty_as_none: bool =
 
 @dataclass
 class Citation:
-    """A trace reference cited by the agent to ground a specific finding.
+    """An inspected example cited by the agent to ground a specific finding.
 
-    Stores both generation_id and trace_id up front so the viewer can construct
-    correct trace URLs without a runtime lookup. `reason` is short free-form
-    text (e.g. "high_cost", "refusal", "regression_14:00") the agent uses to
-    categorize why the trace is interesting.
+    Generation reports store both IDs so viewers can link to the generation
+    without a runtime lookup. Trace reports leave `generation_id` empty and use
+    `trace_id` as the reference. `reason` is a short free-form category for why
+    the example is interesting.
     """
 
     generation_id: str
