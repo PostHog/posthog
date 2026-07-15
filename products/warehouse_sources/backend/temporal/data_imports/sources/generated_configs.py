@@ -1948,7 +1948,8 @@ class HoneybadgerSourceConfig(config.Config):
 
 @config.config
 class HoneycombSourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config
