@@ -207,7 +207,7 @@ class TestScoutReportAPI(APIBaseTest):
                 format="json",
             )
         assert response.status_code == status.HTTP_200_OK, response.json()
-        action = SignalScoutReportAction.objects.filter(team=self.team).get()
+        action = SignalScoutReportAction.all_teams.filter(team=self.team).get()
         assert str(action.report_id) == response.json()["report_id"]
         assert action.scout_run_id == run.id
         assert action.action == SignalScoutReportAction.Action.CREATED
@@ -221,7 +221,7 @@ class TestScoutReportAPI(APIBaseTest):
         run = _make_run(self.team)
         with _safe_judge(), patch(EMBED_PATH):
             created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
-        SignalScoutReportAction.objects.filter(team=self.team).delete()  # isolate the edit's rows
+        SignalScoutReportAction.all_teams.filter(team=self.team).delete()  # isolate the edit's rows
         response = self.client.post(
             self._edit_url(str(run.id)),
             data={
@@ -234,7 +234,7 @@ class TestScoutReportAPI(APIBaseTest):
             format="json",
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
-        actions = SignalScoutReportAction.objects.filter(team=self.team)
+        actions = SignalScoutReportAction.all_teams.filter(team=self.team)
         assert {a.action for a in actions} == {
             SignalScoutReportAction.Action.TITLE_EDITED,
             SignalScoutReportAction.Action.SUMMARY_EDITED,
@@ -278,11 +278,37 @@ class TestScoutReportAPI(APIBaseTest):
         run.refresh_from_db()
         assert run.edited_report_ids in (None, [])
         assert not (
-            SignalScoutReportAction.objects.filter(team=self.team)
+            SignalScoutReportAction.all_teams.filter(team=self.team)
             .exclude(action=SignalScoutReportAction.Action.CREATED)
             .exists()
         )
         self.capture_internal_mock.assert_not_called()
+
+    def test_mixed_edit_masks_unchanged_content_in_event(self) -> None:
+        # A same-value title alongside a real note append is a legitimate edit, but the event's
+        # title must be None — the event contract is "content the edit applied", and a phantom
+        # rewrite would mislead CDP consumers into treating unchanged content as new.
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        self.capture_internal_mock.reset_mock()
+        response = self.client.post(
+            self._edit_url(str(run.id)),
+            data={
+                "report_id": created["report_id"],
+                "title": self._payload()["title"],
+                "append_note": "fresh evidence",
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["updated_fields"] == []
+        assert response.json()["note_appended"] is True
+        forward = next(
+            c for c in self.capture_internal_mock.call_args_list if c.kwargs["event_name"] == "$scout_report_edited"
+        )
+        assert forward.kwargs["properties"]["title"] is None
+        assert forward.kwargs["properties"]["note"] == "fresh evidence"
 
     def test_edit_report_fails_closed_on_cross_team_report(self) -> None:
         other_org = Organization.objects.create(name="other")
@@ -354,7 +380,7 @@ class TestScoutReportAPI(APIBaseTest):
         run.refresh_from_db()
         assert run.edited_report_ids == [report_id]
         # A reviewer-only edit records exactly one `reviewers_set` action row.
-        edit_actions = SignalScoutReportAction.objects.filter(team=self.team, report_id=report_id).exclude(
+        edit_actions = SignalScoutReportAction.all_teams.filter(team=self.team, report_id=report_id).exclude(
             action=SignalScoutReportAction.Action.CREATED
         )
         assert [a.action for a in edit_actions] == [SignalScoutReportAction.Action.REVIEWERS_SET]

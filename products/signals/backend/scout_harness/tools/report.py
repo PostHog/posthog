@@ -656,6 +656,11 @@ def _capture_report_edited(
     report's effective title after the edit — so a note-only append to a self-improvement report still
     classifies correctly. Best-effort; never fails the edit. Accesses `team.organization` — call on a sync
     thread. Returns the customer-facing fan-out payload for the caller to forward."""
+    # Enforce the "content the edit applied" contract above: a same-value title/summary supplied
+    # alongside a real change (a note, reviewers) is absent from `updated_fields`, so it must not
+    # ride the event as a phantom rewrite.
+    title = title if "title" in result.updated_fields else None
+    summary = summary if "summary" in result.updated_fields else None
     properties = {
         **_report_event_base(run),
         **_report_classification_props(result.report_title),
