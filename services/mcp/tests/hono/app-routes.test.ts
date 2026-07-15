@@ -154,6 +154,29 @@ describe('Hono App Routes', () => {
             const res = await app.request('/.well-known/oauth-protected-resource/mcp')
             expect(res.headers.get('Cache-Control')).toBe('public, max-age=3600')
         })
+
+        it('should allow CORS from PostHog app origins for consent-page metadata fetch', async () => {
+            const { app } = createApp(mockRedis)
+            const res = await app.request('/.well-known/oauth-protected-resource/mcp', {
+                headers: { Origin: 'https://us.posthog.com' },
+            })
+            expect(res.status).toBe(200)
+            expect(res.headers.get('Access-Control-Allow-Origin')).toBe('https://us.posthog.com')
+            expect(res.headers.get('Vary')).toBe('Origin')
+        })
+
+        it('should answer OPTIONS preflight for PostHog app origins', async () => {
+            const { app } = createApp(mockRedis)
+            const res = await app.request('/.well-known/oauth-protected-resource/mcp', {
+                method: 'OPTIONS',
+                headers: {
+                    Origin: 'https://us.posthog.com',
+                    'Access-Control-Request-Method': 'GET',
+                },
+            })
+            expect(res.status).toBe(204)
+            expect(res.headers.get('Access-Control-Allow-Origin')).toBe('https://us.posthog.com')
+        })
     })
 
     describe('hostname-based region detection', () => {
