@@ -90,6 +90,7 @@ def _get_recalc_state(recalculation_id: str) -> _RecalcState:
         # Non-retryable so Temporal terminates promptly instead of burning retries on each activity.
         raise ApplicationError(
             f"ExperimentMetricsRecalculation {recalculation_id} not found",
+            type="recalculation_not_found",
             non_retryable=True,
         )
     return _RecalcState(
@@ -174,6 +175,7 @@ def _update_recalculation_progress_sync(update: RecalculationProgressUpdate) -> 
         # workflow bug — fail non-retryable so Temporal terminates promptly.
         raise ApplicationError(
             "RecalculationProgressUpdate must set exactly one of mark_started or mark_completed",
+            type="invalid_input",
             non_retryable=True,
         )
 
@@ -450,6 +452,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
     except ValueError as e:
         raise ApplicationError(
             f"query_to {query_to!r} is not a valid ISO datetime string: {e}",
+            type="invalid_input",
             non_retryable=True,
         )
     state = _get_recalc_state(recalculation_id)
@@ -460,21 +463,25 @@ def _calculate_experiment_metric_for_recalculation_sync(
     if experiment_id != state.experiment_id:
         raise ApplicationError(
             f"experiment_id {experiment_id} does not match recalc.experiment_id {state.experiment_id}",
+            type="input_mismatch",
             non_retryable=True,
         )
     if metric_uuid not in state.metric_uuids:
         raise ApplicationError(
             f"metric_uuid {metric_uuid} is not in recalc {recalculation_id}'s metric set",
+            type="input_mismatch",
             non_retryable=True,
         )
     if state.query_to is None:
         raise ApplicationError(
             f"recalc {recalculation_id} has no query_to set — calculate activity ran before start activity",
+            type="invalid_state",
             non_retryable=True,
         )
     if query_to_dt != state.query_to:
         raise ApplicationError(
             f"query_to {query_to_dt.isoformat()} does not match recalc.query_to {state.query_to.isoformat()}",
+            type="input_mismatch",
             non_retryable=True,
         )
 
