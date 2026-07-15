@@ -53,6 +53,16 @@ export interface ToolRegistryEntry {
     displayName: string
     icon: JSX.Element
     Renderer: ToolRendererComponent
+    /**
+     * When set, this entry only matches a call that came through the trusted single-exec PostHog
+     * server — one whose inner tool name we parsed out of the exec command. The product data-tool
+     * widgets set it: a user-installed MCP server can expose a tool whose bare name collides with a
+     * widget key (e.g. "notebooks-create" or "dashboard-create") and return the expected fields with
+     * an arbitrary `_posthogUrl`. Without this gate that result would render as a first-party Notebook
+     * or Dashboard card whose Open button points at the attacker's site. Untrusted callers fall
+     * through to the generic MCP card instead.
+     */
+    requiresPostHogOrigin?: boolean
 }
 
 export interface ToolRegistry {
@@ -189,14 +199,22 @@ toolRegistry.register({
     Renderer: QuestionRenderer,
 })
 
-/** Looks up the renderer entry for a resolved tool key, falling back to the generic built-in card. */
-export function lookupToolRenderer(resolvedKey: string): ToolRegistryEntry {
-    return (
-        toolRegistry.lookup(resolvedKey) ?? {
-            key: resolvedKey,
-            displayName: resolvedKey,
-            icon: <IconWrench />,
-            Renderer: BuiltinToolRenderer,
-        }
-    )
+/**
+ * Looks up the renderer entry for a resolved tool key, falling back to the generic built-in card.
+ * `fromPostHogExec` is whether the call came through the trusted single-exec PostHog server (its inner
+ * tool name was parsed out of the exec command). An entry marked `requiresPostHogOrigin` only matches a
+ * trusted call, so a third-party tool whose bare name collides with a product-widget key can't spoof a
+ * first-party card — it falls through to the generic card here.
+ */
+export function lookupToolRenderer(resolvedKey: string, fromPostHogExec: boolean): ToolRegistryEntry {
+    const entry = toolRegistry.lookup(resolvedKey)
+    if (entry && (!entry.requiresPostHogOrigin || fromPostHogExec)) {
+        return entry
+    }
+    return {
+        key: resolvedKey,
+        displayName: resolvedKey,
+        icon: <IconWrench />,
+        Renderer: BuiltinToolRenderer,
+    }
 }

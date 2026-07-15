@@ -47,13 +47,19 @@ const QueryRenderer = lazyWithRetry(() => import('./QueryWidget').then((m) => ({
 // The single-exec inner tool names exist in two conventions — hyphenated (the MCP yaml definitions) and
 // snake_case (legacy Max tools) — so we register both aliases where both are real tool names. Each call
 // fans the aliases into one entry per key and feeds them through the `registerToolRenderers` seam (Tier 4).
+// `requiresPostHogOrigin` on every entry: these render first-party PostHog cards (some with an Open
+// button built from a payload `_posthogUrl`), so they must only match a call that came through the
+// trusted single-exec PostHog server — not a user-installed MCP tool whose bare name collides with one
+// of these keys. See `ToolRegistryEntry.requiresPostHogOrigin`.
 function register(
     keys: string[],
     displayName: string,
     icon: JSX.Element,
     Renderer: ComponentType<ToolRendererProps>
 ): void {
-    registerToolRenderers(keys.map((key): ToolRegistryEntry => ({ key, displayName, icon, Renderer })))
+    registerToolRenderers(
+        keys.map((key): ToolRegistryEntry => ({ key, displayName, icon, Renderer, requiresPostHogOrigin: true }))
+    )
 }
 
 // --- Data tools: insight (create / update / read) ---
@@ -124,6 +130,7 @@ registerToolRenderers(
             displayName,
             icon,
             Renderer: QueryRenderer,
+            requiresPostHogOrigin: true,
         })
     )
 )

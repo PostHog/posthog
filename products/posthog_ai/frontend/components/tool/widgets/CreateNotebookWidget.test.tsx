@@ -26,12 +26,13 @@ describe('CreateNotebookWidget', () => {
         'resolves %s to the notebook widget',
         (key) => {
             expect(toolRegistry.lookup(key)?.displayName).toBe('Notebook')
-            expect(lookupToolRenderer(key).displayName).toBe('Notebook')
+            // The notebook widget is gated on a trusted PostHog-exec origin, so pass `fromPostHogExec`.
+            expect(lookupToolRenderer(key, true).displayName).toBe('Notebook')
         }
     )
 
     it('falls back to the generic renderer for an unknown inner tool key', () => {
-        expect(lookupToolRenderer('some-unwired-tool').displayName).not.toBe('Notebook')
+        expect(lookupToolRenderer('some-unwired-tool', true).displayName).not.toBe('Notebook')
     })
 
     describe('extractNotebook', () => {

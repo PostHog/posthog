@@ -47,14 +47,27 @@ describe('toolRegistry', () => {
     it('falls back to the key as displayName for unknown and unmapped tool names', () => {
         expect(toolRegistry.lookup('mcp__user-installed__something')).toBeNull()
         // The synthesized fallback uses the resolved key as its displayName.
-        expect(lookupToolRenderer('mcp__user-installed__something').displayName).toEqual(
+        expect(lookupToolRenderer('mcp__user-installed__something', false).displayName).toEqual(
             'mcp__user-installed__something'
         )
-        expect(lookupToolRenderer('experiment-create').displayName).toEqual('experiment-create')
+        expect(lookupToolRenderer('experiment-create', false).displayName).toEqual('experiment-create')
         // Never-registered keys (not built-ins, not any product data-tool) resolve to the fallback.
         expect(toolRegistry.lookup('insight-query')).toBeNull()
         expect(toolRegistry.lookup('read_insight')).toBeNull()
         expect(toolRegistry.lookup('query-llm-trace')).toBeNull()
+    })
+
+    // A user-installed MCP server can expose a tool whose bare name collides with a product-widget key
+    // (e.g. "notebooks-create") and return an arbitrary `_posthogUrl`. Such a call is NOT from the
+    // trusted single-exec PostHog server (no inner tool name was parsed, so `fromPostHogExec` is false),
+    // and must fall through to the generic card rather than spoofing a first-party Notebook/Dashboard card.
+    it.each([
+        ['notebooks-create', 'Notebook'],
+        ['dashboard-create', 'Dashboard'],
+        ['query-trends', 'Trends query'],
+    ])('gates product widget %s on a trusted PostHog-exec origin', (key, displayName) => {
+        expect(lookupToolRenderer(key, false).displayName).toEqual(key)
+        expect(lookupToolRenderer(key, true).displayName).toEqual(displayName)
     })
 
     // Claude built-ins are keyed by their stable SDK name; the registry contributes a friendly
@@ -88,7 +101,7 @@ describe('toolRegistry', () => {
         const entry = toolRegistry.lookup(key)
         expect(entry).not.toBeNull()
         expect(entry?.displayName).toEqual(displayName)
-        expect(lookupToolRenderer(key).displayName).toEqual(displayName)
+        expect(lookupToolRenderer(key, false).displayName).toEqual(displayName)
     })
 
     // PostHog single-exec discovery verbs are keyed by their sentinel key (from `resolveToolKey`); the
@@ -105,12 +118,12 @@ describe('toolRegistry', () => {
         const entry = toolRegistry.lookup(key)
         expect(entry).not.toBeNull()
         expect(entry?.displayName).toEqual(displayName)
-        expect(lookupToolRenderer(key).displayName).toEqual(displayName)
+        expect(lookupToolRenderer(key, false).displayName).toEqual(displayName)
     })
 
     it('falls back to the wrench card (key as displayName) for an unmapped built-in-looking name', () => {
         expect(toolRegistry.lookup('NotARealTool')).toBeNull()
-        expect(lookupToolRenderer('NotARealTool').displayName).toEqual('NotARealTool')
+        expect(lookupToolRenderer('NotARealTool', false).displayName).toEqual('NotARealTool')
     })
 
     // Render-level: ToolCallCard resolves the entry, loads the lazy renderer behind a Suspense

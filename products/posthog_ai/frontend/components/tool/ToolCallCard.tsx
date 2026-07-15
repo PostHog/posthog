@@ -27,7 +27,9 @@ export const ToolCallCard = memo(function ToolCallCard({
     turnComplete,
     turnCancelled,
 }: ToolCallCardProps): JSX.Element {
-    const entry = lookupToolRenderer(message.resolvedKey)
+    // `innerToolName` is set only when `resolveToolKey` parsed this key out of a trusted PostHog exec
+    // command, so it doubles as the "first-party origin" signal that gates the product-widget entries.
+    const entry = lookupToolRenderer(message.resolvedKey, message.innerToolName != null)
     return (
         <Suspense fallback={<ToolCardSkeleton icon={entry.icon} displayName={entry.displayName} />}>
             <entry.Renderer
