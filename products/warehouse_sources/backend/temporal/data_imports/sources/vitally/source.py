@@ -40,6 +40,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class VitallySource(SimpleSource[VitallySourceConfig]):
+    api_docs_url = "https://docs.vitally.io"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

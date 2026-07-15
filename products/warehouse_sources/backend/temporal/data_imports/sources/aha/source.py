@@ -38,6 +38,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class AhaSource(ResumableSource[AhaSourceConfig, AhaResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://www.aha.io/api"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.AHA
