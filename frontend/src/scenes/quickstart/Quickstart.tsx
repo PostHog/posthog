@@ -6,6 +6,7 @@ import { useEffect, useRef } from 'react'
 import {
     IconApps,
     IconArrowLeft,
+    IconArrowRight,
     IconBook,
     IconBuilding,
     IconCheckCircle,
@@ -691,6 +692,7 @@ function ToolSetupModal({ installationComplete }: { installationComplete: boolea
 
 interface LearnQuickLink {
     label: string
+    icon: JSX.Element
     to?: string
     targetBlank?: boolean
     onClick?: () => void
@@ -722,43 +724,66 @@ function LearnCard({
             <span className="text-xl text-secondary">{icon}</span>
             <h3 className="font-semibold text-base mb-0">{title}</h3>
             <p className="text-secondary text-sm mb-0">{description}</p>
-            {quickLinks && (
-                <div className="flex flex-col gap-0.5 flex-1">
-                    {quickLinks.map((link) => (
-                        <LemonButton
-                            key={link.label}
-                            size="xsmall"
-                            fullWidth
-                            to={link.to}
-                            targetBlank={link.targetBlank}
+            {quickLinks ? (
+                <>
+                    <ul className="flex flex-col gap-1.5 my-1 flex-1">
+                        {quickLinks.map((link) => (
+                            <li key={link.label} className="flex">
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    fullWidth
+                                    center={false}
+                                    icon={link.icon}
+                                    to={link.to}
+                                    targetBlank={link.targetBlank}
+                                    onClick={() => {
+                                        captureQuickstartAction(`${action}_quick_link`, undefined, {
+                                            link_label: link.label,
+                                        })
+                                        link.onClick?.()
+                                    }}
+                                    data-attr={`quickstart-learn-${action}-quick-link`}
+                                >
+                                    <span className="whitespace-normal text-left font-normal">{link.label}</span>
+                                </LemonButton>
+                            </li>
+                        ))}
+                    </ul>
+                    <div className="mt-auto flex">
+                        <Link
+                            to={to}
+                            target={targetBlank ? '_blank' : undefined}
+                            targetBlankIcon={targetBlank}
                             onClick={() => {
-                                captureQuickstartAction(`${action}_quick_link`, undefined, {
-                                    link_label: link.label,
-                                })
-                                link.onClick?.()
+                                captureQuickstartAction(action)
+                                onClick?.()
                             }}
-                            data-attr={`quickstart-learn-${action}-quick-link`}
+                            className="text-sm font-medium inline-flex items-center gap-1"
+                            data-attr={`quickstart-learn-${action}`}
                         >
-                            <span className="truncate font-normal">{link.label}</span>
-                        </LemonButton>
-                    ))}
+                            {buttonLabel}
+                            {!targetBlank && <IconArrowRight />}
+                        </Link>
+                    </div>
+                </>
+            ) : (
+                <div className="mt-auto flex">
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        to={to}
+                        targetBlank={targetBlank}
+                        onClick={() => {
+                            captureQuickstartAction(action)
+                            onClick?.()
+                        }}
+                        data-attr={`quickstart-learn-${action}`}
+                    >
+                        {buttonLabel}
+                    </LemonButton>
                 </div>
             )}
-            <div className={quickLinks ? undefined : 'mt-auto'}>
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    to={to}
-                    targetBlank={targetBlank}
-                    onClick={() => {
-                        captureQuickstartAction(action)
-                        onClick?.()
-                    }}
-                    data-attr={`quickstart-learn-${action}`}
-                >
-                    {buttonLabel}
-                </LemonButton>
-            </div>
         </LemonCard>
     )
 }
@@ -1084,7 +1109,7 @@ export function Quickstart(): JSX.Element {
                         <SubsectionHeader title="Learn the ropes" />
                         <div className="grid grid-cols-1 @3xl/main-content:grid-cols-3 gap-4">
                             <LearnCard
-                                icon={<IconSparkles />}
+                                icon={<IconSparkles className="text-ai" />}
                                 title="Ask PostHog AI anything"
                                 description="Once events are flowing, ask questions in plain English and get answers from your live data. Try one:"
                                 buttonLabel="Ask PostHog AI"
@@ -1092,10 +1117,11 @@ export function Quickstart(): JSX.Element {
                                 action="ask_posthog_ai"
                                 quickLinks={[
                                     'What are my most visited pages this week?',
-                                    'How many daily active users did I have this week?',
+                                    'How many daily active users this week?',
                                     'Where do users drop off in my app?',
                                 ].map((question) => ({
                                     label: question,
+                                    icon: <IconSparkles className="text-ai" />,
                                     // The ! prefix makes the side panel submit the question right away
                                     onClick: () => openSidePanel(SidePanelTab.Max, `!${question}`),
                                 }))}
@@ -1104,23 +1130,26 @@ export function Quickstart(): JSX.Element {
                                 icon={<IconBook />}
                                 title="Read the docs"
                                 description="Guides for every tool, SDK, and framework, from first install to advanced setups. Start here:"
-                                buttonLabel="Open docs"
+                                buttonLabel="Browse all docs"
                                 to="https://posthog.com/docs"
                                 targetBlank
                                 action="open_docs_home"
                                 quickLinks={[
                                     {
                                         label: 'Capture custom events',
+                                        icon: <IconBook />,
                                         to: 'https://posthog.com/docs/product-analytics/capture-events',
                                         targetBlank: true,
                                     },
                                     {
                                         label: 'Identify your users',
+                                        icon: <IconBook />,
                                         to: 'https://posthog.com/docs/product-analytics/identify',
                                         targetBlank: true,
                                     },
                                     {
                                         label: 'Define actions from events',
+                                        icon: <IconBook />,
                                         to: 'https://posthog.com/docs/data/actions',
                                         targetBlank: true,
                                     },
@@ -1130,23 +1159,26 @@ export function Quickstart(): JSX.Element {
                                 icon={<IconGraduationCap />}
                                 title="Follow a tutorial"
                                 description="Step-by-step walkthroughs of real setups: funnels, feature flags, A/B tests, and more. Popular picks:"
-                                buttonLabel="Browse tutorials"
+                                buttonLabel="Browse all tutorials"
                                 to="https://posthog.com/tutorials"
                                 targetBlank
                                 action="open_tutorials"
                                 quickLinks={[
                                     {
                                         label: 'Complete guide to event tracking',
+                                        icon: <IconGraduationCap />,
                                         to: 'https://posthog.com/tutorials/event-tracking-guide',
                                         targetBlank: true,
                                     },
                                     {
                                         label: 'Understand behavior with session replays',
+                                        icon: <IconGraduationCap />,
                                         to: 'https://posthog.com/tutorials/explore-insights-session-recordings',
                                         targetBlank: true,
                                     },
                                     {
                                         label: 'Track new and returning users',
+                                        icon: <IconGraduationCap />,
                                         to: 'https://posthog.com/tutorials/track-new-returning-users',
                                         targetBlank: true,
                                     },
