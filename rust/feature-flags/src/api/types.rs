@@ -398,6 +398,8 @@ pub struct PropertyAnalysis {
 
 /// `ConditionAnalysis::index` for the early-access enrollment entry, which has no position among
 /// the zero-based release conditions. Negative so consumers can label it instead of "Condition #N".
+/// Mirrored independently in `FeatureFlagTestingTab.tsx` and `FeatureFlagTestingView.tsx`: update
+/// both if this value ever changes.
 pub const SUPER_CONDITION_INDEX: i32 = -1;
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
@@ -768,23 +770,26 @@ impl FlagDetails {
                 is_zero_rollout && all_properties_matched
             };
 
+            // 1-based to match the frontend's Condition #N headers.
             let explanation = if this_condition_rollout_excluded {
                 format!(
                     "Condition {} matched properties but was excluded by {}% rollout",
-                    index, rollout_percentage
+                    index + 1,
+                    rollout_percentage
                 )
             } else if all_properties_matched && condition_matched {
                 format!(
                     "Condition {} matched and passed {}% rollout",
-                    index, rollout_percentage
+                    index + 1,
+                    rollout_percentage
                 )
             } else if all_properties_matched && !condition_matched {
                 format!(
                     "Condition {} matched properties but was not evaluated due to an earlier condition matching",
-                    index
+                    index + 1
                 )
             } else {
-                format!("Condition {} did not match properties", index)
+                format!("Condition {} did not match properties", index + 1)
             };
 
             let analysis = ConditionAnalysis {
@@ -1594,9 +1599,12 @@ mod tests {
             enrollment_value.map(|v| json!(v))
         );
 
-        // The release condition wins only when the flag matched through it — never hijacked by the
-        // super condition's condition_index Some(0).
+        // The release condition wins only when the flag matched through it, never hijacked by the
+        // super condition's condition_index Some(0). is_scoped="false" is always in
+        // property_values, so the release condition's own properties always match, pinning the
+        // premise that enrollment overrides an otherwise-matching condition.
         assert_eq!(analysis[1].index, 0);
+        assert!(analysis[1].properties_matched);
         assert_eq!(analysis[1].matched, expected_release_condition_matched);
         assert!(analysis.iter().filter(|c| c.matched).count() <= 1);
     }

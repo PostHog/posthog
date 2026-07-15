@@ -90,7 +90,7 @@ export function FeatureFlagTestingView({ flag }: FeatureFlagTestingViewProps): R
                             <span className="font-medium">Reason: </span>
                             <span className="text-secondary">{flag.reason}</span>
                         </div>
-                        {flag.condition_index !== null && (
+                        {(flag.condition_index !== null || flag.reason === 'holdout_condition_value') && (
                             <div className="text-sm">
                                 <span className="font-medium">Matched condition: </span>
                                 <span className="text-secondary">{matchedConditionLabel()}</span>
