@@ -86,6 +86,11 @@ export default defineConfig(({ mode }) => {
                     exporter: resolve(__dirname, 'src/exporter/index.tsx'),
                     render_query: resolve(__dirname, 'src/render-query/index.tsx'),
                     toolbar: resolve(__dirname, 'src/toolbar/index.tsx'),
+                    // Embeddable widgets (shadow-root, own React+kea) for host apps like
+                    // PostHog Code. The self-contained bundle builds via
+                    // vite.widgets.config.mts; this entry keeps the module in the main
+                    // graph for typechecking/linting.
+                    widgets: resolve(__dirname, 'src/widgets/index.tsx'),
                 },
                 output: {
                     entryFileNames: isDev ? '[name].js' : '[name]-[hash].js',

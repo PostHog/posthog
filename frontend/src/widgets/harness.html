@@ -1,0 +1,105 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>PostHog Widgets harness</title>
+    <style>
+      body { font-family: sans-serif; margin: 0; padding: 16px; background: #f3f4ef; }
+      #controls { margin-bottom: 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+      #mount { border: 1px dashed #999; min-height: 400px; background: white; }
+      #query-out { width: 100%; height: 160px; font-family: monospace; font-size: 11px; }
+      input { width: 340px; }
+    </style>
+  </head>
+  <body>
+    <h3>PostHog Widgets harness — mountQueryEditor</h3>
+    <div id="controls">
+      <label>API host <input id="host" value="https://us.posthog.com" /></label>
+      <label>Token (personal API key or OAuth access token) <input id="token" type="password" /></label>
+      <label>Theme
+        <select id="theme"><option>light</option><option>dark</option></select>
+      </label>
+      <button id="mount-btn">Mount</button>
+      <button id="mount-mock-btn">Mount (mock context)</button>
+      <button id="unmount-btn">Unmount</button>
+    </div>
+    <div id="mount"></div>
+    <h4>onQueryChange output</h4>
+    <textarea id="query-out" readonly></textarea>
+    <script type="module">
+      import './widgets.js'
+
+      const q = new URLSearchParams(location.hash.slice(1))
+      if (q.get('token')) document.getElementById('token').value = q.get('token')
+      if (q.get('host')) document.getElementById('host').value = q.get('host')
+
+      const initialQuery = {
+        kind: 'InsightVizNode',
+        source: {
+          kind: 'TrendsQuery',
+          series: [{ kind: 'EventsNode', event: '$pageview', name: '$pageview', math: 'total' }],
+          dateRange: { date_from: '-7d' },
+          interval: 'day',
+          trendsFilter: { display: 'ActionsLineGraph' },
+        },
+      }
+
+      // Record every API request the editor makes (endpoint catalogue deliverable).
+      window.__apiLog = []
+      const origFetch = window.fetch
+      window.fetch = async (input, init) => {
+        const url = typeof input === 'string' ? input : input.url
+        const response = await origFetch(input, init)
+        if (url.includes('/api/') || url.includes('posthog.com')) {
+          window.__apiLog.push({ method: init?.method || 'GET', url, status: response.status })
+        }
+        return response
+      }
+
+      const mockContext = {
+        user: {
+          uuid: 'mock-user', distinct_id: 'mock', first_name: 'Mock', email: 'mock@example.com',
+          anonymize_data: true, realm: 'cloud', is_staff: false,
+          organization: {
+            id: 'mock-org', name: 'Mock Org', available_product_features: [],
+            teams: [{ id: 2, name: 'Mock Team' }], membership_level: 15,
+          },
+          team: { id: 2, project_id: 2, name: 'Mock Team', api_token: 'phc_mock' },
+        },
+        team: {
+          id: 2, project_id: 2, uuid: 'mock-team', name: 'Mock Team', api_token: 'phc_mock',
+          timezone: 'UTC', week_start_day: 0,
+          test_account_filters: [], test_account_filters_default_checked: false,
+          group_types: [], has_group_types: false,
+          person_display_name_properties: [], live_events_token: '',
+          completed_snippet_onboarding: true, ingested_event: true,
+        },
+      }
+
+      let handle = null
+      const doMount = (mock) => {
+        if (handle) return
+        handle = window.PostHogWidgets.mountQueryEditor(document.getElementById('mount'), {
+          query: initialQuery,
+          apiHost: document.getElementById('host').value,
+          personalApiKey: document.getElementById('token').value || undefined,
+          theme: document.getElementById('theme').value,
+          onQueryChange: (query) => {
+            document.getElementById('query-out').value = JSON.stringify(query, null, 2)
+            window.__lastQuery = query
+            console.log('[harness] onQueryChange', query)
+          },
+          ...(mock ? { __unsafeMockContext: mockContext } : {}),
+        })
+        window.__handle = handle
+      }
+      document.getElementById('mount-btn').onclick = () => doMount(false)
+      document.getElementById('mount-mock-btn').onclick = () => doMount(true)
+      document.getElementById('unmount-btn').onclick = () => {
+        handle?.unmount()
+        handle = null
+      }
+      document.getElementById('theme').onchange = (e) => handle?.update({ theme: e.target.value })
+    </script>
+  </body>
+</html>

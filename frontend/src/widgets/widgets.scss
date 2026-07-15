@@ -1,0 +1,33 @@
+// Shadow-root skin for embedded widgets — mirrors toolbar/styles.scss.
+// base.scss declares the design tokens on `:root, :host`, so importing it here
+// makes every --color-* / semantic var resolve INSIDE the shadow root.
+@import '../styles/base';
+
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
+:host {
+    // Isolate from the host page's cascade, then re-establish our own baseline.
+    all: initial;
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--color-text-primary);
+    display: block;
+}
+
+// Re-evaluate text color within themed containers so dark mode descendants
+// inherit the correct color instead of the light-mode value computed on :host.
+// No background here: the [theme] attribute also sits on the full-viewport
+// floating (popover) container, which must stay transparent.
+[theme] {
+    color: var(--color-text-primary);
+}
+
+.posthog-widget-frame {
+    // The InsightViz layout expects a bounded flex column.
+    max-width: 100%;
+}
