@@ -1,17 +1,10 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 
 import { IconPeople } from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonSegmentedButton,
-    LemonTable,
-    LemonTableColumns,
-    LemonTag,
-    Link,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { LemonSegmentedButton, LemonTable, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
-import { dayjs } from 'lib/dayjs'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
@@ -107,18 +100,6 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
             sorter: (a, b) => a.rerunPassedCount - b.rerunPassedCount,
             render: (_, row) => <CountWithDelta current={row.rerunPassedCount} prior={row.rerunPassedCountPrior} />,
         },
-        {
-            title: 'Last signal',
-            key: 'lastSeenAt',
-            width: 120,
-            align: 'right',
-            sorter: (a, b) => a.lastSeenAt.localeCompare(b.lastSeenAt),
-            render: (_, row) => (
-                <Tooltip title={dayjs(row.lastSeenAt).format('YYYY-MM-DD HH:mm:ss')}>
-                    <span className="text-xs whitespace-nowrap text-secondary">{dayjs(row.lastSeenAt).fromNow()}</span>
-                </Tooltip>
-            ),
-        },
     ]
 
     return (
@@ -152,6 +133,30 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
                 columns={columns}
                 dataSource={teams?.rows ?? []}
                 rowKey={(row) => row.ownerTeam}
+                rowClassName="cursor-pointer"
+                onRow={(row) => {
+                    const url = urls.engineeringAnalyticsTeam(row.ownerTeam)
+                    return {
+                        // Inner links (the team name) keep their own behavior.
+                        onClick: (e: React.MouseEvent) => {
+                            if ((e.target as HTMLElement).closest('a, button')) {
+                                return
+                            }
+                            if (e.metaKey || e.ctrlKey) {
+                                e.preventDefault()
+                                newInternalTab(url)
+                            } else {
+                                router.actions.push(url)
+                            }
+                        },
+                        onAuxClick: (e: React.MouseEvent) => {
+                            if (e.button === 1 && !(e.target as HTMLElement).closest('a, button')) {
+                                e.preventDefault()
+                                newInternalTab(url)
+                            }
+                        },
+                    }
+                }}
                 loading={teamsLoading}
                 pagination={{ pageSize: 25 }}
                 useURLForSorting={false}
@@ -163,10 +168,6 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
                     Showing the {teams.limit} teams with the most signal. More teams qualified in this window.
                 </div>
             )}
-            <LemonBanner type="info" dismissKey="engineering-analytics-teams-scope">
-                Teams aggregate the code surfaces they own (via products/*/product.yaml and CODEOWNERS). Nothing on this
-                page ranks or aggregates individual authors.
-            </LemonBanner>
         </div>
     )
 }
