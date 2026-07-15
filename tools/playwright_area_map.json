@@ -76,7 +76,7 @@
         "persons": ["playwright/e2e/persons/persons.spec.ts"],
         "persons-management": ["playwright/e2e/persons/persons.spec.ts"],
         "authentication": ["playwright/e2e/auth.spec.ts", "playwright/e2e/auth-password-reset.spec.ts"],
-        "onboarding": ["playwright/e2e/before-onboarding.spec.ts", "playwright/e2e/signup.spec.ts"],
+        "onboarding": ["playwright/e2e/signup.spec.ts"],
         "data-management": ["playwright/e2e/event-definitions.spec.ts"]
     },
     "explicit": {
