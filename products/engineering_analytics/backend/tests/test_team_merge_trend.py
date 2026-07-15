@@ -54,20 +54,25 @@ class TestTeamMergeTrendQuery(ClickhouseTestMixin, BaseTest):
         )
 
     def test_membership_join_bot_exclusion_and_window(self):
-        # Guards the freshly written HogQL: the team median must cover exactly the slug's
-        # members, bots must stay out of both medians, and the window must bound merged_at.
+        # Guards the freshly written HogQL: the daily median/average must cover exactly the
+        # slug's members' merges, bots and non-members must stay out, and the window must
+        # bound merged_at.
         curated = self._curated(
             self.team,
             pr_rows=[
-                # 2026-01-12: alice (team-replay) 48h + bob (team-ingestion) 24h + a bot 1h.
-                _pr_row(1, "alice", "closed", 0, "2026-01-10 10:00:00", merged_at="2026-01-12 10:00:00"),
-                _pr_row(2, "bob", "closed", 0, "2026-01-11 10:00:00", merged_at="2026-01-12 10:00:00"),
-                _pr_row(3, "dependabot[bot]", "closed", 0, "2026-01-12 09:00:00", merged_at="2026-01-12 10:00:00"),
-                # 2026-01-14: bob only — team-replay's median must gap (None), not read 0.
-                _pr_row(4, "bob", "closed", 0, "2026-01-14 00:00:00", merged_at="2026-01-14 10:00:00"),
+                # 2026-01-12, alice (team-replay): 2h + 4h + 30h merges — a skew that separates
+                # the median (4h) from the average (12h).
+                _pr_row(1, "alice", "closed", 0, "2026-01-12 08:00:00", merged_at="2026-01-12 10:00:00"),
+                _pr_row(2, "alice", "closed", 0, "2026-01-12 08:00:00", merged_at="2026-01-12 12:00:00"),
+                _pr_row(3, "alice", "closed", 0, "2026-01-11 08:00:00", merged_at="2026-01-12 14:00:00"),
+                # Same day: a non-member and a bot merge too — neither may move the team's numbers.
+                _pr_row(4, "bob", "closed", 0, "2026-01-11 10:00:00", merged_at="2026-01-12 10:00:00"),
+                _pr_row(5, "dependabot[bot]", "closed", 0, "2026-01-12 09:00:00", merged_at="2026-01-12 10:00:00"),
+                # 2026-01-14: only the non-member merges — no team row for the day.
+                _pr_row(6, "bob", "closed", 0, "2026-01-14 00:00:00", merged_at="2026-01-14 10:00:00"),
                 # Outside the window / never merged: excluded entirely.
-                _pr_row(5, "alice", "closed", 0, "2026-01-30 10:00:00", merged_at="2026-02-01 10:00:00"),
-                _pr_row(6, "alice", "open", 0, "2026-01-11 10:00:00"),
+                _pr_row(7, "alice", "closed", 0, "2026-01-30 10:00:00", merged_at="2026-02-01 10:00:00"),
+                _pr_row(8, "alice", "open", 0, "2026-01-11 10:00:00"),
             ],
             member_rows=[
                 _member_row(1, "alice", "team-replay"),
@@ -83,11 +88,6 @@ class TestTeamMergeTrendQuery(ClickhouseTestMixin, BaseTest):
         )
 
         assert result.has_membership_data is True
-        assert [point.day.date().isoformat() for point in result.points] == ["2026-01-12", "2026-01-14"]
-        first, second = result.points
-        # alice's 48h PR is the team's only merge; the repo median interpolates alice+bob
-        # (129600 = (172800 + 86400) / 2) and would drop to ~3600 if the bot leaked in.
-        assert (first.team_median_seconds, first.team_merged_count) == (172800.0, 1)
-        assert (first.repo_median_seconds, first.repo_merged_count) == (129600.0, 2)
-        assert (second.team_median_seconds, second.team_merged_count) == (None, 0)
-        assert (second.repo_median_seconds, second.repo_merged_count) == (36000.0, 1)
+        assert [point.day.date().isoformat() for point in result.points] == ["2026-01-12"]
+        (point,) = result.points
+        assert (point.median_seconds, point.average_seconds, point.merged_count) == (14400.0, 43200.0, 3)

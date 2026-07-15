@@ -559,24 +559,23 @@ class TeamMergeTrendPointSerializer(DataclassSerializer):
         dataclass = TeamMergeTrendPoint
         extra_kwargs = {
             "day": {"help_text": "Start of the day bucket (team timezone), keyed on merged_at."},
-            "team_median_seconds": {
-                "help_text": "Median open→merge seconds of PRs merged that day by members of this team; "
+            "median_seconds": {
+                "help_text": "Median open→merge seconds of the PRs this team's members merged that day; "
                 "null on a day the team merged nothing.",
             },
-            "team_merged_count": {"help_text": "Merged PRs behind the team median that day."},
-            "repo_median_seconds": {
-                "help_text": "Median open→merge seconds of every non-bot PR merged that day — the repo "
-                "baseline the team line compares against; null on a day nothing merged.",
+            "average_seconds": {
+                "help_text": "Average open→merge seconds over the same merges; diverges above the median "
+                "when a few long-running PRs drag the mean. Null on a day the team merged nothing.",
             },
-            "repo_merged_count": {"help_text": "Merged PRs behind the repo median that day."},
+            "merged_count": {"help_text": "Merged PRs behind that day's median and average."},
         }
 
 
 class TeamMergeTrendSerializer(DataclassSerializer):
     points = TeamMergeTrendPointSerializer(
         many=True,
-        help_text="Daily median open→merge for the team beside the repo baseline, ascending by day. "
-        "Coarse timing (open→merge combines draft and review time); bots excluded.",
+        help_text="Daily median and average open→merge over the PRs this team's members merged, ascending "
+        "by day. Coarse timing (open→merge combines draft and review time); bots excluded.",
     )
 
     class Meta:

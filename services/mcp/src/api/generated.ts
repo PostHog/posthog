@@ -59743,23 +59743,21 @@ export namespace Schemas {
       /** Start of the day bucket (team timezone), keyed on merged_at. */
       day: string;
       /**
-         * Median open→merge seconds of PRs merged that day by members of this team; null on a day the team merged nothing.
+         * Median open→merge seconds of the PRs this team's members merged that day; null on a day the team merged nothing.
          * @nullable
          */
-      team_median_seconds: number | null;
-      /** Merged PRs behind the team median that day. */
-      team_merged_count: number;
+      median_seconds: number | null;
       /**
-         * Median open→merge seconds of every non-bot PR merged that day — the repo baseline the team line compares against; null on a day nothing merged.
+         * Average open→merge seconds over the same merges; diverges above the median when a few long-running PRs drag the mean. Null on a day the team merged nothing.
          * @nullable
          */
-      repo_median_seconds: number | null;
-      /** Merged PRs behind the repo median that day. */
-      repo_merged_count: number;
+      average_seconds: number | null;
+      /** Merged PRs behind that day's median and average. */
+      merged_count: number;
     }
 
     export interface TeamMergeTrend {
-      /** Daily median open→merge for the team beside the repo baseline, ascending by day. Coarse timing (open→merge combines draft and review time); bots excluded. */
+      /** Daily median and average open→merge over the PRs this team's members merged, ascending by day. Coarse timing (open→merge combines draft and review time); bots excluded. */
       points: TeamMergeTrendPoint[];
       /** The team slug this trend is scoped to. */
       owner_team: string;

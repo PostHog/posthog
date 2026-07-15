@@ -1089,11 +1089,11 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             ),
         },
         description=(
-            "One team's daily time-to-merge trend: median open→merge seconds of PRs merged by the team's "
-            "members (PR author login → GitHub org team membership), beside the repo-wide median as the "
-            "baseline. Team-level medians only — never per-member figures or cross-team rankings. Timing is "
-            "the coarse open→merge (draft + review time combined); bots are excluded. Requires the GitHub "
-            "source's team_members snapshot; has_membership_data is false without it."
+            "One team's daily time-to-merge trend: the median and average open→merge seconds over the PRs "
+            "the team's members merged each day (PR author login → GitHub org team membership). Team-level "
+            "aggregates only — never per-member figures or cross-team rankings. Timing is the coarse "
+            "open→merge (draft + review time combined); bots are excluded. Requires the GitHub source's "
+            "team_members snapshot; has_membership_data is false without it."
         ),
     )
     @action(detail=False, methods=["get"], pagination_class=None)

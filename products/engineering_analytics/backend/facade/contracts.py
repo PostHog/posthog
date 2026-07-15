@@ -624,16 +624,15 @@ class TeamCIActivity:
 
 @dataclass(frozen=True)
 class TeamMergeTrendPoint:
-    """One day of merged-PR timing: the team's median open→merge (via GitHub team membership)
-    beside the repo-wide median over the same merged PRs. Medians are None on a day the
-    respective group merged nothing; counts say how many merges back each median.
+    """One day of the team's merged-PR timing: the median and average open→merge over the
+    PRs the team's members merged that day. Both are None on a day the team merged nothing;
+    ``merged_count`` says how many merges back them.
     """
 
     day: datetime
-    team_median_seconds: float | None
-    team_merged_count: int
-    repo_median_seconds: float | None
-    repo_merged_count: int
+    median_seconds: float | None
+    average_seconds: float | None
+    merged_count: int
 
 
 @dataclass(frozen=True)
