@@ -24,6 +24,9 @@
 //! Every test creates 4-partition topics and deletes the Kafka topic on exit (a leaked high-partition
 //! topic wedges later runs); the S3 e2e also sweeps its per-test S3 prefix on exit.
 
+// Tests seed and assert through `CohortStore` directly — the sanctioned direct-store test surface.
+#![allow(clippy::disallowed_methods)]
+
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -48,8 +51,21 @@ use cohort_stream_processor::store::durability::{
     run_boot_restore, upload_cadence, CheckpointExporter, CheckpointSweeper, OffsetManifest,
     RestoreSource, S3Uploader,
 };
-use cohort_stream_processor::store::{CohortStore, LeafStateKey, Stage1Key, StoreConfig};
+use cohort_stream_processor::store::{
+    BehavioralKey, CohortStore, LeafStateKey, OffloadConfig, OffloadMode, StoreConfig, StoreHandle,
+};
 use cohort_stream_processor::sweep::Sweeper;
+
+fn test_handle(store: &CohortStore) -> StoreHandle {
+    StoreHandle::new(
+        store.clone(),
+        OffloadConfig {
+            mode: OffloadMode::All,
+            event_read_permits: 16,
+            maintenance_permits: 6,
+        },
+    )
+}
 use cohort_stream_processor::workers::{MergeWorkerDeps, Stage1Worker};
 use common_kafka::config::KafkaConfig;
 use common_kafka::kafka_producer::KafkaProduceError;
@@ -234,7 +250,7 @@ fn build_consumer_with_restore(
     let dispatcher = Arc::new(EventDispatcher::new(
         PartitionRouter::new(64),
         Arc::new(OffsetTracker::new()),
-        store,
+        test_handle(&store),
         Arc::new(catalog),
         sink,
         MergeWorkerDeps::capture(),
@@ -357,15 +373,10 @@ fn entered_persons(store: &CohortStore, lsk: LeafStateKey) -> usize {
         .filter(|&n| {
             let p = person(n);
             (0..NUM_PARTITIONS).any(|partition| {
-                let key = Stage1Key {
-                    partition_id: partition as u16,
-                    team_id: TEAM as u64,
-                    leaf_state_key: lsk,
-                    person_id: p,
-                };
+                let key = BehavioralKey::new(partition as u16, TEAM as u64, p, lsk);
                 matches!(
                     store
-                        .get_stage1(&key)
+                        .get_behavioral(&key)
                         .unwrap()
                         .map(|bytes| StatefulRecord::decode(&bytes).unwrap().state),
                     Some(Stage1State::BehavioralSingle {
@@ -575,15 +586,10 @@ fn entered_persons_range(store: &CohortStore, lsk: LeafStateKey, n: usize) -> us
         .filter(|&i| {
             let p = person(i);
             (0..NUM_PARTITIONS).any(|partition| {
-                let key = Stage1Key {
-                    partition_id: partition as u16,
-                    team_id: TEAM as u64,
-                    leaf_state_key: lsk,
-                    person_id: p,
-                };
+                let key = BehavioralKey::new(partition as u16, TEAM as u64, p, lsk);
                 matches!(
                     store
-                        .get_stage1(&key)
+                        .get_behavioral(&key)
                         .unwrap()
                         .map(|bytes| StatefulRecord::decode(&bytes).unwrap().state),
                     Some(Stage1State::BehavioralSingle {
@@ -831,13 +837,8 @@ async fn does_not_commit_past_a_blocked_produce() {
 /// Whether any produced person has behavioral state under `partition` in `store`.
 fn partition_has_state(store: &CohortStore, partition: i32, lsk: LeafStateKey) -> bool {
     (1..=PERSONS).any(|n| {
-        let key = Stage1Key {
-            partition_id: partition as u16,
-            team_id: TEAM as u64,
-            leaf_state_key: lsk,
-            person_id: person(n),
-        };
-        store.get_stage1(&key).unwrap().is_some()
+        let key = BehavioralKey::new(partition as u16, TEAM as u64, person(n), lsk);
+        store.get_behavioral(&key).unwrap().is_some()
     })
 }
 
@@ -1095,7 +1096,7 @@ async fn durable_restart_reopens_live_state_and_fires_a_dormant_left() {
         "no Kafka loss: committed offsets are unchanged across the restart",
     );
 
-    // --- Dormant Left: durable workers re-seed queues from cf_stage1; a sweep past the window
+    // --- Dormant Left: durable workers re-seed queues from cf_behavioral; a sweep past the window
     // evicts each member with no new events. ---
     let catalog = Arc::new(behavioral_catalog());
     let sink = Arc::new(CaptureSink::new());
@@ -1106,7 +1107,7 @@ async fn durable_restart_reopens_live_state_and_fires_a_dormant_left() {
         let worker = Stage1Worker::spawn(
             partition as u16,
             rx,
-            store2.clone(),
+            test_handle(&store2),
             catalog.clone(),
             sink.clone(),
             Arc::new(OffsetTracker::new()),
@@ -1191,7 +1192,7 @@ fn build_consumer_with_manifest(
     let dispatcher = Arc::new(EventDispatcher::new(
         PartitionRouter::new(64),
         Arc::new(OffsetTracker::new()),
-        store,
+        test_handle(&store),
         Arc::new(catalog),
         sink,
         MergeWorkerDeps::capture(),
@@ -1303,7 +1304,7 @@ async fn delete_s3_prefix(config: &Config) {
 /// Full disaster-recovery path through a real broker + S3: fold + checkpoint to S3 (tenure 1), delete
 /// the store + checkpoint dirs (PVC loss), then restore from S3 and seek the manifest offsets (tenure
 /// 2). Asserts state is restored (not cold-replayed), the resume neither skips nor re-folds, and a
-/// dormant `Left` fires from the eviction queue rebuilt over the restored `cf_stage1`.
+/// dormant `Left` fires from the eviction queue rebuilt over the restored `cf_behavioral`.
 ///
 /// Asserting count-exact (not mere presence) sidesteps the documented fast-broker flake.
 #[tokio::test]
@@ -1378,7 +1379,7 @@ async fn s3_restore_reseeds_state_resumes_at_manifest_offset_and_fires_a_dormant
         let ckpt_dispatcher = Arc::new(EventDispatcher::new(
             PartitionRouter::new(64),
             Arc::new(OffsetTracker::new()),
-            store.clone(),
+            test_handle(&store),
             Arc::new(behavioral_catalog()),
             Arc::new(CaptureSink::new()),
             MergeWorkerDeps::capture(),
@@ -1477,7 +1478,7 @@ async fn s3_restore_reseeds_state_resumes_at_manifest_offset_and_fires_a_dormant
         "state count is still exact after the restore-seek resume",
     );
 
-    // (c) Dormant Left: workers re-seed the eviction queue from the restored cf_stage1, then a sweep
+    // (c) Dormant Left: workers re-seed the eviction queue from the restored cf_behavioral, then a sweep
     // past the window evicts every now-dormant member.
     let catalog = Arc::new(behavioral_catalog());
     let left_sink = Arc::new(CaptureSink::new());
@@ -1488,7 +1489,7 @@ async fn s3_restore_reseeds_state_resumes_at_manifest_offset_and_fires_a_dormant
         let worker = Stage1Worker::spawn(
             partition as u16,
             rx,
-            store2.clone(),
+            test_handle(&store2),
             catalog.clone(),
             left_sink.clone(),
             Arc::new(OffsetTracker::new()),
@@ -1510,7 +1511,7 @@ async fn s3_restore_reseeds_state_resumes_at_manifest_offset_and_fires_a_dormant
         .count();
     assert_eq!(
         lefts, PERSONS as usize,
-        "every restored-then-dormant member emits a Left from the eviction queue rebuilt over the S3-restored cf_stage1",
+        "every restored-then-dormant member emits a Left from the eviction queue rebuilt over the S3-restored cf_behavioral",
     );
 
     // --- Cleanup: delete the topic and the S3 prefix. ---

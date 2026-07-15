@@ -6,7 +6,8 @@ from django.db import transaction
 
 import structlog
 import temporalio
-from drf_spectacular.utils import extend_schema, extend_schema_field
+from asgiref.sync import async_to_sync
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
@@ -29,6 +30,7 @@ from products.data_warehouse.backend.facade.api import (
     get_postgres_source_location,
     hide_direct_mysql_table,
     hide_direct_postgres_table,
+    hide_direct_redshift_table,
     hide_direct_snowflake_table,
     is_any_external_data_schema_paused,
     is_cdc_enabled_for_team,
@@ -37,11 +39,13 @@ from products.data_warehouse.backend.facade.api import (
     reconcile_webhook_events,
     reproject_direct_mysql_table,
     reproject_direct_postgres_table,
+    reproject_direct_redshift_table,
     reproject_direct_snowflake_table,
     sync_cdc_extraction_schedule,
     sync_external_data_job_workflow,
     trigger_external_data_workflow,
     unpause_external_data_schedule,
+    update_external_job_status,
 )
 from products.warehouse_sources.backend.facade.models import (
     ExternalDataJob,
@@ -51,6 +55,7 @@ from products.warehouse_sources.backend.facade.models import (
     sync_frequency_to_sync_frequency_interval,
     update_sync_type_config_keys,
 )
+from products.warehouse_sources.backend.facade.pipelines import finish_row_tracking
 from products.warehouse_sources.backend.facade.source_management import (
     RowFilterValidationError,
     SourceRegistry,
@@ -66,13 +71,28 @@ logger = structlog.get_logger(__name__)
 
 
 def source_supports_column_selection(source_type: str) -> bool:
+    """Column selection is available for every registered source: SQL sources project the
+    selection into their SELECT, everything else is projected generically just before the
+    Delta write. Unknown source types stay False so the UI fails closed.
+
+    Excludes managed-schema sources (Stripe, Paddle, Zendesk): their HogQL tables expose a
+    fixed canonical schema, so dropping a referenced column breaks the query."""
+    try:
+        source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
+    except Exception as e:
+        capture_exception(e)
+        return False
+    return not source.has_managed_hogql_schema
+
+
+def source_supports_row_filters(source_type: str) -> bool:
     try:
         source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
     except Exception as e:
         capture_exception(e)
         return False
     # `bool()` guards against test mocks whose attribute access returns a Mock — orjson can't serialize.
-    return bool(source.supports_column_selection)
+    return bool(source.supports_row_filters)
 
 
 _CDC_WRITE_TARGETS_BY_TABLE_MODE: dict[str, frozenset[str]] = {
@@ -406,6 +426,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 "id": {"type": "string"},
                 "source_type": {"type": "string"},
                 "supports_column_selection": {"type": "boolean"},
+                "supports_row_filters": {"type": "boolean"},
                 "user_access_level": {"type": "string", "nullable": True},
             },
         }
@@ -425,6 +446,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "id": str(source.id),
             "source_type": source.source_type,
             "supports_column_selection": source_supports_column_selection(source.source_type),
+            "supports_row_filters": source_supports_row_filters(source.source_type),
             "user_access_level": user_access_level,
         }
 
@@ -560,6 +582,10 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         if "enabled_columns" in validated_data:
             enabled_columns = validated_data["enabled_columns"]
             if enabled_columns is not None:
+                # Managed-schema sources expose a fixed canonical HogQL schema; dropping a
+                # referenced column breaks the query, so column selection isn't offered for them.
+                if not source_supports_column_selection(instance.source.source_type):
+                    raise ValidationError("Column selection is not supported for this source type.")
                 if not isinstance(enabled_columns, list) or not all(isinstance(c, str) for c in enabled_columns):
                     raise ValidationError("enabled_columns must be a list of column-name strings or null.")
                 metadata = instance.schema_metadata or {}
@@ -579,6 +605,10 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
         # Validate against the schema's columns; raw filters are persisted as-is and re-coerced at sync time.
         if "row_filters" in validated_data and validated_data["row_filters"] is not None:
+            # Only sources that push filters into their query (SQL WHERE) can honor them — a
+            # saved-but-ignored filter would silently sync unfiltered rows.
+            if not source_supports_row_filters(instance.source.source_type):
+                raise ValidationError("Row filters are not supported for this source type.")
             incoming_sync_type = data.get("sync_type")
             target_is_cdc = (
                 incoming_sync_type == ExternalDataSchema.SyncType.CDC if "sync_type" in data else instance.is_cdc
@@ -697,9 +727,16 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                         or payload.get("incremental_field_last_value") is None
                     )
 
-            if "incremental_field" in data:
+            # Webhook schemas derive their incremental field from the source, so a null here is the
+            # client's "not applicable", not an intentional clear. Writing it would wipe the cursor
+            # config a previous append/incremental sync built up, turning the webhook initial sync
+            # into an unbounded full-history scan with no durable watermark progress.
+            is_webhook_target = resulting_sync_type == ExternalDataSchema.SyncType.WEBHOOK
+            if "incremental_field" in data and not (is_webhook_target and incremental_field is None):
                 payload["incremental_field"] = incremental_field
-            if "incremental_field_type" in data:
+            if "incremental_field_type" in data and not (
+                is_webhook_target and data.get("incremental_field_type") is None
+            ):
                 payload["incremental_field_type"] = data.get("incremental_field_type")
 
             # Lookback only applies to incremental — merge-by-PK makes re-reading the overlap window
@@ -842,7 +879,10 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             if should_sync if should_sync is not None else instance.should_sync:
                 trigger_refresh = True
 
-        # When re-enabling a webhook schema, force a full refresh to avoid missing data
+        # When re-enabling a webhook schema, request a pipeline reset so a gap from the
+        # off-window gets filled. Poll-backfillable sources honor it as a wipe plus full
+        # re-crawl; webhook-only sources (no poll backfill) resume webhook ingestion over
+        # the existing table instead of wiping it — see handle_reset_or_full_refresh.
         if (
             should_sync is True
             and instance.should_sync is False
@@ -868,6 +908,8 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                     reproject = reproject_direct_postgres_table
                 elif source.is_direct_snowflake:
                     reproject = reproject_direct_snowflake_table
+                elif source.is_direct_redshift:
+                    reproject = reproject_direct_redshift_table
                 else:
                     reproject = reproject_direct_mysql_table
                 validated_data["table"] = reproject(
@@ -881,6 +923,8 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                     hide_direct_postgres_table(instance.table)
                 elif source.is_direct_snowflake:
                     hide_direct_snowflake_table(instance.table)
+                elif source.is_direct_redshift:
+                    hide_direct_redshift_table(instance.table)
                 else:
                     hide_direct_mysql_table(instance.table)
         elif enabled_columns_changed and instance.table is not None and instance.should_sync:
@@ -1304,6 +1348,22 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return Response(status=status.HTTP_200_OK)
 
+    @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(
+                description="The running sync was cancelled. v3 pipeline jobs are marked Failed immediately; "
+                "for older pipeline versions the cancelled workflow records the final status.",
+            ),
+            400: OpenApiResponse(
+                response={
+                    "type": "object",
+                    "properties": {"detail": {"type": "string"}},
+                },
+                description="No running sync to cancel, or the sync already finished.",
+            ),
+        },
+    )
     @action(methods=["POST"], detail=True)
     def cancel(self, request: Request, *args: Any, **kwargs: Any):
         instance: ExternalDataSchema = self.get_object()
@@ -1320,14 +1380,57 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 data={"detail": "No running sync to cancel."},
             )
 
+        if latest_running_job.pipeline_version != ExternalDataJob.PipelineVersion.V3:
+            # v1/v2: the workflow itself owns the job's terminal status, so keep the legacy
+            # behavior where the cancel RPC is the whole operation and a missing workflow
+            # is an error.
+            try:
+                cancel_external_data_workflow(latest_running_job.workflow_id)
+            except temporalio.service.RPCError as e:
+                logger.exception(f"Could not cancel external data workflow for schema {instance.id}", exc_info=e)
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"detail": "Could not find workflow to cancel. The sync may have already finished."},
+                )
+            return Response(status=status.HTTP_200_OK)
+
+        # v3: durable marker FIRST. Failed is terminal/absorbing, so the loader's later
+        # Completed write and the workflow finally-block write become no-ops.
+        model = update_external_job_status(
+            job_id=str(latest_running_job.id),
+            team_id=instance.team_id,
+            status=ExternalDataJob.Status.FAILED,
+            logger=logger,
+            latest_error="Sync cancelled by user",
+        )
+        if model.status != ExternalDataJob.Status.FAILED:
+            # The job reached a different terminal state concurrently (e.g. Completed).
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"detail": "The sync already finished."},
+            )
+
         try:
             cancel_external_data_workflow(latest_running_job.workflow_id)
         except temporalio.service.RPCError as e:
-            logger.exception(f"Could not cancel external data workflow for schema {instance.id}", exc_info=e)
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"detail": "Could not find workflow to cancel. The sync may have already finished."},
-            )
+            if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+                # v3 loading phase: the extraction workflow already completed while the loader
+                # drains batches. The Failed marker above makes the loader skip and clean up.
+                logger.info("cancel_sync_workflow_already_finished", schema_id=str(instance.id))
+            else:
+                # Transient RPC failure against a possibly-live workflow. The Failed marker is
+                # already durable (terminal statuses absorb the workflow's later writes, and the
+                # v3 loader cleans up off the marker), so the cancel stands - but the workflow
+                # may keep running until it finishes on its own, so surface the failure.
+                logger.exception("cancel_sync_workflow_cancel_rpc_failed", schema_id=str(instance.id))
+
+        try:
+            # Clear the schema's in-flight row counter; nothing will finish it once the job is Failed.
+            async_to_sync(finish_row_tracking)(instance.team_id, str(instance.id))
+        except Exception as e:
+            # Best-effort: the counter is rebuilt from scratch by the next sync.
+            logger.exception("cancel_sync_row_tracking_cleanup_failed", schema_id=str(instance.id))
+            capture_exception(e)
 
         return Response(status=status.HTTP_200_OK)
 
@@ -1340,6 +1443,8 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 hide_direct_postgres_table(instance.table)
             elif instance.source.is_direct_snowflake:
                 hide_direct_snowflake_table(instance.table)
+            elif instance.source.is_direct_redshift:
+                hide_direct_redshift_table(instance.table)
             else:
                 hide_direct_mysql_table(instance.table)
             instance.should_sync = False

@@ -1,14 +1,22 @@
-import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER } from 'lib/api.mock'
+import {
+    MOCK_DEFAULT_BASIC_USER,
+    MOCK_DEFAULT_ORGANIZATION,
+    MOCK_DEFAULT_ORGANIZATION_MEMBER,
+    MOCK_DEFAULT_USER,
+} from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { OrganizationMembershipLevel } from 'lib/constants'
+import { membersLogic } from 'scenes/organization/membersLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { Region, UserType } from '~/types'
+import { OrganizationMemberType, Region, UserType } from '~/types'
 
 import { impersonationNoticeLogic } from './impersonationNoticeLogic'
 
@@ -34,6 +42,28 @@ const MOCK_IMPERSONATED_USER: UserType = {
     },
 }
 
+function mockMember(
+    firstName: string,
+    level: OrganizationMembershipLevel,
+    id: number,
+    uuid: string
+): OrganizationMemberType {
+    return {
+        ...MOCK_DEFAULT_ORGANIZATION_MEMBER,
+        id: `member-${id}`,
+        user: {
+            ...MOCK_DEFAULT_BASIC_USER,
+            id,
+            uuid,
+            first_name: firstName,
+            last_name: '',
+            distinct_id: `distinct-${id}`,
+            email: `${firstName.toLowerCase()}@example.com`,
+        },
+        level,
+    }
+}
+
 describe('impersonationNoticeLogic', () => {
     let logic: ReturnType<typeof impersonationNoticeLogic.build>
 
@@ -42,6 +72,7 @@ describe('impersonationNoticeLogic', () => {
             get: {
                 '/api/users/@me/': () => [200, MOCK_DEFAULT_USER],
                 '/admin/auth_check': () => [200, {}],
+                '/api/organizations/:org/members/': () => [200, { results: [], count: 0 }],
             },
             post: {
                 '/admin/login/user/:id/': () => [200, {}],
@@ -49,6 +80,7 @@ describe('impersonationNoticeLogic', () => {
         })
         initKeaTests()
         userLogic.mount()
+        membersLogic.mount()
         logic = impersonationNoticeLogic()
         logic.mount()
     })
@@ -328,6 +360,10 @@ describe('impersonationNoticeLogic', () => {
 
     describe('returnToPostHog listener', () => {
         it('navigates to the loginas logout endpoint with next pointing back to the app', async () => {
+            // Drain mount-time requests first: while window.location.href holds the relative
+            // logout URL below, MSW can't resolve request URLs against it and errors out
+            await expectLogic(preflightLogic).toFinishAllListeners()
+
             const originalLocation = window.location
             Object.defineProperty(window, 'location', {
                 configurable: true,
@@ -644,6 +680,164 @@ describe('impersonationNoticeLogic', () => {
                 })
 
             expect(lemonToast.success).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('changeableMembers selector', () => {
+        it('groups by power descending then names A→Z, excluding the impersonated user', async () => {
+            userLogic.actions.loadUserSuccess(MOCK_IMPERSONATED_USER)
+
+            // MOCK_IMPERSONATED_USER shares MOCK_DEFAULT_USER's uuid, so this member must be excluded.
+            const impersonatedSelf = mockMember('Self', OrganizationMembershipLevel.Owner, 1, MOCK_DEFAULT_USER.uuid)
+
+            membersLogic.actions.loadAllMembersSuccess([
+                mockMember('Zara', OrganizationMembershipLevel.Owner, 10, 'uuid-zara'),
+                mockMember('Anna', OrganizationMembershipLevel.Owner, 11, 'uuid-anna'),
+                mockMember('Yvonne', OrganizationMembershipLevel.Admin, 12, 'uuid-yvonne'),
+                mockMember('Bob', OrganizationMembershipLevel.Admin, 13, 'uuid-bob'),
+                mockMember('Xavier', OrganizationMembershipLevel.Member, 14, 'uuid-xavier'),
+                mockMember('Cara', OrganizationMembershipLevel.Member, 15, 'uuid-cara'),
+                impersonatedSelf,
+            ])
+
+            const names = logic.values.changeableMembers.map((member) => member.user.first_name)
+            expect(names).toEqual(['Anna', 'Zara', 'Bob', 'Yvonne', 'Cara', 'Xavier'])
+        })
+
+        it('returns an empty list when members have not loaded', async () => {
+            await expectLogic(logic).toMatchValues({ changeableMembers: [] })
+        })
+    })
+
+    describe('changeUser listener', () => {
+        function mockLocationReload(): { reload: jest.Mock; restore: () => void } {
+            const originalLocation = window.location
+            const reload = jest.fn()
+            Object.defineProperty(window, 'location', {
+                configurable: true,
+                writable: true,
+                value: { ...originalLocation, reload },
+            })
+            return {
+                reload,
+                restore: () =>
+                    Object.defineProperty(window, 'location', {
+                        configurable: true,
+                        writable: true,
+                        value: originalLocation,
+                    }),
+            }
+        }
+
+        it.each([
+            { readOnly: true, expected: 'true' },
+            { readOnly: false, expected: 'false' },
+        ])('sends read_only=$expected matching the current mode', async ({ readOnly, expected }) => {
+            userLogic.actions.loadUserSuccess({
+                ...MOCK_IMPERSONATED_USER,
+                is_impersonated_read_only: readOnly,
+            })
+
+            const fetchSpy = jest.spyOn(globalThis, 'fetch')
+            const { reload, restore } = mockLocationReload()
+
+            useMocks({
+                get: {
+                    '/admin/auth_check': () => [200, {}],
+                    '/api/users/@me/': () => [200, MOCK_IMPERSONATED_USER],
+                },
+                post: {
+                    '/admin/login/user/:id/': () => [200, {}],
+                },
+            })
+
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.changeUser(456, 'support ticket #123')
+                }).toFinishAllListeners()
+
+                const loginCall = fetchSpy.mock.calls.find(
+                    ([url]) => typeof url === 'string' && url.includes('/admin/login/user/456/')
+                )
+                expect(loginCall).toBeTruthy()
+                const body = new URLSearchParams(loginCall![1]?.body as string)
+                expect(body.get('reason')).toBe('support ticket #123')
+                expect(body.get('read_only')).toBe(expected)
+                expect(reload).toHaveBeenCalled()
+            } finally {
+                restore()
+                fetchSpy.mockRestore()
+            }
+        })
+
+        it('uses an explicitly passed reason over the persisted one', async () => {
+            userLogic.actions.loadUserSuccess({ ...MOCK_IMPERSONATED_USER, is_impersonated_reason: 'persisted reason' })
+
+            const fetchSpy = jest.spyOn(globalThis, 'fetch')
+            const { restore } = mockLocationReload()
+
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.changeUser(456, 'fresh reason')
+                }).toFinishAllListeners()
+
+                const loginCall = fetchSpy.mock.calls.find(
+                    ([url]) => typeof url === 'string' && url.includes('/admin/login/user/456/')
+                )
+                const body = new URLSearchParams(loginCall![1]?.body as string)
+                expect(body.get('reason')).toBe('fresh reason')
+            } finally {
+                restore()
+                fetchSpy.mockRestore()
+            }
+        })
+
+        it('does not call the endpoint when no reason is available', async () => {
+            userLogic.actions.loadUserSuccess(MOCK_IMPERSONATED_USER)
+            const fetchSpy = jest.spyOn(globalThis, 'fetch')
+
+            await expectLogic(logic, () => {
+                logic.actions.changeUser(456)
+            })
+                .toDispatchActions(['changeUserFailure'])
+                .toFinishAllListeners()
+                .toMatchValues({ isChangingUser: false })
+
+            const loginCall = fetchSpy.mock.calls.find(
+                ([url]) => typeof url === 'string' && url.includes('/admin/login/user/')
+            )
+            expect(loginCall).toBeUndefined()
+            expect(lemonToast.error).toHaveBeenCalled()
+            fetchSpy.mockRestore()
+        })
+
+        it('shows an error toast and resets state on failure', async () => {
+            userLogic.actions.loadUserSuccess(MOCK_IMPERSONATED_USER)
+
+            const { reload, restore } = mockLocationReload()
+
+            useMocks({
+                get: {
+                    '/admin/auth_check': () => [200, {}],
+                },
+                post: {
+                    '/admin/login/user/:id/': () => [403, { detail: 'Forbidden' }],
+                },
+            })
+
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.changeUser(456, 'support ticket #123')
+                })
+                    .toDispatchActions(['changeUserFailure'])
+                    .toFinishAllListeners()
+                    .toMatchValues({ isChangingUser: false })
+
+                expect(lemonToast.error).toHaveBeenCalled()
+                expect(reload).not.toHaveBeenCalled()
+            } finally {
+                restore()
+            }
         })
     })
 })

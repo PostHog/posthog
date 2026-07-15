@@ -1244,10 +1244,10 @@ export interface ValidatePipelineRequestApi {
  * * `warning` - warning
  * * `error` - error
  */
-export type ValidationWarningSeverityEnumApi =
-    (typeof ValidationWarningSeverityEnumApi)[keyof typeof ValidationWarningSeverityEnumApi]
+export type IngestionWarningSeverityEnumApi =
+    (typeof IngestionWarningSeverityEnumApi)[keyof typeof IngestionWarningSeverityEnumApi]
 
-export const ValidationWarningSeverityEnumApi = {
+export const IngestionWarningSeverityEnumApi = {
     Info: 'info',
     Warning: 'warning',
     Error: 'error',
@@ -1263,7 +1263,7 @@ export interface ValidationWarningApi {
      * * `info` - info
      * * `warning` - warning
      * * `error` - error */
-    severity: ValidationWarningSeverityEnumApi
+    severity: IngestionWarningSeverityEnumApi
 }
 
 export interface ValidatePipelineResponseApi {

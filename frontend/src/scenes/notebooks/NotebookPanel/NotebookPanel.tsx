@@ -68,7 +68,7 @@ export function NotebookPanel(): JSX.Element | null {
                             <div className="flex-1" />
                             <div className="flex items-center gap-1">
                                 {selectedNotebook && <NotebookPresence shortId={selectedNotebook} />}
-                                <NotebookMenu shortId={selectedNotebook} />
+                                <NotebookMenu shortId={selectedNotebook} inPanel />
                                 {contentWidthHasEffect && (
                                     <NotebookExpandButton
                                         size="small"

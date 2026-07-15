@@ -33,7 +33,8 @@ class SignalScoutRunSummary(BaseModel):
 # directly. The bootstrap, scratchpad, recency, business-knowledge, friction, and output sections are
 # identical for both; only the channel-specific sections differ. `build_run_prompt` composes the right
 # set from the constants below. Orthogonal to the channel fork, a *custom* (team-authored) scout on
-# either channel additionally gets the self-improvement section (`_SELF_IMPROVEMENT`).
+# either channel additionally gets the self-improvement section (`_self_improvement_section`), which
+# on the report channel also invites escalating strong suggestions as inbox reports about the scout.
 
 _BASE_PROMPT_INTRO = """You are a Signals scout agent for PostHog.
 
@@ -150,7 +151,7 @@ _AUTHORING_VS_EDITING_REPORT_BOTH = """# Authoring vs. editing: search the inbox
 
 `signals-scout-emit-report` is NOT idempotent — calling it twice authors two reports, and there is no dedupe matcher on this channel. Duplicate reports are the main failure mode here, so the discipline is **search, then decide**:
 
-- **Search first, every time.** Before authoring anything, call `inbox-reports-list` (filter/search by the entity, error, or topic you're about to report on) with `ordering=-updated_at` — the default ordering buckets by your own reviewer-match and status first, so without it the most recent duplicate can sort below older rows and you'd miss it — and read the closest matches with `inbox-reports-retrieve`, plus your `report:<domain>:<entity>` scratchpad pointer from a prior run (see *The `report:` scratchpad entry is a pointer*). Don't filter by `source_product=<your product>`: a report you authored persists its backing signals under `source_product=signals_scout`, so a product-named filter matches none of your own reports.
+- **Search first, every time.** Before authoring anything, call `inbox-reports-list` (filter/search by the entity, error, or topic you're about to report on) with `ordering=-updated_at` — the default ordering buckets by your own reviewer-match and status first, so without it the most recent duplicate can sort below older rows and you'd miss it — and `include_all_statuses=true`, so statuses hidden by default (like human-dismissed reports) show up too; each row carries its `status` (and `dismissal_reason`/`dismissal_note` when dismissed), so read it before deciding. Then read the closest matches with `inbox-reports-retrieve`, plus your `report:<domain>:<entity>` scratchpad pointer from a prior run (see *The `report:` scratchpad entry is a pointer*). Don't filter by `source_product=<your product>`: a report you authored persists its backing signals under `source_product=signals_scout`, so a product-named filter matches none of your own reports.
 - **Edit when it already exists *and is still live*.** If a report covers the issue, prefer `signals-scout-edit-report`: `append_note` to add your fresh evidence (additive, audit-friendly, and works on any report — even one you didn't author), or rewrite `title`/`summary` on a report you own. One living report beats three near-duplicates fragmenting the inbox. But `edit_report` can't change a report's status, so appending to a `resolved` / `suppressed` / `failed` report buries a real relapse under a closed item — when the match is no longer live, treat the relapse as genuinely new (author a fresh report and repoint your `report:` pointer at it).
 - **Author only when it's genuinely new.** A materially new issue — or a known one with new evidence that changes the verdict, or a relapse whose prior report is no longer live — warrants a fresh report. Neither `emit_report` nor `edit_report` is idempotent — never retry a call that looked like it failed: a retried `emit_report` that actually landed silently doubles the report, and a retried `edit_report(append_note=...)` appends a second note. If unsure whether it landed, re-read with `inbox-reports-list` / `inbox-reports-retrieve` rather than re-sending."""
 
@@ -158,7 +159,7 @@ _AUTHORING_REPORT_EMIT_ONLY = """# Authoring reports: search the inbox first
 
 `signals-scout-emit-report` is NOT idempotent — calling it twice authors two reports, and there is no dedupe matcher on this channel. Duplicate reports are the main failure mode here, so the discipline is **search, then decide**:
 
-- **Search first, every time.** Before authoring anything, call `inbox-reports-list` (filter/search by the entity, error, or topic you're about to report on) with `ordering=-updated_at` (the default ordering can sort the most recent duplicate below older rows) and read the closest matches with `inbox-reports-retrieve`, plus your `report:<domain>:<entity>` scratchpad pointer from a prior run (see *The `report:` scratchpad entry is a pointer*). Don't filter by `source_product=<your product>`: a report you authored persists its backing signals under `source_product=signals_scout`, so a product-named filter matches none of your own reports.
+- **Search first, every time.** Before authoring anything, call `inbox-reports-list` (filter/search by the entity, error, or topic you're about to report on) with `ordering=-updated_at` (the default ordering can sort the most recent duplicate below older rows) and `include_all_statuses=true` (statuses hidden by default — like human-dismissed reports — show up too; read each row's `status`, and `dismissal_reason`/`dismissal_note` when dismissed, before deciding), and read the closest matches with `inbox-reports-retrieve`, plus your `report:<domain>:<entity>` scratchpad pointer from a prior run (see *The `report:` scratchpad entry is a pointer*). Don't filter by `source_product=<your product>`: a report you authored persists its backing signals under `source_product=signals_scout`, so a product-named filter matches none of your own reports.
 - **Don't duplicate a *live* report.** This run can't edit reports, so if a still-open report already covers the issue, leave it alone — record a `remember(...)` note and skip rather than authoring a near-duplicate. But a `resolved` / `suppressed` / `failed` report won't resurface and you can't reopen it, so a genuine relapse of a closed report is genuinely new — author a fresh report for it.
 - **Author only when it's genuinely new.** A materially new issue — or a relapse whose prior report is no longer live — warrants a fresh report. Never retry an `emit_report` that looked like it failed: a retry that actually succeeded the first time silently doubles the report. If unsure whether it landed, look it up with `inbox-reports-list` rather than re-emitting."""
 
@@ -166,7 +167,7 @@ _EDITING_REPORT_EDIT_ONLY = """# Editing existing reports
 
 This run updates reports that already exist — it can't author new ones. Find the report your evidence bears on, then keep it current:
 
-- **Find it.** `inbox-reports-list` (filter/search by the entity, error, or topic) with `ordering=-updated_at` so the most recently updated match sorts to the top, then `inbox-reports-retrieve` to read the candidate in full. Don't filter by `source_product=<your product>` — a scout-authored report's signals persist under `source_product=signals_scout`, so a product-named filter misses your own reports. Reuse the `report:<domain>:<entity>` scratchpad entry / `report_id` from a prior run when you have one.
+- **Find it.** `inbox-reports-list` (filter/search by the entity, error, or topic) with `ordering=-updated_at` so the most recently updated match sorts to the top, and `include_all_statuses=true` so statuses hidden by default (like human-dismissed reports) show up — check the row's `status` before editing: appending to a dismissed or closed report buries your evidence under an item nobody is watching. Then `inbox-reports-retrieve` to read the candidate in full. Don't filter by `source_product=<your product>` — a scout-authored report's signals persist under `source_product=signals_scout`, so a product-named filter misses your own reports. Reuse the `report:<domain>:<entity>` scratchpad entry / `report_id` from a prior run when you have one.
 - **Append, or rewrite.** Prefer `append_note` to add fresh evidence — it's additive, audit-friendly, and works on any report, even one you didn't author. Rewrite `title`/`summary` only on a report you own, and only when the framing is genuinely stale; lead the summary with the verdict (see *Writing the summary*).
 - **Route an unrouted report.** If a report surfaced assigned to no one, set `suggested_reviewers` to route it to an owner — each reviewer an object, `{github_login}` (a bare lowercase login, no `@`) or `{user_uuid}` (the server resolves it for you), never a bare string. If the owner isn't already named in the report, call `signals-scout-members-list` to look up this project's members (each carries a resolved `github_login`; the org-scoped `org-member-get-github-login` / `org-members-list` tools aren't available in a scout run). This replaces the report's reviewer list and re-runs autostart, so a report that already has a repo + priority but lacked a qualifying reviewer can now open a draft PR. Only set a reviewer you're confident owns the area; an empty list is a no-op.
 - **Don't retry blindly.** `edit_report` is NOT idempotent — a retried `append_note` appends a second note. If unsure whether an edit landed, re-read the report rather than re-sending."""
@@ -239,15 +240,43 @@ _GROUND_RULES = """# Ground rules
 # never sees this section: its skill body is a seeded row that upstream sync keeps current, and
 # nudging a team to edit it would mark the row diverged and cut it off from canonical updates.
 # Canonical-skill defects route upstream via the operational-friction section instead.
-_SELF_IMPROVEMENT = """# Suggest improvements to your own skill
+_SELF_IMPROVEMENT_HEAD = """# Suggest improvements to your own skill
 
 This scout's skill was authored by your team, and you are the only one who sees where its instructions steer a real run wrong. When THIS run produced concrete evidence that the skill misdirected you or wasted your budget — it pointed you at a tool, event, or surface that doesn't exist on this project, a default threshold or window you had to correct again, a recurring pitfall it never warns about — record the suggestion so the humans who own this scout can review it:
 
-- Write a scratchpad entry keyed `improve:<your-skill-name>:<topic>` — use your skill name from *Your run identity*, not a bare domain: scratchpad keys are shared team-wide, and a domain-only key would let two scouts overwrite each other's suggestions. Stable key, no dates — same rules as your other keys. In the content: the specific skill change you'd suggest, the evidence from this run, and a dated observed line. Hit the same issue on a later run? Rewrite the same key with a fresh dated line appended — recurrence across runs is the strongest review signal the owner gets.
-- The bar is a concrete failure or waste observed this run. Generic polish ("the wording could be clearer") is noise — don't write it.
+- Write a scratchpad entry keyed `improve:<your-skill-name>:<topic>` — use your skill name from *Your run identity*, not a bare domain: scratchpad keys are shared team-wide, and a domain-only key would let two scouts overwrite each other's suggestions. Stable key, no dates — same rules as your other keys. In the content: the specific skill change you'd suggest, the evidence from this run, and a dated observed line. Hit the same issue on a later run? Rewrite the same key with a fresh dated line appended — recurrence across runs is the strongest review signal the owner gets."""
+
+# The exact title prefix the escalation guidance below mandates for scout self-improvement reports.
+# The report-channel telemetry (`tools/report.py` `_report_classification_props`) classifies emitted /
+# edited reports off this prefix, so the prompt wording and the event classification share one
+# definition and can't silently drift apart.
+SELF_IMPROVEMENT_REPORT_TITLE_PREFIX = "Scout self-improvement:"
+
+# Report-channel custom scouts additionally escalate strong suggestions to the inbox with the report
+# tools they already hold. Two variants because an emit-only scout must never be pointed at
+# `edit_report` (the endpoint fails closed on the exact tool); a signal-channel custom scout gets
+# neither — it has no report tools at all, so the scratchpad stays its only self-improvement record.
+_SELF_IMPROVEMENT_ESCALATE_BOTH = f"""- **Recurring or material? File an inbox report too.** A scratchpad entry is only seen when the owner goes looking; a report is routed to them. When a suggestion re-confirms across runs (your `improve:` entry has accumulated several dated lines), or this run's failure was material (it wasted most of your budget, or steered you into emitting something wrong), surface it with the same report tools you use for findings. If the `improve:` entry already carries a `report_id`, `append_note` the fresh evidence onto that report with `signals-scout-edit-report`; otherwise author one with `signals-scout-emit-report` — title `{SELF_IMPROVEMENT_REPORT_TITLE_PREFIX} <your-skill-name> – <topic>`, the suggested skill change plus the evidence in the summary, `actionability` = `requires_human_input` (applying it is a skill edit by your team), `repository` = the `NO_REPO` sentinel (the fix is a skill edit, not code), `suggested_reviewers` = whoever owns this scout when you know — and stash the returned `report_id` in the `improve:` entry so later runs update that report instead of authoring a duplicate. It lands in the inbox like any other report; your team decides whether to apply it."""
+
+_SELF_IMPROVEMENT_ESCALATE_EMIT_ONLY = f"""- **Recurring or material? File an inbox report too.** A scratchpad entry is only seen when the owner goes looking; a report is routed to them. When a suggestion re-confirms across runs (your `improve:` entry has accumulated several dated lines), or this run's failure was material (it wasted most of your budget, or steered you into emitting something wrong), surface it with `signals-scout-emit-report` — title `{SELF_IMPROVEMENT_REPORT_TITLE_PREFIX} <your-skill-name> – <topic>`, the suggested skill change plus the evidence in the summary, `actionability` = `requires_human_input` (applying it is a skill edit by your team), `repository` = the `NO_REPO` sentinel (the fix is a skill edit, not code), `suggested_reviewers` = whoever owns this scout when you know. Stash the returned `report_id` in the `improve:` entry — this run can't edit reports, so once the entry carries a `report_id` the report exists: keep fresh evidence in the entry rather than authoring a duplicate. It lands in the inbox like any other report; your team decides whether to apply it."""
+
+_SELF_IMPROVEMENT_TAIL = """- The bar is a concrete failure or waste observed this run. Generic polish ("the wording could be clearer") is noise — don't write it.
 - Routing: a problem with the tools, the harness, or these shared instructions still goes to `agent-feedback` (it reaches the PostHog team, not your team). An `improve:` entry is only for changes to your own skill body — your team reviews it and decides whether to apply it.
 - You are also the janitor of your own suggestions — the scratchpad is writable only from a scout run, so the owner cannot clear an entry after acting on it. When a prior `improve:` entry of yours has been addressed (your skill body now reflects it, or the issue no longer reproduces), `forget` it or rewrite it as resolved so the pending list stays meaningful.
 - At most one new `improve:` entry per run, near close-out, and mention it in your summary. It is never a substitute for finishing the run."""
+
+
+def _self_improvement_section(*, can_emit_report: bool, can_edit_report: bool) -> str:
+    """Compose the self-improvement section for a custom scout, escalation guidance included only
+    when the scout holds the report tool(s) it names — same fail-closed discipline as the channel
+    sections. An edit-only scout gets no escalation: it can never author the first self-improvement
+    report, so the scratchpad entry remains its record."""
+    parts = [_SELF_IMPROVEMENT_HEAD]
+    if can_emit_report:
+        parts.append(_SELF_IMPROVEMENT_ESCALATE_BOTH if can_edit_report else _SELF_IMPROVEMENT_ESCALATE_EMIT_ONLY)
+    parts.append(_SELF_IMPROVEMENT_TAIL)
+    return "\n".join(parts)
+
 
 _OPERATIONAL_FRICTION = """# Report operational friction
 
@@ -356,8 +385,9 @@ def build_run_prompt(skill: LoadedSkill, *, run_id: str, team_id: int, started_a
 
     Orthogonal to the channel fork, the prompt also forks on the skill's *origin*: a custom
     (team-authored) scout gets the self-improvement section inviting evidence-backed `improve:`
-    scratchpad suggestions for its own skill body; a canonical scout doesn't, so the harness never
-    nudges a team into diverging a seeded row from upstream sync.
+    scratchpad suggestions for its own skill body — and, when it holds report tools, escalating
+    recurring or material suggestions as inbox reports about the scout itself; a canonical scout
+    gets neither, so the harness never nudges a team into diverging a seeded row from upstream sync.
 
     `run_id` is the UUID of the `SignalScoutRun` row the harness inserted before
     spawning the sandbox. The agent passes it back when it calls
@@ -394,8 +424,9 @@ def build_run_prompt(skill: LoadedSkill, *, run_id: str, team_id: int, started_a
         emit_tool = "signals-scout-emit-signal"
     if skill.origin == "custom":
         # Slot the self-improvement invitation between friction reporting and the output format
-        # (the last element of every tail). Custom scouts only — see the note on _SELF_IMPROVEMENT.
-        sections = [*sections[:-1], _SELF_IMPROVEMENT, sections[-1]]
+        # (the last element of every tail). Custom scouts only — see the note on _SELF_IMPROVEMENT_HEAD.
+        self_improvement = _self_improvement_section(can_emit_report=can_emit_report, can_edit_report=can_edit_report)
+        sections = [*sections[:-1], self_improvement, sections[-1]]
     tail = _render_tail(sections, schema_json=schema_json)
     return f"""{intro}
 # Your run identity
@@ -404,6 +435,10 @@ def build_run_prompt(skill: LoadedSkill, *, run_id: str, team_id: int, started_a
 - **team_id**: `{team_id}` — implicit on every MCP call.
 - **skill**: `{skill.name}` (v{skill.version}) — your steering layer.
 - **started_at**: `{started_at_iso}` — when this run began (UTC). Informational; use current clock time for queries about "now".
+
+# How to call tools
+
+Every tool named in this prompt — the `signals-scout-*` harness tools and all PostHog MCP tools — is invoked through the `mcp__posthog__exec` interface as `call <tool_name> <json>`, not as a direct tool call. The bare names below (`skill-get`, `signals-scout-project-profile-get`, `{emit_tool}`, …) are how you *refer* to a tool; you reach one through `exec`. For any tool you haven't already used, discover and inspect it first on that same interface — `search <regex>` to find it, `info <tool_name>` to read its schema — then `call` it. Don't burn opening moves trying to invoke these names directly; they resolve only through `exec`.
 
 # First: read your skill
 

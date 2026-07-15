@@ -25,7 +25,7 @@ import {
     NotificationDestinationTypeEnumApi,
     LogsAlertConfigurationApi,
     LogsAlertConfigurationStateEnumApi,
-    ThresholdOperatorEnumApi,
+    LogsAlertThresholdOperatorEnumApi,
 } from 'products/logs/frontend/generated/api.schemas'
 
 import { logsAlertingLogic } from './logsAlertingLogic'
@@ -34,7 +34,7 @@ import { LogsAlertStateTimeline } from './LogsAlertStateTimeline'
 import { SNOOZE_DURATIONS } from './logsAlertUtils'
 
 function formatThreshold(alert: LogsAlertConfigurationApi): string {
-    const operator = alert.threshold_operator === ThresholdOperatorEnumApi.Below ? '<' : '>'
+    const operator = alert.threshold_operator === LogsAlertThresholdOperatorEnumApi.Below ? '<' : '>'
     return `${operator} ${alert.threshold_count} in ${alert.window_minutes}m`
 }
 

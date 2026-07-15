@@ -129,6 +129,22 @@ describe('DefaultTooltip', () => {
             expect(screen.queryByText((1035).toLocaleString())).toBeNull()
         })
 
+        it('excludes visibility.total: false series from the sum but still renders its row', () => {
+            // A percentage column alongside counts: its 2.4 must not leak into the counts' total.
+            const withPercent: TooltipContext['seriesData'] = [
+                ...TWO_SERIES,
+                {
+                    series: { key: 'pct', label: 'Rate', data: [], visibility: { total: false } },
+                    value: 2.4,
+                    color: '#222',
+                },
+            ]
+            renderTooltip({ showTotal: true }, withPercent)
+            expect(screen.getAllByText('Rate').length).toBeGreaterThan(0)
+            screen.getByText((35).toLocaleString())
+            expect(screen.queryByText((37.4).toLocaleString())).toBeNull()
+        })
+
         it('is suppressed when only one non-overlay series remains', () => {
             const oneRealOneOverlay: TooltipContext['seriesData'] = [
                 { series: { key: 'a', label: 'A', data: [] }, value: 10, color: '#000' },

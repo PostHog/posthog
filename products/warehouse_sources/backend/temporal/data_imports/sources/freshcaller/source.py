@@ -85,7 +85,6 @@ Your **API key** is on your Freshcaller profile settings page (click your profil
             iconPath="/static/services/freshcaller.png",
             docsUrl="https://posthog.com/docs/cdp/sources/freshcaller",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [

@@ -68,7 +68,10 @@ impl ValueOperator for IssueLinker {
     }
 
     async fn execute_value(&self, input: Self::Item, ctx: LinkingStage) -> OperatorResult<Self> {
-        let fingerprint = input.fingerprint.clone().unwrap();
+        let fingerprint = input
+            .fingerprint
+            .clone()
+            .ok_or_else(|| UnhandledError::Other("Missing fingerprint".into()))?;
         let key = (input.team_id, fingerprint);
 
         // Wrap the (large) event in an `Arc` so the cache-loader closures capture a cheap
@@ -118,7 +121,10 @@ async fn resolve_via_id_cache(
     input: Arc<ExceptionProperties>,
     ctx: &LinkingStage,
 ) -> Result<Issue, UnhandledError> {
-    let fingerprint = input.fingerprint.clone().unwrap();
+    let fingerprint = input
+        .fingerprint
+        .clone()
+        .ok_or_else(|| UnhandledError::Other("Missing fingerprint".into()))?;
     let key = (input.team_id, fingerprint.clone());
 
     // `try_get_with` only returns the cached value (`Uuid`), so we stash the freshly

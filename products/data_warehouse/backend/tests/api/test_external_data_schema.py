@@ -1414,6 +1414,7 @@ class TestExternalDataSchema(APIBaseTest):
                 "incremental_field": "created",
                 "incremental_field_type": "integer",
                 "incremental_field_last_value": 1000,
+                "incremental_field_earliest_value": 500,
             },
             table=table,
         )
@@ -1437,9 +1438,12 @@ class TestExternalDataSchema(APIBaseTest):
                 return_value=mock_hog_fn_result,
             ),
         ):
+            # The frontend sends null incremental fields alongside the switch — they must not
+            # wipe the cursor config, or the webhook initial sync degrades to an unbounded
+            # full-history scan with no durable watermark progress.
             response = self.client.patch(
                 f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
-                data={"sync_type": "webhook"},
+                data={"sync_type": "webhook", "incremental_field": None, "incremental_field_type": None},
             )
 
             assert response.status_code == 200
@@ -1452,6 +1456,7 @@ class TestExternalDataSchema(APIBaseTest):
             assert schema.sync_type_config.get("incremental_field") == "created"
             assert schema.sync_type_config.get("incremental_field_type") == "integer"
             assert schema.sync_type_config.get("incremental_field_last_value") == 1000
+            assert schema.sync_type_config.get("incremental_field_earliest_value") == 500
 
     def test_update_schema_change_sync_type_incremental_field(self):
         source = ExternalDataSource.objects.create(
@@ -2821,8 +2826,9 @@ class TestUpdateExternalDataSchema:
 
 
 class TestCancelExternalDataSchema(APIBaseTest):
-    @mock.patch("products.data_warehouse.backend.presentation.views.external_data_schema.cancel_external_data_workflow")
-    def test_cancel_running_sync(self, mock_cancel):
+    def _create_schema_with_running_job(self, pipeline_version=None):
+        from products.warehouse_sources.backend.facade.models import ExternalDataJob
+
         source = ExternalDataSource.objects.create(
             team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "123"}
         )
@@ -2834,15 +2840,25 @@ class TestCancelExternalDataSchema(APIBaseTest):
             status=ExternalDataSchema.Status.RUNNING,
             sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
         )
-        from products.warehouse_sources.backend.facade.models import ExternalDataJob
-
         job = ExternalDataJob.objects.create(
             team=self.team,
             pipeline=source,
             schema=schema,
             status=ExternalDataJob.Status.RUNNING,
             workflow_id="test-workflow-id",
+            pipeline_version=pipeline_version,
         )
+        return schema, job
+
+    @mock.patch(
+        "products.data_warehouse.backend.presentation.views.external_data_schema.finish_row_tracking",
+        new_callable=mock.AsyncMock,
+    )
+    @mock.patch("products.data_warehouse.backend.presentation.views.external_data_schema.cancel_external_data_workflow")
+    def test_cancel_running_v3_sync_marks_job_failed(self, mock_cancel, mock_finish_row_tracking):
+        from products.warehouse_sources.backend.facade.models import ExternalDataJob
+
+        schema, job = self._create_schema_with_running_job(pipeline_version=ExternalDataJob.PipelineVersion.V3)
 
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/cancel/",
@@ -2850,6 +2866,89 @@ class TestCancelExternalDataSchema(APIBaseTest):
 
         assert response.status_code == 200
         mock_cancel.assert_called_once_with(job.workflow_id)
+
+        job.refresh_from_db()
+        schema.refresh_from_db()
+        assert job.status == ExternalDataJob.Status.FAILED
+        assert job.latest_error == "Sync cancelled by user"
+        assert schema.status == ExternalDataSchema.Status.FAILED
+        # Nothing will finish the in-flight row counter once the job is Failed, so cancel must.
+        mock_finish_row_tracking.assert_awaited_once_with(self.team.pk, str(schema.id))
+
+    @parameterized.expand(
+        [
+            # v3 loading phase: the extraction workflow completed but the job stays Running while
+            # the loader drains batches. Cancel must mark the job Failed (the loader acts on that
+            # marker) instead of returning a 400.
+            ("workflow_already_finished", "NOT_FOUND"),
+            # Transient RPC failure: the Failed marker is durable and absorbing, so the cancel
+            # stands and a 500 would strand the user (the job is no longer Running, so a retry
+            # can't reach the workflow again).
+            ("transient_rpc_failure", "UNAVAILABLE"),
+        ]
+    )
+    @mock.patch(
+        "products.data_warehouse.backend.presentation.views.external_data_schema.finish_row_tracking",
+        new_callable=mock.AsyncMock,
+    )
+    @mock.patch("products.data_warehouse.backend.presentation.views.external_data_schema.cancel_external_data_workflow")
+    def test_cancel_v3_succeeds_when_cancel_rpc_fails(self, _case, rpc_status_name, mock_cancel, _mock_finish):
+        from temporalio.service import RPCError, RPCStatusCode
+
+        from products.warehouse_sources.backend.facade.models import ExternalDataJob
+
+        schema, job = self._create_schema_with_running_job(pipeline_version=ExternalDataJob.PipelineVersion.V3)
+        mock_cancel.side_effect = RPCError("cancel failed", RPCStatusCode[rpc_status_name], b"")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/cancel/",
+        )
+
+        assert response.status_code == 200
+
+        job.refresh_from_db()
+        schema.refresh_from_db()
+        assert job.status == ExternalDataJob.Status.FAILED
+        assert job.latest_error == "Sync cancelled by user"
+        assert schema.status == ExternalDataSchema.Status.FAILED
+
+    @parameterized.expand([("v1", "v1-dlt-sync"), ("legacy_null_version", None)])
+    @mock.patch("products.data_warehouse.backend.presentation.views.external_data_schema.cancel_external_data_workflow")
+    def test_cancel_legacy_pipeline_leaves_status_to_the_workflow(self, _case, pipeline_version, mock_cancel):
+        # Pre-v3 pipelines: the cancelled workflow records the job's terminal status itself,
+        # so the endpoint must not write a Failed marker.
+        from products.warehouse_sources.backend.facade.models import ExternalDataJob
+
+        schema, job = self._create_schema_with_running_job(pipeline_version=pipeline_version)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/cancel/",
+        )
+
+        assert response.status_code == 200
+        mock_cancel.assert_called_once_with(job.workflow_id)
+
+        job.refresh_from_db()
+        assert job.status == ExternalDataJob.Status.RUNNING
+        assert job.latest_error is None
+
+    @mock.patch("products.data_warehouse.backend.presentation.views.external_data_schema.cancel_external_data_workflow")
+    def test_cancel_legacy_pipeline_returns_400_when_workflow_missing(self, mock_cancel):
+        from temporalio.service import RPCError, RPCStatusCode
+
+        from products.warehouse_sources.backend.facade.models import ExternalDataJob
+
+        schema, job = self._create_schema_with_running_job(pipeline_version=ExternalDataJob.PipelineVersion.V1)
+        mock_cancel.side_effect = RPCError("workflow not found", RPCStatusCode.NOT_FOUND, b"")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/cancel/",
+        )
+
+        assert response.status_code == 400
+
+        job.refresh_from_db()
+        assert job.status == ExternalDataJob.Status.RUNNING
 
     @mock.patch("products.data_warehouse.backend.presentation.views.external_data_schema.cancel_external_data_workflow")
     def test_cancel_when_no_running_job(self, mock_cancel):
@@ -3180,17 +3279,15 @@ class TestAvailableColumnsAcrossSqlSources(APIBaseTest):
 
     @parameterized.expand(
         [
-            # source_type, supports_column_selection_expected
+            # source_type, expected — column selection is available for every registered source
+            # (SQL projects in its SELECT, others drop before the Delta write) EXCEPT managed-schema
+            # sources (Stripe/Paddle/Zendesk), whose canonical HogQL schema needs the full column set.
             (ExternalDataSourceType.POSTGRES, True),
-            (ExternalDataSourceType.MYSQL, True),
-            (ExternalDataSourceType.MSSQL, True),
-            (ExternalDataSourceType.BIGQUERY, True),
             (ExternalDataSourceType.SNOWFLAKE, True),
-            (ExternalDataSourceType.REDSHIFT, True),
-            # ClickHouse isn't a SQLSource but opts into column selection.
             (ExternalDataSourceType.CLICKHOUSE, True),
-            # Non-SQL sources stay False
+            (ExternalDataSourceType.HUBSPOT, True),
             (ExternalDataSourceType.STRIPE, False),
+            (ExternalDataSourceType.ZENDESK, False),
         ]
     )
     def test_source_supports_column_selection_flag(self, source_type: ExternalDataSourceType, expected: bool):
@@ -3201,6 +3298,23 @@ class TestAvailableColumnsAcrossSqlSources(APIBaseTest):
         )
         assert response.status_code == 200, response.json()
         assert response.json()["supports_column_selection"] is expected
+
+    def test_enabled_columns_rejected_for_managed_schema_source(self):
+        # Stripe/Paddle/Zendesk expose a fixed canonical HogQL schema; dropping a referenced
+        # column makes the s3() structure miss it and the query fails to resolve the field.
+        # Reject the selection at save so column selection can't corrupt those tables.
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+        )
+        schema = ExternalDataSchema.objects.create(name="Payout", team=self.team, source=source)
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+            data={"enabled_columns": ["id", "status"]},
+        )
+        assert response.status_code == 400
+        assert "Column selection is not supported" in str(response.json())
 
 
 class TestExternalDataSchemaRetrieveSource(APIBaseTest):
@@ -3215,12 +3329,14 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
 
     @parameterized.expand(
         [
-            (ExternalDataSourceType.STRIPE, False),
-            (ExternalDataSourceType.POSTGRES, True),
+            # source_type, expected supports_column_selection, expected supports_row_filters.
+            # Stripe is a managed-schema source (no column selection); row filters are SQL-only.
+            (ExternalDataSourceType.STRIPE, False, False),
+            (ExternalDataSourceType.POSTGRES, True, True),
         ]
     )
     def test_retrieve_includes_source_summary(
-        self, source_type: ExternalDataSourceType, expected_supports_column_selection: bool
+        self, source_type: ExternalDataSourceType, expected_column_selection: bool, expected_row_filters: bool
     ):
         source, schema = self._create(source_type=source_type)
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/")
@@ -3228,7 +3344,8 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
         summary = response.json()["source"]
         assert summary["id"] == str(source.id)
         assert summary["source_type"] == source_type.value
-        assert summary["supports_column_selection"] is expected_supports_column_selection
+        assert summary["supports_column_selection"] is expected_column_selection
+        assert summary["supports_row_filters"] is expected_row_filters
         assert "user_access_level" in summary
 
     def test_list_omits_source_summary(self):
@@ -3352,6 +3469,24 @@ class TestExternalDataSchemaRowFilters(APIBaseTest):
         response = self._patch(schema, [{"column": "id", "operator": ">", "value": 10}])
         assert response.status_code == 400
         assert "not supported for direct-query sources" in str(response.json())
+
+    def test_row_filters_rejected_for_source_without_pushdown(self):
+        # Only sources that push filters into their query (SQL WHERE) honor them — accepting a
+        # filter for an API source would save it and then silently sync unfiltered rows.
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="Customers",
+            team=self.team,
+            source=source,
+            sync_type_config={"schema_metadata": self.SCHEMA_METADATA},
+        )
+        response = self._patch(schema, [{"column": "id", "operator": ">", "value": 10}])
+        assert response.status_code == 400
+        assert "not supported for this source type" in str(response.json())
 
     def test_row_filters_rejected_for_cdc_schema(self):
         source = ExternalDataSource.objects.create(

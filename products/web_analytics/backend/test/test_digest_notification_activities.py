@@ -106,6 +106,7 @@ class TestBuildAndSendForOrg(_DigestNotificationTestBase):
         assert data.target_id == str(self.user.id)
         assert data.team_id == self.team.id
         assert data.resource_type == "web_analytics"
+        assert data.archivable is True
         assert "utm_source=web_analytics_digest" in data.source_url
 
     def test_test_arm_records_exposure_and_captures_sent_event(self):
@@ -384,9 +385,12 @@ class TestGetOrgBatchPage(_DigestNotificationTestBase):
         assert page.cursor is None
 
     def test_keyset_pagination_pages_through_orgs(self):
-        orgs = [self.organization]
-        orgs.extend(Organization.objects.create(name=f"Org {i}") for i in range(4))
-        expected_ids = sorted(str(org.id) for org in orgs)
+        for i in range(4):
+            Organization.objects.create(name=f"Org {i}")
+        # Expected ids come from the database rather than just the orgs created above:
+        # committed strays from earlier suites can survive in CI's shared --reuse-db
+        # database, and pagination pages over whatever exists.
+        expected_ids = sorted(str(oid) for oid in Organization.objects.values_list("id", flat=True))
 
         first_page = _get_org_batch_page(
             OrgBatchPageInput(workflow_input=WADigestNotificationInput(batch_size=2), page_size=2)

@@ -391,12 +391,13 @@ def send_email_reply_on_team_message(sender, instance: Comment, created: bool, *
         .filter(id=item_id, team_id=team_id, channel_source=Channel.EMAIL)
         .first()
     )
-    if not ticket or not ticket.email_from:
+    if not ticket:
         return
 
-    settings_dict = ticket.team.conversations_settings or {}
-    if not settings_dict.get("email_enabled"):
-        return
+    # Deliverability verdicts (team email_enabled, customer address, channel config) are NOT
+    # checked here: every customer-facing reply on an email ticket gets an outbox row, and
+    # _process_outbox_row fails undeliverable ones with a reason. Skipping row creation instead
+    # would leave the reply looking sent in the agent UI, with no record of why nothing went out.
 
     config = ticket.email_config
     inbound_domain = get_instance_setting("CONVERSATIONS_EMAIL_INBOUND_DOMAIN") or (config.domain if config else None)

@@ -18,6 +18,7 @@ from openai.types.chat import (
 )
 from posthoganalytics.ai.gemini import genai
 from posthoganalytics.ai.openai import OpenAI
+from prometheus_client import Counter
 from rest_framework import exceptions, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import AuthenticationFailed
@@ -52,6 +53,12 @@ ERROR_INVALID_OPENAI_JSON = "Invalid JSON response from OpenAI"
 ERROR_PROJECT_NOT_FOUND = "This project does not exist."
 
 OPENAI_SUPPORTED_MODELS = {"o4-mini", "gpt-5-mini", "gpt-5-nano", "gpt-5"}
+
+WIZARD_CLOUD_RUN_REQUESTS_TOTAL = Counter(
+    "posthog_wizard_cloud_run_requests_total",
+    "Cloud-run wizard kickoff requests, by outcome (created/unavailable/invalid/permission_denied)",
+    labelnames=["outcome"],
+)
 
 # Supported Gemini models
 GEMINI_SUPPORTED_MODELS = {
@@ -434,6 +441,21 @@ class SetupWizardViewSet(viewsets.ViewSet):
         from the agent's sandbox token. This is the cloud alternative to copy-pasting the wizard command
         to run locally; it is intentionally rate limited heavily because each run starts a sandbox.
         """
+        try:
+            response = self._cloud_run(request)
+        except exceptions.NotFound:
+            WIZARD_CLOUD_RUN_REQUESTS_TOTAL.labels(outcome="unavailable").inc()
+            raise
+        except exceptions.PermissionDenied:
+            WIZARD_CLOUD_RUN_REQUESTS_TOTAL.labels(outcome="permission_denied").inc()
+            raise
+        except exceptions.ValidationError:
+            WIZARD_CLOUD_RUN_REQUESTS_TOTAL.labels(outcome="invalid").inc()
+            raise
+        WIZARD_CLOUD_RUN_REQUESTS_TOTAL.labels(outcome="created").inc()
+        return response
+
+    def _cloud_run(self, request: Request) -> Response:
         if not bool(settings.WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID):
             raise exceptions.NotFound("Running the setup wizard in the cloud is not available.")
 

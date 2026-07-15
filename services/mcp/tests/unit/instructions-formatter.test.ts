@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { GroupType } from '@/api/client'
-import type { QueryToolInfo } from '@/lib/instructions'
+import { buildToolDomainsCompact, type QueryToolInfo } from '@/lib/instructions'
 import { InstructionsFormatter, type InstructionsContext } from '@/lib/instructions-formatter'
 
 const realisticGroupTypes: GroupType[] = [
@@ -34,7 +34,6 @@ const fullCtx: InstructionsContext = {
     metadata: realisticMetadata,
     tools: realisticTools,
     queryTools: realisticQueryTools,
-    featureFlags: { 'mcp-feedback-tool': true, 'mcp-render-ui': true },
     renderUiEnabled: true,
 }
 
@@ -82,15 +81,12 @@ describe('InstructionsFormatter', () => {
             expect(result).not.toContain('{metadata}')
         })
 
-        it('includes the agent-feedback section only when the mcp-feedback-tool flag is on', () => {
+        it('always includes the agent-feedback section', () => {
             const formatter = new InstructionsFormatter()
-            const withFeedback = formatter.buildToolsInstructions(fullCtx)
-            expect(withFeedback).toContain('### Sharing feedback on PostHog')
-
-            for (const featureFlags of [undefined, { 'mcp-feedback-tool': false }, {}]) {
-                const result = formatter.buildToolsInstructions({ ...fullCtx, featureFlags })
-                expect(result).not.toContain('### Sharing feedback on PostHog')
-            }
+            expect(formatter.buildToolsInstructions(fullCtx)).toContain('### Sharing feedback on PostHog')
+            expect(formatter.buildToolsInstructions({ guidelines: 'rules' })).toContain(
+                '### Sharing feedback on PostHog'
+            )
         })
     })
 
@@ -146,7 +142,7 @@ describe('InstructionsFormatter', () => {
             const formatter = new InstructionsFormatter()
             const result = formatter.buildExecToolDescription()
             expect(result).toContain('Using the `posthog` tool')
-            expect(result).toContain('MANDATORY — HARD REQUIREMENTS')
+            expect(result).toContain('Run `info <tool_name>` once if its schema is not in context.')
             expect(result).not.toContain('### Basic functionality')
             expect(result).not.toContain('### Examples')
         })
@@ -169,12 +165,14 @@ describe('InstructionsFormatter', () => {
             expect(result).not.toContain('Using the `posthog` tool')
         })
 
-        it('embeds env-context, tool-domain list, and query-tool catalog when stripEnvContext is false', () => {
+        it('embeds env-context and query-tool catalog when stripEnvContext is false', () => {
             const formatter = new InstructionsFormatter()
             const result = formatter.buildExecCommandReference(fullCtx, { stripEnvContext: false })
             expect(result).toContain("The user's name is Jane Doe")
             expect(result).toContain('Defined group types: organization')
-            expect(result).toContain('- dashboard')
+            // Tool domains are temporarily omitted from the command reference while
+            // probing claude.ai's per-tool size cap; discovery rides on `search`.
+            expect(result).not.toContain('dashboard|execute-sql')
             expect(result).toContain('- `query-trends` — time series')
         })
 
@@ -185,22 +183,29 @@ describe('InstructionsFormatter', () => {
             expect(result).not.toContain('Defined group types: organization')
             // The query catalog stays on the exec command reference even when env is stripped.
             expect(result).toContain('- `query-trends` — time series')
-            // The bullet for the `dashboard` domain would clash with in-prose mentions,
-            // so anchor on the list-prefix newline pattern to avoid false positives.
-            expect(result).not.toContain('\n- dashboard\n')
+            expect(result).not.toContain('dashboard|execute-sql')
         })
 
-        it('includes the agent-feedback section only when the mcp-feedback-tool flag is on', () => {
+        it('keeps the env-context even when stripEnvContext is set, when keepEnvContext is set', () => {
+            const formatter = new InstructionsFormatter()
+            const result = formatter.buildExecCommandReference(fullCtx, {
+                stripEnvContext: true,
+                keepEnvContext: true,
+            })
+            // Project metadata and group types survive for clients (Claude
+            // web/desktop) that ignore the `instructions` payload, so they still
+            // reach the model via the command reference. Tool domains are
+            // temporarily omitted (size-cap probe).
+            expect(result).not.toContain('dashboard|execute-sql')
+            expect(result).toContain("The user's name is Jane Doe")
+            expect(result).toContain('Defined group types: organization')
+        })
+
+        it('always includes the agent-feedback section', () => {
             const formatter = new InstructionsFormatter()
             for (const stripEnvContext of [true, false]) {
                 const withFeedback = formatter.buildExecCommandReference(fullCtx, { stripEnvContext })
                 expect(withFeedback).toContain('### Sharing feedback on PostHog')
-
-                const withoutFeedback = formatter.buildExecCommandReference(
-                    { ...fullCtx, featureFlags: { 'mcp-feedback-tool': false } },
-                    { stripEnvContext }
-                )
-                expect(withoutFeedback).not.toContain('### Sharing feedback on PostHog')
             }
         })
 
@@ -218,6 +223,85 @@ describe('InstructionsFormatter', () => {
                 )
                 expect(withoutRendering).not.toContain('### Rendering visualizations')
             }
+        })
+    })
+
+    describe('Claude web/desktop exec guidance', () => {
+        it('keeps routine guidance inline and advertises optional topics', () => {
+            const formatter = new InstructionsFormatter()
+            const result = formatter.buildClaudeExecCommandReference(fullCtx)
+
+            expect(result).toContain('**LEARN FIRST: HARD REQUIREMENT**')
+            expect(result).toContain('learn <topic...> - load one or more learning topics')
+            expect(result).toContain('Topics are cumulative.')
+            expect(result).toContain('User: create pageviews visualization')
+            expect(result).toContain(
+                "Assistant: This needs analytics and visualization guidance, so I'll load both first."
+            )
+            expect(result).toContain('posthog:exec({"command":"learn analytics visualizations"})')
+            expect(result).toContain('User: How many weekly active users do we have?')
+            expect(result).toContain('render-ui({ "tool_name": "query-trends", "tool_input": {...} })')
+            expect(result.indexOf('render-ui({ "tool_name": "query-trends"')).toBeGreaterThan(
+                result.indexOf('posthog:exec({"command":"call query-trends {...}"})')
+            )
+            expect(result).toContain('- analytics:')
+            expect(result).toContain('- visualizations:')
+            expect(result).toContain('- feedback:')
+            expect(result).toContain('SCHEMA DRILL-DOWN RULE')
+            expect(result).toContain('**Data discovery:**')
+            expect(result).toContain('**CORRECT usage pattern:**')
+            expect(result.indexOf('User: create pageviews visualization')).toBeGreaterThan(
+                result.indexOf('**CORRECT usage pattern:**')
+            )
+            expect(result).toContain('### Basic functionality')
+            expect(result).toContain('### Tool search')
+            expect(result).toContain(buildToolDomainsCompact(realisticTools))
+            expect(result).toContain("The user's name is Jane Doe")
+            expect(result).toContain('Defined group types: organization')
+            expect(result).not.toContain('### Retrieving data')
+            expect(result).not.toContain('### Examples')
+            expect(result).not.toContain('### Rendering visualizations')
+            expect(result).not.toContain('### Sharing feedback on PostHog')
+            expect(result).not.toContain('- `query-trends` — time series')
+            expect(result).not.toMatch(/\{help_topics\}|\{query_tools\}|\{metadata\}|\{defined_groups\}|\{guidelines\}/)
+        })
+
+        it('combines analytics guidance and examples in one learning topic', () => {
+            const formatter = new InstructionsFormatter()
+            const entries = formatter.buildClaudeExecHelpEntries(fullCtx)
+            const analytics = entries.find((entry) => entry.id === 'analytics')
+
+            expect(entries.map(({ id, kind }) => ({ id, kind }))).toEqual([
+                { id: 'analytics', kind: 'guide' },
+                { id: 'visualizations', kind: 'guide' },
+                { id: 'feedback', kind: 'guide' },
+            ])
+            expect(analytics?.content).toContain('### Retrieving data')
+            expect(analytics?.content).toContain('### Examples')
+            expect(analytics?.content).toContain('- `query-trends` — time series')
+            expect(entries.find((entry) => entry.id === 'visualizations')?.content).toContain(
+                '### Rendering visualizations'
+            )
+            expect(entries.find((entry) => entry.id === 'feedback')?.content).toContain(
+                '### Sharing feedback on PostHog'
+            )
+        })
+
+        it('only advertises visualizations when rendering is available', () => {
+            const formatter = new InstructionsFormatter()
+            const ctx = {
+                ...fullCtx,
+                renderUiEnabled: false,
+            }
+
+            expect(formatter.buildClaudeExecHelpEntries(ctx).map((entry) => entry.id)).toEqual([
+                'analytics',
+                'feedback',
+            ])
+            const result = formatter.buildClaudeExecCommandReference(ctx)
+            expect(result).toContain('- analytics:')
+            expect(result).not.toContain('- visualizations:')
+            expect(result).toContain('- feedback:')
         })
     })
 
@@ -251,12 +335,12 @@ describe('InstructionsFormatter', () => {
                 expect(instructions).toContain('Defined group types: organization')
                 expect(commandReference).not.toContain("The user's name is Jane Doe")
                 expect(commandReference).not.toContain('Defined group types: organization')
-                expect(commandReference).not.toContain('\n- dashboard\n')
+                expect(commandReference).not.toContain('dashboard|execute-sql')
             } else {
                 expect(instructions).toBe('')
                 expect(commandReference).toContain('- `query-trends` — time series')
                 expect(commandReference).toContain("The user's name is Jane Doe")
-                expect(commandReference).toContain('- dashboard')
+                expect(commandReference).not.toContain('dashboard|execute-sql')
                 expect(commandReference).toContain('Defined group types: organization')
             }
         })

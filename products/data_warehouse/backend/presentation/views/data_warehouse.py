@@ -8,7 +8,7 @@ from django.db.models.functions import TruncDate, TruncHour
 
 import structlog
 from dateutil import parser
-from drf_spectacular.utils import extend_schema, inline_serializer
+from drf_spectacular.utils import OpenApiResponse, extend_schema, inline_serializer
 from opentelemetry import trace
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
@@ -19,6 +19,7 @@ from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.documentation import _FallbackSerializer
+from posthog.api.mixins import validated_request
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
@@ -31,7 +32,13 @@ from posthog.utils import convert_property_value, flatten
 from products.batch_exports.backend.facade.models import BatchExportRun
 from products.cdp.backend.facade.models import HogFunction, HogFunctionState, HogFunctionType
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
+from products.data_warehouse.backend.facade.api import get_managed_warehouse_data_status, get_source_schema_statuses
 from products.data_warehouse.backend.facade.models import TeamDataWarehouseConfig
+from products.data_warehouse.backend.presentation.managed_warehouse_data_status import (
+    ManagedWarehouseDataStatusResponseSerializer,
+    ManagedWarehouseSourceSchemasQuerySerializer,
+    ManagedWarehouseSourceSchemasResponseSerializer,
+)
 from products.data_warehouse.backend.presentation.views import managed_warehouse
 from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
 from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
@@ -916,6 +923,35 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @extend_schema(
         responses={
             200: inline_serializer(
+                "DeleteWarehouseOrgResponse",
+                fields={
+                    "status": serializers.CharField(
+                        required=False, help_text="Deletion lifecycle message from the provisioner"
+                    ),
+                    "org": serializers.CharField(
+                        required=False,
+                        help_text="duckgres org identifier (the PostHog organization id)",
+                    ),
+                },
+            )
+        },
+    )
+    @action(methods=["DELETE"], detail=False, url_path="delete-org", required_scopes=["warehouse_view:write"])
+    def delete_org(self, request: Request, **kwargs) -> Response:
+        """Remove the organization's provisioning record after teardown, freeing its warehouse name.
+
+        Called once the warehouse status reports `deleted`: deprovision tears the warehouse
+        down, this removes the now-empty org row so the database_name can be reused. Restricted
+        to organization admins.
+        """
+        admin_error = self._require_organization_admin(request, "delete the provisioning record for")
+        if admin_error is not None:
+            return admin_error
+        return managed_warehouse.delete_org(self.team.organization_id)
+
+    @extend_schema(
+        responses={
+            200: inline_serializer(
                 "WarehouseStatusResponse",
                 fields={
                     "org_id": serializers.CharField(help_text="duckgres org identifier (the PostHog organization id)"),
@@ -967,6 +1003,34 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if resp.status_code == 200 and isinstance(resp.data, dict):
             resp.data.update(managed_warehouse.team_backfill_state(self.team_id))
         return resp
+
+    @extend_schema(responses={200: ManagedWarehouseDataStatusResponseSerializer})
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="managed-warehouse-data-status",
+        required_scopes=["warehouse_view:read", "external_data_source:read"],
+    )
+    def managed_warehouse_data_status(self, request: Request, **kwargs) -> Response:
+        """Get events, persons, and imported source readiness for the managed warehouse."""
+        return Response(get_managed_warehouse_data_status(self.team_id))
+
+    @validated_request(
+        query_serializer=ManagedWarehouseSourceSchemasQuerySerializer,
+        responses={200: OpenApiResponse(response=ManagedWarehouseSourceSchemasResponseSerializer)},
+        summary="Get per-schema detail for one imported source",
+        description="Per-schema backfill and live import status for one source, for the Overview tab's "
+        "drill-down modal — the main status endpoint only returns a per-source rollup.",
+    )
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="managed-warehouse-source-schemas",
+        required_scopes=["warehouse_view:read", "external_data_source:read"],
+    )
+    def managed_warehouse_source_schemas(self, request: Request, **kwargs) -> Response:
+        source_id = str(request.validated_query_data["source_id"])
+        return Response({"schemas": get_source_schema_statuses(self.team_id, source_id)})
 
     @extend_schema(
         responses={

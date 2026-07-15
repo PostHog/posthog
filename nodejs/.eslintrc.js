@@ -19,6 +19,7 @@ module.exports = {
         'src/common/config/idl',
         // Standalone package with its own oxlint config; not part of the plugin-server eslint pass.
         'src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar',
+        '**/dev/**',
     ],
     rules: {
         'no-restricted-syntax': [

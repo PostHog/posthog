@@ -41,8 +41,8 @@ from products.experiments.backend.hogql_queries.experiment_query_builder import 
     get_exposure_config_params_for_builder,
 )
 from products.experiments.backend.hogql_queries.experiment_query_runner import (
-    DEFAULT_EXPOSURE_TTL_SECONDS,
     experiment_has_min_runtime_for_precomputation,
+    experiment_precompute_ttl_schedule,
 )
 from products.experiments.backend.hogql_queries.exposure_query_logic import get_entity_key
 from products.experiments.backend.models.experiment import Experiment
@@ -69,11 +69,14 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         feature_flag_key = self.query.feature_flag.get("key")
         if not isinstance(feature_flag_key, str) or not feature_flag_key:
             raise ValidationError("feature_flag key is required")
-        self.group_type_index = self.query.feature_flag.get("filters", {}).get("aggregation_group_type_index")
         self.exposure_criteria = self.query.exposure_criteria
 
         self.experiment = Experiment.objects.get(id=self.query.experiment_id, team=self.team)
         self.feature_flag_key: str = self.experiment.feature_flag.key_without_tombstone()
+        # From the DB flag, not the query dict — callers vary in the feature_flag shape they
+        # pass (full flag object vs bare filters), and a missed group index would bypass the
+        # group-aggregation precompute gate below. Mirrors feature_flag_key above.
+        self.group_type_index = (self.experiment.feature_flag.filters or {}).get("aggregation_group_type_index")
 
         # The analysis window comes from the query, not live model state: this runner's result is
         # cached under a key hashed from self.query (see get_cache_payload), so the window it computes
@@ -121,10 +124,11 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             insert_query=query_string,
             time_range_start=date_from,
             time_range_end=date_to,
-            ttl_seconds=DEFAULT_EXPOSURE_TTL_SECONDS,
+            ttl_seconds=experiment_precompute_ttl_schedule(self.team.timezone),
             table=LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
             placeholders=placeholders,
             sentinel_placeholders={"experiment_date_to"},
+            spill_to_disk=True,
         )
 
     def _get_exposure_query(self) -> ast.SelectQuery:
@@ -151,9 +155,15 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         # no equivalent escape hatch yet, so callers cannot force precomputation
         # on a sub-12h experiment for the exposures view.
         config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
-        if config.experiment_precomputation_enabled and experiment_has_min_runtime_for_precomputation(
-            self.experiment.start_date,
-            self.experiment.end_date,
+        # group_type_index gate: mirrors the main runner — group builds always fail
+        # (the INSERT can't resolve the materialized $group_N column on sharded_events).
+        if (
+            self.group_type_index is None
+            and config.experiment_precomputation_enabled
+            and experiment_has_min_runtime_for_precomputation(
+                self.experiment.start_date,
+                self.experiment.end_date,
+            )
         ):
             try:
                 with tags_context(experiment_query_surface="precompute_build", experiment_precompute_table="exposures"):

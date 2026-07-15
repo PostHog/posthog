@@ -1,8 +1,6 @@
 import os
 import json
-import time
 from contextlib import suppress
-from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
@@ -406,23 +404,6 @@ except Exception:
     CLICKHOUSE_PER_TEAM_QUERY_SETTINGS = {}
 
 
-def is_web_analytics_events_prefilter_team(team_id: int | None) -> bool:
-    if team_id is None:
-        return False
-    return team_id in _get_web_analytics_events_prefilter_teams(round(time.time() / 120))
-
-
-@lru_cache(maxsize=1)
-def _get_web_analytics_events_prefilter_teams(_ttl: int) -> list[int]:
-    from posthog.models.instance_setting import get_instance_setting
-
-    try:
-        value = get_instance_setting("WEB_ANALYTICS_EVENTS_PREFILTER_TEAM_IDS")
-        return value if isinstance(value, list) else []
-    except Exception:
-        return []
-
-
 # Set of teams querying the data before we switched to new limits
 API_QUERIES_LEGACY_TEAM_LIST: Optional[set[int]] = None
 with suppress(Exception):
@@ -500,6 +481,13 @@ if not REDIS_URL:
         "If upgrading from PostHog 1.0.10 or earlier, see here: "
         "https://posthog.com/docs/deployment/upgrading-posthog#upgrading-from-before-1011"
     )
+
+# Socket timeouts for the central Redis clients (posthog/redis.py). The connect timeout is kept
+# small so a dead node fails fast. The read timeout must comfortably exceed the largest server-side
+# blocking window on the central client, which is a 15s XREAD BLOCK (notebooks collab_stream);
+# 20s leaves margin so blocking stream reads never spuriously time out.
+REDIS_SOCKET_CONNECT_TIMEOUT_SECONDS: float = get_from_env("REDIS_SOCKET_CONNECT_TIMEOUT_SECONDS", 3.0, type_cast=float)
+REDIS_SOCKET_TIMEOUT_SECONDS: float = get_from_env("REDIS_SOCKET_TIMEOUT_SECONDS", 20.0, type_cast=float)
 
 # Controls whether the ZstdCompressor is used for Redis compression when writing to Redis.
 # The ZstdCompressor uses zstd compression and can cope with compressed and uncompressed reading at the same time
@@ -667,7 +655,10 @@ if TEST:
 
 # Cache timeout for materialized columns metadata (in seconds)
 MATERIALIZED_COLUMNS_CACHE_TIMEOUT: int = get_from_env("MATERIALIZED_COLUMNS_CACHE_TIMEOUT", 900, type_cast=int)
-MATERIALIZED_COLUMNS_USE_CACHE: bool = get_from_env("MATERIALIZED_COLUMNS_USE_CACHE", False, type_cast=str_to_bool)
+# Default on in TEST: the schema-introspection query behind materialized-column lookups otherwise runs
+# hundreds of times per suite, and the test cache backend is process-local (LocMem) with all column
+# mutations invalidating the key (see ee/clickhouse/materialized_columns/columns.py).
+MATERIALIZED_COLUMNS_USE_CACHE: bool = get_from_env("MATERIALIZED_COLUMNS_USE_CACHE", TEST, type_cast=str_to_bool)
 
 # Limiting event_list API, saving ClickHouse, 0 - disabled, 1 - migration period, 2 - enabled.
 PATCH_EVENT_LIST_MAX_OFFSET: int = get_from_env("PATCH_EVENT_LIST_MAX_OFFSET", 0, type_cast=int)

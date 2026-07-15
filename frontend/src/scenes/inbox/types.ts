@@ -1,15 +1,38 @@
-// Canonical definitions live in schema-signals.ts (synced between TS and Python).
-// Re-exported here so existing consumers keep working.
-import {
-    EnrichedReviewer,
-    RelevantCommit,
-    SignalSourceProduct,
-    SignalSourceType,
-} from '~/queries/schema/schema-signals'
 import type { UserBasicType } from '~/types'
 
-export type { EnrichedReviewer, RelevantCommit }
+import {
+    type SignalReportRefundApi,
+    SignalSourceProductApi as SignalSourceProduct,
+    SignalSourceTypeApi as SignalSourceType,
+} from 'products/signals/frontend/generated/api.schemas'
+
+// The canonical signal taxonomy, generated from the backend enums via OpenAPI/Orval.
+// Re-exported under the domain names so consumers don't carry the `Api` suffix around.
 export { SignalSourceProduct, SignalSourceType }
+
+// Suggested-reviewer shapes, read from `suggested_reviewers` artefact content (a polymorphic JSON
+// field with no per-type OpenAPI schema). Mirrors EnrichedReviewer/RelevantCommit in
+// products/signals/backend/contracts.py.
+export interface RelevantCommit {
+    sha: string
+    url: string
+    reason: string
+}
+
+export interface SignalReviewerUserInfo {
+    id: number
+    uuid: string
+    first_name: string
+    last_name: string
+    email: string
+}
+
+export interface EnrichedReviewer {
+    github_login: string
+    github_name: string | null
+    relevant_commits: RelevantCommit[]
+    user: SignalReviewerUserInfo | null
+}
 
 /** P0 (highest) – P4 (lowest). Mirrors desktop `SignalReportPriority`. */
 export type SignalReportPriority = 'P0' | 'P1' | 'P2' | 'P3' | 'P4'
@@ -53,6 +76,12 @@ export interface SignalReport {
     dismissal_reason?: string | null
     /** Free-form note from the latest dismissal artefact (when archived). */
     dismissal_note?: string | null
+    /** The report's PR refund, when one exists (one refund per report, ever). */
+    refund?: SignalReportRefundApi | null
+    /** Non-null when the report is system-marked never-billable (PostHog-system origin) — its PR is free. */
+    billing_exempt_reason?: string | null
+    /** Backend-owned refund eligibility: why a refund would be rejected right now, null when it would be accepted. */
+    refund_ineligibility_reason?: string | null
 }
 
 export enum SignalReportStatus {
@@ -153,6 +182,11 @@ export const INBOX_REPORT_TAB_KEYS: InboxTabKey[] = ['pulls', 'reports', 'not-ac
  * triage surface; everything else (including Runs) is public to any team member.
  */
 export const INBOX_STAFF_ONLY_TAB_KEYS: InboxTabKey[] = ['not-actionable']
+
+/** Small tag rendered next to a tab's label in the tab bar. */
+export const INBOX_TAB_TAG: Partial<Record<InboxTabKey, 'Staff' | 'Alpha'>> = {
+    'not-actionable': 'Staff',
+}
 
 /** The flat report-list tabs that share the keyed reportListLogic + InboxReportList primitive. */
 export const INBOX_FLAT_LIST_TAB_KEYS = ['pulls', 'reports', 'not-actionable', 'archived'] as const

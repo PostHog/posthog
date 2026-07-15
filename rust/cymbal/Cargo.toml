@@ -17,6 +17,7 @@ common-metrics = { path = "../common/metrics" }
 common-alloc = { path = "../common/alloc" }
 common-continuous-profiling = { path = "../common/continuous_profiling" }
 common-kafka = { path = "../common/kafka" }
+common-database = { path = "../common/database" }
 common-types = { path = "../common/types" }
 common-dns = { path = "../common/dns" }
 common-redis = { path = "../common/redis" }
@@ -34,6 +35,7 @@ zip = "4.0"
 proguard = "5.6.2"
 reqwest = { workspace = true }
 sha2 = "0.10.8"
+semver = "1.0"
 aws-config = { workspace = true }
 aws-sdk-s3 = { workspace = true }
 uuid = { workspace = true }

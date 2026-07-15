@@ -11,6 +11,7 @@ import {
     AssigneeResolver,
 } from '../../../components/Assignee/AssigneeDisplay'
 import { assigneeSelectLogic } from '../../../components/Assignee/assigneeSelectLogic'
+import { errorTrackingEditAccessDisabledReason } from '../../../utils'
 import { RuleList } from '../rules/RuleList'
 import { ErrorTrackingAssignmentRule, ErrorTrackingRuleType } from '../rules/types'
 import { AssignmentRuleModal } from './AssignmentRuleModal'
@@ -40,7 +41,12 @@ export function AssignmentRules(): JSX.Element {
             pageKeyPrefix="assignment-rule"
             onMount={onMount}
             headerActions={
-                <LemonButton type="secondary" size="small" onClick={() => openCodeOwnersModal()}>
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    onClick={() => openCodeOwnersModal()}
+                    disabledReason={errorTrackingEditAccessDisabledReason() ?? undefined}
+                >
                     Code owners
                 </LemonButton>
             }

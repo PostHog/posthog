@@ -569,7 +569,7 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         )
         assert "nomatch@unrelated.test" not in match_type_by_email
 
-    def test_list_organization_members_search_returns_exact_first_with_match_type(self):
+    def test_list_organization_members_search_hides_similar_matches_when_exact_matches_exist(self):
         User.objects.create_and_join(
             self.organization, "marketing@example.com", None, first_name="Marketing", last_name="Director"
         )
@@ -583,15 +583,11 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         response = self.client.get("/api/organizations/@current/members/?search=marketing")
         assert response.status_code == status.HTTP_200_OK
         results = response.json()["results"]
-        emails = [r["user"]["email"] for r in results]
-        match_type_by_email = {r["user"]["email"]: r["search_match_type"] for r in results}
 
-        assert match_type_by_email.get("marketing@example.com") == "exact"
-        assert match_type_by_email.get("promo@example.com") == "similar"
-        assert "unrelated@example.com" not in emails
-        assert emails.index("marketing@example.com") < emails.index("promo@example.com"), (
-            f"exact match must rank ahead of the fuzzy-only match, got {emails}"
+        assert [r["user"]["email"] for r in results] == ["marketing@example.com"], (
+            "similar matches must be hidden when exact matches exist"
         )
+        assert results[0]["search_match_type"] == "exact"
 
     def test_list_organization_members_search_match_type_absent_without_search(self):
         User.objects.create_and_join(self.organization, "extra@posthog.com", None)

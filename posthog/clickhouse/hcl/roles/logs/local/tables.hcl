@@ -285,10 +285,13 @@ database "posthog" {
       type    = "DateTime"
       default = "now()"
     }
+    column "severity_text" {
+      type = "LowCardinality(String)"
+    }
     engine "distributed" {
       cluster_name    = "posthog_single_shard"
       remote_database = "posthog"
-      remote_table    = "log_attributes2"
+      remote_table    = "log_attributes3"
     }
   }
   table "logs" {
@@ -606,6 +609,21 @@ database "posthog" {
       type        = "minmax"
       granularity = 1
     }
+    projection "projection_aggregate_counts" {
+      query = <<SQL
+SELECT
+  team_id,
+  time_bucket,
+  toStartOfMinute(timestamp),
+  service_name,
+  severity_text,
+  resource_fingerprint,
+  count() AS event_count
+GROUP BY
+  team_id, time_bucket, toStartOfMinute(timestamp), service_name, severity_text, resource_fingerprint
+SQL
+
+    }
     engine "replicated_merge_tree" {
       zoo_path     = "/clickhouse/tables/noshard/posthog.logs32"
       replica_name = "{replica}-{shard}"
@@ -765,6 +783,21 @@ database "posthog" {
       expr        = "timestamp"
       type        = "minmax"
       granularity = 1
+    }
+    projection "projection_aggregate_counts" {
+      query = <<SQL
+SELECT
+  team_id,
+  time_bucket,
+  toStartOfMinute(timestamp),
+  service_name,
+  severity_text,
+  resource_fingerprint,
+  count() AS event_count
+GROUP BY
+  team_id, time_bucket, toStartOfMinute(timestamp), service_name, severity_text, resource_fingerprint
+SQL
+
     }
     engine "replicated_merge_tree" {
       zoo_path     = "/clickhouse/tables/noshard/posthog.logs34"

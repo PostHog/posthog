@@ -3,7 +3,7 @@ import './ExportedInsight.scss'
 import clsx from 'clsx'
 import { BindLogic, useMountedLogic } from 'kea'
 
-import { Logo } from 'lib/brand/Logo'
+import { Logo } from 'lib/brand'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import {
@@ -64,6 +64,7 @@ export function ExportedInsight({
     const trendsDisplay =
         isInsightVizNode(query) && isTrendsQuery(query.source) ? query.source.trendsFilter?.display : undefined
     const isBoxPlot = trendsDisplay === ChartDisplayType.BoxPlot
+    const isMetric = trendsDisplay === ChartDisplayType.Metric
     const showLegend =
         legend &&
         isInsightVizNode(query) &&
@@ -79,7 +80,7 @@ export function ExportedInsight({
 
     return (
         <BindLogic logic={insightLogic} props={insightLogicProps}>
-            <div className="ExportedInsight">
+            <div className={clsx('ExportedInsight', isMetric && 'ExportedInsight--metric')}>
                 {!noHeader && (
                     <div className="ExportedInsight__header">
                         <div>
@@ -92,12 +93,12 @@ export function ExportedInsight({
                             {description && <div className="ExportedInsight__header-description">{description}</div>}
                         </div>
 
-                        {!whitelabel && <Logo />}
+                        {!whitelabel && <Logo size="xs" className="shrink-0 ml-3" />}
                     </div>
                 )}
                 {showWatermark && (
                     <div className="ExportedInsight__watermark">
-                        <Logo />
+                        <Logo size="xs" />
                     </div>
                 )}
                 <div

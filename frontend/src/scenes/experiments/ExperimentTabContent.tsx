@@ -7,6 +7,7 @@ import type { FeatureFlagType } from '~/types'
 import { CreateDraftExperimentCard } from './ExperimentTabContent/CreateDraftExperimentCard'
 import { RelatedExperimentsTable } from './ExperimentTabContent/RelatedExperimentsTable'
 import { experimentTabLogic } from './experimentTabLogic'
+import { featureFlagEligibleForExperiment } from './utils'
 
 type ExperimentTabContentProps = {
     featureFlag: FeatureFlagType
@@ -24,18 +25,20 @@ export const ExperimentTabContent = ({
         experimentTabLogic({ featureFlagId: featureFlag.id! })
     )
 
-    const isValidMultivariateFlag =
-        featureFlag.filters.multivariate &&
-        featureFlag.filters.multivariate.variants.length > 1 &&
-        featureFlag.filters.multivariate.variants.some((variant) => variant.key === 'control')
+    let eligibilityError: string | null = null
+    try {
+        featureFlagEligibleForExperiment(featureFlag)
+    } catch (error) {
+        eligibilityError = (error as Error).message
+    }
 
-    if (!isValidMultivariateFlag) {
+    if (eligibilityError) {
         return (
             <div className="space-y-6">
                 <LemonBanner type="warning">
                     <div className="flex flex-col gap-3">
                         <div>
-                            Experiments require a multivariate flag with multiple variants and a control variant.&nbsp;
+                            {eligibilityError}&nbsp;
                             <Link to="https://posthog.com/docs/experiments/creating-an-experiment">
                                 Learn more in the docs
                             </Link>

@@ -18,6 +18,7 @@ import {
     safeHttpUrl,
 } from '../../utils/reportPresentation'
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
+import { SignalReportBillingBadge } from '../badges/SignalReportBillingBadge'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
 import { SignalReportStatusBadge } from '../badges/SignalReportStatusBadge'
 import {
@@ -58,7 +59,7 @@ export function InboxCardSourceMeta({
     }
     // Name the authoring scout on a scout-authored report so it's clear at a glance who wrote it.
     const primaryLabel =
-        primary.key === SignalSourceProduct.SIGNALS_SCOUT && scoutName
+        primary.key === SignalSourceProduct.SignalsScout && scoutName
             ? `${primary.meta.label} · ${scoutName}`
             : primary.meta.label
     return (
@@ -162,7 +163,7 @@ export function ReportCard({
 }): JSX.Element {
     const isArchived = tabKey === 'archived'
     // Resolved reports are terminal (their implementation PR merged) – shown for reference in the
-    // Archive tab but with no row action: they can't be restored or re-archived.
+    // Archive tab. They can't be restored or re-archived; refunding their PR lives in the detail pane.
     const isResolved = report.status === SignalReportStatus.RESOLVED
     const prUrl = safeHttpUrl(report.implementation_pr_url)
     const prUrlParts = prUrl ? parsePrUrlParts(prUrl) : null
@@ -185,22 +186,29 @@ export function ReportCard({
         onArchive,
     })
 
+    const isRefunded = !!report.refund
+
     // On the Archive tab, surface why it was dismissed (reason tag + note tooltip) when we have it.
     // Key off the report still being suppressed, not the tab: a report that was dismissed, restored,
     // then resolved keeps its old dismissal artefact, and showing that tag would mislabel finished work.
+    // The dedicated billing badge already marks refunded reports, so skip the duplicate chip there.
     const dismissalLabel =
-        isArchived && report.status === SignalReportStatus.SUPPRESSED
+        isArchived && report.status === SignalReportStatus.SUPPRESSED && !isRefunded
             ? dismissalReasonLabel(report.dismissal_reason)
             : null
 
+    // Permanent billing marker (Refunded / Free) — shown on both PR cards and plain reports.
+    const showBillingBadge = isRefunded || !!report.billing_exempt_reason
+
     // PR cards show repo · source; reports show source · status · actionability.
     const showMeta = hasPr
-        ? repoSlug != null || hasSource
+        ? repoSlug != null || hasSource || showBillingBadge
         : hasSource ||
           !isReady ||
           report.actionability != null ||
           report.is_suggested_reviewer === true ||
-          !!dismissalLabel
+          !!dismissalLabel ||
+          showBillingBadge
 
     return (
         <div className={clsx('relative', inboxCardRowClassName(attached, { dashed: !hasPr }))}>
@@ -273,6 +281,7 @@ export function ReportCard({
                                     </LemonTag>
                                 </Tooltip>
                             )}
+                            <SignalReportBillingBadge report={report} />
                         </div>
                     ) : null}
 
@@ -287,24 +296,30 @@ export function ReportCard({
                 </div>
             </Link>
 
-            {/* Terminal resolved reports carry no row action – skip the action column (and its divider). */}
-            {!isResolved && (
+            {/* Refund deliberately isn't offered at the card level – it lives in the report detail
+                pane, where the consequences are in view. Resolved reports are terminal and a refunded
+                archived report can't be restored, so neither carries actions – skip the column (and
+                divider) for both. */}
+            {!isResolved && !(isArchived && isRefunded) && (
                 <div className="flex items-center justify-end gap-2.5 shrink-0 @lg:self-stretch @lg:border-l @lg:border-primary @lg:pl-3">
                     {isArchived ? (
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            icon={<IconUndo />}
-                            tooltip="Restore this report to the inbox"
-                            aria-label="Restore this report to the inbox"
-                            onClick={(event) => {
-                                event.preventDefault()
-                                event.stopPropagation()
-                                onRestore?.()
-                            }}
-                        >
-                            Restore
-                        </LemonButton>
+                        // A refunded report can't be restored (its PR can never be billed again).
+                        !isRefunded && (
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                icon={<IconUndo />}
+                                tooltip="Restore this report to the inbox"
+                                aria-label="Restore this report to the inbox"
+                                onClick={(event) => {
+                                    event.preventDefault()
+                                    event.stopPropagation()
+                                    onRestore?.()
+                                }}
+                            >
+                                Restore
+                            </LemonButton>
+                        )
                     ) : (
                         <>
                             <LemonButton

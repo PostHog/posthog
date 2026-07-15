@@ -1,4 +1,4 @@
-import type { BarChartConfig, PointClickData, Series } from '@posthog/quill-charts'
+import type { PointClickData, Series } from '@posthog/quill-charts'
 
 import { EntityTypes, type FunnelStepWithConversionMetrics } from '~/types'
 
@@ -6,7 +6,6 @@ import {
     buildFunnelStepsBarData,
     FUNNEL_STEPS_SERIES_KEY_PREFIX,
     resolveFunnelStepClick,
-    withFunnelStepsBarInteraction,
     type FunnelStepsBarSeriesMeta,
 } from './funnelStepsBarTransforms'
 
@@ -244,24 +243,5 @@ describe('resolveFunnelStepClick', () => {
 
     it('returns null when the clicked column has no step', () => {
         expect(resolveFunnelStepClick(noBreakdownSteps, makeClick({ dataIndex: 99 }))).toBeNull()
-    })
-})
-
-describe('withFunnelStepsBarInteraction', () => {
-    const baseConfig: BarChartConfig = { barLayout: 'grouped', tooltip: { placement: 'top' } }
-
-    it('returns the base config unchanged when the new tooltip is off', () => {
-        const config = withFunnelStepsBarInteraction(baseConfig, { quillTooltipEnabled: false })
-
-        expect(config).toBe(baseConfig)
-    })
-
-    it('enables a pinnable tooltip that resolves clicks to the nearest series when the new tooltip is on', () => {
-        // A breakdown puts one series per breakdown value at each step, so a pinnable tooltip
-        // here always covers multiple series — resolveClickToNearestSeries must stay set or a
-        // click pins the tooltip instead of opening the persons modal (the bug this guards).
-        const config = withFunnelStepsBarInteraction(baseConfig, { quillTooltipEnabled: true })
-
-        expect(config.tooltip).toEqual({ pinnable: true, resolveClickToNearestSeries: true, placement: 'cursor' })
     })
 })

@@ -6,9 +6,11 @@ from django.utils import timezone
 from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
+from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.team import Team
 from posthog.models.utils import (
     RootTeamMixin,
+    UUIDModel,
     UUIDTModel,
     build_partial_uniqueness_constraint,
     build_unique_relationship_check,
@@ -169,9 +171,54 @@ class KernelRuntime(UUIDTModel):
     connection_file = models.TextField(null=True, blank=True)
     sandbox_id = models.CharField(max_length=128, null=True, blank=True)
     last_error = models.TextField(null=True, blank=True)
+    server_url = models.TextField(null=True, blank=True)
+    server_connect_token = models.TextField(null=True, blank=True)
 
     class Meta:
         db_table = "posthog_kernelruntime"
         indexes = [
             models.Index(fields=["team", "notebook_short_id", "user", "status"]),
+        ]
+
+
+class NotebookNodeRun(TeamScopedRootMixin, UUIDModel):
+    """A single execution of a revamped-notebooks (SQLV2) node.
+    The primary key is the run_id referenced by the run/callback/stream endpoints.
+    """
+
+    class Status(models.TextChoices):
+        RUNNING = "running", "running"
+        DONE = "done", "done"
+        FAILED = "failed", "failed"
+        # A user-requested stop (Journey 9); unlike FAILED, the envelope's captured
+        # stdout/stderr still surface to the UI.
+        INTERRUPTED = "interrupted", "interrupted"
+
+    class NodeType(models.TextChoices):
+        HOGQL = "hogql", "hogql"
+        PYTHON = "python", "python"
+        DUCKDB = "duckdb", "duckdb"
+
+    # db_constraint=False: creating a real FK to the hot posthog_team table locks it on deploy.
+    # Tenant isolation is still enforced by the fail-closed TeamScopedRootMixin manager.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    notebook = models.ForeignKey("notebooks.Notebook", on_delete=models.CASCADE)
+    node_id = models.CharField(max_length=128)
+    # How the run executed: hogql pushed to ClickHouse (pages re-query by `code`); python and
+    # duckdb ran in the sandbox kernel (pages slice the on-sandbox result frame by `result_id`).
+    node_type = models.CharField(choices=NodeType, default=NodeType.HOGQL, max_length=20)
+    # The node's code at run time — paging must re-query what produced the result,
+    # not whatever the editor holds now.
+    code = models.TextField(blank=True, default="")
+    status = models.CharField(choices=Status, default=Status.RUNNING, max_length=20)
+    envelope: JSONField = JSONField(default=None, null=True, blank=True)
+    result_id = models.UUIDField(null=True, blank=True)
+    error = models.TextField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_notebooknoderun"
+        indexes = [
+            models.Index(fields=["team", "notebook", "node_id"]),
         ]
