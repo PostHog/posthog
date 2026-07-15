@@ -93,11 +93,13 @@ pub async fn apply_quota_limits(
 
     // Grace-period membership only covers a handful of orgs at a time, so skip
     // building the EventInfo batch below on the common case where this token
-    // isn't in any grace period. Computed once here (rather than via a
-    // separate is-any-grace-period check) so it can be reused directly below
-    // instead of triggering a second lookup per scoped limiter.
+    // isn't in any grace period. Both computed once here — a single snapshot
+    // of grace-period state drives the skip-guard below and the eventual
+    // counting, instead of each re-reading DashMap state that a concurrent
+    // poller tick could have changed in between.
     let scoped_in_grace = limiter.scoped_limiters_in_grace_period(token).await;
-    if !scoped_in_grace.is_empty() || limiter.is_in_global_grace_period(token).await {
+    let is_global_grace = limiter.is_in_global_grace_period(token).await;
+    if !scoped_in_grace.is_empty() || is_global_grace {
         let mut global_only_event_count = 0;
         let admitted_event_infos: Vec<EventInfo> = events
             .iter()
@@ -114,14 +116,17 @@ pub async fn apply_quota_limits(
             .collect();
         limiter
             .report_grace_period_admission_for_event_infos(
-                token,
                 &admitted_event_infos,
                 &scoped_in_grace,
+                is_global_grace,
             )
             .await;
-        limiter
-            .report_global_grace_period_admission(token, global_only_event_count)
-            .await;
+        // Gateway-verified events never appear in `admitted_event_infos` above
+        // (they're wallet-billed, not scoped/global-quota eligible), so they're
+        // counted separately here using the same already-known grace snapshot.
+        if is_global_grace {
+            limiter.count_global_grace_admission(global_only_event_count);
+        }
     }
 
     Ok(())

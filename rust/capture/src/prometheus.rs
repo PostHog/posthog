@@ -24,15 +24,20 @@ pub const CAPTURE_EVENTS_DROPPED_TOTAL: &str = "capture_events_dropped_total";
 ///   billable sessions. Don't read this label as "billable recordings
 ///   admitted".
 /// - **Attribution when only the global grace period is active.** Scoped
-///   grace periods (exceptions, surveys, LLM events) take precedence, but
-///   when a scoped limiter isn't itself in grace, events it would have
-///   matched fall through and are counted under the global resource label
-///   (`events`/`recordings`) instead of the scoped one.
+///   grace periods (`resource="exceptions"`, `resource="survey_responses"`,
+///   `resource="llm_events"`) take precedence, but when a scoped limiter
+///   isn't itself in grace, events it would have matched fall through and
+///   are counted under the global resource label (`events`/`recordings`)
+///   instead of the scoped one.
+/// - **Hard limits override grace.** A token present in both the hard-limit
+///   and suspended Redis sets (a transient skew while the billing writer
+///   updates them) is treated as limited, not in grace, and is not counted.
 /// - **Fails toward stale counts, not toward silence.** The underlying
 ///   Redis reader fails open: if Redis is unreachable past a grace-period
 ///   expiry, pods keep counting that org's traffic as grace-admitted using
-///   the last-known state, with only a warn log and the existing
-///   loaded-tokens gauge as a staleness signal.
+///   the last-known state, with only a warn log as the failure signal (the
+///   loaded-tokens gauge freezes at its last value during the outage, so it
+///   can't be used to detect this).
 pub const CAPTURE_EVENTS_ADMITTED_DURING_BILLING_GRACE_PERIOD_TOTAL: &str =
     "capture_events_admitted_during_billing_grace_period_total";
 

@@ -264,10 +264,18 @@ impl CaptureQuotaLimiter {
     }
 
     pub async fn report_global_grace_period_admission(&self, token: &str, event_count: u64) {
-        if event_count == 0
-            || !self.grace_period_limiter.is_limited(token).await
-            || self.global_limiter.is_limited(token).await
-        {
+        if event_count == 0 || !self.is_in_global_grace_period(token).await {
+            return;
+        }
+
+        self.count_global_grace_admission(event_count);
+    }
+
+    /// Increments the global grace-admission counter unconditionally — callers
+    /// must already know `token` is in the global grace period (e.g. via a
+    /// snapshot they took earlier) so this doesn't re-probe Redis/DashMap state.
+    pub(crate) fn count_global_grace_admission(&self, event_count: u64) {
+        if event_count == 0 {
             return;
         }
 
@@ -288,7 +296,8 @@ impl CaptureQuotaLimiter {
         // every limiter up front and skip the EventInfo allocation entirely when
         // this token isn't in any grace period — the common case on every request.
         let scoped_in_grace = self.scoped_limiters_in_grace_period(token).await;
-        if scoped_in_grace.is_empty() && !self.is_in_global_grace_period(token).await {
+        let is_global_grace = self.is_in_global_grace_period(token).await;
+        if scoped_in_grace.is_empty() && !is_global_grace {
             return;
         }
 
@@ -296,20 +305,26 @@ impl CaptureQuotaLimiter {
             .iter()
             .map(|event| EventInfo::from_event(event, "$product_tour_id"))
             .collect();
-        self.report_grace_period_admission_for_event_infos(token, &event_infos, &scoped_in_grace)
-            .await;
+        self.report_grace_period_admission_for_event_infos(
+            &event_infos,
+            &scoped_in_grace,
+            is_global_grace,
+        )
+        .await;
     }
 
     /// Reports grace-period admissions for pre-built `EventInfo`s against a
-    /// `scoped_in_grace` set the caller already computed (e.g. via
-    /// `scoped_limiters_in_grace_period`) — callers that also need the
-    /// scoped-grace set for a skip-guard should compute it once and pass it
-    /// here rather than triggering a second lookup per scoped limiter.
-    pub async fn report_grace_period_admission_for_event_infos(
+    /// `scoped_in_grace` set and global-grace snapshot the caller already
+    /// computed (e.g. via `scoped_limiters_in_grace_period` and
+    /// `is_in_global_grace_period`) — callers that also need those for a
+    /// skip-guard should compute them once and pass both here, so the same
+    /// snapshot drives the guard and the counting rather than triggering a
+    /// second, possibly-inconsistent lookup per report.
+    pub(crate) async fn report_grace_period_admission_for_event_infos(
         &self,
-        token: &str,
         event_infos: &[EventInfo<'_>],
         scoped_in_grace: &[usize],
+        is_global_grace: bool,
     ) {
         if event_infos.is_empty() {
             return;
@@ -320,7 +335,14 @@ impl CaptureQuotaLimiter {
         // Scoped resources take precedence so each admitted event is counted once,
         // even when both scoped and global grace periods overlap.
         for &limiter_idx in scoped_in_grace {
-            let limiter = &self.scoped_limiters[limiter_idx];
+            let Some(limiter) = self.scoped_limiters.get(limiter_idx) else {
+                debug_assert!(
+                    false,
+                    "scoped_in_grace index out of bounds — indices must come from this \
+                     same instance's scoped_limiters_in_grace_period"
+                );
+                continue;
+            };
             let (matched_indices, unmatched_indices) =
                 limiter.partition_event_indices(event_infos, &unreported_indices);
             if !matched_indices.is_empty() {
@@ -333,15 +355,18 @@ impl CaptureQuotaLimiter {
             unreported_indices = unmatched_indices;
         }
 
-        self.report_global_grace_period_admission(token, unreported_indices.len() as u64)
-            .await;
+        if is_global_grace {
+            self.count_global_grace_admission(unreported_indices.len() as u64);
+        }
     }
 
     /// True if `token` is in the global grace period for this capture mode's
-    /// resource. Scoped grace periods are checked separately via
+    /// resource and not currently hard-limited — a token in both sets (a
+    /// transient skew while the billing writer updates them) counts as
+    /// limited, not in grace. Scoped grace periods are checked separately via
     /// `scoped_limiters_in_grace_period` — combine both to know whether
     /// there's any grace-admission work to do for `token`.
-    pub async fn is_in_global_grace_period(&self, token: &str) -> bool {
+    pub(crate) async fn is_in_global_grace_period(&self, token: &str) -> bool {
         self.grace_period_limiter.is_limited(token).await
             && !self.global_limiter.is_limited(token).await
     }
@@ -351,7 +376,7 @@ impl CaptureQuotaLimiter {
     /// skip-guard (e.g. the v1 shim) can compute this once and pass it into
     /// `report_grace_period_admission_for_event_infos` rather than triggering
     /// a second lookup per scoped limiter.
-    pub async fn scoped_limiters_in_grace_period(&self, token: &str) -> Vec<usize> {
+    pub(crate) async fn scoped_limiters_in_grace_period(&self, token: &str) -> Vec<usize> {
         let mut in_grace = Vec::new();
         for (i, limiter) in self.scoped_limiters.iter().enumerate() {
             if limiter.is_in_grace_period(token).await && !limiter.is_limited(token).await {
