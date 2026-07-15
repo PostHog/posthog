@@ -13,29 +13,26 @@ from products.engineering_analytics.backend.logic.queries.flaky_tests import _se
 from products.engineering_analytics.backend.tests.test_views import connect_github_source_without_data
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
-T_PRS = "posthog/api/test/test_prs/TestPRs::test_flaky_on_prs"
-T_RERUN = "posthog/api/test/test_rerun/TestRerun::test_pass_on_retry"
-T_RERUN_SELECTOR = "posthog/api/test/test_rerun.py::TestRerun::test_pass_on_retry"
-T_TWO_PRS = "posthog/api/test/test_two/TestTwo::test_two_prs"
-T_XFAIL_ONLY = "posthog/api/test/test_xf/TestXF::test_xfail_only"
-T_OLD = "posthog/api/test/test_old/TestOld::test_old_flake"
-T_FOREIGN = "posthog/api/test/test_foreign/TestForeign::test_other_service"
-T_OTHER_REPO = "posthog/api/test/test_other_repo/TestOtherRepo::test_flaky"
+T_DEDUPED_FLAKE = "posthog/api/test/test_deduped/TestDeduped::test_retry"
+T_DEDUPED_SELECTOR = "posthog/api/test/test_deduped.py::TestDeduped::test_retry"
+T_INTERLEAVED = "posthog/api/test/test_interleaved/TestInterleaved::test_changes_outcome"
+T_REGRESSION = "posthog/api/test/test_regression/TestRegression::test_consistent_failure"
+T_TWO_PR_REGRESSION = "posthog/api/test/test_two_prs/TestTwoPRs::test_consistent_failure"
+T_STALE = "posthog/api/test/test_stale/TestStale::test_old_retry"
+T_RESOLVED = "posthog/api/test/test_resolved/TestResolved::test_fixed"
+T_MASTER = "posthog/api/test/test_master/TestMaster::test_breaks_trunk"
+T_QUARANTINED = "posthog/api/test/test_quarantined/TestQuarantined::test_still_fails"
+T_TIE_A = "posthog/api/test/test_tie_a/TestTie::test_retry"
+T_TIE_B = "posthog/api/test/test_tie_b/TestTie::test_retry"
+T_FOREIGN = "posthog/api/test/test_foreign/TestForeign::test_retry"
+T_OTHER_REPO = "posthog/api/test/test_other_repo/TestOtherRepo::test_retry"
 
 
 class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
-    # The aggregation, qualification (HAVING), and ranking all live in the HogQL query, so the
-    # regressions worth catching only surface against real seeded trace_spans rows — same setup
-    # pattern as the tracing product's query tests.
-
-    # ClickhouseTestMixin flips this off (per-test teams); back on so one class-level team can
-    # key the class-level span seed.
     CLASS_DATA_LEVEL_SETUP = True
 
-    recent: datetime
-
     @classmethod
-    def setUpTestData(cls):
+    def setUpTestData(cls) -> None:
         super().setUpTestData()
         connect_github_source_without_data(cls.team, prefix="flaky", repository="PostHog/posthog")
         sync_execute("DROP TABLE IF EXISTS trace_spans_distributed")
@@ -44,44 +41,43 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
         sync_execute(TRACE_SPANS_DISTRIBUTED_TABLE_SQL())
 
         now = datetime.now(UTC).replace(microsecond=0)
-        cls.recent = now - timedelta(days=1)
+        recent = now - timedelta(hours=2)
         earlier = now - timedelta(days=2)
-        # Inside a -30d window but outside the -7d default.
-        old = now - timedelta(days=10)
+        oldest_active = now - timedelta(days=2, hours=12)
+        stale = now - timedelta(days=4)
 
         rows = [
-            # Qualifies via distinct PRs (3): failed/error spans, one PR hit twice (dedup), two
-            # master failures with no PR (count as failures, not PRs, and drive master_failed_count),
-            # plus one xfail on master that must NOT count as a master failure.
-            cls._span(1, T_PRS, "failed", ts=earlier, pr="101", branch="f1"),
-            cls._span(2, T_PRS, "failed", ts=earlier, pr="101", branch="f1"),
-            cls._span(3, T_PRS, "failed", ts=earlier, pr="102", branch="f2"),
-            cls._span(4, T_PRS, "error", ts=earlier, pr="103", branch="f3"),
-            cls._span(5, T_PRS, "error", ts=earlier, branch="master"),
-            cls._span(19, T_PRS, "failed", ts=earlier, branch="main"),
-            cls._span(6, T_PRS, "xfailed", ts=cls.recent, branch="master"),
-            # Qualifies via pass-on-retry; the passing span must not leak into any count. The
-            # emitter stamped test.selector here, so it wins over the nodeid reconstruction.
-            cls._span(7, T_RERUN, "rerun_passed", ts=cls.recent, pr="201", branch="r1", selector=T_RERUN_SELECTOR),
-            cls._span(8, T_RERUN, "rerun_passed", ts=cls.recent, branch="master", selector=T_RERUN_SELECTOR),
-            cls._span(9, T_RERUN, "passed", ts=cls.recent, branch="pass-branch"),
-            # Fails on only 2 distinct PRs — below the default bar, reachable via min_failed_prs=2.
-            cls._span(10, T_TWO_PRS, "failed", ts=cls.recent, pr="301", branch="x1"),
-            cls._span(11, T_TWO_PRS, "failed", ts=cls.recent, pr="302", branch="x2"),
-            cls._span(12, T_TWO_PRS, "failed", ts=cls.recent, pr="302", branch="x2"),
-            # xfail alone is already-quarantined noise, never a qualifier.
-            cls._span(13, T_XFAIL_ONLY, "xfailed", ts=cls.recent, branch="master"),
-            cls._span(14, T_XFAIL_ONLY, "xfailed", ts=cls.recent, branch="master"),
-            # Signal outside the default window.
-            cls._span(15, T_OLD, "rerun_passed", ts=old, pr="401", branch="old1"),
-            # Would qualify on signal alone, but a non-CI service must never reach the leaderboard.
-            cls._span(17, T_FOREIGN, "rerun_passed", ts=cls.recent, pr="501", branch="s1", service="other-service"),
-            # Would qualify on signal alone, but belongs to another connected repository.
-            cls._span(
-                18, T_OTHER_REPO, "rerun_passed", ts=cls.recent, pr="601", branch="r1", repo="PostHog/posthog.com"
-            ),
-            # A job-root span carries no test.outcome and must never become a leaderboard row.
-            cls._span(16, "Backend CI / core (1)", None, ts=cls.recent, branch="master"),
+            # Duplicate spans from one run attempt count once. A second retrying run makes this a
+            # confirmed flake with two affected runs, not three spans.
+            cls._span(1, T_DEDUPED_FLAKE, "rerun_passed", ts=recent, run_id="100", selector=T_DEDUPED_SELECTOR),
+            cls._span(2, T_DEDUPED_FLAKE, "rerun_passed", ts=recent, run_id="100", selector=T_DEDUPED_SELECTOR),
+            cls._span(3, T_DEDUPED_FLAKE, "rerun_passed", ts=earlier, run_id="101", selector=T_DEDUPED_SELECTOR),
+            # Pass, failure, pass across distinct attempts is observed interleaving, so it is a
+            # confirmed flake even without automatic retries.
+            cls._span(4, T_INTERLEAVED, "passed", ts=oldest_active, run_id="200"),
+            cls._span(5, T_INTERLEAVED, "failed", ts=earlier, run_id="201", pr="201", branch="feature/a"),
+            cls._span(6, T_INTERLEAVED, "passed", ts=recent, run_id="202"),
+            # Failures across PRs without recovery are a suspected regression, not a flake.
+            cls._span(7, T_REGRESSION, "failed", ts=earlier, run_id="300", pr="301", branch="feature/a"),
+            cls._span(8, T_REGRESSION, "error", ts=earlier, run_id="301", pr="302", branch="feature/b"),
+            cls._span(9, T_REGRESSION, "failed", ts=recent, run_id="302", pr="303", branch="feature/c"),
+            cls._span(10, T_TWO_PR_REGRESSION, "failed", ts=recent, run_id="310", pr="311", branch="feature/a"),
+            cls._span(11, T_TWO_PR_REGRESSION, "failed", ts=recent, run_id="311", pr="312", branch="feature/b"),
+            # A recent master-only failure is actionable even without a retry or PR number.
+            cls._span(12, T_MASTER, "failed", ts=recent, run_id="400", branch="master"),
+            # Xfailed runs are separated as already quarantined.
+            cls._span(13, T_QUARANTINED, "xfailed", ts=recent, run_id="500", branch="master"),
+            # A stale retry spike stays outside the active queue even in a wider evidence window.
+            cls._span(14, T_STALE, "rerun_passed", ts=stale, run_id="600", pr="601", branch="feature/stale"),
+            # A failure followed by a recorded pass, without interleaving, is a resolved streak.
+            cls._span(15, T_RESOLVED, "failed", ts=earlier, run_id="700", pr="701", branch="feature/fix"),
+            cls._span(16, T_RESOLVED, "passed", ts=recent, run_id="701", branch="feature/fix"),
+            # Identical evidence uses nodeid as the deterministic final tiebreaker.
+            cls._span(17, T_TIE_B, "rerun_passed", ts=recent, run_id="800", pr="801", branch="feature/tie"),
+            cls._span(18, T_TIE_A, "rerun_passed", ts=recent, run_id="801", pr="802", branch="feature/tie"),
+            cls._span(19, T_FOREIGN, "rerun_passed", ts=recent, run_id="900", service="other-service"),
+            cls._span(20, T_OTHER_REPO, "rerun_passed", ts=recent, run_id="901", repo="PostHog/posthog.com"),
+            cls._span(21, "Backend CI / core (1)", None, ts=recent, run_id="902"),
         ]
         sync_execute(
             "INSERT INTO trace_spans (uuid, team_id, trace_id, span_id, parent_span_id, name, kind, "
@@ -90,7 +86,7 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
         )
 
     @classmethod
-    def tearDownClass(cls):
+    def tearDownClass(cls) -> None:
         sync_execute("DROP TABLE IF EXISTS trace_spans_distributed")
         sync_execute("DROP TABLE IF EXISTS trace_spans")
         sync_execute(TRACE_SPANS_TABLE_SQL())
@@ -100,32 +96,38 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
     @classmethod
     def _span(
         cls,
-        i: int,
+        index: int,
         name: str,
         outcome: str | None,
         *,
         ts: datetime,
+        run_id: str,
+        run_attempt: str = "1",
         pr: str = "",
         branch: str = "",
         selector: str = "",
         service: str = "ci-backend",
         repo: str = "PostHog/posthog",
     ) -> str:
-        # Physical attributes carry a type suffix ('test.outcome__str'); the `attributes` ALIAS
-        # column strips it. Resource attributes are stored as-is.
         attr_pairs = ([f"'test.outcome__str', '{outcome}'"] if outcome else []) + (
             [f"'test.selector__str', '{selector}'"] if selector else []
         )
         attrs = f"map({', '.join(attr_pairs)})" if attr_pairs else "map()"
         resource_pairs = [
             f"'{key}', '{value}'"
-            for key, value in (("ci.pr_number", pr), ("ci.branch", branch), ("ci.repository", repo))
+            for key, value in (
+                ("ci.run_id", run_id),
+                ("ci.run_attempt", run_attempt),
+                ("ci.pr_number", pr),
+                ("ci.branch", branch),
+                ("ci.repository", repo),
+            )
             if value
         ]
-        resource = f"map({', '.join(resource_pairs)})" if resource_pairs else "map()"
+        resource = f"map({', '.join(resource_pairs)})"
         stamp = ts.strftime("%Y-%m-%d %H:%M:%S")
         return (
-            f"('uuid-{i}', {cls.team.id}, 'trace-{i}', 'span-{i}', 'parent', '{name}', 1, "
+            f"('uuid-{index}', {cls.team.id}, 'trace-{index}', 'span-{index}', 'parent', '{name}', 1, "
             f"'{stamp}', '{stamp}', '{stamp}', 0, '{service}', {attrs}, {resource})"
         )
 
@@ -134,62 +136,67 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.content
         return response.json()
 
-    def test_default_window_qualifies_aggregates_and_ranks(self):
-        data = self._get()
+    def test_deduplicates_run_attempts_and_exposes_recovery_evidence(self) -> None:
+        rows = {item["nodeid"]: item for item in self._get()["items"]}
 
-        # Only the qualifying tests, strongest signal first (T_PRS scores 3 distinct PRs vs
-        # T_RERUN's 2 retries); the 2-PR test, the xfail-only test, the out-of-window test, the
-        # outcome-less job-root span, foreign-service row, and other-repo row are all excluded.
-        assert [item["nodeid"] for item in data["items"]] == [T_PRS, T_RERUN]
-        assert data["truncated"] is False
-        assert data["limit"] == 50
+        deduped = rows[T_DEDUPED_FLAKE]
+        assert deduped["classification"] == "confirmed_flake"
+        assert deduped["recommendation"] == "deflake"
+        assert deduped["selector"] == T_DEDUPED_SELECTOR
+        assert deduped["affected_run_count"] == 2
+        assert deduped["rerun_recovery_run_count"] == 2
+        assert deduped["failed_run_count"] == 0
 
-        by_prs, by_rerun = data["items"]
-        # T_RERUN carried an emitted test.selector; T_PRS didn't, so it falls back to the nodeid
-        # reconstruction (folded '/' → '.py' boundary).
-        assert by_rerun["selector"] == T_RERUN_SELECTOR
-        assert by_prs["selector"] == "posthog/api/test/test_prs.py::TestPRs::test_flaky_on_prs"
-        assert (by_prs["rerun_passed_count"], by_prs["failed_count"], by_prs["failed_pr_count"]) == (0, 6, 3)
-        assert (by_prs["branch_count"], by_prs["xfailed_count"]) == (5, 1)
-        # Only failed/error spans on master/main: the master error (5) and the main failure (19).
-        # The master xfail (6) is not a failure and doesn't count.
-        assert by_prs["master_failed_count"] == 2
-        # max() over the signal spans — the xfail at `recent` is newer than the failures.
-        assert by_prs["last_seen_at"].startswith(self.recent.strftime("%Y-%m-%dT%H:%M:%S"))
-        assert (by_rerun["rerun_passed_count"], by_rerun["failed_count"], by_rerun["failed_pr_count"]) == (2, 0, 0)
-        # 2, not 3: the plain 'passed' span (branch 'pass-branch') is outside the signal set.
-        assert (by_rerun["branch_count"], by_rerun["xfailed_count"]) == (2, 0)
-        # T_RERUN's only master span (8) is a rerun_passed, not a failure — so no master failures.
-        assert by_rerun["master_failed_count"] == 0
+        interleaved = rows[T_INTERLEAVED]
+        assert interleaved["classification"] == "confirmed_flake"
+        assert interleaved["has_interleaved_runs"] is True
+        assert interleaved["recorded_pass_run_count"] == 2
+        assert interleaved["failed_run_count"] == 1
+        assert interleaved["last_recorded_execution_at"] > interleaved["last_signal_at"]
 
-    @parameterized.expand(
-        [
-            # Lowering the PR bar pulls in the 2-PR test; ties on score (2) break on failed_count.
-            ("lower_min_failed_prs", {"min_failed_prs": "2"}, [T_PRS, T_TWO_PRS, T_RERUN]),
-            # Raising the rerun bar drops the retry-qualified test; T_PRS still qualifies via PRs.
-            ("raise_min_rerun_passes", {"min_rerun_passes": "3"}, [T_PRS]),
-        ]
-    )
-    def test_thresholds_are_query_params(self, _name: str, params: dict, expected: list[str]):
-        data = self._get(**params)
-        assert [item["nodeid"] for item in data["items"]] == expected
+    def test_separates_regressions_quarantines_and_master_failures(self) -> None:
+        rows = {item["nodeid"]: item for item in self._get()["items"]}
 
-    def test_wider_window_includes_older_signal(self):
-        data = self._get(date_from="-30d")
-        assert T_OLD in [item["nodeid"] for item in data["items"]]
+        regression = rows[T_REGRESSION]
+        assert regression["classification"] == "suspected_regression"
+        assert regression["recommendation"] == "investigate_regression"
+        assert regression["affected_run_count"] == 3
+        assert regression["affected_pr_count"] == 3
 
-    def test_source_without_repository_fails_closed(self):
-        # A source with no repository identity can't be scoped, so the leaderboard must be empty
-        # rather than leak every connected repository's flaky spans (the qualifying rows are still
-        # seeded, so a fail-open regression would return them).
+        master = rows[T_MASTER]
+        assert master["classification"] == "suspected_regression"
+        assert master["master_failed_run_count"] == 1
+        assert master["affected_pr_count"] == 0
+
+        quarantined = rows[T_QUARANTINED]
+        assert quarantined["classification"] == "quarantined"
+        assert quarantined["recommendation"] == "deflake"
+        assert quarantined["quarantined_failed_run_count"] == 1
+
+    def test_stale_and_resolved_streaks_do_not_dominate(self) -> None:
+        nodeids = {item["nodeid"] for item in self._get(date_from="-30d")["items"]}
+        assert T_STALE not in nodeids
+        assert T_RESOLVED not in nodeids
+
+    def test_ranking_ties_are_deterministic(self) -> None:
+        nodeids = [item["nodeid"] for item in self._get()["items"]]
+        assert nodeids.index(T_TIE_A) < nodeids.index(T_TIE_B)
+
+    def test_min_failed_prs_controls_regression_threshold(self) -> None:
+        default_nodeids = {item["nodeid"] for item in self._get()["items"]}
+        lower_nodeids = {item["nodeid"] for item in self._get(min_failed_prs="2")["items"]}
+        assert T_TWO_PR_REGRESSION not in default_nodeids
+        assert T_TWO_PR_REGRESSION in lower_nodeids
+
+    def test_source_without_repository_fails_closed(self) -> None:
         ExternalDataSource.objects.filter(team_id=self.team.id).update(job_inputs={})
         data = self._get()
         assert data["items"] == []
         assert data["truncated"] is False
 
-    def test_limit_caps_and_flags_truncation(self):
+    def test_limit_caps_and_flags_truncation(self) -> None:
         data = self._get(limit="1")
-        assert [item["nodeid"] for item in data["items"]] == [T_PRS]
+        assert len(data["items"]) == 1
         assert data["truncated"] is True
         assert data["limit"] == 1
 
@@ -204,13 +211,11 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
             ("non_integer_threshold", {"min_failed_prs": "lots"}),
         ]
     )
-    def test_invalid_params_return_400(self, _name: str, params: dict):
+    def test_invalid_params_return_400(self, _name: str, params: dict) -> None:
         response = self.client.get(f"/api/projects/{self.team.id}/engineering_analytics/flaky_tests/", params)
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
 
 
-# A wrong split yields a selector CI's quarantine matching would silently never hit — the fallback
-# reconstruction for spans emitted before the CI reporter stamped test.selector.
 @pytest.mark.parametrize(
     "nodeid,expected",
     [

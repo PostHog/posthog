@@ -51,7 +51,7 @@ export const EngineeringAnalyticsCiFailureLogsQueryParams = /* @__PURE__ */ zod.
 })
 
 /**
- * The flaky-test leaderboard: backend tests ranked by flakiness signal from the per-test CI spans, over a window (default -7d, maximum 30 days). A test qualifies by passing on retry at least min_rerun_passes times OR failing on at least min_failed_prs distinct PRs. All figures are absolute counts, never rates: fast passing runs are not emitted, so denominators are biased. Pass-on-retry counts only flow from CI lanes running with reruns enabled; in other lanes a flake surfaces as a plain failure, which the distinct-PR count catches.
+ * An active queue of backend tests to deflake, temporarily quarantine, or investigate as regressions. Signals are deduplicated by test and GitHub run attempt. Confirmed flakes require recorded recovery; unrecovered failures are suspected regressions, and xfailed runs are already quarantined. Signals older than three days do not appear in the queue, while the requested window supplies supporting evidence (default -7d, maximum 30 days). All figures are absolute counts, never rates: passing tests under the trace emitter's duration threshold are not recorded, so there is no trustworthy execution denominator. A test is only called flaky when the recorded runs contain recovery evidence: pass-on-retry or interleaved pass/fail outcomes. 'Last recorded execution' is limited by the same telemetry threshold.
  */
 export const EngineeringAnalyticsFlakyTestsParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -74,13 +74,13 @@ export const EngineeringAnalyticsFlakyTestsQueryParams = /* @__PURE__ */ zod.obj
         .number()
         .optional()
         .describe(
-            'A test qualifies once it failed on at least this many distinct pull requests in the window (OR-ed with min_rerun_passes). Minimum 1. Defaults to 3.'
+            'Failures without recorded recovery become a suspected regression once they affect this many distinct pull requests. Minimum 1. Defaults to 3.'
         ),
     min_rerun_passes: zod
         .number()
         .optional()
         .describe(
-            'A test qualifies once it passed on retry at least this many times in the window (OR-ed with min_failed_prs). Minimum 1. Defaults to 1.'
+            'Pass-on-retry recovery is confirmed once it appears in at least this many distinct GitHub run attempts. Minimum 1. Defaults to 1.'
         ),
     source_id: zod
         .string()

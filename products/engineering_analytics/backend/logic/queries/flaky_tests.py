@@ -1,85 +1,156 @@
-"""HogQL aggregation of per-test CI spans into a flaky-test leaderboard.
+"""Rank active CI test-health recommendations from per-test trace spans.
 
-Backend CI emits one OTel span per test into the Traces store (span name = reconstructed
-pytest nodeid, ``test.outcome`` / ``test.attempts`` span attributes, ``ci.*`` resource
-attributes — see ``.github/scripts/report_test_timings.py``). This groups the signal spans
-by nodeid over a window and ranks tests by flakiness signal.
+The emitter records failures, errors, xfails, pass-on-retry outcomes, and ordinary passes above a
+duration threshold. The query therefore reports absolute evidence only, never a failure rate.
+Rows are deduplicated by pytest nodeid and GitHub run attempt before aggregation.
 
-Two data caveats shape the query:
-
-- Passing tests under the emitter's duration threshold are dropped, while failures, errors,
-  xfails, and reruns are always emitted — denominators are biased, so everything here is an
-  absolute count, never a rate.
-- ``rerun_passed`` (pass-on-retry, the strongest flaky signal) only flows from lanes running
-  pytest with reruns enabled. Lanes without reruns surface a flake as a plain ``failed`` /
-  ``error`` span, so the cross-PR failure count is the qualifying signal for those.
-
-Ranking is ``rerun_passed_count + failed_pr_count``: reruns catch the rerun-enabled lanes,
-distinct-PRs-hit catches the rest, and neither is inflated by one broken PR failing the same
-test on every push (that raises only ``failed_count``, the tiebreaker). Spans are scoped by
-``ci.repository`` so the selected GitHub source cannot mix signals from another repository.
-
-Reads the ``posthog.trace_spans`` table on the LOGS ClickHouse cluster, not the warehouse.
+A test is confirmed flaky only when recorded runs show recovery: pass-on-retry, or ordinary pass and
+failure runs interleaved over time. Repeated failures without recovery are suspected regressions.
+Xfailed runs are separated as already-quarantined tests. Signals older than three days are omitted
+from the active queue even when the requested evidence window is wider.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 
 from posthog.hogql import ast
 
 from posthog.clickhouse.workload import Workload
 
-from products.engineering_analytics.backend.facade.contracts import FlakyTestItem, FlakyTestList
+from products.engineering_analytics.backend.facade.contracts import (
+    FlakyTestClassification,
+    FlakyTestItem,
+    FlakyTestList,
+    FlakyTestRecommendation,
+)
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 
-# Only test spans carry test.outcome (job-root and setup spans don't), and only these
-# outcomes are flaky signal — plain 'passed'/'skipped' spans never reach the aggregation.
-_SIGNAL_OUTCOMES = ["failed", "error", "rerun_passed", "xfailed"]
-
-# Scope the aggregation to the CI test-timing emitter (report_test_timings.py sets this as
-# service.name); without it any team span carrying a test.outcome attribute would pollute.
+_RECORDED_OUTCOMES = ["failed", "error", "rerun_passed", "xfailed", "passed"]
 _CI_SERVICE_NAME = "ci-backend"
+_ACTIVE_SIGNAL_MAX_AGE = timedelta(days=3)
 
 _SELECT = """
     SELECT
         nodeid,
-        anyIf(selector, selector != '') AS selector,
-        countIf(outcome = 'rerun_passed') AS rerun_passed_count,
-        countIf(outcome IN ('failed', 'error')) AS failed_count,
-        uniqIf(pr_number, outcome IN ('failed', 'error') AND pr_number != '') AS failed_pr_count,
-        countIf(outcome IN ('failed', 'error') AND branch IN ('master', 'main')) AS master_failed_count,
-        uniqIf(branch, branch != '') AS branch_count,
-        countIf(outcome = 'xfailed') AS xfailed_count,
-        max(span_timestamp) AS last_seen_at
+        selector,
+        if(
+            quarantined_failed_run_count > 0,
+            'quarantined',
+            if(has_confirmed_recovery, 'confirmed_flake', 'suspected_regression')
+        ) AS classification,
+        if(
+            classification = 'quarantined',
+            'deflake',
+            if(
+                classification = 'suspected_regression',
+                'investigate_regression',
+                if(master_failed_run_count > 0 OR affected_run_count >= 3, 'consider_quarantine', 'deflake')
+            )
+        ) AS recommendation,
+        affected_run_count,
+        failed_run_count,
+        affected_pr_count,
+        master_failed_run_count,
+        rerun_recovery_run_count,
+        recorded_pass_run_count,
+        has_interleaved_runs,
+        quarantined_failed_run_count,
+        last_signal_at,
+        last_recorded_execution_at
     FROM (
         SELECT
-            name AS nodeid,
-            attributes['test.selector'] AS selector,
-            attributes['test.outcome'] AS outcome,
-            resource_attributes['ci.pr_number'] AS pr_number,
-            resource_attributes['ci.branch'] AS branch,
-            timestamp AS span_timestamp
-        FROM posthog.trace_spans
-        WHERE service_name = {service_name}
-            AND attributes['test.outcome'] IN {signal_outcomes}
-            AND lower(resource_attributes['ci.repository']) = lower({repository})
-            AND timestamp >= {date_from} __DATE_TO__
+            nodeid,
+            anyIf(selector, selector != '') AS selector,
+            countIf(has_failure OR has_rerun_recovery OR has_quarantine_failure) AS affected_run_count,
+            countIf(has_failure) AS failed_run_count,
+            uniqIf(pr_number, (has_failure OR has_rerun_recovery OR has_quarantine_failure) AND pr_number != '')
+                AS affected_pr_count,
+            countIf(has_failure AND branch IN ('master', 'main')) AS master_failed_run_count,
+            countIf(has_rerun_recovery) AS rerun_recovery_run_count,
+            countIf(has_recorded_pass AND NOT has_failure AND NOT has_rerun_recovery AND NOT has_quarantine_failure)
+                AS recorded_pass_run_count,
+            countIf(has_quarantine_failure) AS quarantined_failed_run_count,
+            minIf(run_timestamp, has_failure) AS first_failure_at,
+            maxIf(run_timestamp, has_failure) AS last_failure_at,
+            minIf(
+                run_timestamp,
+                has_recorded_pass AND NOT has_failure AND NOT has_rerun_recovery AND NOT has_quarantine_failure
+            ) AS first_recorded_pass_at,
+            maxIf(
+                run_timestamp,
+                has_recorded_pass AND NOT has_failure AND NOT has_rerun_recovery AND NOT has_quarantine_failure
+            ) AS last_recorded_pass_at,
+            maxIf(run_timestamp, has_failure OR has_rerun_recovery OR has_quarantine_failure) AS last_signal_at,
+            max(run_timestamp) AS last_recorded_execution_at,
+            rerun_recovery_run_count >= {min_rerun_passes}
+                OR (
+                    failed_run_count > 0
+                    AND recorded_pass_run_count > 0
+                    AND first_failure_at < last_recorded_pass_at
+                    AND first_recorded_pass_at < last_failure_at
+                ) AS has_confirmed_recovery,
+            failed_run_count > 0
+                AND recorded_pass_run_count > 0
+                AND first_failure_at < last_recorded_pass_at
+                AND first_recorded_pass_at < last_failure_at AS has_interleaved_runs
+        FROM (
+            SELECT
+                nodeid,
+                anyIf(selector, selector != '') AS selector,
+                anyIf(pr_number, pr_number != '') AS pr_number,
+                anyIf(branch, branch != '') AS branch,
+                max(outcome IN ('failed', 'error')) AS has_failure,
+                max(outcome = 'rerun_passed') AS has_rerun_recovery,
+                max(outcome = 'xfailed') AS has_quarantine_failure,
+                max(outcome = 'passed') AS has_recorded_pass,
+                max(span_timestamp) AS run_timestamp
+            FROM (
+                SELECT
+                    name AS nodeid,
+                    attributes['test.selector'] AS selector,
+                    attributes['test.outcome'] AS outcome,
+                    resource_attributes['ci.pr_number'] AS pr_number,
+                    resource_attributes['ci.branch'] AS branch,
+                    concat(
+                        if(resource_attributes['ci.run_id'] != '', resource_attributes['ci.run_id'], trace_id),
+                        ':',
+                        if(resource_attributes['ci.run_attempt'] != '', resource_attributes['ci.run_attempt'], '1')
+                    ) AS run_attempt_key,
+                    timestamp AS span_timestamp
+                FROM posthog.trace_spans
+                WHERE service_name = {service_name}
+                    AND attributes['test.outcome'] IN {recorded_outcomes}
+                    AND lower(resource_attributes['ci.repository']) = lower({repository})
+                    AND timestamp >= {date_from} __DATE_TO__
+            )
+            GROUP BY nodeid, run_attempt_key
+        )
+        GROUP BY nodeid
+        HAVING last_signal_at >= {active_after}
+            AND (
+                quarantined_failed_run_count > 0
+                OR has_confirmed_recovery
+                OR affected_pr_count >= {min_failed_prs}
+                OR master_failed_run_count > 0
+            )
+            AND NOT (
+                rerun_recovery_run_count = 0
+                AND NOT has_interleaved_runs
+                AND last_recorded_execution_at > last_signal_at
+            )
     )
-    GROUP BY nodeid
-    HAVING rerun_passed_count >= {min_rerun_passes} OR failed_pr_count >= {min_failed_prs}
-    ORDER BY (rerun_passed_count + failed_pr_count) DESC, failed_count DESC, last_seen_at DESC
+    ORDER BY
+        if(last_signal_at >= {recent_after}, 0, 1) ASC,
+        multiIf(recommendation = 'investigate_regression', 0, recommendation = 'consider_quarantine', 1, 2) ASC,
+        affected_run_count DESC,
+        affected_pr_count DESC,
+        last_signal_at DESC,
+        nodeid ASC
     LIMIT {limit_plus_one}
 """
 
 
 def _selector_from_nodeid(nodeid: str) -> str:
-    """Best-effort runnable pytest selector for a span the CI reporter emitted before it stamped
-    ``test.selector``. The nodeid folds the file/class boundary into '/' and drops '.py'
-    ('posthog/api/test/test_x/TestX::test_y'); re-split on the convention that class segments are
-    CamelCase and everything before them is the module file. Newer spans skip this — they carry the
-    exact selector, built from JUnit's ``file`` where the boundary isn't guessed. Removable once every
-    in-retention span carries ``test.selector`` (i.e. the emitter has been live longer than Traces
-    retention).
-    """
+    """Build a best-effort runnable selector for older spans without ``test.selector``."""
     class_path, sep, test_part = nodeid.partition("::")
     if not sep or "/" not in class_path:
         return nodeid
@@ -101,21 +172,20 @@ def query_flaky_tests(
     limit: int,
 ) -> FlakyTestList:
     repository = curated.repository
-    # Fail closed: the spans are scoped to the source's repository. Without a repository identity we
-    # cannot tell one connected repo's spans from another, so return nothing rather than leak every
-    # repository's flaky signals into the selected source's leaderboard.
     if not repository:
         return FlakyTestList(items=[], truncated=False, limit=limit)
 
+    reference_time = date_to or datetime.now(UTC)
     date_to_clause = "AND timestamp <= {date_to}" if date_to is not None else ""
     placeholders: dict[str, ast.Expr] = {
         "service_name": ast.Constant(value=_CI_SERVICE_NAME),
-        "signal_outcomes": ast.Constant(value=_SIGNAL_OUTCOMES),
+        "recorded_outcomes": ast.Constant(value=_RECORDED_OUTCOMES),
         "repository": ast.Constant(value=repository),
         "date_from": ast.Constant(value=date_from),
+        "active_after": ast.Constant(value=reference_time - _ACTIVE_SIGNAL_MAX_AGE),
+        "recent_after": ast.Constant(value=reference_time - timedelta(days=1)),
         "min_rerun_passes": ast.Constant(value=min_rerun_passes),
         "min_failed_prs": ast.Constant(value=min_failed_prs),
-        # +1 so a full page tells us more tests qualified than returned.
         "limit_plus_one": ast.Constant(value=limit + 1),
     }
     if date_to is not None:
@@ -125,7 +195,6 @@ def query_flaky_tests(
         _SELECT.replace("__DATE_TO__", date_to_clause),
         query_type="engineering_analytics.flaky_tests",
         placeholders=placeholders,
-        # trace_spans lives on the LOGS ClickHouse cluster, not the warehouse default.
         workload=Workload.LOGS,
     )
     rows = response.results or []
@@ -133,19 +202,36 @@ def query_flaky_tests(
         items=[
             FlakyTestItem(
                 nodeid=nodeid,
-                # Prefer the emitter's exact selector; reconstruct from the nodeid for older spans.
                 selector=selector or _selector_from_nodeid(nodeid),
-                rerun_passed_count=rerun_passed_count,
-                failed_count=failed_count,
-                failed_pr_count=failed_pr_count,
-                master_failed_count=master_failed_count,
-                branch_count=branch_count,
-                xfailed_count=xfailed_count,
-                last_seen_at=last_seen_at,
+                classification=FlakyTestClassification(classification),
+                recommendation=FlakyTestRecommendation(recommendation),
+                affected_run_count=affected_run_count,
+                failed_run_count=failed_run_count,
+                affected_pr_count=affected_pr_count,
+                master_failed_run_count=master_failed_run_count,
+                rerun_recovery_run_count=rerun_recovery_run_count,
+                recorded_pass_run_count=recorded_pass_run_count,
+                has_interleaved_runs=has_interleaved_runs,
+                quarantined_failed_run_count=quarantined_failed_run_count,
+                last_signal_at=last_signal_at,
+                last_recorded_execution_at=last_recorded_execution_at,
             )
-            for nodeid, selector, rerun_passed_count, failed_count, failed_pr_count, master_failed_count, branch_count, xfailed_count, last_seen_at in rows[
-                :limit
-            ]
+            for (
+                nodeid,
+                selector,
+                classification,
+                recommendation,
+                affected_run_count,
+                failed_run_count,
+                affected_pr_count,
+                master_failed_run_count,
+                rerun_recovery_run_count,
+                recorded_pass_run_count,
+                has_interleaved_runs,
+                quarantined_failed_run_count,
+                last_signal_at,
+                last_recorded_execution_at,
+            ) in rows[:limit]
         ],
         truncated=len(rows) > limit,
         limit=limit,

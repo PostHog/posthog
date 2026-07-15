@@ -1,4 +1,3 @@
-import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 /**
  * Auto-generated from the Django backend OpenAPI schema.
  * To modify these types, update the Django serializers or views, then run:
@@ -56,6 +55,8 @@ import type {
     WorkflowRunDetailApi,
     WorkflowRunnerCostApi,
 } from './api.schemas'
+
+import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 
 export const getEngineeringAnalyticsAuthorWorkflowCostsUrl = (
     projectId: string,
@@ -239,7 +240,7 @@ export const getEngineeringAnalyticsFlakyTestsUrl = (
 }
 
 /**
- * The flaky-test leaderboard: backend tests ranked by flakiness signal from the per-test CI spans, over a window (default -7d, maximum 30 days). A test qualifies by passing on retry at least min_rerun_passes times OR failing on at least min_failed_prs distinct PRs. All figures are absolute counts, never rates: fast passing runs are not emitted, so denominators are biased. Pass-on-retry counts only flow from CI lanes running with reruns enabled; in other lanes a flake surfaces as a plain failure, which the distinct-PR count catches.
+ * An active queue of backend tests to deflake, temporarily quarantine, or investigate as regressions. Signals are deduplicated by test and GitHub run attempt. Confirmed flakes require recorded recovery; unrecovered failures are suspected regressions, and xfailed runs are already quarantined. Signals older than three days do not appear in the queue, while the requested window supplies supporting evidence (default -7d, maximum 30 days). All figures are absolute counts, never rates: passing tests under the trace emitter's duration threshold are not recorded, so there is no trustworthy execution denominator. A test is only called flaky when the recorded runs contain recovery evidence: pass-on-retry or interleaved pass/fail outcomes. 'Last recorded execution' is limited by the same telemetry threshold.
  */
 export const engineeringAnalyticsFlakyTests = async (
     projectId: string,

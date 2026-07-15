@@ -496,49 +496,61 @@ class CIFailureLogs:
 # The one caveat that governs every flaky figure — defined once here (the canonical-types home)
 # so the API/MCP description and any other consumer-facing copy read from it instead of drifting.
 FLAKY_TEST_SIGNAL_CAVEAT = (
-    "All figures are absolute counts, never rates: fast passing runs are not emitted, so denominators "
-    "are biased. Pass-on-retry counts only flow from CI lanes running with reruns enabled; in other "
-    "lanes a flake surfaces as a plain failure, which the distinct-PR count catches."
+    "All figures are absolute counts, never rates: passing tests under the trace emitter's duration "
+    "threshold are not recorded, so there is no trustworthy execution denominator. A test is only "
+    "called flaky when the recorded runs contain recovery evidence: pass-on-retry or interleaved "
+    "pass/fail outcomes. 'Last recorded execution' is limited by the same telemetry threshold."
 )
+
+
+class FlakyTestClassification(StrEnum):
+    CONFIRMED_FLAKE = "confirmed_flake"
+    SUSPECTED_REGRESSION = "suspected_regression"
+    QUARANTINED = "quarantined"
+
+
+class FlakyTestRecommendation(StrEnum):
+    DEFLAKE = "deflake"
+    CONSIDER_QUARANTINE = "consider_quarantine"
+    INVESTIGATE_REGRESSION = "investigate_regression"
 
 
 @dataclass(frozen=True)
 class FlakyTestItem:
-    """One flaky-test leaderboard row, aggregated from the per-test CI spans in the Traces store.
-
-    See ``FLAKY_TEST_SIGNAL_CAVEAT`` for why these are absolute counts and how the two signals
-    (pass-on-retry vs distinct-PR failures) divide the rerun-enabled and no-rerun lanes.
-    """
+    """One active test-health recommendation from deduplicated CI run-attempt evidence."""
 
     # Reconstructed pytest nodeid (the span name), e.g. 'posthog/api/test/test_x/TestX::test_y'.
     nodeid: str
     # Runnable pytest selector ('posthog/api/test/test_x.py::TestX::test_y'). Exact when the CI
     # reporter stamped it; reconstructed from the nodeid (file/class boundary guessed) for older spans.
     selector: str
-    # Spans where the test failed first, then passed on an automatic retry.
-    rerun_passed_count: int
-    # Spans with outcome 'failed' or 'error' (the final outcome after any retries).
-    failed_count: int
-    # Distinct PRs among the failed/error spans; master/branch failures carry no PR and don't count.
-    failed_pr_count: int
-    # Failed/error spans on the default branch (master/main approximation — the source doesn't record
-    # the default branch); the "matters right now" signal.
-    master_failed_count: int
-    # Distinct git branches across all of the test's signal spans in the window.
-    branch_count: int
-    # Spans where the test failed while quarantined (xfail) — already masked, still flaky.
-    xfailed_count: int
-    # Most recent signal span for this test in the window.
-    last_seen_at: datetime
+    classification: FlakyTestClassification
+    recommendation: FlakyTestRecommendation
+    # Distinct GitHub run attempts carrying a failure, pass-on-retry, or xfail signal.
+    affected_run_count: int
+    # Distinct GitHub run attempts whose final outcome was failed/error.
+    failed_run_count: int
+    # Distinct PRs among affected runs; master/branch-only runs have no PR and don't count.
+    affected_pr_count: int
+    # Distinct failed/error run attempts on master/main.
+    master_failed_run_count: int
+    # Distinct run attempts where the test failed, then passed on an automatic retry.
+    rerun_recovery_run_count: int
+    # Recorded ordinary passing run attempts. Fast passes are absent by design.
+    recorded_pass_run_count: int
+    # True when recorded ordinary passes and failures overlap in time, rather than forming one fixed streak.
+    has_interleaved_runs: bool
+    # Distinct xfailed run attempts, which indicate the test is already quarantined and still failing.
+    quarantined_failed_run_count: int
+    # Most recent failed/error, pass-on-retry, or xfail run attempt.
+    last_signal_at: datetime
+    # Most recent recorded run attempt, including emitted ordinary passes.
+    last_recorded_execution_at: datetime
 
 
 @dataclass(frozen=True)
 class FlakyTestList:
-    """The flaky-test leaderboard for a window: qualifying tests ranked by flakiness signal,
-    capped at ``limit`` with an explicit truncation flag (same shape as ``PullRequestList``).
-    A test qualifies when it passed on retry at least ``min_rerun_passes`` times OR failed on
-    at least ``min_failed_prs`` distinct PRs in the window.
-    """
+    """Active test-health recommendations ranked by recency, action, and distinct evidence."""
 
     items: list[FlakyTestItem]
     truncated: bool

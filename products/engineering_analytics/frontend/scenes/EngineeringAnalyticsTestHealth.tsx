@@ -336,7 +336,7 @@ function BrokenTestsPanel(): JSX.Element {
     )
 }
 
-function FlakyTestLeaderboard(): JSX.Element {
+function ActiveTestHealthQueue(): JSX.Element {
     const { flakyTests, flakyTestsLoading, flakyTestsStatus, flakyTestWindow } = useValues(engineeringAnalyticsLogic)
     const { setFlakyTestWindow, openQuarantineModal } = useActions(engineeringAnalyticsLogic)
 
@@ -344,114 +344,132 @@ function FlakyTestLeaderboard(): JSX.Element {
         {
             title: 'Test',
             key: 'nodeid',
-            width: 360,
+            width: 340,
             render: (_, row) => (
                 <div className="flex max-w-[22rem] flex-col gap-0.5">
                     <Tooltip title={row.nodeid}>
                         <span className="truncate font-mono text-xs">{row.nodeid}</span>
                     </Tooltip>
-                    {row.xfailedCount > 0 && (
-                        <div>
-                            <Tooltip
-                                title={`Failed ${pluralize(row.xfailedCount, 'time')} while quarantined (runs as xfail) — already masked in CI, still flaky.`}
-                            >
-                                <LemonTag type="warning" size="small">
-                                    Quarantined, still failing
-                                </LemonTag>
-                            </Tooltip>
-                        </div>
+                    <div>
+                        {row.classification === 'confirmed_flake' ? (
+                            <LemonTag type="warning" size="small">
+                                Confirmed flake
+                            </LemonTag>
+                        ) : row.classification === 'suspected_regression' ? (
+                            <LemonTag type="danger" size="small">
+                                Suspected regression
+                            </LemonTag>
+                        ) : (
+                            <LemonTag type="muted" size="small">
+                                Already quarantined
+                            </LemonTag>
+                        )}
+                    </div>
+                </div>
+            ),
+        },
+        {
+            title: 'Recommendation',
+            key: 'recommendation',
+            width: 170,
+            render: (_, row) =>
+                row.recommendation === 'consider_quarantine' ? (
+                    <Tooltip title="Repeated or trunk-affecting flake. Use the temporary quarantine workflow while it is fixed.">
+                        <LemonTag type="warning">Consider quarantine</LemonTag>
+                    </Tooltip>
+                ) : row.recommendation === 'investigate_regression' ? (
+                    <Tooltip title="Failures have no recorded recovery. Treat this as a regression until a passing run proves otherwise.">
+                        <LemonTag type="danger">Investigate regression</LemonTag>
+                    </Tooltip>
+                ) : (
+                    <Tooltip title="Fix the nondeterminism. If already quarantined, remove the quarantine after the fix is verified.">
+                        <LemonTag type="success">Deflake</LemonTag>
+                    </Tooltip>
+                ),
+        },
+        {
+            title: 'Evidence',
+            key: 'affectedRunCount',
+            tooltip: 'Absolute evidence only. Fast passing tests are not recorded, so this is not a failure rate.',
+            sorter: (a, b) => a.affectedRunCount - b.affectedRunCount,
+            render: (_, row) => (
+                <div className="flex flex-col gap-0.5 text-xs">
+                    <span>
+                        {pluralize(row.affectedRunCount, 'affected run')} · {pluralize(row.affectedPrCount, 'PR')}
+                    </span>
+                    <span className="text-secondary">
+                        {row.rerunRecoveryRunCount > 0
+                            ? `Passed on retry in ${pluralize(row.rerunRecoveryRunCount, 'run')}`
+                            : row.hasInterleavedRuns
+                              ? `${pluralize(row.recordedPassRunCount, 'recorded pass')} interleaved with failures`
+                              : 'No recovery recorded'}
+                    </span>
+                    {row.masterFailedRunCount > 0 && (
+                        <span className="font-semibold text-danger">
+                            {pluralize(row.masterFailedRunCount, 'master failure')}
+                        </span>
+                    )}
+                    {row.quarantinedFailedRunCount > 0 && (
+                        <span className="text-secondary">
+                            Still failed in {pluralize(row.quarantinedFailedRunCount, 'quarantined run')}
+                        </span>
                     )}
                 </div>
             ),
         },
         {
-            title: 'Pass on retry',
-            key: 'rerunPassedCount',
+            title: 'Latest evidence',
+            key: 'lastSignalAt',
             width: 120,
             align: 'right',
-            tooltip:
-                'Failed, then passed on an automatic retry — the strongest flaky signal. Only CI lanes running with retries emit it.',
-            sorter: (a, b) => a.rerunPassedCount - b.rerunPassedCount,
-            render: (_, row) => <span className="tabular-nums">{humanFriendlyNumber(row.rerunPassedCount)}</span>,
-        },
-        {
-            title: 'Failures',
-            key: 'failedCount',
-            width: 100,
-            align: 'right',
-            tooltip:
-                'Runs whose final outcome was failed or error. An absolute count, not a rate — passing runs are mostly not recorded.',
-            sorter: (a, b) => a.failedCount - b.failedCount,
-            render: (_, row) => <span className="tabular-nums">{humanFriendlyNumber(row.failedCount)}</span>,
-        },
-        {
-            title: 'PRs hit',
-            key: 'failedPrCount',
-            width: 100,
-            align: 'right',
-            tooltip:
-                'Distinct pull requests the failures landed on. Failures on master carry no PR and are not counted here.',
-            sorter: (a, b) => a.failedPrCount - b.failedPrCount,
-            render: (_, row) => <span className="tabular-nums">{humanFriendlyNumber(row.failedPrCount)}</span>,
-        },
-        {
-            title: 'Master failures',
-            key: 'masterFailedCount',
-            width: 130,
-            align: 'right',
-            tooltip:
-                'Failed or errored on the default branch (master/main) — the flake is breaking the trunk, not just PR branches.',
-            sorter: (a, b) => a.masterFailedCount - b.masterFailedCount,
-            render: (_, row) =>
-                row.masterFailedCount > 0 ? (
-                    <span className="tabular-nums font-semibold text-danger">
-                        {humanFriendlyNumber(row.masterFailedCount)}
-                    </span>
-                ) : (
-                    <span className="tabular-nums text-tertiary">0</span>
-                ),
-        },
-        {
-            title: 'Last seen',
-            key: 'lastSeenAt',
-            width: 120,
-            align: 'right',
-            sorter: (a, b) => a.lastSeenAt.localeCompare(b.lastSeenAt),
+            sorter: (a, b) => a.lastSignalAt.localeCompare(b.lastSignalAt),
             render: (_, row) => (
-                <Tooltip title={dayjs(row.lastSeenAt).format('YYYY-MM-DD HH:mm:ss')}>
-                    <span className="text-xs whitespace-nowrap text-secondary">{dayjs(row.lastSeenAt).fromNow()}</span>
+                <Tooltip title={dayjs(row.lastSignalAt).format('YYYY-MM-DD HH:mm:ss')}>
+                    <span className="text-xs whitespace-nowrap text-secondary">
+                        {dayjs(row.lastSignalAt).fromNow()}
+                    </span>
                 </Tooltip>
             ),
+        },
+        {
+            title: 'Last recorded run',
+            key: 'lastRecordedExecutionAt',
+            width: 130,
+            align: 'right',
+            tooltip: 'Fast passing runs under the telemetry threshold are not recorded.',
+            sorter: (a, b) => a.lastRecordedExecutionAt.localeCompare(b.lastRecordedExecutionAt),
+            render: (_, row) => <RelativeTime iso={row.lastRecordedExecutionAt} />,
         },
         {
             title: '',
             key: 'actions',
             width: 130,
             align: 'right',
-            render: (_, row) => (
-                <LemonButton
-                    size="small"
-                    type="tertiary"
-                    icon={<IconShieldLock />}
-                    tooltip="Review the evidence and owner before opening a tracking issue and quarantine PR."
-                    aria-label={`Quarantine ${row.nodeid}`}
-                    onClick={() =>
-                        openQuarantineModal({
-                            action: 'quarantine',
-                            selector: row.selector,
-                            // The evidence is the reason; the cause is the tracking issue's job to find.
-                            reason: flakyEvidenceReason(row, flakyTestWindow),
-                            owner: '',
-                            issue: '',
-                            mode: 'run',
-                            confirm: true,
-                        })
-                    }
-                    data-attr="eng-analytics-flaky-quarantine"
-                >
-                    Quarantine…
-                </LemonButton>
-            ),
+            render: (_, row) =>
+                row.recommendation === 'consider_quarantine' ? (
+                    <LemonButton
+                        size="small"
+                        type="tertiary"
+                        icon={<IconShieldLock />}
+                        tooltip="Review the evidence and owner before opening a tracking issue and quarantine PR."
+                        aria-label={`Quarantine ${row.nodeid}`}
+                        onClick={() =>
+                            openQuarantineModal({
+                                action: 'quarantine',
+                                selector: row.selector,
+                                // The evidence is the reason; the cause is the tracking issue's job to find.
+                                reason: flakyEvidenceReason(row, flakyTestWindow),
+                                owner: '',
+                                issue: '',
+                                mode: 'run',
+                                confirm: true,
+                            })
+                        }
+                        data-attr="eng-analytics-flaky-quarantine"
+                    >
+                        Quarantine…
+                    </LemonButton>
+                ) : null,
         },
     ]
 
@@ -459,10 +477,10 @@ function FlakyTestLeaderboard(): JSX.Element {
         <div className="flex flex-col gap-4">
             <div className="flex items-start justify-between gap-2">
                 <div className="flex flex-col gap-0.5">
-                    <h3 className="m-0 text-base font-semibold">Flaky test leaderboard</h3>
+                    <h3 className="m-0 text-base font-semibold">Active test health queue</h3>
                     <p className="m-0 text-xs text-tertiary">
-                        Backend tests that passed on retry or failed across several PRs — quarantine candidates, ranked
-                        by flakiness signal.
+                        Fresh run-attempt evidence, separated into confirmed flakes, suspected regressions, and tests
+                        already quarantined. Rows expire after three days without a bad signal.
                     </p>
                 </div>
                 <LemonSegmentedButton
@@ -489,12 +507,12 @@ function FlakyTestLeaderboard(): JSX.Element {
                         loading={flakyTestsLoading}
                         pagination={{ pageSize: 10 }}
                         useURLForSorting={false}
-                        emptyState="No flaky tests detected in this window."
-                        nouns={['flaky test', 'flaky tests']}
+                        emptyState="No active test health recommendations in this window."
+                        nouns={['test recommendation', 'test recommendations']}
                     />
                     {flakyTests?.truncated && (
                         <div className="text-xs text-tertiary">
-                            Showing the {flakyTests.limit} strongest signals — more tests qualified in this window.
+                            Showing the first {flakyTests.limit} active recommendations. More rows matched.
                         </div>
                     )}
                 </>
@@ -518,7 +536,7 @@ export function EngineeringAnalyticsTestHealth(): JSX.Element {
             {/* Tab-level: both sections read the same source, so the picker scopes them together. */}
             <ScopeBar repoSlot={<SourceScopeChip />} showDate={false} />
             <BrokenTestsPanel />
-            <FlakyTestLeaderboard />
+            <ActiveTestHealthQueue />
             <QuarantineRegister />
             {/* Rendered once for the whole tab: the leaderboard rows, the register rows, and the
                 register's no-file empty state all open it. */}

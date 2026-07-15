@@ -167,31 +167,77 @@ export interface CurrentBranchHealthApi {
     failing_workflow_names: string[]
 }
 
+/**
+ * * `confirmed_flake` - CONFIRMED_FLAKE
+ * * `suspected_regression` - SUSPECTED_REGRESSION
+ * * `quarantined` - QUARANTINED
+ */
+export type FlakyTestItemClassificationEnumApi =
+    (typeof FlakyTestItemClassificationEnumApi)[keyof typeof FlakyTestItemClassificationEnumApi]
+
+export const FlakyTestItemClassificationEnumApi = {
+    ConfirmedFlake: 'confirmed_flake',
+    SuspectedRegression: 'suspected_regression',
+    Quarantined: 'quarantined',
+} as const
+
+/**
+ * * `deflake` - DEFLAKE
+ * * `consider_quarantine` - CONSIDER_QUARANTINE
+ * * `investigate_regression` - INVESTIGATE_REGRESSION
+ */
+export type FlakyTestItemRecommendationEnumApi =
+    (typeof FlakyTestItemRecommendationEnumApi)[keyof typeof FlakyTestItemRecommendationEnumApi]
+
+export const FlakyTestItemRecommendationEnumApi = {
+    Deflake: 'deflake',
+    ConsiderQuarantine: 'consider_quarantine',
+    InvestigateRegression: 'investigate_regression',
+} as const
+
 export interface FlakyTestItemApi {
     /** Reconstructed pytest nodeid (the CI span name), e.g. 'posthog/api/test/test_event/TestEvents::test_x'. A stable grouping key, not a runnable selector — use `selector` to run or quarantine the test. */
     nodeid: string
     /** Runnable pytest selector, e.g. 'posthog/api/test/test_event.py::TestEvents::test_x'. Exact when the CI reporter emitted it; otherwise reconstructed from the nodeid, where the file/class boundary is a best-effort guess. */
     selector: string
-    /** Times the test failed, then passed on an automatic retry — the strongest flaky signal. Only CI lanes running with reruns enabled emit it; a flake in a no-rerun lane shows up in failed_count instead. */
-    rerun_passed_count: number
-    /** Spans whose final outcome was 'failed' or 'error' in the window. An absolute count, not a rate — fast passing runs are not emitted, so denominators are biased. */
-    failed_count: number
-    /** Distinct pull requests among the failed/error spans. Failures on master or unattributed branches carry no PR number and are excluded here (still in failed_count). */
-    failed_pr_count: number
-    /** Failed/error spans on the default branch (master/main approximation) — the 'matters right now' signal that a flake is breaking the trunk, not just PR branches. */
-    master_failed_count: number
-    /** Distinct git branches across all of the test's flaky-signal spans in the window. */
-    branch_count: number
-    /** Runs where the test failed while quarantined (xfail) — already masked in CI but still flaky. */
-    xfailed_count: number
-    /** Most recent flaky-signal span for this test in the window. */
-    last_seen_at: string
+    /** Evidence class: confirmed_flake requires recorded recovery, suspected_regression has failures without recovery, and quarantined has xfailed runs.
+     *
+     * * `confirmed_flake` - CONFIRMED_FLAKE
+     * * `suspected_regression` - SUSPECTED_REGRESSION
+     * * `quarantined` - QUARANTINED */
+    classification: FlakyTestItemClassificationEnumApi
+    /** Suggested next action: deflake, consider_quarantine, or investigate_regression.
+     *
+     * * `deflake` - DEFLAKE
+     * * `consider_quarantine` - CONSIDER_QUARANTINE
+     * * `investigate_regression` - INVESTIGATE_REGRESSION */
+    recommendation: FlakyTestItemRecommendationEnumApi
+    /** Distinct GitHub run attempts with a failure, pass-on-retry, or xfail signal. */
+    affected_run_count: number
+    /** Distinct GitHub run attempts whose final recorded outcome was failed or error. */
+    failed_run_count: number
+    /** Distinct pull requests among affected runs. Master and unattributed branches are excluded. */
+    affected_pr_count: number
+    /** Distinct failed/error run attempts on master or main. */
+    master_failed_run_count: number
+    /** Distinct run attempts where the test failed, then passed on an automatic retry. */
+    rerun_recovery_run_count: number
+    /** Recorded ordinary passing run attempts. Fast passes below the emitter threshold are absent. */
+    recorded_pass_run_count: number
+    /** True when recorded ordinary pass and failure runs overlap in time, confirming nondeterminism. */
+    has_interleaved_runs: boolean
+    /** Distinct xfailed run attempts: the test was quarantined and still failed. */
+    quarantined_failed_run_count: number
+    /** Most recent failed/error, pass-on-retry, or xfail run attempt. */
+    last_signal_at: string
+    /** Most recent recorded run attempt, including emitted ordinary passes. Fast passes may be absent. */
+    last_recorded_execution_at: string
 }
 
 export interface FlakyTestListApi {
-    /** Qualifying tests ranked by flakiness signal, strongest first, capped at `limit`. */
+    /** Active recommendations ranked by signal recency, action, and distinct run/PR evidence. */
     items: FlakyTestItemApi[]
-    /** True when more tests qualified than the cap; `items` is the strongest `limit` rows. */
+    /** True when more active recommendations qualified than the cap. */
     truncated: boolean
     /** Maximum number of tests returned in `items`. */
     limit: number
@@ -1102,11 +1148,11 @@ export type EngineeringAnalyticsFlakyTestsParams = {
      */
     limit?: number
     /**
-     * A test qualifies once it failed on at least this many distinct pull requests in the window (OR-ed with min_rerun_passes). Minimum 1. Defaults to 3.
+     * Failures without recorded recovery become a suspected regression once they affect this many distinct pull requests. Minimum 1. Defaults to 3.
      */
     min_failed_prs?: number
     /**
-     * A test qualifies once it passed on retry at least this many times in the window (OR-ed with min_failed_prs). Minimum 1. Defaults to 1.
+     * Pass-on-retry recovery is confirmed once it appears in at least this many distinct GitHub run attempts. Minimum 1. Defaults to 1.
      */
     min_rerun_passes?: number
     /**

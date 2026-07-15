@@ -882,16 +882,16 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 type=OpenApiTypes.INT,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description="A test qualifies once it passed on retry at least this many times in the window "
-                "(OR-ed with min_failed_prs). Minimum 1. Defaults to 1.",
+                description="Pass-on-retry recovery is confirmed once it appears in at least this many distinct "
+                "GitHub run attempts. Minimum 1. Defaults to 1.",
             ),
             OpenApiParameter(
                 name="min_failed_prs",
                 type=OpenApiTypes.INT,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description="A test qualifies once it failed on at least this many distinct pull requests in "
-                "the window (OR-ed with min_rerun_passes). Minimum 1. Defaults to 3.",
+                description="Failures without recorded recovery become a suspected regression once they affect "
+                "this many distinct pull requests. Minimum 1. Defaults to 3.",
             ),
             OpenApiParameter(
                 name="limit",
@@ -909,9 +909,11 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             ),
         },
         description=(
-            "The flaky-test leaderboard: backend tests ranked by flakiness signal from the per-test CI spans, "
-            "over a window (default -7d, maximum 30 days). A test qualifies by passing on retry at least "
-            "min_rerun_passes times OR failing on at least min_failed_prs distinct PRs. " + FLAKY_TEST_SIGNAL_CAVEAT
+            "An active queue of backend tests to deflake, temporarily quarantine, or investigate as regressions. "
+            "Signals are deduplicated by test and GitHub run attempt. Confirmed flakes require recorded recovery; "
+            "unrecovered failures are suspected regressions, and xfailed runs are already quarantined. Signals "
+            "older than three days do not appear in the queue, while the requested window supplies supporting "
+            "evidence (default -7d, maximum 30 days). " + FLAKY_TEST_SIGNAL_CAVEAT
         ),
     )
     @action(detail=False, methods=["get"], pagination_class=None)

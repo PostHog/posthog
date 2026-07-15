@@ -434,23 +434,26 @@ export function quarantineCountsOf(rows: QuarantineEntryRow[]): QuarantineCounts
 /** Leaderboard windows the UI offers; the endpoint accepts any window up to 30 days. */
 export type FlakyTestWindow = '-7d' | '-14d' | '-30d'
 export const DEFAULT_FLAKY_TEST_WINDOW: FlakyTestWindow = '-7d'
+export type FlakyTestClassification = 'confirmed_flake' | 'suspected_regression' | 'quarantined'
+export type FlakyTestRecommendation = 'deflake' | 'consider_quarantine' | 'investigate_regression'
 
 export interface FlakyTestRow {
     /** Reconstructed pytest nodeid (the CI span name) — a stable grouping/display key. */
     nodeid: string
     /** Runnable pytest selector for the quarantine action; exact when the CI reporter emitted it. */
     selector: string
-    /** Failed, then passed on an automatic retry — the strongest flaky signal (rerun-enabled lanes only). */
-    rerunPassedCount: number
-    /** Spans whose final outcome was failed/error. Absolute count, never a rate (denominators are biased). */
-    failedCount: number
-    /** Distinct PRs among the failures; master/branch failures carry no PR and don't count here. */
-    failedPrCount: number
-    /** Failed/error spans on the default branch (master/main) — the "matters right now" signal. */
-    masterFailedCount: number
-    /** Failed while quarantined (xfail) — already masked in CI, still flaky. */
-    xfailedCount: number
-    lastSeenAt: string
+    classification: FlakyTestClassification
+    recommendation: FlakyTestRecommendation
+    affectedRunCount: number
+    failedRunCount: number
+    affectedPrCount: number
+    masterFailedRunCount: number
+    rerunRecoveryRunCount: number
+    recordedPassRunCount: number
+    hasInterleavedRuns: boolean
+    quarantinedFailedRunCount: number
+    lastSignalAt: string
+    lastRecordedExecutionAt: string
 }
 
 export interface FlakyTestsData {
@@ -548,20 +551,19 @@ export interface QuarantineModalState {
 export function flakyEvidenceReason(row: FlakyTestRow, window: FlakyTestWindow): string {
     const windowLabel = { '-7d': '7 days', '-14d': '14 days', '-30d': '30 days' }[window]
     const parts: string[] = []
-    if (row.rerunPassedCount > 0) {
-        parts.push(`passed on retry ${row.rerunPassedCount}x`)
+    if (row.rerunRecoveryRunCount > 0) {
+        parts.push(`passed on retry in ${pluralize(row.rerunRecoveryRunCount, 'run')}`)
     }
-    if (row.failedCount > 0) {
-        parts.push(
-            row.failedPrCount > 0
-                ? `failed ${row.failedCount}x across ${pluralize(row.failedPrCount, 'PR')}`
-                : `failed ${row.failedCount}x`
-        )
+    if (row.hasInterleavedRuns) {
+        parts.push('had interleaved pass and failure runs')
     }
-    if (row.xfailedCount > 0) {
-        parts.push(`failed while quarantined ${row.xfailedCount}x`)
+    if (row.failedRunCount > 0) {
+        parts.push(`failed in ${pluralize(row.failedRunCount, 'run')}`)
     }
-    return `Flaky in CI: ${parts.join(', ')} in the last ${windowLabel}`
+    if (row.affectedPrCount > 0) {
+        parts.push(`affected ${pluralize(row.affectedPrCount, 'PR')}`)
+    }
+    return `CI evidence: ${parts.join(', ')} in the last ${windowLabel}`
 }
 
 /** Suggest an owning team from a product-scoped selector; '' when the selector isn't product-scoped. */
@@ -753,12 +755,18 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                                 (it): FlakyTestRow => ({
                                     nodeid: it.nodeid,
                                     selector: it.selector,
-                                    rerunPassedCount: it.rerun_passed_count,
-                                    failedCount: it.failed_count,
-                                    failedPrCount: it.failed_pr_count,
-                                    masterFailedCount: it.master_failed_count,
-                                    xfailedCount: it.xfailed_count,
-                                    lastSeenAt: it.last_seen_at,
+                                    classification: it.classification,
+                                    recommendation: it.recommendation,
+                                    affectedRunCount: it.affected_run_count,
+                                    failedRunCount: it.failed_run_count,
+                                    affectedPrCount: it.affected_pr_count,
+                                    masterFailedRunCount: it.master_failed_run_count,
+                                    rerunRecoveryRunCount: it.rerun_recovery_run_count,
+                                    recordedPassRunCount: it.recorded_pass_run_count,
+                                    hasInterleavedRuns: it.has_interleaved_runs,
+                                    quarantinedFailedRunCount: it.quarantined_failed_run_count,
+                                    lastSignalAt: it.last_signal_at,
+                                    lastRecordedExecutionAt: it.last_recorded_execution_at,
                                 })
                             ),
                             truncated: data.truncated,

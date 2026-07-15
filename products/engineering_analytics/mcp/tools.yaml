@@ -73,17 +73,16 @@ tools:
             destructive: false
             idempotent: true
         list: true
-        title: Flaky test leaderboard
+        title: Active test health queue
         description: >
-            Backend tests ranked by flakiness signal over a window (date_from default -7d, maximum 30 days), from the
-            per-test CI spans. A test qualifies by passing on an automatic retry at least min_rerun_passes times
-            (default 1) OR failing on at least min_failed_prs distinct pull requests (default 3). Use this for "which
-            tests are flaky right now" and to pick quarantine candidates. Read the counts as absolute signal, never
-            rates — fast passing runs are not emitted, so there is no honest denominator. rerun_passed_count only flows
-            from CI lanes running with retries enabled; in other lanes a flake surfaces as a plain failure, which
-            failed_pr_count catches. xfailed_count > 0 means the test is already quarantined but still failing. nodeid
-            is a best-effort reconstruction (no '.py' suffix, the file/class boundary folded into '/'), so convert
-            before using it as a pytest selector.
+            Active backend test recommendations from per-test CI spans, deduplicated by test and GitHub run attempt.
+            Confirmed flakes require recovery evidence: pass-on-retry or recorded pass/fail runs interleaved over time.
+            Failures without recovery are suspected regressions, and xfailed runs are already quarantined. Use
+            recommendation to choose Deflake, Consider quarantine, or Investigate regression. Signals expire from the
+            active queue after three days; date_from (default -7d, maximum 30 days) controls the supporting evidence
+            window. Counts are absolute, never rates, because fast passing runs are not emitted. For the same reason,
+            last_recorded_execution_at is the last recorded run, not guaranteed to be the test's latest fast pass.
+            Use selector to run or quarantine the test; nodeid is only the stable grouping key.
         feature_flag: engineering-analytics
     engineering-analytics-job-aggregates:
         operation: engineering_analytics_job_aggregates
