@@ -647,7 +647,7 @@ export interface PatchedLogsAlertConfigurationApi {
 }
 
 export interface LogsAlertCreateDestinationApi {
-    /** Destination type — slack, webhook, or teams.
+    /** Notification destination type.
      *
      * * `slack` - slack
      * * `webhook` - webhook
@@ -659,7 +659,7 @@ export interface LogsAlertCreateDestinationApi {
     slack_channel_id?: string
     /** Human-readable channel name for display. */
     slack_channel_name?: string
-    /** HTTPS endpoint to POST to. Required when type=webhook, or the Teams webhook URL when type=teams. */
+    /** HTTPS endpoint to post to. Required for webhook and teams. */
     webhook_url?: string
 }
 
@@ -671,6 +671,7 @@ export interface LogsAlertDeleteDestinationApi {
     /**
      * HogFunction IDs to delete as one atomic destination group.
      * @minItems 1
+     * @maxItems 4
      */
     hog_function_ids: string[]
 }
