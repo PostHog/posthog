@@ -372,11 +372,11 @@ tools:
         title: Delete a scout config
         description: >
             Delete one scout config by its `id`, removing the per-scout schedule/emit row outright. Use it to clean up
-            an orphaned config whose `signals-scout-*` skill was archived or deleted — it lingers in
-            `scout-config-list` with an empty description and never runs, but can't otherwise be removed.
-            Deletion is activity-logged. Note: if the skill still exists the coordinator re-creates a default-schedule
-            config on its next tick — to retire a live scout, archive its skill (or set `enabled=false` via
-            `scout-config-update` to make it inert) rather than deleting the config.
+            an orphaned config whose `signals-scout-*` skill was archived or deleted — it lingers in `scout-config-list`
+            with an empty description and never runs, but can't otherwise be removed. Deletion is activity-logged. Note:
+            if the skill still exists the coordinator re-creates a default-schedule config on its next tick — to retire
+            a live scout, archive its skill (or set `enabled=false` via `scout-config-update` to make it inert) rather
+            than deleting the config.
     scout-config-list:
         operation: signals_scout_config_list
         enabled: true
@@ -391,10 +391,9 @@ tools:
         description: >
             List the per-scout configs for this project — one row per `signals-scout-*` skill, each with its schedule
             (`run_interval_minutes`), `enabled` flag, and `emit` (dry-run) posture. A freshly authored scout appears
-            once its config is registered — immediately via `scout-config-create` (one skill) or
-            `scout-config-sync` (the whole fleet), or on the coordinator's next tick. Use this to see which
-            scouts run, how often, and whether they emit findings to the inbox. Pair with `scout-config-update`
-            to tune them.
+            once its config is registered — immediately via `scout-config-create` (one skill) or `scout-config-sync`
+            (the whole fleet), or on the coordinator's next tick. Use this to see which scouts run, how often, and
+            whether they emit findings to the inbox. Pair with `scout-config-update` to tune them.
     scout-config-sync:
         operation: signals_scout_config_sync
         enabled: true
@@ -410,8 +409,7 @@ tools:
             Materialize the Signals scout fleet for this project (idempotent): seeds the canonical `signals-scout-*`
             skills and creates a default-schedule config for any scout lacking one, then returns all scout configs. The
             Temporal coordinator does the same on its next tick; call this when a setup flow needs a tunable fleet
-            immediately instead of waiting for the tick. Pair with `scout-config-update` to tune the returned
-            configs.
+            immediately instead of waiting for the tick. Pair with `scout-config-update` to tune the returned configs.
     scout-config-update:
         operation: signals_scout_config_update
         enabled: true
@@ -464,11 +462,11 @@ tools:
             (`immediately_actionable` → READY, `requires_human_input` → PENDING_INPUT, `not_actionable` → suppressed);
             an unsafe report is suppressed regardless. Backing `evidence` is written as bound signals so the report
             behaves like a pipeline report. NOT idempotent — a retry authors a second report; use `inbox-reports-list`
-            to find a prior report and `scout-edit-report` to update it instead. `suggested_reviewers` is the
-            primary way a report reaches a human (each a `github_login` and/or a PostHog `user_uuid` resolved
-            server-side); for a concrete, fixable issue, passing `repository` + `priority` + `suggested_reviewers` also
-            opens a draft PR automatically (autostart, custom_agent parity); omit them to just surface the report.
-            Opt-in: only available to scouts that list `emit_report` in their skill's `allowed_tools`.
+            to find a prior report and `scout-edit-report` to update it instead. `suggested_reviewers` is the primary
+            way a report reaches a human (each a `github_login` and/or a PostHog `user_uuid` resolved server-side); for
+            a concrete, fixable issue, passing `repository` + `priority` + `suggested_reviewers` also opens a draft PR
+            automatically (autostart, custom_agent parity); omit them to just surface the report. Opt-in: only available
+            to scouts that list `emit_report` in their skill's `allowed_tools`.
     scout-emit-signal:
         operation: signals_scout_emit_signal
         enabled: true
@@ -501,8 +499,8 @@ tools:
             linked GitHub identity). The cold-start reviewer-routing path: when a finding's owner can't be read off a
             fetched entity's `created_by` and there's no cached `reviewer:<area>` memory or inbox precedent, list
             members, match the owner by email/name, then put their resolved `github_login` in `suggested_reviewers` on
-            `scout-emit-report` / `scout-edit-report` (a member with a null `github_login` can't be
-            routed to — pick another owner). Pass `search` to narrow a large roster. Strictly team-scoped.
+            `scout-emit-report` / `scout-edit-report` (a member with a null `github_login` can't be routed to — pick
+            another owner). Pass `search` to narrow a large roster. Strictly team-scoped.
     scout-metadata-get:
         operation: signals_scout_metadata_get
         enabled: false
@@ -523,8 +521,8 @@ tools:
             newest non-expired cached profile or a freshly-built one. Read this once at the start of a run (right after
             `skill-get`) to orient on the team in one tool call instead of paginating through
             `inbox-source-configs-list` / `inbox-reports-list` / `read-data-schema` / `advanced-activity-logs-list`.
-            Distinct from `scout-scratchpad-list`: profile is ground truth from authoritative tables; scratchpad
-            is the scout's inferred learnings.
+            Distinct from `scout-scratchpad-list`: profile is ground truth from authoritative tables; scratchpad is the
+            scout's inferred learnings.
     scout-run-now:
         operation: signals_scout_config_run
         enabled: true
@@ -562,8 +560,8 @@ tools:
             with its `finding_id`, the deterministic `source_id` (`run:<run_id>:finding:<finding_id>`), and the linked
             `report` (`id`, `title`, `status`) or `null` when the finding never matched a report (or the report was
             deleted/suppressed). Use this to see *which* findings turned into actionable reports, not just what a run
-            surfaced (`scout-runs-emissions-list`). Requires `task:read` on top of `signal_scout:read` because
-            it exposes report titles. Strictly team-scoped — a run UUID belonging to another team returns 404.
+            surfaced (`scout-runs-emissions-list`). Requires `task:read` on top of `signal_scout:read` because it
+            exposes report titles. Strictly team-scoped — a run UUID belonging to another team returns 404.
     scout-runs-emission-reports-batch:
         operation: signals_scout_runs_emission_reports_batch
         enabled: false
@@ -627,9 +625,9 @@ tools:
         title: List recent emitted findings across all scout runs
         description: >
             Return the team's recently emitted scout findings across *every* `SignalScoutRun`, newest first — the
-            cross-run counterpart to `scout-runs-emissions-list` (which is scoped to one run). Each row carries
-            its `run_id`, `description` (the finding text as surfaced), `weight`, `confidence`, `severity`, `tags`, and
-            the deterministic `source_id` (`run:<run_id>:finding:<finding_id>`). Use this to answer "what has the fleet
+            cross-run counterpart to `scout-runs-emissions-list` (which is scoped to one run). Each row carries its
+            `run_id`, `description` (the finding text as surfaced), `weight`, `confidence`, `severity`, `tags`, and the
+            deterministic `source_id` (`run:<run_id>:finding:<finding_id>`). Use this to answer "what has the fleet
             surfaced lately?" in one call instead of listing runs and fanning out an emissions request per run. Pass
             `skill_name` to scope to a single scout, and `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive
             upper bound on `emitted_at`) to bound or paginate — set `date_to` to the oldest emission's `emitted_at` to
