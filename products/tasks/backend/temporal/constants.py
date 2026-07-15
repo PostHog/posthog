@@ -96,6 +96,9 @@ MAX_ACK_RETRIES = 5
 SEND_STEER_SIGNAL = "send_steer_message"
 STEERING_PROTOCOL_QUERY = "steering_protocol_version"
 STEERING_PROTOCOL_VERSION = 1
+# Capability discovery must never delay the durable legacy signal path when a
+# workflow worker is unavailable or too busy to answer queries.
+STEERING_PROTOCOL_QUERY_TIMEOUT = timedelta(seconds=2)
 
 # Cooldown after a failed outbound-signal flush on the child side. The child's
 # main loop wakes whenever `_pending_outbound` is non-empty; if the parent is

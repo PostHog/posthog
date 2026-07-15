@@ -23,6 +23,7 @@ from products.tasks.backend.temporal.build_image.workflow import BuildSandboxIma
 from products.tasks.backend.temporal.constants import (
     SEND_STEER_SIGNAL,
     STEERING_PROTOCOL_QUERY,
+    STEERING_PROTOCOL_QUERY_TIMEOUT,
     STEERING_PROTOCOL_VERSION,
 )
 from products.tasks.backend.temporal.process_task.workflow import ProcessTaskInput
@@ -480,7 +481,10 @@ def signal_task_followup_message(
         signal_name = "send_followup_message"
         if steer:
             try:
-                protocol_version = await handle.query(STEERING_PROTOCOL_QUERY)
+                protocol_version = await handle.query(
+                    STEERING_PROTOCOL_QUERY,
+                    rpc_timeout=STEERING_PROTOCOL_QUERY_TIMEOUT,
+                )
             except Exception:
                 logger.info(
                     "task_followup_steering_capability_unavailable",

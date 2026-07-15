@@ -20,7 +20,7 @@ from temporalio.common import WorkflowIDReusePolicy
 
 from posthog.temporal.common.client import async_connect
 
-from products.tasks.backend.temporal.constants import STEERING_PROTOCOL_QUERY
+from products.tasks.backend.temporal.constants import STEERING_PROTOCOL_QUERY, STEERING_PROTOCOL_QUERY_TIMEOUT
 from products.tasks.backend.temporal.execute_sandbox.workflow import PARENT_ATTACHED_SIGNAL, ExecuteSandboxInput
 from products.tasks.backend.temporal.observability import log_activity_execution
 
@@ -61,7 +61,10 @@ async def ensure_execute_sandbox_started(input: EnsureExecuteSandboxStartedInput
             # level via the ACK-retry / re-bootstrap path.
         )
         try:
-            protocol_version = await handle.query(STEERING_PROTOCOL_QUERY)
+            protocol_version = await handle.query(
+                STEERING_PROTOCOL_QUERY,
+                rpc_timeout=STEERING_PROTOCOL_QUERY_TIMEOUT,
+            )
         except Exception:
             return 0
         return protocol_version if isinstance(protocol_version, int) else 0

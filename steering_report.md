@@ -4,195 +4,179 @@ Date: 2026-07-15
 
 ## Status
 
-The negotiated native steering path for active Codex and Claude cloud runs is implemented, hardened against the five original high-priority QA findings and three follow-up blockers, verified with automated tests, and exercised end to end against the local PostHog backend and PostHog Code desktop app.
+Negotiated native steering for active Codex and Claude cloud runs is implemented and hardened against the original QA findings and both follow-up blocker rounds.
 
-Both implementation branches were pushed with signed commits:
+The implementation is split across:
 
 - PostHog backend branch: `posthog-code/cloud-run-steering`
-  - Hardening commit: `2fe83bc1012` (`fix(tasks): harden cloud steering delivery`)
-  - The follow-up capability-gating changes are in the commit containing this report.
 - PostHog Code branch: `posthog-code/cloud-run-steering-agent`
-  - Initial hardening commit: `4ddb8abea` (`fix(cloud): harden steering delivery and hydration`)
-  - Follow-up race fix: `115678c56` (`fix(cloud): close steering delivery races`)
+
+The latest fixes cover bounded Temporal capability discovery, multi-generation resume hydration, and idempotent agent delivery during teardown.
 
 ## What the feature does
 
 - Negotiates native steering for active Codex and Claude cloud turns.
-- Sends accepted steers to the live agent turn through the durable Temporal path.
+- Sends accepted steers to the live agent turn through a durable Temporal path.
 - Delivers steer follow-ups concurrently while preserving FIFO ordering for normal queued follow-ups.
 - Falls back to normal follow-up delivery when a steer can no longer join the active turn.
 - Shows the Steer/Queue control for supported cloud sessions.
 - Preserves Claude turn ordering until accepted steers are consumed.
 - Hydrates the complete parent/resume transcript while retaining the current leaf run's live-log cursor.
 
-## High-priority QA fixes
+## Original high-priority QA fixes
 
-### 1. Failed Codex steers are no longer acknowledged as successful
+### Failed Codex steers are not acknowledged as successful
 
-The Codex adapter now propagates `turn/steer` transport failures. It calls `onSteered` and broadcasts the user prompt only after Codex accepts the RPC.
+The Codex adapter propagates `turn/steer` transport failures. It calls `onSteered` and broadcasts the user prompt only after Codex accepts the RPC.
 
 Explicit steer attempts made after the active turn has ended return a declined steer result instead of starting an unrelated turn or emitting a false prompt echo.
 
-Regression coverage verifies that a rejected `TURN_STEER` call produces no steer acknowledgement and no user-prompt broadcast.
+### Turn-boundary races fall back safely
 
-### 2. Turn-boundary races fall back safely
-
-The agent server now treats adapter-level steering as an accept-or-decline operation:
+The agent server treats adapter-level steering as an accept-or-decline operation:
 
 - An accepted steer joins the active turn.
 - A declined steer waits for the owned turn to become idle and then uses the normal follow-up path.
-- A real transport failure is still propagated for the normal retry and failure machinery.
+- A real transport failure is propagated to the normal retry and failure machinery.
 
-This prevents a healthy cloud run from receiving a terminal error merely because its active turn ended between the server's initial check and the adapter call.
+This prevents a healthy cloud run from receiving a terminal error because its active turn ended between the server check and the adapter call.
 
-### 3. Steer intent does not survive sandbox replacement
+### Steer intent does not survive sandbox replacement
 
-Shutdown-rejected and unacknowledged follow-ups are now requeued with `steer=False` whenever they cross a sandbox-session boundary.
+Shutdown-rejected and unacknowledged follow-ups are requeued with `steer=False` when they cross a sandbox-session boundary.
 
-The original steer intent is preserved only while it still targets the same live sandbox execution. A replacement sandbox therefore receives the message as a normal queued follow-up rather than injecting it into a different initial or resumed turn.
+The original steer intent is preserved only while it still targets the same live sandbox execution. A replacement sandbox receives the message as a normal queued follow-up.
 
-### 4. Partial resume hydration is detected and retried
+### Partial resume hydration is detected and retried
 
-The PostHog API client now returns explicit completeness metadata with fetched session logs. A failed or incomplete page can no longer look like a successful empty response.
+The API client returns explicit completeness metadata with fetched session logs. A failed or incomplete page cannot look like a successful empty response.
 
-Resume hydration now:
+Resume hydration:
 
-- Avoids marking an incomplete parent/leaf fetch as hydrated.
+- Does not mark incomplete parent or leaf data as hydrated.
 - Retries incomplete hydration during later reconciliation.
-- Deduplicates concurrent hydration calls with one in-flight promise per run.
-- Merges parent-chain history with current leaf entries.
-- Keeps full transcript length separate from the leaf run's live stream cursor.
+- Deduplicates concurrent hydration with one in-flight promise per run.
+- Merges parent history with current leaf entries.
+- Keeps full transcript length separate from the leaf live-stream cursor.
 - Preserves leaf log offsets when the current endpoint returns a full-chain snapshot.
-- Buffers incoming live cloud updates while hydration is in progress, then applies them without dropping or duplicating entries.
-- Clears stale pending and Thinking state after the reconciled history becomes authoritative.
+- Buffers incoming live updates during hydration and applies them afterward.
+- Clears stale pending and Thinking state after reconciliation.
 
-Regression coverage includes leaf-only responses, full-chain responses, ancestor-fetch failure followed by retry, and live events arriving during hydration.
+### Temporal steering signals are rolling-deployment safe
 
-### 5. Temporal steering signals are rolling-deployment safe
+New senders use the versioned `send_steer_message` signal while preserving the positional arity of legacy follow-up signals.
 
-New senders use the versioned `send_steer_message` signal while keeping the existing positional arity of legacy follow-up signals unchanged.
+Workflow handlers accept the versioned signal and legacy histories. Capability discovery chooses the new signal only for receivers that advertise protocol version 1.
 
-Workflow handlers accept both the versioned signal and the legacy form, including histories containing the earlier optional steer argument. This prevents old or sticky workers from failing workflow tasks because a new sender appended an unexpected positional argument.
+## First follow-up blocker fixes
 
-Tests cover both signal formats and replay-compatible dispatch behavior.
+### Steering signals are capability-gated
 
-## Additional QA finding resolved
+`ProcessTaskWorkflow`, `TaskManagementWorkflow`, and `ExecuteSandboxWorkflow` expose a read-only steering protocol query.
 
-Finding 7, concurrent resume hydration without in-flight deduplication, was resolved as part of the hydration work. Each run now reuses one active hydration promise and clears it in `finally` so later retries remain possible.
+Unsupported workflows and failed capability queries receive the durable legacy `send_followup_message` signal. Task management records the child workflow's protocol version and preserves historical signal choices during replay.
 
-## Follow-up blocker fixes
+### Concurrent retries share the original message outcome
 
-### 1. Steering signals are capability-gated during rolling deployments
+The agent server stores one in-flight delivery promise per `messageId`. A concurrent retry waits for the original request instead of returning `duplicate_delivery` before the result is known.
 
-The backend now exposes a versioned, read-only steering protocol query on every workflow that can receive a follow-up:
+Both callers observe the same success or failure. If the original fails before acceptance, the ID is released for a later retry.
 
-- `ProcessTaskWorkflow`
-- `TaskManagementWorkflow`
-- `ExecuteSandboxWorkflow`
+### Immediate resume keeps history and stream counts separate
 
-External senders query the target workflow before selecting the signal. A workflow that supports protocol version 1 receives `send_steer_message`. An old worker, an unsupported workflow, or a failed query receives the legacy `send_followup_message` signal instead, so the message remains deliverable as a normal queued follow-up.
+Cloud watchers keep inherited transcript history separate from the leaf run's `processedLineCount`. Buffered live updates compare against the leaf cursor and append without replacing the parent chain.
 
-The task-management parent also records the child workflow's protocol version when the sandbox workflow starts. It only sends the versioned child signal when that receiver advertised support. A Temporal patch preserves the exact signal choice of histories created before capability gating was added.
+## Final blocker fixes
 
-Regression coverage verifies supported receivers, old receivers, failed capability queries, and replay of histories that predate the new patch.
+### Capability queries have a bounded deadline
 
-### 2. Concurrent retries share the original message outcome
+Both external follow-up delivery and child workflow startup now query `steering_protocol_version` with a two-second RPC timeout.
 
-The agent server now stores one in-flight delivery promise per `messageId`. A concurrent retry with the same ID waits for the original request instead of returning `duplicate_delivery` early.
+A timeout, unavailable worker, or unsupported query is treated as protocol version 0:
 
-Both callers therefore observe the same success or failure. If the original fails, the ID is removed from completed delivery tracking and a later retry can deliver it normally.
+- External delivery immediately falls back to the durable legacy signal.
+- A successful Signal-With-Start remains successful even if the subsequent capability query fails.
 
-The regression rejects the original adapter request while a duplicate is waiting, verifies both requests receive the same failure, and verifies the adapter was invoked only once.
+Regression coverage verifies the explicit deadline and timeout fallback in both call paths.
 
-### 3. Immediate resume keeps history and stream counts separate
+### Resume-of-a-resume uses the correct transcript count
 
-Cloud-task watchers now retain the initial `resumeFromEntryCount` and pass it through every hydration path. When immediate resume starts with ancestor history already in the session, hydration no longer folds that history count into the leaf run's `processedLineCount`.
+PostHog Code now stores two independent counters:
 
-The watcher always computes the history-to-leaf offset after hydration, including when `resumeFromEntryCount` is defined. Buffered live updates are then compared against the leaf-local cursor and appended without replacing the complete parent chain.
+- `cloudTranscriptEntryCount`: the full inherited transcript count used to start the next resume.
+- `processedLineCount`: the current leaf's local cursor used for live reconciliation.
 
-The regression covers ancestor history, a defined resume count, leaf-only hydration, and a buffered live update that arrives before hydration completes.
+When B resumes into C, C receives B's full A+B transcript count and starts with a zero leaf cursor. Hydration and live updates keep both values current without converting one into the other.
+
+The regression covers A→B→C with a buffered C update and verifies the inherited A/B history, C hydration, and new live C event all remain present.
+
+### Teardown cannot reopen an executed message ID
+
+The agent server snapshots the accepted session before invoking the adapter and uses that session for post-turn log extraction and response handling.
+
+A message ID becomes committed immediately after a steer is accepted or a normal prompt resolves. Failures after that commit point do not remove it, even if concurrent teardown clears the active session. Only failures before acceptance release the ID for retry.
+
+The regression clears the active session after the adapter accepts the prompt, then verifies the original request succeeds and a retry returns `duplicate_delivery` without invoking the adapter again.
 
 ## Automated validation
 
-Latest follow-up validation:
+Latest validation:
 
-- Backend Temporal and client suite: 183 passed.
-- PostHog Code agent server suite: 113 passed.
-- PostHog Code session service UI suite: 139 passed.
-- Agent, core, and UI TypeScript package typechecks passed.
-- Ruff, Biome, Python compilation, and diff checks passed.
-- The PostHog Code commit hook reran Biome and the full workspace typecheck successfully.
+- Backend Temporal and client suite: 184 passed.
+- PostHog Code agent package: 77 files and 1,268 tests passed.
+- PostHog Code session service UI suite: 140 passed.
+- Shared, agent, core, and UI TypeScript package typechecks passed.
+- Ruff, Python compilation, and targeted Biome checks passed.
 
-Earlier hardening baseline:
-
-- Backend targeted post-merge tests: 138 passed.
-- PostHog Code agent package: 77 files and 1,266 tests passed.
-- PostHog Code UI package: 172 files and 1,519 tests passed.
-- API client package: 91 tests passed.
-- Full PostHog Code workspace typecheck: 23 tasks passed.
-- Four focused TypeScript package typechecks passed.
-- Ruff, Biome, Python compilation, OpenAPI generation, preflight, and diff checks passed.
-- The final PostHog Code commit hook reran Biome and the full workspace typecheck successfully.
+Earlier validation across the branch also covered OpenAPI generation, full package tests, workspace typechecks, and diff checks.
 
 ## Live cloud-run verification
 
-### Follow-up blocker E2E
+### A→B→C resume-of-a-resume regression
 
-- Task: `a4068ba3-315c-4d90-887f-bd1f0e0246bc`
-- Parent run: `8eb59301-ac7e-4787-9f18-6a10585f1881`
-- Resumed leaf run: `50dd734f-dc03-4ac5-8834-e247fac664c2`
+- Task: `a234c4bd-bea5-43c3-8cb5-83e197742978`
+- A run: `0894cd15-a916-4b53-822a-341e76e981bf`
+- B run: `9f7f982e-b3d7-43ab-b193-c181e6b47f48`
+- C run: `7a17077a-d56e-4e1b-80db-866fdd2e3439`
 
-Verified against a fresh capability-aware workflow and a fully restarted Electron main process:
-
-- A normal follow-up entered the active Claude turn.
-- A second message was delivered through the native steer path while that follow-up was running.
-- Temporal recorded the accepted steer and the run completed without an error or duplicate prompt.
-- The parent run was made terminal with `complete_task`, including snapshot creation.
-- Sending the next message created a real resumed leaf run.
-- Immediate resume retained the parent transcript, one `Restored sandbox` marker, and the new leaf response.
-- A cold renderer reload retained the same order and counts with no missing ancestry, leaf-only replacement, duplicate response, or stuck Thinking state.
-
-### Codex
-
-- Task: `849b13f1-4f27-4a48-9a19-c6effac42fe9`
-- Parent run: `db74f772-79ad-4f8b-8343-ea6ec157d020`
-- Resumed leaf run: `85a092ba-c16e-4375-a6ca-275116000a48`
+The run used a freshly restarted backend and Electron app with the current local checkouts.
 
 Verified:
+
+- A completed normally, then was made terminal in Temporal before B was sent.
+- B was a distinct resumed run, completed normally, and was made terminal before C was sent.
+- C was a second-generation resume and displayed the restored-sandbox boundary.
+- Before the final reload, C retained the full chain with `cloudTranscriptEntryCount=158` and a C-local `processedLineCount=39`.
+- After a cold renderer reload, the chain hydrated to 172 entries with a leaf-local cursor of 53.
+- The semantic transcript contained all A, B, and C prompts and responses, two restored-sandbox boundaries, ten conversation items, no pending prompt, and a complete final turn.
+- Database state confirmed all three distinct runs reached `completed`.
+
+### Earlier Codex and Claude steering coverage
+
+Live runs also verified:
 
 - Steering an active initial turn.
-- Steering while an active follow-up was running.
+- Steering while a follow-up was active.
 - Queue ordering for normal follow-ups.
-- Idle/turn-boundary fallback to normal delivery.
-- A real resume created from a completed parent run.
-- Parent and leaf transcript hydration after a complete Electron restart and cold reopen.
-- No stuck busy state, terminal error sentinel, missing ancestry, skipped leaf event, or duplicate hydrated response.
-
-### Claude
-
-- Task: `1331c8fb-dda0-4928-8285-2dfac185895d`
-
-Verified:
-
-- Steering during the initial turn.
-- Steering during an active follow-up.
-- The original turn remains open until the accepted steer is consumed.
-- Cold reopen restores the completed transcript without errors or premature `turn_complete` behavior.
+- Idle and turn-boundary fallback to normal delivery.
+- Claude keeps the original turn open until accepted steers are consumed.
+- Parent and leaf transcript hydration after Electron restart and cold reopen.
+- No terminal error sentinel, duplicate prompt, missing ancestry, skipped leaf event, or stuck Thinking state in the tested paths.
 
 ## Remaining non-blocking QA findings
 
-The merge-blocking work addressed findings 1 through 5 and finding 7. The following yellow or green recommendations remain separate follow-ups:
+The merge-blocking findings are addressed. The remaining recommendations are separate follow-ups:
 
-- Finding 6: reduce redundant full-chain reads and use stable entry identifiers for cheaper deduplication.
-- Finding 8: reconcile rapid optimistic steer messages using stable client message IDs.
-- Finding 9: restore failed cloud steers to the queue with an actionable error state.
-- Finding 10: enable per-message cloud steering in the queued-message dock.
-- Finding 11: negotiate an end-to-end cloud steering protocol version across every deployment layer.
-- Finding 12: carry a stable idempotency UUID from the command API through delivery.
-- Finding 13: replace repeated steer-priority list scans with separate queues or an index.
+- Reduce redundant full-chain reads and use stable entry identifiers for cheaper deduplication.
+- Reconcile rapid optimistic steer messages using stable client message IDs.
+- Restore failed cloud steers to the queue with an actionable error state.
+- Enable per-message cloud steering in the queued-message dock.
+- Negotiate an end-to-end protocol version across every deployment layer.
+- Carry a stable idempotency UUID from the command API through delivery.
+- Replace repeated steer-priority list scans with separate queues or an index.
 
 The QA security review found no new authorization, cross-task access, injection, secret exposure, or unsafe URL issue.
 
 ## Scope hygiene
 
-The pre-existing backend changes in `products/tasks/backend/logic/services/sandbox.py` and the untracked `tools/load-posthog-code-env.sh` were left unchanged. They were not included in the steering commits.
+The pre-existing backend changes in `products/tasks/backend/logic/services/sandbox.py` and the untracked `tools/load-posthog-code-env.sh` remain unchanged and are not part of the steering commits.

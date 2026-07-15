@@ -18,7 +18,11 @@ from products.tasks.backend.temporal.client import (
     resume_task_in_cloud_workflow,
     signal_task_followup_message,
 )
-from products.tasks.backend.temporal.constants import SEND_STEER_SIGNAL
+from products.tasks.backend.temporal.constants import (
+    SEND_STEER_SIGNAL,
+    STEERING_PROTOCOL_QUERY,
+    STEERING_PROTOCOL_QUERY_TIMEOUT,
+)
 
 
 class TestSignalTaskFollowupMessage(SimpleTestCase):
@@ -27,6 +31,7 @@ class TestSignalTaskFollowupMessage(SimpleTestCase):
             (False, None, "send_followup_message"),
             (True, 1, SEND_STEER_SIGNAL),
             (True, RuntimeError("query not registered"), "send_followup_message"),
+            (True, TimeoutError("query timed out"), "send_followup_message"),
         ]
     )
     def test_capability_gates_versioned_signal_without_changing_legacy_argument_count(
@@ -47,7 +52,10 @@ class TestSignalTaskFollowupMessage(SimpleTestCase):
 
         handle.signal.assert_awaited_once_with(expected_signal, args=["hello", ["artifact-1"]])
         if steer:
-            handle.query.assert_awaited_once()
+            handle.query.assert_awaited_once_with(
+                STEERING_PROTOCOL_QUERY,
+                rpc_timeout=STEERING_PROTOCOL_QUERY_TIMEOUT,
+            )
         else:
             handle.query.assert_not_awaited()
 

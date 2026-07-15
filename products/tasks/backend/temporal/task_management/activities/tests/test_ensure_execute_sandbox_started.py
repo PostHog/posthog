@@ -5,7 +5,11 @@ from django.conf import settings
 
 from temporalio.common import WorkflowIDReusePolicy
 
-from products.tasks.backend.temporal.constants import STEERING_PROTOCOL_QUERY, STEERING_PROTOCOL_VERSION
+from products.tasks.backend.temporal.constants import (
+    STEERING_PROTOCOL_QUERY,
+    STEERING_PROTOCOL_QUERY_TIMEOUT,
+    STEERING_PROTOCOL_VERSION,
+)
 from products.tasks.backend.temporal.execute_sandbox.workflow import PARENT_ATTACHED_SIGNAL, ExecuteSandboxInput
 from products.tasks.backend.temporal.task_management.activities.ensure_execute_sandbox_started import (
     EnsureExecuteSandboxStartedInput,
@@ -56,13 +60,20 @@ class TestEnsureExecuteSandboxStarted:
         # The bootstrap signal is what the orchestrator ACKs on to confirm the
         # child is alive — args are (ack_id, parent_workflow_id) in that order.
         assert kwargs["start_signal_args"] == ["ack-bootstrap", "parent-wf-id"]
-        handle.query.assert_awaited_once_with(STEERING_PROTOCOL_QUERY)
+        handle.query.assert_awaited_once_with(
+            STEERING_PROTOCOL_QUERY,
+            rpc_timeout=STEERING_PROTOCOL_QUERY_TIMEOUT,
+        )
         assert protocol_version == STEERING_PROTOCOL_VERSION
 
-    async def test_returns_legacy_protocol_when_query_is_not_registered(self, activity_environment):
+    @pytest.mark.parametrize(
+        "query_error",
+        [RuntimeError("query not registered"), TimeoutError("query timed out")],
+    )
+    async def test_returns_legacy_protocol_when_query_is_unavailable(self, activity_environment, query_error):
         client = AsyncMock()
         handle = AsyncMock()
-        handle.query.side_effect = RuntimeError("query not registered")
+        handle.query.side_effect = query_error
         client.start_workflow.return_value = handle
         input_data = EnsureExecuteSandboxStartedInput(
             workflow_id="sandbox-wf-id",
@@ -77,3 +88,7 @@ class TestEnsureExecuteSandboxStarted:
             protocol_version = await activity_environment.run(ensure_execute_sandbox_started, input_data)
 
         assert protocol_version == 0
+        handle.query.assert_awaited_once_with(
+            STEERING_PROTOCOL_QUERY,
+            rpc_timeout=STEERING_PROTOCOL_QUERY_TIMEOUT,
+        )
