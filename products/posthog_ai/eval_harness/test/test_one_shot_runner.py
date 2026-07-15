@@ -2,13 +2,19 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 
 from products.posthog_ai.eval_harness.config import BaseEvalCase
 from products.posthog_ai.eval_harness.engines.registry import resolve_engine
-from products.posthog_ai.eval_harness.engines.types import EvalSummary, ExperimentResult, ExperimentSpec, NullCaseHooks
+from products.posthog_ai.eval_harness.engines.types import (
+    EnvVarSpec,
+    EvalSummary,
+    ExperimentResult,
+    ExperimentSpec,
+    NullCaseHooks,
+)
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.one_shot import _OneShotEvalRun
 
@@ -30,9 +36,16 @@ class _StubReporter:
 
 
 class _StubEngine:
+    name: ClassVar[str] = "stub"
+    supports_public_experiments: ClassVar[bool] = False
+
     def __init__(self, result: ExperimentResult) -> None:
         self.result = result
         self.calls: list[ExperimentSpec] = []
+
+    @classmethod
+    def required_env(cls) -> tuple[EnvVarSpec, ...]:
+        return ()
 
     async def run_experiment(self, spec: ExperimentSpec) -> ExperimentResult:
         self.calls.append(spec)

@@ -204,10 +204,10 @@ class ProgressReporter:
             (f"  Cases: {statuses['ok']} done, {statuses['timeout']} timed out, {error_count} errors"),
             f"  Case time: {_format_duration(self._case_durations[experiment_name])}",
         ]
-        scores = [score for score in summary.scores.values() if score.score is not None]
+        scores = [(score.name, score.score) for score in summary.scores.values() if score.score is not None]
         if scores:
             lines.append("  Scores:")
-            lines.extend(f"    {score.name}: {score.score * 100:.1f}%" for score in scores)
+            lines.extend(f"    {name}: {score * 100:.1f}%" for name, score in scores)
         else:
             lines.append("  Scores: none")
 

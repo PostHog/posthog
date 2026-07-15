@@ -8,6 +8,7 @@ from django.conf import settings
 from django.contrib.staticfiles.handlers import ASGIStaticFilesHandler
 from django.db import connections
 from django.db.backends.base.base import BaseDatabaseWrapper
+from django.db.backends.sqlite3.creation import DatabaseCreation as SQLiteDatabaseCreation
 
 import uvicorn
 
@@ -47,7 +48,9 @@ class EvalLiveServer:
         # server thread. Postgres needs no override.
         connections_override: dict[str, BaseDatabaseWrapper] = {}
         for connection in connections.all():
-            if connection.vendor == "sqlite" and connection.is_in_memory_db():
+            if isinstance(connection.creation, SQLiteDatabaseCreation) and connection.creation.is_in_memory_db(
+                connection.settings_dict["NAME"]
+            ):
                 connections_override[connection.alias] = connection
 
         asgi_application = (
@@ -62,7 +65,10 @@ class EvalLiveServer:
 
         # Bind before starting the thread so port=0 is race-free and ``url`` can
         # immediately advertise the actual OS-assigned port.
-        self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        # Docker sandboxes connect through host.docker.internal, which cannot reach a loopback-only listener.
+        self._socket = socket.socket(  # nosemgrep: python.lang.security.audit.network.bind.avoid-bind-to-all-interfaces
+            socket.AF_INET, socket.SOCK_STREAM
+        )
         self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self._socket.bind(("0.0.0.0", port))
         self._socket.listen(2048)

@@ -9,7 +9,7 @@ import pytest
 
 import braintrust.framework as bt_framework
 from braintrust import Score
-from braintrust.framework import EvalResultWithSummary, Evaluator
+from braintrust.framework import EvalResult, Evaluator
 from braintrust.logger import ExperimentSummary, ScoreSummary
 from braintrust_core.score import Scorer
 
@@ -22,7 +22,7 @@ pytestmark = pytest.mark.parametrize("engine", ["braintrust"], indirect=True)
 
 
 def _none_safe_local_summary(
-    evaluator: Evaluator[Any, Any], results: Sequence[EvalResultWithSummary[Any, Any]]
+    evaluator: Evaluator[Any, Any], results: Sequence[EvalResult[Any, Any]]
 ) -> ExperimentSummary:
     """A None-aware replacement for braintrust's offline ``build_local_summary``.
 
@@ -53,7 +53,7 @@ def _none_safe_local_summary(
         project_name=evaluator.project_name,
         project_id=None,
         experiment_id=None,
-        experiment_name=evaluator.experiment_name,
+        experiment_name=evaluator.experiment_name or evaluator.project_name,
         project_url=None,
         experiment_url=None,
         comparison_experiment_name=None,

@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import argparse
 from dataclasses import dataclass
-from typing import get_args
+from typing import cast, get_args
 
 from .providers import DockerProviderStrategy, ModalProviderStrategy, SandboxProvider
 
@@ -164,7 +164,7 @@ def parse_args(argv: list[str] | None = None) -> HarnessOptions:
         )
         if is_set
     )
-    provider = args.provider or "docker"
+    provider = cast(SandboxProvider, args.provider or "docker")
     agent_runtime = args.agent_runtime or "claude"
 
     if args.max_sandboxes is not None and args.max_sandboxes < 1:

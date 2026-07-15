@@ -65,8 +65,8 @@ class _FakeSpan:
     def __enter__(self) -> _FakeSpan:
         return self
 
-    def __exit__(self, *exc: Any) -> bool:
-        return False
+    def __exit__(self, *exc: Any) -> None:
+        return None
 
 
 class _FakeSpanFactory:

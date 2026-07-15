@@ -79,7 +79,7 @@ class TestSandboxProviderGuard:
 
         sandbox_class = get_sandbox_class()
 
-        assert sandbox_class.DEFAULT_APP_NAME == "posthog-sandbox-evals"
+        assert getattr(sandbox_class, "DEFAULT_APP_NAME", None) == "posthog-sandbox-evals"
 
 
 @pytest.mark.skipif(is_ci() or not docker_available(), reason="Docker sandbox tests only run locally, not in CI")

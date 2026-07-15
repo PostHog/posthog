@@ -147,6 +147,8 @@ class NgrokTunnels:
 
     def _read_tunnel_urls(self) -> dict[str, str]:
         try:
+            # The fixed loopback HTTP origin prevents callers from selecting another urllib scheme.
+            # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
             with urlopen(f"http://127.0.0.1:{NGROK_WEB_PORT}/api/tunnels", timeout=2) as resp:
                 payload = json.loads(resp.read().decode("utf-8"))
         except (URLError, OSError, json.JSONDecodeError):

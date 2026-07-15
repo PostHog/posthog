@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Any
+from typing import Any, ClassVar
 
 from braintrust import EvalAsync, EvalCase, EvalHooks
 from braintrust.framework import EvalResultWithSummary, Evaluator, ReporterDef
@@ -74,8 +74,8 @@ class BraintrustEngine:
       lines up across runs; updating keeps that history rather than forking it.
     """
 
-    name = "braintrust"
-    supports_public_experiments = True
+    name: ClassVar[str] = "braintrust"
+    supports_public_experiments: ClassVar[bool] = True
 
     @classmethod
     def required_env(cls) -> tuple[EnvVarSpec, ...]:
