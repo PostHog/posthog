@@ -176,7 +176,7 @@ export function StamphogScene(): JSX.Element {
             <SceneTitleSection
                 name="Stamphog"
                 description="Automated pull request reviews and merged-PR digests, per repository."
-                resourceType={{ type: 'task' }}
+                resourceType={{ type: 'stamphog' }}
                 actions={<ConnectRepositoryButton />}
             />
             <SyncedBanner />
