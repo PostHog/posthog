@@ -108,7 +108,7 @@ class TestValidateCredentials:
     )
     @mock.patch(_TRANSPORT)
     def test_status_mapping(self, mock_session, status_code, expected_ok):
-        body = {"items": [], "next_cursor": None} if status_code == 200 else {"message": "nope"}
+        body: dict[str, Any] = {"items": [], "next_cursor": None} if status_code == 200 else {"message": "nope"}
         mock_session.return_value.get.return_value = _response(body, status_code=status_code)
         ok, error = validate_credentials("key", "us", None)
         assert ok is expected_ok
