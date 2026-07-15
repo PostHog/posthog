@@ -398,6 +398,8 @@ class TestRevenueCatWebhookTableTransformer:
                         "takehome_percentage": 1,
                         "tax_percentage": 0,
                         "commission_percentage": 0,
+                        "discount_percentage": 10,
+                        "discount_amount": 0,
                         "renewal_number": 1,
                         "event_timestamp_ms": 1658726374000,
                     },
@@ -417,6 +419,8 @@ class TestRevenueCatWebhookTableTransformer:
             "takehome_percentage",
             "tax_percentage",
             "commission_percentage",
+            "discount_percentage",
+            "discount_amount",
         ):
             assert result.schema.field(field).type == pa.float64(), field
         # Only the documented double fields are coerced — integer fields stay integers.

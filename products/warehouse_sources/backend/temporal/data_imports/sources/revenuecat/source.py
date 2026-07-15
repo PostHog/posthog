@@ -69,6 +69,8 @@ _EVENT_DOUBLE_FIELDS = (
     "takehome_percentage",
     "tax_percentage",
     "commission_percentage",
+    "discount_percentage",
+    "discount_amount",
 )
 
 
