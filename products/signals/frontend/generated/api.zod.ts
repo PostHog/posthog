@@ -302,6 +302,12 @@ export const signalsScoutEditReportBodySuggestedReviewersItemGithubLoginMax = 20
 
 export const signalsScoutEditReportBodySuggestedReviewersMax = 10
 
+export const signalsScoutEditReportBodyTagsItemMax = 50
+
+export const signalsScoutEditReportBodyTagsMax = 10
+
+export const signalsScoutEditReportBodyMetadataMaxOne = 1000
+
 export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
     .object({
         report_id: zod.string().describe('Id of the report to edit (must belong to this project).'),
@@ -349,6 +355,19 @@ export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
             .describe(
                 'Optional reviewers to set on the report (each a `github_login` and\/or `user_uuid`), replacing any existing list. Use this to route a report that surfaced with no reviewer — it re-runs autostart, so a report that was missing a qualifying reviewer can now open a draft PR. An empty list is a no-op (existing reviewers are left untouched, never cleared).'
             ),
+        tags: zod
+            .array(zod.string().max(signalsScoutEditReportBodyTagsItemMax))
+            .max(signalsScoutEditReportBodyTagsMax)
+            .optional()
+            .describe(
+                "Optional category slugs for this action (lowercase kebab-case, e.g. `cost-spike`, `self-improvement`) — the same tag vocabulary you maintain for signal findings, extended to the report channel. Recorded on the run's per-action bookkeeping (never shown on the report itself); near-miss formats are normalized to slugs."
+            ),
+        metadata: zod
+            .record(zod.string(), zod.string().max(signalsScoutEditReportBodyMetadataMaxOne))
+            .optional()
+            .describe(
+                'Optional flat string-valued annotations for this action (e.g. `{\"kind\": \"self-improvement\"}`), recorded alongside `tags` on the run\'s per-action bookkeeping — never shown on the report. At most 20 entries; keys up to 100 chars, values up to 1000. Your skill body may name specific keys to set; otherwise omit it.'
+            ),
     })
     .describe(
         "Request body for `edit-report`. Can target ANY of the team's inbox reports, not just scout-authored ones."
@@ -366,6 +385,12 @@ export const signalsScoutEmitReportBodyAlreadyAddressedDefault = false
 export const signalsScoutEmitReportBodySuggestedReviewersItemGithubLoginMax = 200
 
 export const signalsScoutEmitReportBodySuggestedReviewersMax = 10
+
+export const signalsScoutEmitReportBodyTagsItemMax = 50
+
+export const signalsScoutEmitReportBodyTagsMax = 10
+
+export const signalsScoutEmitReportBodyMetadataMaxOne = 1000
 
 export const SignalsScoutEmitReportBody = /* @__PURE__ */ zod
     .object({
@@ -466,6 +491,19 @@ export const SignalsScoutEmitReportBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "Optional reviewers to route the report to (each a `github_login` and\/or `user_uuid`). This is the primary way a report reaches a human — the inbox floats a reviewer's own reports to the top of their inbox even when no PR is involved — so set it whenever you can name a plausible owner. It also gates autostart: a PR opens only if at least one reviewer clears their autonomy threshold."
+            ),
+        tags: zod
+            .array(zod.string().max(signalsScoutEmitReportBodyTagsItemMax))
+            .max(signalsScoutEmitReportBodyTagsMax)
+            .optional()
+            .describe(
+                "Optional category slugs for this action (lowercase kebab-case, e.g. `cost-spike`, `self-improvement`) — the same tag vocabulary you maintain for signal findings, extended to the report channel. Recorded on the run's per-action bookkeeping (never shown on the report itself); near-miss formats are normalized to slugs."
+            ),
+        metadata: zod
+            .record(zod.string(), zod.string().max(signalsScoutEmitReportBodyMetadataMaxOne))
+            .optional()
+            .describe(
+                'Optional flat string-valued annotations for this action (e.g. `{\"kind\": \"self-improvement\"}`), recorded alongside `tags` on the run\'s per-action bookkeeping — never shown on the report. At most 20 entries; keys up to 100 chars, values up to 1000. Your skill body may name specific keys to set; otherwise omit it.'
             ),
     })
     .describe('Request body for `emit-report`. Run attribution is taken from the URL path.')

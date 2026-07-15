@@ -250,6 +250,9 @@ class TestPromptBuilder(BaseTest):
         # for a report scout — it doesn't fire `emit_signal`.
         assert "scout-emit-signal" not in prompt
         assert "Tagging your findings" not in prompt
+        # The report channel gets its own tagging section instead — dropping it kills the tag
+        # vocabulary loop on report actions (the warehouse measurement surface).
+        assert "Tagging your report actions" in prompt
         # Shared scaffolding is still present on both personas.
         assert "First: read your skill" in prompt
         assert "Report operational friction" in prompt

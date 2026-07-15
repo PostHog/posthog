@@ -255,8 +255,13 @@ one sandbox session → zero or more emitted signals.
   Both report-channel actions are tracked on the run as queryable columns: `emit_report` appends to
   `SignalScoutRun.emitted_report_ids` (via `_record_report_emit`), and `edit_report` appends — deduped —
   to `edited_report_ids` (via `record_report_edit`), so "which reports did this run author vs. edit?"
-  is a column lookup, not an event-stream or artefact-log join. Both writes are best-effort and
-  post-commit (an edit/emit never fails because its tally write did).
+  is a column lookup, not an event-stream or artefact-log join.
+  The per-action detail those tallies drop lives in `SignalScoutReportAction` (via `record_report_action`):
+  one row per emit (`created`) and per edit sub-action (`title_edited` / `summary_edited` / `note_appended` / `reviewers_set`),
+  carrying the scout-supplied `tags` (normalized via the shared `normalize_tags`) and flat string-valued `metadata`
+  from the optional tool params — the report-channel counterpart to `SignalScoutEmission`,
+  and the warehouse measurement surface for scout report activity.
+  All these writes are best-effort and post-commit (an edit/emit never fails because its bookkeeping did).
 - **If you add or rename a workflow/activity in `temporal/agentic/`, update
   `posthog/temporal/tests/ai/test_module_integrity.py` (`TestSignalsProductModuleIntegrity`)
   to match.**

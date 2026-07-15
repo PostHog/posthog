@@ -70,6 +70,9 @@ A run with both columns empty closed out empty — expected and correct most of 
 
 Each authored report's backing evidence persists as signal rows tagged `source_product="signals_scout"`, so `inbox-reports-list { "source_product": "signals_scout" }` is the direct way to list the reports the fleet has surfaced.
 
+Behind the id tallies, each emit/edit also writes a per-action bookkeeping row (`SignalScoutReportAction`: the action kind — `created` / `title_edited` / `summary_edited` / `note_appended` / `reviewers_set` — plus the scout-supplied `tags` and `metadata` from the call).
+There is no MCP read surface for these rows yet; they exist for warehouse-side measurement of scout report activity, so don't go looking for a tool that lists them.
+
 ### Legacy: run → finding link (deprecated signal channel)
 
 Runs from scouts still on the legacy signal channel (no `allowed_tools` opt-in — old custom scouts, or a canonical scout not yet ported) emit weak findings instead: `emitted_count` is that tally and `emitted_finding_ids` lists the `finding_id`s behind it.

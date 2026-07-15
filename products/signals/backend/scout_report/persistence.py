@@ -43,7 +43,13 @@ from products.signals.backend.artefact_schemas import (
     SafetyJudgment,
     SuggestedReviewers,
 )
-from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalScoutRun
+from products.signals.backend.models import (
+    ArtefactAttribution,
+    SignalReport,
+    SignalReportArtefact,
+    SignalScoutReportAction,
+    SignalScoutRun,
+)
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.scout_harness.tools.emit import SCOUT_SIGNAL_WEIGHT, SOURCE_PRODUCT, SOURCE_TYPE
 
@@ -59,6 +65,13 @@ _EMBEDDING_RENDERING = "plain"
 # Defensive cap: a single authored report shouldn't carry an unbounded evidence list. The agent groups
 # its own observations; this is a harness circuit breaker, mirroring `MAX_EVIDENCE_ENTRIES` on emit.
 MAX_REPORT_SIGNALS = 50
+
+# Caps on the scout-supplied `metadata` dict persisted on a `SignalScoutReportAction` row. The dict is
+# the open-ended annotation surface (a skill body can instruct new keys without a schema change), so
+# the harness bounds its shape — flat, string-valued, small — rather than its vocabulary.
+MAX_ACTION_METADATA_ENTRIES = 20
+MAX_ACTION_METADATA_KEY_LENGTH = 100
+MAX_ACTION_METADATA_VALUE_LENGTH = 1000
 
 
 class InvalidScoutReportError(ValueError):
@@ -95,6 +108,31 @@ class PersistedScoutReport:
     signal_document_ids: list[str]
 
 
+def validate_action_metadata(metadata: dict | None) -> dict[str, str] | None:
+    """Validate the scout-supplied per-action `metadata` dict: flat, string-keyed, string-valued,
+    within the `MAX_ACTION_METADATA_*` caps. Returns None for None/empty input so callers can omit
+    the field entirely; raises `InvalidScoutReportError` on a bad shape — silently dropping an entry
+    would make the scout believe an annotation stuck when it didn't (mirrors `normalize_tags`)."""
+    if not metadata:
+        return None
+    if not isinstance(metadata, dict):
+        raise InvalidScoutReportError("metadata must be an object of string values")
+    if len(metadata) > MAX_ACTION_METADATA_ENTRIES:
+        raise InvalidScoutReportError(f"metadata has {len(metadata)} entries, max is {MAX_ACTION_METADATA_ENTRIES}")
+    for key, value in metadata.items():
+        if not isinstance(key, str) or not key.strip():
+            raise InvalidScoutReportError(f"metadata keys must be non-empty strings, got {key!r}")
+        if len(key) > MAX_ACTION_METADATA_KEY_LENGTH:
+            raise InvalidScoutReportError(f"metadata key {key!r} exceeds {MAX_ACTION_METADATA_KEY_LENGTH} chars")
+        if not isinstance(value, str):
+            raise InvalidScoutReportError(f"metadata values must be strings, got {value!r} for key {key!r}")
+        if len(value) > MAX_ACTION_METADATA_VALUE_LENGTH:
+            raise InvalidScoutReportError(
+                f"metadata value for key {key!r} exceeds {MAX_ACTION_METADATA_VALUE_LENGTH} chars"
+            )
+    return dict(metadata)
+
+
 def create_scout_report(
     *,
     team_id: int,
@@ -110,6 +148,8 @@ def create_scout_report(
     suggested_reviewers: SuggestedReviewers | None = None,
     emit_signals: bool = True,
     run: SignalScoutRun | None = None,
+    tags: list[str] | None = None,
+    metadata: dict[str, str] | None = None,
 ) -> PersistedScoutReport:
     """Author a `SignalReport` directly plus its backing signal rows, in one report-owning transaction.
 
@@ -216,6 +256,14 @@ def create_scout_report(
 
     if run is not None:
         _record_report_emit(team_id=team_id, run_id=run.id, report_id=report_id)
+        record_report_action(
+            team_id=team_id,
+            run_id=run.id,
+            report_id=report_id,
+            action=SignalScoutReportAction.Action.CREATED,
+            tags=tags,
+            metadata=metadata,
+        )
 
     logger.info(
         "signals_scout.emit_report: created",
@@ -494,6 +542,38 @@ def record_report_edit(*, team_id: int, run_id: uuid.UUID, report_id: str) -> No
             run.save(update_fields=["edited_report_ids"])
     except Exception:
         logger.exception("signals_scout.edit_report: failed to record report edit for run %s", run_id)
+
+
+def record_report_action(
+    *,
+    team_id: int,
+    run_id: uuid.UUID,
+    report_id: str,
+    action: SignalScoutReportAction.Action,
+    tags: list[str] | None = None,
+    metadata: dict[str, str] | None = None,
+) -> None:
+    """Insert one `SignalScoutReportAction` row — the per-action detail behind the run's id-tallies
+    (which report, what kind of action, plus the scout-supplied `tags` / `metadata`). Called once per
+    `emit_report` (a `created` row, from `create_scout_report`) and once per sub-action an
+    `edit_report` call applied (from the tool layer, next to `record_report_edit`). Best-effort and
+    observability only, like the tallies: the emit/edit has already committed by the time this runs,
+    so a failure here is swallowed rather than surfaced as a false failure. Inputs are validated at
+    the tool boundary (`normalize_tags` / `validate_action_metadata`); this helper persists verbatim.
+    """
+    try:
+        SignalScoutReportAction.all_teams.create(
+            team_id=team_id,
+            scout_run_id=run_id,
+            report_id=report_id,
+            action=action,
+            tags=tags or [],
+            metadata=metadata or {},
+        )
+    except Exception:
+        logger.exception(
+            "signals_scout: failed to record report action %s for run %s (report %s)", action, run_id, report_id
+        )
 
 
 def _provenance_note_text(run: SignalScoutRun | None) -> str:

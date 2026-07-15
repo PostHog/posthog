@@ -43,16 +43,18 @@ from products.signals.backend.artefact_schemas import (
     SuggestedReviewerEntry,
     SuggestedReviewers,
 )
-from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalScoutRun
+from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalScoutReportAction, SignalScoutRun
 from products.signals.backend.report_generation.resolve_reviewers import get_org_member_github_logins_by_user_uuid
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.scout_harness.prompt import SELF_IMPROVEMENT_REPORT_TITLE_PREFIX
 from products.signals.backend.scout_harness.tools.emit import (
     SCOUT_SIGNAL_WEIGHT,
+    InvalidEmitError,
     # Shared harness gates/attribution — the report channel applies the same preflight as emit.
     _assert_team_owns_run,
     _preflight_emit_gates,
     _resolve_task_id,
+    normalize_tags,
     remediation_for_skip,
 )
 from products.signals.backend.scout_report import (
@@ -62,9 +64,11 @@ from products.signals.backend.scout_report import (
     append_report_note,
     create_scout_report,
     get_scout_report_title,
+    record_report_action,
     record_report_edit,
     set_scout_report_reviewers,
     update_scout_report,
+    validate_action_metadata,
 )
 from products.signals.backend.scout_report.judge import ScoutReportJudgement, judge_scout_report
 
@@ -193,6 +197,16 @@ def _normalize_repository(repository: str | None) -> str | None:
     if len(parts) != 2 or not parts[0] or not parts[1]:
         raise InvalidScoutReportError("repository must be in 'owner/repo' format (or the NO_REPO sentinel)")
     return normalized
+
+
+def _normalize_report_tags(tags: list[str] | None) -> list[str] | None:
+    """Report-channel wrapper around the shared `normalize_tags`: same slug normalization and caps,
+    but raising `InvalidScoutReportError` — the exception type the report views translate to a 400
+    (`InvalidEmitError` would surface as a 500 on this channel)."""
+    try:
+        return normalize_tags(tags)
+    except InvalidEmitError as exc:
+        raise InvalidScoutReportError(str(exc))
 
 
 def _gate_skip_result(preflight: str) -> EmitReportResult:
@@ -549,6 +563,7 @@ def _capture_report_emitted(
     already_addressed: bool,
     priority: str | None,
     repository: str | None,
+    tags: list[str] | None = None,
 ) -> _ReportForward | None:
     """Emit the scout-owned `signals_scout_report_emitted` event — the report-channel counterpart to
     `signals_scout_run_finished`, fired once per `emit_report` call that reached a terminal outcome.
@@ -588,6 +603,7 @@ def _capture_report_emitted(
         "already_addressed": already_addressed,
         "priority": priority,
         "repository": repository,
+        "tags": tags or [],
         "safety_explanation": _clip(result.safety_explanation, _MAX_TELEMETRY_TEXT_LEN),
         "report_url": _report_url(team.id, result.report_id),
     }
@@ -622,6 +638,7 @@ def _capture_report_edited(
     summary: str | None,
     note: str | None,
     suggested_reviewers: list[ReviewerInput] | None = None,
+    tags: list[str] | None = None,
 ) -> _ReportForward:
     """Emit the scout-owned `signals_scout_report_edited` event when a scout mutates an existing report via
     `edit_report`, so edits are observable separately from fresh authorship. `updated_fields` /
@@ -642,6 +659,7 @@ def _capture_report_edited(
         "title": _clip(title, MAX_REPORT_TITLE_LENGTH),
         "summary": _clip(summary, _MAX_TELEMETRY_SUMMARY_LEN),
         "note": _clip(note, _MAX_TELEMETRY_TEXT_LEN),
+        "tags": tags or [],
         "report_url": _report_url(team.id, result.report_id),
     }
     try:
@@ -687,18 +705,25 @@ async def emit_report(
     priority: str | None = None,
     priority_explanation: str | None = None,
     suggested_reviewers: list[ReviewerInput] | None = None,
+    tags: list[str] | None = None,
+    metadata: dict[str, str] | None = None,
 ) -> EmitReportResult:
     """Author a full report: judge for safety, then persist at the judged status. Async entry (used by
     the in-Temporal runner); routes the sync DB work through `database_sync_to_async`.
 
     `repository` / `priority` / `priority_explanation` / `suggested_reviewers` are the optional
     autostart inputs (custom_agent parity): with them a surfaced, immediately-actionable report can
-    open a draft PR. They're only resolved/written when the report actually surfaces."""
+    open a draft PR. They're only resolved/written when the report actually surfaces.
+
+    `tags` / `metadata` are the scout's categorization of the report (slug tags + a flat string dict),
+    persisted on the run's `SignalScoutReportAction` bookkeeping row — never on the report itself."""
     _assert_team_owns_run(team, run)
     _validate_emit_inputs(title, summary, evidence)
     # Validate the explicit repository format up front (cheap, pure) so a malformed `owner/repo` fails
     # before the safety-judge LLM call rather than after. Free-form selection still runs only if surfaced.
     _normalize_repository(repository)
+    tags = _normalize_report_tags(tags)
+    metadata = validate_action_metadata(metadata)
     signals = _build_signals(evidence)
     actionability_assessment = _build_actionability(
         explanation=actionability_explanation, choice=actionability, already_addressed=already_addressed
@@ -724,6 +749,7 @@ async def emit_report(
             already_addressed=already_addressed,
             priority=priority,
             repository=repository,
+            tags=tags,
         )
         await _forward_report_event_async(team, forward)
         return result
@@ -757,6 +783,8 @@ async def emit_report(
         # otherwise become semantic-search / matching context despite never surfacing.
         emit_signals=judgement.safety.choice,
         run=run,
+        tags=tags,
+        metadata=metadata,
     )
     if surfaced:
         await _maybe_autostart_report(team_id=team.id, report_id=persisted.report_id)
@@ -772,6 +800,7 @@ async def emit_report(
         already_addressed=already_addressed,
         priority=priority,
         repository=repository,
+        tags=tags,
     )
     await _forward_report_event_async(team, forward)
     return result
@@ -791,6 +820,8 @@ def emit_report_sync(
     priority: str | None = None,
     priority_explanation: str | None = None,
     suggested_reviewers: list[ReviewerInput] | None = None,
+    tags: list[str] | None = None,
+    metadata: dict[str, str] | None = None,
 ) -> EmitReportResult:
     """Sync entry used by the DRF view path. Mirrors `emit_report` but keeps the sync DB work on the
     calling thread/connection (gates, persist) — only the safety-judge LLM call, the free-form repo
@@ -802,6 +833,8 @@ def emit_report_sync(
     # Validate the explicit repository format up front (cheap, pure) so a malformed `owner/repo` fails
     # before the safety-judge LLM call rather than after. Free-form selection still runs only if surfaced.
     _normalize_repository(repository)
+    tags = _normalize_report_tags(tags)
+    metadata = validate_action_metadata(metadata)
     signals = _build_signals(evidence)
     actionability_assessment = _build_actionability(
         explanation=actionability_explanation, choice=actionability, already_addressed=already_addressed
@@ -823,6 +856,7 @@ def emit_report_sync(
             already_addressed=already_addressed,
             priority=priority,
             repository=repository,
+            tags=tags,
         )
         if forward is not None:
             _forward_report_event_to_team(team=team, forward=forward)
@@ -857,6 +891,8 @@ def emit_report_sync(
         # otherwise become semantic-search / matching context despite never surfacing.
         emit_signals=judgement.safety.choice,
         run=run,
+        tags=tags,
+        metadata=metadata,
     )
     if surfaced:
         async_to_sync(_maybe_autostart_report)(team_id=team.id, report_id=persisted.report_id)
@@ -872,10 +908,28 @@ def emit_report_sync(
         already_addressed=already_addressed,
         priority=priority,
         repository=repository,
+        tags=tags,
     )
     if forward is not None:
         _forward_report_event_to_team(team=team, forward=forward)
     return result
+
+
+def _edit_actions(
+    updated_fields: list[str], note_appended: bool, reviewers_set: bool
+) -> list[SignalScoutReportAction.Action]:
+    """Map one `edit_report` call's outcome to the `SignalScoutReportAction` rows it should record —
+    one per sub-action actually applied ("updated_at" in `updated_fields` is bookkeeping, not an edit)."""
+    actions: list[SignalScoutReportAction.Action] = []
+    if "title" in updated_fields:
+        actions.append(SignalScoutReportAction.Action.TITLE_EDITED)
+    if "summary" in updated_fields:
+        actions.append(SignalScoutReportAction.Action.SUMMARY_EDITED)
+    if note_appended:
+        actions.append(SignalScoutReportAction.Action.NOTE_APPENDED)
+    if reviewers_set:
+        actions.append(SignalScoutReportAction.Action.REVIEWERS_SET)
+    return actions
 
 
 def _do_edit_report(
@@ -887,6 +941,8 @@ def _do_edit_report(
     summary: str | None,
     append_note: str | None,
     suggested_reviewers: list[ReviewerInput] | None,
+    tags: list[str] | None = None,
+    metadata: dict[str, str] | None = None,
 ) -> EditReportResult:
     """Fully-sync edit core (no LLM step). The async/sync entrypoints both funnel here — directly in
     the sync path, via `database_sync_to_async` in the async path. Reviewer resolution does a DB read
@@ -970,9 +1026,20 @@ def _do_edit_report(
         report_title=report_title,
     )
     # Record the edit on the run tally only when something actually changed — a no-op edit (e.g. a
-    # title rewrite to its current value) must not claim the run touched the report.
+    # title rewrite to its current value) must not claim the run touched the report. The per-action
+    # bookkeeping rows follow the same condition, one per sub-action applied, each carrying the
+    # call's scout-supplied `tags` / `metadata` so every row is self-contained on the warehouse side.
     if updated_fields or note_appended or reviewers_set:
         record_report_edit(team_id=team.id, run_id=run.id, report_id=report_id)
+        for action in _edit_actions(updated_fields, note_appended, reviewers_set):
+            record_report_action(
+                team_id=team.id,
+                run_id=run.id,
+                report_id=report_id,
+                action=action,
+                tags=tags,
+                metadata=metadata,
+            )
     return result
 
 
@@ -993,11 +1060,18 @@ async def edit_report(
     summary: str | None = None,
     append_note: str | None = None,
     suggested_reviewers: list[ReviewerInput] | None = None,
+    tags: list[str] | None = None,
+    metadata: dict[str, str] | None = None,
 ) -> EditReportResult:
     """Edit an existing inbox report: rewrite title/summary, append a note, and/or set suggested
     reviewers (which re-runs autostart so a report missing a qualifying reviewer can open a draft PR).
-    Team-scoped fail-closed in the service. Async entry; runs the sync edit core in the thread pool."""
+    Team-scoped fail-closed in the service. Async entry; runs the sync edit core in the thread pool.
+
+    `tags` / `metadata` categorize the edit on the run's `SignalScoutReportAction` bookkeeping rows —
+    they never touch the report itself."""
     _validate_edit_inputs(team, run, title, summary, append_note, suggested_reviewers)
+    tags = _normalize_report_tags(tags)
+    metadata = validate_action_metadata(metadata)
     result = await database_sync_to_async(_do_edit_report, thread_sensitive=False)(
         team=team,
         run=run,
@@ -1006,6 +1080,8 @@ async def edit_report(
         summary=summary,
         append_note=append_note,
         suggested_reviewers=suggested_reviewers,
+        tags=tags,
+        metadata=metadata,
     )
     forward = await database_sync_to_async(_capture_report_edited, thread_sensitive=False)(
         team=team,
@@ -1015,6 +1091,7 @@ async def edit_report(
         summary=summary,
         note=append_note,
         suggested_reviewers=suggested_reviewers,
+        tags=tags,
     )
     await _forward_report_event_async(team, forward)
     return result
@@ -1029,9 +1106,13 @@ def edit_report_sync(
     summary: str | None = None,
     append_note: str | None = None,
     suggested_reviewers: list[ReviewerInput] | None = None,
+    tags: list[str] | None = None,
+    metadata: dict[str, str] | None = None,
 ) -> EditReportResult:
     """Sync entry used by the DRF view path. Same behavior as `edit_report`, on the calling thread."""
     _validate_edit_inputs(team, run, title, summary, append_note, suggested_reviewers)
+    tags = _normalize_report_tags(tags)
+    metadata = validate_action_metadata(metadata)
     result = _do_edit_report(
         team=team,
         run=run,
@@ -1040,6 +1121,8 @@ def edit_report_sync(
         summary=summary,
         append_note=append_note,
         suggested_reviewers=suggested_reviewers,
+        tags=tags,
+        metadata=metadata,
     )
     forward = _capture_report_edited(
         team=team,
@@ -1049,6 +1132,7 @@ def edit_report_sync(
         summary=summary,
         note=append_note,
         suggested_reviewers=suggested_reviewers,
+        tags=tags,
     )
     _forward_report_event_to_team(team=team, forward=forward)
     return result

@@ -7,6 +7,9 @@ code never touches `SignalReport` or the embeddings pipeline directly.
 """
 
 from products.signals.backend.scout_report.persistence import (
+    MAX_ACTION_METADATA_ENTRIES,
+    MAX_ACTION_METADATA_KEY_LENGTH,
+    MAX_ACTION_METADATA_VALUE_LENGTH,
     MAX_REPORT_SIGNALS,
     InvalidScoutReportError,
     PersistedScoutReport,
@@ -14,13 +17,18 @@ from products.signals.backend.scout_report.persistence import (
     append_report_note,
     create_scout_report,
     get_scout_report_title,
+    record_report_action,
     record_report_edit,
     set_scout_report_reviewers,
     soft_delete_scout_signal,
     update_scout_report,
+    validate_action_metadata,
 )
 
 __all__ = [
+    "MAX_ACTION_METADATA_ENTRIES",
+    "MAX_ACTION_METADATA_KEY_LENGTH",
+    "MAX_ACTION_METADATA_VALUE_LENGTH",
     "MAX_REPORT_SIGNALS",
     "InvalidScoutReportError",
     "PersistedScoutReport",
@@ -28,8 +36,10 @@ __all__ = [
     "append_report_note",
     "create_scout_report",
     "get_scout_report_title",
+    "record_report_action",
     "record_report_edit",
     "set_scout_report_reviewers",
     "soft_delete_scout_signal",
     "update_scout_report",
+    "validate_action_metadata",
 ]

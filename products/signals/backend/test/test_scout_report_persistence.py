@@ -27,6 +27,7 @@ from products.signals.backend.scout_report import (
     create_scout_report,
     soft_delete_scout_signal,
     update_scout_report,
+    validate_action_metadata,
 )
 from products.signals.backend.scout_report.judge import resolve_authored_report_status
 
@@ -279,3 +280,30 @@ class TestScoutReportPersistence(BaseTest):
                 source_id="obs-x",
             )
         self.emit_mock.assert_not_called()
+
+
+class TestValidateActionMetadata:
+    # Pure-function tests, deliberately not on a Django TestCase — no DB, no fixtures.
+    def test_valid_metadata_passes_through_and_empty_is_none(self) -> None:
+        assert validate_action_metadata({"kind": "self-improvement", "note": ""}) == {
+            "kind": "self-improvement",
+            "note": "",
+        }
+        assert validate_action_metadata(None) is None
+        assert validate_action_metadata({}) is None
+
+    @pytest.mark.parametrize(
+        "metadata",
+        [
+            pytest.param(["kind"], id="not_a_dict"),
+            pytest.param({f"k{i}": "v" for i in range(21)}, id="too_many_entries"),
+            pytest.param({" ": "v"}, id="empty_key"),
+            pytest.param({1: "v"}, id="non_string_key"),
+            pytest.param({"k" * 101: "v"}, id="overlong_key"),
+            pytest.param({"count": 3}, id="non_string_value"),
+            pytest.param({"k": "v" * 1001}, id="overlong_value"),
+        ],
+    )
+    def test_rejects_bad_shapes(self, metadata) -> None:
+        with pytest.raises(InvalidScoutReportError):
+            validate_action_metadata(metadata)

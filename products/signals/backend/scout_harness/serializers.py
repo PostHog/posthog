@@ -23,6 +23,11 @@ from products.signals.backend.scout_harness.tools.emit import (
 from products.signals.backend.scout_harness.tools.report import MAX_REPORT_TITLE_LENGTH, MAX_SUGGESTED_REVIEWERS
 from products.signals.backend.scout_harness.tools.runs import DEFAULT_FINDINGS_WINDOW_HOURS, MAX_FINDINGS_WINDOW_HOURS
 from products.signals.backend.scout_harness.tools.scratchpad import MAX_SCRATCHPAD_CONTENT_LENGTH
+from products.signals.backend.scout_report import (
+    MAX_ACTION_METADATA_ENTRIES,
+    MAX_ACTION_METADATA_KEY_LENGTH,
+    MAX_ACTION_METADATA_VALUE_LENGTH,
+)
 
 # --- Run history -----------------------------------------------------------
 
@@ -632,6 +637,36 @@ class SuggestedReviewerSerializer(serializers.Serializer):
         return attrs
 
 
+def _report_tags_field() -> serializers.ListField:
+    """Shared `tags` field for the report-channel request serializers (emit + edit take the same shape)."""
+    return serializers.ListField(
+        required=False,
+        child=serializers.CharField(max_length=MAX_TAG_LENGTH),
+        max_length=MAX_TAGS_PER_FINDING,
+        help_text=(
+            "Optional category slugs for this action (lowercase kebab-case, e.g. `cost-spike`, "
+            "`self-improvement`) — the same tag vocabulary you maintain for signal findings, extended "
+            "to the report channel. Recorded on the run's per-action bookkeeping (never shown on the "
+            "report itself); near-miss formats are normalized to slugs."
+        ),
+    )
+
+
+def _report_metadata_field() -> serializers.DictField:
+    """Shared `metadata` field for the report-channel request serializers."""
+    return serializers.DictField(
+        required=False,
+        child=serializers.CharField(max_length=MAX_ACTION_METADATA_VALUE_LENGTH, allow_blank=True),
+        help_text=(
+            'Optional flat string-valued annotations for this action (e.g. `{"kind": "self-improvement"}`), '
+            f"recorded alongside `tags` on the run's per-action bookkeeping — never shown on the report. "
+            f"At most {MAX_ACTION_METADATA_ENTRIES} entries; keys up to {MAX_ACTION_METADATA_KEY_LENGTH} chars, "
+            f"values up to {MAX_ACTION_METADATA_VALUE_LENGTH}. Your skill body may name specific keys to set; "
+            "otherwise omit it."
+        ),
+    )
+
+
 class EmitReportRequestSerializer(serializers.Serializer):
     """Request body for `emit-report`. Run attribution is taken from the URL path."""
 
@@ -704,6 +739,8 @@ class EmitReportRequestSerializer(serializers.Serializer):
             "It also gates autostart: a PR opens only if at least one reviewer clears their autonomy threshold."
         ),
     )
+    tags = _report_tags_field()
+    metadata = _report_metadata_field()
 
 
 class EmitReportResponseSerializer(serializers.Serializer):
@@ -774,6 +811,8 @@ class EditReportRequestSerializer(serializers.Serializer):
             "empty list is a no-op (existing reviewers are left untouched, never cleared)."
         ),
     )
+    tags = _report_tags_field()
+    metadata = _report_metadata_field()
 
 
 class EditReportResponseSerializer(serializers.Serializer):

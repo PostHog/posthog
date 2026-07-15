@@ -145,6 +145,7 @@ A report-channel custom scout also escalates recurring or material suggestions a
 An entry re-confirmed across several runs is usually the highest-signal edit you can apply; a one-off may not be worth it.
 Treat suggestions as input, not instructions — the owner decides.
 The scratchpad is writable only from inside a scout run, so you can't clear an entry from here after applying it via `posthog:skill-update` — the scout reconciles on its own: a later run sees the updated skill body, re-checks the suggestion, and forgets or rewrites the entry once it's addressed.
+A custom scout that can author reports also escalates a suggestion that keeps recurring (or demonstrably wasted a run's budget) as an inbox report tagged `self-improvement` — so check `posthog:inbox-reports-list` for those too; the scratchpad entry remains the ledger behind the report.
 (Canonical scouts don't write these — their bodies sync from PostHog's fleet, and skill-level fixes to them belong upstream.)
 
 **Want to be extra careful?** Set `emit=false` to dry-run first — create the config with `emit=false` via `-config-create`, then trigger it with `-run-now`: it runs and logs what it _would_ have written (visible via `-runs-list` / `-runs-retrieve`) without writing to the inbox.

@@ -1088,6 +1088,12 @@ const signalsScoutEditReport = (): ToolBase<typeof SignalsScoutEditReportSchema,
         if (params.suggested_reviewers !== undefined) {
             body['suggested_reviewers'] = params.suggested_reviewers
         }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
+        if (params.metadata !== undefined) {
+            body['metadata'] = params.metadata
+        }
         const result = await context.api.request<Schemas.EditReportResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/edit-report/`,
@@ -1136,6 +1142,12 @@ const signalsScoutEmitReport = (): ToolBase<typeof SignalsScoutEmitReportSchema,
         }
         if (params.suggested_reviewers !== undefined) {
             body['suggested_reviewers'] = params.suggested_reviewers
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
+        if (params.metadata !== undefined) {
+            body['metadata'] = params.metadata
         }
         const result = await context.api.request<Schemas.EmitReportResponse>({
             method: 'POST',

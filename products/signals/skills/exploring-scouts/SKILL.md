@@ -208,6 +208,7 @@ The canonical prefix vocabulary and the four-state dedupe classifier the fleet r
 **Custom scouts self-report skill improvements.** A custom (team-authored) scout is invited by the harness to write an `improve:<skill-name>:<topic>` entry when a run produces concrete evidence its own skill body steered it wrong — the suggested change, the evidence, and a dated observed line, re-confirmed in place on later runs.
 A custom scout on the report channel escalates recurring or material suggestions further: it files an inbox report about itself (titled `Scout self-improvement: <skill-name> – <topic>`) and stashes the `report_id` in the `improve:` entry — so the strongest suggestions reach the owner through the inbox like any other report, not only via the scratchpad.
 When assessing a custom scout, search `{"text": "improve:"}` and surface these to the user: an entry re-confirmed across several runs is the highest-signal edit the owner can make.
+A report-authoring custom scout escalates a recurring suggestion as an inbox report tagged `self-improvement`, so those may also surface via `inbox-reports-list` — the scratchpad entry stays the ledger behind the report.
 Reviewing and applying them is a write operation — hand off to the `authoring-scouts` skill.
 Canonical scouts never write `improve:` entries (their skill bodies are synced from PostHog's fleet), so an `improve:` entry under a canonical scout's domain is itself worth flagging.
 

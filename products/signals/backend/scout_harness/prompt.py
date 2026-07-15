@@ -138,6 +138,28 @@ Attach 1-5 `tags` to each emit — lowercase kebab-case slugs naming the *catego
 - Your emitted tags are recorded per finding (visible via `scout-runs-emissions-list`), so you can audit actual usage against your taxonomy if they drift.
 - Near-miss formats are normalized to slugs at emit, but aim for clean slugs."""
 
+# Report-channel counterpart to _TAGGING. Templated on the tool phrase so an emit-only or edit-only
+# scout never sees a report tool it can't call (the endpoints fail closed on the exact tool).
+_TAGGING_REPORT_TEMPLATE = """# Tagging your report actions
+
+Attach 1-5 `tags` to each {tools_phrase} — lowercase kebab-case slugs naming the *category* of the report or edit (`cost-spike`, `tracking-gap`, `self-improvement`), not the specific entity (that's what evidence `source_id`s and your `report:` pointers are for). Tags are recorded on your run's per-action bookkeeping, never shown on the report itself, and are how structure emerges from what the scout fleet does to the inbox. The vocabulary is yours to own and evolve:
+
+- **Keep your taxonomy in the scratchpad.** Maintain a `tags:<domain>:taxonomy` entry listing your tags and what each means — your step-1 scratchpad search surfaces it. Update it when you coin, rename, or retire a tag.
+- **Reuse before coining.** If an existing tag fits, use it — consistency is what makes tags queryable. Coin a new slug only when a genuinely new category emerges.
+- **`metadata` is for structured annotations, not prose.** The optional flat `metadata` dict (string values only) carries specific keys your skill body asks you to record (e.g. `{{"kind": "self-improvement"}}`). If your skill names no keys and no convention in this prompt applies, omit it.
+- Near-miss tag formats are normalized to slugs at the call, but aim for clean slugs."""
+
+
+def _tagging_report_section(*, can_emit: bool, can_edit: bool) -> str:
+    if can_emit and can_edit:
+        tools_phrase = "`scout-emit-report` / `scout-edit-report` call"
+    elif can_emit:
+        tools_phrase = "`scout-emit-report` call"
+    else:
+        tools_phrase = "`scout-edit-report` call"
+    return _TAGGING_REPORT_TEMPLATE.format(tools_phrase=tools_phrase)
+
+
 _WRITING_DESCRIPTION_SIGNAL = """# Writing the description (how it renders in the inbox)
 
 Your `description` is rendered as GitHub-flavored markdown in the inbox and **collapsed to the first ~300 characters** behind a "Show more" toggle. Write for that surface:
@@ -350,6 +372,7 @@ def _report_tail_sections(*, can_emit: bool, can_edit: bool) -> list[str]:
     else:  # edit-only — no authoring, so no suggested-reviewers / writing-a-report sections
         how_a_run_works = f"{_HOW_A_RUN_WORKS_HEAD}\n{_REPORT_STEPS_EDIT_ONLY}\n{_REPORT_CLOSE_OUT_STEP}"
         channel_sections = [_EDITING_REPORT_EDIT_ONLY, _REPORT_SCRATCHPAD_POINTER]
+    channel_sections.append(_tagging_report_section(can_emit=can_emit, can_edit=can_edit))
     return [
         how_a_run_works,
         _SCRATCHPAD_KEYS,

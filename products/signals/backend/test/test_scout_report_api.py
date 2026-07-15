@@ -14,7 +14,12 @@ from social_django.models import UserSocialAuth
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
 
-from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalSourceConfig
+from products.signals.backend.models import (
+    SignalReport,
+    SignalReportArtefact,
+    SignalScoutReportAction,
+    SignalSourceConfig,
+)
 from products.signals.backend.scout_harness.tools.report import (
     MAX_SUGGESTED_REVIEWERS,
     REPORT_KIND_FINDING,
@@ -190,6 +195,71 @@ class TestScoutReportAPI(APIBaseTest):
         run.refresh_from_db()
         assert run.edited_report_ids == [report_id]
 
+    def test_emit_report_records_action_row_with_tags_and_metadata(self) -> None:
+        # The warehouse instrumentation for the report channel: each emit writes a `created` action
+        # row carrying the scout's normalized tags and verbatim metadata. Dropping the row write (or
+        # the normalization on the view path) silently kills the measurement surface.
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH):
+            response = self.client.post(
+                self._emit_url(str(run.id)),
+                data=self._payload(tags=["Cost Spike", "self-improvement"], metadata={"kind": "self-improvement"}),
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        action = SignalScoutReportAction.objects.filter(team=self.team).get()
+        assert str(action.report_id) == response.json()["report_id"]
+        assert action.scout_run_id == run.id
+        assert action.action == SignalScoutReportAction.Action.CREATED
+        assert action.tags == ["cost-spike", "self-improvement"]
+        assert action.metadata == {"kind": "self-improvement"}
+
+    def test_edit_report_records_one_action_row_per_sub_action(self) -> None:
+        # One edit call applying title + summary + note yields three typed rows (the per-action
+        # detail the run's deduped `edited_report_ids` tally deliberately drops), each carrying the
+        # call's tags so every row is self-contained for warehouse aggregation.
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        SignalScoutReportAction.objects.filter(team=self.team).delete()  # isolate the edit's rows
+        response = self.client.post(
+            self._edit_url(str(run.id)),
+            data={
+                "report_id": created["report_id"],
+                "title": "new title",
+                "summary": "new summary",
+                "append_note": "re-validated",
+                "tags": ["self-improvement"],
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        actions = SignalScoutReportAction.objects.filter(team=self.team)
+        assert {a.action for a in actions} == {
+            SignalScoutReportAction.Action.TITLE_EDITED,
+            SignalScoutReportAction.Action.SUMMARY_EDITED,
+            SignalScoutReportAction.Action.NOTE_APPENDED,
+        }
+        assert all(a.tags == ["self-improvement"] and str(a.report_id) == created["report_id"] for a in actions)
+
+    @parameterized.expand(
+        [
+            # A tag that normalizes to nothing must 400 via the report channel's error mapping —
+            # the shared normalizer raises InvalidEmitError, which this channel's views don't catch,
+            # so a dropped translation turns a caller error into a 500.
+            ("unsalvageable_tag", {"tags": ["!!!"]}),
+            # Metadata entry count is enforced at the tool boundary (the serializer only bounds
+            # value length), so a loosened cap would let unbounded dicts into the warehouse rows.
+            ("oversized_metadata", {"metadata": {f"k{i}": "v" for i in range(21)}}),
+        ]
+    )
+    def test_emit_report_rejects_invalid_tags_or_metadata(self, _name: str, overrides: dict) -> None:
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH):
+            response = self.client.post(self._emit_url(str(run.id)), data=self._payload(**overrides), format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert SignalReport.objects.filter(team=self.team).count() == 0
+
     def test_edit_report_fails_closed_on_cross_team_report(self) -> None:
         other_org = Organization.objects.create(name="other")
         other_team = Team.objects.create(organization=other_org, name="other")
@@ -259,6 +329,11 @@ class TestScoutReportAPI(APIBaseTest):
         autostart.assert_awaited_once()
         run.refresh_from_db()
         assert run.edited_report_ids == [report_id]
+        # A reviewer-only edit records exactly one `reviewers_set` action row.
+        edit_actions = SignalScoutReportAction.objects.filter(team=self.team, report_id=report_id).exclude(
+            action=SignalScoutReportAction.Action.CREATED
+        )
+        assert [a.action for a in edit_actions] == [SignalScoutReportAction.Action.REVIEWERS_SET]
 
     def test_edit_report_unresolvable_reviewer_does_not_partially_mutate(self) -> None:
         # A combined edit (title + a bad reviewer) must fail atomically: reviewers resolve before any

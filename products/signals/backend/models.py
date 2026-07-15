@@ -1279,6 +1279,70 @@ class SignalScoutEmission(TeamScopedRootMixin, UUIDModel):
         ]
 
 
+class SignalScoutReportAction(TeamScopedRootMixin, UUIDModel):
+    """One persisted row per report-channel action a scout run took (`emit_report` / `edit_report`).
+
+    The report-channel counterpart to `SignalScoutEmission`: the run's `emitted_report_ids` /
+    `edited_report_ids` arrays are thin id-tallies ("which reports did this run touch?"), while this
+    row records the per-action detail those arrays deliberately drop — *what kind* of action it was
+    (authored vs. a specific edit shape), when within the run, and the scout-supplied `tags` /
+    `metadata` categorization. One `edit_report` call yields one row per sub-action it applied
+    (a combined title+summary rewrite with a note is three rows), so "count of edit actions by type"
+    is a plain column aggregation on the warehouse side.
+
+    Written best-effort after the report write commits (mirroring the run tallies) — an emit/edit
+    never fails because its bookkeeping row did. Like the tallies, NOT an idempotency barrier.
+    """
+
+    class Action(models.TextChoices):
+        CREATED = "created"
+        TITLE_EDITED = "title_edited"
+        SUMMARY_EDITED = "summary_edited"
+        NOTE_APPENDED = "note_appended"
+        REVIEWERS_SET = "reviewers_set"
+
+    # See SignalScoutConfig.all_teams for rationale: the write path runs without team scope set
+    # (Temporal activity), so it needs the unscoped manager.
+    all_teams = models.Manager()  # noqa: DJ012
+
+    # Denormalised tenant boundary, matching `SignalScoutEmission`. `db_constraint=False`: a real FK
+    # constraint to the hot `posthog_team` table takes a parent lock at migration time
+    # (HotTableAlterPolicy); app-level enforcement is enough for a bookkeeping row.
+    team = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="signal_scout_report_actions",
+        db_constraint=False,
+    )
+    # CASCADE: an action row is meaningless without its run; purging the run takes it along.
+    scout_run = models.ForeignKey(
+        SignalScoutRun,
+        on_delete=models.CASCADE,
+        related_name="report_actions",
+    )
+    # Plain column, not an FK — `edit_report` can target any inbox report, and a deleted report
+    # must not destroy the record that a scout acted on it. Joinable to `SignalReport` by id.
+    report_id = models.UUIDField()
+    action = models.CharField(max_length=30, choices=Action)
+    # Scout-supplied category slugs (normalized lowercase kebab-case, capped at the tool boundary) —
+    # the report-channel extension of the per-scout tag vocabulary that `SignalScoutEmission.tags`
+    # feeds on the signal channel.
+    tags = models.JSONField(default=list, blank=True)
+    # Scout-supplied free-form annotations (flat string-valued dict, capped at the tool boundary).
+    # The open-ended measurement surface: a skill body can instruct its scout to record new keys
+    # here without any schema or harness change; keys that prove stable can graduate to columns.
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Signal scout report action"
+        verbose_name_plural = "Signal scout report actions"
+        default_manager_name = "all_teams"
+        indexes = [
+            models.Index(fields=["team", "scout_run"], name="signal_scout_rpt_act_run_idx"),
+        ]
+
+
 class SignalScratchpad(TeamScopedRootMixin, UUIDModel):
     """Narrow per-team memory surface for the Signals scout fleet — MCP-readable across agents.
 
