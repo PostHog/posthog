@@ -35,7 +35,6 @@ DIGEST_LOOKBACK_DAYS = 7
 STALE_PENDING_RUN_MINUTES = 60
 
 
-@shared_task(ignore_result=True)
 def _previous_run_slot(now: datetime) -> datetime:
     """The weekday 07:00 UTC digest slot before the current one.
 
@@ -51,8 +50,16 @@ def _previous_run_slot(now: datetime) -> datetime:
     return slot
 
 
+@shared_task(ignore_result=True)
 def send_digest_for_channel(digest_channel_id: str, team_id: int) -> None:
-    """Build and post the digest for one channel, then link the included PRs to the run."""
+    """Build and post the digest for one channel, then link the included PRs to the run.
+
+    No automatic retry wrapper: the body already handles its own failure paths — a Slack post
+    failure unlinks the claimed PRs so the next daily run retries them, and a crashed worker is
+    swept by ``_reclaim_stale_pending_runs``. Layering Celery retries on top would re-post a digest
+    Slack already accepted. Still a ``shared_task`` so ``send_daily_digests`` can ``.delay`` it, and
+    ``provision_and_send_digest`` calls it synchronously (a task is a plain callable too).
+    """
     channel = DigestChannel.objects.for_team(team_id).filter(id=digest_channel_id).first()
     if channel is None or not channel.enabled:
         logger.info("stamphog_digest_channel_missing_or_disabled", digest_channel_id=digest_channel_id)

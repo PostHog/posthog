@@ -337,7 +337,8 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     if run.status == ReviewRunStatus.SUPERSEDED:
         activity.logger.info(f"Skipping verdict for superseded run {run.id}")
         return {"verdict": "skipped_superseded"}
-    current_head = ((client.get_pr(repo, pull_request.pr_number).get("head") or {}).get("sha") or "").strip()
+    current_pr = client.get_pr(repo, pull_request.pr_number)
+    current_head = ((current_pr.get("head") or {}).get("sha") or "").strip()
     if current_head and current_head != run.head_sha:
         run.status = ReviewRunStatus.SUPERSEDED
         run.completed_at = timezone.now()
@@ -400,7 +401,7 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     # a merged+approved PR silently skipped the digest. Idempotent: it no-ops unless merged, digest-enabled,
     # and unstamped, so the closed-webhook path and this path can't double-stamp.
     if run.verdict == ReviewVerdict.APPROVED:
-        _stamp_digest_audience_if_merged(repo_config, pull_request, output.get("pr") or {})
+        _stamp_digest_audience_if_merged(repo_config, pull_request, run, current_pr)
 
     activity.logger.info(f"Posted verdict {parsed.verdict} for run {run.id}")
     return {"verdict": str(parsed.verdict)}
@@ -659,7 +660,7 @@ def _write_sandbox_file(sandbox: SandboxBase, path: str, content: str) -> None:
 
 
 def _stamp_digest_audience_if_merged(
-    repo_config: StamphogRepoConfig, pull_request: PullRequest, pr_payload: dict
+    repo_config: StamphogRepoConfig, pull_request: PullRequest, run: ReviewRun, pr_payload: dict
 ) -> None:
     """Stamp the digest audience if the PR already merged before this approval landed.
 
@@ -668,7 +669,19 @@ def _stamp_digest_audience_if_merged(
     revisits it, so a just-approved-and-already-merged PR would silently miss the digest. Re-reading the
     merge state here — the moment the approval is saved — closes that race from the approval side,
     without depending on a webhook redelivery. Only stamps digest-enabled repos with no audience yet.
+
+    Head gate, mirroring the webhook side in ``_record_merged_pull_request``: an approval covers one
+    commit, so only stamp when the PR's live head (``pr_payload`` is the fresh get_pr from the head-moved
+    guard above) is exactly the head this run approved. A PR pushed to a newer head after the approval
+    and merged there must not inherit digest eligibility from an approval that never saw that head; skip
+    fail-closed if the merged head is unknown or differs.
     """
+    merged_head_sha = ((pr_payload.get("head") or {}).get("sha") or "").strip()
+    if not merged_head_sha or merged_head_sha != run.head_sha:
+        activity.logger.info(
+            f"Skipping digest stamp for run {run.id}: merged head {merged_head_sha!r} != approved head {run.head_sha!r}"
+        )
+        return
     pull_request.refresh_from_db(fields=["merged_at", "audience_key"])
     if pull_request.merged_at is None or not repo_config.digest_enabled or pull_request.audience_key:
         return

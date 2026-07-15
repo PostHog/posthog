@@ -352,6 +352,43 @@ def test_out_of_order_payload_is_dropped(team, repo_config, incoming_updated_at,
         mock_execute.assert_not_called()
 
 
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_stale_payload_recheck_under_lock_does_not_supersede_newer_run(team, repo_config):
+    # Concurrency guard: two deliveries for the same PR can both pass the pre-transaction stale check,
+    # then the older one wins the row lock second. _upsert_pull_request advances payload_updated_at
+    # monotonically, so once it returns under the lock the stored value already reflects the newer
+    # delivery. The older delivery must bail then — NOT supersede the up-to-date run and start a stale
+    # review against an outdated head. Single-threaded the pre-guard would catch this first, so the race
+    # is injected at the row-lock seam: _upsert_pull_request returns a row whose payload_updated_at has
+    # already moved past the incoming payload, exactly what a concurrent commit leaves behind.
+    with team_scope(team.id):
+        pull_request = PullRequest.objects.create(
+            team_id=team.id,
+            repo_config=repo_config,
+            pr_number=42,
+            payload_updated_at=parse_datetime("2026-07-15T10:00:00Z"),  # old enough that the pre-guard passes
+        )
+        current_run = ReviewRun.objects.create(
+            team_id=team.id, pull_request=pull_request, head_sha="sha-current", status=ReviewRunStatus.QUEUED
+        )
+
+    locked_pr = PullRequest.objects.for_team(team.id).get(id=pull_request.id)
+    locked_pr.payload_updated_at = parse_datetime("2026-07-15T13:00:00Z")  # concurrent newer delivery already landed
+
+    with patch("products.stamphog.backend.tasks.tasks._upsert_pull_request", return_value=locked_pr):
+        mock_execute = _run_task(
+            _pr_payload(action="synchronize", head_sha="sha-2", updated_at="2026-07-15T12:00:00Z"),
+            f"delivery-race-{uuid.uuid4()}",
+            team.id,
+        )
+
+    with team_scope(team.id):
+        assert ReviewRun.objects.count() == 1  # no new run created
+        current_run.refresh_from_db()
+    assert current_run.status == ReviewRunStatus.QUEUED  # the up-to-date run is left intact, not superseded
+    mock_execute.assert_not_called()  # no workflow started for the stale delivery
+
+
 def _installation_payload(
     *,
     action: str,

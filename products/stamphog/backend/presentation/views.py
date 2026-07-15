@@ -6,6 +6,7 @@ return serialized responses. No business logic here.
 """
 
 from functools import cached_property
+from typing import Any
 from urllib.parse import quote
 from uuid import UUID
 
@@ -125,6 +126,15 @@ class _StamphogTeamScopedViewSet(TeamAndOrgViewSetMixin):
     @cached_property
     def canonical_team_id(self) -> int:
         return resolve_effective_team_id(self.team_id)
+
+    def get_serializer_context(self) -> dict[str, Any]:
+        # The mixin sets context["team_id"] to the RAW url team, but serializers validate team-scoped
+        # lookups (e.g. DigestChannel.slack_integration_id) against it. stamphog rows canonicalize to the
+        # parent team on save, so those lookups must target the canonical team the row is stored under —
+        # a child-environment request would otherwise validate against the wrong team's integrations.
+        context = super().get_serializer_context()
+        context["team_id"] = self.canonical_team_id
+        return context
 
     def _should_skip_parents_filter(self) -> bool:
         # safely_get_queryset already scopes every read by canonical_team_id, which resolves a child

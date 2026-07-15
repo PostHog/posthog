@@ -604,6 +604,22 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
     try:
         with transaction.atomic(using=write_db):
             pr_obj = _upsert_pull_request(repo_config, pr)
+            # Race-safe recheck of the stale-payload guard, now under the PR row lock. The check above
+            # runs before this transaction, so two concurrent deliveries can both pass it; the older one
+            # would then win the row lock second and still supersede the newer run. _upsert_pull_request
+            # locks the row (update_or_create selects for update) and advances payload_updated_at
+            # monotonically, so once it returns the stored value is max(previous, incoming). A stored
+            # value strictly newer than this payload means a newer delivery already committed its run —
+            # bail before supersede/create so we don't cancel the up-to-date review for a stale head.
+            if (
+                incoming_updated_at is not None
+                and pr_obj.payload_updated_at is not None
+                and pr_obj.payload_updated_at > incoming_updated_at
+            ):
+                logger.info("stamphog_pr_event_stale_payload_locked", repo=repo, pr_number=pr_number, action=action)
+                if delivery_id:
+                    _mark_pr_event_processed(delivery_id)
+                return
             _supersede_prior_runs(pr_obj)
             head = pr.get("head") or {}
             review_run = ReviewRun.objects.for_team(team_id).create(

@@ -505,15 +505,29 @@ def test_auto_provision_skips_shared_channels(
         assert not DigestChannel.objects.for_team(team.id).filter(audience_key="team-devex").exists()
 
 
+@pytest.mark.parametrize(
+    "live_head,expected_audience",
+    [
+        ("sha-merged", "team-devex"),
+        ("sha-newer", ""),
+        ("", ""),
+    ],
+    ids=["merged_at_approved_head_stamps", "merged_at_newer_head_not_stamped", "unconfirmable_head_not_stamped"],
+)
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_post_verdict_stamps_digest_audience_for_already_merged_pr(team, stamphog_chain: StamphogChain) -> None:
-    # Merge-before-approval race: if the PR already merged when the approval lands, post_verdict must
-    # still stamp the digest audience. The run's APPROVED verdict is saved first, then the merge-stamp
-    # helper runs — so a merged+approved PR reaches the digest even though the closed webhook saw no
-    # approved run yet. Regression: the stamp used to run before the save and could be lost on both sides.
+def test_post_verdict_stamps_digest_audience_only_at_approved_head(
+    team, stamphog_chain: StamphogChain, live_head: str, expected_audience: str
+) -> None:
+    # Merge-before-approval race: if the PR already merged when the approval lands, post_verdict stamps
+    # the digest audience — but ONLY when the PR's live head is exactly the head this run approved. An
+    # approval covers one commit, so a PR pushed to (and merged at) a newer head, or one whose head can't
+    # be confirmed, must not inherit digest eligibility from an approval that never saw that head. This
+    # mirrors the webhook-side approved-at-head gate in _record_merged_pull_request. The matching-head
+    # case also guards the original fix: the APPROVED verdict is saved first, then the stamp runs, so a
+    # merged+approved PR reaches the digest even though the closed webhook saw no approved run yet.
     repo_config = _repo_config(team.id)
-    head_sha = "sha-merged"
-    stamphog_chain.recorder.register_pr(REPO, 101, _pr_object(101, "devex-dev", head_sha))
+    approved_head = "sha-merged"
+    stamphog_chain.recorder.register_pr(REPO, 101, _pr_object(101, "devex-dev", live_head))
     stamphog_chain.recorder.teams_by_login["devex-dev"] = ["team-devex"]
     pull_request = PullRequest.objects.for_team(team.id).create(
         team_id=team.id, repo_config=repo_config, pr_number=101, author_login="devex-dev", merged_at=timezone.now()
@@ -521,17 +535,18 @@ def test_post_verdict_stamps_digest_audience_for_already_merged_pr(team, stampho
     run = ReviewRun.objects.for_team(team.id).create(
         team_id=team.id,
         pull_request=pull_request,
-        head_sha=head_sha,
+        head_sha=approved_head,
         status=ReviewRunStatus.REVIEWING,
-        output={"reviewer_raw": fakes.approved_engine_output(), "pr": _pr_object(101, "devex-dev", head_sha)},
+        output={"reviewer_raw": fakes.approved_engine_output(), "pr": _pr_object(101, "devex-dev", approved_head)},
     )
 
     _run_activity(post_verdict, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
 
-    run.refresh_from_db()
     pull_request.refresh_from_db()
-    assert run.verdict == ReviewVerdict.APPROVED
-    assert pull_request.audience_key == "team-devex"
+    assert pull_request.audience_key == expected_audience
+    if expected_audience:
+        run.refresh_from_db()
+        assert run.verdict == ReviewVerdict.APPROVED
 
 
 @pytest.mark.parametrize(
