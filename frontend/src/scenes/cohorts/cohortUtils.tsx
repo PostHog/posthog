@@ -1,4 +1,4 @@
-import equal from 'fast-deep-equal'
+import { deepEqual as equal } from 'fast-equals'
 import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 
 import { isEmptyProperty, propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'

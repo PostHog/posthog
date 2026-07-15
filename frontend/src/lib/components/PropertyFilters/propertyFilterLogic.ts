@@ -1,4 +1,4 @@
-import equal from 'fast-deep-equal'
+import { deepEqual as equal } from 'fast-equals'
 import { actions, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 
 import { PropertyFilterLogicProps } from 'lib/components/PropertyFilters/types'

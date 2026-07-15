@@ -38,6 +38,7 @@ import { EvaluationReportConfig } from './components/EvaluationReportConfig'
 import { EvaluationReportsTab } from './components/EvaluationReportsTab'
 import { EvaluationRunsTable } from './components/EvaluationRunsTable'
 import { EvaluationTriggers } from './components/EvaluationTriggers'
+import { EVALUATION_SUMMARY_MAX_RUNS } from './constants'
 import {
     evaluationSupportsReports,
     evaluationSupportsRunSummary,
@@ -357,6 +358,9 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                 <div className="flex justify-between items-center mb-4">
                                     <p className="text-muted text-sm m-0">
                                         History of when this evaluation has been executed.
+                                        {runsSummary && runsSummary.total > EVALUATION_SUMMARY_MAX_RUNS && (
+                                            <> Showing the latest {EVALUATION_SUMMARY_MAX_RUNS} runs.</>
+                                        )}
                                     </p>
                                     {runsSummary && (
                                         <div className="flex gap-4 text-sm">

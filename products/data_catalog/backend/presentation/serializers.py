@@ -14,7 +14,7 @@ from posthog.schema_enums import IntervalType
 
 from ..facade import api
 from ..facade.enums import CreatedSource
-from ..facade.models import Metric, TableCertification
+from ..facade.models import Metric, RelationshipProposal, TableCertification
 
 
 @extend_schema_field(OpenApiTypes.OBJECT)
@@ -236,3 +236,64 @@ class CertificationCreateSerializer(serializers.Serializer):
     table_name = serializers.CharField(required=False, help_text="Table name; 409 with candidates if ambiguous.")
     view_name = serializers.CharField(required=False, help_text="View name; 409 with candidates if ambiguous.")
     notes = serializers.CharField(required=False, allow_blank=True, help_text="Why this mark exists.")
+
+
+@extend_schema_serializer(component_name="DataCatalogRelationshipProposal")
+class RelationshipProposalSerializer(serializers.ModelSerializer):
+    status = serializers.CharField(
+        read_only=True, help_text="proposed, accepted (promoted to a real join), or rejected (never re-proposed)."
+    )
+    configuration = _FreeJSONField(required=False, help_text="Extra join configuration, e.g. a field mapping.")
+    evidence = _FreeJSONField(required=False, help_text="Sampling evidence: match rates, sample values.")
+    reviewed_by = UserBasicSerializer(
+        read_only=True, allow_null=True, help_text="User who accepted or rejected the proposal."
+    )
+
+    class Meta:
+        model = RelationshipProposal
+        fields = [
+            "id",
+            "source_table_name",
+            "source_table_key",
+            "joining_table_name",
+            "joining_table_key",
+            "field_name",
+            "configuration",
+            "confidence",
+            "reasoning",
+            "evidence",
+            "status",
+            "reviewed_by",
+            "reviewed_at",
+            "rejection_reason",
+            "created_join",
+            "created_by",
+            "created_at",
+        ]
+        read_only_fields = [
+            "id",
+            "status",
+            "reviewed_by",
+            "reviewed_at",
+            "rejection_reason",
+            "created_join",
+            "created_by",
+            "created_at",
+        ]
+        extra_kwargs = {
+            "source_table_name": {"help_text": "Name of the table the join starts from."},
+            "source_table_key": {"help_text": "HogQL key expression on the source table (casts allowed)."},
+            "joining_table_name": {"help_text": "Name of the table being joined in."},
+            "joining_table_key": {"help_text": "HogQL key expression on the joining table (casts allowed)."},
+            "field_name": {"help_text": "Accessor the join adds to the source table."},
+            "confidence": {"help_text": "Discovery confidence in this join, 0-1."},
+            "reasoning": {"help_text": "Why this join is proposed."},
+        }
+
+
+class RelationshipRejectSerializer(serializers.Serializer):
+    rejection_reason = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Why the proposal is rejected. Persisted so it is never re-proposed.",
+    )

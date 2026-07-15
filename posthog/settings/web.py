@@ -338,6 +338,10 @@ SESSION_COOKIE_CREATED_AT_KEY = get_from_env("SESSION_COOKIE_CREATED_AT_KEY", "s
 # off in the test suite (like AXES_ENABLED) so its per-request feature-flag check doesn't run during
 # tests that assert posthoganalytics.feature_enabled call counts.
 SESSION_RISK_ENABLED = get_from_env("SESSION_RISK_ENABLED", not TEST, type_cast=str_to_bool)
+# Kill switch for the real-time signup enrichment workflow (products/growth/backend/enrichment).
+# Off by default: it must stay off until the launch fill-rate/failure alert is in place, and v0 is
+# US-only. Fire-and-forget from signup, so this only gates whether the workflow is dispatched at all.
+GROWTH_SIGNUP_ENRICHMENT_ENABLED = get_from_env("GROWTH_SIGNUP_ENRICHMENT_ENABLED", False, type_cast=str_to_bool)
 # Session keys for risk-based step-up (posthog/session/risk.py). Named so every reader/writer shares
 # one source of truth, like SESSION_COOKIE_CREATED_AT_KEY above.
 SESSION_STEP_UP_REQUIRED_KEY = get_from_env("SESSION_STEP_UP_REQUIRED_KEY", "step_up_required")
@@ -531,6 +535,7 @@ SPECTACULAR_SETTINGS = {
         #    both the no-x-spec-enum-id type-hint path and the inline-choices ChoiceField
         #    path (drf-spectacular generates the x-spec-enum-id from the same tuples).
         # --- Model class paths (ChoiceField x-spec-enum-id hashes) ---
+        "SignalReportRefundReasonEnum": "products.signals.backend.models.SignalReportRefund.Reason",
         "EngineeringAnalyticsPRStateEnum": "products.engineering_analytics.backend.facade.contracts.PRState",
         "QuarantineModeEnum": "products.engineering_analytics.backend.facade.contracts.QuarantineMode",
         "RestrictionLevelEnum": "products.dashboards.backend.models.dashboard.Dashboard.RestrictionLevel",
@@ -617,6 +622,7 @@ SPECTACULAR_SETTINGS = {
         # Tracing's span-filter `type` and attribute-breakdown `breakdownType` share one
         # choice set (top-level column vs span attribute vs resource attribute).
         "SpanPropertyTypeEnum": ["span", "span_attribute", "span_resource_attribute"],
+        "LogsViewColumnTypeEnum": ["timestamp", "level", "source", "trace_id", "span_id", "message", "custom"],
         "CustomPropertyDisplayTypeEnum": [
             "text",
             "number",
@@ -1157,3 +1163,14 @@ WEB_ANALYTICS_NO_JOIN_TEAM_IDS: list[int] = [
     int(team_id)
     for team_id in get_list(get_from_env("WEB_ANALYTICS_NO_JOIN_TEAM_IDS", _LAZY_PRECOMPUTE_DEFAULT_TEAM_IDS))
 ]
+
+# Percentage-of-teams rollout for the no-join fast paths, on top of the explicit
+# allowlist above. Bucketing is deterministic per team (team_id % 100) so everyone
+# on a team sees numbers from the same code path. 0 disables (allowlist only),
+# 100 enrolls every team. Defaults to 50 on US Cloud (verified region); EU stays 0
+# until its ClickHouse upgrade converges and the fast paths are verified there.
+# Env var overrides in either direction and is the kill switch.
+_NO_JOIN_DEFAULT_ROLLOUT_PERCENT = 50 if (CLOUD_DEPLOYMENT or "").upper() == "US" and not TEST else 0
+WEB_ANALYTICS_NO_JOIN_ROLLOUT_PERCENT: int = get_from_env(
+    "WEB_ANALYTICS_NO_JOIN_ROLLOUT_PERCENT", _NO_JOIN_DEFAULT_ROLLOUT_PERCENT, type_cast=int
+)
