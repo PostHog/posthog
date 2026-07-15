@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-07-14 10:32:05 UTC
+// Generated at: 2026-07-14 20:23:01 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -76,7 +76,6 @@ export type CanonicalProvider =
     | 'inceptron-fp4'
     | 'inceptron-fp8'
     | 'inceptron-int4'
-    | 'infermatic-bf16'
     | 'inflection'
     | 'io-net-fp8'
     | 'ionstream-fp8'
@@ -94,7 +93,6 @@ export type CanonicalProvider =
     | 'nebius-base'
     | 'nebius-fp4'
     | 'nebius-fp8'
-    | 'nebius-int4'
     | 'nex-agi-fp8'
     | 'nextbit-bf16'
     | 'nextbit-fp8'
