@@ -97,7 +97,8 @@ export class KafkaConsumerV2 {
     private fatalError: unknown | undefined
 
     // Optional async hook invoked with the partitions being revoked, after the in-flight
-    // drain and while the partitions are still assigned, before the unassign. Not invoked
+    // drain and while the partitions are still assigned, before the unassign. Bounded by
+    // drainTimeoutMs — a hook outliving it is abandoned and the rebalance proceeds. Not invoked
     // for the final revoke during disconnect — callers flush explicitly before disconnecting.
     private onPartitionsRevoked?: (assignments: Assignment[]) => Promise<void>
 
@@ -443,7 +444,21 @@ export class KafkaConsumerV2 {
 
             if (this.onPartitionsRevoked) {
                 try {
-                    await this.onPartitionsRevoked(event.partitions)
+                    // Bounded by the same budget as the drain: a wedged flush (e.g. a produce
+                    // stuck until its delivery timeout) must not hold the group's rebalance
+                    // hostage until max.poll.interval.ms fences the member. On timeout the
+                    // partitions are given up without the flush's offsets — the new owner
+                    // replays from the last commit, exactly as with a failed flush.
+                    const { timedOut } = await raceWithTimeout(
+                        this.onPartitionsRevoked(event.partitions),
+                        this.drainTimeoutMs
+                    )
+                    if (timedOut) {
+                        consumerDrainTimeouts.labels(this.config.topic, this.config.groupId, 'revoke_hook').inc()
+                        logger.error('🔁', 'kafka_consumer_v2_revoke_handler_timeout', {
+                            drainTimeoutMs: this.drainTimeoutMs,
+                        })
+                    }
                 } catch (error) {
                     // A failed flush must not strand the rebalance — give the partitions up
                     // anyway. The offsets simply won't have been stored, so the new owner

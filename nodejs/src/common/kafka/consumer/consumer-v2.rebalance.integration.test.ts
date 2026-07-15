@@ -28,7 +28,9 @@ import { KafkaConsumerV2 } from './consumer-v2'
  *    after the drain while the partitions are still assigned, offsets it stores are committed
  *    exactly as the partitions are given up — including from an already-committed baseline
  *    when a flushed cycle precedes the in-flight one — a throwing hook never strands the
- *    rebalance, and a hook outliving the broker-enforced rebalance timeout
+ *    rebalance, a hook outliving the consumer's own budget (CONSUMER_REBALANCE_TIMEOUT_MS) is
+ *    abandoned — the rebalance proceeds without fencing the member and the late store for the
+ *    moved partition is discarded — and a hook outliving the broker-enforced rebalance timeout
  *    (max.poll.interval.ms) gets the member fenced, its late store discarded, and recovers,
  *  - the two-phase shutdown (the session replay flush-on-stop contract): stopConsuming
  *    resolves only after in-flight work drains and halts intake for good, offsets stored
@@ -680,6 +682,120 @@ describe('KafkaConsumerV2 rebalance semantics (integration)', () => {
                 }
                 expect(await fetchCommittedOffset(groupId, topic, retainedPartition)).toBeNull()
             } finally {
+                await consumerA.disconnect()
+                await consumerB?.disconnect()
+                await deleteTopic(topic)
+            }
+        })
+
+        it('a flush exceeding the consumer budget: the hook is abandoned, the rebalance proceeds, the member survives unfenced', async () => {
+            const topic = `v2_int_reb_hookabandon_${randomUUID()}`
+            const groupId = `v2-int-reb-hookabandon-${randomUUID()}`
+            await createTopic(topic, 2)
+
+            // The consumer-side budget for the revoke hook (drainTimeoutMs), well under
+            // max.poll.interval.ms (30s here): the consumer gives the partitions up itself, so
+            // the member must NOT get fenced — it keeps its retained partition and stays live.
+            // The flush outlives the budget by enough that the takeover assertions all land
+            // while it is still running.
+            const hookBudgetMs = 3_000
+            const flushDurationMs = 15_000
+            const savedRebalanceTimeout = defaultConfig.CONSUMER_REBALANCE_TIMEOUT_MS
+            defaultConfig.CONSUMER_REBALANCE_TIMEOUT_MS = hookBudgetMs
+
+            const ledger: LedgerEntry[] = []
+            const tracked = new Map<number, number>()
+            const hook = { invocations: 0, completedAt: 0 }
+
+            const record = (consumerId: string, track: boolean) => (messages: Message[]) => {
+                for (const m of messages) {
+                    ledger.push({
+                        consumerId,
+                        partition: m.partition,
+                        offset: m.offset,
+                        key: m.key?.toString() ?? '',
+                        value: m.value?.toString() ?? '',
+                        seenAt: Date.now(),
+                    })
+                    if (track) {
+                        tracked.set(m.partition, Math.max(tracked.get(m.partition) ?? 0, m.offset + 1))
+                    }
+                }
+                return Promise.resolve()
+            }
+
+            const consumerA = makeConsumer(groupId, topic, record('A', true), {
+                autoOffsetStore: false,
+                onPartitionsRevoked: async () => {
+                    if (++hook.invocations > 1) {
+                        return
+                    }
+                    await delay(flushDurationMs)
+                    // The abandoned flush finally stores its tracked offsets. For the moved
+                    // partition this must never become a group commit — the new owner already
+                    // reprocessed instead.
+                    try {
+                        consumerA.offsetsStore(
+                            [...tracked.entries()].map(([partition, offset]) => ({ topic, partition, offset }))
+                        )
+                    } catch {
+                        // Rejection of the moved partition's store is an acceptable outcome too.
+                    }
+                    hook.completedAt = Date.now()
+                },
+            })
+            let consumerB: KafkaConsumerV2 | undefined
+
+            try {
+                await waitFor(() => consumerA.assignments().length === 2, 10_000)
+                const wave1 = await produceTracked(producer, topic, [
+                    ...Array.from({ length: 3 }, (_, i) => ({ key: `a${i}`, partition: 0 })),
+                    ...Array.from({ length: 3 }, (_, i) => ({ key: `b${i}`, partition: 1 })),
+                ])
+                await waitFor(() => ledger.length >= wave1.length, 8_000)
+                for (const partition of [0, 1]) {
+                    expect(await fetchCommittedOffset(groupId, topic, partition)).toBeNull()
+                }
+
+                consumerB = makeConsumer(groupId, topic, record('B', false), { autoOffsetStore: false })
+                const b = consumerB
+
+                // The budget releases the rebalance: B owns the moved partition and (with no
+                // committed offsets) redelivers its wave while the flush is still running.
+                await waitFor(
+                    () => consumerA.assignments().length === 1 && b.assignments().length === 1,
+                    hookBudgetMs + 10_000
+                )
+                const movedPartition = b.assignments()[0].partition
+                const retainedPartition = movedPartition === 0 ? 1 : 0
+                await waitFor(
+                    () =>
+                        wave1
+                            .filter((r) => r.partition === movedPartition)
+                            .every((r) =>
+                                ledger.some(
+                                    (e) => e.consumerId === 'B' && e.partition === r.partition && e.offset === r.offset
+                                )
+                            ),
+                    12_000
+                )
+                expect(hook.completedAt).toBe(0)
+
+                // Unlike the fencing case, the member survives: it keeps the retained partition
+                // and keeps consuming new messages on it while the flush is still in progress.
+                const wave2 = await produceTracked(producer, topic, [
+                    { key: 'retained-post', partition: retainedPartition },
+                ])
+                await waitFor(() => ledger.some((e) => e.consumerId === 'A' && e.value === wave2[0].value), 10_000)
+                expect(consumerA.assignments().length).toBe(1)
+
+                // Once the flush finishes, its late store for the moved partition is discarded:
+                // the group offset stays unset (B stored nothing; A no longer owns it).
+                await waitFor(() => hook.completedAt > 0, flushDurationMs + 10_000)
+                await delay(1_500)
+                expect(await fetchCommittedOffset(groupId, topic, movedPartition)).toBeNull()
+            } finally {
+                defaultConfig.CONSUMER_REBALANCE_TIMEOUT_MS = savedRebalanceTimeout
                 await consumerA.disconnect()
                 await consumerB?.disconnect()
                 await deleteTopic(topic)

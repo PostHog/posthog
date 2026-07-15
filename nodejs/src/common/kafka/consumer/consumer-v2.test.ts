@@ -131,8 +131,12 @@ describe('KafkaConsumerV2', () => {
     })
 
     /** Drive the consumer through ASSIGN so it transitions to CONSUMING. */
-    const startConsuming = async (eachBatch: jest.Mock, partitions = [{ topic: 'test-topic', partition: 0 }]) => {
-        await consumer.connect(eachBatch)
+    const startConsuming = async (
+        eachBatch: jest.Mock,
+        partitions = [{ topic: 'test-topic', partition: 0 }],
+        onPartitionsRevoked?: (assignments: { topic: string; partition: number }[]) => Promise<void>
+    ) => {
+        await consumer.connect(eachBatch, onPartitionsRevoked)
         registeredRebalanceCb!({ code: CODES.ERRORS.ERR__ASSIGN_PARTITIONS } as any, partitions)
         // The loop is currently inside the IDLE keepalive consume(1, cb). Release it with
         // an empty batch so the loop processes ASSIGN and arms a fresh consume() in CONSUMING.
@@ -383,6 +387,25 @@ describe('KafkaConsumerV2', () => {
 
         // Drain timed out; loop proceeded with unassign.
         expect(mockRdKafka.incrementalUnassign).toHaveBeenCalled()
+    })
+
+    it('Revoke hook timeout: a hook outliving drainTimeoutMs is abandoned and unassign proceeds', async () => {
+        ;(consumer as any).drainTimeoutMs = 50
+        const hookGate = triggerablePromise<void>()
+        const hook = jest.fn(() => hookGate.promise)
+        const eachBatch = jest.fn(() => Promise.resolve({}))
+        await startConsuming(eachBatch, [{ topic: 'test-topic', partition: 0 }], hook)
+
+        fireRevoke()
+        await delay(20)
+        // Within budget: the rebalance waits for the hook (flush-on-revoke).
+        expect(hook).toHaveBeenCalled()
+        expect(mockRdKafka.incrementalUnassign).not.toHaveBeenCalled()
+
+        await delay(100)
+        // Budget exceeded: the partitions are given up without waiting for the hook.
+        expect(mockRdKafka.incrementalUnassign).toHaveBeenCalledWith([{ topic: 'test-topic', partition: 0 }])
+        hookGate.resolve()
     })
 
     it('ASSIGN after REVOKE: state transitions back to CONSUMING and resumes fetching', async () => {
