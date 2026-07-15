@@ -247,7 +247,7 @@ export class ToolExecutor {
                 Date.now() - startMs,
                 true,
                 state,
-                errorAnalyticsProperties(classification),
+                errorAnalyticsProperties(classification, error),
                 intentMeta
             )
 
@@ -340,7 +340,7 @@ export class ToolExecutor {
                 Date.now() - startMs,
                 true,
                 state,
-                errorAnalyticsProperties(classification),
+                errorAnalyticsProperties(classification, error),
                 intentMeta
             )
 
@@ -463,7 +463,7 @@ export class ToolExecutor {
                 Date.now() - startMs,
                 true,
                 state,
-                errorAnalyticsProperties(classification),
+                errorAnalyticsProperties(classification, error),
                 intentMeta
             )
             const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(state.requestContext)
@@ -539,13 +539,39 @@ function resolveToolErrorClassification(error: unknown): ToolErrorClassification
     return { errorType: 'internal' }
 }
 
+// Mirrors the SDK's MAX_ERROR_MESSAGE_LENGTH so `$mcp_error_message` stays within
+// the bound external servers get when they pass `error` to the SDK.
+const MAX_ERROR_MESSAGE_LENGTH = 2048
+
+/**
+ * Extracts a capturable message from a thrown value: `Error.message` or a plain
+ * string only. Thrown objects are deliberately not serialized — an arbitrary
+ * payload could carry request bodies or secrets, and `classifyToolError` already
+ * buckets those as `internal`.
+ */
+function extractErrorMessage(error: unknown): string | undefined {
+    const raw = error instanceof Error ? error.message : typeof error === 'string' ? error : undefined
+    if (!raw) {
+        return undefined
+    }
+    // Strip control characters except newline/tab (multi-line validation errors stay readable)
+    const sanitized = raw
+        .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '')
+        .trim()
+        .slice(0, MAX_ERROR_MESSAGE_LENGTH)
+    return sanitized || undefined
+}
+
 /**
  * Properties stamped onto an errored `$mcp_tool_call` so the dashboard can slice
  * failures by reason. `$mcp_error_type` aligns with the SDK's native field; the
  * SDK derives a generic type from the thrown error when none is supplied, and an
- * explicit value here overrides it.
+ * explicit value here overrides it. `$mcp_error_message` carries the same string
+ * the calling agent already receives in the tool result, so tool-quality
+ * drill-downs can show the actual failure — not a new disclosure surface.
  */
-function errorAnalyticsProperties(classification: ToolErrorClassification): Record<string, unknown> {
+function errorAnalyticsProperties(classification: ToolErrorClassification, error: unknown): Record<string, unknown> {
+    const message = extractErrorMessage(error)
     return {
         $mcp_error_type: classification.errorType,
         ...(classification.status !== undefined ? { $mcp_error_status: classification.status } : {}),
@@ -553,5 +579,6 @@ function errorAnalyticsProperties(classification: ToolErrorClassification): Reco
         ...(classification.validationInputKeys?.length
             ? { $mcp_validation_input_keys: classification.validationInputKeys }
             : {}),
+        ...(message !== undefined ? { $mcp_error_message: message } : {}),
     }
 }

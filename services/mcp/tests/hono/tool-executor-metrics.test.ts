@@ -173,6 +173,49 @@ describe('ToolExecutor metrics', () => {
             expect(trackToolCallExtras('fail-tool')).toMatchObject({ $mcp_error_type: 'internal' })
         })
 
+        it.each([
+            ['an Error', new Error('boom: field `date_from` is invalid'), 'boom: field `date_from` is invalid'],
+            ['a thrown string', 'plain string failure', 'plain string failure'],
+        ])('stamps $mcp_error_message when the tool throws %s', async (_label, thrown, expected) => {
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue(
+                makeFakeTool('fail-tool', async () => {
+                    throw thrown
+                }) as any
+            )
+
+            await executor.handleToolCall({ name: 'fail-tool', arguments: {} }, makeState([{ name: 'fail-tool' }]))
+
+            expect(trackToolCallExtras('fail-tool')).toMatchObject({ $mcp_error_message: expected })
+        })
+
+        it('truncates $mcp_error_message and strips control characters, keeping newlines', async () => {
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue(
+                makeFakeTool('fail-tool', async () => {
+                    throw new Error(`line1\nline2\x00\x08${'x'.repeat(3000)}`)
+                }) as any
+            )
+
+            await executor.handleToolCall({ name: 'fail-tool', arguments: {} }, makeState([{ name: 'fail-tool' }]))
+
+            const message = trackToolCallExtras('fail-tool')?.$mcp_error_message as string
+            expect(message.startsWith('line1\nline2xxx')).toBe(true)
+            expect(message).toHaveLength(2048)
+        })
+
+        it('omits $mcp_error_message when a non-Error object is thrown, instead of serializing it', async () => {
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue(
+                makeFakeTool('fail-tool', async () => {
+                    throw { secret_payload: 'do not capture' }
+                }) as any
+            )
+
+            await executor.handleToolCall({ name: 'fail-tool', arguments: {} }, makeState([{ name: 'fail-tool' }]))
+
+            const extras = trackToolCallExtras('fail-tool')
+            expect(extras).toMatchObject({ $mcp_error_type: 'internal' })
+            expect(extras).not.toHaveProperty('$mcp_error_message')
+        })
+
         it('carries the upstream status alongside the error type for API failures', async () => {
             vi.spyOn(catalog, 'getToolByName').mockReturnValue(
                 makeFakeTool('execute-sql', async () => {

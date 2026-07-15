@@ -2742,7 +2742,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$mcp_error_message": {
             "label": "MCP error message",
-            "description": "Error message for a failed MCP tool call, truncated. Present when the server passes the thrown error to the SDK; PostHog's own server omits it to avoid capturing query content. Only set when $mcp_is_error is true.",
+            "description": "Error message for a failed MCP tool call. Carries the same string returned to the calling agent in the tool result, with control characters stripped and truncated to 2048 chars; thrown non-Error payloads are never serialized into it. Only set when $mcp_is_error is true.",
         },
         "$mcp_server_name": {
             "label": "MCP server name",
