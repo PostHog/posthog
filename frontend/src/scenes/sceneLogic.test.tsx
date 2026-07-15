@@ -177,19 +177,14 @@ describe('sceneLogic', () => {
         // Regression guard: `/#panel=max:<prompt>` pre-fills the Max side panel, but only if the
         // hash survives the `/` → homepage redirect. It used to be dropped, so the prompt was lost
         // on the Home scene (yet worked everywhere else, which have no such redirect).
-        it('preserves the #panel hash across the / redirect when no homepage is configured', async () => {
-            logic.actions.setHomepage(null)
+        it.each([
+            ['no homepage is configured', null, urls.projectHomepage()],
+            ['a dashboard homepage is configured', dashboardHomepage, urls.dashboard(42)],
+        ])('preserves the #panel hash across the / redirect when %s', async (_desc, homepage, expectedPathname) => {
+            logic.actions.setHomepage(homepage)
             router.actions.push('/', {}, { panel: 'max:what is my dau' })
             await expectLogic(logic).delay(1)
-            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.projectHomepage())
-            expect(router.values.hashParams).toEqual({ panel: 'max:what is my dau' })
-        })
-
-        it('carries the #panel hash onto the configured homepage redirect', async () => {
-            logic.actions.setHomepage(dashboardHomepage)
-            router.actions.push('/', {}, { panel: 'max:what is my dau' })
-            await expectLogic(logic).delay(1)
-            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.dashboard(42))
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(expectedPathname)
             expect(router.values.hashParams).toEqual({ panel: 'max:what is my dau' })
         })
     })

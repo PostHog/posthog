@@ -181,6 +181,24 @@ export function withForwardedSearchParams(
     return redirectUrlObj.pathname + redirectUrlObj.search + redirectUrlObj.hash
 }
 
+/**
+ * Builds a redirect URL that carries the incoming hash (e.g. #panel=max:<prompt>, merged over any
+ * hash the target already has) plus the allow-listed query params, so URL-driven side panel prompts
+ * survive scene redirects like `/` → the homepage.
+ */
+function withForwardedHashAndSearchParams(
+    redirectUrl: string,
+    currentSearchParams: Params,
+    hashParams: Params,
+    forwardedQueryParams: string[]
+): string {
+    return withForwardedSearchParams(
+        combineUrl(redirectUrl, {}, hashParams).url,
+        currentSearchParams,
+        forwardedQueryParams
+    )
+}
+
 export const sceneLogic = kea<sceneLogicType>([
     props(
         {} as {
@@ -794,16 +812,14 @@ export const sceneLogic = kea<sceneLogicType>([
             if (removeProjectIdIfPresent(targetPathname) === '/') {
                 targetPathname = addProjectIdIfMissing(urls.projectHomepage())
             }
-            // Carry the incoming hash (e.g. #panel=max:<prompt>) across the redirect so URL-driven
-            // side panel prompts keep working on the homepage, merged over the homepage's own hash.
-            const targetWithHash = combineUrl(
+            // Forward the incoming hash and allow-listed params (e.g. modal) onto the homepage, and
+            // compare against that final target so a forwarded param can't loop.
+            const target = withForwardedHashAndSearchParams(
                 targetPathname + (homepage.search || '') + (homepage.hash || ''),
-                {},
-                hashParams
-            ).url
-            // Forward allow-listed params (e.g. modal) onto the homepage the same way the launchpad
-            // redirect does, and compare against that final target so a forwarded param can't loop.
-            const target = withForwardedSearchParams(targetWithHash, searchParams, forwardedRedirectQueryParams)
+                searchParams,
+                hashParams,
+                forwardedRedirectQueryParams
+            )
             const loc = router.values.currentLocation
             if (addProjectIdIfMissing(loc.pathname) + (loc.search || '') + (loc.hash || '') === target) {
                 return false
@@ -817,9 +833,10 @@ export const sceneLogic = kea<sceneLogicType>([
                 return
             }
             router.actions.replace(
-                withForwardedSearchParams(
-                    combineUrl(urls.projectHomepage(), {}, hashParams).url,
+                withForwardedHashAndSearchParams(
+                    urls.projectHomepage(),
                     searchParams,
+                    hashParams,
                     forwardedRedirectQueryParams
                 )
             )
