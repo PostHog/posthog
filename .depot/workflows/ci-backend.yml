@@ -12,7 +12,7 @@
 # - action paths: ./.depot/actions/... instead of ./.github/actions/... (pnpm-install
 #   and setup-sqlx-cli are byte-equivalent mirrors of the canonical composites)
 # - permissions: pull-requests:read (no comment/auto-commit side effects)
-# - Stripped side effects: artifact uploads, PR comment posters, snapshot
+# - Stripped side effects: artifact uploads, CI report section posters, snapshot
 #   auto-commit (handle-snapshots), posthog-github-action telemetry,
 #   --store-durations write, test-selection verdict, Trunk flaky-test quarantine
 #   gate (canonical runs per-shard analytics-uploader steps that post to the
@@ -246,6 +246,10 @@ jobs:
                         - conftest.py # Root conftest loads for every pytest run
                         - .test_durations # Used for pytest-split sharding
                         - .test_quarantine.json # Un-quarantining must re-run the affected tests
+                        # turbo-discover reads the module graph for the dependent
+                        # cascade, and `tach check` validates it — a graph-only PR
+                        # must still dispatch both.
+                        - tach.toml
                         # generates posthog/schema.py
                         - frontend/src/queries/schema.json
                         # Operator parity check
@@ -356,6 +360,9 @@ jobs:
                         - 'products/tasks/backend/temporal/**/*'
                       product_yamls:
                         - 'products/*/product.yaml'
+                        - '**/owners.yaml'
+                        # Resolver changes must re-run the owners.yaml lint too.
+                        - 'tools/owners/**'
                       openapi_types:
                         # Generated OpenAPI types - validate they match schema
                         - 'frontend/src/generated/**/*'
@@ -729,7 +736,7 @@ jobs:
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
             - name: Install SAML dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
-              run: sudo apt-get update && sudo apt-get install -y libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+              run: sudo rm -f /etc/apt/sources.list.d/*twingate* && sudo apt-get update && sudo apt-get install -y libxml2-dev libxmlsec1-dev libxmlsec1-openssl
             - name: Install Rust
               uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:
@@ -817,7 +824,8 @@ jobs:
     # Consolidates checks that previously each spun up their own runner.
     repo-checks:
         needs: [changes]
-        if: needs.changes.outputs.backend == 'true' && github.event_name != 'push'
+        # product_yamls: ownership-only PRs still need the owners.yaml lint below.
+        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.product_yamls == 'true') && github.event_name != 'push'
         timeout-minutes: 10
         permissions:
             contents: read
@@ -840,6 +848,12 @@ jobs:
               run: ./bin/hogli product:bootstrap spline_reticulator --non-interactive
             - name: Lint product structure
               run: ./bin/hogli product:lint --all
+            # Distributed owners.yaml tree: schema, product.yaml/owners.yaml
+            # conflicts, dead rule globs, coverage (warn-only). No --live, so no
+            # secrets — fork PRs get validated too (the --live slug check runs in
+            # the fork-gated validate-product-yamls job instead).
+            - name: Lint owners.yaml files
+              run: ./bin/hogli owners:lint
             - name: Check version specifiers
               run: python .github/scripts/check-version-specifiers.py
             - name: Check IDOR model coverage
@@ -905,6 +919,10 @@ jobs:
                     exit 0
                   fi
                   ./bin/hogli product:lint:owners "${existing[@]}"
+            - name: Validate owners.yaml identities against GitHub
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+              run: ./bin/hogli owners:lint --live
 
     # Migration validation and OpenAPI type generation.
     # This job needs Docker + DB — it checks out master first to run baseline
@@ -955,6 +973,7 @@ jobs:
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
               run: |
+                  sudo rm -f /etc/apt/sources.list.d/*twingate*
                   sudo apt-get update
                   sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
             - name: Install Rust
@@ -1403,7 +1422,7 @@ jobs:
               if: ${{ needs.changes.outputs.backend == 'true' && steps.setup-uv-tests.outputs.cache-hit != 'true' }}
               shell: bash
               run: |
-                  sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+                  sudo rm -f /etc/apt/sources.list.d/*twingate* && sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
             - name: Install Rust
               if: needs.changes.outputs.backend == 'true'
               uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9

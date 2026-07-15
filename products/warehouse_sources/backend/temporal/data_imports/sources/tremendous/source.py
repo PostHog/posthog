@@ -53,7 +53,6 @@ class TremendousSource(ResumableSource[TremendousSourceConfig, TremendousResumeC
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Tremendous",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Tremendous API key to pull your rewards and payouts data into the PostHog Data warehouse.
 
 You can create an API key under **Team settings → Developers** in [Tremendous](https://www.tremendous.com). Sandbox and production are separate environments with separate API keys — make sure the environment matches the key.""",

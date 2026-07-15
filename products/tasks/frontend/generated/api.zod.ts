@@ -1799,7 +1799,7 @@ export const TasksRunsLivingArtifactsCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe(
-            'Base64-encoded binary content for Slack file uploads or other external adapters. Prefer source_artifact_id or source_storage_path for large files that were already uploaded as run artifacts.'
+            'Base64-encoded binary content for Slack file uploads or other external adapters. Prefer source_artifact_id or source_storage_path for large files that were already uploaded as run output artifacts.'
         ),
     content_type: zod
         .string()
@@ -1811,11 +1811,15 @@ export const TasksRunsLivingArtifactsCreateBody = /* @__PURE__ */ zod.object({
     source_artifact_id: zod
         .string()
         .optional()
-        .describe('Existing run artifact id to use as the initial content source.'),
+        .describe(
+            'Existing run artifact id to use as the initial content source. Only agent-uploaded output artifacts are accepted; internal run artifacts are rejected.'
+        ),
     source_storage_path: zod
         .string()
         .optional()
-        .describe('Existing run artifact storage_path to use as the initial content source.'),
+        .describe(
+            'Existing run artifact storage_path to use as the initial content source. Only agent-uploaded output artifacts are accepted; internal run artifacts are rejected.'
+        ),
     metadata: zod
         .record(zod.string(), zod.unknown())
         .optional()
@@ -1855,11 +1859,15 @@ export const TasksRunsLivingArtifactsEditBody = /* @__PURE__ */ zod.object({
     source_artifact_id: zod
         .string()
         .optional()
-        .describe('Existing run artifact id to use as the next version content source.'),
+        .describe(
+            'Existing run artifact id to use as the next version content source. Only agent-uploaded output artifacts are accepted; internal run artifacts are rejected.'
+        ),
     source_storage_path: zod
         .string()
         .optional()
-        .describe('Existing run artifact storage_path to use as the next version content source.'),
+        .describe(
+            'Existing run artifact storage_path to use as the next version content source. Only agent-uploaded output artifacts are accepted; internal run artifacts are rejected.'
+        ),
     metadata: zod
         .record(zod.string(), zod.unknown())
         .optional()

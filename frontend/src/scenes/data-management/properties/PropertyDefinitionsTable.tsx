@@ -2,7 +2,7 @@ import './PropertyDefinitionsTable.scss'
 
 import { useActions, useValues } from 'kea'
 
-import { LemonInput, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonInput, LemonSelect, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -39,11 +39,28 @@ export function PropertyDefinitionsTable(): JSX.Element {
             key: 'name',
             render: function Render(_, definition: PropertyDefinition) {
                 return (
-                    <DefinitionHeader
-                        definition={definition}
-                        to={urls.propertyDefinition(definition.id)}
-                        taxonomicGroupType={TaxonomicFilterGroupType.EventProperties}
-                    />
+                    <div className="flex items-center gap-2">
+                        <DefinitionHeader
+                            definition={definition}
+                            to={urls.propertyDefinition(definition.id)}
+                            taxonomicGroupType={TaxonomicFilterGroupType.EventProperties}
+                        />
+                        {definition.warehouse_origin && (
+                            <Tooltip
+                                title={`Populated from data warehouse${
+                                    definition.warehouse_origin.table_name
+                                        ? ` table ${definition.warehouse_origin.table_name}`
+                                        : ''
+                                }${
+                                    definition.warehouse_origin.last_synced_at
+                                        ? ` (last synced ${definition.warehouse_origin.last_synced_at})`
+                                        : ''
+                                }`}
+                            >
+                                <LemonTag type="completion">Warehouse</LemonTag>
+                            </Tooltip>
+                        )}
+                    </div>
                 )
             },
             sorter: (a, b) => a.name.localeCompare(b.name),

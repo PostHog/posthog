@@ -3,6 +3,7 @@ import posthog from 'posthog-js'
 
 import { isLogEntryPropertyFilter, isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { isActionFilter, isEventFilter } from 'lib/components/UniversalFilters/utils'
+import { metricCount, metricHistogram } from 'lib/operationalMetrics'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { MiniFilterKey } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
 import { InspectorListItemType } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
@@ -84,21 +85,26 @@ export const sessionRecordingEventUsageLogic = kea<sessionRecordingEventUsageLog
     }),
     listeners(() => ({
         reportRecordingLoaded: ({ playerData, metadata }) => {
+            // older recordings did not store this, and so "null" is equivalent to web,
+            // but for reporting we want to distinguish between not loaded and no value to load
+            const snapshotSource = metadata?.snapshot_source || 'unknown'
             const payload: Partial<RecordingViewedProps> = {
                 duration: playerData.durationMs,
                 recording_id: playerData.sessionRecordingId,
                 start_time: playerData.start?.valueOf() ?? 0,
                 end_time: playerData.end?.valueOf() ?? 0,
-                // older recordings did not store this, and so "null" is equivalent to web,
-                // but for reporting we want to distinguish between not loaded and no value to load
-                snapshot_source: metadata?.snapshot_source || 'unknown',
+                snapshot_source: snapshotSource,
             }
             posthog.capture(`recording loaded`, payload)
+            // the runtime value is caller-controlled, so allowlist it to keep the metric series bounded
+            const snapshotSourceLabel = ['web', 'mobile'].includes(snapshotSource) ? snapshotSource : 'unknown'
+            metricCount('replay_player_recordings_loaded', 1, { snapshot_source: snapshotSourceLabel })
         },
         reportRecordingsListFilterAdded: ({ filterType }) => {
             posthog.capture('recording list filter added', { filter_type: filterType })
         },
         reportRecordingsListFetched: ({ loadTime, filters, defaultDurationFilter }) => {
+            metricHistogram('replay_list_load_ms', loadTime, 'ms')
             try {
                 const filterValues = filtersFromUniversalFilterGroups(filters)
 
