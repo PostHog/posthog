@@ -87,7 +87,9 @@ def _cache_key(
     email: str, date_from: str, date_to: str | None, product: str, limit: int, bucket_minutes: int | None
 ) -> str:
     to_slot = date_to or "_now"
-    return f"personal_spend:{email}:{date_from}:{to_slot}:{product}:{limit}:{bucket_minutes or 0}"
+    # Suffix only when set, so bucketless requests keep their pre-bucket_minutes cache keys.
+    bucket_slot = f":{bucket_minutes}" if bucket_minutes else ""
+    return f"personal_spend:{email}:{date_from}:{to_slot}:{product}:{limit}{bucket_slot}"
 
 
 def _parse_date_param(value: str, field: str, now: datetime.datetime) -> datetime.datetime:
@@ -165,12 +167,12 @@ class _SpendQueryParamsSerializer(serializers.Serializer):
         default=False,
         help_text="If true, bypass the result cache and re-run the underlying queries against ClickHouse.",
     )
-    # No allow_null: nullable would make generated clients advertise `bucket_minutes: null`,
-    # which serializes to the literal string "null" in a GET query and gets rejected.
+    # No allow_null and no default: either would mark the generated schema nullable, and
+    # typed clients would then advertise `bucket_minutes: null`, which serializes to the
+    # literal string "null" in a GET query and gets rejected. Omitted means "no by_bucket".
     bucket_minutes = serializers.ChoiceField(
         choices=BUCKET_MINUTES_CHOICES,
         required=False,
-        default=None,
         help_text=(
             "When set, additionally return a `by_bucket` breakdown: a time-ascending UTC cost series for "
             "the scoped product at this bucket size in minutes, with per-bucket cost split into uncached "
@@ -790,7 +792,9 @@ def _compute_spend_analysis(
     product: str,
     limit: int,
     refresh: bool,
-    bucket_minutes: int | None,
+    # Defaulted: callers splat validated_data, which omits the key entirely when
+    # the request didn't set it (the field has no serializer-level default).
+    bucket_minutes: int | None = None,
 ) -> dict[str, Any]:
     """Cached, email-scoped spend analysis shared by the US viewset and the
     cross-region receiver. Expects already-validated params."""
@@ -1087,7 +1091,7 @@ class PersonalSpendEUProxyViewSet(_PersonalSpendUserViewSet):
 
         # Same cache as the US compute path, so repeat loads skip the cross-region hop.
         cache_key = _cache_key(
-            email, data["date_from"], data["date_to"], data["product"], data["limit"], data["bucket_minutes"]
+            email, data["date_from"], data["date_to"], data["product"], data["limit"], data.get("bucket_minutes")
         )
         if not data["refresh"]:
             cached = cache.get(cache_key)
