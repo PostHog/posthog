@@ -101,6 +101,39 @@ describe('useWidgetTileConfigPersist', () => {
         })
     })
 
+    it('keeps a newer queued config when an earlier update fails', async () => {
+        let rejectFirstUpdate: ((error: Error) => void) | undefined
+        const onUpdateConfig = jest
+            .fn()
+            .mockImplementationOnce(
+                () =>
+                    new Promise<void>((_resolve, reject) => {
+                        rejectFirstUpdate = reject
+                    })
+            )
+            .mockResolvedValueOnce(undefined)
+        const { result } = renderHook(() => useWidgetTileConfigPersist(onUpdateConfig, { status: 'initial' }))
+
+        let firstUpdate: Promise<void>
+        let secondUpdate: Promise<void>
+        act(() => {
+            firstUpdate = result.current.persistConfigNow({ status: 'active' })
+            secondUpdate = result.current.persistConfigNow({ status: 'resolved' })
+        })
+
+        await act(async () => {
+            await Promise.resolve()
+        })
+
+        rejectFirstUpdate?.(new Error('Update failed'))
+        await act(async () => {
+            await firstUpdate
+            await secondUpdate
+        })
+
+        expect(result.current.getLatestConfig()).toEqual({ status: 'resolved' })
+    })
+
     it('flushes a pending debounced update on unmount', async () => {
         const onUpdateConfig = jest.fn().mockResolvedValue(undefined)
         const { result, unmount } = renderHook(() => useWidgetTileConfigPersist(onUpdateConfig))

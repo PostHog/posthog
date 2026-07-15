@@ -80,7 +80,7 @@ export function useWidgetTileConfigPersist(
         try {
             await persistPromise
         } catch (error) {
-            if (receivedConfigRef.current) {
+            if (receivedConfigRef.current && latestConfigRef.current === config) {
                 latestConfigRef.current = receivedConfigRef.current
             }
             if (
