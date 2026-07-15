@@ -269,13 +269,13 @@ Management-command and temporal rows usually have blank `lc_name`; `lc_query_typ
 Full-window versions of this can time out — one region × one week is cheap and usually enough:
 
 ```sql
-SELECT query_kind, lc_query_type, lc_workflow, uniq(team_id) AS teams, count() AS queries,
+SELECT query_kind, lc_query_type, lc_temporal__workflow_type, uniq(team_id) AS teams, count() AS queries,
        round(sum(read_bytes)/1e9, 0) AS read_gb,
        round(sum(read_bytes)/1e9*{read_usd_per_gb} + sum(ProfileEvents_OSCPUVirtualTimeMicroseconds)/1e6*{cpu_usd_per_sec}, 0) AS cost_usd
 FROM query_log_archive_us
 WHERE event_date >= '2026-07-01' AND event_date < '2026-07-08'
   AND lc_product = 'internal' AND lc_feature = 'management_command'
-GROUP BY query_kind, lc_query_type, lc_workflow
+GROUP BY query_kind, lc_query_type, lc_temporal__workflow_type
 ORDER BY cost_usd DESC
 LIMIT 15
 ```

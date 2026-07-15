@@ -17,7 +17,7 @@ description: >
 
 Fleet-wide **dollar cost** analysis: what querying costs, who and what drives it, and where the waste is.
 This runs entirely through the PostHog MCP (`execute-sql`) against data warehouse sources in the internal "PostHog App + Website" project (project 2 on US Cloud), so it works anywhere the MCP works — including PostHog Code cloud, with no Metabase SSO.
-The sibling skill [`generating-clickhouse-query-performance-reports`](../generating-clickhouse-query-performance-reports/SKILL.md) is the *performance* lens (slow queries, OOMs, root causes) over the raw `posthog.query_log_archive` via Metabase; use that when the question is "why is X slow" rather than "what does X cost".
+The sibling skill [`generating-clickhouse-query-performance-reports`](../generating-clickhouse-query-performance-reports/SKILL.md) is the _performance_ lens (slow queries, OOMs, root causes) over the raw `posthog.query_log_archive` via Metabase; use that when the question is "why is X slow" rather than "what does X cost".
 
 **Internal-only.** Results contain cross-customer identifiers, org names, and MRR.
 Reports built from this data must never be committed to the public posthog repo, pasted into public PRs, or uploaded to public asset stores.
@@ -58,10 +58,10 @@ In practice **read bytes dominate the modeled cost**, so scan volume is the numb
 
 ## Workflow
 
-1. **Check coverage, pick the window.** Default to the last 30 *complete* days covered by both regions. For partial months compare cost **per day**, never month totals.
+1. **Check coverage, pick the window.** Default to the last 30 _complete_ days covered by both regions. For partial months compare cost **per day**, never month totals.
 2. **Totals per region** — the denominator every share is computed against.
 3. **One dimension at a time**, coarse → fine: `user` (CH user), `lc_kind` × `lc_workload`, `lc_product` × `lc_feature` (the canonical disjoint view), then `lc_temporal__workflow_type` / `lc_dagster__job_name` for the background buckets.
-4. **Daily trend by bucket** (`multiIf` on the top buckets) — separates one-off backfills from steady load from *growing* load. This changes recommendations more than any other query.
+4. **Daily trend by bucket** (`multiIf` on the top buckets) — separates one-off backfills from steady load from _growing_ load. This changes recommendations more than any other query.
 5. **Attribution**: per-team → org → MRR joins (below); concentration ("top N orgs = X% of total"), free vs paying split, top free orgs.
 6. **Waste**: failed-query cost by `exception_name`; attribute `TOO_MANY_BYTES` to buckets/teams — repeated kills in one bucket from few teams = a retry loop burning money.
 7. **Access**: `lc_access_method` × `lc_chargeable` (is heavy API traffic billed? what does `sharing_token` — public embeds — cost?).
@@ -100,7 +100,7 @@ Attribution facts that cost time if you don't know them:
 
 ## Interpretation traps
 
-- **The attribution taxonomies overlap — never sum across lenses.** `lc_kind`/`lc_workload`, `lc_product`×`lc_feature`, and `lc_temporal__workflow_type`/`lc_dagster__job_name` are different lenses over the *same rows*. Example: error-tracking fingerprint-embedding queries appear as `lc_product='internal', lc_feature='management_command'` *and* as the `error-tracking-fingerprint-embedding-result` temporal workflow — one workload, two lenses. Pick `lc_product` × `lc_feature` as the canonical disjoint breakdown and use the others as drill-downs.
+- **The attribution taxonomies overlap — never sum across lenses.** `lc_kind`/`lc_workload`, `lc_product`×`lc_feature`, and `lc_temporal__workflow_type`/`lc_dagster__job_name` are different lenses over the _same rows_. Example: error-tracking fingerprint-embedding queries appear as `lc_product='internal', lc_feature='management_command'` _and_ as the `error-tracking-fingerprint-embedding-result` temporal workflow — one workload, two lenses. Pick `lc_product` × `lc_feature` as the canonical disjoint breakdown and use the others as drill-downs.
 - **`lc_name` / `lc_id` are usually blank for `management_command` rows.** Identify those workloads via `lc_query_type` (e.g. `ErrorTrackingFingerprintEmbeddingResultClosestFingerprints`) and the `lc_temporal__*` columns instead.
 - **Exception rows carry real cost** (`ExceptionWhileProcessing` reads before dying) and are inside every bucket total. Report failed-query cost as an overlapping slice, not an additive bucket. `TOO_MANY_BYTES` is the purest waste: the scan happened, the result was discarded — and it clusters into retry loops.
 - **Background workloads mislabeled `ONLINE`** (`lc_kind='temporal' AND lc_workload='ONLINE'`) contend with user queries — worth flagging whenever it shows up big.
