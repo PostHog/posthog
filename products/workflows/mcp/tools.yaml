@@ -111,14 +111,16 @@ tools:
             (config.type: event|webhook|manual|batch|tracking_pixel) plus action nodes
             (function/function_email/function_sms, delay, conditional_branch, wait_until_condition, ...) connected by
             edges. Read the building-workflows skill for node shapes before composing: a node that mismatches the
-            per-type schema saves but breaks the visual editor. Two traps that save but break: (1) a conditional_branch
-            condition needs a 'filters' wrapper — {filters:{properties:[...]}}, not {properties:[...]} on the condition;
-            omitting it passes save but the editor flags it and the branch won't evaluate your condition. (2) Never
-            hand-author bytecode anywhere; send properties/hash and the server compiles it. A 'batch' trigger broadcasts
-            to an audience (config.filters.properties: person-property conditions and/or cohort references), one run per
-            matching person, and does NOT fire on enable: dispatch with workflows-run-batch or attach a schedule with
-            workflows-schedule-create. Behavioral targeting ('did event X at least N times over the last M days') is
-            unsupported; reject it and explain why.
+            per-type schema saves but breaks the visual editor. Three traps that save but break: (1) a
+            conditional_branch condition needs a 'filters' wrapper — {filters:{properties:[...]}}, not
+            {properties:[...]} on the condition; omitting it passes save but the editor flags it and the branch won't
+            evaluate your condition. (2) Never hand-author bytecode anywhere; send properties/hash and the server
+            compiles it. (3) A function_email node needs a sender: its inputs.email.value.from must reference an email
+            integration by id ({from: {integrationId: <int>}}), not a bare address — list the project's 'email'
+            integrations to get a valid id. A 'batch' trigger broadcasts to an audience (config.filters.properties:
+            person-property conditions and/or cohort references), one run per matching person, and does NOT fire on
+            enable: dispatch with workflows-run-batch or attach a schedule with workflows-schedule-create. Behavioral
+            targeting ('did event X at least N times over the last M days') is unsupported; reject it and explain why.
         ui_app: workflow
     workflows-get:
         operation: hog_flows_retrieve

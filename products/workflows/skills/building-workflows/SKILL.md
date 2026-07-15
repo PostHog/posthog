@@ -82,7 +82,7 @@ Event trigger, wait 1 day, send email, exit. Note: exactly one `trigger`, every 
           "email": {
             "value": {
               "to": { "email": "{person.properties.email}", "name": "" },
-              "from": { "email": "hi@example.com", "name": "Example" },
+              "from": { "integrationId": 42 },
               "subject": "Don't forget to finish setting up",
               "html": "<p>Hi {person.properties.first_name}, …</p>"
             }
@@ -104,6 +104,9 @@ Event trigger, wait 1 day, send email, exit. Note: exactly one `trigger`, every 
   ]
 }
 ```
+
+The email `from` must reference an **email integration by id** (`{ "integrationId": <int> }`), not a bare `{email, name}` address — the runtime resolves the sending address from that integration, and both the API and the visual editor reject a `function_email` node without it.
+List the project's `email` integrations to pick a valid id.
 
 For anything beyond a placeholder email body, author the design with the **`designing-email-templates`** skill and reference the template. Don't hand-write production email HTML here.
 

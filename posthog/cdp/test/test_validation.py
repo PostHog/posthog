@@ -636,6 +636,41 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         assert validated["opt_out"]["value"] == "{event.properties.opt_out}"
         assert "bytecode" in validated["opt_out"]
 
+    def test_validate_native_email_accepts_sender_integration(self):
+        inputs_schema = [{"key": "email", "type": "native_email", "required": True}]
+        inputs = {
+            "email": {
+                "value": {
+                    "from": {"integrationId": 1},
+                    "to": {"email": "a@b.com", "name": ""},
+                    "subject": "Hi",
+                    "html": "<p>Hi</p>",
+                }
+            }
+        }
+        validated = validate_inputs(inputs_schema, inputs)
+        assert validated["email"]["value"]["from"] == {"integrationId": 1}
+
+    @parameterized.expand(
+        [
+            ("from_missing", {}),
+            ("from_empty", {"from": {}}),
+            ("from_bare_address", {"from": {"email": "a@b.com", "name": "X"}}),
+        ]
+    )
+    def test_validate_native_email_rejects_missing_sender_integration(self, _name, from_override):
+        inputs_schema = [{"key": "email", "type": "native_email", "required": True}]
+        value = {
+            "to": {"email": "a@b.com", "name": ""},
+            "subject": "Hi",
+            "html": "<p>Hi</p>",
+            **from_override,
+        }
+        inputs = {"email": {"value": value}}
+        with self.assertRaises(ValidationError) as ctx:
+            validate_inputs(inputs_schema, inputs)
+        assert "from.integrationId" in str(ctx.exception)
+
     @parameterized.expand(
         [
             ("valid_code", "let x := person.properties.email", False),
