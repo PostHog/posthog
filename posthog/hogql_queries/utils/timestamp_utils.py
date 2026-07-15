@@ -9,6 +9,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.utils import timezone
 
+import structlog
 from dateutil.parser import parse as parse_datetime
 from dateutil.relativedelta import MO, SU, relativedelta
 
@@ -23,10 +24,12 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.ast import SelectQuery
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.property import action_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
+from posthog.exceptions import ClickHouseEstimatedQueryExecutionTimeTooLong, ClickHouseQueryTimeOut
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team, User
 from posthog.models.event import DEFAULT_EARLIEST_TIME_DELTA
@@ -35,7 +38,17 @@ from posthog.utils import get_safe_cache
 
 from products.actions.backend.models.action import Action
 
+logger = structlog.get_logger(__name__)
+
 EARLIEST_TIMESTAMP_CACHE_TTL = 24 * 60 * 60
+# When the earliest-timestamp lookup times out we cache the fallback for a shorter window so a
+# cold lookup doesn't re-run the runaway scan on every request, but still retries well before the
+# 24h success TTL in case the underlying data or cluster load changes.
+EARLIEST_TIMESTAMP_FALLBACK_CACHE_TTL = 60 * 60
+# The ascending single-row scan that resolves "all time" date_from is unbounded for large teams or
+# rare events. Cap it below the default 60s execution limit so it fails fast into the graceful
+# fallback instead of making the caller wait the full limit only to take the whole insight down.
+EARLIEST_TIMESTAMP_MAX_EXECUTION_TIME = 30
 EARLIEST_EVENT_TIMESTAMP = datetime.fromisoformat("1980-01-01T00:00:00Z")
 # Floor for the team-wide unfiltered earliest timestamp: events before 2015 are treated as corrupt.
 UNFILTERED_EARLIEST_TIMESTAMP_FLOOR = datetime.fromisoformat("2015-01-01T00:00:00Z")
@@ -179,6 +192,19 @@ def _earliest_timestamp_query_tags() -> AbstractContextManager[None]:
     return tags_context(**overrides)
 
 
+def _earliest_timestamp_query_settings() -> HogQLGlobalSettings:
+    """Cap the earliest-timestamp resolution query below the default execution limit.
+
+    ``timeout_overflow_mode="throw"`` makes the query raise on timeout rather than returning a
+    partial (and therefore possibly non-earliest) result, so the caller can fall back to a known
+    floor instead of pinning a wrong lower bound for the cache TTL.
+    """
+    return HogQLGlobalSettings(
+        max_execution_time=EARLIEST_TIMESTAMP_MAX_EXECUTION_TIME,
+        timeout_overflow_mode="throw",
+    )
+
+
 def _get_earliest_timestamp_from_node(
     team: Team,
     node: Union[EventsNode, ActionsNode, DataWarehouseNode, FunnelsDataWarehouseNode, LifecycleDataWarehouseNode],
@@ -212,8 +238,18 @@ def _get_earliest_timestamp_from_node(
         query = _get_event_earliest_timestamp_query(team, node)
 
     earliest_timestamp = EARLIEST_EVENT_TIMESTAMP
-    with _earliest_timestamp_query_tags():
-        result = execute_hogql_query(query=query, team=team, user=user)
+    try:
+        with _earliest_timestamp_query_tags():
+            result = execute_hogql_query(
+                query=query, team=team, user=user, settings=_earliest_timestamp_query_settings()
+            )
+    except (ClickHouseQueryTimeOut, ClickHouseEstimatedQueryExecutionTimeTooLong):
+        # The scan is inherently unbounded for large teams or rare events. Fail soft to the
+        # 1980 floor so the "all time" insight still loads instead of erroring entirely, and
+        # cache the fallback briefly so we don't re-run the runaway scan on every request.
+        logger.warning("earliest_timestamp_query_timed_out", team_id=team.pk, cache_key=cache_key)
+        cache.set(cache_key, EARLIEST_EVENT_TIMESTAMP, timeout=EARLIEST_TIMESTAMP_FALLBACK_CACHE_TTL)
+        return EARLIEST_EVENT_TIMESTAMP
     if result and len(result.results) > 0 and len(result.results[0]) > 0 and result.results[0][0] is not None:
         earliest_timestamp = _coerce_to_datetime(result.results[0][0], team.timezone_info)
 
@@ -292,8 +328,17 @@ def get_earliest_timestamp_unfiltered(team: Team) -> datetime:
         limit=ast.Constant(value=1),
     )
 
-    with _earliest_timestamp_query_tags():
-        result = execute_hogql_query(query=query, team=team)
+    try:
+        with _earliest_timestamp_query_tags():
+            result = execute_hogql_query(query=query, team=team, settings=_earliest_timestamp_query_settings())
+    except (ClickHouseQueryTimeOut, ClickHouseEstimatedQueryExecutionTimeTooLong):
+        # Fail soft to the 2015 floor rather than the "now - delta" no-events fallback: this is the
+        # "all time" lower bound, so a runaway scan should still cover history, not collapse to a
+        # week. Cache it briefly so a cold lookup doesn't re-run the runaway scan every request.
+        logger.warning("earliest_timestamp_unfiltered_query_timed_out", team_id=team.pk, cache_key=cache_key)
+        cache.set(cache_key, UNFILTERED_EARLIEST_TIMESTAMP_FLOOR, timeout=EARLIEST_TIMESTAMP_FALLBACK_CACHE_TTL)
+        return UNFILTERED_EARLIEST_TIMESTAMP_FLOOR
+
     if result and len(result.results) > 0 and len(result.results[0]) > 0 and result.results[0][0] is not None:
         earliest_timestamp = _coerce_to_datetime(result.results[0][0], team.timezone_info)
         # Only cache real results: a team with no events yet should keep re-checking rather than
