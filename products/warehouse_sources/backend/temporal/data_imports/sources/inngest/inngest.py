@@ -23,6 +23,8 @@ EVENTS_PAGE_SIZE = 100
 # First-sync backfill window. Inngest retention is plan-gated (24h free up to 90d enterprise), so
 # asking for the longest window just returns whatever history the plan still holds.
 DEFAULT_BACKFILL_DAYS = 90
+# Emit a fan-out progress log line every N events walked.
+FAN_OUT_PROGRESS_LOG_INTERVAL = 1000
 
 
 class InngestRetryableError(Exception):
@@ -249,14 +251,20 @@ def _get_function_run_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     """Fan out over the events walk, fetching each event's function runs.
 
-    Runs have no list endpoint of their own, so the walk is bounded by the same received-time
-    window as the events table. Events with no runs still advance the walk; only events with runs
-    contribute rows (and therefore to the watermark, computed from the injected
-    `event_received_at`).
+    Runs have no list endpoint of their own (v1 and v2 only expose runs per event), so this
+    one-request-per-event walk is the only way to enumerate them; after the first sync it is
+    bounded by the incremental received-time window. Events with no runs still advance the walk;
+    only events with runs contribute rows (and therefore to the watermark, computed from the
+    injected `event_received_at`). A per-sync request budget was deliberately NOT added: the
+    walk's ordering within the window is unverified, so stopping early could persist a watermark
+    past events never walked — silent data loss. Progress is made visible via the periodic log
+    below instead.
     """
     # A batch run is returned for every event in its batch, which would duplicate the run_id
     # primary key within one sync. Bounded by the number of runs in the window.
     seen_run_ids: set[str] = set()
+    events_walked = 0
+    runs_yielded = 0
 
     for events, next_state in _iter_event_pages(
         session,
@@ -278,6 +286,15 @@ def _get_function_run_rows(
                     continue
                 seen_run_ids.add(run_id)
                 rows.append(_normalize_run(run, event.get("received_at")))
+            events_walked += 1
+            # Long stretches of run-less events yield no rows, so without this the sync looks
+            # stalled while it is really paying one lookup per event.
+            if events_walked % FAN_OUT_PROGRESS_LOG_INTERVAL == 0:
+                logger.info(
+                    f"Inngest: function_runs fan-out progress: events_walked={events_walked}, "
+                    f"runs_yielded={runs_yielded + len(rows)}"
+                )
+        runs_yielded += len(rows)
         if rows:
             yield rows
         if next_state is not None:
