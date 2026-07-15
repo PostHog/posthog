@@ -414,9 +414,13 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         modifiers = HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V2)
         if join_mode:
             modifiers.sessionsV2JoinMode = join_mode
+        # events_session_property reads self.query.modifiers, so attach them to the query
+        # itself (as production does) — passing them only to the runner leaves the query
+        # bare and the uuid branch would never trigger.
         query = WebExternalClicksTableQuery(
             dateRange=DateRange(date_from="2023-12-01", date_to="2023-12-11"),
             properties=[],
+            modifiers=modifiers,
         )
         runner = WebExternalClicksTableQueryRunner(team=self.team, query=query, modifiers=modifiers)
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers)
