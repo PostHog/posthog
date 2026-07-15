@@ -30,6 +30,7 @@ const sceneImport = (): any => ({ scene: { component: Component, logic: testLogi
 const testScenes: Record<string, () => any> = {
     [Scene.DataManagement]: sceneImport,
     [Scene.Settings]: sceneImport,
+    [Scene.StartupProgram]: sceneImport,
 }
 
 describe('sceneLogic', () => {
@@ -67,6 +68,16 @@ describe('sceneLogic', () => {
         router.actions.push(urls.settings('user'))
         await expectLogic(logic).toDispatchActions(['openScene', 'loadScene', 'setScene']).toMatchValues({
             sceneId: Scene.Settings,
+        })
+    })
+
+    it('routes a malformed startups referrer slug to the startup program instead of 404', async () => {
+        // Trailing markdown artifacts (e.g. `**` from AI-generated links) fall outside the allowed
+        // segment charset, so `/startups/:referrer` can't match. The `/startups/*` catch-all keeps
+        // these from dead-ending on the 404 scene.
+        router.actions.push('/startups/apply**')
+        await expectLogic(logic).delay(1).toMatchValues({
+            sceneId: Scene.StartupProgram,
         })
     })
 
