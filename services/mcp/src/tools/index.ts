@@ -9,6 +9,8 @@ import debugMcpUiApps from './debug/debugMcpUiApps'
 // Experiments (hand-written — CRUD + lifecycle are codegen in generated/experiments.ts)
 import getExperimentResults from './experiments/getResults'
 import experimentListDeprecated from './experiments/listDeprecated'
+// Feature flags (get-definition is hand-written to accept a key or ID — see HANDWRITTEN_OVERRIDES)
+import featureFlagGetDefinition from './featureFlags/getDefinition'
 // Feedback
 import submitFeedback from './feedback/submit'
 // Generated tools (from definitions/*.yaml)
@@ -117,6 +119,20 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     ...SKILL_DEPRECATED_ALIASES,
 }
 
+/**
+ * Hand-written tools that intentionally REPLACE a generated tool of the same name.
+ *
+ * Object spread is last-wins, and every merge site spreads GENERATED_TOOL_MAP after TOOL_MAP,
+ * so a same-named entry in TOOL_MAP would be clobbered by codegen. Spreading this map last (after
+ * GENERATED_TOOL_MAP) lets the hand-written handler win without having to disable the operation in
+ * YAML and regenerate. Only put a tool here when it deliberately overrides a generated one; the
+ * shared metadata (title/description/scopes/annotations) still comes from the generated definition.
+ */
+export const HANDWRITTEN_OVERRIDES: Record<string, () => ToolBase<ZodObjectAny>> = {
+    // Accepts a flag key or numeric ID and returns actionable errors (generated version was ID-only).
+    'feature-flag-get-definition': featureFlagGetDefinition,
+}
+
 export const getToolsFromContext = async (
     context: Context,
     options?: ToolFilterOptions
@@ -124,7 +140,7 @@ export const getToolsFromContext = async (
     // Check org AI consent to gate tools that use LLMs internally (cached in StateManager)
     const aiConsentGiven = await context.stateManager.getAiConsentGiven()
     const effectiveOptions = aiConsentGiven !== undefined ? { ...options, aiConsentGiven } : options
-    const effectiveMap = { ...TOOL_MAP, ...GENERATED_TOOL_MAP }
+    const effectiveMap = { ...TOOL_MAP, ...GENERATED_TOOL_MAP, ...HANDWRITTEN_OVERRIDES }
     const excludeTools = options?.excludeTools ?? []
     const allowedToolNames = getFilteredToolNames(effectiveOptions).filter((name) => !excludeTools.includes(name))
     const toolBases: ToolBase<ZodObjectAny>[] = []

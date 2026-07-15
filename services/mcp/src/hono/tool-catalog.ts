@@ -61,7 +61,7 @@ export class ToolCatalog {
 
         const start = performance.now()
 
-        const [{ TOOL_MAP }, { GENERATED_TOOL_MAP }] = await Promise.all([
+        const [{ TOOL_MAP, HANDWRITTEN_OVERRIDES }, { GENERATED_TOOL_MAP }] = await Promise.all([
             import('@/tools'),
             import('@/tools/generated'),
         ])
@@ -69,6 +69,7 @@ export class ToolCatalog {
         const allFactories: Record<string, () => ToolBase<ZodObjectAny>> = {
             ...TOOL_MAP,
             ...GENERATED_TOOL_MAP,
+            ...HANDWRITTEN_OVERRIDES,
         }
 
         const defs = getToolDefinitions()
