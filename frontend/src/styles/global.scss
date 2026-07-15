@@ -5,7 +5,7 @@
 // app rely on `.LemonIcon` to size them, but the rule otherwise ships only in the
 // lib/lemon-ui/icons chunk, so it can be absent on a route that renders those icons
 // without loading that chunk, leaving them to blow up to their `width="100%"` fallback.
-@import '../lib/lemon-ui/icons/icons.scss';
+@import '../lib/lemon-ui/icons/icons';
 
 /*
  * @posthog/quill — scoped tokens + primitive BEM rules. The scoped token
