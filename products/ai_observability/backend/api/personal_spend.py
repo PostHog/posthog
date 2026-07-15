@@ -283,7 +283,13 @@ class _BucketBreakdownRowSerializer(serializers.Serializer):
             "context is re-written to the cache at the cache-write rate instead of being read back cheaply."
         )
     )
-    input_tokens = serializers.IntegerField(help_text="Sum of uncached `$ai_input_tokens` in this bucket.")
+    input_tokens = serializers.IntegerField(
+        help_text=(
+            "Sum of `$ai_input_tokens` in this bucket. Whether cached tokens are included follows the "
+            "provider's reporting (`$ai_cache_reporting_exclusive`): Anthropic-style events exclude them, "
+            "OpenAI-style events include them, so don't stack this with the cache token sums."
+        )
+    )
     output_tokens = serializers.IntegerField(help_text="Sum of `$ai_output_tokens` in this bucket.")
     cache_read_input_tokens = serializers.IntegerField(
         help_text="Sum of `$ai_cache_read_input_tokens` (prompt tokens served from cache) in this bucket."
