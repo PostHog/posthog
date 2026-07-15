@@ -580,6 +580,7 @@ def _resolve_acting_user(
     report_id: str | None = None,
     trigger_source: str = TRIGGER_MANUAL,
 ) -> ResolveActingUserResult:
+    acting_user_id: int | None
     if override_user_id is not None:
         acting_user_id, resolved_from = override_user_id, "override"
     else:
