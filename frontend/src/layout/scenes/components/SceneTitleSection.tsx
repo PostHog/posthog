@@ -68,9 +68,14 @@ export function SceneTitlePanelButton({
         return null
     }
 
+    const rawFeatureFlags = featureFlags.toJSON?.() ?? featureFlags
+    const maxButtonLabelVariant = maxButtonLabelExperiment
+        ? rawFeatureFlags[maxButtonLabelExperiment.flag]
+        : undefined
     const maxButtonLabel =
         !sceneMenuBarEnabled &&
         maxButtonLabelExperiment &&
+        maxButtonLabelVariant !== undefined &&
         featureFlags[maxButtonLabelExperiment.flag] === maxButtonLabelExperiment.variant
             ? maxButtonLabelExperiment.label
             : undefined
