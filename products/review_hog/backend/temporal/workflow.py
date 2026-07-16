@@ -9,8 +9,10 @@ streams in the worker log (the former stdout banners).
 
 The fan-out children dispatch per-unit sandbox activities (each retried) under a fresh
 `asyncio.Semaphore` and `gather(return_exceptions=True)`, so a minority of failed units degrade
-best-effort; a near-total wipeout (> `FAN_OUT_FAILURE_FLOOR`) fails the run loudly instead of
-finalizing an empty review as success. Publishing is per-run: the final stage posts to GitHub only
+best-effort; a near-total wipeout (> `FAN_OUT_FAILURE_FLOOR`, once the fan-out clears
+`FAN_OUT_FAILURE_FLOOR_MIN_UNITS`) fails the run loudly instead of finalizing an empty review as
+success — small fan-outs, where the ratio is degenerate, always degrade best-effort. Publishing is
+per-run: the final stage posts to GitHub only
 when `inputs.publish` is set (the cloud label trigger), and is skipped for eval / CLI runs.
 """
 
@@ -27,6 +29,7 @@ from temporalio.exceptions import ActivityError, ApplicationError
 from products.review_hog.backend.reviewer.constants import (
     BLIND_SPOT_PASS_NUMBER,
     FAN_OUT_FAILURE_FLOOR,
+    FAN_OUT_FAILURE_FLOOR_MIN_UNITS,
     MAX_CONCURRENT_SANDBOXES,
     VALIDATION_MAX_ATTEMPTS,
 )
@@ -91,12 +94,17 @@ _VALIDATE_RETRY = RetryPolicy(maximum_attempts=VALIDATION_MAX_ATTEMPTS)
 
 
 def _enforce_failure_floor(stage: str, failed: int, total: int) -> None:
-    """Fail the run when more than `FAN_OUT_FAILURE_FLOOR` of a fan-out stage's units failed.
+    """Fail the run when a fan-out stage suffers a near-total wipeout (e.g. the sandbox layer down).
 
-    A few flaky units degrade best-effort; a near-total wipeout (e.g. the sandbox layer down) must
-    surface loudly instead of letting the pipeline finalize an empty review as success.
+    A few flaky units degrade best-effort; a near-total wipeout must surface loudly instead of
+    letting the pipeline finalize an empty review as success. The ratio only carries that signal on
+    a large-enough fan-out: below `FAN_OUT_FAILURE_FLOOR_MIN_UNITS` units it is degenerate — a
+    single-chunk PR fans out to one blind-spot unit, so a lone flaky turn is `1/1 == 100%` and would
+    always trip the floor. Small fan-outs always degrade best-effort instead of hard-failing.
     """
-    if total and failed / total > FAN_OUT_FAILURE_FLOOR:
+    if total < FAN_OUT_FAILURE_FLOOR_MIN_UNITS:
+        return
+    if failed / total > FAN_OUT_FAILURE_FLOOR:
         raise ApplicationError(
             f"{stage}: {failed}/{total} units failed (> {FAN_OUT_FAILURE_FLOOR:.0%}); failing the run"
         )

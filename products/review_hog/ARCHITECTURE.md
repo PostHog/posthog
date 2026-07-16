@@ -342,8 +342,9 @@ Now only **issue ids** cross stage boundaries; content reloads from the persiste
 
 Resilience fix, observed on a real run: a validation turn died mid-session (upstream API timeout → the sandbox task ended `failed`), `validate_chunk_activity` best-effort skipped the issue, returned success, and the run finalized without the verdict — the failed validation was never retried.
 Now a failed turn **fails the activity so Temporal retries it** — cheap by design, since skip-resume (`load_run_validations` → `done`/`pending`) re-validates only the issues without a persisted verdict, on a fresh session.
-Only the **final attempt** degrades to the old skip, and it also resets to a fresh session for the remaining issues (the failed one may be wedged after a dead turn), so one persistently failing issue can't sink the chunk — or, through the failure floor, a single-chunk run.
-Session-OPEN failure still raises on every attempt (the outage signal the floor counts).
+Only the **final attempt** degrades to the old skip, and it also resets to a fresh session for the remaining issues (the failed one may be wedged after a dead turn), so one persistently failing issue can't sink the chunk.
+A single-chunk run is doubly protected: the floor is only enforced once the fan-out clears `FAN_OUT_FAILURE_FLOOR_MIN_UNITS`, so a lone 1/1 failure degrades best-effort rather than tripping the ratio.
+Session-OPEN failure still raises on every attempt (the outage signal the floor counts on a large-enough fan-out).
 
 - `reviewer/constants.py`: `VALIDATION_MAX_ATTEMPTS = 2` (the uniform "1 retry" policy); `workflow.py` builds `_VALIDATE_RETRY` from it and `validate_chunk_activity` keys its final-attempt check off the same constant, so the policy and the fallback can't drift.
 - Tests: `test_validate_activity.py` (turn failure raises + prior verdicts persisted + done issues not re-sent; final attempt skips + fresh session for the rest; open failure raises even on the final attempt) + a workflow-level retry-wiring test in `test_temporal_workflow.py`.
@@ -3667,7 +3668,10 @@ resolved entries kept with what superseded them:
   and later hardening: every review unit is an activity with `RetryPolicy(maximum_attempts=2)`, failed units
   are counted and logged per stage (never silent), and a fan-out stage losing more than
   `FAN_OUT_FAILURE_FLOOR = 0.70` of its units fails the run loudly (`_enforce_failure_floor`,
-  `temporal/workflow.py`). Validation turn failures additionally retry with skip-resume (see "✅ BUILT
+  `temporal/workflow.py`) — but only once the fan-out clears `FAN_OUT_FAILURE_FLOOR_MIN_UNITS`, since
+  the ratio is degenerate on a tiny denominator (a single-chunk PR's one blind-spot unit is 1/1 == 100%),
+  so small fan-outs always degrade best-effort rather than hard-fail on a lone flaky turn.
+  Validation turn failures additionally retry with skip-resume (see "✅ BUILT
   2026-07-07 — validation turn failures retry").
 - **TODO — perspective fan-out back-loads the last perspective.** `ReviewPerspectivesWorkflow.run` builds the
   wave gather in perspective order (`units = [(p, c) for p in ordered for c in inputs.chunk_ids]`,

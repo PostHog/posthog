@@ -593,11 +593,25 @@ async def test_validate_issues_workflow_is_best_effort_on_chunk_failure():
 
 @pytest.mark.asyncio
 async def test_validate_issues_workflow_fails_above_failure_floor():
-    # Both chunks' sessions fail (100%, over the 70% floor): a near-total wipeout fails the run loudly
-    # instead of finalizing with no verdicts.
+    # Three chunks' sessions all fail (100%, over the 70% floor, and past the min-units gate): a
+    # near-total wipeout on a large-enough fan-out fails the run loudly instead of finalizing with no
+    # verdicts.
     @activity.defn(name="validate_chunk_activity")
     async def validate_chunk(input: ValidateChunkInput) -> ValidateChunkResult:
         raise RuntimeError("sandbox boom")
 
     with pytest.raises(WorkflowFailureError):
-        await _run_validate_workflow(issue_ids=["1-1-1", "1-2-1"], validate_chunk=validate_chunk)
+        await _run_validate_workflow(issue_ids=["1-1-1", "1-2-1", "1-3-1"], validate_chunk=validate_chunk)
+
+
+@pytest.mark.asyncio
+async def test_validate_issues_workflow_single_chunk_failure_degrades_best_effort():
+    # A single-chunk PR fans out to one validation unit, so a lone failed turn is 1/1 == 100%. The
+    # ratio floor is degenerate below the min-units gate, so this must NOT hard-fail the run — it
+    # degrades best-effort and returns zero validated, exactly like a minority failure on a big PR.
+    @activity.defn(name="validate_chunk_activity")
+    async def validate_chunk(input: ValidateChunkInput) -> ValidateChunkResult:
+        raise RuntimeError("sandbox boom")
+
+    validated = await _run_validate_workflow(issue_ids=["1-1-1"], validate_chunk=validate_chunk)
+    assert validated == 0
