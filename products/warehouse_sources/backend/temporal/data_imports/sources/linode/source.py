@@ -75,7 +75,6 @@ Create a personal access token in the [Linode Cloud Manager](https://cloud.linod
             ),
             # Kept hidden until the sync logic has been exercised against a live account (we could not
             # curl-verify the incremental X-Filter behavior without credentials).
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

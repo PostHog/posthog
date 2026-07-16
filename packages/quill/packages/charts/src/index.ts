@@ -1,6 +1,10 @@
 // Components
 export { BarChart } from './charts/BarChart/BarChart'
 export type { BarChartProps } from './charts/BarChart/BarChart'
+export { FunnelChart, FUNNEL_BAND_PADDING } from './charts/FunnelChart/FunnelChart'
+export type { FunnelChartConfig, FunnelChartProps, FunnelStepClickData } from './charts/FunnelChart/FunnelChart'
+export { funnelConversionRate, funnelFromCounts, RATE_TO_PERCENT } from './charts/FunnelChart/funnel-data'
+export type { FunnelFromCountsOptions, FunnelStepCount } from './charts/FunnelChart/funnel-data'
 export { LineChart } from './charts/LineChart/LineChart'
 export type { LineChartProps } from './charts/LineChart/LineChart'
 export { ComboChart } from './charts/ComboChart/ComboChart'

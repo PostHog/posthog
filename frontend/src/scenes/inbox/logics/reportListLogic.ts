@@ -113,6 +113,7 @@ export const reportListLogic = kea<reportListLogicType>([
                 'togglePriority',
                 'setScope',
                 'applyDefaultScope',
+                'setFilters',
                 'clearFilters',
             ],
         ],
@@ -257,6 +258,7 @@ export const reportListLogic = kea<reportListLogicType>([
         togglePriority: () => actions.refresh(),
         setScope: () => actions.refresh(),
         applyDefaultScope: () => actions.refresh(),
+        setFilters: () => actions.refresh(),
         clearFilters: () => actions.refresh(),
         // For-you scope needs the current user's uuid; reload once it resolves.
         [userLogic.actionTypes.loadUserSuccess]: () => {

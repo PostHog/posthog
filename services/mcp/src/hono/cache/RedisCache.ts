@@ -24,7 +24,12 @@ export class RedisCache<T extends Record<string, any>> extends ScopedCache<T> {
     private ttl: number
     private prefix: CachePrefix
 
-    constructor(scope: string, redis: RedisLike, prefix: CachePrefix = 'token', ttlSeconds: number = DEFAULT_TTL_SECONDS) {
+    constructor(
+        scope: string,
+        redis: RedisLike,
+        prefix: CachePrefix = 'token',
+        ttlSeconds: number = DEFAULT_TTL_SECONDS
+    ) {
         super(scope)
         this.redis = redis
         this.prefix = prefix

@@ -853,14 +853,21 @@ function buildResponseFilter(config: ToolConfig): {
 } {
     if (config.response?.include?.length) {
         const paths = config.response?.include.map((f) => `'${f}'`).join(', ')
+        // `selectable` lets the agent pass `fields` to narrow the allowlist per call; the Zod
+        // `z.enum(...).min(1)` on the schema already constrains `fields` to a non-empty subset of
+        // `include`, so an absent `fields` falls back to the full allowlist (an empty array is
+        // rejected at validation) and no separate intersection is needed.
+        const pathsExpr = config.response?.selectable
+            ? `params.fields?.length ? params.fields : [${paths}]`
+            : `[${paths}]`
         if (config.list) {
             return {
-                code: `        const filtered = { ...result, results: (result.results ?? []).map((item: any) => pickResponseFields(item, [${paths}])) } as typeof result\n`,
+                code: `        const filtered = { ...result, results: (result.results ?? []).map((item: any) => pickResponseFields(item, ${pathsExpr})) } as typeof result\n`,
                 helperImport: 'pickResponseFields',
             }
         }
         return {
-            code: `        const filtered = pickResponseFields(result, [${paths}]) as typeof result\n`,
+            code: `        const filtered = pickResponseFields(result, ${pathsExpr}) as typeof result\n`,
             helperImport: 'pickResponseFields',
         }
     }
@@ -878,6 +885,31 @@ function buildResponseFilter(config: ToolConfig): {
         }
     }
     return { code: '', helperImport: null }
+}
+
+/**
+ * When `response.selectable` is set, emit a `.extend({ fields: ... })` clause adding an optional
+ * `fields` request param constrained (via `z.enum`) to the `include` allowlist. Returns '' when the
+ * tool doesn't opt in, so the schema expression is left untouched. Throws when `selectable` is set
+ * without an `include` allowlist, since there would be nothing to constrain the `fields` param to.
+ */
+function buildSelectableFieldsExtension(config: ToolConfig): string {
+    if (!config.response?.selectable) {
+        return ''
+    }
+    const include = config.response?.include
+    if (!include?.length) {
+        // selectable has no allowlist to constrain the `fields` param against — fail codegen loudly
+        // rather than silently emitting a tool whose `selectable` flag does nothing.
+        throw new Error(
+            `response.selectable requires a non-empty response.include allowlist — add the fields the tool may return, or remove selectable`
+        )
+    }
+    const enumValues = include.map((f) => `'${f}'`).join(', ')
+    const description =
+        'Optional subset of response fields to return, each a dot-path from the allowlist. ' +
+        'Omit to return all fields. Request only the fields your task needs to keep responses small.'
+    return `.extend({ fields: z.array(z.enum([${enumValues}])).min(1).optional().describe(${JSON.stringify(description)}) })`
 }
 
 // ------------------------------------------------------------------
@@ -974,6 +1006,12 @@ function generateToolCode(
     }
 
     let schemaExpr = composition.schemaExpr
+    // Add the `fields` selection param before any validator wrapping, while schemaExpr is still a
+    // ZodObject that supports `.extend`.
+    const selectableExtension = buildSelectableFieldsExtension(config)
+    if (selectableExtension) {
+        schemaExpr = `${schemaExpr}${selectableExtension}`
+    }
     if (config.validators && config.validators.length > 0) {
         for (const fn of config.validators) {
             schemaExpr = `(${schemaExpr}).superRefine(${fn})`
@@ -1124,7 +1162,11 @@ function generateToolCode(
     // `params` is only referenced when a dynamic body/query/path param reads from it; inject_body
     // alone doesn't touch params, so don't count it here.
     const paramsUsed =
-        composition.bodyFieldNames.length > 0 || hasQuery || composition.pathParamNames.length > 0 || enrichUsesParams
+        composition.bodyFieldNames.length > 0 ||
+        hasQuery ||
+        composition.pathParamNames.length > 0 ||
+        enrichUsesParams ||
+        !!selectableExtension
     const unusedParamsComment = paramsUsed ? '' : '// eslint-disable-next-line no-unused-vars\n'
 
     // When `confirmed_action` is declared, emit TWO factories instead of
@@ -1358,6 +1400,12 @@ function generateCustomSchemaToolCode(
 
     let baseSchemaExpr = config.input_schema as string
     const toolInputsImports: string[] = config.input_schema ? [config.input_schema] : []
+    // Add the `fields` selection param before any validator wrapping, while the custom schema is
+    // still a ZodObject that supports `.extend` — mirrors the Orval-schema path in generateToolCode.
+    const selectableExtension = buildSelectableFieldsExtension(config)
+    if (selectableExtension) {
+        baseSchemaExpr = `${baseSchemaExpr}${selectableExtension}`
+    }
     if (config.validators && config.validators.length > 0) {
         for (const fn of config.validators) {
             baseSchemaExpr = `(${baseSchemaExpr}).superRefine(${fn})`

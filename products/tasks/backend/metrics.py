@@ -10,6 +10,7 @@ if TYPE_CHECKING:
 
 
 TaskWorkflowStartOutcome = Literal["attempted", "blocked", "failed", "started"]
+CustomImageBuildOutcome = Literal["started", "succeeded", "failed", "scan_rejected"]
 # Outcome of an SSE task-run stream connection when it closes.
 #   completed         — stream reached its completion sentinel
 #   stream_error      — Redis/stream error sentinel ended the connection
@@ -79,6 +80,12 @@ TASK_RUN_FAILED_TOTAL = Counter(
     ],
 )
 
+CUSTOM_IMAGE_BUILD_TOTAL = Counter(
+    "posthog_tasks_custom_image_build_total",
+    "Custom sandbox image build lifecycle events",
+    labelnames=["outcome"],
+)
+
 
 # Connection lifetimes range from a few seconds (cold reconnect) to the
 # per-connection cap. The 120s bucket isolates connections cut at the
@@ -98,7 +105,7 @@ STREAM_CONNECTION_DURATION_BUCKETS = [
     7_200.0,
     21_600.0,
 ]
-# Stream length is capped at TASK_RUN_STREAM_MAX_LENGTH (~20k); the top buckets
+# Stream length is capped at TASK_RUN_STREAM_MAX_LENGTH (~5k); the top buckets
 # show how close real runs get to the trim threshold.
 STREAM_LENGTH_BUCKETS = [10.0, 50.0, 100.0, 500.0, 1_000.0, 2_500.0, 5_000.0, 10_000.0, 15_000.0, 20_000.0]
 
@@ -226,6 +233,13 @@ def observe_task_run_workflow_start(
 
 def observe_prewarmed_activated(task_run: "TaskRun") -> None:
     PREWARMED_ACTIVATED_TOTAL.labels(origin_product=origin_product_label(task_run)).inc()
+
+
+def observe_custom_image_build(outcome: CustomImageBuildOutcome) -> None:
+    try:
+        CUSTOM_IMAGE_BUILD_TOTAL.labels(outcome=outcome).inc()
+    except Exception:
+        logger.exception("custom_image_build_metric_failed", outcome=outcome)
 
 
 def origin_product_label(task_run: "TaskRun | None") -> str:

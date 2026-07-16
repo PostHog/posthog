@@ -14,11 +14,116 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 from products.warehouse_sources.backend.models.oom_event import ExternalDataSchemaOOMEvent
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
     handle_corrupted_delta_log,
+    handle_reset_or_full_refresh,
+    persist_primary_keys,
     report_heartbeat_timeout,
+    resolve_primary_keys,
     run_pre_write_defensive_compact,
 )
 
 _EXTRACT_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract"
+
+
+class TestResolvePrimaryKeys:
+    @parameterized.expand(
+        [
+            # A persisted key (user override or earlier detection) always wins over live detection.
+            ("persisted_wins_over_live", ["user_pk"], ["live_pk"], {"columns": [{"name": "id"}]}, ["user_pk"]),
+            # No persisted key -> use what the source detected live this run.
+            ("live_used_when_no_persisted", None, ["live_pk"], {"columns": [{"name": "id"}]}, ["live_pk"]),
+            # Neither persisted nor live, but the table has `id` -> mirror the discovery-time fallback.
+            ("id_fallback_when_neither", None, None, {"columns": [{"name": "id"}, {"name": "name"}]}, ["id"]),
+            # Nothing to fall back on -> None, so the keyless-table guardrail still fires.
+            ("none_when_no_id_and_nothing_else", None, None, {"columns": [{"name": "name"}]}, None),
+            # Snowflake uppercases unquoted identifiers: the fallback must match `ID`
+            # case-insensitively AND return the actual stored casing — the merge indexes batches
+            # by the real column name, so a hardcoded lowercase `id` would fail it just the same.
+            ("uppercase_id_matched_with_actual_casing", None, None, {"columns": [{"name": "ID"}]}, ["ID"]),
+        ]
+    )
+    def test_precedence(
+        self,
+        _name: str,
+        persisted: list[str] | None,
+        live: list[str] | None,
+        schema_metadata: dict,
+        expected: list[str] | None,
+    ):
+        schema = MagicMock(primary_key_columns=persisted, schema_metadata=schema_metadata)
+        resource = MagicMock(primary_keys=live)
+        assert resolve_primary_keys(schema, resource) == expected
+
+
+class TestPersistPrimaryKeys:
+    @parameterized.expand(
+        [
+            # name, is_incremental, persisted_pk, resource_pks, db_config_before, expected_written (None = no write attempted)
+            # Full-refresh schemas don't merge on a PK — never touch sync_type_config.
+            ("skips_when_not_incremental", False, None, ["id"], {}, None),
+            # A stored PK is already the source of truth — nothing to backfill.
+            ("skips_when_already_persisted", True, ["existing"], ["id"], {}, None),
+            # No resolvable PK -> leave it empty so the keyless-table guardrail still fires.
+            ("skips_when_no_resolved_pk", True, None, None, {}, None),
+            # The fix: an incremental schema with no stored PK backfills the resolved one.
+            ("backfills_when_incremental_and_empty", True, None, ["id"], {}, {"primary_key_columns": ["id"]}),
+            # A concurrent API edit that landed a PK first must not be clobbered inside the lock.
+            (
+                "does_not_clobber_concurrent_write",
+                True,
+                None,
+                ["id"],
+                {"primary_key_columns": ["already"]},
+                {"primary_key_columns": ["already"]},
+            ),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_persists_only_when_incremental_and_empty(
+        self,
+        _name: str,
+        is_incremental: bool,
+        persisted: list[str] | None,
+        resource_pks: list[str] | None,
+        db_config_before: dict,
+        expected_written: dict | None,
+    ):
+        schema = MagicMock(id="s1", team_id=1, primary_key_columns=persisted)
+        resource = MagicMock(primary_keys=resource_pks)
+
+        captured: dict = {}
+
+        def fake_pool(fn):
+            async def _call(schema_id, team_id, *, mutate=None, **kwargs):
+                config = dict(db_config_before)
+                if mutate is not None:
+                    mutate(config)
+                captured["config"] = config
+                return config
+
+            return _call
+
+        with patch(f"{_EXTRACT_MODULE}.database_sync_to_async_pool", fake_pool):
+            await persist_primary_keys(schema, resource, is_incremental, AsyncMock())
+
+        assert captured.get("config") == expected_written
+
+    @pytest.mark.asyncio
+    async def test_persistence_failure_does_not_raise(self):
+        # Best-effort: a DB failure while backfilling the PK must not fail an otherwise good sync.
+        schema = MagicMock(id="s1", team_id=1, primary_key_columns=None)
+        resource = MagicMock(primary_keys=["id"])
+        logger = AsyncMock()
+
+        def fake_pool(fn):
+            async def _call(*args, **kwargs):
+                raise RuntimeError("pooler dropped the connection")
+
+            return _call
+
+        with patch(f"{_EXTRACT_MODULE}.database_sync_to_async_pool", fake_pool):
+            await persist_primary_keys(schema, resource, True, logger)
+
+        logger.aexception.assert_awaited_once()
 
 
 class TestRunPreWriteDefensiveCompact:
@@ -222,3 +327,55 @@ class TestHandleCorruptedDeltaLog:
         assert ph.capture.call_args.kwargs["event"] == "warehouse_delta_revived"
         assert ph.capture.call_args.kwargs["properties"]["outcome"] == "salvaged"
         assert ph.capture.call_args.kwargs["properties"]["made_non_billable"] is False
+
+
+# transaction=True: the webhook-first branch clears the reset flag via update_sync_type_config_keys,
+# which writes from the async thread pool and can't see an atomic TestCase's uncommitted rows.
+@pytest.mark.django_db(transaction=True)
+class TestHandleResetOrFullRefresh:
+    def _webhook_schema(self, team) -> ExternalDataSchema:
+        source = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), team=team, source_type="Github"
+        )
+        return ExternalDataSchema.objects.create(
+            name="workflow_jobs",
+            team=team,
+            source=source,
+            sync_type=ExternalDataSchema.SyncType.WEBHOOK,
+            sync_type_config={"reset_pipeline": True, "incremental_field_last_value": "2026-01-01T00:00:00"},
+            initial_sync_complete=True,
+        )
+
+    def test_webhook_only_reset_preserves_table_and_state(self, team):
+        # The data-loss regression: a reset on a webhook-only schema must not wipe the Delta
+        # table (the poll can't rebuild webhook-accumulated rows). The reset request is consumed,
+        # while the watermark and initial_sync_complete survive so webhook ingestion resumes.
+        schema = self._webhook_schema(team)
+        helper = MagicMock(reset_table=AsyncMock())
+
+        async_to_sync(handle_reset_or_full_refresh)(
+            True, False, schema, helper, MagicMock(adebug=AsyncMock()), webhook_only=True
+        )
+
+        helper.reset_table.assert_not_awaited()
+        # In-memory config is cleared too — otherwise a later watermark save re-persists
+        # reset_pipeline and every subsequent run is treated as a reset.
+        assert "reset_pipeline" not in schema.sync_type_config
+        schema.refresh_from_db()
+        assert "reset_pipeline" not in schema.sync_type_config
+        assert schema.sync_type_config["incremental_field_last_value"] == "2026-01-01T00:00:00"
+        assert schema.initial_sync_complete is True
+
+    def test_poll_backfillable_reset_still_wipes(self, team):
+        # Guard against over-correction: a reset on a schema whose poll CAN rebuild the data
+        # must keep wiping so the re-crawl starts from a clean table.
+        schema = self._webhook_schema(team)
+        helper = MagicMock(reset_table=AsyncMock())
+
+        async_to_sync(handle_reset_or_full_refresh)(
+            True, False, schema, helper, MagicMock(adebug=AsyncMock()), webhook_only=False
+        )
+
+        helper.reset_table.assert_awaited_once()
+        schema.refresh_from_db()
+        assert "reset_pipeline" not in schema.sync_type_config

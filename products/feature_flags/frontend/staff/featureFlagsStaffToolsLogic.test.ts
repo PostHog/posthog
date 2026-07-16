@@ -30,6 +30,7 @@ describe('featureFlagsStaffToolsLogic', () => {
             get: {
                 '/api/feature_flags_staff_teams': { results: [TEAM] },
                 '/api/feature_flags_staff_cache': { results: [] },
+                '/api/feature_flags_staff_cache/warm_run': { run: null },
             },
         })
         initKeaTests()
@@ -192,6 +193,95 @@ describe('featureFlagsStaffToolsLogic', () => {
             await expectLogic(logic).toDispatchActions(['viewCacheEntryFailure'])
             expect(lemonToast.error).toHaveBeenCalled()
             expectLogic(logic).toMatchValues({ viewingCacheEntry: null })
+        })
+    })
+
+    describe('warm-all run status', () => {
+        const WARM_RUN = {
+            run_id: 'run-1',
+            state: 'running',
+            scope: 'teams_with_flags',
+            total: 100,
+            processed: 40,
+            successful: 39,
+            failed: 1,
+            last_team_id: 4321,
+            started_at: '2026-07-09T00:00:00+00:00',
+            updated_at: '2026-07-09T00:10:00+00:00',
+            is_stale: false,
+            cancel_requested: false,
+        }
+
+        it('unwraps the run from the status endpoint response', async () => {
+            // Let the mount-time load (mocked as { run: null }) settle first so the
+            // assertion below unambiguously matches the reload with the new mock.
+            await expectLogic(logic).toDispatchActions(['loadWarmRunSuccess'])
+            useMocks({ get: { '/api/feature_flags_staff_cache/warm_run': { run: WARM_RUN } } })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadWarmRun()
+            })
+                .toDispatchActions(['loadWarmRun', 'loadWarmRunSuccess'])
+                .toMatchValues({ warmRun: WARM_RUN })
+        })
+
+        it('reads an absent run as null, not as the wrapper object', async () => {
+            logic.actions.loadWarmRun()
+            await expectLogic(logic).toDispatchActions(['loadWarmRunSuccess']).toMatchValues({ warmRun: null })
+        })
+
+        it('refetches status after a cancel request so the UI reflects it promptly', async () => {
+            useMocks({
+                post: {
+                    '/api/feature_flags_staff_cache/warm_run/cancel': { run_id: 'run-1', cancel_requested: true },
+                },
+            })
+
+            logic.actions.cancelWarmRun()
+            await expectLogic(logic).toDispatchActions(['cancelWarmRunSuccess', 'loadWarmRun'])
+            expect(lemonToast.success).toHaveBeenCalled()
+        })
+
+        it('shows an error toast when the cancel request fails', async () => {
+            useMocks({ post: { '/api/feature_flags_staff_cache/warm_run/cancel': () => [400, {}] } })
+
+            logic.actions.cancelWarmRun()
+            await expectLogic(logic).toDispatchActions(['cancelWarmRunFailure'])
+            expect(lemonToast.error).toHaveBeenCalled()
+        })
+
+        it('polls at the active cadence while a run is live, and falls back to idle otherwise', async () => {
+            // Let the mount-time load (mocked as { run: null }, idle cadence) settle first.
+            await expectLogic(logic).toDispatchActions(['loadWarmRunSuccess'])
+
+            useMocks({ get: { '/api/feature_flags_staff_cache/warm_run': { run: WARM_RUN } } })
+            logic.actions.loadWarmRun()
+            await expectLogic(logic).toDispatchActions(['loadWarmRunSuccess'])
+            expect(logic.cache.warmRunPollMs).toEqual(5000)
+
+            // A stale "running" run is treated as idle, same as a completed/cancelled one.
+            useMocks({ get: { '/api/feature_flags_staff_cache/warm_run': { run: { ...WARM_RUN, is_stale: true } } } })
+            logic.actions.loadWarmRun()
+            await expectLogic(logic).toDispatchActions(['loadWarmRunSuccess'])
+            expect(logic.cache.warmRunPollMs).toEqual(30000)
+        })
+
+        it('falls back to the idle poll cadence when a status fetch fails', async () => {
+            // Let the mount-time load (mocked as { run: null }) settle first so it can't race
+            // with the loads below.
+            await expectLogic(logic).toDispatchActions(['loadWarmRunSuccess'])
+
+            // Put the poller into the active cadence first, so a no-op failure handler would be
+            // observable (staying at 5000) instead of masked by the idle default from mount.
+            useMocks({ get: { '/api/feature_flags_staff_cache/warm_run': { run: WARM_RUN } } })
+            logic.actions.loadWarmRun()
+            await expectLogic(logic).toDispatchActions(['loadWarmRunSuccess'])
+            expect(logic.cache.warmRunPollMs).toEqual(5000)
+
+            useMocks({ get: { '/api/feature_flags_staff_cache/warm_run': () => [500, {}] } })
+            logic.actions.loadWarmRun()
+            await expectLogic(logic).toDispatchActions(['loadWarmRunFailure'])
+            expect(logic.cache.warmRunPollMs).toEqual(30000)
         })
     })
 

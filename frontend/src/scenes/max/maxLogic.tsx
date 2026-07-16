@@ -29,7 +29,7 @@ import {
 
 import { PENDING_AI_PROMPT_KEY } from './max-storage-keys'
 import { maxContextLogic } from './maxContextLogic'
-import { maxGlobalLogic } from './maxGlobalLogic'
+import { maxGlobalLogic, type PhaiViewMode } from './maxGlobalLogic'
 import type { maxLogicType } from './maxLogicType'
 import { MaxUIContext } from './maxTypes'
 
@@ -88,7 +88,7 @@ interface ParsedCommand {
     question: string
 }
 
-function parseCommandString(options: string): ParsedCommand {
+export function parseCommandString(options: string): ParsedCommand {
     let remaining = options
 
     // Check for mode parameter (format: mode=<value>:rest), remove it if present
@@ -109,14 +109,21 @@ function parseCommandString(options: string): ParsedCommand {
     }
 }
 
-function handleCommandString(options: string, actions: maxLogicType['actions']): void {
+function handleCommandString(options: string, actions: maxLogicType['actions'], effectivePhaiView: PhaiViewMode): void {
     const parsed = parseCommandString(options)
 
     // Note: The mode parameter is handled directly by maxThreadLogic in its afterMount
     // to ensure the correct logic instance sets its own mode
 
     if (parsed.autoRun) {
-        actions.setAutoRun(true)
+        // In the new panel view the prompt is consumed by `phaiSidePanelComposerSeedLogic` instead; setting
+        // autoRun here too would make the (mounted but hidden) legacy thread fire `askMax` on top of the new
+        // composer's submit, so one CTA would start two agent runs. The view mode is a connected value
+        // (maxGlobalLogic is mounted with maxLogic), so it's never in an unknown state that could fall
+        // through to the legacy auto-run.
+        if (effectivePhaiView !== 'new') {
+            actions.setAutoRun(true)
+        }
     }
 
     if (parsed.question !== '') {
@@ -166,6 +173,7 @@ export const maxLogic = kea<maxLogicType>([
                 'toolSuggestions',
                 'conversationHistory',
                 'conversationHistoryLoading',
+                'effectivePhaiView',
             ],
             // Actions are lazy-loaded. In order to display their names in the UI, we're loading them here.
             actionsModel({ params: 'include_count=1' }),
@@ -472,7 +480,7 @@ export const maxLogic = kea<maxLogicType>([
         // Listen for when the side panel state changes and check for initial prompt
         [sidePanelStateLogic.actionTypes.openSidePanel]: ({ tab, options }) => {
             if (tab === SidePanelTab.Max && options && typeof options === 'string') {
-                handleCommandString(options, actions)
+                handleCommandString(options, actions, values.effectivePhaiView)
             }
         },
         scrollThreadToBottom: ({ behavior }) => {
@@ -632,7 +640,7 @@ export const maxLogic = kea<maxLogicType>([
             sidePanelStateLogic.values.selectedTabOptions &&
             typeof sidePanelStateLogic.values.selectedTabOptions === 'string'
         ) {
-            handleCommandString(sidePanelStateLogic.values.selectedTabOptions, actions)
+            handleCommandString(sidePanelStateLogic.values.selectedTabOptions, actions, values.effectivePhaiView)
         }
 
         // Load conversation history on mount

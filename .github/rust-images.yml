@@ -88,6 +88,12 @@
   dockerfile: ./rust/Dockerfile
   project: mtvzx98zjn
 
+# Internal web tool for the ingestion team (lag analysis, consumer debug
+# visualizer).
+- image: ingestion-control-plane
+  dockerfile: ./rust/Dockerfile
+  project: x5whcmg6rl
+
 - image: kafka-deduplicator
   dockerfile: ./rust/Dockerfile
   project: vznmbshh6q

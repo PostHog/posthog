@@ -68,7 +68,6 @@ You can create an access token by registering an API application at [dev.mention
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

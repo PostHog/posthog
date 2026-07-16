@@ -16,6 +16,8 @@ import type {
     BulkKeysResponseApi,
     BulkUpdateTagsRequestApi,
     BulkUpdateTagsResponseApi,
+    CopyFlagsDependencyRequirementsRequestApi,
+    CopyFlagsDependencyRequirementsResponseApi,
     CopyFlagsRequestApi,
     CopyFlagsResponseApi,
     DependentFlagApi,
@@ -57,6 +59,8 @@ import type {
     StaffTeamConfigListResponseApi,
     StaffTeamConfigMutationApi,
     StaffTeamSearchResponseApi,
+    StaffWarmRunCancelResponseApi,
+    StaffWarmRunResponseApi,
     UserBlastRadiusRequestApi,
     UserBlastRadiusResponseApi,
 } from './api.schemas'
@@ -202,6 +206,42 @@ export const featureFlagsStaffCacheRebuildCreate = async (
     })
 }
 
+export const getFeatureFlagsStaffCacheWarmRunRetrieveUrl = () => {
+    return `/api/feature_flags_staff_cache/warm_run/`
+}
+
+/**
+ * Status of the most recent warm-all run, published by the Rust warmer.
+ */
+export const featureFlagsStaffCacheWarmRunRetrieve = async (
+    options?: RequestInit
+): Promise<StaffWarmRunResponseApi> => {
+    return apiMutator<StaffWarmRunResponseApi>(getFeatureFlagsStaffCacheWarmRunRetrieveUrl(), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getFeatureFlagsStaffCacheWarmRunCancelCreateUrl = () => {
+    return `/api/feature_flags_staff_cache/warm_run/cancel/`
+}
+
+/**
+ * Request cancellation of the active warm-all run.
+ *
+ * Sets the cancel key the warmer polls between status heartbeats; the run winds down after
+ * in-flight teams finish. Cancelling a stale run is allowed (the key is scoped to the run id,
+ * so a dead process simply never reads it).
+ */
+export const featureFlagsStaffCacheWarmRunCancelCreate = async (
+    options?: RequestInit
+): Promise<StaffWarmRunCancelResponseApi> => {
+    return apiMutator<StaffWarmRunCancelResponseApi>(getFeatureFlagsStaffCacheWarmRunCancelCreateUrl(), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getFeatureFlagsStaffTeamConfigListUrl = (params: FeatureFlagsStaffTeamConfigListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -330,6 +370,26 @@ export const featureFlagsCopyFlagsCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(copyFlagsRequestApi),
     })
+}
+
+export const getFeatureFlagsCopyFlagsDependencyRequirementsCreateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/feature_flags/copy_flags/dependency_requirements/`
+}
+
+export const featureFlagsCopyFlagsDependencyRequirementsCreate = async (
+    organizationId: string,
+    copyFlagsDependencyRequirementsRequestApi: CopyFlagsDependencyRequirementsRequestApi,
+    options?: RequestInit
+): Promise<CopyFlagsDependencyRequirementsResponseApi> => {
+    return apiMutator<CopyFlagsDependencyRequirementsResponseApi>(
+        getFeatureFlagsCopyFlagsDependencyRequirementsCreateUrl(organizationId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(copyFlagsDependencyRequirementsRequestApi),
+        }
+    )
 }
 
 export const getOrgFeatureFlagsKeysUrl = (organizationId: string, params?: OrgFeatureFlagsKeysParams) => {

@@ -14,6 +14,7 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.exceptions_capture import capture_exception
 from posthog.logging.timing import timed_log
+from posthog.models.event.new_events_schema import events_read_table, use_new_events_schema
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team.team import Team
 from posthog.schema_enums import AIEventType
@@ -60,6 +61,20 @@ QUERY_RETRY_BACKOFF = 2
 
 # Celery task ID for query attribution
 CELERY_TASK_ID = "posthog.tasks.llm_analytics_usage_report.send_llm_analytics_usage_reports"
+
+
+def _ai_property_expr(property_name: str, use_new_events_schema: bool) -> str:
+    """A String read of an AI event property: the `properties_group_ai` map on the legacy schema.
+
+    events_json has no property-group columns, so read the property from the JSON `properties`
+    there instead, coalescing NULL to '' to keep the map-read semantics (missing key reads '').
+    """
+    if not use_new_events_schema:
+        return f"properties_group_ai['{property_name}']"
+    expr, is_denormalized = get_property_string_expr(
+        "events", property_name, f"'{property_name}'", "properties", use_new_events_schema=True
+    )
+    return expr if is_denormalized else f"ifNull({expr}, '')"
 
 
 @dataclass
@@ -239,9 +254,9 @@ def get_teams_with_ai_events(
     This is a fast query that returns only distinct team_ids, allowing subsequent
     queries to filter by team_id and use the primary key index efficiently.
     """
-    query = """
+    query = f"""
         SELECT DISTINCT team_id
-        FROM events
+        FROM {events_read_table(use_new_events_schema(None))}
         WHERE event IN %(ai_observability_report_trigger_events)s
           AND timestamp >= %(begin)s
           AND timestamp < %(end)s
@@ -353,8 +368,12 @@ def get_all_ai_metrics(
     Returns:
         dict mapping team_id to TeamMetrics dataclass
     """
+    use_new = use_new_events_schema(None)
 
-    query_template = """
+    def prop(name: str) -> str:
+        return _ai_property_expr(name, use_new)
+
+    query_template = f"""
         SELECT
             team_id,
             -- Event counts by type
@@ -370,30 +389,30 @@ def get_all_ai_metrics(
             countIf(event = '$ai_trace_clusters') as ai_trace_clusters_count,
             countIf(event = '$ai_generation_clusters') as ai_generation_clusters_count,
             -- Cost metrics
-            SUM(toFloat64OrNull(properties_group_ai['$ai_total_cost_usd'])) as total_cost,
-            SUM(toFloat64OrNull(properties_group_ai['$ai_input_cost_usd'])) as input_cost,
-            SUM(toFloat64OrNull(properties_group_ai['$ai_output_cost_usd'])) as output_cost,
-            SUM(toFloat64OrNull(properties_group_ai['$ai_request_cost_usd'])) as request_cost,
-            SUM(toFloat64OrNull(properties_group_ai['$ai_web_search_cost_usd'])) as web_search_cost,
+            SUM(toFloat64OrNull({prop("$ai_total_cost_usd")})) as total_cost,
+            SUM(toFloat64OrNull({prop("$ai_input_cost_usd")})) as input_cost,
+            SUM(toFloat64OrNull({prop("$ai_output_cost_usd")})) as output_cost,
+            SUM(toFloat64OrNull({prop("$ai_request_cost_usd")})) as request_cost,
+            SUM(toFloat64OrNull({prop("$ai_web_search_cost_usd")})) as web_search_cost,
             -- Token metrics
-            SUM(toInt64OrNull(properties_group_ai['$ai_input_tokens'])) as prompt_tokens,
-            SUM(toInt64OrNull(properties_group_ai['$ai_output_tokens'])) as completion_tokens,
-            SUM(toInt64OrNull(properties_group_ai['$ai_total_tokens'])) as total_tokens,
-            SUM(toInt64OrNull(properties_group_ai['$ai_reasoning_tokens'])) as reasoning_tokens,
-            SUM(toInt64OrNull(properties_group_ai['$ai_cache_read_input_tokens'])) as cache_read_tokens,
-            SUM(toInt64OrNull(properties_group_ai['$ai_cache_creation_input_tokens'])) as cache_creation_tokens,
+            SUM(toInt64OrNull({prop("$ai_input_tokens")})) as prompt_tokens,
+            SUM(toInt64OrNull({prop("$ai_output_tokens")})) as completion_tokens,
+            SUM(toInt64OrNull({prop("$ai_total_tokens")})) as total_tokens,
+            SUM(toInt64OrNull({prop("$ai_reasoning_tokens")})) as reasoning_tokens,
+            SUM(toInt64OrNull({prop("$ai_cache_read_input_tokens")})) as cache_read_tokens,
+            SUM(toInt64OrNull({prop("$ai_cache_creation_input_tokens")})) as cache_creation_tokens,
             -- Cost anomaly counts
-            countIf(toFloat64OrNull(properties_group_ai['$ai_total_cost_usd']) IS NOT NULL) as total_cost_count,
-            countIf(toFloat64OrNull(properties_group_ai['$ai_total_cost_usd']) < 0) as total_cost_negative_count,
-            countIf(toFloat64OrNull(properties_group_ai['$ai_total_cost_usd']) = 0) as total_cost_zero_count,
+            countIf(toFloat64OrNull({prop("$ai_total_cost_usd")}) IS NOT NULL) as total_cost_count,
+            countIf(toFloat64OrNull({prop("$ai_total_cost_usd")}) < 0) as total_cost_negative_count,
+            countIf(toFloat64OrNull({prop("$ai_total_cost_usd")}) = 0) as total_cost_zero_count,
             -- Error count
-            countIf(properties_group_ai['$ai_is_error'] = 'true') as ai_is_error_count,
+            countIf({prop("$ai_is_error")} = 'true') as ai_is_error_count,
             -- Evaluation counts
-            countIf(event = '$ai_evaluation' AND properties_group_ai['$ai_evaluation_key_type'] = 'posthog') as ai_trial_evaluation_count,
-            countIf(event = '$ai_evaluation' AND properties_group_ai['$ai_evaluation_runtime'] = 'llm_judge') as ai_llm_judge_evaluation_count,
-            countIf(event = '$ai_evaluation' AND properties_group_ai['$ai_evaluation_runtime'] = 'hog') as ai_hog_evaluation_count,
-            countIf(event = '$ai_evaluation' AND properties_group_ai['$ai_evaluation_runtime'] = 'sentiment') as ai_sentiment_evaluation_count
-        FROM events
+            countIf(event = '$ai_evaluation' AND {prop("$ai_evaluation_key_type")} = 'posthog') as ai_trial_evaluation_count,
+            countIf(event = '$ai_evaluation' AND {prop("$ai_evaluation_runtime")} = 'llm_judge') as ai_llm_judge_evaluation_count,
+            countIf(event = '$ai_evaluation' AND {prop("$ai_evaluation_runtime")} = 'hog') as ai_hog_evaluation_count,
+            countIf(event = '$ai_evaluation' AND {prop("$ai_evaluation_runtime")} = 'sentiment') as ai_sentiment_evaluation_count
+        FROM {events_read_table(use_new)}
         WHERE team_id IN %(team_ids)s
           AND event IN %(ai_events)s
           AND timestamp >= %(begin)s
@@ -426,11 +445,11 @@ def get_llm_prompt_fetched_counts(
     Returns:
         dict mapping team_id to prompt fetched count
     """
-    query_template = """
+    query_template = f"""
         SELECT
             team_id,
             count() as llm_prompt_fetched_count
-        FROM events
+        FROM {events_read_table(use_new_events_schema(None))}
         WHERE team_id IN %(team_ids)s
           AND event = %(llm_prompt_fetched_event)s
           AND timestamp >= %(begin)s
@@ -536,19 +555,25 @@ def get_all_ai_dimension_breakdowns(
         dict mapping team_id to TeamDimensionBreakdowns dataclass
     """
 
-    lib_expression, _ = get_property_string_expr("events", "$lib", "'$lib'", "properties")
+    use_new = use_new_events_schema(None)
+    lib_expression, _ = get_property_string_expr(
+        "events", "$lib", "'$lib'", "properties", use_new_events_schema=use_new
+    )
+
+    def prop(name: str) -> str:
+        return _ai_property_expr(name, use_new)
 
     query_template = f"""
         SELECT
             team_id,
-            sumMap(map(properties_group_ai['$ai_model'], toUInt64(1))) as model_breakdown,
-            sumMap(map(properties_group_ai['$ai_provider'], toUInt64(1))) as provider_breakdown,
-            sumMap(map(properties_group_ai['$ai_framework'], toUInt64(1))) as framework_breakdown,
+            sumMap(map({prop("$ai_model")}, toUInt64(1))) as model_breakdown,
+            sumMap(map({prop("$ai_provider")}, toUInt64(1))) as provider_breakdown,
+            sumMap(map({prop("$ai_framework")}, toUInt64(1))) as framework_breakdown,
             sumMap(map({lib_expression}, toUInt64(1))) as library_breakdown,
-            sumMap(map(properties_group_ai['$ai_model_cost_used'], toUInt64(1))) as cost_model_used_breakdown,
-            sumMap(map(properties_group_ai['$ai_cost_model_source'], toUInt64(1))) as cost_model_source_breakdown,
-            sumMap(map(properties_group_ai['$ai_cost_model_provider'], toUInt64(1))) as cost_model_provider_breakdown
-        FROM events
+            sumMap(map({prop("$ai_model_cost_used")}, toUInt64(1))) as cost_model_used_breakdown,
+            sumMap(map({prop("$ai_cost_model_source")}, toUInt64(1))) as cost_model_source_breakdown,
+            sumMap(map({prop("$ai_cost_model_provider")}, toUInt64(1))) as cost_model_provider_breakdown
+        FROM {events_read_table(use_new)}
         WHERE team_id IN %(team_ids)s
           AND event IN %(ai_events)s
           AND timestamp >= %(begin)s
@@ -621,15 +646,20 @@ def get_llm_feedback_survey_metrics(
     Returns:
         dict mapping team_id to TeamLLMSurveyMetrics
     """
-    ai_trace_id_expr, _ = get_property_string_expr("events", "$ai_trace_id", "'$ai_trace_id'", "properties")
-    survey_id_expr, _ = get_property_string_expr("events", "$survey_id", "'$survey_id'", "properties")
+    use_new = use_new_events_schema(None)
+    ai_trace_id_expr, _ = get_property_string_expr(
+        "events", "$ai_trace_id", "'$ai_trace_id'", "properties", use_new_events_schema=use_new
+    )
+    survey_id_expr, _ = get_property_string_expr(
+        "events", "$survey_id", "'$survey_id'", "properties", use_new_events_schema=use_new
+    )
 
     query_template = f"""
         SELECT
             team_id,
             {survey_id_expr} as survey_id,
             countIf(event = 'survey sent') as response_count
-        FROM events
+        FROM {events_read_table(use_new)}
         WHERE team_id IN %(team_ids)s
           AND event IN ('survey sent', 'survey shown')
           AND {ai_trace_id_expr} != ''

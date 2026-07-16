@@ -12,7 +12,8 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
-from unittest.mock import patch
+
+from django.test import override_settings
 
 import numpy as np
 from parameterized import parameterized
@@ -81,15 +82,6 @@ class FloatAwareTestCase(unittest.TestCase):
 @snapshot_clickhouse_queries
 class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareTestCase):
     QUERY_TIMESTAMP = "2025-01-29"
-
-    def setUp(self):
-        super().setUp()
-        patcher = patch(
-            "products.web_analytics.backend.hogql_queries.stats_table.is_web_analytics_events_prefilter_team",
-            return_value=False,
-        )
-        patcher.start()
-        self.addCleanup(patcher.stop)
 
     def _calculate_pageview_statistics(self, groups_of_pageviews: list[list[PageViewProperties]]):
         per_path_durations: defaultdict[Any, list] = defaultdict(list)
@@ -2509,3 +2501,91 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
 
         assert results_dict["example.com/features"][0] == 2
         assert results_dict["subdomain.example.com/features"][0] == 1
+
+
+class TestWebStatsTableNoJoinFastPath(ClickhouseTestMixin, APIBaseTest):
+    QUERY_TIMESTAMP = "2025-01-29"
+
+    def _create_pageviews(self):
+        s1, s2, s3 = str(uuid7("2025-01-10")), str(uuid7("2025-01-11")), str(uuid7("2025-01-12"))
+        for distinct_id, session_id, path_timestamps in [
+            ("user_a", s1, [("/", "2025-01-10T10:00:00Z"), ("/pricing", "2025-01-10T10:05:00Z")]),
+            ("user_a", s2, [("/pricing", "2025-01-11T09:00:00Z")]),
+            ("user_b", s3, [("/", "2025-01-12T12:00:00Z"), ("/", "2025-01-12T12:00:30Z")]),
+        ]:
+            with freeze_time(path_timestamps[0][1]):
+                _create_person(team_id=self.team.pk, distinct_ids=[distinct_id])
+            for pathname, ts in path_timestamps:
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=distinct_id,
+                    timestamp=ts,
+                    properties={
+                        "$session_id": session_id,
+                        "$pathname": pathname,
+                        "$current_url": f"https://example.com{pathname}",
+                    },
+                )
+        # A server-side pageview with no session: the join path drops it (NULL session
+        # start), so the no-join counts side must exclude it too.
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user_b",
+            timestamp="2025-01-12T13:00:00Z",
+            properties={"$pathname": "/", "$current_url": "https://example.com/"},
+        )
+        flush_persons_and_events()
+
+    def _make_runner(self, **query_kwargs) -> WebStatsTableQueryRunner:
+        query = WebStatsTableQuery(
+            dateRange=DateRange(date_from="2025-01-08", date_to="2025-01-15"),
+            breakdownBy=query_kwargs.pop("breakdownBy", WebStatsBreakdown.PAGE),
+            includeBounceRate=query_kwargs.pop("includeBounceRate", True),
+            properties=query_kwargs.pop("properties", []),
+            **query_kwargs,
+        )
+        return WebStatsTableQueryRunner(team=self.team, query=query)
+
+    @parameterized.expand([(False,), (True,)])
+    def test_no_join_paths_results_match_join_path(self, include_avg_time: bool):
+        self._create_pageviews()
+
+        with freeze_time(self.QUERY_TIMESTAMP):
+            with override_settings(WEB_ANALYTICS_NO_JOIN_TEAM_IDS=[self.team.pk]):
+                fast_runner = self._make_runner(includeAvgTimeOnPage=include_avg_time)
+                assert fast_runner.query_strategy().startswith("stats_table_no_join_path_bounce")
+                fast_results = fast_runner.calculate().results
+
+            join_runner = self._make_runner(includeAvgTimeOnPage=include_avg_time)
+            assert not join_runner.query_strategy().startswith("stats_table_no_join")
+            join_results = join_runner.calculate().results
+
+        assert sorted(r[0] for r in fast_results) == sorted(r[0] for r in join_results)
+        fast_by_path = {r[0]: r[1:] for r in fast_results}
+        join_by_path = {r[0]: r[1:] for r in join_results}
+        for path, join_row in join_by_path.items():
+            assert fast_by_path[path] == join_row, f"{path}: {fast_by_path[path]} != {join_row}"
+
+    @parameterized.expand(
+        [
+            ("clean_page_query", {}, True),
+            (
+                "event_property_filter",
+                {"properties": [EventPropertyFilter(key="$host", operator=PropertyOperator.EXACT, value="a.com")]},
+                False,
+            ),
+            ("conversion_goal", {"conversionGoal": CustomEventConversionGoal(customEventName="purchase")}, False),
+            ("non_page_breakdown", {"breakdownBy": WebStatsBreakdown.INITIAL_CHANNEL_TYPE}, False),
+            ("no_bounce_rate", {"includeBounceRate": False}, False),
+        ]
+    )
+    def test_no_join_paths_strategy_selection(self, _name: str, query_kwargs: dict, expect_no_join: bool):
+        with override_settings(WEB_ANALYTICS_NO_JOIN_TEAM_IDS=[self.team.pk]):
+            runner = self._make_runner(**query_kwargs)
+            assert runner.query_strategy().startswith("stats_table_no_join") == expect_no_join
+
+    def test_no_join_paths_requires_team_allowlist(self):
+        runner = self._make_runner()
+        assert not runner.query_strategy().startswith("stats_table_no_join")

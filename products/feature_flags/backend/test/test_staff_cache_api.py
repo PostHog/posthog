@@ -1,15 +1,24 @@
+import json
+import time
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.conf import settings
+from django.core.cache import caches
 from django.http import QueryDict
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
+
 from products.feature_flags.backend.api.staff_cache import (
     MAX_TEAMS_PER_MUTATION,
     READABLE_CACHE_CHOICES,
+    WARM_RUN_CANCEL_CACHE_KEY,
+    WARM_RUN_STATUS_CACHE_KEY,
     StaffCacheStatusQuerySerializer,
 )
 from products.feature_flags.backend.flags_cache import flags_hypercache
@@ -19,6 +28,8 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 REBUILD_URL = "/api/feature_flags_staff_cache/rebuild/"
 CLEAR_URL = "/api/feature_flags_staff_cache/clear/"
 ENTRY_URL = "/api/feature_flags_staff_cache/entry/"
+WARM_RUN_URL = "/api/feature_flags_staff_cache/warm_run/"
+WARM_RUN_CANCEL_URL = "/api/feature_flags_staff_cache/warm_run/cancel/"
 
 
 def _called_once_with(mock, team_id):
@@ -60,6 +71,12 @@ class TestFeatureFlagsStaffCacheAPI(APIBaseTest):
 
         entry_response = self.client.get(ENTRY_URL, {"team_id": str(self.team.id), "cache": "evaluation"})
         self.assertEqual(entry_response.status_code, status.HTTP_403_FORBIDDEN)
+
+        warm_run_response = self.client.get(WARM_RUN_URL)
+        self.assertEqual(warm_run_response.status_code, status.HTTP_403_FORBIDDEN)
+
+        cancel_response = self.client.post(WARM_RUN_CANCEL_URL)
+        self.assertEqual(cancel_response.status_code, status.HTTP_403_FORBIDDEN)
 
     @parameterized.expand(MUTATION_CASES)
     def test_mutation_enqueues_both_tasks_and_returns_202(
@@ -204,3 +221,136 @@ class TestTeamIdsFieldQueryParamFormats(SimpleTestCase):
         serializer = StaffCacheStatusQuerySerializer(data=QueryDict(query_string))
         self.assertTrue(serializer.is_valid(), serializer.errors)
         self.assertEqual(serializer.validated_data["team_ids"], [1, 2])
+
+
+def _warm_run_blob(**overrides):
+    blob = {
+        "run_id": "run-1",
+        "state": "running",
+        "scope": "teams_with_flags",
+        "total": 100,
+        "processed": 40,
+        "successful": 39,
+        "failed": 1,
+        "last_team_id": 4321,
+        "started_at": int(time.time()) - 60,
+        "updated_at": int(time.time()),
+    }
+    blob.update(overrides)
+    return json.dumps(blob)
+
+
+# Blobs the reader must tolerate (treat as "no run") rather than 500 the staff page:
+# a newer/older warmer binary could write a shape this code doesn't know.
+MALFORMED_STATUS_BLOBS = [
+    ("not_json", "{nope"),
+    ("not_a_dict", json.dumps([1, 2])),
+    ("missing_run_id", json.dumps({"state": "running"})),
+    ("unknown_state", json.dumps({"run_id": "x", "state": "exploded"})),
+]
+
+_CACHES_WITH_FLAGS_DEDICATED = {
+    **settings.CACHES,
+    FLAGS_DEDICATED_CACHE_ALIAS: {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "flags-dedicated-staff-warm-run-tests",
+    },
+}
+
+
+@override_settings(CACHES=_CACHES_WITH_FLAGS_DEDICATED)
+class TestFeatureFlagsStaffWarmRunAPI(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+        self.cache = caches[FLAGS_DEDICATED_CACHE_ALIAS]
+        self.cache.clear()
+
+    def test_returns_null_run_when_no_status_recorded(self):
+        response = self.client.get(WARM_RUN_URL)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNone(response.json()["run"])
+
+    def test_handles_missing_dedicated_cache_config(self):
+        # Self-hosted instances without FLAGS_REDIS_URL have no flags_dedicated cache alias;
+        # the endpoints must degrade instead of KeyError-ing into a 500.
+        caches_without = {k: v for k, v in settings.CACHES.items() if k != FLAGS_DEDICATED_CACHE_ALIAS}
+        with override_settings(CACHES=caches_without):
+            get_response = self.client.get(WARM_RUN_URL)
+            self.assertEqual(get_response.status_code, status.HTTP_200_OK)
+            self.assertIsNone(get_response.json()["run"])
+
+            cancel_response = self.client.post(WARM_RUN_CANCEL_URL)
+            self.assertEqual(cancel_response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_reports_fresh_running_run(self):
+        self.cache.set(WARM_RUN_STATUS_CACHE_KEY, _warm_run_blob())
+
+        run = self.client.get(WARM_RUN_URL).json()["run"]
+        self.assertEqual(run["run_id"], "run-1")
+        self.assertEqual(run["state"], "running")
+        self.assertEqual(run["scope"], "teams_with_flags")
+        self.assertEqual(run["total"], 100)
+        self.assertEqual(run["processed"], 40)
+        self.assertEqual(run["successful"], 39)
+        self.assertEqual(run["failed"], 1)
+        self.assertEqual(run["last_team_id"], 4321)
+        self.assertFalse(run["is_stale"])
+        self.assertFalse(run["cancel_requested"])
+
+    def test_running_run_with_dead_heartbeat_is_stale(self):
+        self.cache.set(WARM_RUN_STATUS_CACHE_KEY, _warm_run_blob(updated_at=int(time.time()) - 600))
+        run = self.client.get(WARM_RUN_URL).json()["run"]
+        self.assertTrue(run["is_stale"])
+
+    def test_terminal_run_with_old_heartbeat_is_not_stale(self):
+        self.cache.set(
+            WARM_RUN_STATUS_CACHE_KEY,
+            _warm_run_blob(state="completed", updated_at=int(time.time()) - 600),
+        )
+        run = self.client.get(WARM_RUN_URL).json()["run"]
+        self.assertFalse(run["is_stale"])
+
+    def test_cancel_requested_reflects_only_a_matching_cancel_key(self):
+        self.cache.set(WARM_RUN_STATUS_CACHE_KEY, _warm_run_blob())
+
+        self.cache.set(WARM_RUN_CANCEL_CACHE_KEY, "some-older-run")
+        run = self.client.get(WARM_RUN_URL).json()["run"]
+        self.assertFalse(run["cancel_requested"])
+
+        self.cache.set(WARM_RUN_CANCEL_CACHE_KEY, "run-1")
+        run = self.client.get(WARM_RUN_URL).json()["run"]
+        self.assertTrue(run["cancel_requested"])
+
+    def test_cancel_writes_run_scoped_cancel_key(self):
+        # The warmer only honors a cancel key whose value equals its own run id, so the
+        # endpoint must write exactly the running run's id.
+        self.cache.set(WARM_RUN_STATUS_CACHE_KEY, _warm_run_blob())
+
+        response = self.client.post(WARM_RUN_CANCEL_URL)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        self.assertEqual(response.json(), {"run_id": "run-1", "cancel_requested": True})
+        self.assertEqual(self.cache.get(WARM_RUN_CANCEL_CACHE_KEY), "run-1")
+
+    @parameterized.expand(
+        [
+            ("no_run_recorded", None),
+            ("terminal_run", "completed"),
+        ]
+    )
+    def test_cancel_rejected_when_nothing_is_running(self, _name, state):
+        if state is not None:
+            self.cache.set(WARM_RUN_STATUS_CACHE_KEY, _warm_run_blob(state=state))
+
+        response = self.client.post(WARM_RUN_CANCEL_URL)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIsNone(self.cache.get(WARM_RUN_CANCEL_CACHE_KEY))
+
+    @parameterized.expand(MALFORMED_STATUS_BLOBS)
+    def test_malformed_status_blob_reads_as_no_run(self, _name, raw):
+        self.cache.set(WARM_RUN_STATUS_CACHE_KEY, raw)
+
+        response = self.client.get(WARM_RUN_URL)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNone(response.json()["run"])

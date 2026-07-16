@@ -887,17 +887,21 @@ class TestIsTransientConnectDrop:
             )
         )
 
-    def test_matches_ssl_unexpected_eof_on_connect(self):
-        # The peer aborted the TLS handshake with an unexpected EOF, wrapped by pymysql as the
-        # 2003 connect failure. A transient drop (overloaded server, proxy idle cull, failover) —
-        # the in-process retry must catch it instead of letting the first blip surface as noise.
-        assert _is_transient_connect_drop(
-            pymysql.err.OperationalError(
-                2003,
-                "Can't connect to MySQL server on 'db.example.com' "
-                "([SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1032))",
-            )
-        )
+    @pytest.mark.parametrize(
+        "message",
+        [
+            # The peer aborted the TLS handshake with an unexpected read EOF.
+            "Can't connect to MySQL server on 'db.example.com' "
+            "([SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1032))",
+            # The `SSLZeroReturnError` rendering of the same peer-closed-the-TLS-connection drop.
+            "Can't connect to MySQL server on 'db.example.com' (TLS/SSL connection has been closed (EOF) (_ssl.c:1032))",
+        ],
+    )
+    def test_matches_ssl_peer_close_on_connect(self, message):
+        # pymysql wraps an SSL peer-close mid-handshake as the 2003 connect failure. A transient
+        # drop (overloaded server, proxy idle cull, failover) — the in-process retry must catch it
+        # instead of letting the first blip surface as the non-retryable "Can't connect" config error.
+        assert _is_transient_connect_drop(pymysql.err.OperationalError(2003, message))
 
     @pytest.mark.parametrize(
         "code,message",

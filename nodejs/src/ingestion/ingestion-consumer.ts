@@ -219,16 +219,12 @@ export class IngestionConsumer {
             updateAllProperties: this.config.PERSON_PROPERTIES_UPDATE_ALL,
         })
 
-        this.groupStore = new BatchWritingGroupStore(
-            this.deps.outputs,
-            this.deps.groupRepository,
-            this.deps.clickhouseGroupRepository,
-            {
-                maxConcurrentUpdates: this.config.GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
-                maxOptimisticUpdateRetries: this.config.GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
-                optimisticUpdateRetryInterval: this.config.GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
-            }
-        )
+        this.groupStore = new BatchWritingGroupStore(this.deps.groupRepository, this.deps.clickhouseGroupRepository, {
+            useBatchUpdates: this.config.GROUP_BATCH_WRITING_USE_BATCH_UPDATES,
+            maxConcurrentUpdates: this.config.GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
+            maxOptimisticUpdateRetries: this.config.GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
+            optimisticUpdateRetryInterval: this.config.GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
+        })
 
         this.kafkaConsumer = createKafkaConsumer({
             groupId: this.groupId,
@@ -276,6 +272,7 @@ export class IngestionConsumer {
             overflowMode: this.config.INGESTION_OVERFLOW_MODE,
             preservePartitionLocality: this.config.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
             personsPrefetchEnabled: this.config.PERSONS_PREFETCH_ENABLED,
+            groupsPrefetchEnabled: this.config.GROUPS_PREFETCH_ENABLED,
             cdpHogWatcherSampleRate: this.config.CDP_HOG_WATCHER_SAMPLE_RATE,
             outputs,
             perDistinctIdOptions: {
@@ -441,12 +438,10 @@ export class IngestionConsumer {
             throw new Error(`Pipeline rejected batch: ${feedResult.reason}`)
         }
 
-        // Drain the pipeline, scheduling batch-level side effects
+        // The pipeline handles its own side effects (scheduling them on the
+        // promise scheduler), so draining results is all that's left to do.
         let result = await this.joinedPipeline.next()
         while (result !== null) {
-            for (const sideEffect of result.sideEffects ?? []) {
-                void this.promiseScheduler.schedule(sideEffect)
-            }
             result = await this.joinedPipeline.next()
         }
     }

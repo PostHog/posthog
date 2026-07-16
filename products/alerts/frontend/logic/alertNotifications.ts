@@ -16,6 +16,23 @@ export type AlertNotificationType =
     | typeof ALERT_NOTIFICATION_TYPE_DISCORD
     | typeof ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS
 
+// Single source of truth for which destination HogFunction template each notification type uses.
+// buildAlertDestination reads it when creating a destination; notificationTypeFromTemplateId inverts
+// it to label an existing one. Keeping both directions off one map avoids the two drifting apart.
+const TEMPLATE_ID_BY_NOTIFICATION_TYPE: Record<AlertNotificationType, string> = {
+    [ALERT_NOTIFICATION_TYPE_SLACK]: 'template-slack',
+    [ALERT_NOTIFICATION_TYPE_DISCORD]: 'template-discord',
+    [ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS]: 'template-microsoft-teams',
+    [ALERT_NOTIFICATION_TYPE_WEBHOOK]: 'template-webhook',
+}
+
+// Maps a destination HogFunction's template_id back to the notification type, so analytics and
+// UI code can label an existing destination without re-deriving it from inputs.
+export const notificationTypeFromTemplateId = (templateId?: string | null): AlertNotificationType | null => {
+    const match = Object.entries(TEMPLATE_ID_BY_NOTIFICATION_TYPE).find(([, id]) => id === templateId)
+    return match ? (match[0] as AlertNotificationType) : null
+}
+
 export const buildAlertFilterConfig = (alertId: string): CyclotronJobFiltersType => ({
     properties: [
         {
@@ -84,9 +101,9 @@ function buildAlertDestination(
         case ALERT_NOTIFICATION_TYPE_SLACK:
             return {
                 name: `${alertName}: Slack #${notification.slackChannelName ?? 'channel'}`,
-                template_id: 'template-slack',
+                template_id: TEMPLATE_ID_BY_NOTIFICATION_TYPE[ALERT_NOTIFICATION_TYPE_SLACK],
                 inputs: {
-                    ...subTemplateInputs('template-slack'),
+                    ...subTemplateInputs(TEMPLATE_ID_BY_NOTIFICATION_TYPE[ALERT_NOTIFICATION_TYPE_SLACK]),
                     slack_workspace: { value: notification.slackWorkspaceId },
                     channel: { value: notification.slackChannelId },
                 },
@@ -94,25 +111,25 @@ function buildAlertDestination(
         case ALERT_NOTIFICATION_TYPE_DISCORD:
             return {
                 name: `${alertName}: Discord`,
-                template_id: 'template-discord',
+                template_id: TEMPLATE_ID_BY_NOTIFICATION_TYPE[ALERT_NOTIFICATION_TYPE_DISCORD],
                 inputs: {
-                    ...subTemplateInputs('template-discord'),
+                    ...subTemplateInputs(TEMPLATE_ID_BY_NOTIFICATION_TYPE[ALERT_NOTIFICATION_TYPE_DISCORD]),
                     webhookUrl: { value: notification.webhookUrl },
                 },
             }
         case ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS:
             return {
                 name: `${alertName}: Microsoft Teams`,
-                template_id: 'template-microsoft-teams',
+                template_id: TEMPLATE_ID_BY_NOTIFICATION_TYPE[ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS],
                 inputs: {
-                    ...subTemplateInputs('template-microsoft-teams'),
+                    ...subTemplateInputs(TEMPLATE_ID_BY_NOTIFICATION_TYPE[ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS]),
                     webhookUrl: { value: notification.webhookUrl },
                 },
             }
         case ALERT_NOTIFICATION_TYPE_WEBHOOK:
             return {
                 name: `${alertName}: Webhook ${notification.webhookUrl}`,
-                template_id: 'template-webhook',
+                template_id: TEMPLATE_ID_BY_NOTIFICATION_TYPE[ALERT_NOTIFICATION_TYPE_WEBHOOK],
                 inputs: {
                     url: { value: notification.webhookUrl },
                     body: {

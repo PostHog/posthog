@@ -99,6 +99,79 @@ export interface StaffCacheEntryResponseApi {
     data: StaffCacheEntryResponseApiData
 }
 
+/**
+ * * `running` - running
+ * * `completed` - completed
+ * * `cancelled` - cancelled
+ */
+export type FlagsWarmRunStateEnumApi = (typeof FlagsWarmRunStateEnumApi)[keyof typeof FlagsWarmRunStateEnumApi]
+
+export const FlagsWarmRunStateEnumApi = {
+    Running: 'running',
+    Completed: 'completed',
+    Cancelled: 'cancelled',
+} as const
+
+/**
+ * * `all_teams` - all_teams
+ * * `teams_with_flags` - teams_with_flags
+ */
+export type FlagsWarmRunScopeEnumApi = (typeof FlagsWarmRunScopeEnumApi)[keyof typeof FlagsWarmRunScopeEnumApi]
+
+export const FlagsWarmRunScopeEnumApi = {
+    AllTeams: 'all_teams',
+    TeamsWithFlags: 'teams_with_flags',
+} as const
+
+export interface StaffWarmRunApi {
+    /** Unique id of the warm-all run. */
+    run_id: string
+    /** 'running' while the warmer is working, 'completed' when it finished (per-team failures are counted, not fatal), or 'cancelled' when a cancel request was honored.
+     *
+     * * `running` - running
+     * * `completed` - completed
+     * * `cancelled` - cancelled */
+    state: FlagsWarmRunStateEnumApi
+    /** Which teams the run covers: every team, or only teams that have ever had a flag.
+     *
+     * * `all_teams` - all_teams
+     * * `teams_with_flags` - teams_with_flags */
+    scope: FlagsWarmRunScopeEnumApi
+    /** Number of teams the run will warm. */
+    total: number
+    /** Teams processed so far (successful + failed). */
+    processed: number
+    /** Teams whose evaluation cache was rebuilt successfully. */
+    successful: number
+    /** Teams whose rebuild failed; details are in the warmer's logs. */
+    failed: number
+    /**
+     * Highest team id dispatched so far — a resume cursor for operators re-running the warmer.
+     * @nullable
+     */
+    last_team_id: number | null
+    /** When the run started. */
+    started_at: string
+    /** Heartbeat: last time the warmer reported progress. */
+    updated_at: string
+    /** True when the run claims to be running but its heartbeat stopped — the warmer process likely died without writing a final state. */
+    is_stale: boolean
+    /** True when a cancel has been requested for this run but the warmer has not yet honored it. */
+    cancel_requested: boolean
+}
+
+export interface StaffWarmRunResponseApi {
+    /** Most recent warm-all run, or null when none has been recorded (or the dedicated flags cache is not configured). */
+    run: StaffWarmRunApi | null
+}
+
+export interface StaffWarmRunCancelResponseApi {
+    /** Id of the run the cancel request targets. */
+    run_id: string
+    /** Always true on success. */
+    cancel_requested: boolean
+}
+
 export interface StaffTeamConfigApi {
     /** Team id. */
     team_id: number
@@ -145,6 +218,7 @@ export interface CopyFlagsRequestApi {
     from_project: number
     /**
      * List of target project IDs to copy the flag to
+     * @minItems 1
      * @maxItems 50
      */
     target_project_ids: number[]
@@ -152,6 +226,8 @@ export interface CopyFlagsRequestApi {
     copy_schedule?: boolean
     /** Whether to force the copied flag to be disabled in target projects, ignoring the source flag's enabled status */
     disable_copied_flag?: boolean
+    /** Whether to also copy missing feature flags that this flag depends on */
+    copy_dependencies?: boolean
 }
 
 export interface CopyFlagsSuccessItemApi {
@@ -165,10 +241,16 @@ export interface CopyFlagsSuccessItemApi {
     active: boolean
     /** Team ID the flag was copied to */
     team_id: number
+    /** True when a flag with the same key already existed in the target project and was overwritten with the copied configuration, false when a new flag was created */
+    updated_existing: boolean
     /** Warnings for flag dependencies that were dropped because no matching active flag exists in the target project */
     flag_dependency_warnings?: string[]
-    /** Warning emitted when the flag was copied but its scheduled changes failed to copy */
+    /** Warning emitted when schedules failed to copy or existing target schedules may affect the copied flag */
     schedule_copy_warning?: string
+    /** Dependency flag keys that were copied before this flag */
+    copied_dependency_keys?: string[]
+    /** Warnings emitted while copying dependency flags */
+    dependency_copy_warnings?: string[]
 }
 
 export interface CopyFlagsResultApi {
@@ -176,6 +258,10 @@ export interface CopyFlagsResultApi {
     project_id?: number
     /** Error message (present on failure) */
     error_message?: string
+    /** True when the copy was not applied because the target project's approval policy requires approval; a change request has been created and the copy will apply once approved */
+    approval_pending?: boolean
+    /** ID of the pending change request created in the target project (present when approval_pending is true) */
+    change_request_id?: string
 }
 
 export interface CopyFlagsResponseApi {
@@ -183,6 +269,39 @@ export interface CopyFlagsResponseApi {
     success: CopyFlagsSuccessItemApi[]
     /** List of failed copy attempts */
     failed: CopyFlagsResultApi[]
+}
+
+export interface ErrorResponseApi {
+    /** Error message */
+    error: string
+}
+
+export interface CopyFlagsDependencyRequirementsRequestApi {
+    /** Key of the feature flag to check */
+    feature_flag_key: string
+    /** Source project ID to copy the flag from */
+    from_project: number
+    /**
+     * List of target project IDs to check dependency copy eligibility for
+     * @minItems 1
+     * @maxItems 50
+     */
+    target_project_ids: number[]
+}
+
+export interface CopyFlagsDependencyRequirementsResponseApi {
+    /** Whether dependencies can be automatically copied */
+    can_copy_dependencies: boolean
+    /** Total number of transitive source dependency flags */
+    dependency_count: number
+    /** Dependency flag keys that would be copied because they are missing from a target project */
+    copied_dependency_keys: string[]
+    /** Dependency flag keys that already have an active same-key flag in every target project */
+    reused_dependency_keys: string[]
+    /** Reasons dependency copying is unavailable or needs user attention */
+    warnings: string[]
+    /** Primary human-readable eligibility result */
+    reason: string
 }
 
 export interface OrganizationFeatureFlagRowApi {
@@ -423,6 +542,8 @@ export interface FeatureFlagApi {
     _should_create_usage_dashboard?: boolean
     /** Check if this feature flag is used in any team's session recording linked flag setting. */
     readonly is_used_in_replay_settings: boolean
+    /** Whether this flag can back an experiment: multivariate with 2 to 20 variants. */
+    readonly is_eligible_for_experiment: boolean
 }
 
 export interface PaginatedFeatureFlagListApi {
@@ -1101,11 +1222,6 @@ export interface FeatureFlagTestEvaluationResponseApi {
     conditions: FeatureFlagConditionAnalysisApi[]
 }
 
-export interface ErrorResponseApi {
-    /** Error message */
-    error: string
-}
-
 export type FeatureFlagVersionResponseApiFilters = { [key: string]: unknown }
 
 /**
@@ -1662,6 +1778,10 @@ export type FeatureFlagsListParams = {
      */
     created_by_id?: string
     /**
+     * When 'true', only return flags that can back an experiment: multivariate with 2-20 variants. Any other value is ignored.
+     */
+    eligible_for_experiment?: FeatureFlagsListEligibleForExperiment
+    /**
      * Filter feature flags by their evaluation runtime.
      */
     evaluation_runtime?: FeatureFlagsListEvaluationRuntime
@@ -1708,6 +1828,13 @@ export type FeatureFlagsListArchived = (typeof FeatureFlagsListArchived)[keyof t
 
 export const FeatureFlagsListArchived = {
     False: 'false',
+    True: 'true',
+} as const
+
+export type FeatureFlagsListEligibleForExperiment =
+    (typeof FeatureFlagsListEligibleForExperiment)[keyof typeof FeatureFlagsListEligibleForExperiment]
+
+export const FeatureFlagsListEligibleForExperiment = {
     True: 'true',
 } as const
 
@@ -1769,6 +1896,10 @@ export type FeatureFlagsEvaluationReasonsRetrieveParams = {
      * @minLength 1
      */
     distinct_id: string
+    /**
+     * Optional list of flag keys to scope the response to. When omitted, evaluation reasons are returned for every flag in the project, which can be a very large payload on projects with many flags. Pass the specific flag(s) you are debugging to keep the response small. Accepts either repeated query params (flag_keys=a&flag_keys=b) or a JSON array string (flag_keys=["a","b"]).
+     */
+    flag_keys?: string[]
     /**
      * Groups for feature flag evaluation (JSON object string)
      */

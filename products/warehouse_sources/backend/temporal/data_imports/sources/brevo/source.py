@@ -36,6 +36,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class BrevoSource(ResumableSource[BrevoSourceConfig, BrevoResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v3",)
+    default_version = "v3"
+    api_docs_url = "https://developers.brevo.com/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

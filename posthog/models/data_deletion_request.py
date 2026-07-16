@@ -21,7 +21,7 @@ def jsonhas_expr(prop: str, param_prefix: str, column: str = "properties") -> st
     return f"JSONHas({column}, {args})"
 
 
-def compile_hogql_predicate(obj) -> tuple[str, dict]:
+def compile_hogql_predicate(obj, use_new_events_schema: bool = False) -> tuple[str, dict]:
     """Parse and compile ``obj.hogql_predicate`` into a ClickHouse SQL fragment.
 
     Returns ``(sql_fragment, extra_params)``. Both are empty when the predicate
@@ -36,6 +36,11 @@ def compile_hogql_predicate(obj) -> tuple[str, dict]:
     lightweight DELETE: ClickHouse rewrites it into a mutation whose expression
     analyzer rejects table-qualified references like ``sharded_events.mat_$current_url``
     even when the column exists on every replica.
+
+    ``use_new_events_schema`` compiles property access for the native-JSON events tables
+    (``events_json`` / ``sharded_events_json``) — JSON subcolumn reads instead of
+    JSONExtract/materialized-column reads. Deletions target both physical events tables, so
+    callers compile one fragment per table.
     """
     predicate = (getattr(obj, "hogql_predicate", "") or "").strip()
     if not predicate:
@@ -97,7 +102,12 @@ def compile_hogql_predicate(obj) -> tuple[str, dict]:
         apply_events_retention_floor=False,
     )
     try:
-        sql = translate_hogql(predicate, context, dialect="clickhouse")
+        sql = translate_hogql(
+            predicate,
+            context,
+            dialect="clickhouse",
+            events_table_use_new_schema=use_new_events_schema,
+        )
     except ImportError:
         # A failed import means the runtime environment is broken (e.g. a Dagster worker that
         # can't resolve ``common.hogvm`` during compilation), not that the predicate is invalid.
@@ -176,18 +186,19 @@ def event_match_params(obj) -> dict:
 _EVENT_REMOVAL_TIME_PREDICATE = "team_id = %(team_id)s AND timestamp >= %(start_time)s AND timestamp < %(end_time)s"
 
 
-def event_removal_where(obj) -> tuple[str, dict]:
+def event_removal_where(obj, use_new_events_schema: bool = False) -> tuple[str, dict]:
     """Full WHERE predicate + params for event-removal queries.
 
     Combines the mandatory team/timestamp bounds, the events filter (skipped
     when ``delete_all_events`` is set), and any compiled HogQL predicate. The
     compiled HogQL fragment uses unqualified column references, so the result
     is safe to splice into queries against either the Distributed ``events``
-    proxy or the local ``sharded_events`` MergeTree.
+    proxy or the local ``sharded_events`` MergeTree. Pass ``use_new_events_schema``
+    when the query targets the native-JSON events tables.
     """
     parts = [_EVENT_REMOVAL_TIME_PREDICATE, event_match_sql_fragment(obj)]
     params = event_match_params(obj)
-    hogql_sql, hogql_values = compile_hogql_predicate(obj)
+    hogql_sql, hogql_values = compile_hogql_predicate(obj, use_new_events_schema=use_new_events_schema)
     if hogql_sql:
         parts.append(f"AND ({hogql_sql})")
         params.update(hogql_values)
@@ -369,6 +380,16 @@ class DataDeletionRequest(UUIDModel):
         blank=True,
         help_text="When execution was most recently attempted (updated on every APPROVED → IN_PROGRESS transition).",
     )
+    last_dagster_run_id = models.CharField(
+        # Dagster run ids are UUIDs, but keep headroom: this is written by the same save() that marks
+        # the request IN_PROGRESS, so an over-long id would fail the whole deletion job over a field
+        # that only exists to make debugging easier.
+        max_length=255,
+        null=True,
+        blank=True,
+        help_text="Dagster run ID of the most recent execution attempt (set on every APPROVED → IN_PROGRESS "
+        "transition). Rendered as a link to the Dagster run in the admin.",
+    )
     property_removal_marker = models.DateTimeField(
         null=True,
         blank=True,
@@ -467,19 +488,147 @@ class DataDeletionRequest(UUIDModel):
 
 
 def count_remaining_matching_events(request: "DataDeletionRequest") -> int:
-    """Count events still matching an event-removal request's criteria in ClickHouse."""
+    """Count events still matching an event-removal request's criteria in ClickHouse.
+
+    Counts across every events read table (legacy and native-JSON) — a request is only complete
+    once its events are gone from all of them.
+    """
     from posthog.clickhouse.client import sync_execute
     from posthog.clickhouse.client.connection import ClickHouseUser
     from posthog.clickhouse.query_tagging import Feature, Product, tags_context
     from posthog.clickhouse.workload import Workload
+    from posthog.models.event.deletion import events_read_tables_via_sync_execute
+    from posthog.models.event.sql import DISTRIBUTED_EVENTS_JSON_TABLE
 
-    predicate, params = event_removal_where(request)
+    total = 0
     with tags_context(
         product=Product.INTERNAL,
         feature=Feature.DATA_DELETION,
         team_id=request.team_id,
         workload=Workload.OFFLINE,
         query_type="data_deletion_request_verify_queued",
+    ):
+        for table in events_read_tables_via_sync_execute():
+            predicate, params = event_removal_where(
+                request, use_new_events_schema=table == DISTRIBUTED_EVENTS_JSON_TABLE
+            )
+            # nosemgrep: clickhouse-fstring-param-audit (predicate built from internal helper, not user input)
+            result = sync_execute(
+                f"SELECT count() FROM {table} WHERE {predicate} AND _row_exists = 1",
+                params,
+                team_id=request.team_id,
+                readonly=True,
+                workload=Workload.OFFLINE,
+                ch_user=ClickHouseUser.META,
+            )
+            total += int(result[0][0]) if result else 0
+    return total
+
+
+def _mat_col_presence_clauses(mat_cols: list[tuple[str, bool]]) -> list[str]:
+    """ "Value is present" checks for DEFAULT-materialized property columns: ``col != ''``.
+
+    Matches the deletion path in posthog/dags/data_deletion_requests.py: the DEFAULT expression
+    stores ``''`` for missing keys, so ``!= ''`` (not ``IS NOT NULL``) is the correct presence test.
+    """
+    return [f"`{name}` != ''" for name, _ in mat_cols]
+
+
+def discover_affected_mat_columns(properties: list[str], table_column: str) -> list[tuple[str, bool]]:
+    """DEFAULT-materialized columns on the distributed ``events`` table for the given properties.
+
+    Returns ``(column_name, is_nullable)`` for columns whose comment follows the
+    ``column_materializer::<table_column>::<prop>`` convention. Mirrors ``_get_affected_mat_columns``
+    in the deletion job so verification counts a row as dirty on the same terms the deletion does — a
+    value left in a materialized column after its JSON key is gone still counts.
+    """
+    if not properties:
+        return []
+
+    from django.conf import settings as django_settings
+
+    from posthog.clickhouse.client import sync_execute
+    from posthog.clickhouse.client.connection import ClickHouseUser
+
+    from ee.clickhouse.materialized_columns.columns import MaterializedColumnDetails
+
+    rows = sync_execute(
+        """
+        SELECT name, comment, type LIKE 'Nullable(%%)'
+        FROM system.columns
+        WHERE database = %(database)s
+          AND table = 'events'
+          AND comment LIKE '%%column_materializer::%%'
+          AND comment NOT LIKE '%%column_materializer::elements_chain::%%'
+        """,
+        {"database": django_settings.CLICKHOUSE_DATABASE},
+        readonly=True,
+        ch_user=ClickHouseUser.META,
+    )
+    target = set(properties)
+    result: list[tuple[str, bool]] = []
+    for name, comment, is_nullable in rows:
+        details = MaterializedColumnDetails.from_column_comment(comment)
+        if details.table_column == table_column and details.property_name in target:
+            result.append((name, bool(is_nullable)))
+    return result
+
+
+def _property_presence_where(
+    request: "DataDeletionRequest",
+    mat_cols: list[tuple[str, bool]] | None = None,
+    person_mat_cols: list[tuple[str, bool]] | None = None,
+) -> tuple[str, dict]:
+    """WHERE predicate + params matching events that still carry any target (person_)property.
+
+    Mirrors ``event_removal_where`` but swaps the events filter for a presence check over
+    ``properties`` / ``person_properties`` and their DEFAULT-materialized columns. Used to verify a
+    property_removal request: once the property has been stripped from the JSON and its materialized
+    column reset on every matching event, this count reaches zero. The presence set must match the
+    deletion path (``_property_removal_where``) or a row it still considers dirty reads as clean here.
+    """
+    parts = [_EVENT_REMOVAL_TIME_PREDICATE, event_match_sql_fragment(request)]
+    params = event_match_params(request)
+
+    presence: list[str] = []
+    for i, prop in enumerate(request.properties or []):
+        presence.append(jsonhas_expr(prop, f"fp_{i}"))
+        for j, part in enumerate(prop.split(".")):
+            params[f"fp_{i}_{j}"] = part
+    if mat_cols:
+        presence.extend(_mat_col_presence_clauses(mat_cols))
+    for i, prop in enumerate(request.person_properties or []):
+        presence.append(jsonhas_expr(prop, f"pp_{i}", column="person_properties"))
+        for j, part in enumerate(prop.split(".")):
+            params[f"pp_{i}_{j}"] = part
+    if person_mat_cols:
+        presence.extend(_mat_col_presence_clauses(person_mat_cols))
+    if presence:
+        parts.append(f"AND ({' OR '.join(presence)})")
+
+    hogql_sql, hogql_values = compile_hogql_predicate(request)
+    if hogql_sql:
+        parts.append(f"AND ({hogql_sql})")
+        params.update(hogql_values)
+    return " ".join(p for p in parts if p), params
+
+
+def count_remaining_property_events(request: "DataDeletionRequest") -> int:
+    """Count events that still carry any of a property-removal request's target properties."""
+    from posthog.clickhouse.client import sync_execute
+    from posthog.clickhouse.client.connection import ClickHouseUser
+    from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+    from posthog.clickhouse.workload import Workload
+
+    mat_cols = discover_affected_mat_columns(request.properties or [], "properties")
+    person_mat_cols = discover_affected_mat_columns(request.person_properties or [], "person_properties")
+    predicate, params = _property_presence_where(request, mat_cols, person_mat_cols)
+    with tags_context(
+        product=Product.INTERNAL,
+        feature=Feature.DATA_DELETION,
+        team_id=request.team_id,
+        workload=Workload.OFFLINE,
+        query_type="data_deletion_request_verify_property",
     ):
         # nosemgrep: clickhouse-fstring-param-audit (predicate built from internal helper, not user input)
         result = sync_execute(
@@ -491,6 +640,20 @@ def count_remaining_matching_events(request: "DataDeletionRequest") -> int:
             ch_user=ClickHouseUser.META,
         )
     return int(result[0][0]) if result else 0
+
+
+def count_remaining_for_request(request: "DataDeletionRequest") -> int | None:
+    """Count rows still matching a deletion request's criteria in ClickHouse.
+
+    Dispatches on request type: matching events for event_removal, events still carrying the
+    target property for property_removal. Returns ``None`` for person_removal, which has no
+    automated remaining-count.
+    """
+    if request.request_type == RequestType.EVENT_REMOVAL:
+        return count_remaining_matching_events(request)
+    if request.request_type == RequestType.PROPERTY_REMOVAL:
+        return count_remaining_property_events(request)
+    return None
 
 
 @dataclass

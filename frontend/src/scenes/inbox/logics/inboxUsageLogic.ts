@@ -1,12 +1,22 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
+import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 
+import { ApiError } from 'lib/api-error'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { calculateFreeTier } from 'scenes/billing/billing-utils'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { BillingProductV2Type } from '~/types'
 
+import { signalsReportsRefundSummaryRetrieve } from 'products/signals/frontend/generated/api'
+import type { SignalReportRefundSummaryResponseApi } from 'products/signals/frontend/generated/api.schemas'
+
+import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
 import type { inboxUsageLogicType } from './inboxUsageLogicType'
 
 // The inbox/signals billing product type (a flat per-PR credit charge). This is the identifier
@@ -38,13 +48,50 @@ function perCreditUsd(product: BillingProductV2Type): number | null {
 export const inboxUsageLogic = kea<inboxUsageLogicType>([
     path(['scenes', 'inbox', 'logics', 'inboxUsageLogic']),
     connect(() => ({
-        values: [billingLogic, ['billing', 'billingLoading', 'canAccessBilling']],
+        values: [
+            billingLogic,
+            ['billing', 'billingLoading', 'canAccessBilling'],
+            featureFlagLogic,
+            ['featureFlags'],
+            teamLogic,
+            ['currentTeamId'],
+        ],
         actions: [billingLogic, ['loadBilling', 'updateBillingLimits']],
     })),
     actions({
         openModal: true,
         closeModal: true,
     }),
+    loaders(({ values }) => ({
+        // Credited-path refund totals for the org's current billing period. Billing usage still
+        // contains credited-refunded PRs (the money comes back as an invoice credit, not lower
+        // usage), so the widget subtracts these to show the net PR count. Excluded-path refunds
+        // never reach billing usage and need no adjustment.
+        // Usage + refund summary are org-wide (billing allocates the free PR tier per org); the
+        // widget labels the count accordingly. Revisit if billing ever splits usage per project.
+        refundSummary: [
+            null as SignalReportRefundSummaryResponseApi | null,
+            {
+                loadRefundSummary: async (): Promise<SignalReportRefundSummaryResponseApi | null> => {
+                    if (!values.featureFlags[FEATURE_FLAGS.SIGNALS_PR_REFUNDS] || values.currentTeamId == null) {
+                        return null
+                    }
+                    try {
+                        return await signalsReportsRefundSummaryRetrieve(String(values.currentTeamId))
+                    } catch (error) {
+                        // The refunds flag is org-keyed and resolves late on the client, so the client can
+                        // believe refunds are on while the server (re-checking the same flag) disagrees and
+                        // returns 404. Degrade to the same null the client-flag guard returns when refunds
+                        // are off, rather than surfacing a transient mismatch as an error.
+                        if (error instanceof ApiError && error.status === 404) {
+                            return null
+                        }
+                        throw error
+                    }
+                },
+            },
+        ],
+    })),
     reducers({
         isModalOpen: [
             false,
@@ -83,14 +130,38 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
         },
     })),
     selectors({
+        // The refunds flag is keyed on the organization group, so posthog-js only resolves it
+        // after the org group is registered and flags are re-fetched — typically after this logic
+        // has mounted. Derived here so a subscription can react to it flipping on.
+        refundsFlagEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.SIGNALS_PR_REFUNDS],
+        ],
         product: [
             (s) => [s.billing],
             (billing): BillingProductV2Type | null =>
                 billing?.products?.find((p) => p.type === INBOX_PRODUCT_TYPE) ?? null,
         ],
         isLoading: [
-            (s) => [s.billing, s.billingLoading],
-            (billing, billingLoading): boolean => billing === null && billingLoading,
+            (s) => [
+                s.billing,
+                s.billingLoading,
+                s.product,
+                s.refundSummary,
+                s.refundSummaryLoading,
+                s.refundsFlagEnabled,
+            ],
+            (billing, billingLoading, product, refundSummary, refundSummaryLoading, refundsFlagEnabled): boolean => {
+                if (billing === null && billingLoading) {
+                    return true
+                }
+                // With refunds on, the PR count needs the refund summary too (live top-up +
+                // credited netting) — but only hold the skeleton while the card has nothing to
+                // show yet. Once billing has rendered a count, a summary load kicked off by the
+                // late-resolving org-keyed flag updates the number in place instead of tearing
+                // the card down into a skeleton and back.
+                return !product && refundsFlagEnabled && refundSummary === null && refundSummaryLoading
+            },
         ],
         // Free plan can't raise the limit past the free allocation — the widget points to
         // billing to upgrade instead of editing a limit.
@@ -117,9 +188,21 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
                 product && creditsPerPr ? Math.round(calculateFreeTier(product) / creditsPerPr) : 0,
         ],
         usedPrs: [
-            (s) => [s.product, s.creditsPerPr],
-            (product, creditsPerPr): number =>
-                product && creditsPerPr ? Math.round((product.current_usage ?? 0) / creditsPerPr) : 0,
+            (s) => [s.product, s.creditsPerPr, s.refundSummary],
+            (product, creditsPerPr, refundSummary): number => {
+                if (!product || !creditsPerPr) {
+                    return 0
+                }
+                // Billing's recorded usage lags by up to a day; the refund summary carries the org's
+                // live billable credits, so take the max — a just-created PR counts immediately and a
+                // same-day (excluded-path) refund visibly un-counts it.
+                const billedCredits = Math.max(product.current_usage ?? 0, refundSummary?.period_billable_credits ?? 0)
+                const billedPrs = Math.round(billedCredits / creditsPerPr)
+                // Credited-path refunds stay in billing usage; net them out so the widget counts
+                // only PRs the user is actually paying (or using free allowance) for.
+                const refundedPrs = refundSummary ? Math.floor(refundSummary.credited_credits / creditsPerPr) : 0
+                return Math.max(0, billedPrs - refundedPrs)
+            },
         ],
         customLimitUsd: [
             (s) => [s.billing, s.product],
@@ -203,6 +286,20 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
         openModal: () => {
             // Seed the field with the current limit (or the free allowance when uncapped).
             actions.setLimitFormValue('prs', values.limitPrs ?? values.freePrs)
+        },
+        // Refunds broadcast `reportArchived` after archiving server-side; reload the summary so
+        // the widget's netted PR count updates in-session (mirrors the reportListLogic reconcile
+        // listener — a plain archive just makes this a cheap no-op reload).
+        [inboxBulkActionsLogic.actionTypes.reportArchived]: () => actions.loadRefundSummary(),
+    })),
+    // Fires on mount and again when the org-group-keyed flag arrives after mount — a mount-time
+    // load alone silently skips the summary on pageloads where flags resolve late, leaving the
+    // widget on billing's lagging recorded usage until something else re-triggers the loader.
+    subscriptions(({ actions }) => ({
+        refundsFlagEnabled: (enabled: boolean) => {
+            if (enabled) {
+                actions.loadRefundSummary()
+            }
         },
     })),
     afterMount(({ actions, values }) => {

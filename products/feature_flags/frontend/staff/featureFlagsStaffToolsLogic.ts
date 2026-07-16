@@ -1,4 +1,4 @@
-import { actions, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 
@@ -11,6 +11,8 @@ import {
     featureFlagsStaffCacheRebuildCreate,
     featureFlagsStaffTeamConfigList,
     featureFlagsStaffTeamConfigSetCreate,
+    featureFlagsStaffCacheWarmRunCancelCreate,
+    featureFlagsStaffCacheWarmRunRetrieve,
     featureFlagsStaffTeamsList,
 } from '../generated/api'
 import type {
@@ -21,6 +23,8 @@ import type {
     StaffCacheTeamStatusApi,
     StaffTeamConfigApi,
     StaffTeamResultApi,
+    StaffWarmRunApi,
+    StaffWarmRunCancelResponseApi,
 } from '../generated/api.schemas'
 import type { featureFlagsStaffToolsLogicType } from './featureFlagsStaffToolsLogicType'
 
@@ -38,12 +42,18 @@ export const CACHE_LABELS: Record<StaffReadableCacheKind, string> = {
 const MIN_SEARCH_LENGTH = 2
 const SEARCH_DEBOUNCE_MS = 300
 
+// Warm-all runs take hours; poll fast enough to feel live while one is running,
+// and slowly otherwise (a new run can only appear when an operator starts one).
+const WARM_RUN_ACTIVE_POLL_MS = 5000
+const WARM_RUN_IDLE_POLL_MS = 30000
+
 export type StaffTeamResult = StaffTeamResultApi
 export type StaffCacheTeamStatus = StaffCacheTeamStatusApi
 export type StaffCacheEntryStatus = StaffCacheTeamStatusApi['evaluation']
 export type StaffCacheMutationResponse = StaffCacheMutationResponseApi
 export type StaffCacheEntry = StaffCacheEntryResponseApi
 export type StaffTeamConfig = StaffTeamConfigApi
+export type StaffWarmRun = StaffWarmRunApi
 
 export const featureFlagsStaffToolsLogic = kea<featureFlagsStaffToolsLogicType>([
     path(['products', 'feature_flags', 'frontend', 'staff', 'featureFlagsStaffToolsLogic']),
@@ -136,6 +146,23 @@ export const featureFlagsStaffToolsLogic = kea<featureFlagsStaffToolsLogicType>(
                 },
             },
         ],
+        warmRun: [
+            null as StaffWarmRun | null,
+            {
+                loadWarmRun: async () => {
+                    const response = await featureFlagsStaffCacheWarmRunRetrieve()
+                    return response.run ?? null
+                },
+            },
+        ],
+        warmRunCancelResult: [
+            null as StaffWarmRunCancelResponseApi | null,
+            {
+                cancelWarmRun: async () => {
+                    return await featureFlagsStaffCacheWarmRunCancelCreate()
+                },
+            },
+        ],
     })),
     reducers({
         selectedTeamIds: [
@@ -224,6 +251,18 @@ export const featureFlagsStaffToolsLogic = kea<featureFlagsStaffToolsLogicType>(
             actions.loadCacheStatus()
         }
 
+        // Re-register the poller only when the desired cadence changes, so each
+        // tick doesn't churn the interval.
+        const scheduleWarmRunPoll = (desiredMs: number): void => {
+            if (cache.warmRunPollMs !== desiredMs) {
+                cache.warmRunPollMs = desiredMs
+                cache.disposables.add(() => {
+                    const pollTimer = window.setInterval(() => actions.loadWarmRun(), desiredMs)
+                    return () => clearInterval(pollTimer)
+                }, 'warmRunPoll')
+            }
+        }
+
         return {
             setSelectedTeamIds: () => {
                 actions.loadCacheStatus()
@@ -278,7 +317,30 @@ export const featureFlagsStaffToolsLogic = kea<featureFlagsStaffToolsLogicType>(
                     actions.teamConfigMutationSettled(teamId)
                 }
             },
+            loadWarmRunSuccess: ({ warmRun }) => {
+                const desiredMs =
+                    warmRun?.state === 'running' && !warmRun.is_stale ? WARM_RUN_ACTIVE_POLL_MS : WARM_RUN_IDLE_POLL_MS
+                scheduleWarmRunPoll(desiredMs)
+            },
+            loadWarmRunFailure: () => {
+                // A transient fetch error shouldn't permanently stop polling: fall back to the
+                // idle cadence so the panel keeps retrying instead of going stale forever.
+                scheduleWarmRunPoll(WARM_RUN_IDLE_POLL_MS)
+            },
+            cancelWarmRunSuccess: () => {
+                lemonToast.success(
+                    'Cancellation requested. The warmer stops dispatching new teams at its next heartbeat.'
+                )
+                actions.loadWarmRun()
+            },
+            cancelWarmRunFailure: () => {
+                lemonToast.error('Failed to request warm-run cancellation.')
+                actions.loadWarmRun()
+            },
         }
+    }),
+    afterMount(({ actions }) => {
+        actions.loadWarmRun()
     }),
     urlToAction(({ actions, values }) => ({
         '/feature_flags/staff': (_, searchParams) => {

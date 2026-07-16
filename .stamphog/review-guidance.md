@@ -51,7 +51,7 @@ T1 sub-tiers (provided in the prompt):
 
 Calibrate scrutiny to the sub-tier. T1a should be quick.
 
-Ownership (from CODEOWNERS-soft, non-blocking):
+Ownership (from owners.yaml / product.yaml, non-blocking):
 
 - Author on owning team: not a concern
 - Author NOT on owning team: a routing signal, not a risk by itself
@@ -61,7 +61,7 @@ Ownership (from CODEOWNERS-soft, non-blocking):
 Author familiarity (TRUSTED, computed by us from git history on the checkout):
 
 - When present, the prompt reports a familiarity band — STRONG or MODERATE — with the numbers behind it: the share of the modified lines the author last-touched, how many of the changed files they previously modified, their merged PRs in these paths over the last year, and days since their last touch. No band being reported means nothing either way — judge the PR as you always have; never treat missing familiarity as a mark against the author.
-- STRONG familiarity counts like owning-team membership for the independent-assurance rule in risky territory. A change with tests and no outstanding concerns from a STRONG-familiarity author is one humans approve unchanged, even when CODEOWNERS-soft puts the files on another team.
+- STRONG familiarity counts like owning-team membership for the independent-assurance rule in risky territory. A change with tests and no outstanding concerns from a STRONG-familiarity author is one humans approve unchanged, even when owners.yaml / product.yaml puts the files on another team.
 - MODERATE familiarity softens the ownership concern but does not replace team membership — lean it toward APPROVE on a borderline low-risk change, but on its own it does not count as assurance in risky territory.
 - Familiarity is judgment input, never a gate. It never overrides a deny rule or a refusal criterion, and its absence changes nothing.
 - When you REFUSE or ESCALATE and the prompt lists who is most familiar with the modified lines, name them as suggested reviewers in your next-steps.

@@ -37,6 +37,9 @@ export interface InputWithSuggestionsDropdownProps {
     suggestionsLoading?: boolean
     /** Search input placeholder inside the popover. */
     searchPlaceholder?: string
+    /** Notified as the popover search term changes, for sources that load suggestions server-side
+     *  (e.g. a large repository list). Client-side filtering of the current suggestions still applies. */
+    onSearchChange?: (term: string) => void
     /** Text shown when `suggestions` is empty after loading. */
     emptyMessage?: string
     /** Text shown when the search term filters out every suggestion. Receives the current term. */
@@ -67,9 +70,17 @@ export function InputWithSuggestionsDropdown({
     emptyMessage = 'No suggestions available.',
     noMatchMessage = (term) => `No suggestions match "${term}".`,
     loadingMessage = 'Loading…',
+    onSearchChange,
 }: InputWithSuggestionsDropdownProps): JSX.Element {
     const [open, setOpen] = useState(false)
     const [searchTerm, setSearchTerm] = useState('')
+
+    // Reset both the local filter and any server-side search state, so reopening the picker
+    // doesn't show an empty search box while still requesting the previously filtered list.
+    const resetSearch = (): void => {
+        setSearchTerm('')
+        onSearchChange?.('')
+    }
 
     const normalized = useMemo(() => suggestions.map(normalizeSuggestion), [suggestions])
 
@@ -85,7 +96,7 @@ export function InputWithSuggestionsDropdown({
         <Popover
             visible={open}
             onClickOutside={() => {
-                setSearchTerm('')
+                resetSearch()
                 setOpen(false)
             }}
             placement="bottom-start"
@@ -97,7 +108,10 @@ export function InputWithSuggestionsDropdown({
                         size="small"
                         placeholder={searchPlaceholder}
                         value={searchTerm}
-                        onChange={setSearchTerm}
+                        onChange={(term) => {
+                            setSearchTerm(term)
+                            onSearchChange?.(term)
+                        }}
                     />
                     {suggestionsLoading ? (
                         <p className="m-0 px-2 py-1 text-xs text-secondary flex items-center gap-1">
@@ -120,7 +134,7 @@ export function InputWithSuggestionsDropdown({
                                         icon={isCurrent ? <IconCheck /> : undefined}
                                         onClick={() => {
                                             onChange(suggestion.value)
-                                            setSearchTerm('')
+                                            resetSearch()
                                             setOpen(false)
                                         }}
                                     >

@@ -33,6 +33,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GongSource(ResumableSource[GongSourceConfig, GongResumeConfig]):
+    supported_versions = ("v2",)
+    default_version = "v2"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -55,6 +58,9 @@ Grant the following read scopes so the connected endpoints can sync:
 - `api:users:read`
 - `api:settings:scorecards:read`
 - `api:workspaces:read`
+
+To also sync the `calls_extensive` table (call participants and CRM associations), additionally grant:
+- `api:calls:read:extensive`
 """,
             iconPath="/static/services/gong.png",
             docsUrl="https://posthog.com/docs/cdp/sources/gong",

@@ -98,4 +98,31 @@ describe('tracingSceneLogic', () => {
         )
         resumeKeaLoadersErrors()
     })
+
+    // Same denominator guard for the bulk-restore path (back/forward, saved views): setFilters routes
+    // through the data logic's runQuery, which fires a windowed aggregate while comparing. Without the
+    // scene's full-range refetch the operations table would divide by the narrow compare sub-window.
+    it('keeps the operations aggregate on the full range when filters are restored while comparing', async () => {
+        silenceKeaLoadersErrors()
+        const filtersLogic = mountAt({ comparison: JSON.stringify({ mode: 'time', preset: 'custom' }) })
+        expect(filtersLogic.values.compareActive).toBe(true)
+
+        const aggregateSpy = jest.spyOn(api.tracing, 'aggregate')
+        logic.actions.setActiveTracingTab('operations')
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        aggregateSpy.mockClear()
+
+        // Restore a different filter set the way back/forward navigation does.
+        router.actions.push('/tracing', {
+            comparison: JSON.stringify({ mode: 'time', preset: 'custom' }),
+            serviceNames: 'svc-a',
+        })
+        await new Promise((resolve) => setTimeout(resolve, 0))
+
+        expect(aggregateSpy).toHaveBeenLastCalledWith(
+            expect.objectContaining({ compareFilter: expect.objectContaining({ compare: false }) }),
+            expect.anything()
+        )
+        resumeKeaLoadersErrors()
+    })
 })

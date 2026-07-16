@@ -56,6 +56,7 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_LEGACY_EVENT_CONSUMER_INCLUDE_WEBHOOKS: boolean
 
     CDP_CYCLOTRON_BATCH_DELAY_MS: number
+    CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS: number
     CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: number
     CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: boolean
     CDP_CYCLOTRON_COMPRESS_VM_STATE: boolean
@@ -144,6 +145,11 @@ export type CdpConfig = ClickhouseConfig & {
     CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: number
     CYCLOTRON_NODE_JANITOR_MAX_TOUCH_COUNT: number
     CYCLOTRON_NODE_JANITOR_CLEANUP_GRACE_MS: number
+    // Kill-switch for poison-pill recovery. When false the janitor reverts to
+    // master's pre-recovery behavior — mark poison pills failed with no replay
+    // record (a give-up is lost, exactly as before this change). Flip to false to
+    // roll back the recovery machinery instantly without a redeploy. Default true.
+    CYCLOTRON_NODE_POISON_PILL_RECOVERY_ENABLED: boolean
 }
 
 export function getDefaultCdpConfig(): CdpConfig {
@@ -181,6 +187,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_LEGACY_EVENT_CONSUMER_INCLUDE_WEBHOOKS: false,
 
         CDP_CYCLOTRON_BATCH_DELAY_MS: 50,
+        CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS: 10000,
         CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 100,
         CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: true,
         CDP_CYCLOTRON_COMPRESS_VM_STATE: isProdEnv() ? false : true,
@@ -280,5 +287,6 @@ export function getDefaultCdpConfig(): CdpConfig {
         CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: 30000,
         CYCLOTRON_NODE_JANITOR_MAX_TOUCH_COUNT: 3,
         CYCLOTRON_NODE_JANITOR_CLEANUP_GRACE_MS: 10000,
+        CYCLOTRON_NODE_POISON_PILL_RECOVERY_ENABLED: true,
     }
 }

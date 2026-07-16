@@ -1,4 +1,4 @@
-import equal from 'fast-deep-equal'
+import { deepEqual as equal } from 'fast-equals'
 import { BuiltLogic, actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
@@ -110,6 +110,9 @@ const pathPrefixesOnboardingNotRequiredFor = [
     '/agentic',
     // /cli/authorize, /cli/live (CLI auth round-trip).
     '/cli',
+    // /stamphog/install/callback — GitHub App install round-trip carrying a one-time OAuth code;
+    // if /onboarding swallows it the installation completes on GitHub but no repos ever connect.
+    '/stamphog/install/callback',
     // /verify_email/<uuid>/<token> — email verification/change confirmation must run its
     // urlToAction (POST /api/users/verify_email/) even when onboarding is incomplete, else
     // /onboarding swallows the click and the email is never updated.

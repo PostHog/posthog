@@ -21,6 +21,7 @@ import {
     InsightThresholdType,
     InsightsThresholdBounds,
 } from '~/queries/schema/schema-general'
+import { containsHogQLQuery, isFunnelsQuery, isInsightVizNode, isMetricsQuery } from '~/queries/utils'
 import { AvailableFeature, InsightLogicProps, IntervalType, QueryBasedInsightModel } from '~/types'
 
 import {
@@ -120,7 +121,23 @@ export function ongoingIntervalField(config: AlertConfig | null | undefined, can
 }
 
 /** The insight query kind an alert is built for; selects the default config type for new alerts. */
-export type InsightAlertKind = 'trends' | 'hogql' | 'funnels'
+export type InsightAlertKind = 'trends' | 'hogql' | 'funnels' | 'metrics'
+
+/** Resolve which alert kind an insight's query produces. Trends is the fallback: it's the one
+ * always-on kind, so an unrecognized query gets the trends config and fails validation there. */
+export function insightAlertKindForQuery(query?: Record<string, any> | null): InsightAlertKind {
+    if (containsHogQLQuery(query)) {
+        return 'hogql'
+    }
+    if (isInsightVizNode(query) && isFunnelsQuery(query.source)) {
+        return 'funnels'
+    }
+    // Metrics insights persist a bare MetricsQuery node (no InsightVizNode wrapper).
+    if (isMetricsQuery(query)) {
+        return 'metrics'
+    }
+    return 'trends'
+}
 
 export interface AlertFormLogicProps {
     alert: AlertType | null
@@ -146,6 +163,9 @@ const defaultConfigForInsight = (kind: AlertFormLogicProps['insightAlertKind']):
     }
     if (kind === 'funnels') {
         return { type: 'FunnelsAlertConfig', funnel_step: null, metric: 'conversion_from_start' }
+    }
+    if (kind === 'metrics') {
+        return { type: 'MetricsAlertConfig', check_ongoing_interval: false }
     }
     return {
         type: 'TrendsAlertConfig',

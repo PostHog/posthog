@@ -67,7 +67,6 @@ You can generate a token under **My Profile → Connections** in [Printify](http
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

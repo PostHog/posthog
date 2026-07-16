@@ -1,4 +1,4 @@
-import equal from 'fast-deep-equal'
+import { deepEqual as equal } from 'fast-equals'
 import { actions, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
@@ -14,6 +14,7 @@ import {
 } from '@posthog/replay-shared'
 
 import { Dayjs, dayjs, now } from 'lib/dayjs'
+import { metricCount } from 'lib/operationalMetrics'
 
 import {
     RecordingSegment,
@@ -186,6 +187,13 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
             actions.reportUsageIfFullyLoaded()
         },
 
+        loadRecordingMetaFailure: ({ errorObject }) => {
+            // A 404 is an expected outcome (expired or deleted recording), not a player
+            // failure; separate series so real failures stay alertable.
+            const is404 = (errorObject as { status?: number } | undefined)?.status === 404
+            metricCount('replay_player_load_failures', 1, { kind: is404 ? 'meta_not_found' : 'meta' })
+        },
+
         loadNextSnapshotSource: () => {
             actions.reportUsageIfFullyLoaded()
         },
@@ -265,6 +273,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                 } else {
                     // Give up loudly: nothing re-triggers processing from here, so surface a terminal
                     // error instead of leaving the player buffering forever.
+                    metricCount('replay_player_load_failures', 1, { kind: 'snapshot_processing' })
                     actions.snapshotProcessingFailed()
                 }
                 return

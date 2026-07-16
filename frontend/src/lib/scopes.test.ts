@@ -1,5 +1,13 @@
 import { AGENT_USE_CASE_SCOPES } from 'lib/agentScopes.generated'
-import { AGENT_CLI_API_KEY_SCOPES, API_KEY_SCOPE_PRESETS, API_SCOPES, getScopeDescription } from 'lib/scopes'
+import {
+    AGENT_CLI_API_KEY_SCOPES,
+    API_KEY_SCOPE_PRESETS,
+    API_SCOPES,
+    API_SCOPES_OMITTED_FROM_MODAL,
+    getScopeDescription,
+} from 'lib/scopes'
+
+import { API_SCOPE_OBJECTS } from '~/types'
 
 const getRenderableKeyCreationScopes = (): Set<string> =>
     new Set(
@@ -25,6 +33,23 @@ describe('getScopeDescription', () => {
 
     it('returns the bare scope string when there is no colon separator', () => {
         expect(getScopeDescription('baretoken')).toBe('baretoken')
+    })
+})
+
+describe('API_SCOPES modal coverage', () => {
+    const offered = new Set(API_SCOPES.map(({ key }) => key))
+    const omitted = new Set(Object.keys(API_SCOPES_OMITTED_FROM_MODAL))
+
+    it('offers or explicitly omits every scope object', () => {
+        // Guards the drift where a scope object is added to API_SCOPE_OBJECTS (mirroring a new
+        // backend scope) but its key-creation modal row is forgotten, silently hiding a grantable scope.
+        const uncovered = API_SCOPE_OBJECTS.filter((obj) => !offered.has(obj) && !omitted.has(obj))
+        expect(uncovered).toEqual([])
+    })
+
+    it('never both offers and omits the same scope', () => {
+        const overlap = [...omitted].filter((obj) => offered.has(obj as (typeof API_SCOPE_OBJECTS)[number]))
+        expect(overlap).toEqual([])
     })
 })
 

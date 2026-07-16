@@ -56,6 +56,24 @@ class PaginationMode(Enum):
     previous = auto()
 
 
+class ServiceRequest:
+    """Minimal request-like object for DRF serializers used from a service layer.
+
+    Provides the subset of the DRF Request interface that serializers actually
+    use (request.user and friends), without DRF's authentication machinery.
+    """
+
+    def __init__(self, user: Any):
+        self.user = user
+        self.method = "POST"
+        self.path = "/"
+        self.data: dict = {}
+        self.GET: dict = {}
+        self.META: dict = {}
+        self.headers: dict = {}
+        self.session: dict = {}
+
+
 # This overrides a change in DRF 3.15 that alters our behavior. If the user passes an empty argument,
 # the new version keeps it as null vs coalescing it to the default.
 # Don't add this to new classes
