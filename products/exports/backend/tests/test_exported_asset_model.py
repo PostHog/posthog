@@ -187,6 +187,7 @@ class TestExportedAssetDbFallbackSizeGuard(APIBaseTest):
             os.unlink(path)
 
         asset.refresh_from_db()
+        assert asset.content is not None
         assert bytes(asset.content) == b"hello,world\n"
 
 
