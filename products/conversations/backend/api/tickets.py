@@ -39,9 +39,9 @@ from posthog.models.person.person import Person
 from posthog.models.person.util import get_person_by_distinct_id, get_persons_by_distinct_ids
 from posthog.permissions import APIScopePermission
 from posthog.personhog_client.caller_tag import personhog_caller_tag
+from posthog.rate_limit import ComposeTicketBurstThrottle, ComposeTicketSustainedThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
-from posthog.rate_limit import ComposeTicketBurstThrottle, ComposeTicketSustainedThrottle
 from posthog.utils import relative_date_parse
 
 from products.conversations.backend.api.serializers import TicketAssignmentSerializer
