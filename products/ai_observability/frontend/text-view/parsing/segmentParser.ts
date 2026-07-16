@@ -226,3 +226,16 @@ export function parseTextSegments(text: string): TextSegment[] {
 
     return segments
 }
+
+/**
+ * Indices of the top-level `truncated` segments in a text representation.
+ *
+ * Used to auto-expand truncated message content on load without also expanding
+ * structural sections (nested generations, hidden tools), which would blow up the
+ * trace tree. Indices align with the array returned by `parseTextSegments`.
+ */
+export function getTruncatedSegmentIndices(text: string): number[] {
+    return parseTextSegments(text)
+        .map((segment, index) => (segment.type === 'truncated' ? index : -1))
+        .filter((index) => index !== -1)
+}
