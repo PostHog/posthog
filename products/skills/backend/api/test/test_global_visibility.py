@@ -1,5 +1,6 @@
 from posthog.test.base import APIBaseTest, BaseTest
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Organization, Team, User
@@ -165,3 +166,59 @@ class TestLLMSkillGlobalVisibilityAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
         assert LLMSkill.objects.get(team=self.team, name="shared").deleted is False
+
+    @parameterized.expand(
+        [
+            ("publish", "patch", "", {"body": "# hijacked", "base_version": 1}),
+            ("create_file", "post", "/files", {"path": "scripts/x.sh", "content": "hijacked"}),
+        ]
+    )
+    def test_non_owner_cannot_write_to_a_global_skill(
+        self, _name: str, method: str, suffix: str, payload: dict
+    ) -> None:
+        # Reads include globals, but writes must stay owner-scoped — a consumer resolving a global
+        # from another team and then editing/publishing it must 404, never mutate the owner's row.
+        # Archive is covered above; this locks the remaining write verbs against the same regression.
+        _create_skill(self.team, name="shared", is_global=True, created_by=self.user, body="# original")
+        other_team, other_user = self._consumer_team()
+        self.client.force_login(other_user)
+
+        url = f"/api/environments/{other_team.id}/llm_skills/name/shared{suffix}"
+        response = getattr(self.client, method)(url, payload, format="json")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        owner_skill = LLMSkill.objects.get(team=self.team, name="shared", is_latest=True)
+        assert owner_skill.version == 1
+        assert owner_skill.body == "# original"
+
+    @parameterized.expand([("detail", "name/shared/"), ("list", "")])
+    def test_foreign_team_does_not_see_global_skill_author(self, _name: str, path: str) -> None:
+        # created_by is the publishing PostHog staff member (name + email); it must not leak to
+        # consuming customers who see the global skill in their own project.
+        _create_skill(self.team, name="shared", is_global=True, created_by=self.user)
+        other_team, other_user = self._consumer_team()
+        self.client.force_login(other_user)
+
+        response = self.client.get(f"/api/environments/{other_team.id}/llm_skills/{path}")
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        skill = next(s for s in body["results"] if s["name"] == "shared") if path == "" else body
+        assert skill["created_by"] is None
+
+    def test_foreign_team_does_not_see_global_skill_version_authors(self) -> None:
+        _create_skill(self.team, name="shared", is_global=True, created_by=self.user)
+        other_team, other_user = self._consumer_team()
+        self.client.force_login(other_user)
+
+        response = self.client.get(f"/api/environments/{other_team.id}/llm_skills/resolve/name/shared")
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["skill"]["created_by"] is None
+        assert all(version["created_by"] is None for version in body["versions"])
+
+    def test_owning_team_still_sees_global_skill_author(self) -> None:
+        _create_skill(self.team, name="shared", is_global=True, created_by=self.user)
+
+        response = self.client.get(self._url("name/shared/"))
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["created_by"]["id"] == self.user.id

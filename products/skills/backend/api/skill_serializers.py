@@ -26,6 +26,23 @@ MAX_SKILL_FILE_COUNT = 50
 SKILL_NAME_PATTERN = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
 
 
+def _mask_foreign_global_author(instance: LLMSkill, context: dict[str, Any], data: dict[str, Any]) -> dict[str, Any]:
+    """Hide the authoring staff member on a global skill surfaced in another team's project.
+
+    A global skill is readable cross-team, but its `created_by` (name + email) is the publishing
+    PostHog staff member and must not leak to consuming customers. The owning team still sees it.
+    """
+    if not instance.is_global or "created_by" not in data:
+        return data
+    get_team = context.get("get_team")
+    if get_team is None:
+        return data
+    viewer_team = get_team()
+    if viewer_team is not None and instance.team_id != viewer_team.id:
+        data["created_by"] = None
+    return data
+
+
 def validate_skill_name_value(value: str) -> str:
     if value.lower() in RESERVED_SKILL_NAMES:
         raise serializers.ValidationError(
@@ -420,6 +437,10 @@ class LLMSkillSerializer(serializers.ModelSerializer):
             "metadata": {"help_text": "Arbitrary key-value metadata."},
         }
 
+    def to_representation(self, instance: LLMSkill) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        return _mask_foreign_global_author(instance, self.context, data)
+
     def get_is_latest(self, instance: LLMSkill) -> bool:
         return bool(getattr(instance, "is_latest", False))
 
@@ -536,6 +557,10 @@ class LLMSkillVersionSummarySerializer(serializers.ModelSerializer):
             "is_latest",
         ]
         read_only_fields = fields
+
+    def to_representation(self, instance: LLMSkill) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        return _mask_foreign_global_author(instance, self.context, data)
 
 
 class LLMSkillImportSerializer(serializers.Serializer):

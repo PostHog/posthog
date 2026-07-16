@@ -250,7 +250,10 @@ class LLMSkillViewSet(
         return cast(dict[str, Any], LLMSkillSerializer(skill, context=self.get_serializer_context()).data)
 
     def _serialize_version_summaries(self, skills: list[LLMSkill]) -> list[dict[str, Any]]:
-        return cast(list[dict[str, Any]], LLMSkillVersionSummarySerializer(skills, many=True).data)
+        return cast(
+            list[dict[str, Any]],
+            LLMSkillVersionSummarySerializer(skills, many=True, context=self.get_serializer_context()).data,
+        )
 
     def _get_requested_version_params(self, request: Request) -> dict[str, Any]:
         serializer = LLMSkillFetchQuerySerializer(data=request.query_params)
