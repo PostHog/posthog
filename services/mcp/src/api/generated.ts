@@ -24423,6 +24423,11 @@ export namespace Schemas {
          * @nullable
          */
       conclusion_comment?: string | null;
+      /**
+         * ID of the Code task opened to remove the experiment's feature-flag code, when one was requested via open_cleanup_pr on end/ship_variant. Read its status via the flag_cleanup_task action.
+         * @nullable
+         */
+      readonly flag_cleanup_task_id: string | null;
       primary_metrics_ordered_uuids?: unknown;
       secondary_metrics_ordered_uuids?: unknown;
       only_count_matured_users?: boolean;
@@ -24685,6 +24690,47 @@ export namespace Schemas {
          * @nullable
          */
       ensure_experience_continuity?: boolean | null;
+    }
+
+    /**
+     * * `not_started` - not_started
+     * * `queued` - queued
+     * * `in_progress` - in_progress
+     * * `completed` - completed
+     * * `failed` - failed
+     * * `cancelled` - cancelled
+     */
+    export type RunStatusEnum = typeof RunStatusEnum[keyof typeof RunStatusEnum];
+
+
+    export const RunStatusEnum = {
+      NotStarted: 'not_started',
+      Queued: 'queued',
+      InProgress: 'in_progress',
+      Completed: 'completed',
+      Failed: 'failed',
+      Cancelled: 'cancelled',
+    } as const;
+
+    export interface ExperimentFlagCleanupTask {
+      /** ID of the flag-cleanup Code task. */
+      task_id: string;
+      /** Status of the task's latest run.
+       *
+       * * `not_started` - not_started
+       * * `queued` - queued
+       * * `in_progress` - in_progress
+       * * `completed` - completed
+       * * `failed` - failed
+       * * `cancelled` - cancelled */
+      run_status: RunStatusEnum;
+      /** Whether the run has finished (successfully or not). Stop polling once true. */
+      is_terminal: boolean;
+      /**
+         * URL of the pull request the task opened, when it opened one.
+         * @nullable
+         */
+      pr_url: string | null;
     }
 
     /**
@@ -25070,6 +25116,11 @@ export namespace Schemas {
          * @nullable
          */
       conclusion_comment?: string | null;
+      /**
+         * ID of the Code task opened to remove the experiment's feature-flag code, when one was requested via open_cleanup_pr on end/ship_variant. Read its status via the flag_cleanup_task action.
+         * @nullable
+         */
+      readonly flag_cleanup_task_id: string | null;
       primary_metrics_ordered_uuids?: unknown;
       secondary_metrics_ordered_uuids?: unknown;
       only_count_matured_users?: boolean;
@@ -43233,6 +43284,11 @@ export namespace Schemas {
          * @nullable
          */
       conclusion_comment?: string | null;
+      /**
+         * ID of the Code task opened to remove the experiment's feature-flag code, when one was requested via open_cleanup_pr on end/ship_variant. Read its status via the flag_cleanup_task action.
+         * @nullable
+         */
+      readonly flag_cleanup_task_id?: string | null;
       primary_metrics_ordered_uuids?: unknown;
       secondary_metrics_ordered_uuids?: unknown;
       only_count_matured_users?: boolean;
@@ -47455,26 +47511,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `not_started` - not_started
-     * * `queued` - queued
-     * * `in_progress` - in_progress
-     * * `completed` - completed
-     * * `failed` - failed
-     * * `cancelled` - cancelled
-     */
-    export type TaskRunUpdateStatusEnum = typeof TaskRunUpdateStatusEnum[keyof typeof TaskRunUpdateStatusEnum];
-
-
-    export const TaskRunUpdateStatusEnum = {
-      NotStarted: 'not_started',
-      Queued: 'queued',
-      InProgress: 'in_progress',
-      Completed: 'completed',
-      Failed: 'failed',
-      Cancelled: 'cancelled',
-    } as const;
-
-    /**
      * * `local` - local
      */
     export type TaskRunUpdateEnvironmentEnum = typeof TaskRunUpdateEnvironmentEnum[keyof typeof TaskRunUpdateEnvironmentEnum];
@@ -47493,7 +47529,7 @@ export namespace Schemas {
        * * `completed` - completed
        * * `failed` - failed
        * * `cancelled` - cancelled */
-      status?: TaskRunUpdateStatusEnum;
+      status?: RunStatusEnum;
       /**
          * Git branch name to associate with the task
          * @nullable

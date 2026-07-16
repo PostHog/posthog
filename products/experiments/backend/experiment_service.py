@@ -2369,7 +2369,7 @@ class ExperimentService:
 
             def _open() -> None:
                 try:
-                    tasks_facade.create_and_run_task(
+                    created = tasks_facade.create_and_run_task(
                         team=team,
                         title=title,
                         description=description,
@@ -2380,6 +2380,12 @@ class ExperimentService:
                         interaction_origin="experiments",
                         ai_stage="implementation",
                     )
+                    Experiment.objects.filter(id=experiment_id, team_id=team.id).update(
+                        flag_cleanup_task_id=created.task_id
+                    )
+                    # on_commit runs before the view serializes the response — reflect the id on the
+                    # in-memory instance so the end/ship response already carries it.
+                    experiment.flag_cleanup_task_id = created.task_id
                 except Exception:
                     logger.exception("experiment_cleanup_pr_task_failed", experiment_id=experiment_id)
 
