@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Annotated
 
 from django.db.models import Q
 
+import structlog
 from langchain_core.tools import BaseTool, tool
 from langgraph.prebuilt import InjectedState
 
@@ -46,6 +47,8 @@ from posthog.temporal.ai_observability.trace_summarization.fetch_and_format impo
 
 if TYPE_CHECKING:
     from posthog.models import Team
+
+logger = structlog.get_logger(__name__)
 
 # Strict UUID match for generation IDs relayed by the LLM. Trace IDs are opaque,
 # so they use bounded validation and always flow through AST constants instead.
@@ -919,17 +922,27 @@ def _fetch_trace_detail(state: dict, trace_id: object, max_length: int) -> dict:
 
     # The report period locates evaluation events, not the boundaries of their target traces.
     # Trace IDs are indexed, so fetch the complete trace instead of silently clipping long traces.
-    result = _fetch_and_format_trace(
-        trace_id=normalized_trace_id,
-        team_id=state["team_id"],
-        window_start=_TARGET_LOOKUP_TS_START_SENTINEL,
-        window_end=_TARGET_LOOKUP_TS_END_SENTINEL,
-        max_length=max_length,
-        max_trace_events=MAX_TRACE_EVENTS_LIMIT,
-        max_trace_properties_size=MAX_TRACE_PROPERTIES_SIZE,
-    )
+    try:
+        result = _fetch_and_format_trace(
+            trace_id=normalized_trace_id,
+            team_id=state["team_id"],
+            window_start=_TARGET_LOOKUP_TS_START_SENTINEL,
+            window_end=_TARGET_LOOKUP_TS_END_SENTINEL,
+            max_length=max_length,
+            max_trace_events=MAX_TRACE_EVENTS_LIMIT,
+            max_raw_trace_size=MAX_TRACE_PROPERTIES_SIZE,
+        )
+    except Exception as error:
+        logger.exception(
+            "llma_eval_reports_trace_detail_failed",
+            trace_id=normalized_trace_id,
+            team_id=state["team_id"],
+            error_type=type(error).__name__,
+        )
+        return {"trace_id": normalized_trace_id, "error": "Trace could not be inspected"}
+
     if result is None:
-        return {"trace_id": normalized_trace_id, "error": "Trace not found or too large to inspect"}
+        return {"trace_id": normalized_trace_id, "error": "Trace not found"}
     if result.text_repr is None:
         return {
             "trace_id": normalized_trace_id,

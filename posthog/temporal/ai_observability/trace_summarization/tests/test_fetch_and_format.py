@@ -69,29 +69,26 @@ class TestFormatGenerationTextRepr:
 
 
 class TestFetchAndFormatTrace:
+    @patch("posthog.temporal.ai_observability.trace_summarization.fetch_and_format.llm_trace_to_formatter_format")
     @patch("posthog.temporal.ai_observability.trace_summarization.fetch_and_format.fetch_trace")
     @patch("posthog.temporal.ai_observability.trace_summarization.fetch_and_format.Team.objects.get")
-    def test_forwards_query_limits(self, mock_get_team: MagicMock, mock_fetch: MagicMock) -> None:
-        mock_fetch.return_value = None
+    def test_skips_trace_over_event_limit_before_formatting(
+        self, _mock_get_team: MagicMock, mock_fetch: MagicMock, mock_format: MagicMock
+    ) -> None:
+        mock_fetch.return_value = MagicMock(events=[MagicMock(properties={}) for _ in range(51)])
 
         result = _fetch_and_format_trace(
-            trace_id="trace-id",
+            trace_id="oversized-trace",
             team_id=7,
             window_start="2026-04-08T14:00:00+00:00",
             window_end="2026-04-08T15:00:00+00:00",
             max_trace_events=50,
-            max_trace_properties_size=2_000_000,
         )
 
-        assert result is None
-        mock_fetch.assert_called_once_with(
-            mock_get_team.return_value,
-            "trace-id",
-            "2026-04-08T14:00:00+00:00",
-            "2026-04-08T15:00:00+00:00",
-            max_trace_events=50,
-            max_trace_properties_size=2_000_000,
-        )
+        assert result is not None
+        assert result.text_repr is None
+        assert result.event_count == 51
+        mock_format.assert_not_called()
 
 
 @patch(

@@ -72,31 +72,13 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
     query: TraceQuery
     cached_response: CachedTraceQueryResponse
 
-    def __init__(
-        self,
-        *args: Any,
-        max_trace_events: int | None = None,
-        max_trace_properties_size: int | None = None,
-        **kwargs: Any,
-    ):
-        if (max_trace_events is None) != (max_trace_properties_size is None):
-            raise ValueError("Trace event and properties-size limits must be set together")
-        if max_trace_events is not None and max_trace_events <= 0:
-            raise ValueError("Trace event limit must be positive")
-        if max_trace_properties_size is not None and max_trace_properties_size <= 0:
-            raise ValueError("Trace properties-size limit must be positive")
-
-        self.max_trace_events = max_trace_events
-        self.max_trace_properties_size = max_trace_properties_size
+    def __init__(self, *args: Any, **kwargs: Any):
         super().__init__(*args, **kwargs)
 
     def _calculate(self):
         query_result = query_ai_events(
             query=self._build_query(),
-            placeholders={
-                "filter_conditions": self._get_where_clause(),
-                "trace_eligibility_filter": self._get_trace_eligibility_filter(),
-            },
+            placeholders={"filter_conditions": self._get_where_clause()},
             team=self.team,
             query_type=NodeKind.TRACE_QUERY,
             fall_back_to_events=True,
@@ -210,74 +192,18 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
                 '$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace'
             )
               AND {filter_conditions}
-              AND {trace_eligibility_filter}
             GROUP BY trace_id
             LIMIT 1
             """,
         )
         return cast(ast.SelectQuery, query)
 
-    def _get_trace_eligibility_filter(self) -> ast.Expr:
-        if self.max_trace_events is None or self.max_trace_properties_size is None:
-            return ast.Constant(value=True)
-
-        # ai_events strips heavy keys from properties, while the events fallback keeps them.
-        # Add native-column sizes only on the dedicated-table path to avoid double-counting fallback rows.
-        eligibility_query = parse_select(
-            """
-            SELECT trace_id
-            FROM posthog.ai_events AS trace_limits
-            WHERE event IN (
-                '$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace'
-            )
-                AND timestamp >= {date_from}
-                AND timestamp <= {date_to}
-                AND trace_id = {trace_id}
-            GROUP BY trace_id
-            HAVING count() <= {max_trace_events}
-                AND sum(
-                    length(properties)
-                    + if(
-                        JSONHas(properties, '$ai_input')
-                        OR JSONHas(properties, '$ai_output')
-                        OR JSONHas(properties, '$ai_output_choices')
-                        OR JSONHas(properties, '$ai_input_state')
-                        OR JSONHas(properties, '$ai_output_state')
-                        OR JSONHas(properties, '$ai_tools'),
-                        0,
-                        length(ifNull(input, ''))
-                        + length(ifNull(output, ''))
-                        + length(ifNull(output_choices, ''))
-                        + length(ifNull(input_state, ''))
-                        + length(ifNull(output_state, ''))
-                        + length(ifNull(tools, ''))
-                    )
-                ) <= {max_trace_properties_size}
-            """,
-            placeholders={
-                "date_from": self._date_range.date_from_as_hogql(),
-                "date_to": self._date_range.date_to_as_hogql(),
-                "trace_id": ast.Constant(value=self.query.traceId),
-                "max_trace_events": ast.Constant(value=self.max_trace_events),
-                "max_trace_properties_size": ast.Constant(value=self.max_trace_properties_size),
-            },
-        )
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.GlobalIn,
-            left=ast.Field(chain=["trace_id"]),
-            right=eligibility_query,
-        )
-
     def get_cache_payload(self):
-        payload = {
+        return {
             **super().get_cache_payload(),
             # When the response schema changes, increment this version to invalidate the cache.
             "schema_version": 9,
         }
-        if self.max_trace_events is not None and self.max_trace_properties_size is not None:
-            payload["max_trace_events"] = self.max_trace_events
-            payload["max_trace_properties_size"] = self.max_trace_properties_size
-        return payload
 
     @cached_property
     def _date_range(self):

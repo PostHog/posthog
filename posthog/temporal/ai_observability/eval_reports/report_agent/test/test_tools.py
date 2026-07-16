@@ -292,10 +292,30 @@ class TestTraceDetailTools(SimpleTestCase):
         self.assertEqual(mock_fetch.call_args.kwargs["trace_id"], trace_id)
         self.assertEqual(mock_fetch.call_args.kwargs["max_length"], 3_000)
         self.assertEqual(mock_fetch.call_args.kwargs["max_trace_events"], 50)
-        self.assertEqual(mock_fetch.call_args.kwargs["max_trace_properties_size"], 2_000_000)
+        self.assertEqual(mock_fetch.call_args.kwargs["max_raw_trace_size"], 2_000_000)
         self.assertEqual(mock_fetch.call_args.kwargs["window_start"], "2020-01-01T00:00:00+00:00")
         self.assertEqual(mock_fetch.call_args.kwargs["window_end"], "2099-01-01T00:00:00+00:00")
         mock_execute_hogql.assert_called_once()
+
+    @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools.logger")
+    @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._fetch_and_format_trace")
+    def test_sample_continues_after_one_trace_fails(self, mock_fetch: MagicMock, _mock_logger: MagicMock) -> None:
+        state = self._state()
+        state["trace_id_allowlist"] = ["failing-trace", "healthy-trace"]
+        mock_fetch.side_effect = [
+            RuntimeError("trace query exceeded backend limits"),
+            MagicMock(text_repr="healthy trace", event_count=2),
+        ]
+
+        result = json.loads(_sample_trace_details_fn(state=state, trace_ids=["failing-trace", "healthy-trace"]))
+
+        self.assertEqual(
+            result,
+            [
+                {"trace_id": "failing-trace", "error": "Trace could not be inspected"},
+                {"trace_id": "healthy-trace", "event_count": 2, "text": "healthy trace"},
+            ],
+        )
 
     @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._execute_hogql")
     @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._fetch_and_format_trace")
