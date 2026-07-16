@@ -122,6 +122,19 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
         )
         self.assertEqual(allowed.status_code, 200, allowed.json())
 
+    def test_estimate_treats_denied_scanner_as_not_found(self) -> None:
+        # A scanner_id the caller can't view must be rejected the same way as one that doesn't exist —
+        # otherwise comparing responses (with/without the id) leaks whether it exists and its credit usage.
+        blocked_scanner = self._create_scanner(name="blocked")
+        self._set_resource_default("replay_scanner", "none")
+
+        self.client.force_login(self.other_user)
+        resp = self.client.post(
+            f"{self.scanners_url}estimate/", data={"scanner_id": str(blocked_scanner.id)}, format="json"
+        )
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertEqual(resp.json()["attr"], "scanner_id")
+
 
 class TestVisionActionAccessControlInheritance(_VisionActionAPITestCase):
     def setUp(self) -> None:
