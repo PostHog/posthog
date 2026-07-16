@@ -2950,7 +2950,8 @@ class OpinionStageSourceConfig(config.Config):
 
 @config.config
 class OpsgenieSourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config
@@ -4214,7 +4215,9 @@ class TemporalIOSourceConfig(config.Config):
 
 @config.config
 class TenableVulnerabilityManagementSourceConfig(config.Config):
-    pass
+    access_key: str
+    secret_key: str
+    region: Literal["standard", "fedramp"] = config.value(default="standard")
 
 
 @config.config
