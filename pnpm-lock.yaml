@@ -4268,13 +4268,13 @@ importers:
         version: 18.3.27
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.5(react@18.3.1)
+        version: 4.0.0-pre.6(react@18.3.1)
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
         version: 1.402.3
@@ -4284,7 +4284,7 @@ importers:
     devDependencies:
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(react@18.3.1))
 
   products/streamlit_apps: {}
 
