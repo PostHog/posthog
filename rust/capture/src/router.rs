@@ -26,7 +26,7 @@ use limiters::overflow::OverflowLimiter;
 use limiters::redis::RedisLimiter;
 use limiters::token_dropper::TokenDropper;
 
-use crate::config::CaptureMode;
+use crate::config::{AiRouting, CaptureMode};
 use crate::metrics_middleware::track_metrics;
 use crate::prometheus::setup_metrics_recorder;
 use crate::quota_limiters::CaptureQuotaLimiter;
@@ -82,10 +82,12 @@ pub struct State {
     /// V1 sink router for the new capture analytics pipeline.
     /// When present, the v1 analytics handler publishes events through this.
     pub v1_sink_router: Option<Arc<crate::v1::sinks::Router>>,
-    /// True when the default V1 sink has a dedicated `$ai_*` topic configured
-    /// (`CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_AI`). Gates diverting `$ai_*` events to
-    /// `Destination::AiEvents`; false keeps them on the analytics main topic.
-    pub route_ai_events: bool,
+    /// Routing policy for diverting `$ai_*` events to the default V1 sink's
+    /// dedicated topic (`CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_AI`), derived from
+    /// `..._KAFKA_TOPIC_AI_MODE` and `..._KAFKA_TOPIC_AI_ALLOWLIST_TOKENS`.
+    /// `Primary` keeps everything on the analytics main topic; the other modes
+    /// divert to `Destination::AiEvents` per batch token.
+    pub ai_routing: AiRouting,
     pub capture_v1_scatter_gather_min_batch: usize,
     pub ai_gateway_signing_secret: Option<String>,
 }
@@ -157,7 +159,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     v1_sink_router: Option<Arc<crate::v1::sinks::Router>>,
     capture_v1_scatter_gather_min_batch: usize,
     ai_gateway_signing_secret: Option<String>,
-    route_ai_events: bool,
+    ai_routing: AiRouting,
 ) -> Router {
     let state = State {
         sink,
@@ -185,7 +187,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         v1_sink_router,
         capture_v1_scatter_gather_min_batch,
         ai_gateway_signing_secret,
-        route_ai_events,
+        ai_routing,
     };
 
     // Very permissive CORS policy, as old SDK versions

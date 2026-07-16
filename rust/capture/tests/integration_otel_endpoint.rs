@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use axum_test_helper::TestClient;
 use capture::ai_s3::MockBlobStorage;
 use capture::api::CaptureError;
-use capture::config::CaptureMode;
+use capture::config::{AiRouting, CaptureMode};
 use capture::event_restrictions::{
     EventRestrictionService, Pipeline, Restriction, RestrictionFilters, RestrictionManager,
     RestrictionScope, RestrictionType,
@@ -187,7 +187,7 @@ fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOption
         None,             // v1_sink_router
         8,                // capture_v1_scatter_gather_min_batch
         None,             // ai_gateway_signing_secret
-        false,            // route_ai_events
+        AiRouting::Primary, // ai_routing
     );
 
     TestClient::new(app)

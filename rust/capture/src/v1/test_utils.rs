@@ -173,6 +173,7 @@ pub fn test_kafka_config() -> crate::v1::sinks::kafka::config::Config {
         ("TOPIC_EXCEPTION", "error_tracking_events"),
         ("TOPIC_HEATMAP", "heatmaps_ingestion"),
         ("TOPIC_CLIENT_INGESTION_WARNING", "events_plugin_ingestion"),
+        ("TOPIC_AI", "ai_events"),
     ]
     .into_iter()
     .map(|(k, v)| (k.to_string(), v.to_string()))
@@ -676,6 +677,7 @@ pub struct TestStateBuilder {
     global_rate_limiter: Option<Arc<GlobalRateLimiter>>,
     mock_producer: Option<Arc<MockProducer>>,
     ai_gateway_signing_secret: Option<String>,
+    ai_routing: crate::config::AiRouting,
 }
 
 impl Default for TestStateBuilder {
@@ -694,7 +696,14 @@ impl TestStateBuilder {
             global_rate_limiter: None,
             mock_producer: None,
             ai_gateway_signing_secret: None,
+            ai_routing: crate::config::AiRouting::Primary,
         }
+    }
+
+    /// Set the `$ai_*` topic routing policy (defaults to `Primary`: no diversion).
+    pub fn with_ai_routing(mut self, routing: crate::config::AiRouting) -> Self {
+        self.ai_routing = routing;
+        self
     }
 
     /// Configure quota limiter to reject all events for any token.
@@ -846,8 +855,7 @@ impl TestStateBuilder {
             v1_sink_router: Some(Arc::new(v1_router)),
             capture_v1_scatter_gather_min_batch: 8,
             ai_gateway_signing_secret: self.ai_gateway_signing_secret,
-            // V1 test sink uses no dedicated AI topic, so $ai_* stays on Main.
-            route_ai_events: false,
+            ai_routing: self.ai_routing,
         };
 
         TestState {

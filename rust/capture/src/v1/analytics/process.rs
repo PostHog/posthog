@@ -37,10 +37,11 @@ use crate::v1::Error;
 /// (extractHeatmapDataStep) handles extraction when `skip_heatmap_processing` is unset
 /// in Kafka headers — removing that fallback would break scroll-depth heatmaps for v1.
 ///
-/// When `route_ai_events` is set (the default sink has a dedicated AI topic
-/// configured), `$ai_*` events are diverted to `Destination::AiEvents`;
-/// otherwise they fall through to `AnalyticsMain` exactly as before, so an
-/// unconfigured AI topic is a strict no-op.
+/// When `route_ai_events` is set (this batch's token routes to the AI topic
+/// per the configured `AiRouting` policy: mode plus token allowlist), `$ai_*`
+/// events are diverted to `Destination::AiEvents`; otherwise they fall through
+/// to `AnalyticsMain` exactly as before, so an unconfigured AI topic or
+/// `primary` mode is a strict no-op.
 fn destination_for_event_name(name: &str, route_ai_events: bool) -> Destination {
     match name {
         "$exception" => Destination::ExceptionErrorTracking,
@@ -62,7 +63,9 @@ pub async fn process_batch(
     validate_batch(&batch)?;
     context.set_batch_metadata(&batch);
 
-    let mut events = validate_events(context, batch, state.route_ai_events)?;
+    // A batch carries a single token, so the AI routing decision is per batch.
+    let route_ai_events = state.ai_routing.routes_to_secondary(&context.api_token);
+    let mut events = validate_events(context, batch, route_ai_events)?;
 
     // Nothing left to process — return 200 with per-event drops.
     if events.iter().all(|ev| ev.result != EventResult::Ok) {
@@ -2976,6 +2979,35 @@ mod tests {
                 "forged marker must be stripped before publish"
             );
             assert!(records[0].payload.contains("$ai_model"));
+        });
+    }
+
+    /// process_batch wiring: the AI routing decision is derived once per batch
+    /// from the request token, so with a `SecondaryAllowlist` policy the same
+    /// `$ai_*` event lands on the AI topic only when the batch token is listed.
+    #[rstest::rstest]
+    #[case("phc_allowlisted", "ai_events")]
+    #[case("phc_other", "events_main")]
+    #[tokio::test]
+    async fn process_batch_gates_ai_topic_on_batch_token(
+        #[case] token: &str,
+        #[case] expected_topic: &str,
+    ) {
+        let allowlist: HashSet<String> = ["phc_allowlisted".to_string()].into_iter().collect();
+        let ts = TestStateBuilder::new()
+            .with_ai_routing(crate::config::AiRouting::SecondaryAllowlist(allowlist))
+            .build();
+        let mut ctx = gateway_context(token, Utc::now(), None);
+        let batch = valid_batch(vec![Event {
+            event: "$ai_generation".to_string(),
+            ..valid_event()
+        }]);
+
+        process_batch(&ts.state, &mut ctx, batch).await.unwrap();
+
+        ts.mock_producer.with_records(|records| {
+            assert_eq!(records.len(), 1, "the event must be published");
+            assert_eq!(records[0].topic, expected_topic);
         });
     }
 
