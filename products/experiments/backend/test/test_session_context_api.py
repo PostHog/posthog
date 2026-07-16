@@ -313,6 +313,30 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
         assert results[0]["variant"] == "test"
         assert results[0]["first_exposure_timestamp"] is None
 
+    def test_unresolvable_property_filter_fails_soft(self) -> None:
+        self._create_recording()
+        # A duplicated experiment can carry a cohort id from its source project; resolving that
+        # filter raises. One such experiment must not 500 the endpoint — it degrades to
+        # stamped-property evidence with no exposure moment.
+        self._create_experiment(
+            exposure_criteria={
+                "exposure_config": {
+                    "kind": "ExperimentEventExposureConfig",
+                    "event": "checkout started",
+                    "properties": [{"key": "id", "value": 999999, "type": "cohort"}],
+                }
+            }
+        )
+        self._create_session_event(event="$pageview", properties={"$feature/checkout-cta": "test"})
+        flush_persons_and_events()
+
+        response = self._get_session_context()
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert len(results) == 1
+        assert results[0]["variant"] == "test"
+        assert results[0]["first_exposure_timestamp"] is None
+
     def test_action_exposure_criteria_defines_exposure_timestamp(self) -> None:
         self._create_recording()
         action = Action.objects.create(team=self.team, name="Purchased", steps_json=[{"event": "purchase"}])

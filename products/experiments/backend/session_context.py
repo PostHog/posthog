@@ -27,6 +27,7 @@ import pydantic
 from posthog.schema import ExperimentEventExposureConfig, ExperimentExposureCriteria
 
 from posthog.hogql import ast
+from posthog.hogql.errors import BaseHogQLError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
@@ -34,6 +35,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 
+from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     build_exposure_event_conditions,
     get_exposure_event_and_property,
@@ -240,7 +242,18 @@ def _resolve_exposure(team: Team, flag_key: str, exposure_criteria: Optional[dic
         and not exposure_config.properties
     )
     _, variant_property = get_exposure_event_and_property(flag_key, criteria)
-    conditions = [] if batchable else build_exposure_event_conditions(criteria, team, flag_key)
+    conditions: list[ast.Expr] = []
+    if not batchable:
+        try:
+            conditions = build_exposure_event_conditions(criteria, team, flag_key)
+        except (Cohort.DoesNotExist, BaseHogQLError):
+            # Criteria this project can't resolve — a cohort filter whose cohort doesn't exist
+            # here (e.g. a duplicated experiment carrying the source project's cohort id), or a
+            # property filter HogQL can't compile — must not fail the whole surface. Match
+            # nothing instead, like `_build_action_filter` does for missing actions: the
+            # experiment still surfaces through stamped properties, and no exposure moment is
+            # fabricated from criteria the analysis can't honor either.
+            conditions = [ast.Constant(value=False)]
     return _ResolvedExposure(variant_property=variant_property, conditions=conditions, batchable=batchable)
 
 
