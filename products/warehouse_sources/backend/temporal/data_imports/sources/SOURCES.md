@@ -227,6 +227,7 @@ the row lists both.
 | heroku                    | HTTP                        | requests                                                        | ✅                          |
 | hetzner                   | HTTP                        | requests                                                        | ✅                          |
 | hibob                     | HTTP                        | requests                                                        | ✅                          |
+| honeycomb                 | HTTP                        | requests                                                        | ✅                          |
 | humanitix                 | HTTP                        | requests                                                        | ✅                          |
 | hubplanner                | HTTP                        | requests                                                        | ✅                          |
 | hubspot                   | HTTP                        | requests                                                        | ✅                          |
@@ -473,6 +474,7 @@ the row lists both.
 | zapier_supported_storage  | HTTP                        | requests                                                        | ✅                          |
 | zendesk                   | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | zendesk_sell              | HTTP                        | requests                                                        | ✅                          |
+| zenduty                   | HTTP                        | requests                                                        | ✅                          |
 | zenloop                   | HTTP                        | requests                                                        | ✅                          |
 | zep                       | HTTP                        | requests                                                        | ✅                          |
 | zonka_feedback            | HTTP                        | requests                                                        | ✅                          |
@@ -688,7 +690,6 @@ doesn't conflict with concurrent PRs.
 - high_level
 - hightouch
 - honeybadger
-- honeycomb
 - hoorayhr
 - hubplanner
 - humanitix
@@ -980,7 +981,6 @@ doesn't conflict with concurrent PRs.
 - zapsign
 - zellify
 - zendesk_sunshine
-- zenduty
 - zenefits
 - zenloop
 - zoho_analytics
