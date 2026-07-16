@@ -12,6 +12,7 @@ Run via Claude Code's .mcp.json (invoked automatically by the MCP client):
 from __future__ import annotations
 
 import os
+import re
 import json
 import socket
 import hashlib
@@ -60,6 +61,36 @@ def _query_phrocs(cmd: dict) -> dict | None:
 
 _NOT_RUNNING = {"error": "phrocs is not running. Start the dev environment with: ./bin/start"}
 
+# Log lines come from a VT emulator render: they can carry ANSI escapes,
+# screen-width padding, and unbounded length (minified JS in vite errors).
+# Clean them up here so MCP clients don't pay tokens for terminal noise.
+_ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
+_MAX_LINE_CHARS = 400
+
+
+def _clean_log_lines(lines: list[str]) -> list[str]:
+    cleaned: list[str] = []
+    for line in lines:
+        line = _ANSI_RE.sub("", line).rstrip()
+        if len(line) > _MAX_LINE_CHARS:
+            line = f"{line[:_MAX_LINE_CHARS]}… [+{len(line) - _MAX_LINE_CHARS} chars]"
+        cleaned.append(line)
+    return _collapse_repeats(cleaned)
+
+
+def _collapse_repeats(lines: list[str]) -> list[str]:
+    out: list[str] = []
+    i = 0
+    while i < len(lines):
+        j = i + 1
+        while j < len(lines) and lines[j] == lines[i]:
+            j += 1
+        out.append(lines[i])
+        if j - i > 1:
+            out.append(f"[repeated x{j - i}]")
+        i = j
+    return out
+
 
 @mcp.tool()
 def get_process_status(process: str = "") -> dict[str, Any]:
@@ -88,12 +119,14 @@ def get_process_status(process: str = "") -> dict[str, Any]:
 
 
 @mcp.tool()
-def get_process_logs(process: str, lines: int = 100, grep: str = "") -> dict[str, Any]:
+def get_process_logs(process: str, lines: int = 50, grep: str = "") -> dict[str, Any]:
     """Get recent log output from a dev environment process.
     Reads from phrocs' in-memory scrollback buffer (10,000 lines per process).
+    Prefer a grep pattern over a large line count when hunting for something
+    specific — it filters server-side across the whole buffer.
     Args:
         process: Process name (e.g. 'backend', 'frontend', 'celery-worker').
-        lines: Number of recent lines to return (default 100, max 500).
+        lines: Number of recent lines to return (default 50, max 500).
         grep: Optional regex pattern to filter lines (e.g. 'ERROR', 'warning').
     """
     lines = min(max(lines, 1), 500)
@@ -107,7 +140,7 @@ def get_process_logs(process: str, lines: int = 100, grep: str = "") -> dict[str
     resp: dict[str, Any] = {
         "process": process,
         "returned_lines": len(result["lines"]),
-        "logs": result["lines"],
+        "logs": "\n".join(_clean_log_lines(result["lines"])),
     }
     if grep:
         resp["grep"] = grep
