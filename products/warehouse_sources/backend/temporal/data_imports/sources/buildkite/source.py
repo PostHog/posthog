@@ -31,7 +31,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BuildkiteSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -94,8 +97,8 @@ Make sure to grant the following read scopes:
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            # An invalid or revoked token surfaces as a requests HTTPError when `_fetch_page` calls
-            # `raise_for_status()`. Retrying can't satisfy a credential problem, so stop the sync.
+            # An invalid or revoked token surfaces as a requests HTTPError when the REST client
+            # calls `raise_for_status()`. Retrying can't satisfy a credential problem, so stop the sync.
             "401 Client Error: Unauthorized for url: https://api.buildkite.com": "Your Buildkite API access token is invalid or has been revoked. Create a new token in your Buildkite account settings, then reconnect.",
             "403 Client Error: Forbidden for url: https://api.buildkite.com": "Your Buildkite API access token is missing the read scope needed to sync this data. Grant the required read scopes in your Buildkite account settings, then reconnect.",
         }
@@ -111,19 +114,7 @@ Make sure to grant the following read scopes:
         names: list[str] | None = None,
         force_refresh: bool = False,
     ) -> list[SourceSchema]:
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=bool(INCREMENTAL_FIELDS.get(endpoint)),
-                supports_append=bool(INCREMENTAL_FIELDS.get(endpoint)),
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-            )
-            for endpoint in ENDPOINTS
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
         self, config: BuildkiteSourceConfig, team_id: int, schema_name: Optional[str] = None
@@ -143,7 +134,8 @@ Make sure to grant the following read scopes:
             api_access_token=config.api_access_token,
             organization=config.organization,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
