@@ -2496,15 +2496,19 @@ trigger_source=TRIGGER_UI)` → `202 {workflow_id, status}`. The URL is canonica
 - Tests: `backend/tests/test_ui_trigger_api.py` (gate, URL parse, access check, workflow kwargs,
   `can_trigger_reviews` exposure), `test_settings_api.py` defaults updated, two
   `reviewHogSettingsLogic.test.ts` cases (in-flight flag resets on both outcomes).
-- **v1 gap (deliberate):** the endpoint doesn't fetch PR metadata synchronously, so a typo'd PR
-  _number_ in an accessible repo still fails async, before the report row exists — nothing appears
-  in the UI. Fix when it bites: one `GET /pulls/{n}` in the action (also rejects forks/closed PRs
-  with a message; the fetch activity stays authoritative).
+- **Sync PR fetch (added 2026-07-16, closing the original "v1 gap"):** the action makes one
+  `GET /pulls/{n}` (`_fetch_pr_metadata`) so the answer is honest — nonexistent (404), fork, and
+  closed PRs reject immediately with a message instead of dying async before the report row exists,
+  and a PR whose current head equals the report's `published_head_sha` returns
+  `200 {status: "already_reviewed"}` (no run, info toast, watch not armed) instead of a false
+  "started". The report lookup is `repository__iexact` — triggers store differing casings. The
+  fetch activity keeps the authoritative fork gate.
 - **Cross-caller same-head caveat (pre-existing resume identity, now easier to reach):** the per-head
   working-state cache is roster-blind, and the UI trigger lets different acting users hit the same
-  head. Three of four paths are safe: already-published head → the fetch early-exits (the second
-  caller gets the existing review, not one under their own roster — the report is per-PR, not
-  per-caller); run in flight → the deterministic workflow id + `USE_EXISTING` joins it; new head →
+  head. Three of four paths are safe: already-published head → the trigger answers
+  `already_reviewed` without starting (the workflow's fetch early-exit backstops the race; the
+  report is per-PR, not per-caller); run in flight → the deterministic workflow id + `USE_EXISTING`
+  joins it; new head →
   nothing persisted under the new `head_sha`, full recompute under the new caller's roster. The
   unsafe window: a prior turn that persisted working state **without** stamping `published_head_sha`
   (a zero-findings turn — the watermark records only on a real post — or a crashed turn). A different

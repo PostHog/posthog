@@ -97,6 +97,30 @@ describe('reviewHogSettingsLogic', () => {
         expect(logic.values.awaitingTriggeredReview).toBe(true)
     })
 
+    it('an already-reviewed PR informs without arming the watch', async () => {
+        useMocks({
+            post: {
+                '/api/projects/:team_id/review_hog/reviews/trigger/': () => [
+                    200,
+                    { workflow_id: '', status: 'already_reviewed' },
+                ],
+            },
+        })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions([
+            'loadRecentReviewsSuccess',
+            'applyDefaultReviewsScope',
+            'loadRecentReviewsSuccess',
+        ])
+        logic.actions.setTriggerPrUrl('https://github.com/PostHog/posthog.com/pull/1')
+
+        // Arming the watch here would poll for two minutes waiting for a run that never starts.
+        await expectLogic(logic, () => logic.actions.submitTriggerReview())
+            .toDispatchActions(['submitTriggerReview', 'loadRecentReviews', 'submitTriggerReviewFinished'])
+            .toNotHaveDispatchedActions(['startTriggeredReviewWatch'])
+            .toMatchValues({ triggeringReview: false, triggerPrUrl: '', awaitingTriggeredReview: false })
+    })
+
     it('a rejected trigger resets the in-flight flag and keeps the input for correction', async () => {
         useMocks({
             post: {

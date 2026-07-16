@@ -819,12 +819,19 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                 return
             }
             try {
-                await reviewHogReviewsTriggerCreate(currentProjectId(), { pr_url: prUrl })
-                lemonToast.success('Review started. It will appear under recent reviews as it runs.')
+                const response = await reviewHogReviewsTriggerCreate(currentProjectId(), { pr_url: prUrl })
                 actions.setTriggerPrUrl('')
-                // The review's report row is created seconds later by the workflow's fetch step, so
-                // one immediate reload usually misses it — arm the watch before reloading.
-                actions.startTriggeredReviewWatch()
+                if (response.status === 'already_reviewed') {
+                    // No run started — the PR's current commit already has a published review.
+                    lemonToast.info(
+                        'This pull request was already reviewed at its current commit. Find it under recent reviews.'
+                    )
+                } else {
+                    lemonToast.success('Review started. It will appear under recent reviews as it runs.')
+                    // The review's report row is created seconds later by the workflow's fetch step,
+                    // so one immediate reload usually misses it — arm the watch before reloading.
+                    actions.startTriggeredReviewWatch()
+                }
                 actions.loadRecentReviews()
             } catch (error: any) {
                 // The trigger endpoint's rejections come back as `{error: "..."}` bodies.

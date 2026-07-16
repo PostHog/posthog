@@ -38,7 +38,8 @@ from products.review_hog.backend.reviewer.progress import (
     snapshot_stats,
     turn_stats,
 )
-from products.review_hog.backend.reviewer.tools.github_meta import PRParser
+from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError, github_api_request
+from products.review_hog.backend.reviewer.tools.github_meta import PRFetcher, PRMetadata, PRParser
 from products.review_hog.backend.temporal.client import start_review_pr_workflow
 from products.review_hog.backend.temporal.types import TRIGGER_UI
 
@@ -207,8 +208,13 @@ class ReviewTriggerRequestSerializer(serializers.Serializer):
 
 
 class ReviewTriggerResponseSerializer(serializers.Serializer):
-    workflow_id = serializers.CharField(help_text="Temporal workflow id for the started review run.")
-    status = serializers.CharField(help_text="Run lifecycle marker; 'started' when the review was queued.")
+    workflow_id = serializers.CharField(
+        allow_blank=True, help_text="Temporal workflow id for the started review run; empty when no run was started."
+    )
+    status = serializers.CharField(
+        help_text="Run lifecycle marker: 'started' when the review was queued, 'already_reviewed' when the "
+        "pull request's current commit already has a published review (no new run starts)."
+    )
 
 
 class ReviewTriggerErrorSerializer(serializers.Serializer):
@@ -300,6 +306,22 @@ class _PageEnvelopeSchema(AutoSchema):
         if getattr(self.view, "action", None) == "list" and operation_id.endswith("_retrieve"):
             return operation_id.removesuffix("_retrieve") + "_list"
         return operation_id
+
+
+def _fetch_pr_metadata(github: GitHubIntegration, owner: str, repo: str, pr_number: int) -> PRMetadata:
+    """One `GET /pulls/{n}` with the installation token — enough to answer the trigger honestly.
+
+    Raises `GitHubAPIError` (404 for a nonexistent PR); the caller maps it to a clear response.
+    """
+    token, installation_id = github.get_access_token(), github.github_installation_id
+    pr = github_api_request(
+        "GET",
+        f"/repos/{owner}/{repo}/pulls/{pr_number}",
+        token=token,
+        installation_id=installation_id,
+        endpoint="/repos/{owner}/{repo}/pulls/{pull_number}",
+    ).json()
+    return PRFetcher(owner=owner, repo=repo, pr_number=pr_number, token=token).fetch_pr_metadata(pr)
 
 
 def _in_progress_report_ids(team_id: int, reports: list[ReviewReport]) -> set[str]:
@@ -556,10 +578,14 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     @extend_schema(
         request=ReviewTriggerRequestSerializer,
         responses={
+            200: OpenApiResponse(
+                response=ReviewTriggerResponseSerializer,
+                description="No new run needed: the PR's current commit already has a published review.",
+            ),
             202: OpenApiResponse(response=ReviewTriggerResponseSerializer, description="Review run started."),
             400: OpenApiResponse(
                 response=ReviewTriggerErrorSerializer,
-                description="Invalid PR URL, or the project's GitHub App installation can't access the repository.",
+                description="Invalid PR URL, inaccessible repository, or a nonexistent, closed, or fork PR.",
             ),
             403: OpenApiResponse(
                 response=ReviewTriggerErrorSerializer,
@@ -570,8 +596,11 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         description="Start a ReviewHog review of any pull request the project's GitHub App installation can "
         "access, and publish it back to the PR. The requesting user is the review's acting user: their "
         "enabled perspectives, blind-spot check, validator, and urgency threshold drive the run, and it "
-        "appears under their recent reviews. Non-blocking: returns the Temporal workflow id immediately "
-        "while the review runs in the worker.",
+        "appears under their recent reviews. Nonexistent, closed, and fork PRs are rejected synchronously; "
+        "a PR whose current commit already has a published review returns 'already_reviewed' without "
+        "starting a run, and triggering a PR whose review is currently running joins the in-flight run. "
+        "Otherwise non-blocking: returns the Temporal workflow id immediately while the review runs in "
+        "the worker.",
     )
     @action(methods=["POST"], detail=False)
     def trigger(self, request: Request, **kwargs) -> Response:
@@ -597,12 +626,48 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         repository = f"{pr_info['owner']}/{pr_info['repo']}"
         # Checked synchronously (one GitHub API call) so an inaccessible repo errors here, in the UI —
         # asynchronously the fetch activity would fail before the report row exists, showing nothing.
-        if GitHubIntegration.first_for_team_repository(team_id, repository) is None:
+        github = GitHubIntegration.first_for_team_repository(team_id, repository)
+        if github is None:
             return Response(
                 {
                     "error": f"ReviewHog's GitHub App can't access {repository}. It reviews repositories covered by this project's GitHub integration."
                 },
                 status=status.HTTP_400_BAD_REQUEST,
+            )
+        pr_number = int(pr_info["pr_number"])
+        # One PR fetch so the answer is honest: without it a typo'd number or fork dies async (before
+        # the report row exists — nothing appears), and an already-reviewed head silently no-ops while
+        # the response still claims "started". Fork/closed rejection here is UX; the fetch activity
+        # keeps the authoritative fork gate.
+        try:
+            pr_meta = _fetch_pr_metadata(github, str(pr_info["owner"]), str(pr_info["repo"]), pr_number)
+        except GitHubAPIError as e:
+            if e.status == 404:
+                return Response(
+                    {"error": f"No pull request #{pr_number} found in {repository}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            raise
+        if pr_meta.is_fork:
+            return Response(
+                {"error": "ReviewHog doesn't review fork pull requests (a fork's head can't be trusted)"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if pr_meta.state != "open":
+            return Response(
+                {"error": f"Pull request #{pr_number} is {pr_meta.state}; ReviewHog reviews open pull requests"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        # Repository casing can differ per trigger (the report stores whatever its trigger carried).
+        report = (
+            ReviewReport.objects.for_team(team_id).filter(repository__iexact=repository, pr_number=pr_number).first()
+        )
+        if report is not None and pr_meta.head_sha and report.published_head_sha == pr_meta.head_sha:
+            # The workflow would early-exit before resolving the acting user anyway — say so instead
+            # of answering "started" for a run that will do nothing.
+            return Response(
+                ReviewTriggerResponseSerializer({"workflow_id": "", "status": "already_reviewed"}).data,
+                status=status.HTTP_200_OK,
             )
         # Rebuilt canonical URL: the parser accepts trailing paths (e.g. …/pull/123/files).
         pr_url = f"https://github.com/{pr_info['owner']}/{pr_info['repo']}/pull/{pr_info['pr_number']}"
