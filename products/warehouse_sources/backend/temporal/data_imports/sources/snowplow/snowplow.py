@@ -91,7 +91,10 @@ class SnowplowClient:
         # the API key for value-based redaction and disable sample capture: responses carry
         # customer data (user emails, schema definitions, job metadata) and the token exchange
         # returns a bearer token in the body, neither of which may reach the HTTP sample bucket.
-        self._session = make_tracked_session(redact_values=(api_key,), capture=False)
+        # Never follow redirects: the token exchange carries the admin-capable API key in custom
+        # X-API-Key headers, which requests preserves across redirects (unlike Authorization), so a
+        # 30x could replay the key to another host. The API serves these endpoints directly.
+        self._session = make_tracked_session(redact_values=(api_key,), capture=False, allow_redirects=False)
         self._access_token: str | None = None
 
     @property

@@ -425,10 +425,13 @@ class TestClientAuth:
 
     def test_token_is_minted_once_and_reused(self) -> None:
         session = self._session([self._token_response(), self._data_response([1]), self._data_response([2])])
-        with patch.object(snowplow, "make_tracked_session", return_value=session):
+        with patch.object(snowplow, "make_tracked_session", return_value=session) as mock_session_factory:
             client = SnowplowClient("org-1", "key-id", "key", MagicMock())
             assert client.get("/users") == [1]
             assert client.get("/users") == [2]
+        # The session must never follow redirects: the token exchange carries the admin-capable API
+        # key in custom X-API-Key headers, which requests would replay to a redirect target.
+        assert mock_session_factory.call_args.kwargs["allow_redirects"] is False
         # Exactly one token mint for two data calls; re-minting per request would double API traffic
         # and hammer the credentials endpoint.
         token_calls = [c for c in session.get.call_args_list if "credentials/v3/token" in c.args[0]]
