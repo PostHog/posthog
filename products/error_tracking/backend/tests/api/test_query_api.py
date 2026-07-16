@@ -621,6 +621,8 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
                 "$exception_handled": False,
                 "$exception_releases": {"release-id": {"version": "2026.04.24"}},
                 "$cymbal_errors": ["source map unavailable"],
+                "$trace_id": "00000000000000000000000000000123",
+                "$span_id": "0000000000000456",
                 "$ai_trace_id": "ai-trace-id",
                 "$ai_span_id": "ai-span-id",
                 "$exception_list": [
@@ -675,6 +677,8 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert variables_properties["$exception_handled"] is False
         assert variables_properties["$exception_releases"] == {"release-id": {"version": "2026.04.24"}}
         assert variables_properties["$cymbal_errors"] == ["source map unavailable"]
+        assert variables_properties["$trace_id"] == "00000000000000000000000000000123"
+        assert variables_properties["$span_id"] == "0000000000000456"
         assert variables_properties["$ai_trace_id"] == "ai-trace-id"
         assert variables_properties["$ai_span_id"] == "ai-span-id"
         assert "$exception_issue_id" not in variables_properties
