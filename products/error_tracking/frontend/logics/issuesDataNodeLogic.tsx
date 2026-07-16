@@ -113,9 +113,9 @@ export interface issuesDataNodeLogicActions {
         value: true
     } // nodeLogic
     loadData: (
-        refresh?: RefreshType,
-        alreadyRunningQueryId?: string,
-        overrideQuery?: DataNode<Record<string, any>>
+        refresh?: RefreshType | undefined,
+        alreadyRunningQueryId?: string | undefined,
+        overrideQuery?: DataNode<Record<string, any>> | undefined
     ) => {
         overrideQuery: DataNode<Record<string, any>> | undefined
         pollOnly: boolean
@@ -146,12 +146,14 @@ export interface issuesDataNodeLogicActions {
             | TraceSpansQueryResponse
             | null
             | undefined,
-        payload?: {
-            overrideQuery: DataNode<Record<string, any>> | undefined
-            pollOnly: boolean
-            queryId: string
-            refresh: RefreshType | undefined
-        }
+        payload?:
+            | {
+                  overrideQuery: DataNode<Record<string, any>> | undefined
+                  pollOnly: boolean
+                  queryId: string
+                  refresh: RefreshType | undefined
+              }
+            | undefined
     ) => {
         payload?: {
             overrideQuery: DataNode<Record<string, any>> | undefined
