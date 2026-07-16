@@ -40,8 +40,8 @@ import { TableSortingIndicator } from './TableSortingIndicator'
 import { FilterPresetsDropdown } from './WebAnalyticsFilterPresets'
 import { webAnalyticsFilterPresetsLogic } from './webAnalyticsFilterPresetsLogic'
 import { WebAnalyticsFiltersV2MigrationBanner } from './WebAnalyticsFiltersV2MigrationBanner'
-import { WebAnalyticsShareButton } from './WebAnalyticsShareButton'
 import { webAnalyticsLogic } from './webAnalyticsLogic'
+import { WebAnalyticsShareButton } from './WebAnalyticsShareButton'
 import { WebConversionGoal } from './WebConversionGoal'
 import {
     WEB_ANALYTICS_PROPERTY_ALLOW_LIST,
