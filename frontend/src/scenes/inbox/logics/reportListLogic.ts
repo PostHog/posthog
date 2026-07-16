@@ -109,8 +109,8 @@ export const reportListLogic = kea<reportListLogicType>([
             [
                 'setSearchQuery',
                 'setSort',
-                'toggleSourceProduct',
-                'togglePriority',
+                'setSourceProductFilter',
+                'setPriorityFilter',
                 'setScope',
                 'applyDefaultScope',
                 'setFilters',
@@ -254,8 +254,8 @@ export const reportListLogic = kea<reportListLogicType>([
             actions.refresh()
         },
         setSort: () => actions.refresh(),
-        toggleSourceProduct: () => actions.refresh(),
-        togglePriority: () => actions.refresh(),
+        setSourceProductFilter: () => actions.refresh(),
+        setPriorityFilter: () => actions.refresh(),
         setScope: () => actions.refresh(),
         applyDefaultScope: () => actions.refresh(),
         setFilters: () => actions.refresh(),

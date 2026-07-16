@@ -94,21 +94,3 @@ export const INBOX_PRIORITY_OPTIONS: SignalReportPriority[] = ['P0', 'P1', 'P2',
 export function inboxSortOptionKey(field: InboxSortField, direction: InboxSortDirection): string {
     return `${field}:${direction}`
 }
-
-export function inboxPriorityFilterLabel(selected: SignalReportPriority[]): string {
-    if (selected.length === 0) {
-        return 'All priorities'
-    }
-    // Codes are short (P0–P4), so list them in rank order rather than collapsing to a count.
-    return [...selected].sort().join(', ')
-}
-
-export function inboxSourceFilterLabel(selected: string[]): string {
-    if (selected.length === 0) {
-        return 'All sources'
-    }
-    if (selected.length === 1) {
-        return INBOX_SOURCE_OPTIONS.find((o) => o.value === selected[0])?.label ?? selected[0]
-    }
-    return `${selected.length} sources`
-}

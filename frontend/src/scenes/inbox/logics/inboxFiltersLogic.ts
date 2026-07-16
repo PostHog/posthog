@@ -167,8 +167,8 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
         applyDefaultScope: (scope: InboxScope) => ({ scope }),
         setSearchQuery: (searchQuery: string) => ({ searchQuery }),
         setSort: (field: InboxSortField, direction: InboxSortDirection) => ({ field, direction }),
-        toggleSourceProduct: (source: string) => ({ source }),
-        togglePriority: (priority: SignalReportPriority) => ({ priority }),
+        setSourceProductFilter: (sources: string[]) => ({ sources }),
+        setPriorityFilter: (priorities: SignalReportPriority[]) => ({ priorities }),
         // Atomically apply a full filter set. Used when hydrating from a shared URL so the whole view
         // is restored in one action — one list refresh, no fan-out race between partial states.
         setFilters: (filters: InboxFilterState) => ({ filters }),
@@ -249,8 +249,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             [] as string[],
             { persist: true },
             {
-                toggleSourceProduct: (state, { source }) =>
-                    state.includes(source) ? state.filter((s) => s !== source) : [...state, source],
+                setSourceProductFilter: (_, { sources }) => sources,
                 setFilters: (_, { filters }) => filters.sourceProductFilter,
                 clearFilters: () => [],
             },
@@ -259,8 +258,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             [] as SignalReportPriority[],
             { persist: true },
             {
-                togglePriority: (state, { priority }) =>
-                    state.includes(priority) ? state.filter((p) => p !== priority) : [...state, priority],
+                setPriorityFilter: (_, { priorities }) => priorities,
                 setFilters: (_, { filters }) => filters.priorityFilter,
                 clearFilters: () => [],
             },
@@ -286,8 +284,8 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             setScope: toUrl,
             applyDefaultScope: toUrl,
             setSort: toUrl,
-            toggleSourceProduct: toUrl,
-            togglePriority: toUrl,
+            setSourceProductFilter: toUrl,
+            setPriorityFilter: toUrl,
             setSearchQuery: toUrl,
             clearFilters: toUrl,
         }
