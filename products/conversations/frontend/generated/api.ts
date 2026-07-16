@@ -580,8 +580,11 @@ export const getConversationsTicketsUnreadCountRetrieveUrl = (projectId: string)
 /**
  * Get total unread ticket count for the team.
  *
- * Returns the sum of unread_team_count for all non-resolved tickets.
- * Cached in Redis for 30 seconds, invalidated on changes.
+ * Returns the sum of unread_team_count for all non-resolved tickets visible to the
+ * caller. The team-wide Redis cache (30s TTL, invalidated on changes) is only used for
+ * callers without object-level ticket restrictions, since it holds one unscoped total
+ * per team - serving it to a restricted member would leak counts for tickets they can't
+ * see.
  */
 export const conversationsTicketsUnreadCountRetrieve = async (
     projectId: string,
