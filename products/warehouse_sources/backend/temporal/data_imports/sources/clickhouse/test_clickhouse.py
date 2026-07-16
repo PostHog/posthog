@@ -6,12 +6,14 @@ from unittest.mock import MagicMock, patch
 
 import pyarrow as pa
 from clickhouse_connect.driver.exceptions import ClickHouseError
+from tenacity import wait_none
 
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import clickhouse as ch_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.clickhouse import (
     _MAX_CONNECT_ATTEMPTS,
+    _QUERY_MAX_ATTEMPTS,
     YIELD_TARGET_ROWS,
     ClickHouseColumn,
     ClickHouseConnectionError,
@@ -19,9 +21,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse
     _get_client,
     _get_incremental_row_count,
     _has_duplicate_primary_keys,
+    _is_rate_limited_query_error,
     _is_transient_connect_drop,
     _parse_mv_target,
     _project_columns,
+    _query_with_retry,
     _quote_identifier,
     _strip_type_modifiers,
     filter_clickhouse_incremental_fields,
@@ -705,6 +709,59 @@ class TestIsTransientConnectDrop:
     )
     def test_does_not_match_deterministic_failures(self, message):
         assert not _is_transient_connect_drop(message)
+
+
+class TestIsRateLimitedQueryError:
+    @pytest.mark.parametrize(
+        "message",
+        [
+            # clickhouse-connect's exhausted-retry wording (show_clickhouse_errors on).
+            "HTTPDriver for https://db-access.improvado.io returned response code 429",
+            "HTTPDriver for https://host:8443 returned response code 503",
+            "HTTPDriver for https://host:8443 returned response code 504",
+        ],
+    )
+    def test_matches_rate_limited_statuses(self, message):
+        assert _is_rate_limited_query_error(ClickHouseError(message))
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            ClickHouseError("Code: 62. DB::Exception: Syntax error"),
+            ClickHouseError("HTTPDriver for https://host:8443 returned response code 404"),
+            ClickHouseError("Code: 516. DB::Exception: Authentication failed"),
+            # A rate-limit look-alike raised as a non-ClickHouse error stays non-retryable.
+            ValueError("returned response code 429"),
+        ],
+    )
+    def test_does_not_match_deterministic_or_foreign_errors(self, error):
+        assert not _is_rate_limited_query_error(error)
+
+
+class TestQueryWithRetry:
+    """`_query_with_retry` retries transient rate-limit responses but not deterministic errors."""
+
+    def test_retries_rate_limited_query_then_succeeds(self):
+        rate_limited = ClickHouseError("HTTPDriver for https://host:8443 returned response code 429")
+        query_fn = MagicMock(side_effect=[rate_limited, rate_limited, "result"])
+        with patch.object(ch_module, "wait_exponential_jitter", lambda **_: wait_none()):
+            assert _query_with_retry(query_fn) == "result"
+        assert query_fn.call_count == 3
+
+    def test_does_not_retry_deterministic_error(self):
+        deterministic = ClickHouseError("Code: 62. DB::Exception: Syntax error")
+        query_fn = MagicMock(side_effect=deterministic)
+        with pytest.raises(ClickHouseError):
+            _query_with_retry(query_fn)
+        assert query_fn.call_count == 1
+
+    def test_gives_up_after_max_attempts(self):
+        rate_limited = ClickHouseError("HTTPDriver for https://host:8443 returned response code 429")
+        query_fn = MagicMock(side_effect=rate_limited)
+        with patch.object(ch_module, "wait_exponential_jitter", lambda **_: wait_none()):
+            with pytest.raises(ClickHouseError):
+                _query_with_retry(query_fn)
+        assert query_fn.call_count == _QUERY_MAX_ATTEMPTS
 
 
 class TestGetClientTransientRetry:

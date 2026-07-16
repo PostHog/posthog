@@ -16,6 +16,7 @@ from clickhouse_connect.driver.client import Client as ClickHouseClient
 from clickhouse_connect.driver.exceptions import ClickHouseError
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 from structlog.types import FilteringBoundLogger
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential_jitter
 
 from posthog.exceptions_capture import capture_exception
 
@@ -175,6 +176,50 @@ def _get_client(
             raise ClickHouseConnectionError(message) from e
 
 
+# Substrings of a query-time error that denote a transient rate-limit or overload response
+# from the server (or a ClickHouse-compatible gateway like Improvado's `db-access.improvado.io`)
+# rather than a deterministic query error. clickhouse-connect retries 429/503/504 a couple of
+# times with no backoff and then raises an `OperationalError` whose message carries the status
+# code (with `show_clickhouse_errors` on, the default). We back off and retry those, since the
+# connect-time retry in `_get_client` only guards the handshake, not query execution.
+_RATE_LIMITED_QUERY_ERROR_SUBSTRINGS = (
+    "response code 429",
+    "response code 503",
+    "response code 504",
+)
+
+# Application-level retries for rate-limited queries, layered on clickhouse-connect's own
+# (backoff-free) retries. Bounds the total wait so a genuinely stuck source still fails the
+# activity in reasonable time and lets Temporal reschedule it.
+_QUERY_MAX_ATTEMPTS = 5
+
+
+def _is_rate_limited_query_error(error: BaseException) -> bool:
+    return isinstance(error, ClickHouseError) and any(
+        substring in str(error) for substring in _RATE_LIMITED_QUERY_ERROR_SUBSTRINGS
+    )
+
+
+def _query_with_retry(query_fn: Callable[[], Any]) -> Any:
+    """Run a ClickHouse query callable, retrying transient rate-limit responses with backoff.
+
+    Only 429/503/504 responses are retried; every other `ClickHouseError` (bad SQL, missing
+    table, auth failure) is a deterministic error that would fail identically on retry, so it
+    propagates immediately.
+    """
+
+    @retry(
+        retry=retry_if_exception(_is_rate_limited_query_error),
+        stop=stop_after_attempt(_QUERY_MAX_ATTEMPTS),
+        wait=wait_exponential_jitter(initial=1, max=60),
+        reraise=True,
+    )
+    def _run() -> Any:
+        return query_fn()
+
+    return _run()
+
+
 def _strip_type_modifiers(type_name: str) -> tuple[str, bool]:
     """Strip Nullable(...) and LowCardinality(...) wrappers.
 
@@ -272,14 +317,16 @@ def get_schemas(
             params["names"] = tuple(names)
             names_filter = "AND table IN %(names)s"
 
-        result = client.query(
-            f"""
-            SELECT table, name, type
-            FROM system.columns
-            WHERE database = %(database)s {names_filter}
-            ORDER BY table ASC, position ASC
-            """,
-            parameters=params,
+        result = _query_with_retry(
+            lambda: client.query(
+                f"""
+                SELECT table, name, type
+                FROM system.columns
+                WHERE database = %(database)s {names_filter}
+                ORDER BY table ASC, position ASC
+                """,
+                parameters=params,
+            )
         )
     finally:
         client.close()
@@ -380,13 +427,15 @@ def get_clickhouse_row_count(
             params["names"] = tuple(names)
             names_filter = "AND name IN %(names)s"
 
-        result = client.query(
-            f"""
-            SELECT name, total_rows, engine, uuid, create_table_query
-            FROM system.tables
-            WHERE database = %(database)s {names_filter}
-            """,
-            parameters=params,
+        result = _query_with_retry(
+            lambda: client.query(
+                f"""
+                SELECT name, total_rows, engine, uuid, create_table_query
+                FROM system.tables
+                WHERE database = %(database)s {names_filter}
+                """,
+                parameters=params,
+            )
         )
 
         counts: dict[str, int] = {}
@@ -493,7 +542,7 @@ def get_connection_metadata(
     )
 
     try:
-        result = client.query("SELECT version(), currentDatabase()")
+        result = _query_with_retry(lambda: client.query("SELECT version(), currentDatabase()"))
         row = result.result_rows[0] if result.result_rows else (None, None)
         version = str(row[0]) if row[0] is not None else ""
         current_database = str(row[1]) if row[1] is not None else database
@@ -661,14 +710,16 @@ def _is_materialized_view_engine(engine: str | None) -> bool:
 
 def _get_table(client: ClickHouseClient, database: str, table_name: str) -> Table[ClickHouseColumn]:
     """Read columns + table type for a single table from system tables."""
-    cols_result = client.query(
-        """
-        SELECT name, type
-        FROM system.columns
-        WHERE database = %(database)s AND table = %(table)s
-        ORDER BY position ASC
-        """,
-        parameters={"database": database, "table": table_name},
+    cols_result = _query_with_retry(
+        lambda: client.query(
+            """
+            SELECT name, type
+            FROM system.columns
+            WHERE database = %(database)s AND table = %(table)s
+            ORDER BY position ASC
+            """,
+            parameters={"database": database, "table": table_name},
+        )
     )
 
     columns: list[ClickHouseColumn] = []
@@ -679,9 +730,11 @@ def _get_table(client: ClickHouseClient, database: str, table_name: str) -> Tabl
     if not columns:
         raise ValueError(f"Table {database}.{table_name} not found or has no columns")
 
-    engine_result = client.query(
-        "SELECT engine FROM system.tables WHERE database = %(database)s AND name = %(table)s",
-        parameters={"database": database, "table": table_name},
+    engine_result = _query_with_retry(
+        lambda: client.query(
+            "SELECT engine FROM system.tables WHERE database = %(database)s AND name = %(table)s",
+            parameters={"database": database, "table": table_name},
+        )
     )
     engine = engine_result.result_rows[0][0] if engine_result.result_rows else None
 
@@ -701,14 +754,16 @@ def _get_primary_keys(client: ClickHouseClient, database: str, table_name: str) 
     and is the closest analog to a unique key — though it is *not*
     necessarily unique. Callers must be prepared to handle duplicates.
     """
-    result = client.query(
-        """
-        SELECT name
-        FROM system.columns
-        WHERE database = %(database)s AND table = %(table)s AND is_in_sorting_key = 1
-        ORDER BY position ASC
-        """,
-        parameters={"database": database, "table": table_name},
+    result = _query_with_retry(
+        lambda: client.query(
+            """
+            SELECT name
+            FROM system.columns
+            WHERE database = %(database)s AND table = %(table)s AND is_in_sorting_key = 1
+            ORDER BY position ASC
+            """,
+            parameters={"database": database, "table": table_name},
+        )
     )
     keys = [row[0] for row in result.result_rows]
     return keys if keys else None
@@ -845,7 +900,7 @@ def _has_duplicate_primary_keys(
     # LIMIT 1 lets ClickHouse short-circuit the moment it finds a duplicate.
     query = f"SELECT 1 FROM {_qualified_table(database, table_name)} GROUP BY {quoted_keys} HAVING count() > 1 LIMIT 1"
     try:
-        result = client.query(query, settings=_DUPLICATE_PK_CHECK_SETTINGS)
+        result = _query_with_retry(lambda: client.query(query, settings=_DUPLICATE_PK_CHECK_SETTINGS))
         return len(result.result_rows) > 0
     except ClickHouseError as e:
         # Any server error is treated as "assume duplicates" — safer to force
@@ -884,10 +939,12 @@ def _get_incremental_row_count(
     quoted_field = _quote_identifier(incremental_field)
     query = f"SELECT count() FROM {_qualified_table(database, table_name)} WHERE {quoted_field} > %(last_value)s"
     try:
-        result = client.query(
-            query,
-            parameters={"last_value": last_value},
-            settings={"max_execution_time": 30},
+        result = _query_with_retry(
+            lambda: client.query(
+                query,
+                parameters={"last_value": last_value},
+                settings={"max_execution_time": 30},
+            )
         )
     except ClickHouseError as e:
         logger.debug(f"_get_incremental_row_count: fell back, count query failed: {e}")
@@ -911,13 +968,15 @@ def _get_partition_settings(
     default partitioning.
     """
     try:
-        result = client.query(
-            """
-            SELECT total_rows, total_bytes
-            FROM system.tables
-            WHERE database = %(database)s AND name = %(table)s
-            """,
-            parameters={"database": database, "table": table_name},
+        result = _query_with_retry(
+            lambda: client.query(
+                """
+                SELECT total_rows, total_bytes
+                FROM system.tables
+                WHERE database = %(database)s AND name = %(table)s
+                """,
+                parameters={"database": database, "table": table_name},
+            )
         )
     except ClickHouseError as e:
         capture_exception(e)
@@ -1234,7 +1293,10 @@ def clickhouse_source(
                 pending: list[pa.RecordBatch] = []
                 pending_rows = 0
                 pending_bytes = 0
-                with stream_client.query_arrow_stream(query, parameters=parameters) as stream:
+                # query_arrow_stream fires the HTTP request eagerly, so a rate-limit 429 raises
+                # here — before any batch is yielded — making the open safe to retry with backoff.
+                stream_ctx = _query_with_retry(lambda: stream_client.query_arrow_stream(query, parameters=parameters))
+                with stream_ctx as stream:
                     for chunk in stream:
                         if chunk.num_rows == 0:
                             continue

@@ -3,9 +3,11 @@ import datetime
 from typing import Any, Optional
 
 import pyarrow as pa
+import requests
 import structlog
 from dateutil import parser
 from structlog.types import FilteringBoundLogger
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
@@ -22,6 +24,44 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 # transient like the gateway errors the default policy already retries, so add the Cloudflare
 # origin family to the forcelist and let the HTTP layer retry them with backoff.
 DOIT_RETRY = DEFAULT_RETRY.new(status_forcelist=(*(DEFAULT_RETRY.status_forcelist or ()), 520, 521, 522, 523, 524))
+
+# Maximum application-level retries layered on top of `DOIT_RETRY`. The transport policy
+# retries transient statuses a few times per request; once those are exhausted a 429 or 5xx
+# still surfaces as the returned response, so we back off further before failing the sync.
+DOIT_MAX_RETRIES = 5
+
+
+class DoItRetryableError(Exception):
+    """Raised when DoIt returns a transient error (429 rate-limit or 5xx) worth retrying."""
+
+    pass
+
+
+@retry(
+    retry=retry_if_exception_type((DoItRetryableError, requests.ReadTimeout, requests.ConnectionError)),
+    stop=stop_after_attempt(DOIT_MAX_RETRIES),
+    wait=wait_exponential_jitter(initial=1, max=60),
+    reraise=True,
+)
+def _doit_get(url: str, api_key: str) -> requests.Response:
+    """GET a DoIt endpoint, backing off on transient rate-limit / server errors.
+
+    DoIt rate-limits with 429s (respecting a concurrency quota) and its Cloudflare origin
+    can return transient 5xx/52x errors. Rather than immediately re-raising — which logs a
+    fresh exception on every Temporal activity attempt for an expected, self-resolving
+    condition — we retry with exponential backoff and only let genuinely non-retryable
+    responses reach the caller.
+    """
+    res = make_tracked_session(retry=DOIT_RETRY).get(
+        url,
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+
+    if res.status_code == 429 or res.status_code >= 500:
+        raise DoItRetryableError(f"DoIt API error (retryable): status={res.status_code}, url={url}")
+
+    return res
+
 
 DOIT_INCREMENTAL_FIELDS: list[IncrementalField] = [
     {
@@ -63,10 +103,7 @@ def doit_list_reports(config: DoItSourceConfig, logger: Optional[FilteringBoundL
     if logger is None:
         logger = structlog.get_logger(__name__)
 
-    res = make_tracked_session(retry=DOIT_RETRY).get(
-        "https://api.doit.com/analytics/v1/reports",
-        headers={"Authorization": f"Bearer {config.api_key}"},
-    )
+    res = _doit_get("https://api.doit.com/analytics/v1/reports", config.api_key)
 
     reports = res.json()["reports"]
 
@@ -147,10 +184,7 @@ def doit_source(
 
         logger.debug(f"Requesting DoIt url: {request_uri}")
 
-        res = make_tracked_session(retry=DOIT_RETRY).get(
-            request_uri,
-            headers={"Authorization": f"Bearer {config.api_key}"},
-        )
+        res = _doit_get(request_uri, config.api_key)
 
         if res.status_code != 200:
             raise Exception(f"Request to get report failed with status: {res.status_code}. With body: {res.text}")
