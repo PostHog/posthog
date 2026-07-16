@@ -29,6 +29,7 @@ from posthog.hogql.printer import prepare_and_print_ast
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
+from posthog.errors import ExposedCHQueryError
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
@@ -453,6 +454,11 @@ class DataWarehouseSavedQuerySerializer(
                     view.set_columns(columns)
 
                 view.external_tables = view.s3_tables
+            except (ExposedHogQLError, ExposedCHQueryError) as e:
+                # Expected user-input errors (invalid HogQL/ClickHouse query) — surface the real
+                # message to the user, but don't report to error tracking.
+                logger.warning("Invalid query for view %s: %s", view.name, e)
+                raise serializers.ValidationError(str(e))
             except Exception as e:
                 capture_exception(e)
                 logger.exception("Failed to retrieve types for view %s", view.name)
@@ -596,6 +602,11 @@ class DataWarehouseSavedQuerySerializer(
                     view.external_tables = view.s3_tables
                 except RecursionError:
                     raise serializers.ValidationError("Model contains a cycle")
+                except (ExposedHogQLError, ExposedCHQueryError) as e:
+                    # Expected user-input errors (invalid HogQL/ClickHouse query) — surface the real
+                    # message to the user, but don't report to error tracking.
+                    logger.warning("Invalid query for view %s: %s", view.name, e)
+                    raise serializers.ValidationError(str(e))
                 except Exception as e:
                     capture_exception(e)
                     logger.exception("Failed to retrieve types for view %s", view.name)
