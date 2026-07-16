@@ -176,6 +176,13 @@
         border: 1px solid var(--color-border-warning);
         border-radius: var(--radius);
     }
+
+    &__expiry.LemonButton {
+        --lemon-button-color: var(--color-text-tertiary);
+        --lemon-button-font-size: var(--text-xs);
+
+        align-self: flex-start;
+    }
 }
 
 @keyframes ImpersonationNotice__fadeScaleIn {

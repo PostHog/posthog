@@ -41,7 +41,15 @@ function ChangeUserMenuItemLabel({ member }: { member: OrganizationMemberType })
     )
 }
 
-function CountDown({ datetime, callback }: { datetime: dayjs.Dayjs; callback?: () => void }): JSX.Element {
+function CountDown({
+    datetime,
+    callback,
+    className,
+}: {
+    datetime: dayjs.Dayjs
+    callback?: () => void
+    className?: string
+}): JSX.Element {
     const [now, setNow] = useState(() => dayjs())
     const { isVisible: isPageVisible } = usePageVisibility()
 
@@ -70,7 +78,7 @@ function CountDown({ datetime, callback }: { datetime: dayjs.Dayjs; callback?: (
         }
     }, [pastCountdown, callback])
 
-    return <span className="tabular-nums text-warning">{countdown}</span>
+    return <span className={cn('tabular-nums', className)}>{countdown}</span>
 }
 
 function LoginAsContent({
@@ -211,24 +219,22 @@ function ImpersonationNoticeContent(): JSX.Element {
                     </>
                 )}
                 .
-                {user?.is_impersonated_until && (
-                    <>
-                        {' '}
-                        Expires in{' '}
-                        <LemonButton
-                            size="xsmall"
-                            sideIcon={<IconRefresh />}
-                            onClick={() => loadUser()}
-                            loading={userLoading}
-                            tooltip="Refresh"
-                            className="ImpersonationNotice__inline-trigger text-warning"
-                        >
-                            <CountDown datetime={dayjs(user.is_impersonated_until)} callback={handleSessionExpired} />
-                        </LemonButton>
-                        .
-                    </>
-                )}
             </p>
+            {user?.is_impersonated_until && (
+                <LemonButton
+                    size="xsmall"
+                    icon={<IconRefresh />}
+                    onClick={() => loadUser()}
+                    loading={userLoading}
+                    tooltip="Refresh"
+                    className="ImpersonationNotice__expiry"
+                >
+                    <span>
+                        Expires in{' '}
+                        <CountDown datetime={dayjs(user.is_impersonated_until)} callback={handleSessionExpired} />
+                    </span>
+                </LemonButton>
+            )}
             <div className="flex gap-2 justify-end">
                 {isReadOnly && (
                     <LemonButton
