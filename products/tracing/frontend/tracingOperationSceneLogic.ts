@@ -316,8 +316,10 @@ export const tracingOperationSceneLogic = kea<tracingOperationSceneLogicType>([
                 return
             }
             // Adjacent samples often share a trace (a child operation hit N times per request) —
-            // re-anchor on the already-loaded trace instead of refetching it.
-            if (values.sampleTraceSpans[0]?.trace_id === sample.trace_id) {
+            // re-anchor on the already-loaded trace instead of refetching it, but only when that
+            // trace actually contains this span: a trace longer than the ±1h lookup window can
+            // share a trace_id yet omit spans that fell outside the window of the earlier fetch.
+            if (values.sampleTraceSpans.some((span) => span.span_id === sample.span_id)) {
                 actions.selectSpan(sample.span_id)
                 return
             }
@@ -359,7 +361,13 @@ export const tracingOperationSceneLogic = kea<tracingOperationSceneLogicType>([
             }
             lemonToast.error(`Failed to load sample traces: ${error}`)
             // The failed refetch already blanked the waterfall (see the sampleTraceSpans reducer);
-            // reload the trace for the retained samples so the scene stays usable.
+            // reload the trace for the retained samples so the scene stays usable. A stale index
+            // (e.g. restored from the URL mid-load) can point past the retained set, resolving to
+            // no current sample — clamp it back to 0 first, mirroring fetchSamplesSuccess.
+            if (values.sampleIndex >= values.samples.length) {
+                actions.setSampleIndex(0)
+                return
+            }
             actions.loadCurrentSampleTrace()
         },
         fetchStatsFailure: ({ error }) => {
