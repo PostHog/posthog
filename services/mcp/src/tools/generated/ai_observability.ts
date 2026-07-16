@@ -61,6 +61,9 @@ import {
     LlmPromptsCreateBody,
     LlmPromptsNameDuplicateCreateBody,
     LlmPromptsNameDuplicateCreateParams,
+    LlmPromptsNameLabelsDestroyParams,
+    LlmPromptsNameLabelsUpdateBody,
+    LlmPromptsNameLabelsUpdateParams,
     LlmPromptsNamePartialUpdateBody,
     LlmPromptsNamePartialUpdateParams,
     LlmPromptsNameRetrieveParams,
@@ -72,6 +75,43 @@ import {
 import { PromptListInputSchema, ScoreDefinitionConfigSchema } from '@/schema/tool-inputs'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+
+const LlmaPromptLabelDeleteSchema = LlmPromptsNameLabelsDestroyParams.omit({ project_id: true })
+
+const llmaPromptLabelDelete = (): ToolBase<typeof LlmaPromptLabelDeleteSchema, unknown> => ({
+    name: 'llma-prompt-label-delete',
+    schema: LlmaPromptLabelDeleteSchema,
+    handler: async (context: Context, params: z.infer<typeof LlmaPromptLabelDeleteSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_prompts/name/${encodeURIComponent(String(params.prompt_name))}/labels/${encodeURIComponent(String(params.label_name))}/`,
+        })
+        return result
+    },
+})
+
+const LlmaPromptLabelSetSchema = LlmPromptsNameLabelsUpdateParams.omit({ project_id: true }).extend(
+    LlmPromptsNameLabelsUpdateBody.shape
+)
+
+const llmaPromptLabelSet = (): ToolBase<typeof LlmaPromptLabelSetSchema, Schemas.LLMPromptLabel> => ({
+    name: 'llma-prompt-label-set',
+    schema: LlmaPromptLabelSetSchema,
+    handler: async (context: Context, params: z.infer<typeof LlmaPromptLabelSetSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.version !== undefined) {
+            body['version'] = params.version
+        }
+        const result = await context.api.request<Schemas.LLMPromptLabel>({
+            method: 'PUT',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_prompts/name/${encodeURIComponent(String(params.prompt_name))}/labels/${encodeURIComponent(String(params.label_name))}/`,
+            body,
+        })
+        return result
+    },
+})
 
 const LlmaClusteringConfigGetSchema = z.object({})
 
@@ -1540,6 +1580,8 @@ const llmaTraceReviewUpdate = (): ToolBase<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'llma-prompt-label-delete': llmaPromptLabelDelete,
+    'llma-prompt-label-set': llmaPromptLabelSet,
     'llma-clustering-config-get': llmaClusteringConfigGet,
     'llma-clustering-config-set-event-filters': llmaClusteringConfigSetEventFilters,
     'llma-clustering-job-create': llmaClusteringJobCreate,

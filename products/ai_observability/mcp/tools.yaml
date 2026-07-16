@@ -32,12 +32,35 @@ tools:
     llm-analytics-parser-recipes-retrieve:
         operation: llm_analytics_parser_recipes_retrieve
         enabled: false
-    llm-prompts-name-labels-destroy:
+    llma-prompt-label-delete:
         operation: llm_prompts_name_labels_destroy
-        enabled: false
-    llm-prompts-name-labels-update:
+        enabled: true
+        scopes:
+            - llm_prompt:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete prompt label
+        description: >
+            Remove a label from an LLM prompt. The label stops pointing at any version; recreate it with the set-label
+            tool if needed. Confirm nothing depends on the label before removing it.
+    llma-prompt-label-set:
         operation: llm_prompts_name_labels_update
-        enabled: false
+        enabled: true
+        scopes:
+            - llm_prompt:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Set prompt label
+        description: >
+            Point a label (for example 'production') at a specific version of an LLM prompt. A label is a movable
+            pointer to exactly one version: if the label already exists on another version of this prompt, it is moved
+            there. Use labels to mark a version as released ('production', 'staging') or roll back by pointing the
+            label at an earlier version. Label names use lowercase letters, numbers, dots, hyphens and underscores;
+            'latest' is reserved and numbers-only names are not allowed. Each prompt can have at most 50 labels.
     llma-clustering-config-get:
         operation: llm_analytics_clustering_config_list
         enabled: true
