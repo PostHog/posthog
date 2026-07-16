@@ -31,7 +31,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BetterStackSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -92,21 +95,14 @@ You can create an Uptime API token in your [Better Stack dashboard](https://upti
         names: list[str] | None = None,
         force_refresh: bool = False,
     ) -> list[SourceSchema]:
-        def _build_schema(endpoint: str) -> SourceSchema:
-            endpoint_config = BETTER_STACK_ENDPOINTS[endpoint]
-            return SourceSchema(
-                name=endpoint,
-                supports_incremental=endpoint_config.supports_incremental,
-                supports_append=endpoint_config.supports_incremental,
-                incremental_fields=endpoint_config.incremental_fields,
-                should_sync_default=endpoint_config.should_sync_default,
-            )
-
-        schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            {name: endpoint_config.incremental_fields for name, endpoint_config in BETTER_STACK_ENDPOINTS.items()},
+            names,
+            should_sync_default={
+                name: endpoint_config.should_sync_default for name, endpoint_config in BETTER_STACK_ENDPOINTS.items()
+            },
+        )
 
     def validate_credentials(
         self, config: BetterStackSourceConfig, team_id: int, schema_name: Optional[str] = None
@@ -137,7 +133,8 @@ You can create an Uptime API token in your [Better Stack dashboard](https://upti
         return better_stack_source(
             api_token=config.api_token,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
