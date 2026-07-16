@@ -511,14 +511,31 @@ class UserAccessControl:
         """
         Used when checking an individual object - gets all access controls for the object and its type
         """
-        return {"team_id": self._team.id, "resource": resource, "resource_id": resource_id}  # type: ignore
+        filters: dict[str, Any] = {"resource": resource, "resource_id": resource_id}
+
+        if self._team is not None:
+            filters["team_id"] = self._team.id
+        elif resource == "project":
+            # No request-scoped team (e.g. creating a project via the org-scoped viewset). A project's
+            # access-control rows are keyed by the project's own team id, which is the object id itself.
+            filters["team_id"] = resource_id
+        elif self._organization_id:
+            filters["team__organization_id"] = str(self._organization_id)
+
+        return filters
 
     def _access_controls_filters_for_resource(self, resource: APIScopeObject) -> dict:
         """
         Used when checking overall access to a resource
         """
+        filters: dict[str, Any] = {"resource": resource, "resource_id": None}
 
-        return {"team_id": self._team.id, "resource": resource, "resource_id": None}  # type: ignore
+        if self._team is not None:
+            filters["team_id"] = self._team.id
+        elif self._organization_id:
+            filters["team__organization_id"] = str(self._organization_id)
+
+        return filters
 
     def _access_controls_filters_for_queryset(self, resource: APIScopeObject) -> dict:
         """
