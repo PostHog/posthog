@@ -291,6 +291,18 @@ describe('tracingDataLogic', () => {
             expect(toastSpy).toHaveBeenCalled()
             toastSpy.mockRestore()
         })
+
+        it('does not toast when the count request is aborted on unmount', async () => {
+            // The abort message carries no "abort" substring, so suppression must rely on the
+            // thrown value being a named AbortError, not on string matching.
+            silenceKeaLoadersErrors()
+            const toastSpy = jest.spyOn(lemonToast, 'error').mockReturnValue(undefined as any)
+            jest.spyOn(api.tracing, 'count').mockRejectedValue(new DOMException('unmounting component', 'AbortError'))
+            logic = mountWithSpans([])
+            await logic.asyncActions.fetchMatchingCounts().catch(() => {})
+            expect(toastSpy).not.toHaveBeenCalled()
+            toastSpy.mockRestore()
+        })
     })
 
     describe('sparkline', () => {

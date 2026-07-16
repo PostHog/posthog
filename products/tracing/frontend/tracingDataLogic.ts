@@ -55,7 +55,12 @@ const DEFAULT_PAGE_SIZE = 100
 export const PREFETCH_SPANS = 20
 const NEW_QUERY_STARTED_ERROR_MESSAGE = 'new query started' as const
 
-function isUserInitiatedError(error: unknown): boolean {
+function isUserInitiatedError(error: unknown, errorObject?: unknown): boolean {
+    // kea-loaders passes the error message as `error` and the thrown value as `errorObject`.
+    // An aborted request rejects with a named AbortError, so recognize it regardless of message.
+    if (errorObject instanceof DOMException && errorObject.name === 'AbortError') {
+        return true
+    }
     const errorStr = String(error).toLowerCase()
     return error === NEW_QUERY_STARTED_ERROR_MESSAGE || errorStr.includes('abort')
 }
@@ -818,37 +823,41 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         },
         cancelInProgressSpans: ({ controller }) => {
             if (values.spansAbortController !== null) {
-                values.spansAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
+                values.spansAbortController.abort(new DOMException(NEW_QUERY_STARTED_ERROR_MESSAGE, 'AbortError'))
             }
             actions.setSpansAbortController(controller)
         },
         cancelInProgressSparkline: ({ controller }) => {
             if (values.sparklineAbortController !== null) {
-                values.sparklineAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
+                values.sparklineAbortController.abort(new DOMException(NEW_QUERY_STARTED_ERROR_MESSAGE, 'AbortError'))
             }
             actions.setSparklineAbortController(controller)
         },
         cancelInProgressMatchingCounts: ({ controller }) => {
             if (values.matchingCountsAbortController !== null) {
-                values.matchingCountsAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
+                values.matchingCountsAbortController.abort(
+                    new DOMException(NEW_QUERY_STARTED_ERROR_MESSAGE, 'AbortError')
+                )
             }
             actions.setMatchingCountsAbortController(controller)
         },
         cancelInProgressDurationHistogram: ({ controller }) => {
             if (values.durationHistogramAbortController !== null) {
-                values.durationHistogramAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
+                values.durationHistogramAbortController.abort(
+                    new DOMException(NEW_QUERY_STARTED_ERROR_MESSAGE, 'AbortError')
+                )
             }
             actions.setDurationHistogramAbortController(controller)
         },
         cancelInProgressAggregation: ({ controller }) => {
             if (values.aggregationAbortController !== null) {
-                values.aggregationAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
+                values.aggregationAbortController.abort(new DOMException(NEW_QUERY_STARTED_ERROR_MESSAGE, 'AbortError'))
             }
             actions.setAggregationAbortController(controller)
         },
         cancelInProgressSpanTree: ({ controller }) => {
             if (values.spanTreeAbortController !== null) {
-                values.spanTreeAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
+                values.spanTreeAbortController.abort(new DOMException(NEW_QUERY_STARTED_ERROR_MESSAGE, 'AbortError'))
             }
             actions.setSpanTreeAbortController(controller)
         },
@@ -858,29 +867,29 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         fetchAggregationSuccess: ({ aggregation }) => {
             captureTracingResults(aggregation.current.length, 'aggregation')
         },
-        fetchSpansFailure: ({ error }) => {
-            if (!isUserInitiatedError(error)) {
+        fetchSpansFailure: ({ error, errorObject }) => {
+            if (!isUserInitiatedError(error, errorObject)) {
                 lemonToast.error(`Failed to load traces: ${error}`)
                 posthog.capture('tracing query failed', { query_type: 'spans', error_message: String(error) })
             }
         },
-        fetchMatchingCountsFailure: ({ error }) => {
-            if (!isUserInitiatedError(error)) {
+        fetchMatchingCountsFailure: ({ error, errorObject }) => {
+            if (!isUserInitiatedError(error, errorObject)) {
                 lemonToast.error(`Failed to load the matching count: ${error}`)
             }
         },
-        fetchAggregationFailure: ({ error }) => {
-            if (!isUserInitiatedError(error)) {
+        fetchAggregationFailure: ({ error, errorObject }) => {
+            if (!isUserInitiatedError(error, errorObject)) {
                 lemonToast.error(`Failed to load span aggregation: ${error}`)
             }
         },
-        fetchSpanTreeFailure: ({ error }) => {
-            if (!isUserInitiatedError(error)) {
+        fetchSpanTreeFailure: ({ error, errorObject }) => {
+            if (!isUserInitiatedError(error, errorObject)) {
                 lemonToast.error(`Failed to load call tree: ${error}`)
             }
         },
-        loadMoreTraceSpansFailure: ({ error }) => {
-            if (!isUserInitiatedError(error)) {
+        loadMoreTraceSpansFailure: ({ error, errorObject }) => {
+            if (!isUserInitiatedError(error, errorObject)) {
                 lemonToast.error(`Failed to load more spans: ${error}`)
             }
         },
@@ -889,22 +898,22 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
     events(({ values }) => ({
         beforeUnmount: () => {
             if (values.spansAbortController) {
-                values.spansAbortController.abort('unmounting component')
+                values.spansAbortController.abort(new DOMException('unmounting component', 'AbortError'))
             }
             if (values.sparklineAbortController) {
-                values.sparklineAbortController.abort('unmounting component')
+                values.sparklineAbortController.abort(new DOMException('unmounting component', 'AbortError'))
             }
             if (values.matchingCountsAbortController) {
-                values.matchingCountsAbortController.abort('unmounting component')
+                values.matchingCountsAbortController.abort(new DOMException('unmounting component', 'AbortError'))
             }
             if (values.durationHistogramAbortController) {
-                values.durationHistogramAbortController.abort('unmounting component')
+                values.durationHistogramAbortController.abort(new DOMException('unmounting component', 'AbortError'))
             }
             if (values.spanTreeAbortController) {
-                values.spanTreeAbortController.abort('unmounting component')
+                values.spanTreeAbortController.abort(new DOMException('unmounting component', 'AbortError'))
             }
             if (values.aggregationAbortController) {
-                values.aggregationAbortController.abort('unmounting component')
+                values.aggregationAbortController.abort(new DOMException('unmounting component', 'AbortError'))
             }
         },
     })),

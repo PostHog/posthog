@@ -67,7 +67,12 @@ function classifyQueryError(error: unknown): { error_type: string; status_code: 
     return { error_type: 'unknown', status_code: statusCode }
 }
 
-function isUserInitiatedError(error: unknown): boolean {
+function isUserInitiatedError(error: unknown, errorObject?: unknown): boolean {
+    // kea-loaders passes the error message as `error` and the thrown value as `errorObject`.
+    // An aborted request rejects with a named AbortError, so recognize it regardless of message.
+    if (errorObject instanceof DOMException && errorObject.name === 'AbortError') {
+        return true
+    }
     const errorStr = String(error).toLowerCase()
     return error === NEW_QUERY_STARTED_ERROR_MESSAGE || errorStr.includes('abort')
 }
@@ -666,7 +671,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
             }
         },
         fetchLogsFailure: ({ error, errorObject }) => {
-            if (isUserInitiatedError(error)) {
+            if (isUserInitiatedError(error, errorObject)) {
                 return
             }
             lemonToast.error(`Failed to load logs: ${error}`)
@@ -679,7 +684,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
             })
         },
         fetchNextLogsPageFailure: ({ error, errorObject }) => {
-            if (isUserInitiatedError(error)) {
+            if (isUserInitiatedError(error, errorObject)) {
                 return
             }
             lemonToast.error(`Failed to load more logs: ${error}`)
@@ -692,7 +697,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
             })
         },
         fetchSparklineFailure: ({ error, errorObject }) => {
-            if (isUserInitiatedError(error)) {
+            if (isUserInitiatedError(error, errorObject)) {
                 return
             }
             const { error_type, status_code } = classifyQueryError(errorObject ?? error)
@@ -893,10 +898,10 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
             actions.setLiveTailRunning(false)
             actions.cancelInProgressLiveTail(null)
             if (values.logsAbortController) {
-                values.logsAbortController.abort('unmounting component')
+                values.logsAbortController.abort(new DOMException('unmounting component', 'AbortError'))
             }
             if (values.sparklineAbortController) {
-                values.sparklineAbortController.abort('unmounting component')
+                values.sparklineAbortController.abort(new DOMException('unmounting component', 'AbortError'))
             }
         },
     })),
