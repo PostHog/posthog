@@ -329,6 +329,7 @@ def _describe_columns_pooled(printed_sql: str, values: dict[str, object], team_i
     pin the uninterruptible activity thread), though a DESCRIBE is metadata-only and fast.
     """
     with _bounded_offline_client(team_id) as client:
+        # nosemgrep: clickhouse-fstring-param-audit - printed_sql is HogQL-compiled by the guarded printer, not user input
         rows = sync_execute(
             f"DESCRIBE TABLE ({printed_sql})",
             values,
