@@ -17,13 +17,21 @@ materialization contends with batch work rather than interactive queries, and th
 server-side profile/quota is a ceiling no application bug can exceed. ClickHouse
 `priority` is deliberately not set: every other query runs at priority 0 (unprioritized),
 so a nonzero value here would participate in a scheduling class of one.
+
+With NOTEBOOKS_FRAME_STORE_CH_WRITES on (phase 2 of the design doc, default off),
+ClickHouse writes the object itself via `INSERT INTO FUNCTION s3(...)` issued through
+the pooled native clients (sync_execute): zero result bytes transit the worker, errors
+arrive in-band and typed, and the streaming path's EOS-marker check and query_log
+recovery are unnecessary. The worker-relay path below stays the default until the
+CH-side prerequisites (node → object-store reachability, the writer-identity grants in
+the doc's phase-2 security notes) are provisioned per environment.
 """
 
 import time
 import uuid
 import hashlib
 import datetime as dt
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from typing import IO, cast
@@ -47,6 +55,8 @@ from posthog.clickhouse.client.connection import ClickHouseUser, get_clickhouse_
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, QueryStatusManager, get_query_status
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, RateLimit
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.clickhouse.workload import Workload
+from posthog.errors import InternalCHQueryError
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.rbac.user_access_control import UserAccessControl
@@ -263,6 +273,9 @@ def _generate_sql(
     return sql, context.values
 
 
+_DescribeFn = Callable[[str, dict[str, object]], list[tuple[str, str]]]
+
+
 def _describe_columns(
     client: ClickHouseClient, printed_sql: str, values: dict[str, object], ch_query_id: str
 ) -> list[tuple[str, str]]:
@@ -281,6 +294,18 @@ def _describe_columns(
         if len(parts) >= 2 and parts[0]:
             columns.append((parts[0], parts[1]))
     return columns
+
+
+def _describe_columns_pooled(printed_sql: str, values: dict[str, object], team_id: int) -> list[tuple[str, str]]:
+    """`_describe_columns` for the CH-writes path — pooled native client, same routing as the INSERT."""
+    rows = sync_execute(
+        f"DESCRIBE TABLE ({printed_sql})",
+        values,
+        workload=Workload.OFFLINE,
+        ch_user=ClickHouseUser.NOTEBOOKS,
+        team_id=team_id,
+    )
+    return [(str(row[0]), str(row[1])) for row in rows]
 
 
 def _stringify_function_for(ch_type: str) -> str | None:
@@ -306,20 +331,25 @@ def _stringify_function_for(ch_type: str) -> str | None:
 
 
 def _print_clickhouse_sql(
-    client: ClickHouseClient, team: Team, user: User | None, query: str, ch_query_id: str
+    describe: _DescribeFn, team: Team, user: User | None, query: str, *, output_format: str | None
 ) -> tuple[str, dict[str, object]]:
-    """Print the HogQL to guarded ClickHouse SQL with `FORMAT ArrowStream` and the standing caps.
+    """Print the HogQL to guarded ClickHouse SQL with the standing caps.
 
     Two passes when needed (the data-modeling recipe): print once, DESCRIBE the printed
     query (metadata only — no execution), and if any output column would leave ClickHouse
     as Arrow binary, wrap the query so those columns are stringified, then print the
     wrapper. Field names go through the HogQL AST/printer, never string splicing.
+    `output_format` is "ArrowStream" for the streaming path; None for the CH-writes path,
+    where the s3() function argument defines the object format and a FORMAT clause would
+    be invalid inside the INSERT.
     """
     plain_sql, plain_values = _generate_sql(team, user, query, output_format=None)
-    described = _describe_columns(client, plain_sql, plain_values, ch_query_id)
+    described = describe(plain_sql, plain_values)
     conversions = [(name, _stringify_function_for(ch_type)) for name, ch_type in described]
     if not any(function for _name, function in conversions):
-        return _generate_sql(team, user, query, output_format="ArrowStream")
+        if output_format is None:
+            return plain_sql, plain_values
+        return _generate_sql(team, user, query, output_format=output_format)
     select_fields: list[ast.Expr] = [
         ast.Alias(expr=ast.Call(name=function, args=[ast.Field(chain=[name])]), alias=name)
         if function
@@ -327,7 +357,85 @@ def _print_clickhouse_sql(
         for name, function in conversions
     ]
     stringified = ast.SelectQuery(select=select_fields, select_from=ast.JoinExpr(table=parse_select(query)))
-    return _generate_sql(team, user, stringified, output_format="ArrowStream")
+    return _generate_sql(team, user, stringified, output_format=output_format)
+
+
+class FrameTooLargeError(Exception):
+    """The CH-written object exceeds the frame size budget (enforced post-write)."""
+
+
+def _escape_s3_literal(value: str) -> str:
+    """Escape a server-side value for a single-quoted ClickHouse string literal.
+
+    Backslashes first, then quote-doubling — quote-doubling alone mishandles a value
+    ending in `\\` (the `\\'` escapes the closing quote instead of terminating). These
+    values are never user input, but escaping is defense in depth, not policy.
+    """
+    return value.replace("\\", "\\\\").replace("'", "''")
+
+
+def _insert_into_s3_sql(printed_sql: str, key: str) -> str:
+    """Wrap the printed SELECT in the CH-side object write (design doc phase 2).
+
+    Only the s3() target is spliced — endpoint/bucket from settings, `key` already
+    charset-validated by build_frame_key, everything escaped anyway. The SELECT is the
+    same guarded-printer artifact the streaming path executes verbatim, printed without
+    a FORMAT clause (the s3() argument defines the object format). Credentials are
+    omitted when unset so ClickHouse falls back to its credential provider chain (the
+    instance role — the batch-exports keyless recipe for cloud); when set (dev,
+    self-hosted) they ride inline and land in system.query_log, which the rollout notes
+    call out.
+    """
+    url = f"{settings.OBJECT_STORAGE_ENDPOINT}/{settings.OBJECT_STORAGE_BUCKET}/{key}"
+    target = [f"'{_escape_s3_literal(url)}'"]
+    if settings.OBJECT_STORAGE_ACCESS_KEY_ID and settings.OBJECT_STORAGE_SECRET_ACCESS_KEY:
+        target.append(f"'{_escape_s3_literal(settings.OBJECT_STORAGE_ACCESS_KEY_ID)}'")
+        target.append(f"'{_escape_s3_literal(settings.OBJECT_STORAGE_SECRET_ACCESS_KEY)}'")
+    target.append("'ArrowStream'")
+    return f"INSERT INTO FUNCTION s3({', '.join(target)})\n{printed_sql}"
+
+
+def _execute_insert_to_s3(team: Team, user: User | None, query: str, key: str) -> tuple[int, float]:
+    """Materialize by having ClickHouse write the object itself; return (bytes, CH seconds).
+
+    Runs through the pooled native clients (sync_execute): offline workload and hedging
+    hygiene come from the workload routing, errors arrive in-band and typed, and no
+    result bytes transit the worker — so the streaming path's EOS-marker check and
+    query_log recovery have no equivalent here.
+    """
+    printed_sql, values = _print_clickhouse_sql(
+        lambda sql, sql_values: _describe_columns_pooled(sql, sql_values, team.pk),
+        team,
+        user,
+        query,
+        output_format=None,
+    )
+    insert_sql = _insert_into_s3_sql(printed_sql, key)
+    query_started = time.perf_counter()
+    sync_execute(
+        insert_sql,
+        values,
+        settings={
+            # Idempotent retries: a re-attempt overwrites the object, never appends.
+            "s3_truncate_on_insert": 1,
+            # The client param the streaming path sets on its HTTP client; without it the
+            # Arrow file CH writes carries strings as binary and pandas sees bytes.
+            "output_format_arrow_string_as_string": 1,
+        },
+        workload=Workload.OFFLINE,
+        ch_user=ClickHouseUser.NOTEBOOKS,
+        team_id=team.pk,
+    )
+    clickhouse_seconds = time.perf_counter() - query_started
+    object_bytes = frame_store.stat_frame(key)
+    if object_bytes > _MAX_RESULT_BYTES:
+        # max_result_bytes bounds result sets returned to a client, not an INSERT's sink —
+        # the output cap has to be enforced after the fact on this path. The bytes are
+        # ours (this attempt just wrote them), so deleting is safe.
+        with suppress(ObjectStorageError):
+            frame_store.delete_frame(key)
+        raise FrameTooLargeError(f"Frame object is {object_bytes} bytes, over the {_MAX_RESULT_BYTES} budget")
+    return object_bytes, clickhouse_seconds
 
 
 def _finalize_status(
@@ -427,10 +535,20 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
     """
     # Dedicated `notebooks` CH user (server-side profile/quota backstop no application
     # bug can exceed); falls back to the default credentials where not provisioned.
+    # sync_execute on the CH-writes path resolves the same creds via the same enum.
     ch_user, ch_password = get_clickhouse_creds(ClickHouseUser.NOTEBOOKS)
+    ch_writes = bool(settings.NOTEBOOKS_FRAME_STORE_CH_WRITES)
+    # The two paths route offline on different predicates: sync_execute keys on the
+    # offline host being set at all; the HTTP client's URL collapses to online under
+    # TEST/DEBUG too. The label must report the path actually taken.
+    offline = (
+        settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST is not None
+        if ch_writes
+        else settings.CLICKHOUSE_OFFLINE_HTTP_URL != settings.CLICKHOUSE_HTTP_URL
+    )
     FRAME_MATERIALIZATIONS_STARTED_COUNTER.labels(
         ch_user="notebooks" if ch_user != settings.CLICKHOUSE_USER else "default",
-        pool="offline" if settings.CLICKHOUSE_OFFLINE_HTTP_URL != settings.CLICKHOUSE_HTTP_URL else "online",
+        pool="offline" if offline else "online",
     ).inc()
     manager = QueryStatusManager(inputs.query_id, inputs.team_id)
     team = Team.objects.get(id=inputs.team_id)
@@ -462,23 +580,6 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
         # ClickHouse may still be draining, and the failure path looks the id up in
         # system.query_log to recover the real error.
         ch_query_id = f"{inputs.query_id}_{attempt}"
-        client = ClickHouseClient(
-            # The offline pool (batch exports' home): a whale materialization must not
-            # contend with interactive queries. Falls back to the online URL where no
-            # offline cluster exists (EU, self-hosted, dev/test).
-            url=settings.CLICKHOUSE_OFFLINE_HTTP_URL,
-            user=ch_user,
-            password=ch_password,
-            database=settings.CLICKHOUSE_DATABASE,
-            output_format_arrow_string_as_string="true",
-            cancel_http_readonly_queries_on_client_close=1,
-            # sync_execute's offline hygiene: without this, distributed subqueries of a
-            # saturated offline query hedge onto online replicas — bleeding the whale back
-            # into the interactive pool this move exists to protect.
-            use_hedged_requests="0",
-            max_result_bytes=_MAX_RESULT_BYTES,
-            result_overflow_mode="throw",
-        )
         try:
             with _materialize_slots(inputs.team_id, inputs.query_id):
                 # Everything that touches ClickHouse or Postgres lives inside the slots —
@@ -487,32 +588,64 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
                 # limiter is saturated. A blocked attempt now costs one Redis eval and
                 # nothing else; the extra slot-hold (~100-300ms of print/describe) is noise
                 # against the stream duration.
-                printed_sql, context_values = _print_clickhouse_sql(client, team, user, inputs.query, ch_query_id)
-                query_started = time.perf_counter()
-                with client.post_query(
-                    printed_sql,
-                    query_parameters=context_values,
-                    query_id=ch_query_id,
-                    timeout=(_STREAM_CONNECT_TIMEOUT_SECONDS, _STREAM_READ_TIMEOUT_SECONDS),
-                ) as response:
-                    headers_received = time.perf_counter()
-                    # A torn stream aborts the multipart upload (upload_fileobj), so no
-                    # partial object is ever left behind — nothing to clean up on failure.
-                    # The key is deterministic per (team, notebook, user, query), so we must
-                    # NOT delete it on generic error: that would destroy an object an earlier
-                    # successful run's still-live status/presigned URL points at.
-                    relay = _ArrowTailReader(response.raw)
-                    # boto3's upload_fileobj duck-types read(); the relay is not a full IO[bytes].
-                    object_bytes = frame_store.write_stream(key, cast("IO[bytes]", relay))
-                    relay_seconds = time.perf_counter() - headers_received
-                    if relay.tail != _ARROW_STREAM_EOS_MARKER:
-                        # ClickHouse failed mid-stream but closed the body cleanly (or an
-                        # intermediary truncated it at a batch boundary): the bytes we just
-                        # stored are corrupt and, at a deterministic key, could be served to
-                        # an earlier status's presigned fetch — remove them before failing.
-                        with suppress(ObjectStorageError):
-                            frame_store.delete_frame(key)
-                        raise MidStreamQueryError("ClickHouse stream ended without the Arrow end-of-stream marker")
+                if ch_writes:
+                    object_bytes, clickhouse_seconds = _execute_insert_to_s3(team, user, inputs.query, key)
+                    upload_seconds = None  # CH performs the upload; the relay split doesn't exist
+                else:
+                    client = ClickHouseClient(
+                        # The offline pool (batch exports' home): a whale materialization must
+                        # not contend with interactive queries. Falls back to the online URL
+                        # where no offline cluster exists (EU, self-hosted, dev/test).
+                        url=settings.CLICKHOUSE_OFFLINE_HTTP_URL,
+                        user=ch_user,
+                        password=ch_password,
+                        database=settings.CLICKHOUSE_DATABASE,
+                        output_format_arrow_string_as_string="true",
+                        cancel_http_readonly_queries_on_client_close=1,
+                        # sync_execute's offline hygiene: without this, distributed subqueries
+                        # of a saturated offline query hedge onto online replicas — bleeding
+                        # the whale back into the interactive pool this move exists to protect.
+                        use_hedged_requests="0",
+                        max_result_bytes=_MAX_RESULT_BYTES,
+                        result_overflow_mode="throw",
+                    )
+                    printed_sql, context_values = _print_clickhouse_sql(
+                        lambda sql, sql_values: _describe_columns(client, sql, sql_values, ch_query_id),
+                        team,
+                        user,
+                        inputs.query,
+                        output_format="ArrowStream",
+                    )
+                    query_started = time.perf_counter()
+                    with client.post_query(
+                        printed_sql,
+                        query_parameters=context_values,
+                        query_id=ch_query_id,
+                        timeout=(_STREAM_CONNECT_TIMEOUT_SECONDS, _STREAM_READ_TIMEOUT_SECONDS),
+                    ) as response:
+                        headers_received = time.perf_counter()
+                        # A torn stream aborts the multipart upload (upload_fileobj), so no
+                        # partial object is ever left behind — nothing to clean up on failure.
+                        # The key is deterministic per (team, notebook, user, query), so we must
+                        # NOT delete it on generic error: that would destroy an object an earlier
+                        # successful run's still-live status/presigned URL points at.
+                        relay = _ArrowTailReader(response.raw)
+                        # boto3's upload_fileobj duck-types read(); the relay is not a full IO[bytes].
+                        object_bytes = frame_store.write_stream(key, cast("IO[bytes]", relay))
+                        relay_seconds = time.perf_counter() - headers_received
+                        if relay.tail != _ARROW_STREAM_EOS_MARKER:
+                            # ClickHouse failed mid-stream but closed the body cleanly (or an
+                            # intermediary truncated it at a batch boundary): the bytes we just
+                            # stored are corrupt and, at a deterministic key, could be served to
+                            # an earlier status's presigned fetch — remove them before failing.
+                            with suppress(ObjectStorageError):
+                                frame_store.delete_frame(key)
+                            raise MidStreamQueryError("ClickHouse stream ended without the Arrow end-of-stream marker")
+                    # ClickHouse time = waiting for response headers plus every blocking body
+                    # read; upload time = the rest of the relay's wall clock (part handoff and
+                    # S3 backpressure).
+                    clickhouse_seconds = (headers_received - query_started) + relay.read_seconds
+                    upload_seconds = max(0.0, relay_seconds - relay.read_seconds)
         except ConcurrencyLimitExceeded:
             raise  # retryable — Temporal backs off and re-attempts
         except ExposedHogQLError as exc:
@@ -521,6 +654,11 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
             _finalize_status(manager, inputs, error_message=str(exc))
             FRAME_MATERIALIZATIONS_FINISHED_COUNTER.labels(outcome="failed").inc()
             raise exceptions.ApplicationError(str(exc), non_retryable=True) from exc
+        except FrameTooLargeError as exc:
+            # The CH-writes analog of the result-bytes cap: deterministic, so terminal.
+            _finalize_status(manager, inputs, error_message=_RESULT_SIZE_MESSAGE)
+            FRAME_MATERIALIZATIONS_FINISHED_COUNTER.labels(outcome="failed").inc()
+            raise exceptions.ApplicationError(_RESULT_SIZE_MESSAGE, non_retryable=True) from exc
         except (
             ClickHouseMemoryLimitExceededError,
             ClickHouseTooManyBytesError,
@@ -531,6 +669,23 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
             # wall: terminal, with a user-facing message.
             message = (
                 _RESULT_SIZE_MESSAGE if isinstance(exc, ClickHouseTooManyRowsOrBytesError) else _RESOURCE_BUDGET_MESSAGE
+            )
+            _finalize_status(manager, inputs, error_message=message)
+            FRAME_MATERIALIZATIONS_FINISHED_COUNTER.labels(outcome="failed").inc()
+            raise exceptions.ApplicationError(message, non_retryable=True) from exc
+        except InternalCHQueryError as exc:
+            # CH-writes path: sync_execute surfaces the query's real error in-band and
+            # typed, with its ClickHouse code — no 200-before-failure ambiguity, so the
+            # streaming path's query_log recovery has no role here. Known budget codes are
+            # deterministic and terminal; anything else retries per policy.
+            message = _MID_STREAM_MESSAGES_BY_CODE.get(exc.code or 0)
+            if message is None:
+                raise  # unrecognized code — plausibly transient (network, S3 blip), retry
+            logger.warning(
+                "notebook_frame_materialize_insert_error",
+                team_id=inputs.team_id,
+                query_id=inputs.query_id,
+                exception_code=exc.code,
             )
             _finalize_status(manager, inputs, error_message=message)
             FRAME_MATERIALIZATIONS_FINISHED_COUNTER.labels(outcome="failed").inc()
@@ -561,23 +716,23 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
             raise exceptions.ApplicationError(message, non_retryable=True) from exc
 
     _finalize_status(manager, inputs, results={"object_key": key})
-    # ClickHouse time = waiting for response headers plus every blocking body read; upload
-    # time = the rest of the relay's wall clock (part handoff and S3 backpressure).
-    clickhouse_seconds = (headers_received - query_started) + relay.read_seconds
-    upload_seconds = max(0.0, relay_seconds - relay.read_seconds)
     FRAME_MATERIALIZATIONS_FINISHED_COUNTER.labels(outcome="succeeded").inc()
     FRAME_OBJECT_BYTES_HISTOGRAM.observe(object_bytes)
     FRAME_MATERIALIZE_SECONDS_HISTOGRAM.observe((dt.datetime.now(dt.UTC) - started_at).total_seconds())
     FRAME_CLICKHOUSE_SECONDS_HISTOGRAM.observe(clickhouse_seconds)
-    FRAME_UPLOAD_SECONDS_HISTOGRAM.observe(upload_seconds)
+    if upload_seconds is not None:
+        # Only the worker-relay path has an observable upload half; a stream of zeros from
+        # the CH-writes path would poison the histogram this split exists to interpret.
+        FRAME_UPLOAD_SECONDS_HISTOGRAM.observe(upload_seconds)
     logger.info(
         "notebook_frame_materialized",
         team_id=inputs.team_id,
         notebook_short_id=inputs.notebook_short_id,
         query_id=inputs.query_id,
         object_bytes=object_bytes,
+        ch_writes=ch_writes,
         clickhouse_seconds=round(clickhouse_seconds, 3),
-        upload_seconds=round(upload_seconds, 3),
+        upload_seconds=round(upload_seconds, 3) if upload_seconds is not None else None,
     )
     return key
 

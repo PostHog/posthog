@@ -58,6 +58,16 @@ def write_stream(key: str, fileobj: IO[bytes]) -> int:
     writes silently) and provides the size for observability.
     """
     object_storage.write_stream(key, fileobj, extras={"ContentType": ARROW_STREAM_CONTENT_TYPE})
+    return stat_frame(key)
+
+
+def stat_frame(key: str) -> int:
+    """Confirm the frame object at `key` exists and return its size.
+
+    The post-write existence check for both write paths: the worker upload (an
+    UnavailableStorage client no-ops writes silently) and the CH-side INSERT (whose
+    success response says the query finished, not that the bytes are servable).
+    """
     head = object_storage.head_object(key)
     if head is None:
         raise FrameStoreError("Frame object was not stored")

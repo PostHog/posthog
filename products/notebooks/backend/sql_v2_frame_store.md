@@ -1,7 +1,7 @@
 # SQLV2 frame materialization via object storage
 
 Design notes for moving python-node frame materialization off the Redis JSON transport and onto an object-storage handoff.
-Status: **phase 1 shipped** (env-gated by `NOTEBOOKS_FRAME_STORE_ENABLED`, default off) — object delivery at a 500k row tier-1 ceiling (`MAX_SELECT_NOTEBOOK_MATERIALIZE_LIMIT`); the inline path remains as the degraded fallback, still clamped at 50k. Phases 2+ not started.
+Status: **phase 1 shipped** (env-gated by `NOTEBOOKS_FRAME_STORE_ENABLED`, default off) — object delivery at a 500k row tier-1 ceiling (`MAX_SELECT_NOTEBOOK_MATERIALIZE_LIMIT`); the inline path remains as the degraded fallback, still clamped at 50k. **Phase 2 implemented dark** (`NOTEBOOKS_FRAME_STORE_CH_WRITES`, default off — CH writes the object itself; see the phase-2 prerequisites before flipping). Phase 3 not started.
 
 ## Problem
 
@@ -218,7 +218,9 @@ _Rollout prerequisites (per environment, before flipping the flag on):_
   distributed tables (remote legs authenticate as the initiating user via the interserver secret): exists on
   **every** node of the `posthog` cluster, SELECT grants mirroring the app user (including data-warehouse
   table functions), a profile with `readonly = 2` — `readonly = 1` rejects the per-query SETTINGS/HTTP params
-  this path sends — and no setting constraints below the app-side caps; prefer per-query `max_memory_usage`
+  this path sends, and if the phase-2 CH-writes flag is enabled the phase-2 writer-identity spec (`readonly
+= 0`, zero table-write grants) supersedes this — and no setting constraints below the app-side caps; prefer
+  per-query `max_memory_usage`
   over `..._for_user` so a `MEMORY_LIMIT_EXCEEDED` stays attributable to the offending query, and leave QUOTA
   headroom since a shared-user quota breach reads as a (wrong) "narrow your query" message to whichever
   tenant trips it. Deliberately fail-open: until provisioned, the flow runs as the default CH user
@@ -257,12 +259,28 @@ Two decisions locked in for this phase:
   teammates never share a job or an object) and duplicate in-flight materializations join the running query
   instead of stacking new ones.
 
-**Phase 2 — let ClickHouse do the writing (only if the data says so).**
-Replace the worker-streamed upload with `INSERT INTO FUNCTION s3(...'ArrowStream')` (batch-exports recipe):
-the worker's job shrinks to issuing one statement; zero result bytes transit PostHog Python.
-Add partitioned files + a manifest for very large frames, and Range-based resume in the executor.
+**Phase 2 — let ClickHouse do the writing (implemented, behind `NOTEBOOKS_FRAME_STORE_CH_WRITES`, default
+off).**
+The worker-streamed upload is replaced with `INSERT INTO FUNCTION s3(...'ArrowStream')` (batch-exports
+recipe), issued through the pooled native clients (`sync_execute`, offline workload, `notebooks` user): the
+worker's job shrinks to issuing one statement; zero result bytes transit PostHog Python, errors arrive
+in-band and typed (no EOS-marker check, no `system.query_log` recovery), and the output cap is enforced
+post-write (`max_result_bytes` doesn't bound an INSERT's sink — an over-budget object is deleted and the run
+fails terminal). One object per frame, deliberately no `PARTITION BY`: the poll/presign contract is a single
+object, and partitioned files + a manifest + Range-based resume stay future work if frames outgrow it.
 
-Why phase 1 streams from the worker instead of starting here:
+_Prerequisites for flipping the flag (per environment, on top of the phase-1 list):_
+
+- CH nodes must reach the object-store endpoint (`OBJECT_STORAGE_ENDPOINT` from the **CH node's** network —
+  local dev works because compose puts CH and the store on one network).
+- Credentials: keyless in cloud (the CH instance role, write-scoped to the `notebooks/frames/` prefix);
+  where `OBJECT_STORAGE_ACCESS_KEY_ID`/`SECRET` are set they ride inline in the statement and land in
+  `system.query_log` — acceptable for dev/self-hosted, not for cloud.
+- The writer identity per the security notes above: `readonly = 0` with **zero** table-write grants,
+  `GRANT S3` + `CREATE TEMPORARY TABLE`, `remote_url_allow_hosts` pinned to our storage endpoints. This
+  supersedes the phase-1 `readonly = 2` spec for the `notebooks` user once the flag is on.
+
+Why the worker relay stays the default until then:
 
 - **Security path.** Phase 1 keeps the whole HogQL runner path (team scoping, property access controls applied
   at print time) untouched — new code only handles the result. The CH-side write must print the guarded SQL
@@ -276,7 +294,8 @@ Why phase 1 streams from the worker instead of starting here:
   drain pace is set by an in-region worker→S3 leg, so CH's result-hold time is near-identical either way.
 - **What A buys.** Worker economics at scale (a slot held seconds instead of the stream duration) and no
   double transfer for very large frames. With per-team concurrency ~1 and frames in the tens-to-hundreds of
-  MB, neither matters yet — escalate on query-log evidence, and phase 2 may never be needed.
+  MB, neither matters yet — flip on query-log evidence (upload-half p95 dominating the split metrics, worker
+  contention, or a byte-cap raise); the flag can stay off indefinitely if the data never asks.
 
 _Phase-2 security notes (splice analysis, 2026-07) — read before building the CH-side write:_
 
