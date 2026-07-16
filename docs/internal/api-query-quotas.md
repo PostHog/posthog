@@ -66,6 +66,8 @@ Observed usage beyond the allowance should be monitored to validate the reportin
 The first rollout covers requests to the query API authenticated with a personal API key and query calculations made while rendering shared dashboards or insights.
 Session-authenticated product usage, OAuth requests, and other in-app queries are not included.
 Materialized endpoints have separate concurrency controls but remain chargeable when run through the personal API key query service.
+For personal API keys, the query runner must also be explicitly marked as query-service work; authentication method alone does not make an in-app or unrelated endpoint quota eligible.
+Sharing-token renders are the deliberate exception because shared resources create external query work without using the query-service flag.
 
 Shared traffic is attributed to the organization that owns the shared resource.
 Anonymous viewers do not receive a separate allowance, and rotating a sharing token does not reset usage.

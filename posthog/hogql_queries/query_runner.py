@@ -104,12 +104,7 @@ from posthog.clickhouse.client.limit import (
     get_materialized_endpoints_rate_limiter,
     get_org_app_concurrency_limit,
 )
-from posthog.clickhouse.query_tagging import (
-    get_query_tag_value,
-    is_api_key_access_method,
-    is_query_quota_access_method,
-    tag_queries,
-)
+from posthog.clickhouse.query_tagging import AccessMethod, get_query_tag_value, is_api_key_access_method, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.errors import QueryErrorCategory, classify_query_error, clickhouse_error_type
 from posthog.event_usage import AnalyticsProps, groups, report_user_or_team_action
@@ -1643,7 +1638,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         is_materialized_endpoint = get_query_tag_value("workload") == Workload.ENDPOINTS
         is_api_key_access = is_api_key_access_method(get_query_tag_value("access_method"))
 
-        if is_query_quota_access_method(get_query_tag_value("access_method")):
+        if self._is_query_quota_eligible():
             tag_queries(chargeable=1)
 
         with (
@@ -2052,7 +2047,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         access_method = get_query_tag_value("access_method")
         if (
             self._query_quota_limit_checked
-            or not is_query_quota_access_method(access_method)
+            or not self._is_query_quota_eligible(access_method)
             or not settings.EE_AVAILABLE
             or not settings.API_QUERIES_ENABLED
         ):
@@ -2087,6 +2082,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             if not settings.QUERY_QUOTA_ENFORCEMENT_ENABLED:
                 return
             raise QueryQuotaLimitExceeded(billing_period_end=billing_period[1] if billing_period else None)
+
+    def _is_query_quota_eligible(self, access_method: AccessMethod | str | None = None) -> bool:
+        access_method = access_method or get_query_tag_value("access_method")
+        return access_method == AccessMethod.SHARING_TOKEN or (
+            self.is_query_service and access_method == AccessMethod.PERSONAL_API_KEY
+        )
 
     def get_api_queries_concurrency_limit(self) -> int | None:
         """

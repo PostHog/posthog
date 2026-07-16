@@ -212,6 +212,13 @@ class TestQueryRunner(BaseTest):
                 ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
                 True,
             ),
+            (
+                "personal_api_key_outside_query_service",
+                AccessMethod.PERSONAL_API_KEY,
+                False,
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                False,
+            ),
             ("blocking_in_app", None, False, ExecutionMode.CALCULATE_BLOCKING_ALWAYS, False),
         ]
     )
@@ -302,16 +309,18 @@ class TestQueryRunner(BaseTest):
 
     @parameterized.expand(
         [
-            ("personal_api_key", AccessMethod.PERSONAL_API_KEY, True),
-            ("shared_dashboard", AccessMethod.SHARING_TOKEN, False),
+            ("personal_api_key_query_service", AccessMethod.PERSONAL_API_KEY, True, True),
+            ("shared_dashboard", AccessMethod.SHARING_TOKEN, False, True),
+            ("personal_api_key_outside_query_service", AccessMethod.PERSONAL_API_KEY, False, False),
         ]
     )
     @override_settings(API_QUERIES_ENABLED=False)
-    def test_query_quota_access_methods_are_chargeable(
+    def test_only_query_quota_eligible_calculations_are_chargeable(
         self,
         _name: str,
         access_method: AccessMethod,
         is_query_service: bool,
+        should_be_chargeable: bool,
     ) -> None:
         TestQueryRunner = self.setup_test_query_runner_class()
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
@@ -320,7 +329,7 @@ class TestQueryRunner(BaseTest):
         with tags_context(access_method=access_method):
             runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
 
-            self.assertTrue(get_query_tag_value("chargeable"))
+            self.assertEqual(bool(get_query_tag_value("chargeable")), should_be_chargeable)
 
     def test_init_with_query_instance(self):
         TestQueryRunner = self.setup_test_query_runner_class()

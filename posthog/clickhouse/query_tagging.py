@@ -41,20 +41,9 @@ _API_KEY_ACCESS_METHODS: frozenset[AccessMethod] = frozenset(
     }
 )
 
-_QUERY_QUOTA_ACCESS_METHODS: frozenset[AccessMethod] = frozenset(
-    {
-        AccessMethod.PERSONAL_API_KEY,
-        AccessMethod.SHARING_TOKEN,
-    }
-)
-
 
 def is_api_key_access_method(access_method: AccessMethod | str | None) -> bool:
     return access_method in _API_KEY_ACCESS_METHODS
-
-
-def is_query_quota_access_method(access_method: AccessMethod | str | None) -> bool:
-    return access_method in _QUERY_QUOTA_ACCESS_METHODS
 
 
 class Product(StrEnum):
