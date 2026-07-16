@@ -71,7 +71,7 @@ _LAZY = {
     "get_redshift_source_location": "redshift_helpers",
     "reconcile_redshift_schemas": "redshift_helpers",
     "reproject_direct_redshift_table": "redshift_helpers",
-    "HogQLQueryFixerTool": "hogql_fixer_ai",
+    "HogQLQueryFixerTool": "max_tools",
     "hide_direct_mysql_table": "direct_mysql",
     "upsert_direct_mysql_table": "direct_mysql",
     "hide_direct_postgres_table": "direct_postgres",
