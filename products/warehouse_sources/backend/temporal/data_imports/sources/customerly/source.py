@@ -35,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CustomerlySource(ResumableSource[CustomerlySourceConfig, CustomerlyResumeConfig]):
+    api_docs_url = "https://docs.customerly.io/en/collections/5530-api"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

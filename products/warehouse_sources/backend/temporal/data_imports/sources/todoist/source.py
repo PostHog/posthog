@@ -36,6 +36,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TodoistSource(ResumableSource[TodoistSourceConfig, TodoistResumeConfig]):
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://developer.todoist.com/api/v1"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.TODOIST
