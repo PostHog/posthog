@@ -303,7 +303,7 @@ class SemanticTrustDecisionCorrectness(JudgedScorer):
             return Score(name=self._name(), score=0.0, metadata={"reason": "no final message"})
 
         catalog_evidence = []
-        for call in _successful_sql(parser):
+        for call in _successful_sql(parser) if parser is not None else []:
             query = call.input.get("query") if isinstance(call.input, dict) else None
             if isinstance(query, str) and _INFO_SCHEMA in query.lower():
                 catalog_evidence.append({"query": query, "result": call.output})
