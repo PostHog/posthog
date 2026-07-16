@@ -1618,6 +1618,8 @@ class TestUnwatchedGarages:
             # near-miss prefixes must not count as covering the directory garage
             ("tasks/tasks.py", ["backend/facade/**", "backend/tasks.py"], {"backend/tasks/"}),
             ("tasks/tasks.py", ["backend/facade/**", "backend/tasks_extra/**"], {"backend/tasks/"}),
+            # a flat-file garage needs an exact input, not a shared prefix
+            ("tasks.py", ["backend/facade/**", "backend/tasks.py.bak"], {"backend/tasks.py"}),
         ],
     )
     def test_present_garage_coverage(

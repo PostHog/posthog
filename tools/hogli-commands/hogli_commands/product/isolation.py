@@ -340,19 +340,30 @@ def has_narrowed_turbo_inputs(
     )
 
 
+def _input_covers(input_glob: str, accepted: str) -> bool:
+    """A directory location (trailing slash) is covered by any input inside it; a single-file
+    location only by an exact input — backend/tasks.py.bak must not count as watching
+    backend/tasks.py."""
+    if accepted.endswith("/"):
+        return input_glob.startswith(accepted)
+    return input_glob == accepted
+
+
 def _uncovered_locations(product_dir: Path, targets_to_prefixes: dict[str, tuple[str, ...]]) -> set[str]:
-    """Targets whose accepted input prefixes match no narrowed contract-check input.
+    """Targets whose accepted input forms match no narrowed contract-check input.
 
     Empty when the product has no narrowing override — everything is watched, so nothing is
     uncovered. Shared by the permanent-exposure, garage, and carve-out coverage checks: same
-    anchored prefix predicate everywhere, the convention is location-level, no glob simulation."""
+    anchored predicate everywhere, the convention is location-level, no glob simulation."""
     if not targets_to_prefixes:
         return set()
     inputs = [i.removeprefix("./") for i in contract_check_inputs(product_dir) if not i.startswith("!")]
     if not inputs:
         return set()
     return {
-        target for target, prefixes in targets_to_prefixes.items() if not any(i.startswith(prefixes) for i in inputs)
+        target
+        for target, prefixes in targets_to_prefixes.items()
+        if not any(_input_covers(i, p) for i in inputs for p in prefixes)
     }
 
 
