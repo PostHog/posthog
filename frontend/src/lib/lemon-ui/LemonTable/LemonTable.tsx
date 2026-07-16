@@ -378,7 +378,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                     rowRibbonColor !== undefined && `LemonTable--with-ribbon`,
                     stealth && 'LemonTable--stealth',
                     !uppercaseHeader && 'LemonTable--lowercase-header',
-                    allowContentScroll && 'h-full min-h-0 overflow-hidden',
+                    allowContentScroll && 'LemonTable--content-scroll h-full min-h-0 overflow-hidden',
                     className
                 )}
                 // eslint-disable-next-line react/forbid-dom-props
