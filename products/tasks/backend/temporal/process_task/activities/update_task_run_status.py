@@ -59,6 +59,12 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
 
     if input.status in [TaskRun.Status.COMPLETED, TaskRun.Status.FAILED]:
         task_run.completed_at = timezone.now()
+    elif (
+        input.status == TaskRun.Status.CANCELLED
+        and task_run.environment == TaskRun.Environment.CLOUD
+        and not task_run.completed_at
+    ):
+        task_run.completed_at = timezone.now()
 
     task_run.save(update_fields=["status", "error_message", "completed_at", "updated_at"])
     task_run.publish_stream_state_event()

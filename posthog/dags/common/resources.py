@@ -73,6 +73,7 @@ class ClickhouseClusterResource(dagster.ConfigurableResource):
 
     host: str = settings.CLICKHOUSE_HOST
     cluster: str | None = None
+    retry_max_attempts: int = 8
 
     def create_resource(self, context: dagster.InitResourceContext) -> ClickhouseCluster:
         return get_cluster(
@@ -81,8 +82,8 @@ class ClickhouseClusterResource(dagster.ConfigurableResource):
             cluster=self.cluster,
             client_settings=self.client_settings,
             retry_policy=RetryPolicy(
-                max_attempts=8,
-                delay=ExponentialBackoff(20),
+                max_attempts=self.retry_max_attempts,
+                delay=ExponentialBackoff(20, max_delay=60),
                 exceptions=_is_retryable_clickhouse_exception,
             ),
         )
@@ -113,7 +114,7 @@ class OpsClickhouseClusterResource(dagster.ConfigurableResource):
             },
             retry_policy=RetryPolicy(
                 max_attempts=2,
-                delay=ExponentialBackoff(20),
+                delay=ExponentialBackoff(20, max_delay=60),
                 exceptions=_is_retryable_clickhouse_exception,
             ),
         )
@@ -156,7 +157,7 @@ class BackupsClickhouseClusterResource(dagster.ConfigurableResource):
             client_settings=self.client_settings,
             retry_policy=RetryPolicy(
                 max_attempts=8,
-                delay=ExponentialBackoff(20),
+                delay=ExponentialBackoff(20, max_delay=60),
                 exceptions=_is_retryable_clickhouse_exception,
             ),
             connection_overrides={"user": user, "password": password},
@@ -193,7 +194,7 @@ class PartBreakerClickhouseClusterResource(dagster.ConfigurableResource):
             client_settings=self.client_settings,
             retry_policy=RetryPolicy(
                 max_attempts=8,
-                delay=ExponentialBackoff(20),
+                delay=ExponentialBackoff(20, max_delay=60),
                 exceptions=_is_retryable_clickhouse_exception,
             ),
             connection_overrides={"user": user, "password": password},

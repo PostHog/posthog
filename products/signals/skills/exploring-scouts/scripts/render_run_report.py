@@ -9,14 +9,14 @@ session-log MCP tools routinely overflow an MCP client's token budget — they a
 meant to be offloaded to a file and parsed, not read inline.
 
 Inputs (all are `call --json` payloads saved verbatim to a file):
-  --run    signals-scout-runs-retrieve --json  (REQUIRED) the run row + summary
+  --run    scout-runs-retrieve --json  (REQUIRED) the run row + summary
   --log    tasks-runs-session-logs-retrieve --json  (optional) the FULL session log
            — fetch it WITHOUT `exclude_types`. The tool inputs live only in the
            `tool_call_update` stream, so excluding updates discards what each tool
            actually ran. This script reassembles them. Omit --log for a metadata-only
            report (summary mode does not need it).
-  --scratchpad  signals-scout-scratchpad-search --json  (optional) durable memory
-  --config      signals-scout-config-list --json        (optional) for emit posture
+  --scratchpad  scout-scratchpad-search --json  (optional) durable memory
+  --config      scout-config-list --json        (optional) for emit posture
 
 Modes (--mode, default: detailed):
   summary   header + posture + end-of-run summary prose. No timeline. (--log optional)
@@ -309,10 +309,10 @@ def render(run: dict, timeline: list[dict] | None, scratchpad: Any, posture: dic
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--run", required=True, help="signals-scout-runs-retrieve --json payload")
+    ap.add_argument("--run", required=True, help="scout-runs-retrieve --json payload")
     ap.add_argument("--log", help="tasks-runs-session-logs-retrieve --json payload (FULL, no exclude_types)")
-    ap.add_argument("--scratchpad", help="signals-scout-scratchpad-search --json payload")
-    ap.add_argument("--config", help="signals-scout-config-list --json payload (for emit posture)")
+    ap.add_argument("--scratchpad", help="scout-scratchpad-search --json payload")
+    ap.add_argument("--config", help="scout-config-list --json payload (for emit posture)")
     ap.add_argument("--mode", choices=("summary", "detailed", "full"), default="detailed",
                     help="summary = metadata + close-out prose; detailed = + timeline w/ inputs (default); full = + tool outputs")
     ap.add_argument("--show-output", action="store_true", help="include tool outputs in the timeline (implied by --mode full)")

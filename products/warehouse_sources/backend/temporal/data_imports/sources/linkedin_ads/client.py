@@ -69,6 +69,18 @@ class LinkedinAdsDailyRateLimitError(Exception):
     """
 
 
+class LinkedinAdsApiError(Exception):
+    """A non-retryable LinkedIn API response.
+
+    Not named `status_code`: drf-exceptions-hog reads that attribute off any escaping exception and
+    would render LinkedIn's status as PostHog's HTTP response status.
+    """
+
+    def __init__(self, message: str, api_status_code: int) -> None:
+        super().__init__(message)
+        self.api_status_code = api_status_code
+
+
 def _parse_retry_after(response: Any) -> float | None:
     """Pull a numeric Retry-After (seconds) off the underlying requests.Response, if present.
     LinkedIn sends integer seconds; HTTP-date forms and negative/garbage values are ignored
@@ -115,8 +127,15 @@ class LinkedinAdsClient:
         self.api_version = API_VERSION
 
     def get_accounts(self) -> list[dict[str, Any]]:
-        """Get ad accounts."""
-        return self._make_request(endpoint=LinkedinAdsResource.Accounts, finder="search")
+        """Every ad account the authorized member can access. `q=search` is paginated, so a single
+        request returns only the first page."""
+        accounts: list[dict[str, Any]] = []
+        for elements, _ in self._make_paginated_request(
+            endpoint=LinkedinAdsResource.Accounts,
+            path=f"/{LINKEDIN_ADS_ENDPOINTS[LinkedinAdsResource.Accounts]}",
+        ):
+            accounts.extend(elements)
+        return accounts
 
     def get_campaigns(
         self, account_id: str, starting_page_token: Optional[str] = None
@@ -314,7 +333,9 @@ class LinkedinAdsClient:
                 f"LinkedIn API error (retryable, {response.status_code}): {response.response.text}"
             )
         if response.status_code != 200:
-            raise Exception(f"LinkedIn API error ({response.status_code}): {response.response.text}")
+            raise LinkedinAdsApiError(
+                f"LinkedIn API error ({response.status_code}): {response.response.text}", response.status_code
+            )
 
         return response
 

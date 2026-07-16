@@ -189,13 +189,29 @@ class TestValidateCredentials:
         assert valid is False
         assert msg == "Invalid Metabase host"
 
-    def test_request_exception_returns_failure(self):
-        import requests
-
-        with self._patch_session(raises=requests.exceptions.ConnectionError("boom")):
+    def test_connection_error_does_not_leak_raw_exception(self):
+        # requests connection errors embed the customer's host/IP and give the user nothing to act
+        # on. The (fictional-range) IP and the raw blob must never reach the user; a friendly,
+        # actionable message must.
+        raw = "HTTPSConnectionPool(host='203.0.113.10', port=3000): Max retries exceeded"
+        with self._patch_session(raises=requests.exceptions.ConnectionError(raw)):
             valid, msg = validate_credentials("https://x.metabaseapp.com", _api_key_auth())
             assert valid is False
-            assert "boom" in (msg or "")
+            assert msg is not None
+            assert "203.0.113.10" not in msg
+            assert "HTTPSConnectionPool" not in msg
+            assert "Instance URL" in msg
+
+    def test_wrong_version_number_points_at_https(self):
+        # HTTPS forced onto a plaintext port surfaces as SSL WRONG_VERSION_NUMBER; the guidance
+        # should tell the user the instance must be served over HTTPS, without leaking the host.
+        raw = "HTTPSConnectionPool(host='203.0.113.10', port=3000): SSLError([SSL: WRONG_VERSION_NUMBER])"
+        with self._patch_session(raises=requests.exceptions.SSLError(raw)):
+            valid, msg = validate_credentials("https://x.metabaseapp.com", _api_key_auth())
+            assert valid is False
+            assert msg is not None
+            assert "203.0.113.10" not in msg
+            assert "HTTPS" in msg
 
     def test_rejects_redirect_response(self):
         with self._patch_session(_response(status_code=302)) as patched:

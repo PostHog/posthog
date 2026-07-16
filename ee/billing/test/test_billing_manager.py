@@ -247,6 +247,7 @@ class TestBillingManager(BaseTest):
             "ai_credits": {"usage": 1200, "limit": 20000, "todays_usage": 150},
             "signals_credits": {},
             "replay_vision_credits": {},
+            "posthog_code_credits": {},
             "workflow_emails": {"usage": 100, "limit": 10000, "todays_usage": 10},
             "workflow_destinations_dispatched": {"usage": 50, "limit": 10000, "todays_usage": 5},
             "logs_mb_ingested": {"usage": 5500, "limit": 50000, "todays_usage": 500},
@@ -645,6 +646,18 @@ class TestBuildBillingToken(BaseTest):
         assert "distinct_id" not in decoded
         assert "organization_role" not in decoded
         assert "original_role" not in decoded
+        # Only service-to-service tokens carry service_action; billing uses its absence
+        # to reject user-minted tokens on service-only endpoints.
+        assert "service_action" not in decoded
+
+    def test_build_billing_token_with_service_action(self):
+        token = build_billing_token(self.license, self.organization, service_action="signals_pr_dispute")
+
+        decoded = jwt.decode(token, "license_secret", algorithms=["HS256"], audience="posthog:license-key")
+
+        assert decoded["service_action"] == "signals_pr_dispute"
+        assert "distinct_id" not in decoded
+        assert "organization_role" not in decoded
 
     def test_build_billing_token_with_user_who_is_member(self):
         """Token with user should include distinct_id and organization_role as level display string"""
@@ -1364,3 +1377,50 @@ class TestRequestWithPostFallback(BaseTest):
         assert result == {"results": []}
         mock_get.assert_called_once()
         mock_post.assert_not_called()
+
+
+class TestDisputeSignalsPr(BaseTest):
+    def _license(self) -> License:
+        return super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+    @patch(
+        "ee.billing.billing_manager.requests.post",
+        return_value=MagicMock(
+            status_code=200,
+            json=MagicMock(return_value={"credit_amount_usd": "15.00", "credit_id": "c1", "already_processed": False}),
+        ),
+    )
+    def test_posts_to_dispute_endpoint_and_returns_body(self, billing_post_request_mock: MagicMock):
+        payload = {"refund_id": "r1", "credits": 1500, "metadata": {}}
+
+        result = BillingManager(self._license()).dispute_signals_pr(self.organization, payload)
+
+        assert result == {"credit_amount_usd": "15.00", "credit_id": "c1", "already_processed": False}
+        call_args = billing_post_request_mock.call_args
+        assert call_args[0][0].endswith("/api/signals/dispute-pr")
+        assert call_args[1]["json"] == payload
+        assert "Authorization" in call_args[1]["headers"]
+        # Billing only accepts dispute calls from tokens carrying the service_action
+        # claim; without it the request is rejected as a user-initiated token.
+        token = call_args[1]["headers"]["Authorization"].removeprefix("Bearer ")
+        decoded = jwt.decode(token, options={"verify_signature": False})
+        assert decoded["service_action"] == "signals_pr_dispute"
+        assert "organization_role" not in decoded
+        assert "distinct_id" not in decoded
+
+    @parameterized.expand([("missing_deploy", 404), ("auth_failure", 401)])
+    def test_raises_on_statuses_the_default_valid_codes_would_swallow(self, _name, status_code):
+        # handle_billing_service_error's default valid_codes includes 404/401 — treating a missing
+        # billing deploy or an auth failure as success would record an error body as a synced
+        # credit. Any non-200 must raise so the Celery caller retries.
+        response = MagicMock(status_code=status_code, json=MagicMock(return_value={"detail": "nope"}), ok=False)
+        with patch("ee.billing.billing_manager.requests.post", return_value=response):
+            with self.assertRaises(Exception) as context:
+                BillingManager(self._license()).dispute_signals_pr(
+                    self.organization, {"refund_id": "r1", "credits": 1500, "metadata": {}}
+                )
+        assert str(status_code) in str(context.exception)

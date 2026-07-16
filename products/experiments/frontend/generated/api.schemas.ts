@@ -833,7 +833,7 @@ export interface ExperimentFlagRolloutGroupApi {
  * A single multivariate variant. Extra per-variant keys are dropped.
  */
 export interface ExperimentFlagVariantApi {
-    /** Unique variant key. Exactly one variant must use the key 'control' (the baseline). */
+    /** Unique variant key. The baseline defaults to the variant keyed 'control' when present, else the first variant. */
     key: string
     /** Human-readable variant name. */
     name?: string
@@ -849,7 +849,7 @@ export interface ExperimentFlagVariantApi {
  * Multivariate config for the experiment's feature flag.
  */
 export interface ExperimentFlagMultivariateApi {
-    /** Variant definitions. Exactly one variant key must be the literal string 'control'. */
+    /** Variant definitions (2 to 20). The baseline defaults to the variant keyed 'control' when present, else the first variant. */
     variants: ExperimentFlagVariantApi[]
 }
 
@@ -885,7 +885,7 @@ export interface ExperimentFeatureFlagFiltersApi {
  * reach this validation.
  */
 export interface ExperimentFeatureFlagInputApi {
-    /** Flag config to apply: `multivariate.variants` (exactly one variant key must be the literal string 'control'), `groups` (a single group with `rollout_percentage` only; release conditions are not supported here, edit the feature flag directly), `aggregation_group_type_index`, and `payloads` (JSON-encoded strings keyed by variant key). On update, config this object omits is preserved from the linked flag's current state. */
+    /** Flag config to apply: `multivariate.variants` (2 to 20 variants; the baseline defaults to the variant keyed 'control' when present, else the first variant), `groups` (a single group with `rollout_percentage` only; release conditions are not supported here, edit the feature flag directly), `aggregation_group_type_index`, and `payloads` (JSON-encoded strings keyed by variant key). On update, config this object omits is preserved from the linked flag's current state. */
     filters?: ExperimentFeatureFlagFiltersApi
     /**
      * Whether the flag persists variant assignment across authentication steps.
@@ -1449,6 +1449,8 @@ export interface ExperimentWriteApi {
     readonly status: ExperimentStatusEnumApi
     /** Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support them, such as duplicate and copy-to-project. */
     readonly is_legacy: boolean
+    /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
+    readonly can_freeze_exposure: boolean
     /**
      * The effective access level the user has for this object
      * @nullable
@@ -1555,6 +1557,8 @@ export interface ExperimentApi {
     readonly status: ExperimentStatusEnumApi
     /** Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support them, such as duplicate and copy-to-project. */
     readonly is_legacy: boolean
+    /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
+    readonly can_freeze_exposure: boolean
     /**
      * The effective access level the user has for this object
      * @nullable
@@ -1657,6 +1661,8 @@ export interface PatchedExperimentWriteApi {
     readonly status?: ExperimentStatusEnumApi
     /** Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support them, such as duplicate and copy-to-project. */
     readonly is_legacy?: boolean
+    /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
+    readonly can_freeze_exposure?: boolean
     /**
      * The effective access level the user has for this object
      * @nullable

@@ -157,6 +157,10 @@ jobs:
                         - conftest.py # Root conftest loads for every pytest run
                         - .test_durations # Used for pytest-split sharding
                         - .test_quarantine.json # Un-quarantining must re-run the affected tests
+                        # turbo-discover reads the module graph for the dependent
+                        # cascade, and `tach check` validates it — a graph-only PR
+                        # must still dispatch both.
+                        - tach.toml
                         # generates posthog/schema.py
                         - frontend/src/queries/schema.json
                         # Operator parity check
@@ -268,10 +272,14 @@ jobs:
                       tasks_temporal:
                         - 'products/tasks/backend/temporal/**/*'
                       product_yamls:
-                        # Validates owner team slugs against PostHog/posthog collaborator teams.
-                        # Costs one GitHub API call; gated here so we only pay it when ownership
-                        # actually changes. Drives the validate-product-yamls job below.
+                        # Validates owner team slugs against PostHog/posthog collaborator teams,
+                        # and lints the distributed owners.yaml files (schema, conflicts, dead
+                        # globs, coverage). Costs one GitHub API call; gated here so we only pay
+                        # it when ownership actually changes. Drives the validate-product-yamls job.
                         - 'products/*/product.yaml'
+                        - '**/owners.yaml'
+                        # Resolver changes must re-run the owners.yaml lint too.
+                        - 'tools/owners/**'
                       openapi_types:
                         # Generated OpenAPI types - validate they match schema
                         - 'frontend/src/generated/**/*'
@@ -474,6 +482,12 @@ jobs:
             temporal_files: ${{ steps.classify.outputs.temporal_files }}
             run_poe: ${{ steps.classify.outputs.run_poe }}
             run_temporal: ${{ steps.classify.outputs.run_temporal }}
+            # Telemetry for the capture-test-selection job below.
+            narrowed: ${{ steps.classify.outputs.narrowed }}
+            skip_reason: ${{ steps.classify.outputs.skip_reason }}
+            changed_file_count: ${{ steps.classify.outputs.changed_file_count }}
+            selected_test_count: ${{ steps.classify.outputs.selected_test_count }}
+            full_run_reasons_count: ${{ steps.classify.outputs.full_run_reasons_count }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -483,7 +497,7 @@ jobs:
             - name: Install uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.11.14'
+                  version: '0.11.28'
 
             - name: Decide whether selection can be trusted
               id: fallback
@@ -531,6 +545,24 @@ jobs:
               shell: bash
               run: |
                   set -euo pipefail
+                  # Selection telemetry (see the capture-test-selection job). Best-effort
+                  # from the selector JSON when it exists; narrowed=false marks a fallback.
+                  emit_metrics() {
+                      local changed="" selected="" reasons=""
+                      if [[ -s /tmp/selection.json ]]; then
+                          changed=$(jq -r '.changed_file_count // empty' /tmp/selection.json)
+                          selected=$(jq -r '.combined.count // empty' /tmp/selection.json)
+                          reasons=$(jq -r '.ast.full_run_reasons | length' /tmp/selection.json)
+                      fi
+                      {
+                          echo "narrowed=$1"
+                          echo "skip_reason=$2"
+                          echo "changed_file_count=$changed"
+                          echo "selected_test_count=$selected"
+                          echo "full_run_reasons_count=$reasons"
+                      } >> "$GITHUB_OUTPUT"
+                  }
+
                   # Untrusted selection on a draft skips the heavy matrices (the
                   # pre-selection draft behavior); the ready-for-review run is full.
                   fall_back_to_skip() {
@@ -540,16 +572,17 @@ jobs:
                       echo "temporal_files=" >> "$GITHUB_OUTPUT"
                       echo "run_poe=false" >> "$GITHUB_OUTPUT"
                       echo "run_temporal=false" >> "$GITHUB_OUTPUT"
+                      emit_metrics false "$1"
                   }
 
                   if [[ "$FALLBACK_SKIP" == "true" ]]; then
-                      fall_back_to_skip
+                      fall_back_to_skip untrusted
                       exit 0
                   fi
 
                   if [[ "$SELECT_OUTCOME" != "success" ]] || [[ ! -s /tmp/selection.json ]]; then
                       echo "::warning::shadow selector did not produce output; draft skips heavy matrices (full run happens on ready for review)"
-                      fall_back_to_skip
+                      fall_back_to_skip selector_error
                       exit 0
                   fi
 
@@ -557,7 +590,7 @@ jobs:
                   if [[ "$full_run_reasons" -gt 0 ]]; then
                       echo "Selector requested a full run; draft defers it to ready for review:"
                       jq -r '.ast.full_run_reasons[]' /tmp/selection.json
-                      fall_back_to_skip
+                      fall_back_to_skip full_run_requested
                       exit 0
                   fi
 
@@ -598,6 +631,7 @@ jobs:
                   echo "temporal_files=${temporal[*]:-}" >> "$GITHUB_OUTPUT"
                   echo "run_poe=$([[ ${#poe[@]} -gt 0 ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
                   echo "run_temporal=$([[ ${#temporal[@]} -gt 0 ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+                  emit_metrics true ""
 
                   echo "Selected: ${#core[@]} core, ${#poe[@]} POE-eligible, ${#temporal[@]} temporal"
 
@@ -614,7 +648,7 @@ jobs:
     # Each job gets its own runner + Docker stack, so no shared DB conflicts
     # Small products (< 50 tests) are grouped into a single job to avoid setup overhead
     turbo-tests:
-        needs: [changes, turbo-discover, detect-snapshot-mode]
+        needs: [changes, turbo-discover, detect-snapshot-mode, get_clickhouse_versions]
         if: >-
             always() &&
             (github.event.pull_request.draft != true ||
@@ -655,7 +689,7 @@ jobs:
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: temporal,azure
-                  CLICKHOUSE_SERVER_IMAGE: clickhouse/clickhouse-server:26.6.1.1193
+                  CLICKHOUSE_SERVER_IMAGE: ${{ needs.get_clickhouse_versions.outputs.local_image }}
               run: |
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
                   bin/ci-wait-for-docker launch --background --down \
@@ -687,14 +721,14 @@ jobs:
               id: setup-uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install SAML dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
-              run: sudo apt-get update && sudo apt-get install -y libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+              run: sudo rm -f /etc/apt/sources.list.d/*twingate* && sudo apt-get update && sudo apt-get install -y libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
             - name: Install Rust
               uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
@@ -721,7 +755,7 @@ jobs:
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: temporal,azure
-                  CLICKHOUSE_SERVER_IMAGE: clickhouse/clickhouse-server:26.6.1.1193
+                  CLICKHOUSE_SERVER_IMAGE: ${{ needs.get_clickhouse_versions.outputs.local_image }}
               run: bin/ci-wait-for-docker wait
 
             - name: Restore schema cache from master
@@ -835,6 +869,29 @@ jobs:
               shell: bash
               run: exit 1
 
+            # Feeds the django_tests gate's per-test failure rollup. Rename each file to carry
+            # its product so the name survives upload-artifact's least-common-ancestor path
+            # collapse (same trick as "Stage product coverage" below).
+            - name: Stage product JUnit
+              if: always()
+              shell: bash
+              run: |
+                  mkdir -p junit-staging
+                  for f in products/*/junit-product.xml; do
+                      [ -f "$f" ] || continue
+                      cp "$f" "junit-staging/junit-product-$(basename "$(dirname "$f")").xml"
+                  done
+            # Separate prefix from junit-results-backend-* on purpose: those are consumed by
+            # test-selection-verdict (snob shadow) and report-test-timings, not product tests.
+            - name: Upload product test results
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              if: always()
+              with:
+                  name: product-junit-results-${{ strategy.job-index }}
+                  path: junit-staging/junit-product-*.xml
+                  if-no-files-found: ignore
+                  overwrite: true # artifacts are immutable per run; re-run shards would 409 otherwise
+
             - name: Upload timing data
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               if: ${{ github.ref == 'refs/heads/master' }}
@@ -900,7 +957,8 @@ jobs:
     # Consolidates checks that previously each spun up their own runner.
     repo-checks:
         needs: [changes]
-        if: needs.changes.outputs.backend == 'true'
+        # product_yamls: ownership-only PRs still need the owners.yaml lint below.
+        if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.product_yamls == 'true'
         timeout-minutes: 10
         outputs:
             deterministic_failure: ${{ steps.deterministic-failure.outputs.deterministic_failure || 'false' }}
@@ -931,7 +989,7 @@ jobs:
             - name: Install uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
 
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
@@ -966,6 +1024,13 @@ jobs:
 
             - name: Lint product structure
               run: ./bin/hogli product:lint --all
+
+            # Distributed owners.yaml tree: schema, product.yaml/owners.yaml
+            # conflicts, dead rule globs, coverage (warn-only). No --live, so no
+            # secrets — fork PRs get validated too (the --live slug check runs in
+            # the fork-gated validate-product-yamls job instead).
+            - name: Lint owners.yaml files
+              run: ./bin/hogli owners:lint
 
             - name: Check version specifiers
               run: python .github/scripts/check-version-specifiers.py
@@ -1054,7 +1119,7 @@ jobs:
             - name: Install uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.11.14'
+                  version: '0.11.28'
 
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
@@ -1072,9 +1137,14 @@ jobs:
                   names=$(for n in $names; do [ -f "products/$n/product.yaml" ] && printf '%s ' "$n"; done | xargs)
                   if [ -z "$names" ]; then
                     echo "No existing product.yaml files in diff after filtering"
-                    exit 0
+                  else
+                    ./bin/hogli product:lint:owners $names
                   fi
-                  ./bin/hogli product:lint:owners $names
+
+            - name: Validate owners.yaml identities against GitHub
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+              run: ./bin/hogli owners:lint --live
 
     # Migration validation.
     # This job needs Docker + DB — it checks out master first to run baseline
@@ -1090,7 +1160,7 @@ jobs:
         # (otherwise-empty) check suite rather than floating under a random
         # run in the crowded github-actions suite. The job's GITHUB_TOKEN
         # therefore no longer needs checks:write. pull-requests:write is still
-        # required for the migration SQL comment steps below.
+        # required for the migration sections in the CI report.
         permissions:
             contents: read
             pull-requests: write
@@ -1144,7 +1214,7 @@ jobs:
               id: setup-uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -1152,6 +1222,7 @@ jobs:
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
               run: |
+                  sudo rm -f /etc/apt/sources.list.d/*twingate*
                   sudo apt-get update
                   sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
             - name: Install Rust
@@ -1258,16 +1329,28 @@ jobs:
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
-            - name: Check migrations and post SQL comment
+            - name: Check migrations and post SQL to CI report
               if: github.event_name == 'pull_request' && needs.changes.outputs.migrations == 'true'
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   CHANGED_FILES: ${{ needs.changes.outputs.migrations_files }}
                   BASE_SHA: ${{ github.event.pull_request.base.sha }}
               run: |
+                  # The PR checkout above uses the PR branch, which on unrebased PRs
+                  # predates this script — skip the CI report section rather than fail.
+                  post_migration_section() {
+                    if [ -f .github/scripts/post-django-migration-section.mjs ]; then
+                      node .github/scripts/post-django-migration-section.mjs "$@"
+                    else
+                      echo "Skipping Django migration section — script not present on this checkout"
+                    fi
+                  }
+
                   # If no migration files changed, exit
                   if [ -z "$CHANGED_FILES" ]; then
                     echo "No migration files changed"
+                    echo "No new Django migrations need SQL review." > /tmp/django-migration-sql.md
+                    post_migration_section sql clear ok "no new migrations" /tmp/django-migration-sql.md
                     exit 0
                   fi
 
@@ -1279,8 +1362,9 @@ jobs:
                   fi
 
                   # Initialize comment body for SQL changes
-                  COMMENT_BODY="## Migration SQL Changes\n\nHey 👋, we've detected some migrations on this PR. Here's the SQL output for each migration, make sure they make sense:\n\n"
+                  COMMENT_BODY="We've detected new migrations on this PR. Review the SQL output for each migration:\n\n"
                   HAS_NEW_MIGRATIONS=false
+                  MIGRATION_COUNT=0
 
                   # Process each changed migration file (excluding Rust migrations)
                   for file in $CHANGED_FILES; do
@@ -1306,35 +1390,22 @@ jobs:
                       fi
 
                       HAS_NEW_MIGRATIONS=true
+                      MIGRATION_COUNT=$((MIGRATION_COUNT + 1))
                       echo "Checking migration $migration_number for app $app_name"
 
                       # Get SQL output
                       SQL_OUTPUT=$(python manage.py sqlmigrate $app_name $migration_number)
 
                       # Add to comment body
-                      COMMENT_BODY+="#### [\`$file\`](https:\/\/github.com\/${{ github.repository }}\/blob\/${{ github.sha }}\/$file)\n\`\`\`sql\n$SQL_OUTPUT\n\`\`\`\n\n"
+                      COMMENT_BODY+="#### [\`$file\`](https://github.com/${{ github.repository }}/blob/${{ github.sha }}/$file)\n\`\`\`sql\n$SQL_OUTPUT\n\`\`\`\n\n"
                     fi
                   done
 
-                  # Get existing comments (needed for both update and cleanup)
-                  COMMENTS=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-                    -H "Accept: application/vnd.github.v3+json" \
-                    "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments")
-
-                  # Extract comment ID if exists
-                  SQL_COMMENT_ID=$(echo "$COMMENTS" | jq -r '.[] | select(.body | startswith("## Migration SQL Changes")) | .id' | head -1)
-
-                  # If no new migrations, clean up any stale comment and exit
                   if [ "$HAS_NEW_MIGRATIONS" = false ]; then
-                    echo "No new migrations to show (all changed files already exist on base branch)"
-                    if [ -n "$SQL_COMMENT_ID" ]; then
-                      echo "Deleting stale SQL comment $SQL_COMMENT_ID"
-                      curl -X DELETE \
-                        -H "Authorization: token $GITHUB_TOKEN" \
-                        -H "Accept: application/vnd.github.v3+json" \
-                        "https://api.github.com/repos/${{ github.repository }}/issues/comments/$SQL_COMMENT_ID"
-                    fi
-                    exit 0
+                      echo "No new migrations to show (all changed files already exist on base branch)"
+                      echo "No new Django migrations need SQL review." > /tmp/django-migration-sql.md
+                      post_migration_section sql clear ok "no new migrations" /tmp/django-migration-sql.md
+                      exit 0
                   fi
 
                   # Add timestamp and commit SHA to SQL changes
@@ -1345,27 +1416,15 @@ jobs:
 
                   # Convert \n into actual newlines
                   COMMENT_BODY=$(printf '%b' "$COMMENT_BODY")
-                  COMMENT_BODY_JSON=$(jq -n --arg body "$COMMENT_BODY" '{body: $body}')
-
-                  if [ -n "$SQL_COMMENT_ID" ]; then
-                    # Update existing comment
-                    echo "Updating existing SQL comment $SQL_COMMENT_ID"
-                    curl -X PATCH \
-                      -H "Authorization: token $GITHUB_TOKEN" \
-                      -H "Accept: application/vnd.github.v3+json" \
-                      "https://api.github.com/repos/${{ github.repository }}/issues/comments/$SQL_COMMENT_ID" \
-                      -d "$COMMENT_BODY_JSON"
+                  printf '%s' "$COMMENT_BODY" > /tmp/django-migration-sql.md
+                  if [ "$MIGRATION_COUNT" -eq 1 ]; then
+                    MIGRATION_SUMMARY="1 new migration to review"
                   else
-                    # Post new SQL comment to PR
-                    echo "Posting new SQL comment to PR"
-                    curl -X POST \
-                      -H "Authorization: token $GITHUB_TOKEN" \
-                      -H "Accept: application/vnd.github.v3+json" \
-                      "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
-                      -d "$COMMENT_BODY_JSON"
+                    MIGRATION_SUMMARY="$MIGRATION_COUNT new migrations to review"
                   fi
+                  post_migration_section sql post warn "$MIGRATION_SUMMARY" /tmp/django-migration-sql.md
 
-            - name: Run migration risk analysis and post comment
+            - name: Run migration risk analysis and update CI report
               if: github.event_name == 'pull_request'
               # Step timeout: an analyzer hang fails THIS step (a failure, which
               # !cancelled() still publishes as a definitive verdict) instead of
@@ -1376,6 +1435,16 @@ jobs:
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               run: |
+                  # The PR checkout above uses the PR branch, which on unrebased PRs
+                  # predates this script — skip the CI report section rather than fail.
+                  post_migration_section() {
+                    if [ -f .github/scripts/post-django-migration-section.mjs ]; then
+                      node .github/scripts/post-django-migration-section.mjs "$@"
+                    else
+                      echo "Skipping Django migration section — script not present on this checkout"
+                    fi
+                  }
+
                   # Get risk analysis for all unapplied migrations (including third-party).
                   # --output-json gives downstream consumers (the check-run step
                   # below, and any other tool) a stable structured shape to read.
@@ -1389,49 +1458,25 @@ jobs:
                     echo "$RISK_ANALYSIS" > migration_analysis.md
                   fi
 
-                  # Get existing comments
-                  COMMENTS=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-                    -H "Accept: application/vnd.github.v3+json" \
-                    "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments")
-
-                  # Extract comment ID if exists
-                  COMMENT_ID=$(echo "$COMMENTS" | jq -r '.[] | select(.body | startswith("## 🔍 Migration Risk Analysis")) | .id' | head -1)
-
                   if [ -n "$RISK_ANALYSIS" ] && echo "$RISK_ANALYSIS" | grep -q "Summary:"; then
                     # Add timestamp and commit SHA to analysis
                     TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M UTC')
                     COMMIT_SHA="${{ github.event.pull_request.head.sha }}"
                     COMMIT_SHORT="${COMMIT_SHA:0:7}"
-                    RISK_COMMENT="## 🔍 Migration Risk Analysis\n\nWe've analyzed your migrations for potential risks.\n\n$RISK_ANALYSIS\n\n*Last updated: $TIMESTAMP ([${COMMIT_SHORT}](https://github.com/${{ github.repository }}/commit/${COMMIT_SHA}))*"
+                    RISK_COMMENT="We've analyzed your migrations for potential risks.\n\n$RISK_ANALYSIS\n\n*Last updated: $TIMESTAMP ([${COMMIT_SHORT}](https://github.com/${{ github.repository }}/commit/${COMMIT_SHA}))*"
                     RISK_COMMENT=$(printf '%b' "$RISK_COMMENT")
-                    RISK_COMMENT_JSON=$(jq -n --arg body "$RISK_COMMENT" '{body: $body}')
-
-                    if [ -n "$COMMENT_ID" ]; then
-                      # Update existing comment
-                      echo "Updating existing risk analysis comment $COMMENT_ID"
-                      curl -X PATCH \
-                        -H "Authorization: token $GITHUB_TOKEN" \
-                        -H "Accept: application/vnd.github.v3+json" \
-                        "https://api.github.com/repos/${{ github.repository }}/issues/comments/$COMMENT_ID" \
-                        -d "$RISK_COMMENT_JSON"
+                    printf '%s' "$RISK_COMMENT" > /tmp/django-migration-risk.md
+                    if [ $EXIT_CODE -ne 0 ]; then
+                      post_migration_section risk post fail "blocked migration detected" /tmp/django-migration-risk.md
                     else
-                      # Create new comment if none exists
-                      echo "Posting new risk analysis comment to PR"
-                      curl -X POST \
-                        -H "Authorization: token $GITHUB_TOKEN" \
-                        -H "Accept: application/vnd.github.v3+json" \
-                        "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
-                        -d "$RISK_COMMENT_JSON"
+                      post_migration_section risk post ok "migration analysis complete" /tmp/django-migration-risk.md
                     fi
-                  elif [ -n "$COMMENT_ID" ]; then
-                    # No migrations to analyze but comment exists - delete it
-                    echo "Deleting risk analysis comment (no migrations to analyze)"
-                    curl -X DELETE \
-                      -H "Authorization: token $GITHUB_TOKEN" \
-                      -H "Accept: application/vnd.github.v3+json" \
-                      "https://api.github.com/repos/${{ github.repository }}/issues/comments/$COMMENT_ID"
+                  elif [ $EXIT_CODE -ne 0 ]; then
+                    echo "Migration risk analysis failed. Check the workflow logs for details." > /tmp/django-migration-risk.md
+                    post_migration_section risk post fail "migration analysis failed" /tmp/django-migration-risk.md
                   else
-                    echo "No migrations to analyze and no existing comment"
+                    echo "No Django migrations need risk analysis." > /tmp/django-migration-risk.md
+                    post_migration_section risk clear ok "no migrations to analyze" /tmp/django-migration-risk.md
                   fi
 
                   # Fail the job if there were blocked migrations
@@ -1555,10 +1600,10 @@ jobs:
                   MARKER="<!-- stamphog:v1 ${ANALYZED_PATHS} -->"
 
                   # Truncate the human report to fit the check-run output
-                  # limit (~64KB); the full markdown is also posted as a PR
-                  # comment for humans. The marker stays at the top so it's
+                  # limit (~64KB); the full markdown is also posted in the CI
+                  # report for humans. The marker stays at the top so it's
                   # never lost to truncation.
-                  REPORT_BODY=$(head -c 59000 migration_analysis.md 2>/dev/null || echo "See PR comment")
+                  REPORT_BODY=$(head -c 59000 migration_analysis.md 2>/dev/null || echo "See the CI report")
                   SUMMARY=$(printf '%s\n%s' "$MARKER" "$REPORT_BODY")
 
                   jq -n \
@@ -1665,7 +1710,7 @@ jobs:
               # `settings.CLOUD_DEPLOYMENT` (e.g. cloud-only Kafka tables). Render the SQL each
               # environment will execute so reviewers can spot per-env divergence and verify gated
               # branches don't sneak in ON CLUSTER or other forbidden patterns. We render once per
-              # environment and reuse the output both for the Actions log groups and the PR comment
+              # environment and reuse the output both for the Actions log groups and the CI report
               # (environment -> node type(s) -> SQL). Environments that render identically are
               # grouped together; if all environments match, the environment level is collapsed.
               id: render_ch_sql
@@ -1807,7 +1852,7 @@ jobs:
               id: setup-uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -1815,6 +1860,7 @@ jobs:
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
               run: |
+                  sudo rm -f /etc/apt/sources.list.d/*twingate*
                   sudo apt-get update
                   sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
@@ -2252,7 +2298,7 @@ jobs:
               id: setup-uv-tests
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -2261,7 +2307,7 @@ jobs:
               if: ${{ needs.changes.outputs.backend == 'true' && steps.setup-uv-tests.outputs.cache-hit != 'true' }}
               shell: bash
               run: |
-                  sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+                  sudo rm -f /etc/apt/sources.list.d/*twingate* && sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
             - name: Install Rust
               if: needs.changes.outputs.backend == 'true'
@@ -2779,6 +2825,8 @@ jobs:
         outputs:
             # Oldest supported version as plain string (for comparisons)
             oldest_supported_image: ${{ steps.read-versions.outputs.oldest_supported_image }}
+            # Local dev / hobby image, mirrored from clickhouse-versions.json `local`
+            local_image: ${{ steps.read-versions.outputs.local_image }}
             # Fully expanded compat matrix (version x shard group)
             compat_matrix: ${{ steps.read-versions.outputs.compat_matrix }}
         steps:
@@ -2800,6 +2848,15 @@ jobs:
                   fi
                   echo "oldest_supported_image=$oldest_supported" >> $GITHUB_OUTPUT
                   echo "Oldest supported version for Django tests: $oldest_supported"
+
+                  # Local dev / hobby image — the version product (turbo) tests run against.
+                  local_image=$(jq -r '.local' .github/clickhouse-versions.json)
+                  if [ -z "$local_image" ] || [ "$local_image" = "null" ]; then
+                    echo "::error::No local version found in .github/clickhouse-versions.json"
+                    exit 1
+                  fi
+                  echo "local_image=$local_image" >> $GITHUB_OUTPUT
+                  echo "Local dev/hobby image for product tests: $local_image"
 
                   # Read all unique versions so we can derive compat coverage.
                   all=$(jq -c '[.[]] | unique' .github/clickhouse-versions.json)
@@ -2922,7 +2979,8 @@ jobs:
             ]
         name: Django Tests Pass
         runs-on: ubuntu-latest
-        timeout-minutes: 5
+        # Headroom for downloading every shard's JUnit for the failure rollup.
+        timeout-minutes: 8
         if: always()
         steps:
             - name: Summarize dependency results
@@ -2951,8 +3009,82 @@ jobs:
                     fi
                   } | tee -a "$GITHUB_STEP_SUMMARY"
 
+            # Per-test failure rollup: only when a test job actually failed, download that
+            # shard's JUnit so "Check dependency results" can list the failing tests. Skipped
+            # on green runs (the common case) to avoid pulling ~50 artifacts for nothing.
+            # continue-on-error so a flaky fetch can't fail this required gate.
+            - name: Download shard JUnit results
+              if: always() && (needs.django.result != 'success' || needs.turbo-tests.result != 'success')
+              continue-on-error: true
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  pattern: '{junit-results-backend,product-junit-results}-*'
+                  path: /tmp/junit-gate/
             - name: Check dependency results
               run: |
+                  # Per-test failure rollup, emitted from THIS step because GitHub only
+                  # auto-expands the failed step in the log view. Best-effort via `|| true`
+                  # so a parser hiccup never changes the verdict computed below.
+                  python3 <<'PY' || true
+                  import glob, os, xml.etree.ElementTree as ET
+
+                  ROOT = "/tmp/junit-gate"
+                  rows = []  # (shard, nodeid, repo_file, message)
+
+                  def clean(s):
+                      # Collapse newlines so PR-authored test names can't inject ::workflow-commands::
+                      return " ".join((s or "").split())
+
+                  for path in glob.glob(os.path.join(ROOT, "**", "junit-*.xml"), recursive=True):
+                      artifact = os.path.relpath(path, ROOT).split(os.sep)[0]
+                      base = os.path.basename(path)
+                      # Product JUnit is staged as junit-product-<name>.xml; backend keeps its key.
+                      product = base[len("junit-product-"):-len(".xml")] if base.startswith("junit-product-") else ""
+                      shard = f"products/{product}" if product else artifact.removeprefix("junit-results-backend-")
+                      with open(path, "rb") as fh:
+                          raw = fh.read()
+                      # Refuse DTD/entity payloads (XXE, billion-laughs). pytest JUnit has neither,
+                      # so real failures are never dropped; a crafted file is simply skipped.
+                      if b"<!DOCTYPE" in raw or b"<!ENTITY" in raw:
+                          continue
+                      try:
+                          tree = ET.fromstring(raw)
+                      except ET.ParseError:
+                          continue
+                      for tc in tree.iter("testcase"):
+                          bad = tc.find("failure")
+                          if bad is None:
+                              bad = tc.find("error")
+                          if bad is None:
+                              continue
+                          name = tc.get("name", "")
+                          file_ = tc.get("file", "") or tc.get("classname", "")
+                          repo_file = f"products/{product}/{file_}" if product and file_ else file_
+                          nodeid = clean("::".join(p for p in (repo_file, name) if p))
+                          msg = clean(bad.get("message") or bad.text or "")[:200]
+                          rows.append((clean(shard), nodeid, clean(repo_file), msg))
+
+                  # Print only when something failed; on a green gate this stays silent.
+                  if rows:
+                      out = ["### Failing backend & product tests", "", f"{len(rows)} failing test(s):",
+                             "", "| Shard | Test | Message |", "| --- | --- | --- |"]
+                      for shard, nodeid, _f, msg in rows[:100]:
+                          out.append(f"| {shard} | `{nodeid.replace('|', r'\|')}` | {msg.replace('|', r'\|')} |")
+                      if len(rows) > 100:
+                          out += ["", f"…and {len(rows) - 100} more."]
+                      text = "\n".join(out) + "\n"
+                      summary = os.environ.get("GITHUB_STEP_SUMMARY")
+                      if summary:
+                          with open(summary, "a") as fh:
+                              fh.write(text)
+                      print(text)
+                      for shard, nodeid, repo_file, msg in rows[:30]:
+                          title = f"Backend test failed ({shard})"
+                          body = f"{nodeid}: {msg}" if msg else nodeid
+                          loc = f"file={repo_file}," if repo_file else ""
+                          print(f"::error {loc}title={title}::{body}")
+                  PY
+
                   deterministic_failure=false
                   failed=false
 
@@ -3031,7 +3163,7 @@ jobs:
             - name: Install uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.11.14'
+                  version: '0.11.28'
 
             - name: Download JUnit artifacts
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -3132,6 +3264,43 @@ jobs:
                   status-job: 'Django Tests Pass'
                   runner: 'depot'
 
+    capture-test-selection:
+        name: Capture test selection
+        needs: [select-tests]
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        # select-tests only runs on internal draft PRs; fire only when it actually
+        # produced a decision. DevEx project only, mirroring monitor-github-rate-limit;
+        # continue-on-error so telemetry never reds CI. Skipped on forks/Dependabot,
+        # which never have the secret (and where select-tests didn't run anyway).
+        if: |
+            always() && github.run_attempt == '1'
+            && github.actor != 'dependabot[bot]'
+            && github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
+            && needs.select-tests.result == 'success'
+        steps:
+            - name: Capture test selection to DevEx PostHog
+              continue-on-error: true
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+              with:
+                  posthog-token: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+                  event: 'posthog-ci-test-selection'
+                  properties: |
+                      {
+                        "suite": "backend",
+                        "mode": ${{ toJSON(needs.select-tests.outputs.mode) }},
+                        "narrowed": ${{ needs.select-tests.outputs.narrowed || 'false' }},
+                        "skip_reason": ${{ toJSON(needs.select-tests.outputs.skip_reason || '') }},
+                        "changed_file_count": ${{ needs.select-tests.outputs.changed_file_count || 'null' }},
+                        "selected_test_count": ${{ needs.select-tests.outputs.selected_test_count || 'null' }},
+                        "full_run_reasons_count": ${{ needs.select-tests.outputs.full_run_reasons_count || 'null' }},
+                        "event_type": ${{ toJSON(github.event_name) }},
+                        "branch": ${{ toJSON(github.head_ref || github.ref_name) }},
+                        "sha": ${{ toJSON(github.sha) }},
+                        "pr_number": ${{ github.event.pull_request.number || 'null' }},
+                        "run_id": ${{ toJSON(github.run_id) }}
+                      }
+
     report-test-timings:
         name: Report per-test traces
         needs: [django_tests]
@@ -3168,7 +3337,7 @@ jobs:
             - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               if: github.run_attempt == '1' && steps.timing-reporter.outputs.available == 'true'
               with:
-                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
             - name: Download junit artifacts
               if: github.run_attempt == '1' && steps.timing-reporter.outputs.available == 'true'
               uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
@@ -3245,7 +3414,7 @@ jobs:
             - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               if: steps.reporter.outputs.available == 'true'
               with:
-                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
             - name: Build coverage report
               # diff-cover is declared inline (PEP 723) in coverage_report.py; uv provisions it.
               if: steps.reporter.outputs.available == 'true'

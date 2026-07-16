@@ -1,7 +1,7 @@
 """API endpoints for evaluation report configuration and report run history."""
 
 import datetime as dt
-from typing import Any
+from typing import Any, cast
 
 from django.conf import settings
 from django.db.models import QuerySet
@@ -9,7 +9,7 @@ from django.utils import timezone
 
 import structlog
 from asgiref.sync import async_to_sync
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -20,14 +20,18 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.models.integration import Integration
 from posthog.permissions import AccessControlPermission
+from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
+    normalize_metrics_payload,
+    normalize_report_content_payload,
+)
 
 from products.ai_observability.backend.api.metrics import llma_track_latency
-from products.ai_observability.backend.models.evaluation_configs import (
-    REPORTABLE_OUTPUT_TYPES,
-    evaluation_supports_reports,
+from products.ai_observability.backend.models.evaluation_configs import OutputType, evaluation_supports_reports
+from products.ai_observability.backend.models.evaluation_reports import (
+    EvaluationReport,
+    EvaluationReportQuerySet,
+    EvaluationReportRun,
 )
-from products.ai_observability.backend.models.evaluation_reports import EvaluationReport, EvaluationReportRun
-from products.ai_observability.backend.models.evaluations import EvaluationTarget
 from products.workflows.backend.utils.rrule_utils import validate_rrule
 
 logger = structlog.get_logger(__name__)
@@ -36,6 +40,7 @@ SCHEDULE_RRULE_ERROR = (
     "Scheduled reports support daily or weekly cadences. Use 'FREQ=DAILY' or 'FREQ=WEEKLY;BYDAY=MO,FR'."
 )
 VALID_WEEKDAYS = {"MO", "TU", "WE", "TH", "FR", "SA", "SU"}
+REPORT_NOT_SUPPORTED_ERROR = "Reports are not supported for this evaluation."
 
 
 def default_schedule_anchor() -> dt.datetime:
@@ -191,10 +196,8 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
         team = self.context["get_team"]()
         if value.team_id != team.id:
             raise serializers.ValidationError("Evaluation does not belong to this team.")
-        if not evaluation_supports_reports(value.output_type):
-            raise serializers.ValidationError("Reports are only supported for boolean evaluations.")
-        if value.target == EvaluationTarget.TRACE:
-            raise serializers.ValidationError("Reports are not yet supported for trace-level evaluations.")
+        if not evaluation_supports_reports(value.output_type, value.target):
+            raise serializers.ValidationError(REPORT_NOT_SUPPORTED_ERROR)
         return value
 
     def validate_rrule(self, value: str) -> str:
@@ -354,7 +357,144 @@ class EvaluationReportListSerializer(EvaluationReportSerializer):
         read_only_fields = [f for f in EvaluationReportSerializer.Meta.read_only_fields if f != "created_by"]
 
 
+class EvaluationReportSectionSerializer(serializers.Serializer):
+    title = serializers.CharField(
+        required=False,
+        help_text="Agent-generated section heading.",
+    )
+    content = serializers.CharField(
+        required=False,
+        help_text="Markdown narrative for this section.",
+    )
+
+
+class EvaluationReportCitationSerializer(serializers.Serializer):
+    generation_id = serializers.CharField(
+        required=False,
+        help_text="Generation UUID referenced by this citation.",
+    )
+    trace_id = serializers.CharField(
+        required=False,
+        help_text="Trace identifier containing the referenced generation.",
+    )
+    reason = serializers.CharField(
+        required=False,
+        help_text="Short explanation of why the generation is cited.",
+    )
+
+
+class EvaluationReportMetricsSerializer(serializers.Serializer):
+    output_type = serializers.ChoiceField(
+        choices=OutputType.choices,
+        required=False,
+        help_text="Evaluation result type. Stored metrics without this field represent boolean evaluations.",
+    )
+    total_runs = serializers.IntegerField(
+        required=False,
+        help_text="Number of evaluation results in the report period.",
+    )
+    result_counts = serializers.DictField(
+        child=serializers.IntegerField(),
+        required=False,
+        help_text="Count by output-specific result label, such as pass/fail/N/A or positive/neutral/negative.",
+    )
+    result_rates = serializers.DictField(
+        child=serializers.FloatField(),
+        required=False,
+        help_text="Percentage by output-specific result label, from 0 to 100.",
+    )
+    period_start = serializers.CharField(
+        required=False,
+        help_text="ISO 8601 start of the evaluation window represented by these metrics.",
+    )
+    period_end = serializers.CharField(
+        required=False,
+        help_text="ISO 8601 end of the evaluation window represented by these metrics.",
+    )
+    previous_total_runs = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="Number of evaluation results in the previous comparison period, or null when unavailable.",
+    )
+    previous_result_counts = serializers.DictField(
+        child=serializers.IntegerField(),
+        required=False,
+        allow_null=True,
+        help_text="Count by result label for the previous period, or null when unavailable.",
+    )
+    previous_result_rates = serializers.DictField(
+        child=serializers.FloatField(),
+        required=False,
+        allow_null=True,
+        help_text="Percentage by result label for the previous period, or null when unavailable.",
+    )
+    pass_rate = serializers.FloatField(
+        required=False,
+        help_text="Boolean pass percentage, excluding results marked not applicable.",
+    )
+    previous_pass_rate = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        help_text="Boolean pass percentage for the previous period, or null when unavailable.",
+    )
+
+
+class EvaluationReportRunContentSerializer(serializers.Serializer):
+    title = serializers.CharField(
+        required=False,
+        help_text="Agent-generated report headline.",
+    )
+    sections = EvaluationReportSectionSerializer(
+        many=True,
+        required=False,
+        help_text="Ordered narrative sections in the report.",
+    )
+    citations = EvaluationReportCitationSerializer(
+        many=True,
+        required=False,
+        help_text="Trace references grounding findings in the report.",
+    )
+    metrics = EvaluationReportMetricsSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Structured metrics computed for the report period.",
+    )
+
+
+@extend_schema_field(EvaluationReportRunContentSerializer)
+class _EvaluationReportRunContentField(serializers.JSONField):
+    def to_representation(self, value: Any) -> Any:
+        representation = cast(Any, super().to_representation(value))
+        return normalize_report_content_payload(representation) if isinstance(representation, dict) else representation
+
+
+@extend_schema_field(EvaluationReportMetricsSerializer)
+class _EvaluationReportMetricsField(serializers.JSONField):
+    def to_representation(self, value: Any) -> Any:
+        representation = cast(Any, super().to_representation(value))
+        return normalize_metrics_payload(representation) if isinstance(representation, dict) else representation
+
+
+@extend_schema_field(serializers.ListSerializer(child=serializers.CharField()))
+class _EvaluationReportDeliveryErrorsField(serializers.JSONField):
+    pass
+
+
 class EvaluationReportRunSerializer(serializers.ModelSerializer):
+    content = _EvaluationReportRunContentField(
+        read_only=True,
+        help_text="Structured report narrative, citations, and metrics. Legacy runs may contain only some fields.",
+    )
+    metadata = _EvaluationReportMetricsField(
+        read_only=True,
+        allow_null=True,
+        help_text="Legacy mirror of content.metrics. May contain partial boolean metrics on older runs.",
+    )
+    delivery_errors = _EvaluationReportDeliveryErrorsField(
+        read_only=True,
+        help_text="Delivery error messages. Empty when all configured deliveries succeeded.",
+    )
+
     class Meta:
         model = EvaluationReportRun
         fields = [
@@ -372,12 +512,12 @@ class EvaluationReportRunSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             "id": {"help_text": "UUID of this report run."},
             "report": {"help_text": "UUID of the report config that generated this run."},
-            "content": {"help_text": "Generated report content (markdown or structured text)."},
-            "metadata": {"help_text": "Run metadata including model used, token counts, and generation stats."},
             "period_start": {"help_text": "Start of the evaluation window covered by this report."},
             "period_end": {"help_text": "End of the evaluation window covered by this report."},
-            "delivery_status": {"help_text": "'pending', 'delivered', or 'failed'."},
-            "delivery_errors": {"help_text": "List of delivery error messages if delivery failed."},
+            "delivery_status": {
+                "help_text": "Delivery result: 'pending', 'generated', 'delivered', 'partial_failure', or 'failed'."
+            },
+            "created_at": {"help_text": "When this report run was created."},
         }
 
 
@@ -401,19 +541,23 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
         return super().get_serializer_class()
 
     def safely_get_queryset(self, queryset: QuerySet[EvaluationReport]) -> QuerySet[EvaluationReport]:
-        queryset = queryset.filter(team_id=self.team_id, evaluation__output_type__in=REPORTABLE_OUTPUT_TYPES).order_by(
-            "-created_at"
+        report_queryset = cast(
+            EvaluationReportQuerySet,
+            queryset.filter(team_id=self.team_id).order_by("-created_at"),
         )
+        # Generate validates eligibility explicitly so unsupported legacy rows return a useful 400.
+        if self.action != "generate":
+            report_queryset = report_queryset.reportable()
         if self.action not in ("update", "partial_update"):
-            queryset = queryset.filter(deleted=False)
+            report_queryset = report_queryset.filter(deleted=False)
 
         evaluation_id = self.request.query_params.get("evaluation")
         if evaluation_id:
             query_serializer = EvaluationReportListQuerySerializer(data={"evaluation": evaluation_id})
             query_serializer.is_valid(raise_exception=True)
-            queryset = queryset.filter(evaluation_id=query_serializer.validated_data["evaluation"])
+            report_queryset = report_queryset.filter(evaluation_id=query_serializer.validated_data["evaluation"])
 
-        return queryset
+        return report_queryset
 
     @llma_track_latency("llma_evaluation_reports_list")
     @extend_schema(parameters=[EvaluationReportListQuerySerializer])
@@ -536,16 +680,8 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
     def generate(self, request: Request, **kwargs) -> Response:
         """Trigger immediate report generation."""
         report = self.get_object()
-        if not evaluation_supports_reports(report.evaluation.output_type):
-            return Response(
-                {"error": "Reports are only supported for boolean evaluations."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        if report.evaluation.target == EvaluationTarget.TRACE:
-            return Response(
-                {"error": "Reports are not yet supported for trace-level evaluations."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        if not evaluation_supports_reports(report.evaluation.output_type, report.evaluation.target):
+            raise serializers.ValidationError({"evaluation": REPORT_NOT_SUPPORTED_ERROR})
 
         try:
             from posthog.temporal.ai_observability.eval_reports.constants import GENERATE_EVAL_REPORT_WORKFLOW_NAME

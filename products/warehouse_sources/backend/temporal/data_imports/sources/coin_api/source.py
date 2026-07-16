@@ -49,7 +49,6 @@ class CoinApiSource(ResumableSource[CoinApiSourceConfig, CoinApiResumeConfig]):
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="CoinAPI",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your CoinAPI key to pull cryptocurrency market data into the PostHog Data warehouse.
 
 Create a key in the [CoinAPI customer portal](https://customer.coinapi.io/). CoinAPI uses a credit/quota-based (pay-as-you-go) model with a daily credit limit, so large time-series tables can consume significant credits.

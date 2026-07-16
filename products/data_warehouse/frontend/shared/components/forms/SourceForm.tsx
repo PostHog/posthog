@@ -36,7 +36,6 @@ import { CDC_SOURCE_TYPES } from '../../cdc'
 import { isCustomSourceAiBuilderEnabled } from './customSourceManifest'
 import { CustomSourceManifestBuilder } from './CustomSourceManifestBuilder'
 import { customSourceManifestBuilderLogic } from './customSourceManifestBuilderLogic'
-import { GitHubRepositorySelector } from './GitHubRepositorySelector'
 import { IntegrationAccountSelector } from './IntegrationAccountSelector'
 import { SourceIntegrationChoice } from './IntegrationChoice'
 import { parseConnectionStringForSource } from './parsers'
@@ -214,6 +213,7 @@ export const sourceFieldToElement = (
                 key={field.name}
                 name={hasOptionFields ? [field.name, 'selection'] : field.name}
                 label={field.label}
+                help={field.caption ? <LemonMarkdown className="text-xs">{field.caption}</LemonMarkdown> : undefined}
             >
                 {({ value, onChange }) => (
                     <>
@@ -323,11 +323,6 @@ export const sourceFieldToElement = (
             setSourceConnectionDetailsValue,
             oauthRedirectUrl
         )
-    }
-
-    if (field.type === 'text' && field.name === 'repository' && sourceConfig.name === 'Github') {
-        // Special case, this is the GitHub repository field
-        return <GitHubRepositorySelector key={field.name} />
     }
 
     return (

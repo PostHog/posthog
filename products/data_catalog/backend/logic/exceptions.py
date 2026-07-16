@@ -27,3 +27,11 @@ class MetricHasNoDefinition(APIException):
     status_code = status.HTTP_400_BAD_REQUEST
     default_detail = "This metric has no definition to run. It is name and description only."
     default_code = "metric_has_no_definition"
+
+
+class CatalogConflict(APIException):
+    """A 409 for catalog conflicts (duplicate certification, ambiguous table name, existing proposal)."""
+
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = "This catalog entry conflicts with an existing one."
+    default_code = "catalog_conflict"

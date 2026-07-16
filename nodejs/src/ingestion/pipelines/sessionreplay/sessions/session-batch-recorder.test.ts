@@ -182,6 +182,7 @@ jest.mock('./metrics', () => ({
         incrementEventsRateLimited: jest.fn(),
         incrementNewSessionsDetected: jest.fn(),
         incrementNewSessionsRateLimited: jest.fn(),
+        observeE2eLag: jest.fn(),
     },
 }))
 
@@ -231,7 +232,6 @@ describe('SessionBatchRecorder', () => {
 
         mockOffsetManager = {
             trackOffset: jest.fn(),
-            discardPartition: jest.fn(),
             commit: jest.fn(),
         } as unknown as jest.Mocked<KafkaOffsetManager>
 
@@ -1221,97 +1221,6 @@ describe('SessionBatchRecorder', () => {
             expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalledTimes(1)
             expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
         })
-
-        it('should not flush discarded partitions', async () => {
-            const messages = [
-                createMessage(
-                    'session1',
-                    [
-                        {
-                            type: EventType.FullSnapshot,
-                            timestamp: 1000,
-                            data: { source: 1 },
-                        },
-                    ],
-                    { partition: 1 }
-                ),
-                createMessage(
-                    'session2',
-                    [
-                        {
-                            type: EventType.IncrementalSnapshot,
-                            timestamp: 2000,
-                            data: { source: 2 },
-                        },
-                    ],
-                    { partition: 2 }
-                ),
-            ]
-
-            for (const message of messages) {
-                await record(message)
-            }
-            recorder.discardPartition(1)
-            await recorder.flush()
-
-            const writtenData = captureWrittenData(mockWriter.writeSession as jest.Mock)
-            const lines = parseLines(writtenData[0])
-            // Should only contain message from partition 2
-            expect(lines).toEqual([['window1', messages[1].message.eventsByWindowId.window1[0]]])
-        })
-
-        it('should correctly update size when discarding partitions', async () => {
-            const message1 = createMessage(
-                'session1',
-                [
-                    {
-                        type: EventType.FullSnapshot,
-                        timestamp: 1000,
-                        data: { source: 1 },
-                    },
-                ],
-                { partition: 1 }
-            )
-            const message2 = createMessage(
-                'session2',
-                [
-                    {
-                        type: EventType.IncrementalSnapshot,
-                        timestamp: 2000,
-                        data: { source: 2 },
-                    },
-                ],
-                { partition: 2 }
-            )
-
-            const size1 = await record(message1)
-            const size2 = await record(message2)
-            expect(recorder.size).toBe(size1 + size2)
-
-            recorder.discardPartition(1)
-            expect(mockOffsetManager.discardPartition).toHaveBeenCalledWith(1)
-            expect(recorder.size).toBe(size2)
-
-            recorder.discardPartition(2)
-            expect(mockOffsetManager.discardPartition).toHaveBeenCalledWith(2)
-            expect(recorder.size).toBe(0)
-        })
-
-        it('should handle discarding non-existent partitions', async () => {
-            const message = createMessage('session1', [
-                {
-                    type: EventType.FullSnapshot,
-                    timestamp: 1000,
-                    data: { source: 1 },
-                },
-            ])
-
-            const bytesWritten = await record(message)
-            expect(recorder.size).toBe(bytesWritten)
-
-            recorder.discardPartition(999)
-            expect(recorder.size).toBe(bytesWritten)
-        })
     })
 
     describe('metrics', () => {
@@ -1356,45 +1265,6 @@ describe('SessionBatchRecorder', () => {
             expect(SessionBatchMetrics.incrementBatchesFlushed).toHaveBeenCalledTimes(0)
             expect(SessionBatchMetrics.incrementSessionsFlushed).toHaveBeenCalledTimes(0)
             expect(SessionBatchMetrics.incrementEventsFlushed).toHaveBeenCalledTimes(0)
-        })
-
-        it('should not count events from discarded partitions', async () => {
-            const messages = [
-                createMessage(
-                    'session1',
-                    [
-                        {
-                            type: EventType.FullSnapshot,
-                            timestamp: 1000,
-                            data: { source: 1 },
-                        },
-                    ],
-                    { partition: 1 }
-                ),
-                createMessage(
-                    'session2',
-                    [
-                        {
-                            type: EventType.IncrementalSnapshot,
-                            timestamp: 2000,
-                            data: { source: 2 },
-                        },
-                    ],
-                    { partition: 2 }
-                ),
-            ]
-
-            for (const message of messages) {
-                await record(message)
-            }
-            recorder.discardPartition(1)
-            await recorder.flush()
-
-            expect(SessionBatchMetrics.incrementBatchesFlushed).toHaveBeenCalledTimes(1)
-            expect(SessionBatchMetrics.incrementSessionsFlushed).toHaveBeenCalledTimes(1)
-            expect(SessionBatchMetrics.incrementEventsFlushed).toHaveBeenCalledTimes(1)
-            expect(SessionBatchMetrics.incrementSessionsFlushed).toHaveBeenLastCalledWith(1) // Only session from partition 2
-            expect(SessionBatchMetrics.incrementEventsFlushed).toHaveBeenLastCalledWith(1) // Only event from partition 2
         })
 
         it('should not count sessions again on subsequent flushes', async () => {
@@ -1847,36 +1717,6 @@ describe('SessionBatchRecorder', () => {
 
             expect(bytesWritten1).toBeGreaterThan(0)
             expect(bytesWritten2).toBeGreaterThan(0)
-        })
-
-        it('should clean up rate limiter state when partition is discarded', async () => {
-            recorder = new SessionBatchRecorder(
-                mockOffsetManager,
-                mockStorage,
-                mockMetadataStore,
-                mockConsoleLogStore,
-                mockFeatureStore,
-                mockEncryptor,
-                1
-            )
-
-            const message1 = createMessage('session1', [{ type: EventType.Meta, timestamp: 1000, data: {} }], {
-                partition: 1,
-            })
-            const message2 = createMessage('session1', [{ type: EventType.Meta, timestamp: 2000, data: {} }], {
-                partition: 1,
-            })
-
-            await record(message1)
-            await record(message2)
-
-            recorder.discardPartition(1)
-
-            const message3 = createMessage('session1', [{ type: EventType.Meta, timestamp: 3000, data: {} }], {
-                partition: 2,
-            })
-            const bytesWritten = await record(message3)
-            expect(bytesWritten).toBeGreaterThan(0)
         })
 
         it('should handle rate limiting with different team IDs', async () => {

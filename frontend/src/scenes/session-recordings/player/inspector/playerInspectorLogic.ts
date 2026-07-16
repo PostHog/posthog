@@ -1,4 +1,4 @@
-import equal from 'fast-deep-equal'
+import { deepEqual as equal } from 'fast-equals'
 import FuseClass from 'fuse.js'
 import { actions, connect, events, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
@@ -199,6 +199,8 @@ export type InspectorListItemExperimentVariant = InspectorListItemBase & {
         experimentName: string
         flagKey: string
         variant: string
+        multipleVariants: boolean
+        variantsSeen: string[]
     }
 }
 
@@ -872,6 +874,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             experimentName: item.experiment_name,
                             flagKey: item.flag_key,
                             variant: item.variant,
+                            multipleVariants: item.multiple_variants,
+                            variantsSeen: item.variants_seen,
                         },
                         key: `experiment-variant-${item.experiment_id}`,
                     })

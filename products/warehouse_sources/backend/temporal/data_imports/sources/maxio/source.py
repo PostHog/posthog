@@ -191,6 +191,5 @@ class MaxioSource(ResumableSource[MaxioSourceConfig, MaxioResumeConfig]):
                     ),
                 ],
             ),
-            unreleasedSource=True,
             releaseStatus=ReleaseStatus.ALPHA,
         )

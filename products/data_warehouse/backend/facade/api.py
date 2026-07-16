@@ -58,6 +58,8 @@ _LAZY = {
     "reconcile_webhook_events": "logic.external_data_source.webhooks",
     "WebhookConsumerConfig": "logic.webhook_consumer.config",
     "WebhookS3Sink": "logic.webhook_consumer.consumer",
+    "get_managed_warehouse_data_status": "logic.managed_warehouse_data_status",
+    "get_source_schema_statuses": "logic.managed_warehouse_data_status",
     "get_mysql_source_location": "mysql_helpers",
     "reconcile_mysql_schemas": "mysql_helpers",
     "reproject_direct_mysql_table": "mysql_helpers",

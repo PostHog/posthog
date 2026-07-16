@@ -165,6 +165,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchema,
     ExternalDataSource,
 )
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 # posthog.schema (the pydantic models) is runtime-imported inside serialize()/serialize_fields()
 # so it stays off django.setup(), where this module loads via the warehouse/data-modeling models.
@@ -225,6 +226,10 @@ class HogQLDatabaseSources:
     data_warehouse_joins: list["DataWarehouseJoin"]
     # dataWarehouseEventsModifiers path: saved query per modifier table name (None if no matching row).
     event_modifier_saved_queries: dict[str, Optional["DataWarehouseSavedQuery"]]
+    # Dual-mode: a synced (warehouse) source queried live via connection_id. Its physical rows are
+    # synced S3 copies, so the build derives virtual DirectSQLTables from these schema rows instead.
+    virtual_source: Optional["ExternalDataSource"] = None
+    virtual_schemas: list["ExternalDataSchema"] = dataclasses.field(default_factory=list)
 
 
 type DatabaseSchemaTable = (
@@ -993,6 +998,69 @@ class Database(BaseModel):
                     self._serialization_errors[table_key] = str(e)
                     continue
 
+        # Dual-mode: a synced source queried live has no physical direct rows — the loop above yields
+        # nothing for it — so emit one entry per schema row backing a virtual table.
+        if self._is_direct_query():
+            # Function-local: keeps the direct-SQL driver imports off the django.setup() path.
+            from posthog.hogql.direct_sql.capability import is_direct_capable  # noqa: PLC0415
+
+            connection_id = self._connection_id
+            assert connection_id is not None  # guaranteed by _is_direct_query()
+            dual_source = (
+                ExternalDataSource.objects.filter(team_id=context.team_id, id=connection_id)
+                .exclude(deleted=True)
+                .select_related(None)
+                .defer("job_inputs")
+                .first()
+            )
+            if (
+                dual_source is not None
+                and dual_source.access_method != ExternalDataSource.AccessMethod.DIRECT
+                and is_direct_capable(dual_source)
+            ):
+                latest_completed_job = (
+                    dual_source.jobs.filter(team_id=context.team_id, status="Completed").order_by("-created_at").first()
+                )
+                virtual_source = DatabaseSchemaSource(
+                    id=str(dual_source.id),
+                    status=dual_source.status,
+                    source_type=dual_source.source_type,
+                    access_method=dual_source.access_method,
+                    prefix=dual_source.prefix or "",
+                    last_synced_at=str(latest_completed_job.created_at) if latest_completed_job else None,
+                )
+                # Same selection as the build path (eligible_direct_query_schemas), so the catalog
+                # and the built tables can't drift.
+                from products.data_warehouse.backend.facade.direct_query import (  # noqa: PLC0415
+                    eligible_direct_query_schemas,
+                )
+
+                for schema_row in eligible_direct_query_schemas(context.team_id, connection_id):
+                    table_key = schema_row.name
+                    if include_only and table_key not in include_only:
+                        continue
+                    try:
+                        table = self.get_table(table_key)
+                    except QueryError:
+                        # Not built for this connection (unusable columns, or access-denied).
+                        continue
+
+                    fields = serialize_fields(table.fields, context, table_key.split("."), table_type="external")
+                    tables[table_key] = DatabaseSchemaDataWarehouseTable(
+                        fields={field.name: field for field in fields},
+                        id=str(schema_row.id),
+                        name=table_key,
+                        schema=DatabaseSchemaSchema(
+                            id=str(schema_row.id),
+                            name=schema_row.name,
+                            should_sync=schema_row.should_sync,
+                            incremental=schema_row.is_incremental or schema_row.is_webhook,
+                            status=schema_row.status,
+                            last_synced_at=str(schema_row.last_synced_at) if schema_row.last_synced_at else None,
+                        ),
+                        source=virtual_source,
+                    )
+
         # Fetch all views in a single query
         all_views = (
             DataWarehouseSavedQuery.objects.select_related("table")
@@ -1151,20 +1219,48 @@ class Database(BaseModel):
             )
 
         with timings.measure("database", emit_span=True):
+            # Function-local: keeps the direct-SQL driver imports off the django.setup() path.
+            from posthog.hogql.direct_sql.capability import is_direct_capable  # noqa: PLC0415
+
             direct_connection_metadata: dict[str, Any] | None = None
+            # Dual-mode: a synced source queried live builds virtual tables from schema metadata.
+            virtual_source: ExternalDataSource | None = None
             if connection_id is not None:
                 direct_source = (
                     ExternalDataSource.objects.filter(
                         team_id=team.pk,
                         id=connection_id,
-                        access_method=ExternalDataSource.AccessMethod.DIRECT,
                     )
+                    .exclude(deleted=True)
                     .select_related(None)
-                    .only("connection_metadata")
+                    # job_inputs stays deferred (Fernet decrypt); only the virtual builder reads it.
+                    .defer("job_inputs")
                     .first()
                 )
-                if direct_source is not None:
+                if direct_source is not None and (
+                    direct_source.access_method == ExternalDataSource.AccessMethod.DIRECT
+                    or is_direct_capable(direct_source)
+                ):
                     direct_connection_metadata = direct_source.connection_metadata
+                    # A capable non-DIRECT (synced) source drives the dual-mode virtual-table path.
+                    if direct_source.access_method != ExternalDataSource.AccessMethod.DIRECT:
+                        virtual_source = direct_source
+                        # Dual-mode live queries run under warehouse table-level access control. The
+                        # introspected `available_functions` (scalar passthrough, e.g. query_to_xml) and
+                        # `available_table_functions` (FROM func() via OpaqueFunctionCallTable) both let a
+                        # user execute arbitrary SQL against the upstream DB, bypassing the should_sync /
+                        # row-filter / column / warehouse-object checks enforced when virtual tables are
+                        # built. Drop both so only built-in safe functions pass through; DIRECT sources
+                        # (full DB access by design) keep introspected passthrough.
+                        introspected_function_keys = {"available_functions", "available_table_functions"}
+                        if isinstance(direct_connection_metadata, dict) and (
+                            introspected_function_keys & direct_connection_metadata.keys()
+                        ):
+                            direct_connection_metadata = {
+                                key: value
+                                for key, value in direct_connection_metadata.items()
+                                if key not in introspected_function_keys
+                            }
 
         with timings.measure("filter_system_tables_for_user", emit_span=True):
             # System-table access control always applies; Only warehouse table/view support bypass.
@@ -1246,44 +1342,62 @@ class Database(BaseModel):
             if sq.table_id is not None and sq.table is not None and sq.folder_path in sq.table.url_pattern
         }
 
+        virtual_schemas: list[ExternalDataSchema] = []
         with timings.measure("data_warehouse_tables", emit_span=True):
-            with timings.measure("select", emit_span=True):
-                tables_query = (
-                    # `queryable()` drops soft-deleted tables and orphans left by a soft-deleted
-                    # source, so an orphan can't shadow the live table sharing its name.
-                    DataWarehouseTable.raw_objects.filter(team_id=team.pk)
-                    .queryable()
-                    # created_by is hydrated for the warehouse access-control creator check
-                    .select_related("created_by")
-                    # credential/external_data_source attached in bulk below, not joined per row; the
-                    # access_method filter still joins the source for its WHERE without hydrating it.
-                    # Deterministic tiebreak when two live tables share a name: newest wins, since
-                    # name collisions resolve first-come-first-served when added to the table tree.
-                    .order_by("-created_at")
-                )
-                if backing_table_ids:
-                    tables_query = tables_query.exclude(id__in=backing_table_ids)
-                if is_direct_query:
-                    tables_query = tables_query.filter(external_data_source_id=connection_id)
-                else:
-                    tables_query = tables_query.exclude(
-                        external_data_source__access_method=ExternalDataSource.AccessMethod.DIRECT
+            if virtual_source is not None:
+                # Dual-mode: the source's physical rows are synced S3 copies, deliberately excluded
+                # from the direct catalog. The build derives virtual tables from schema rows instead.
+                warehouse_tables: list[DataWarehouseTable] = []
+                # The virtual builder reads job_inputs (deferred above); hydrate it here so the
+                # build phase stays query-free.
+                _ = virtual_source.job_inputs
+                with timings.measure("select_virtual_schemas", emit_span=True):
+                    # Function-local: keeps the direct-SQL driver imports off the django.setup() path.
+                    from products.data_warehouse.backend.facade.direct_query import (  # noqa: PLC0415
+                        eligible_direct_query_schemas,
                     )
 
-                warehouse_tables: list[DataWarehouseTable] = list(tables_query)
-                # Direct-query mode builds the direct-postgres tables, which read source.job_inputs, so
-                # keep it hydrated there instead of lazily reloading it per table.
-                _attach_external_data_sources(warehouse_tables, team_id=team.pk, defer_job_inputs=not is_direct_query)
-                _preload_active_external_data_schemas(warehouse_tables)
-                if is_direct_query:
-                    warehouse_tables = [
-                        table
-                        for table in warehouse_tables
-                        if _should_include_connection_table(
-                            table,
-                            connection_id=cast(str, connection_id),
+                    virtual_schemas = eligible_direct_query_schemas(team.pk, cast(str, connection_id))
+            else:
+                with timings.measure("select", emit_span=True):
+                    tables_query = (
+                        # `queryable()` drops soft-deleted tables and orphans left by a soft-deleted
+                        # source, so an orphan can't shadow the live table sharing its name.
+                        DataWarehouseTable.raw_objects.filter(team_id=team.pk)
+                        .queryable()
+                        # created_by is hydrated for the warehouse access-control creator check
+                        .select_related("created_by")
+                        # credential/external_data_source attached in bulk below, not joined per row; the
+                        # access_method filter still joins the source for its WHERE without hydrating it.
+                        # Deterministic tiebreak when two live tables share a name: newest wins, since
+                        # name collisions resolve first-come-first-served when added to the table tree.
+                        .order_by("-created_at")
+                    )
+                    if backing_table_ids:
+                        tables_query = tables_query.exclude(id__in=backing_table_ids)
+                    if is_direct_query:
+                        tables_query = tables_query.filter(external_data_source_id=connection_id)
+                    else:
+                        tables_query = tables_query.exclude(
+                            external_data_source__access_method=ExternalDataSource.AccessMethod.DIRECT
                         )
-                    ]
+
+                    warehouse_tables = list(tables_query)
+                    # Direct-query mode builds the direct-postgres tables, which read source.job_inputs, so
+                    # keep it hydrated there instead of lazily reloading it per table.
+                    _attach_external_data_sources(
+                        warehouse_tables, team_id=team.pk, defer_job_inputs=not is_direct_query
+                    )
+                    _preload_active_external_data_schemas(warehouse_tables)
+                    if is_direct_query:
+                        warehouse_tables = [
+                            table
+                            for table in warehouse_tables
+                            if _should_include_connection_table(
+                                table,
+                                connection_id=cast(str, connection_id),
+                            )
+                        ]
 
         with timings.measure("data_warehouse_joins", emit_span=True):
             data_warehouse_joins = list(DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True))
@@ -1340,6 +1454,8 @@ class Database(BaseModel):
             warehouse_tables=warehouse_tables,
             data_warehouse_joins=data_warehouse_joins,
             event_modifier_saved_queries=event_modifier_saved_queries,
+            virtual_source=virtual_source,
+            virtual_schemas=virtual_schemas,
         )
 
     @staticmethod
@@ -1628,6 +1744,48 @@ class Database(BaseModel):
                                     primary_table = table_for_key
 
                         warehouse_tables_to_process.append((primary_table, table))
+
+            if sources.virtual_source is not None and sources.virtual_schemas:
+                # Function-local: the builder pulls the engine helper modules, kept off django.setup().
+                from products.data_warehouse.backend.facade.direct_query import (  # noqa: PLC0415
+                    build_direct_table_for_schema,
+                )
+
+                virtual_source = sources.virtual_source
+                with timings.measure("build_virtual_tables", emit_span=True):
+                    for schema_row in sources.virtual_schemas:
+                        # Warehouse access control is granted on the synced table row. A schema row
+                        # without one yet (discovered but not synced) has nothing to check permission
+                        # against, so fail closed and deny it rather than let it slip through unchecked.
+                        if (
+                            sources.is_hogql_warehouse_access_control_enabled
+                            and not sources.bypass_warehouse_access_control
+                            and (schema_row.table is None or database._is_warehouse_table_denied(schema_row.table))
+                        ):
+                            continue
+
+                        virtual_table = build_direct_table_for_schema(schema_row, virtual_source)
+                        if virtual_table is None:
+                            continue
+
+                        if virtual_table.fields.get("properties") is None:
+                            virtual_table.fields["properties"] = WarehousePropertiesVirtualTable(
+                                fields=virtual_table.fields, parent_table=virtual_table, hidden=True
+                            )
+
+                        table_key = schema_row.name
+                        warehouse_tables.add_child(
+                            TableNode.create_nested_for_chain(
+                                table_key.split("."),
+                                virtual_table,
+                                # Snowflake resolves identifiers case-insensitively; the model's
+                                # is_direct_snowflake prop is False for synced sources, so key off type.
+                                case_insensitive=(virtual_source.source_type == ExternalDataSourceType.SNOWFLAKE),
+                            ),
+                            table_conflict_mode="override",
+                        )
+                        virtual_table.name = table_key
+                        database._direct_access_warehouse_table_names.add(table_key)
 
         db_span.set_attribute("warehouse_table_count", len(sources.warehouse_tables))
 

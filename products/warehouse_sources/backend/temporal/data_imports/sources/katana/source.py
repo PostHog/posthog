@@ -48,7 +48,6 @@ class KatanaSource(ResumableSource[KatanaSourceConfig, KatanaResumeConfig]):
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Katana",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             keywords=["katana", "mrp", "erp", "inventory", "manufacturing"],
             caption="""Enter your Katana API key to sync your Katana Cloud Inventory (MRP) data into the PostHog Data warehouse.
 

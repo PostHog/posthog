@@ -1,6 +1,6 @@
 import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
@@ -64,6 +64,30 @@ export interface SortState {
 export interface DateFilter {
     dateFrom: string | null
     dateTo: string | null
+}
+
+// Carry the selected window across navigation as date_from / date_to, mirroring the tab's
+// actionToUrl. Only set them when present so a cleared range stays out of the URL.
+export function mcpDateSearchParams(dateFilter: DateFilter): Record<string, string> {
+    const params: Record<string, string> = {}
+    if (dateFilter.dateFrom) {
+        params.date_from = dateFilter.dateFrom
+    }
+    if (dateFilter.dateTo) {
+        params.date_to = dateFilter.dateTo
+    }
+    return params
+}
+
+// Link from the Tool quality tab to an individual tool's report, keeping the date filter so
+// the tool page opens on the same window.
+export function mcpToolReportUrl(tool: string, dateFilter: DateFilter): string {
+    return combineUrl(urls.mcpAnalyticsTool(tool), mcpDateSearchParams(dateFilter)).url
+}
+
+// Link back from a tool report to the Tool quality tab, restoring the date filter.
+export function mcpToolQualityUrlWithDates(dateFilter: DateFilter): string {
+    return combineUrl(urls.mcpAnalyticsToolQuality(), mcpDateSearchParams(dateFilter)).url
 }
 
 export interface ToolQualityRow {

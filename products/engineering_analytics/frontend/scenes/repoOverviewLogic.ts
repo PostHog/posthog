@@ -6,12 +6,14 @@ import { dayjs } from 'lib/dayjs'
 
 import type { ActivityRun } from '../components/RunActivityChart'
 import {
+    engineeringAnalyticsCurrentBranchHealth,
     engineeringAnalyticsMasterFailures,
     engineeringAnalyticsRepoOverview,
     engineeringAnalyticsRepoRunActivity,
     engineeringAnalyticsRunFailureLogs,
 } from '../generated/api'
 import type {
+    CurrentBranchHealthApi,
     MasterFailureGroupApi,
     RepoOverviewApi,
     RunFailureLogsApi,
@@ -34,6 +36,12 @@ export interface CostShareRow {
     workflowName: string | null
     costUsd: number
     share: number
+}
+
+export interface CurrentHealthSummary {
+    settledWorkflows: number
+    failingNow: number
+    failingWorkflowNames: string[]
 }
 
 export const repoOverviewLogic = kea<repoOverviewLogicType>([
@@ -82,6 +90,18 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
                         date_from: MASTER_FAILURES_WINDOW,
                         source_id: values.sourceId ?? undefined,
                     }),
+            },
+        ],
+        currentBranchHealth: [
+            null as CurrentBranchHealthApi | null,
+            {
+                loadCurrentBranchHealth: async (_: void, breakpoint): Promise<CurrentBranchHealthApi> => {
+                    const health = await engineeringAnalyticsCurrentBranchHealth(projectId(), {
+                        source_id: values.sourceId ?? undefined,
+                    })
+                    breakpoint()
+                    return health
+                },
             },
         ],
         // One collapsed point per default-branch commit (all its workflows folded together) for the
@@ -140,6 +160,14 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
                 loadRepoActivityFailure: () => true,
             },
         ],
+        currentBranchHealthFailed: [
+            false,
+            {
+                loadCurrentBranchHealth: () => false,
+                loadCurrentBranchHealthSuccess: () => false,
+                loadCurrentBranchHealthFailure: () => true,
+            },
+        ],
         // How many rows the hub's preview tables show. Start short (HUB_PREVIEW_ROWS), grow by a fixed
         // step on "Show more", capped so the hub stays a preview — the full tables live on the dedicated
         // pages. No reset on reload: slicing tolerates any list length, and keeping the user's expansion
@@ -156,10 +184,19 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
 
     selectors({
         jobsAvailable: [(s) => [s.overview], (overview): boolean => overview?.jobs_available ?? false],
-        defaultBranch: [(s) => [s.overview], (overview): string => overview?.default_branch ?? 'master'],
-        failingWorkflowCount: [
-            (s) => [s.masterFailures],
-            (masterFailures): number => new Set(masterFailures.map((group) => group.workflow_name)).size,
+        overviewDefaultBranch: [(s) => [s.overview], (overview): string => overview?.default_branch ?? 'master'],
+        currentDefaultBranch: [
+            (s) => [s.currentBranchHealth, s.overviewDefaultBranch],
+            (currentBranchHealth, overviewDefaultBranch): string =>
+                currentBranchHealth?.default_branch ?? overviewDefaultBranch,
+        ],
+        currentHealthSummary: [
+            (s) => [s.currentBranchHealth],
+            (currentBranchHealth): CurrentHealthSummary => ({
+                settledWorkflows: currentBranchHealth?.settled_workflows ?? 0,
+                failingNow: currentBranchHealth?.failing_workflows ?? 0,
+                failingWorkflowNames: currentBranchHealth?.failing_workflow_names ?? [],
+            }),
         ],
         // Backend-collapsed commit points, mapped to the shared chart shape (one dot per default-branch
         // commit: start time, wall-clock CI duration, overall verdict).
@@ -331,11 +368,13 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
         },
         [engineeringAnalyticsLogic.actionTypes.setSourceId]: () => {
             actions.loadOverview()
+            actions.loadCurrentBranchHealth()
             actions.loadMasterFailures()
             actions.loadRepoActivity()
         },
         [engineeringAnalyticsLogic.actionTypes.refresh]: () => {
             actions.loadOverview()
+            actions.loadCurrentBranchHealth()
             actions.loadMasterFailures()
             actions.loadRepoActivity()
         },
@@ -343,6 +382,7 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
 
     afterMount(({ actions }) => {
         actions.loadOverview()
+        actions.loadCurrentBranchHealth()
         actions.loadMasterFailures()
         actions.loadRepoActivity()
     }),

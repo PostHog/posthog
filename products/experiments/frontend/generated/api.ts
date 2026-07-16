@@ -580,7 +580,7 @@ export const getExperimentsLaunchCreateUrl = (projectId: string, id: number) => 
  * Validates the experiment is in draft state, activates its linked feature flag,
  * sets start_date to the current server time, and transitions the experiment to running.
  * Returns 400 if the experiment has already been launched or if the feature flag
- * configuration is invalid (e.g. missing "control" variant or fewer than 2 variants).
+ * configuration is invalid (e.g. fewer than 2 variants).
  */
 export const experimentsLaunchCreate = async (
     projectId: string,
@@ -956,8 +956,7 @@ export const getExperimentsEligibleFeatureFlagsRetrieveUrl = (projectId: string)
  * Returns a paginated list of feature flags eligible for use in experiments.
  *
  * Eligible flags must:
- * - Be multivariate with at least 2 variants
- * - Have "control" as the first variant key
+ * - Be multivariate with 2 to 20 variants
  *
  * Query parameters:
  * - search: Filter by flag key or name (case insensitive)

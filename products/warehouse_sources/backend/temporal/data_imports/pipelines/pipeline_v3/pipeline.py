@@ -32,10 +32,14 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     finalize_desc_sort_incremental_value,
     handle_corrupted_delta_log,
     handle_reset_or_full_refresh,
+    persist_primary_keys,
+    person_property_sink_clear_chunks,
     reset_rows_synced_if_needed,
+    resolve_primary_keys,
     run_pre_write_defensive_compact,
     setup_row_tracking_with_billing_check,
     should_check_shutdown,
+    stage_chunk_for_person_property_sink,
     update_incremental_field_values,
     update_row_tracking_after_batch,
     validate_incremental_sync,
@@ -47,6 +51,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     DeltaTableHelper,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.person_property_row_sink import (
+    PersonPropertyRowSink,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.pipeline import async_iterate
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
     PipelineResult,
@@ -119,9 +126,10 @@ class PipelineV3(Generic[ResumableData]):
         self._resource = source_response
         self._resource_name = source_response.name
 
-        # Allow user-specified primary keys to override auto-detected ones
-        if schema.primary_key_columns:
-            self._resource.primary_keys = schema.primary_key_columns
+        # Persisted PK (user override or earlier detection) > live-detected > `id` fallback. Keeps
+        # the merge key stable across runs when live detection (e.g. Snowflake SHOW PRIMARY KEYS)
+        # intermittently returns nothing.
+        self._resource.primary_keys = resolve_primary_keys(schema, self._resource)
 
         self._job = job
         self._reset_pipeline = reset_pipeline
@@ -216,6 +224,13 @@ class PipelineV3(Generic[ResumableData]):
         self._cdp_producer = CDPProducer(
             team_id=self._job.team_id, schema_id=self._schema.id, job_id=job_id, logger=self._logger
         )
+        self._person_property_sink = PersonPropertyRowSink(
+            team_id=self._job.team_id,
+            schema_id=self._schema.id,
+            job_id=job_id,
+            logger=self._logger,
+            is_incremental=self._is_incremental,
+        )
         self._accumulated_pa_schema = None
         self._shutdown_monitor = shutdown_monitor
         self._last_incremental_field_value: Any = None
@@ -253,10 +268,13 @@ class PipelineV3(Generic[ResumableData]):
 
         try:
             await cdp_producer_clear_chunks(self._cdp_producer)
+            await person_property_sink_clear_chunks(self._person_property_sink)
 
             await reset_rows_synced_if_needed(self._job, self._is_incremental, self._reset_pipeline, should_resume)
 
             validate_incremental_sync(self._is_incremental, self._resource)
+
+            await persist_primary_keys(self._schema, self._resource, self._is_incremental, self._logger)
 
             await setup_row_tracking_with_billing_check(
                 self._job.team_id,
@@ -280,7 +298,12 @@ class PipelineV3(Generic[ResumableData]):
                 await handle_corrupted_delta_log(self._schema, self._job, self._delta_table_helper, self._logger)
 
                 await handle_reset_or_full_refresh(
-                    self._reset_pipeline, should_resume, self._schema, self._delta_table_helper, self._logger
+                    self._reset_pipeline,
+                    should_resume,
+                    self._schema,
+                    self._delta_table_helper,
+                    self._logger,
+                    webhook_only=self._resource.webhook_only,
                 )
 
             is_fresh_sync = self._delta_table_helper.is_first_sync or self._schema.table is None
@@ -415,6 +438,7 @@ class PipelineV3(Generic[ResumableData]):
         self._internal_schema.add_pyarrow_table(pa_table)
 
         await write_chunk_for_cdp_producer(self._cdp_producer, batch_index, pa_table)
+        await stage_chunk_for_person_property_sink(self._person_property_sink, batch_index, pa_table)
 
         # Update accumulated schema with any new columns from this batch
         if self._accumulated_pa_schema is None:

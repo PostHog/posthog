@@ -4,9 +4,11 @@ import { DlqOutput, IngestionWarningsOutput } from '~/common/outputs'
 import { parseJSON } from '~/common/utils/json-parse'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { BatchWritingGroupStore } from '~/ingestion/common/groups/batch-writing-group-store'
-import { PersonOutputs } from '~/ingestion/common/persons/person-context'
 import { FlushResult, PersonsStore } from '~/ingestion/common/persons/persons-store'
-import { createFlushBatchStoresStep } from '~/ingestion/common/steps/event-processing/flush-batch-stores-step'
+import {
+    FlushBatchStoresOutputs,
+    createFlushBatchStoresStep,
+} from '~/ingestion/common/steps/event-processing/flush-batch-stores-step'
 import { BatchWritingStore, BatchWritingStoreFlushStats } from '~/ingestion/common/stores/batch-writing-store'
 import { BatchingPipeline, BeforeBatchInput, FeedResult } from '~/ingestion/framework/batching-pipeline'
 import { newBatchingPipeline } from '~/ingestion/framework/builders'
@@ -372,7 +374,7 @@ class Harness {
                         createFlushBatchStoresStep({
                             personsStore: this.personsStore as unknown as PersonsStore,
                             groupStore: this.groupStore as unknown as BatchWritingGroupStore,
-                            outputs: this.outputs as unknown as PersonOutputs,
+                            outputs: this.outputs as unknown as FlushBatchStoresOutputs,
                         })
                     )
                     .pipe(recordAfterBatchStep),

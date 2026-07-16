@@ -125,8 +125,8 @@ ACTIVITY_SLACK_S`, the activity-level ceiling that gates the workflow's
   `SignalScoutRunViewSet`, `SignalScoutConfigViewSet`, `SignalScratchpadViewSet`,
   `SignalProjectProfileViewSet`, `SignalScoutMetadataViewSet`, `SignalScoutMembersViewSet`.
   Routed under `environment_signals_scout_*` basenames in `posthog/api/__init__.py`
-  and exposed as `signals-scout-*` MCP tools via `products/signals/mcp/tools.yaml`.
-  `SignalScoutMembersViewSet` (`signals-scout-members-list`) is the reviewer-routing roster:
+  and exposed as `scout-*` MCP tools via `products/signals/mcp/tools.yaml`.
+  `SignalScoutMembersViewSet` (`scout-members-list`) is the reviewer-routing roster:
   it returns the project's members (those with access to the team) with `user_uuid` / `email` /
   `github_login` so a report-channel scout can populate `suggested_reviewers` at cold start. The roster
   is member PII the scout needs to route, gated on the internal `signal_scout_internal` scope object

@@ -2250,6 +2250,35 @@ class TestPrinter(BaseTest):
             },
         )
 
+    @parameterized.expand([("=",), ("!=",), (">",), ("<",), (">=",), ("<=",)])
+    def test_zoned_datetime_string_compared_to_timestamp_is_inlined_as_datetime(self, op: str):
+        # ClickHouse can't parse 'Z'/offset datetime strings, so they are parsed in Python and inlined.
+        printed = self._select(f"SELECT count() FROM events WHERE timestamp {op} '2026-06-30T09:59:12.988000Z'")
+        assert "toDateTime64('2026-06-30 09:59:12.988000', 6, 'UTC')" in printed, printed
+        assert "BestEffort" not in printed, printed
+
+    def test_zoned_datetime_string_instant_converted_to_team_timezone(self):
+        # The inlined literal must be the same instant converted to the team timezone.
+        self.team.timezone = "US/Pacific"
+        self.team.save()
+        printed = self._select("SELECT count() FROM events WHERE timestamp > '2026-06-30T09:59:12.988000Z'")
+        assert "toDateTime64('2026-06-30 02:59:12.988000', 6, 'US/Pacific')" in printed, printed
+
+    @parameterized.expand(
+        [
+            ("events", "timestamp = '2026-06-30 09:59:12'"),  # no timezone, ClickHouse handles it
+            ("events", "timestamp = '2026-06-30'"),
+            ("events", "event = '2026-06-30T09:59:12.988000Z'"),  # String column
+            ("events", "timestamp = '2026-30-06T00:00:00Z'"),  # looks zoned but invalid, still errors loudly
+            ("exchange_rate", "date = '2026-06-30T09:59:12.988000Z'"),  # Date column, left alone
+        ]
+    )
+    def test_datetime_string_comparison_stays_bare(self, table: str, where: str):
+        # Only valid timezone-carrying strings compared to DateTime fields get inlined.
+        printed = self._select(f"SELECT count() FROM {table} WHERE {where}")
+        assert "2026" not in printed, printed
+        assert "BestEffort" not in printed, printed
+
     def test_print_timezone_gibberish(self):
         self.team.timezone = "Europe/PostHogLandia"
         self.team.save()
@@ -6297,7 +6326,7 @@ class TestPostgresPrinter(BaseTest):
         self.assertEqual(self._expr("a - b"), "(a - b)")
         self.assertEqual(self._expr("a * b"), "(a * b)")
         self.assertEqual(self._expr("a / b"), "(a / b)")
-        self.assertEqual(self._expr("a % b"), "(a % b)")
+        self.assertEqual(self._expr("a % b"), "MOD(a, b)")
 
     def test_logical_operators(self):
         self.assertEqual(self._expr("a AND b"), "((a) AND (b))")
