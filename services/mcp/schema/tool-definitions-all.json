@@ -4157,7 +4157,7 @@
         }
     },
     "feature-flags-evaluation-reasons-retrieve": {
-        "description": "Debug why feature flags evaluate a certain way for a given user. Provide a distinct_id and optionally groups to see each flag's evaluated value and the reason for that evaluation (e.g. condition_match, no_condition_match, disabled).",
+        "description": "Debug why feature flags evaluate a certain way for a given user. Provide a distinct_id and optionally groups to see each flag's evaluated value and the reason for that evaluation (e.g. condition_match, no_condition_match, disabled). Pass flag_keys to scope the response to specific flags. This is strongly recommended on projects with many flags, since omitting it returns an entry for every flag and can produce a very large payload.",
         "category": "Feature flags",
         "feature": "flags",
         "summary": "Get feature flag evaluation reasons",
@@ -6524,6 +6524,20 @@
             "readOnlyHint": true
         }
     },
+    "path-cleaning-rules-update": {
+        "description": "Safely add, replace, remove, or reorder a project's path cleaning rules (Team.path_cleaning_filters) without hand-managing the whole list. Reads the current rules, applies your ordered operations, auto-numbers them, and (unless confirm:true) returns a PREVIEW of the resulting rules — plus how they rewrite any sample_paths — without saving. Path cleaning normalizes $pathname/$entry_pathname so pages sharing a template (/users/123, /users/456) collapse into one row (/users/<id>) in Web analytics, Paths, and apply_path_cleaning HogQL. Prefer this over project-settings-update for path cleaning: it avoids clobbering existing rules and renumbering by hand. Rules apply sequentially (order matters) and globally wherever cleaning is enabled, changing historical numbers — surface the preview to the user, then re-run with confirm:true.",
+        "category": "Web analytics",
+        "feature": "web_analytics",
+        "summary": "Edit path cleaning rules with granular ops, a preview step, and safe read-modify-write.",
+        "title": "Update path cleaning rules",
+        "required_scopes": ["project:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "persons-bulk-delete": {
         "description": "Delete up to 1000 persons by PostHog person UUIDs or distinct IDs. Optionally delete associated events and recordings. Pass either `ids` (person UUIDs) or `distinct_ids`. Returns 202 Accepted. This operation is irreversible.",
         "category": "Persons",
@@ -7771,7 +7785,7 @@
         }
     },
     "session-recording-get": {
-        "description": "Get a specific session recording by ID. Returns full recording metadata including duration, interaction counts, console log counts, person info, and viewing status. Session recordings are reachable from events, errors, and persons via the `$session_id` property on events. Any `$session_id` value from an event can be passed as the `id` parameter to this tool. Note: a `$session_id` on an event does not guarantee a recording exists — session replay may not be enabled for that project or session. A 404 means no recording was captured. If the user wants to understand what happened without watching the recording, check `vision-observations-list` for an existing Replay Vision AI summary, or run a summarizer scanner via `vision-scanners-scan-session` (see the investigating-replay skill; scanning is slow). If a recording is missing (404) or the user asks why recordings aren't being captured, diagnose with `execute-sql`: query `$recording_status`, `$session_recording_start_reason`, `$replay_sample_rate`, and `$sdk_debug_recording_script_not_loaded` from the events table (filter by `$session_id` for a specific session, or sample recent events for project-wide issues).",
+        "description": "Get a specific session recording by ID. Returns full recording metadata including duration, interaction counts, console log counts, viewing status, and a compact person summary (id, name, distinct IDs). The person's full property bag is not included — use `persons-retrieve` when you need a person's properties. Session recordings are reachable from events, errors, and persons via the `$session_id` property on events. Any `$session_id` value from an event can be passed as the `id` parameter to this tool. Note: a `$session_id` on an event does not guarantee a recording exists — session replay may not be enabled for that project or session. A 404 means no recording was captured. If the user wants to understand what happened without watching the recording, check `vision-observations-list` for an existing Replay Vision AI summary, or run a summarizer scanner via `vision-scanners-scan-session` (see the investigating-replay skill; scanning is slow). If a recording is missing (404) or the user asks why recordings aren't being captured, diagnose with `execute-sql`: query `$recording_status`, `$session_recording_start_reason`, `$replay_sample_rate`, and `$sdk_debug_recording_script_not_loaded` from the events table (filter by `$session_id` for a specific session, or sample recent events for project-wide issues).",
         "category": "Session replays",
         "feature": "replay",
         "summary": "Get session recording",

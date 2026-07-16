@@ -215,14 +215,28 @@ class TestGoogleAdsNonRetryableErrors:
                 "token, login cookie or other valid authentication credential. See "
                 "https://developers.google.com/identity/sign-in/web/devconsole-project."
             ),
+            # The other gapic-wrapped Unauthenticated message, seen on the sync path when the OAuth
+            # access token is rejected — same "401 {message}" shape, no bare UNAUTHENTICATED token.
+            (
+                "401 Request had invalid authentication credentials. Expected OAuth 2 access "
+                "token, login cookie or other valid authentication credential. See "
+                "https://developers.google.com/identity/sign-in/web/devconsole-project."
+            ),
         ],
     )
     def test_missing_auth_credential_is_non_retryable(self, error_msg):
         is_non_retryable = any(pattern in error_msg for pattern in self.non_retryable.keys())
         assert is_non_retryable, f"Expected error to be non-retryable: {error_msg}"
 
-    def test_missing_auth_credential_has_friendly_message(self):
-        friendly = self.non_retryable["Request is missing required authentication credential"]
+    @pytest.mark.parametrize(
+        "pattern",
+        [
+            "Request is missing required authentication credential",
+            "Request had invalid authentication credentials",
+        ],
+    )
+    def test_auth_credential_patterns_have_friendly_message(self, pattern):
+        friendly = self.non_retryable[pattern]
         assert friendly is not None
         assert "reconnect" in friendly.lower()
 
@@ -261,6 +275,7 @@ class TestGoogleAdsNonRetryableErrors:
             "invalid_grant",
             "access_not_configured",
             "Request is missing required authentication credential",
+            "Request had invalid authentication credentials",
         ],
     )
     def test_documented_patterns_present(self, pattern):
