@@ -35,6 +35,7 @@ PRODUCTS_APPS = [
     "products.analytics_platform.backend.apps.AnalyticsPlatformConfig",
     "products.early_access_features.backend.apps.EarlyAccessFeaturesConfig",
     "products.tasks.backend.apps.TasksConfig",
+    "products.stamphog.backend.apps.StamphogConfig",
     "products.links.backend.apps.LinksConfig",
     "products.field_notes.backend.apps.FieldNotesConfig",
     "products.revenue_analytics.backend.apps.RevenueAnalyticsConfig",
@@ -97,6 +98,7 @@ PRODUCTS_APPS = [
     "products.growth.backend.apps.GrowthConfig",
     "products.reminders.backend.apps.RemindersConfig",
     "products.approvals.backend.apps.ApprovalsConfig",
+    "products.pulse.backend.apps.PulseConfig",
     "products.data_catalog.backend.apps.DataCatalogConfig",
 ]
 
@@ -566,6 +568,9 @@ SPECTACULAR_SETTINGS = {
         "MCPAuthTypeEnum": "products.mcp_store.backend.models.AUTH_TYPE_CHOICES",
         "MCPInstallationScopeEnum": ["personal", "shared"],
         "TaskRunStatusEnum": "products.tasks.backend.models.TaskRun.Status",
+        # Inline-choices variant of TaskRun.Status (labels == values), shared by
+        # TaskRunUpdate.status and ExperimentFlagCleanupTask.run_status.
+        "RunStatusEnum": ["not_started", "queued", "in_progress", "completed", "failed", "cancelled"],
         "TaskRunEnvironmentEnum": "products.tasks.backend.models.TaskRun.Environment",
         "ModelEnum": "products.batch_exports.backend.models.batch_export.BatchExport.Model",
         "RecurrenceIntervalEnum": "products.reminders.backend.models.reminder.Reminder.RecurrenceInterval",
@@ -577,7 +582,11 @@ SPECTACULAR_SETTINGS = {
         "ExportedRecordingStatusEnum": "products.replay.backend.models.exported_recording.ExportedRecording.Status",
         "VisionActionRunStatusEnum": "products.replay_vision.backend.models.vision_action.VisionActionRunStatus",
         "VisionAlertMetricEnum": "products.replay_vision.backend.models.vision_action.AlertMetric",
+        "VisionAlertDirectionEnum": "products.replay_vision.backend.models.vision_action.AlertDirection",
         "AutonomyPriorityEnum": "products.signals.backend.models.AutonomyPriority",
+        "TriggerEnum": "products.experiments.backend.models.experiment.ExperimentMetricsRecalculation.Trigger",
+        "ProductBriefTriggerEnum": "products.pulse.backend.models.ProductBrief.Trigger",
+        "ProductBriefStatusEnum": "products.pulse.backend.models.ProductBrief.Status",
         "UserInterviewSearchDocumentTypeEnum": "products.user_interviews.backend.facade.enums.SEARCH_DOCUMENT_TYPES",
         "BatchExportRunStatusEnum": "products.batch_exports.backend.models.batch_export.BatchExportRun.Status",
         "HeatmapType": "products.web_analytics.backend.models.heatmap_saved.SavedHeatmap.Type",
@@ -611,17 +620,23 @@ SPECTACULAR_SETTINGS = {
             "up_to_date",
             "needs_attention",
             "unknown",
+            "sync_paused",
         ],
         # Full signal taxonomy on the report `signals` endpoint; the source-config serializer's
         # subset enums keep their own auto-resolved names.
         "SignalSourceProduct": "products.signals.backend.enums.SIGNAL_SOURCE_PRODUCT_VALUES",
         "SignalSourceType": "products.signals.backend.enums.SIGNAL_SOURCE_TYPE_VALUES",
+        # Shared by alert checks and analytics anomaly-investigation signals.
+        "InvestigationVerdictEnum": ["true_positive", "false_positive", "inconclusive"],
+        # Preserve Replay Vision's existing verdict type name after introducing the shared enum above.
+        "VerdictEnum": ["yes", "no", "inconclusive"],
         # AgentRevision.state (model ChoiceField) and RevisionNotDraftError.state (the
         # bundle-edit 409 body) share one choice set — pin them to a single named enum.
         "AgentRevisionStateEnum": ["draft", "ready", "live", "archived"],
         # Tracing's span-filter `type` and attribute-breakdown `breakdownType` share one
         # choice set (top-level column vs span attribute vs resource attribute).
         "SpanPropertyTypeEnum": ["span", "span_attribute", "span_resource_attribute"],
+        "LogsViewColumnTypeEnum": ["timestamp", "level", "source", "trace_id", "span_id", "message", "custom"],
         "CustomPropertyDisplayTypeEnum": [
             "text",
             "number",
@@ -1162,3 +1177,23 @@ WEB_ANALYTICS_NO_JOIN_TEAM_IDS: list[int] = [
     int(team_id)
     for team_id in get_list(get_from_env("WEB_ANALYTICS_NO_JOIN_TEAM_IDS", _LAZY_PRECOMPUTE_DEFAULT_TEAM_IDS))
 ]
+
+# Percentage-of-teams rollout for the no-join fast paths, on top of the explicit
+# allowlist above. Bucketing is deterministic per team (team_id % 100) so everyone
+# on a team sees numbers from the same code path. 0 disables (allowlist only),
+# 100 enrolls every team. Defaults to 100 on US and EU Cloud; self-hosted stays 0.
+# Env var overrides in either direction and is the kill switch.
+_NO_JOIN_DEFAULT_ROLLOUT_PERCENT = 100 if (CLOUD_DEPLOYMENT or "").upper() in ("US", "EU") and not TEST else 0
+WEB_ANALYTICS_NO_JOIN_ROLLOUT_PERCENT: int = get_from_env(
+    "WEB_ANALYTICS_NO_JOIN_ROLLOUT_PERCENT", _NO_JOIN_DEFAULT_ROLLOUT_PERCENT, type_cast=int
+)
+
+# Admission control for long-lived SSE streams: the maximum number of streams
+# one worker process serves concurrently. Above the cap, sse_streaming_response()
+# returns 503 with a jittered Retry-After instead of opening the stream, keeping
+# processes unpinned and health probes responsive. Recovery depends on the
+# client: HTTP-level retriers honor Retry-After, but a native EventSource treats
+# any non-200 as fatal (readyState CLOSED, no auto-reconnect) and ignores the
+# header, so those consumers must reconnect from their onerror handler.
+# 0 rejects every stream (emergency lever).
+SSE_MAX_CONCURRENT_STREAMS_PER_PROCESS = get_from_env("SSE_MAX_CONCURRENT_STREAMS_PER_PROCESS", 500, type_cast=int)

@@ -59,6 +59,7 @@ class SignalSourceConfig(UUIDModel):
         ENDPOINT_EXECUTION_FAILED = "endpoint_execution_failed", "Endpoint execution failed"
         ENDPOINT_BREAKDOWN_LIMIT_EXCEEDED = "endpoint_breakdown_limit_exceeded", "Endpoint breakdown limit exceeded"
         SCANNER_FINDING = "scanner_finding", "Scanner finding"
+        ANOMALY_INVESTIGATION = "anomaly_investigation", "Anomaly investigation"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="signal_source_configs")
     source_product = models.CharField(max_length=100, choices=SIGNAL_SOURCE_PRODUCT_CHOICES)
@@ -128,6 +129,10 @@ class SignalTeamConfig(UUIDModel):
         on_delete=models.CASCADE,
         related_name="signal_team_config",
     )
+    # Master switch for autonomous inbox PRs. Null means the team never set it (autostart stays on
+    # by default); only an explicit False disables it, leaving reports to still generate and notify
+    # while the team reviews and opens PRs manually.
+    autostart_enabled = models.BooleanField(null=True, blank=True)
     default_autostart_priority = models.CharField(max_length=2, choices=AutonomyPriority, default=AutonomyPriority.P4)
     default_slack_notification_channel = models.CharField(max_length=255, null=True, blank=True)
     autostart_base_branches = models.JSONField(default=dict, blank=True)

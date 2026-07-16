@@ -66,13 +66,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Pod name: {}", config.pod_name);
     tracing::info!("Kafka changelog topic: {}", config.kafka_person_state_topic);
 
+    // Shutdown order matters: the coordination drain (phase 0) hands this
+    // pod's partitions off, which requires the gRPC server to keep serving
+    // reads and completing in-flight writes and the producer to keep
+    // delivering their changelog records. Server and producer therefore
+    // stop in phase 1, only after the drain finishes — signalling them
+    // together with coordination black-holed every partition for the whole
+    // drain (dead server, still the registered owner). The coordination
+    // graceful window must exceed the pod's drain timeout (30s), and the
+    // global timeout must fit both phases.
     let mut manager = Manager::builder("personhog-leader")
-        .with_global_shutdown_timeout(Duration::from_secs(30))
+        .with_global_shutdown_timeout(Duration::from_secs(60))
         .build();
 
     let grpc_handle = manager.register(
         "grpc-server",
-        ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(15)),
+        ComponentOptions::new()
+            .with_graceful_shutdown(Duration::from_secs(15))
+            .with_shutdown_phase(1),
     );
     let metrics_handle = manager.register(
         "metrics-server",
@@ -80,9 +91,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     let coordination_handle = manager.register(
         "coordination",
-        ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(5)),
+        ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(35)),
     );
-    let kafka_handle = manager.register("kafka-producer", ComponentOptions::new());
+    let kafka_handle = manager.register(
+        "kafka-producer",
+        ComponentOptions::new().with_shutdown_phase(1),
+    );
 
     let readiness = manager.readiness_handler();
     let liveness = manager.liveness_handler();

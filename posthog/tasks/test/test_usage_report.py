@@ -42,7 +42,7 @@ from posthog.clickhouse.logs.logs32 import TABLE_NAME as LOGS_LOCAL_TABLE
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
-from posthog.models import Organization, Team
+from posthog.models import Organization, Project, Team
 from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
 from posthog.models.event.util import create_event
 from posthog.models.group.util import create_group
@@ -206,11 +206,6 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
 
         # make sure we don't collapse duplicate rows
         sync_execute("SYSTEM STOP MERGES")
-
-        # Clear existing data
-        sync_execute("TRUNCATE TABLE events")
-        sync_execute("TRUNCATE TABLE person")
-        sync_execute("TRUNCATE TABLE person_distinct_id")
 
         materialize("events", "$exception_values")
 
@@ -5162,13 +5157,14 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
 
         # Clear existing Django data
         Team.objects.all().delete()
+        Project.objects.all().delete()
         Organization.objects.all().delete()
 
         # Create analytics team for AI credits tests (team 2 for US region). The explicit
         # pk doesn't advance the id sequence, so bump it past the max to keep the auto-pk
         # team below from being handed id 2 and colliding.
         analytics_org = Organization.objects.create(name="PostHog Analytics")
-        self.analytics_team = Team.objects.create(pk=2, organization=analytics_org, name="Analytics")
+        self.analytics_team = Team.objects.create(id=2, organization=analytics_org, name="Analytics")
         with connection.cursor() as cursor:
             cursor.execute(
                 "SELECT setval(pg_get_serial_sequence('posthog_team', 'id'), (SELECT MAX(id) FROM posthog_team))"

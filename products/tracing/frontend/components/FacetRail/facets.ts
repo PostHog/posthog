@@ -60,6 +60,8 @@ export interface FacetConfig {
     searchable?: boolean
     searchPlaceholder?: string
     emptyLabel?: string
+    /** Max pixel height before the value list virtualizes and scrolls. */
+    maxHeight?: number
 }
 
 interface SpanFacetFilter {
@@ -117,7 +119,8 @@ export function facetSelectedValues(
 ): string[] {
     if (source.type === 'column') {
         if (source.column === 'service_name') {
-            return serviceNames ?? []
+            // Empty strings from external state (URL, saved view) would select a value with no visible row.
+            return (serviceNames ?? []).filter((v) => v !== '')
         }
         return facetFilterValues(group, { type: 'column', column: source.column })
     }
@@ -170,6 +173,7 @@ const SERVICE_FACET: FacetConfig = {
     searchable: true,
     searchPlaceholder: 'Search services…',
     emptyLabel: 'No services',
+    maxHeight: 300,
 }
 
 const STATUS_FACET: FacetConfig = {
@@ -193,6 +197,7 @@ function resourceAttributeFacet(key: string, slug: string, title: string, group:
         searchable: true,
         searchPlaceholder: `Search ${title.toLowerCase()}…`,
         emptyLabel: `No ${title.toLowerCase()} values`,
+        maxHeight: 300,
     }
 }
 
@@ -241,15 +246,17 @@ export function filterFacetsByName(facets: FacetConfig[], query: string): FacetC
  * Ensure every selected value of a dynamic facet renders even when absent from the fetched list —
  * a filter from a URL or saved view can reference a value with no matches in the current scope
  * (or one below the top-N cutoff), and without a visible row it can't be seen or toggled off.
- * Missing values are prepended with a zero count.
+ * Missing values are prepended with a zero count. An active type-ahead search still applies to
+ * injected rows, matching the server-side substring semantics of the fetched ones.
  */
-export function mergeSelectedIntoOptions(fetched: FacetOption[], selected: string[]): FacetOption[] {
+export function mergeSelectedIntoOptions(fetched: FacetOption[], selected: string[], search?: string): FacetOption[] {
+    const needle = (search ?? '').trim().toLowerCase()
     const seen = new Set(fetched.map((option) => option.value))
     // Dedupe as we go: a URL or saved view can carry the same value twice, and two rows sharing a
     // value would collide on their React key and toggle target.
     const missing: FacetOption[] = []
     for (const value of selected) {
-        if (seen.has(value)) {
+        if (seen.has(value) || (needle && !value.toLowerCase().includes(needle))) {
             continue
         }
         seen.add(value)

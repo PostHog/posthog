@@ -15,9 +15,8 @@ const baselinePath = path.join(__dirname, 'toolbar-graph-baseline.json')
 // 1. "Survivors" are the modules still reachable from the toolbar entry when traversal
 //    refuses to walk INTO the app zone (scenes/, layout/, models/, products manifests).
 //    Every survivor edge that crosses into the app zone is a real dependency the toolbar
-//    code holds on the app — the thing the migration (.agents/toolbar-migration.md) is
-//    cutting one by one. New crossing edges fail; removed ones must be deleted from the
-//    checked-in baseline so progress ratchets.
+//    code holds on the app. New crossing edges fail; cutting an edge means deleting it from
+//    the checked-in baseline so the win is locked in.
 //    Non-survivor crossings (app-zone code importing more app-zone code) aren't listed:
 //    they disappear on their own when the last survivor edge into their family is cut.
 //
@@ -30,7 +29,8 @@ const ENTRY = 'src/toolbar/index.tsx'
 
 const APP_ZONE = [/^src\/products/, /^src\/scenes\//, /^src\/layout\//, /^src\/models\//, /^\.\.\/products\//]
 
-// Denied at resolve time in toolbar-config.mjs — must not appear in the graph at all.
+// Packages the toolbar never renders and must not appear in its graph at all. None have an
+// import path into the toolbar today; this guard fails the build if a change reintroduces one.
 const FORBIDDEN_PACKAGES = [
     'node_modules/monaco-editor/',
     'node_modules/chart.js/',
@@ -38,12 +38,10 @@ const FORBIDDEN_PACKAGES = [
     'node_modules/hls.js/',
 ]
 
-// Ratchet policy: when a cut lands, lower the budget to lock it in; raise it only as a
-// conscious, reviewed decision in the PR that needs it.
-// 2026-07-07: 13.95 MiB of source input reachable (1042 files) after the shim-leak fix took
-// the app scene graph out of the bundle; 13.40 MiB (1010 files) after the replay-shared cut.
-// Headroom for churn, but any reintroduced leak jumps back to ~100 MiB and fails loudly.
-const TOTAL_INPUT_BYTES_BUDGET = 14_800_000
+// Ratchet policy: when an edge is cut, lower the budget to lock it in; raise it only as a
+// conscious, reviewed decision in the PR that needs it. There is headroom for churn, but any
+// reintroduced leak jumps the graph back toward ~100 MiB and fails loudly.
+const TOTAL_INPUT_BYTES_BUDGET = 14_415_000
 
 function fail(message) {
     console.error(`\n❌ ${message}`)
@@ -102,7 +100,7 @@ if (newEdges.length) {
             newEdges.map((e) => `   ${e}`).join('\n') +
             `\nThe toolbar bundle must not grow new dependencies on app code (scenes/, layout/, models/, ` +
             `products manifests) — it ships to customer pages. Import from lib/, move the shared code out ` +
-            `of the app zone, or fetch via toolbarFetch instead. See .agents/toolbar-migration.md.`
+            `of the app zone, or fetch via toolbarFetch instead.`
     )
 }
 

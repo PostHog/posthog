@@ -21,7 +21,7 @@ export const InsightResultMetadata = ({
     const { samplingFactor, trendsFilter, dateRange, isTrends } = useValues(insightVizDataLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const quillDateFilterEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_DATE_FILTER]
+    const quillDateFilterEnabled = featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_DATE_FILTER] === 'test'
     // Only trends applies daysOfWeek server-side, so only trends gets the note
     const excludedDays = quillDateFilterEnabled && isTrends ? getExcludedDaysOfWeek(dateRange) : []
     const excludedLabel = daysOfWeekLabel(excludedDays)

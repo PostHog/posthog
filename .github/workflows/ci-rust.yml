@@ -557,8 +557,6 @@ jobs:
               run: cargo test -p personhog-test-harness
 
             - name: Run the e2e gate
-              env:
-                  RUST_BACKTRACE: 1
               run: |
                   ./target/debug/personhog-test-harness gate \
                     --leaders 2 --partitions 4 --persons 100 --concurrency 10 --duration 10s
@@ -569,24 +567,18 @@ jobs:
             # the dirty-index recovery this run lost thousands of acked
             # writes.
             - name: Run the e2e gate under cache eviction pressure + writer lag
-              env:
-                  RUST_BACKTRACE: 1
               run: |
                   ./target/debug/personhog-test-harness gate \
                     --leaders 3 --partitions 8 --persons 50 --concurrency 10 --duration 15s \
                     --cache-capacity 10 --writer-pause-after 3s --writer-pause-duration 8s
 
             - name: Run the e2e gate under chaos (kill + scale-up)
-              env:
-                  RUST_BACKTRACE: 1
               run: |
                   ./target/debug/personhog-test-harness gate \
                     --leaders 3 --partitions 8 --persons 100 --concurrency 10 --duration 15s \
                     --kill-after 5s --scale-up-after 8s
 
             - name: Run the e2e gate under chaos (drain + zombie + writer lag)
-              env:
-                  RUST_BACKTRACE: 1
               run: |
                   ./target/debug/personhog-test-harness gate \
                     --leaders 3 --partitions 8 --persons 100 --concurrency 10 --duration 18s \
@@ -594,8 +586,6 @@ jobs:
                     --writer-pause-after 4s --writer-pause-duration 6s
 
             - name: Run the e2e gate under chaos (TTL-expiry kill + restarts)
-              env:
-                  RUST_BACKTRACE: 1
               run: |
                   ./target/debug/personhog-test-harness gate \
                     --leaders 3 --partitions 8 --persons 100 --concurrency 10 --duration 18s \
@@ -603,8 +593,6 @@ jobs:
                     --writer-crash-after 9s --restart-after 12s
 
             - name: Run the e2e gate under chaos (coordinator failover + mid-handoff kill)
-              env:
-                  RUST_BACKTRACE: 1
               run: |
                   ./target/debug/personhog-test-harness gate \
                     --routers 2 --leaders 3 --partitions 8 --persons 100 --concurrency 10 \

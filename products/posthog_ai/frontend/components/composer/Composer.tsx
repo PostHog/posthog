@@ -12,11 +12,9 @@ import {
 } from 'react'
 
 import { IconArrowRight, IconStopFilled } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
-
-import { AutosizeTextArea } from '../AutosizeTextArea'
 
 // Radix-style compound composer: a set of logic-free, presentational surfaces that reproduce the
 // PostHog AI input look (see scenes/max/components/QuestionInput.tsx) without any of its conversation
@@ -208,6 +206,18 @@ const ComposerBanner = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>
     )
 })
 
+/** The in-frame top row for context chips / attachments, above the textarea. */
+const ComposerHeader = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(function ComposerHeader(
+    { className, children, ...rest },
+    ref
+): JSX.Element {
+    return (
+        <div data-slot="composer-header" ref={ref} className={cn('pt-2 px-2', className)} {...rest}>
+            {children}
+        </div>
+    )
+})
+
 export interface ComposerFrameProps extends HTMLAttributes<HTMLLabelElement> {
     /** Toggles the AI focus-ring color (off while the agent is streaming, per QuestionInput). */
     ringActive?: boolean
@@ -292,7 +302,7 @@ function ComposerTextarea({
 }: ComposerTextareaProps): JSX.Element {
     const { value, onChange, submit, textAreaRef, disabled, id } = useComposerContext()
     return (
-        <AutosizeTextArea
+        <LemonTextArea
             id={id}
             aria-describedby={!value ? `${id}-hint` : undefined}
             ref={textAreaRef}
@@ -302,8 +312,7 @@ function ComposerTextarea({
             minRows={minRows}
             maxRows={maxRows}
             autoFocus={autoFocus}
-            className={cn('py-2 pl-2', className)}
-            textareaClassName="!border-none !bg-transparent min-h-16 pr-12 resize-none"
+            className={cn('!border-none !bg-transparent min-h-16 py-2 pl-2 pr-12 resize-none', className)}
             hideFocus
             onPressEnter={() => submit()}
             {...rest}
@@ -311,7 +320,7 @@ function ComposerTextarea({
     )
 }
 
-/** The in-frame bottom row for context chips / actions. */
+/** The in-frame bottom row for pickers / actions. */
 const ComposerFooter = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(function ComposerFooter(
     { className, children, ...rest },
     ref
@@ -331,12 +340,19 @@ export interface ComposerSubmitProps {
     'data-attr'?: string
 }
 
-/** The absolutely-positioned send cluster, sibling of Frame inside Root's relative wrapper. */
-function ComposerSubmit({ icon, tooltip, className, ...rest }: ComposerSubmitProps): JSX.Element {
+/**
+ * The absolutely-positioned send cluster, sibling of Frame inside Root's relative wrapper. `forwardRef`
+ * so callers can anchor a `Popover` to it (Popover clones its child with a ref).
+ */
+const ComposerSubmit = forwardRef<HTMLDivElement, ComposerSubmitProps>(function ComposerSubmit(
+    { icon, tooltip, className, ...rest },
+    ref
+): JSX.Element {
     const { sendDisabledReason, loading, showStop, onStop, isThreadVisible } = useComposerContext()
     return (
         <div
             data-slot="composer-submit"
+            ref={ref}
             className={cn(
                 'absolute flex items-center',
                 isThreadVisible ? 'bottom-[9px] right-[9px]' : 'bottom-[7px] right-[7px]',
@@ -369,12 +385,13 @@ function ComposerSubmit({ icon, tooltip, className, ...rest }: ComposerSubmitPro
             )}
         </div>
     )
-}
+})
 
 export const Composer = Object.assign(ComposerRoot, {
     Root: ComposerRoot,
     Banner: ComposerBanner,
     Frame: ComposerFrame,
+    Header: ComposerHeader,
     Field: ComposerField,
     Placeholder: ComposerPlaceholder,
     Textarea: ComposerTextarea,

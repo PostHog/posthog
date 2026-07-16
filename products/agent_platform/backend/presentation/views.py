@@ -72,6 +72,7 @@ from posthog.permissions import get_authenticator_scopes
 from posthog.security.outbound_proxy import internal_requests
 
 from ..db import WRITER_DB
+from ..logic.generated import APPROVAL_REQUEST_STATES, ASSISTANT_STOP_REASONS, TRIGGER_ROUTES
 from ..logic.internal_jwt import AgentInternalAudience, encode_agent_internal_jwt
 from ..logic.janitor_client import JanitorClient, JanitorClientError, default_client
 from ..logic.kernel_skills import all_kernel_skill_ids, kernel_skills_for
@@ -112,6 +113,10 @@ from .serializers import (
 )
 
 logger = logging.getLogger(__name__)
+
+# `TRIGGER_ROUTES` keys are the full trigger-kind enumeration (`Record<TriggerType, …>`,
+# cron included), so help_text can render the list without hand-copying it.
+_TRIGGER_KIND_ENUM = " | ".join(TRIGGER_ROUTES.keys())
 
 
 def _resolve_application(queryset: QuerySet, lookup_value: str | None) -> AgentApplication | None:
@@ -296,43 +301,11 @@ def _mint_preview_jwt(
     return token, ttl_seconds
 
 
-# Per-trigger route catalogue. Mirrors the `path:` arrays in each
-# `services/agent-ingress/src/triggers/<type>.ts` `routes` export — keep
-# these tables in sync (a sibling test validates the chat one). Source of
-# truth is still the ingress; this is here so the preview-token caller
-# doesn't have to grep the ingress source to know which path to hit.
-_TRIGGER_ROUTES: dict[str, dict[str, str]] = {
-    "chat": {
-        "run": "/run",
-        "send": "/send",
-        "cancel": "/cancel",
-        "listen": "/listen",
-        "client_tool_result": "/client_tool_result",
-    },
-    "mcp": {
-        "rpc": "/mcp",
-        "stream": "/mcp/stream",
-        "connect_info": "/mcp/connect-info",
-    },
-    "slack": {
-        "events": "/slack/events",
-        "interactivity": "/slack/interactivity",
-    },
-    "webhook": {
-        "post": "/webhook",
-    },
-    # `cron` triggers have no externally-callable ingress endpoint —
-    # they fire from the janitor's scheduler. Omit from the catalogue
-    # so the preview response doesn't advertise a URL the caller can't
-    # actually hit.
-}
-
-
 def _build_preview_endpoints(ingress_slug: str, spec: dict[str, Any]) -> dict[str, dict[str, str]]:
-    """Return `{trigger_type: {route_name: absolute_url}}` for every
-    trigger the spec declares that has a public ingress route in
-    `_TRIGGER_ROUTES`. Empty when no public agent-ingress URL is configured
-    for the active routing mode (local dev without `bin/agent-tunnel`)."""
+    """Return `{trigger_type: {route_name: absolute_url}}` for every spec trigger with a
+    public ingress route in `TRIGGER_ROUTES`. `cron` maps to `{}` (no ingress endpoint) and
+    is skipped. Empty when no public agent-ingress URL is configured (local dev without
+    `bin/agent-tunnel`)."""
     triggers = spec.get("triggers") or []
     if not isinstance(triggers, list):
         return {}
@@ -343,7 +316,7 @@ def _build_preview_endpoints(ingress_slug: str, spec: dict[str, Any]) -> dict[st
         ttype = trigger.get("type")
         if not isinstance(ttype, str):
             continue
-        routes = _TRIGGER_ROUTES.get(ttype)
+        routes = TRIGGER_ROUTES.get(ttype)
         if not routes:
             continue
         # First trigger of a given type wins; spec-side validation
@@ -467,7 +440,8 @@ _AGENT_ASSISTANT_MESSAGE = inline_serializer(
         "model": drf_serializers.CharField(required=False),
         "usage": drf_serializers.DictField(child=drf_serializers.JSONField(), required=False),
         "stopReason": drf_serializers.ChoiceField(
-            choices=["stop", "length", "toolUse", "error", "aborted"],
+            # Imported from the generated artifact (source: spec.ts) so it can't drift from what the runner writes.
+            choices=ASSISTANT_STOP_REASONS,
             required=False,
         ),
         "errorMessage": drf_serializers.CharField(required=False),
@@ -1131,7 +1105,7 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                                     required=False,
                                     help_text=(
                                         "Trigger-specific metadata stamped at session creation. Discriminated on "
-                                        "`kind`: chat | slack | cron | webhook | mcp. The Zod source of truth is "
+                                        f"`kind`: {_TRIGGER_KIND_ENUM}. The Zod source of truth is "
                                         "`agent-shared/src/runtime/trigger-metadata.ts`; the node side validates "
                                         "and strips unknown keys at the persistence boundary, so consumers can "
                                         "trust `kind` and per-kind fields. TODO: narrow this DictField to a "
@@ -1338,7 +1312,7 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         required=False,
                         help_text=(
                             "Trigger-specific metadata stamped at session creation. Discriminated on "
-                            "`kind`: chat | slack | cron | webhook | mcp. The Zod source of truth is "
+                            f"`kind`: {_TRIGGER_KIND_ENUM}. The Zod source of truth is "
                             "`agent-shared/src/runtime/trigger-metadata.ts`; the node side validates and "
                             "strips unknown keys at the persistence boundary, so consumers can trust "
                             "`kind` and per-kind fields. TODO: narrow this DictField to a polymorphic "
@@ -1494,14 +1468,8 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             help_text="Resolved approval policy (type: principal|agent, allow_edit) at request time.",
         ),
         "state": drf_serializers.ChoiceField(
-            choices=[
-                "queued",
-                "approving",
-                "dispatched",
-                "dispatched_failed",
-                "rejected",
-                "expired",
-            ],
+            # Imported from the generated artifact (source: approval-store.ts) so it can't drift from what the runner writes.
+            choices=APPROVAL_REQUEST_STATES,
             help_text="Lifecycle state. `queued` = awaiting an approver; `approving` = decision landed and tool dispatch is in flight; `dispatched`/`dispatched_failed` = approved + tool ran; `rejected` = approver said no; `expired` = TTL elapsed.",
         ),
         "decision_by": drf_serializers.CharField(
@@ -1676,10 +1644,12 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise JanitorUpstreamError(e) from e
         # Only `agent`-type approvals are decided through the console. A
         # `principal`-type request is the session owner's to clear at the ingress
-        # decision API; collapse it to not-found here. (Legacy rows queued before
-        # the principal/agent split carry `approvers[]` instead of `type` — map
-        # `team_admins` → agent so an in-flight old row stays decidable.)
-        scope = existing.get("approver_scope", {})
+        # decision API; collapse it to not-found here.
+        #
+        # Legacy fallback keeps this decode order-independent across a janitor rollout:
+        # an old janitor may return the pre-resolution `approvers[]` shape (no `type`),
+        # which we still resolve. Transitional.
+        scope = existing.get("approver_scope") or {}
         approval_type = scope.get("type")
         if approval_type is None:
             approval_type = "agent" if "team_admins" in (scope.get("approvers") or []) else "principal"
@@ -3594,7 +3564,7 @@ class AgentFleetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                                     required=False,
                                     help_text=(
                                         "Trigger-specific metadata stamped at session creation. Discriminated on "
-                                        "`kind`: chat | slack | cron | webhook | mcp. The Zod source of truth is "
+                                        f"`kind`: {_TRIGGER_KIND_ENUM}. The Zod source of truth is "
                                         "`agent-shared/src/runtime/trigger-metadata.ts`; the node side validates "
                                         "and strips unknown keys at the persistence boundary, so consumers can "
                                         "trust `kind` and per-kind fields. TODO: narrow this DictField to a "

@@ -145,6 +145,7 @@ post_save:products.cdp.backend.models.plugin.plugin_attachement_reload_needed
 post_save:products.cdp.backend.models.plugin.plugin_config_reload_needed
 post_save:products.cdp.backend.models.plugin.plugin_reload_needed
 post_save:products.cdp.backend.models.plugin.preinstall_plugins_for_new_organization
+post_save:products.cohorts.backend.models.dependencies.cohort_behavioral_shape_changed_backfill
 post_save:products.cohorts.backend.models.dependencies.cohort_changed
 post_save:products.cohorts.backend.models.dependencies.cohort_conditions_changed_backfill
 post_save:products.conversations.backend.signals.emit_ticket_created_event

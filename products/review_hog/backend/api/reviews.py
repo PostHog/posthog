@@ -6,6 +6,7 @@ from typing import Any, get_args
 from django.db.models import Max, QuerySet
 from django.utils import timezone
 
+from drf_spectacular.openapi import AutoSchema
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
@@ -37,7 +38,9 @@ from products.review_hog.backend.reviewer.progress import (
 
 logger = logging.getLogger(__name__)
 
-RECENT_REVIEWS_LIMIT = 5
+DEFAULT_REVIEWS_LIMIT = 5
+# Caps "Show more" growth — enrichment (jsonb stats + findings bundle) is per-row work.
+MAX_REVIEWS_LIMIT = 100
 
 # Effectiveness stats aggregate deeper than the list — enough history for survival rates to mean something.
 PERSPECTIVE_STATS_REPORT_LIMIT = 50
@@ -49,6 +52,25 @@ IN_PROGRESS_STALE_AFTER = timedelta(minutes=30)
 _PRIORITY_CHOICES = [priority.value for priority in IssuePriority]
 # Display order for the detail view: most urgent first.
 _PRIORITY_DISPLAY_RANK = {IssuePriority.MUST_FIX: 0, IssuePriority.SHOULD_FIX: 1, IssuePriority.CONSIDER: 2}
+
+SCOPE_MINE = "mine"
+SCOPE_EVERYONE = "everyone"
+
+
+class ReviewsListParamsSerializer(serializers.Serializer):
+    scope = serializers.ChoiceField(
+        choices=[SCOPE_MINE, SCOPE_EVERYONE],
+        default=SCOPE_MINE,
+        help_text="Whose reviews to list: `mine` for reviews of the requesting user's pull requests "
+        "(the default), `everyone` for every review on this project.",
+    )
+    limit = serializers.IntegerField(
+        default=DEFAULT_REVIEWS_LIMIT,
+        min_value=1,
+        max_value=MAX_REVIEWS_LIMIT,
+        help_text="Maximum rows to return. The list grows this instead of paging by offset — "
+        "in-progress rows reorder the list between refreshes, so offset pages would shift under the reader.",
+    )
 
 
 class ReviewProgressSerializer(serializers.Serializer):
@@ -162,6 +184,15 @@ class ReviewRecentReviewSerializer(serializers.Serializer):
     )
 
 
+class ReviewRecentReviewsPageSerializer(serializers.Serializer):
+    results = ReviewRecentReviewSerializer(
+        many=True, help_text="The scoped reviews: in-progress runs first, then completed newest first."
+    )
+    has_more = serializers.BooleanField(
+        help_text='Whether reviews exist beyond this page — drives the list\'s "Show more" button.'
+    )
+
+
 class ReviewFindingLineRangeSerializer(serializers.Serializer):
     start = serializers.IntegerField(help_text="First affected line.")
     end = serializers.IntegerField(allow_null=True, help_text="Last affected line; null for a single line.")
@@ -228,6 +259,25 @@ class ReviewPerspectiveStatsSerializer(serializers.Serializer):
     perspectives = ReviewPerspectiveStatItemSerializer(
         many=True, help_text="Per-skill effectiveness across those reviews, most kept findings first."
     )
+
+
+class _PageEnvelopeSchema(AutoSchema):
+    """Stops drf-spectacular's list-view heuristic from wrapping the `list` response in an array.
+
+    `list` returns a single page envelope (`results` + `has_more`), not a bare collection. The
+    default heuristic already returns False for this viewset's other operations, but forcing it
+    renames the list operation to `*_retrieve` — pin the operationId back so the generated client
+    keeps its `*List` name and doesn't collide with the real retrieve.
+    """
+
+    def _is_list_view(self, serializer: Any = None) -> bool:
+        return False
+
+    def get_operation_id(self) -> str:
+        operation_id = super().get_operation_id()
+        if getattr(self.view, "action", None) == "list" and operation_id.endswith("_retrieve"):
+            return operation_id.removesuffix("_retrieve") + "_list"
+        return operation_id
 
 
 def _in_progress_report_ids(team_id: int, reports: list[ReviewReport]) -> set[str]:
@@ -341,12 +391,14 @@ def _review_payload(
 
 
 class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    """The requesting user's most recent ReviewHog reviews (reports where they are the acting user).
+    """Recent ReviewHog reviews on this project.
 
     Read-only meta for the Code review tab's "recent reviews" block: what was reviewed, how many
     valid findings at each effective priority, the reviewed PR's facts, and the pipeline shape of
-    the latest turn. `retrieve` adds the findings themselves (valid + dismissed) and the published
-    review body.
+    the latest turn. `list` covers the requesting user's reviews (reports where they are the acting
+    user) by default, or the whole project's via `scope=everyone` — mirroring the inbox's
+    "For you / Entire project" switch. `retrieve` adds the findings themselves (valid + dismissed)
+    and the published review body; it is project-wide so any listed review can be opened.
     """
 
     scope_object = "INTERNAL"
@@ -354,29 +406,42 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     queryset = ReviewReport.objects.unscoped()
     serializer_class = ReviewRecentReviewSerializer
     pagination_class = None
+    schema = _PageEnvelopeSchema()
 
-    def _reports(self, request: Request) -> tuple[int, QuerySet[ReviewReport]]:
+    def _reports(self, request: Request, scope: str = SCOPE_MINE) -> tuple[int, QuerySet[ReviewReport]]:
         team_id = resolve_effective_team_id(self.team_id)
-        return team_id, ReviewReport.objects.for_team(team_id, canonical=True).filter(acting_user_id=request.user.id)
+        queryset = ReviewReport.objects.for_team(team_id, canonical=True)
+        if scope == SCOPE_MINE:
+            queryset = queryset.filter(acting_user_id=request.user.id)
+        return team_id, queryset
 
     @extend_schema(
+        parameters=[ReviewsListParamsSerializer],
         responses={
             200: OpenApiResponse(
-                response=ReviewRecentReviewSerializer(many=True),
-                description="The user's reviews: in-progress runs first, then completed newest first.",
+                response=ReviewRecentReviewsPageSerializer,
+                description="The scoped reviews: in-progress runs first, then completed newest first, "
+                "with a flag for whether more exist beyond `limit`.",
             ),
         },
-        summary="List the user's recent reviews",
-        description="The requesting user's ReviewHog reviews on this project: actively running reviews "
-        "first (with the in-flight turn's stage), then the most recent completed ones (at most 5 rows).",
+        summary="List recent reviews",
+        description="Recent ReviewHog reviews on this project: actively running reviews first (with the "
+        "in-flight turn's stage), then the most recent completed ones — at most `limit` rows (default 5), "
+        "plus `has_more` for whether a larger `limit` would reveal more. By default only the requesting "
+        "user's reviews; `scope=everyone` lists every review on the project.",
     )
     def list(self, request: Request, **kwargs) -> Response:
-        team_id, queryset = self._reports(request)
-        completed = list(queryset.filter(last_run_at__isnull=False).order_by("-last_run_at")[:RECENT_REVIEWS_LIMIT])
+        params = ReviewsListParamsSerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+        limit: int = params.validated_data["limit"]
+        # One row beyond the limit proves whether "Show more" has anything left to reveal.
+        probe_limit = limit + 1
+        team_id, queryset = self._reports(request, scope=params.validated_data["scope"])
+        completed = list(queryset.filter(last_run_at__isnull=False).order_by("-last_run_at")[:probe_limit])
         # First-turn runs have no completed turn yet; they only surface while visibly running.
         running_first_turn = list(
             queryset.filter(status=ReviewReport.Status.ACTIVE, last_run_at__isnull=True).order_by("-created_at")[
-                :RECENT_REVIEWS_LIMIT
+                :probe_limit
             ]
         )
         # A re-review keeps the previous turn's last_run_at until it finalizes, so a dormant report's
@@ -384,7 +449,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         # an actively reviewed PR vanishes from the list mid-run.
         running_re_review = list(
             queryset.filter(status=ReviewReport.Status.ACTIVE, last_run_at__isnull=False).order_by("-updated_at")[
-                :RECENT_REVIEWS_LIMIT
+                :probe_limit
             ]
         )
         in_progress_ids = _in_progress_report_ids(team_id, running_first_turn + running_re_review + completed)
@@ -400,7 +465,8 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             if str(report.id) not in seen:
                 seen.add(str(report.id))
                 reports.append(report)
-        reports = reports[:RECENT_REVIEWS_LIMIT]
+        has_more = len(reports) > limit
+        reports = reports[:limit]
 
         # Row stats anchor to each report's COMPLETED turn (matching the findings' run_count); the
         # in-flight progress payload alone reads the live head. Pre-column rows fall back to the live
@@ -430,7 +496,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                     current_pairs,
                 )
             items.append(_review_payload(report, snapshot, turn, pairs, progress))
-        return Response(ReviewRecentReviewSerializer(items, many=True).data)
+        return Response(ReviewRecentReviewsPageSerializer({"results": items, "has_more": has_more}).data)
 
     @extend_schema(
         responses={
@@ -471,19 +537,20 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                 response=ReviewDetailSerializer,
                 description="The review's detail: findings (valid and dismissed) and the published body.",
             ),
-            404: OpenApiResponse(description="No such review of the requesting user's pull requests."),
+            404: OpenApiResponse(description="No such review on this project."),
         },
         summary="Retrieve one review's detail",
-        description="One completed ReviewHog review of the requesting user's pull requests, with the latest "
-        "turn's validated findings, the findings the validator dismissed (and why), and the review body "
-        "published to GitHub.",
+        description="One completed ReviewHog review on this project, with the latest turn's validated "
+        "findings, the findings the validator dismissed (and why), and the review body published to "
+        "GitHub. Project-wide, so reviews listed under `scope=everyone` can be opened too.",
     )
     def retrieve(self, request: Request, pk: str | None = None, **kwargs) -> Response:
         try:
             report_uuid = uuid.UUID(str(pk))
         except ValueError:
             raise NotFound("Review not found.")
-        team_id, queryset = self._reports(request)
+        # Project-wide on purpose: the detail must open for any review the everyone-scope list shows.
+        team_id, queryset = self._reports(request, scope=SCOPE_EVERYONE)
         # Detail describes a completed turn — a first run still in flight has nothing to show yet.
         report = queryset.filter(id=report_uuid, last_run_at__isnull=False).first()
         if report is None:
