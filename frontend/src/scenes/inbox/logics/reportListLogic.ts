@@ -135,7 +135,10 @@ export const reportListLogic = kea<reportListLogicType>([
             {
                 loadCount: async () => {
                     const response = await api.signalReports.list({ ...values.listApiParams, limit: 1 })
-                    return response.count
+                    // api.get pipes the body through getJSONOrNull, which resolves to null for any 2xx
+                    // response that isn't valid JSON (empty body, 204, an HTML login/redirect page on
+                    // session expiry). Treat that as a quiet zero instead of dereferencing null.
+                    return response?.count ?? 0
                 },
             },
         ],
