@@ -28,7 +28,7 @@ from posthog.hogql.property import property_to_expr
 from posthog.hogql.transforms.preaggregated_table_transformation import is_integer_timezone
 
 from posthog import redis
-from posthog.clickhouse.query_tagging import Feature, get_query_tag_value, tag_queries
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.models import Team
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
@@ -36,6 +36,10 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     TtlSchedule,
     ensure_precomputed,
     parse_ttl_schedule,
+)
+from products.analytics_platform.backend.lazy_computation.stale_policy import (
+    is_background_warming_request as shared_is_background_warming_request,
+    resolve_stale_while_revalidate_seconds,
 )
 
 logger = structlog.get_logger(__name__)
@@ -74,6 +78,25 @@ def pin_team_oom(team_id: int) -> None:
         logger.warning("web_precompute.oom_pin_failed", team_id=team_id, exc_info=True)
 
 
+def clear_team_oom_pin(team_id: int) -> bool:
+    """Remove a team's OOM pin so its next inserts run at full window width again.
+
+    Returns whether a pin existed. Unlike the read/write helpers this is NOT
+    best-effort: it is only called from operator tooling, where a Redis failure
+    should surface instead of silently reporting the pin as cleared."""
+    return redis.get_client().delete(_oom_pin_key(team_id)) > 0
+
+
+def list_oom_pinned_team_ids() -> list[int]:
+    """Team ids currently OOM-pinned, via a prefix SCAN (operator tooling only)."""
+    prefix = TEAM_OOM_PIN_REDIS_PREFIX
+    team_ids = []
+    for key in redis.get_client().scan_iter(match=f"{prefix}*"):
+        key_str = key.decode() if isinstance(key, bytes) else key
+        team_ids.append(int(key_str[len(prefix) :]))
+    return sorted(team_ids)
+
+
 # --- Stale-while-revalidate (RFC 5861) -------------------------------------------------
 #
 # The lazy executor's `stale_while_revalidate_seconds` is the *serve* half: user-facing
@@ -91,23 +114,17 @@ def pin_team_oom(team_id: int) -> None:
 # so the two cannot drift apart.
 REVALIDATION_TRIGGER = "webAnalyticsStaleRevalidation"
 
-# Requests tagged with any of these triggers ARE the refresh mechanism: they must never
-# be served stale (they'd freeze the cache serving stale to themselves) and they keep
-# the framework's full wait budget. This named set is the belt; the primary gate in
-# `is_background_warming_request` is the CACHE_WARMUP feature tag, which classifies
-# refreshers by category — including warmers this module doesn't know by name (e.g.
-# the generic insight cache warmer, trigger "warmingV2"), which would otherwise be
-# served stale and persist it into the insight cache under a fresh timestamp.
+# Web's own refreshers. These ARE the refresh mechanism: they must never be served stale
+# (they'd freeze the cache serving stale to themselves) and they keep the framework's full
+# wait budget. Warmers shared across products (e.g. the generic insight cache warmer,
+# trigger "warmingV2") live in SHARED_BACKGROUND_WARMING_TRIGGERS and are unioned in by
+# `is_background_warming_request`. This named set is the belt; the primary gate there is the
+# CACHE_WARMUP feature tag, which classifies refreshers by category — including warmers this
+# module doesn't know by name.
 BACKGROUND_WARMING_TRIGGERS = frozenset(
     {
         "webAnalyticsEagerBaselineWarming",
         "webAnalyticsQueryWarming",
-        # The generic insight cache warmer. Its Feature.CACHE_WARMUP tag does NOT
-        # survive to the ensure call (the lazy modules re-stamp feature=QUERY before
-        # ensuring), but the trigger does — without it here, warmer runs would be
-        # served stale and persist stale rows into the insight cache as a fresh
-        # blocking result.
-        "warmingV2",
         REVALIDATION_TRIGGER,
     }
 )
@@ -141,9 +158,7 @@ WEB_ANALYTICS_LAZY_PRECOMPUTE_REVALIDATION_ENQUEUE_FAILED = Counter(
 
 
 def is_background_warming_request() -> bool:
-    if get_query_tag_value("feature") == Feature.CACHE_WARMUP:
-        return True
-    return get_query_tag_value("trigger") in BACKGROUND_WARMING_TRIGGERS
+    return shared_is_background_warming_request(BACKGROUND_WARMING_TRIGGERS)
 
 
 # One revalidation per (team, family, query shape) per window: a dashboard burst — or a
@@ -212,8 +227,8 @@ def web_ensure_precomputed(*, team: Team, **kwargs: Any) -> LazyComputationResul
     result to `handle_stale_served` so the background revalidation actually happens.
     """
     if "stale_while_revalidate_seconds" not in kwargs:
-        kwargs["stale_while_revalidate_seconds"] = (
-            None if is_background_warming_request() else STALE_WHILE_REVALIDATE_SECONDS
+        kwargs["stale_while_revalidate_seconds"] = resolve_stale_while_revalidate_seconds(
+            STALE_WHILE_REVALIDATE_SECONDS, BACKGROUND_WARMING_TRIGGERS
         )
     pinned = is_team_oom_pinned(team.id)
     if "ttl_seconds" in kwargs:

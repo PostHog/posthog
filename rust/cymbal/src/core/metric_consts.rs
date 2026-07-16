@@ -15,6 +15,7 @@ pub const SYMBOL_SET_DB_MISSES: &str = "cymbal_symbol_set_db_misses";
 pub const SYMBOL_SET_SAVED: &str = "cymbal_symbol_set_saved";
 pub const SAVED_SYMBOL_SET_LOADED: &str = "cymbal_saved_symbol_set_loaded";
 pub const SAVED_SYMBOL_SET_ERROR_RETURNED: &str = "cymbal_saved_symbol_set_error_returned";
+pub const SYMBOL_SET_NEGATIVE_CACHE_HIT: &str = "cymbal_symbol_set_negative_cache_hit";
 pub const SYMBOL_SET_FETCH_RETRY: &str = "cymbal_symbol_set_fetch_retry";
 pub const FRAME_RESOLVED: &str = "cymbal_frame_resolved";
 pub const FRAME_CACHE_HITS: &str = "cymbal_frame_cache_hits";
@@ -22,6 +23,10 @@ pub const FRAME_CACHE_MISSES: &str = "cymbal_frame_cache_misses";
 pub const FRAME_DB_HITS: &str = "cymbal_frame_db_hits";
 pub const FRAME_DB_MISSES: &str = "cymbal_frame_db_misses";
 pub const FRAME_NOT_RESOLVED: &str = "cymbal_frame_not_resolved";
+// Client-expanded native inline groups, labeled by outcome: "replaced" when the
+// server expansion of the group's address superseded the client frames, "kept"
+// when resolution failed and the client expansion passed through.
+pub const NATIVE_INLINE_GROUPS: &str = "cymbal_native_inline_groups";
 pub const S3_FETCH: &str = "cymbal_s3_fetch";
 // S3 GET body size, in bytes, taken from the `Content-Length` header on the GET response
 // (so it's recorded before we collect the body — sets us up to enforce a size cap here later).
@@ -102,6 +107,9 @@ pub const SPIKE_ISSUES_BLOCKED_BY_COOLDOWN: &str = "cymbal_spike_issues_blocked_
 pub const SIGNAL_EMITTED: &str = "cymbal_signal_emitted";
 pub const SIGNAL_EMIT_FAILED: &str = "cymbal_signal_emit_failed";
 pub const SIGNAL_EMIT_RESPONSE: &str = "cymbal_signal_emit_response";
+
+// Fingerprint embedding metrics
+pub const FINGERPRINT_EMBEDDING_SKIPPED: &str = "cymbal_fingerprint_embedding_skipped";
 
 // Stages Name.
 // We want to keep previous value for comparison, can be changed later on

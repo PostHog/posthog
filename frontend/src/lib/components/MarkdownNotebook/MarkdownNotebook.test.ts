@@ -2493,6 +2493,18 @@ Intro paragraph
         expect(container.querySelectorAll('[data-placeholder="Start writing..."]')).toHaveLength(0)
     })
 
+    it('hides the synthetic empty title row in view mode', () => {
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: '<Query query={{"kind":"DataTableNode"}} />',
+                mode: 'view',
+            })
+        )
+
+        expect(container.querySelectorAll('[data-placeholder="Untitled notebook"]')).toHaveLength(0)
+        expect(container.querySelectorAll('.MarkdownNotebook__text-block--title')).toHaveLength(0)
+    })
+
     it('records keystrokes, mouse events, and commits into a downloadable debug log', async () => {
         const { createObjectURL, anchorClick, restore } = stubNotebookLogDownload()
 

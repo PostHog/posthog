@@ -5,7 +5,7 @@ from django.conf import settings
 from django.db.models import Case, CharField, FloatField, Func, IntegerField, Q, QuerySet, Value, When
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Cast
-from django.http import StreamingHttpResponse
+from django.http.response import HttpResponseBase
 
 import structlog
 import django_filters
@@ -384,7 +384,7 @@ class RetryResponseSerializer(serializers.Serializer):
 # Single source of truth for orderable fields; the list endpoint's OpenAPI override mirrors these as a string enum.
 OBSERVATION_ORDER_FIELDS = ("created_at", "started_at", "completed_at", "status")
 
-# JSONB-backed sort keys; numeric values (`result_score`, `result_confidence`, `scanner_version`) need a numeric cast in the filter.
+# JSONB-backed sort keys. Numeric values (result_score, result_confidence, scanner_version) need a numeric cast.
 _JSONB_ORDER_KEYS = ("result_score", "result_verdict", "result_confidence", "scanner_version")
 _ALL_ORDER_KEYS = OBSERVATION_ORDER_FIELDS + _JSONB_ORDER_KEYS + ("recording_subject_email", "label")
 
@@ -847,7 +847,7 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
 
     @extend_schema(exclude=True)
     @action(detail=True, methods=["GET"], url_path="progress", renderer_classes=[ServerSentEventRenderer])
-    def progress(self, request: Request, **kwargs: Any) -> StreamingHttpResponse:
+    def progress(self, request: Request, **kwargs: Any) -> HttpResponseBase:
         """Stream live progress (phase + rendering frame counts) for one in-flight observation as SSE.
 
         `get_object()` applies the same RBAC scoping as retrieve, so this can't leak observations the caller

@@ -9,13 +9,13 @@ the exploring-scouts health playbook: cadence adherence, success rate, report ra
 run duration, and memory growth.
 
 Inputs (`call --json` payloads saved to a file):
-  --runs    signals-scout-runs-list --json  (REQUIRED) fetched over a window via
+  --runs    scout-runs-list --json  (REQUIRED) fetched over a window via
             `date_from` (e.g. the last 3 days). Returns all scouts mixed, newest-first.
             Keep the page within the 100-row cap; walk back with `date_to` if needed and
             concatenate the JSON arrays into one file.
-  --config  signals-scout-config-list --json  (optional) supplies each scout's expected
+  --config  scout-config-list --json  (optional) supplies each scout's expected
             `run_interval_minutes` so cadence adherence can be scored.
-  --scratchpad  signals-scout-scratchpad-search --json  (optional) memory-growth signal;
+  --scratchpad  scout-scratchpad-search --json  (optional) memory-growth signal;
             entries are attributed to a scout via `created_by_run_id`. Without it, the
             memory column shows `n/a` and no memory flags are raised.
   --now     ISO-8601 current time (optional) — enables "time since last run" staleness.
@@ -244,9 +244,9 @@ def render(scouts: list[dict], window_note: str, has_mem: bool, *, art: bool = T
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--runs", required=True, help="signals-scout-runs-list --json over a window")
-    ap.add_argument("--config", help="signals-scout-config-list --json (for expected interval)")
-    ap.add_argument("--scratchpad", help="signals-scout-scratchpad-search --json (for memory growth)")
+    ap.add_argument("--runs", required=True, help="scout-runs-list --json over a window")
+    ap.add_argument("--config", help="scout-config-list --json (for expected interval)")
+    ap.add_argument("--scratchpad", help="scout-scratchpad-search --json (for memory growth)")
     ap.add_argument("--now", help="ISO-8601 current time, for staleness")
     ap.add_argument("--skill", help="restrict to one scout skill_name")
     ap.add_argument("--no-art", dest="art", action="store_false", help="skip the hedgehog banner")

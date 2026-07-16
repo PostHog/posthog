@@ -314,6 +314,11 @@ AnalyticsProps = TypedDict(
 
 _POSTHOG_CODE_UA_RE = re.compile(r"posthog/(code|[\w.-]+\.hog\.dev)")
 
+# The wizard appends `program: <id>` to its user-agent so the backend can tell the
+# self-driving onboarding program apart from other wizard programs (they all share the
+# `posthog/wizard` UA). Used to attribute self-driving-created sources distinctly.
+_WIZARD_SELF_DRIVING_PROGRAM_RE = re.compile(r"program:\s*self-driving")
+
 
 def get_event_source(request) -> EventSource:
     """Determine the source of an API request for analytics."""
@@ -341,6 +346,20 @@ def get_event_source(request) -> EventSource:
     if getattr(getattr(request, "session", None), "session_key", None) is not None:
         return EventSource.WEB
     return EventSource.API
+
+
+def is_wizard_self_driving_program(request) -> bool:
+    """Whether the request comes from the wizard's `self-driving` onboarding program.
+
+    All wizard programs share the `posthog/wizard` user-agent, so `get_event_source`
+    can only tell they're "the wizard". The self-driving program additionally tags its
+    UA with a `program: self-driving` marker, letting callers attribute its work apart
+    from other wizard runs.
+    """
+    user_agent = request.headers.get("user-agent", "") or ""
+    if not isinstance(user_agent, str):
+        return False
+    return "posthog/wizard" in user_agent and bool(_WIZARD_SELF_DRIVING_PROGRAM_RE.search(user_agent))
 
 
 MAX_HEADER_VALUE_LENGTH = 1000

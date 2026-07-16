@@ -76,6 +76,7 @@ import {
     setsEqual,
     textBlocksShareContinuationStyle,
     updateNotebookCodeBlockText,
+    withoutLeadingEmptyTitleGroup,
     writeSystemClipboardText,
 } from './documentModel'
 import {
@@ -5598,10 +5599,11 @@ function MarkdownNotebookEditor({
         canvasRef.current?.focus()
     }
 
-    const renderedNodeGroups = getMarkdownNotebookVisualGroups(
+    const allNodeGroups = getMarkdownNotebookVisualGroups(
         renderedNodes,
         insertMenu?.detached ? insertMenu.nodeId : undefined
     )
+    const renderedNodeGroups = mode === 'edit' ? allNodeGroups : withoutLeadingEmptyTitleGroup(allNodeGroups)
 
     // The insert menu never takes focus (typing keeps filtering), so the canvas points at the
     // selected option via aria-activedescendant.

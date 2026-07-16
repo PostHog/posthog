@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonSelect, LemonSwitch, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import type { LemonTableColumns } from '@posthog/lemon-ui'
 
 import { Sparkline } from 'lib/components/Sparkline'
@@ -210,11 +210,10 @@ export function LogsPatterns({ id }: { id: string }): JSX.Element {
         patternsError,
         sparklineLabels,
         compareEnabled,
-        baselineMode,
         diffResponse,
         diffResponseLoading,
     } = useValues(logsPatternsLogic({ id }))
-    const { viewMatchingLogs, setCompareEnabled, setBaselineMode } = useActions(logsPatternsLogic({ id }))
+    const { viewMatchingLogs } = useActions(logsPatternsLogic({ id }))
     const { sampled, scanned_count, total_count, sample_coverage_pct } = patternsResponse
 
     // Estimated counts are rounded (not exact-comma-formatted) and prefixed with "~" so a
@@ -364,29 +363,6 @@ export function LogsPatterns({ id }: { id: string }): JSX.Element {
 
     return (
         <div className="flex-1 min-h-0 overflow-auto" data-attr="logs-patterns">
-            <div className="flex items-center gap-2 m-2">
-                <LemonSwitch
-                    checked={compareEnabled}
-                    onChange={setCompareEnabled}
-                    label="Compare"
-                    bordered
-                    size="small"
-                    data-attr="logs-patterns-compare-toggle"
-                />
-                {compareEnabled && (
-                    <LemonSelect
-                        size="small"
-                        loading={diffResponseLoading}
-                        value={baselineMode}
-                        onChange={setBaselineMode}
-                        options={[
-                            { value: 'lastWeek' as const, label: 'vs. same time last week' },
-                            { value: 'preceding' as const, label: 'vs. preceding period' },
-                        ]}
-                        data-attr="logs-patterns-baseline-mode"
-                    />
-                )}
-            </div>
             {!compareEnabled && sampled && !patternsResponseLoading && !patternsError && (
                 <LemonBanner type="info" className="m-2" data-attr="logs-patterns-sample-info">
                     Patterns are mined from a representative sample of {humanFriendlyNumber(scanned_count)} lines out of

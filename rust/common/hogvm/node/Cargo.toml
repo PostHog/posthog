@@ -21,7 +21,6 @@ hogvm = { path = ".." }
 maxminddb = "0.24"
 napi = { version = "2", default-features = false, features = ["napi8", "serde-json"] }
 napi-derive = "2"
-rayon = "1.10"
 serde_json = "1.0"
 
 [build-dependencies]

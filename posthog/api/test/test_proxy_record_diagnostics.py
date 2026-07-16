@@ -384,6 +384,31 @@ class TestDiagnoseOrchestrator(TestCase):
         assert cf_check.remediation is not None
         self.assertEqual(cf_check.remediation.type, "retry")
 
+    @patch("posthog.api.proxy_record_diagnostics.requests.post")
+    @patch("posthog.api.proxy_record_diagnostics.get_custom_hostname_by_domain")
+    @patch("posthog.api.proxy_record_diagnostics.dns.resolver.Resolver")
+    def test_cloudflare_unprovisioned_skips_hostname_check_when_dns_absent(self, ResolverMock, get_mock, post_mock):
+        # A Cloudflare-path proxy whose DNS isn't set yet: we only create the custom hostname
+        # after DNS resolves, so a missing hostname here is expected — not a fault. Skip the
+        # check (not fail it), never call the Cloudflare API, and never suggest retry; the
+        # missing CNAME is the real issue. Guards the false "we don't have a record of this
+        # proxy → Hit Retry" that this record's lifecycle would otherwise surface.
+        def resolve_side_effect(name, rdtype):
+            if rdtype == "CNAME":
+                raise dns.resolver.NXDOMAIN()
+            raise dns.resolver.NoAnswer()
+
+        ResolverMock.return_value.resolve.side_effect = resolve_side_effect
+
+        report = diagnostics.diagnose(_record(target=CF_TARGET))
+
+        post_mock.assert_not_called()
+        get_mock.assert_not_called()
+        cf_check = next(c for c in report.checks if c.id == "cloudflare")
+        self.assertEqual(cf_check.status, "skipped")
+        self.assertFalse(any(c.remediation and c.remediation.type == "retry" for c in report.checks))
+        self.assertEqual(report.summary.primary_issue, "cname")
+
     @patch("posthog.api.proxy_record_diagnostics.requests.get")
     @patch("posthog.api.proxy_record_diagnostics.requests.post")
     @patch("posthog.api.proxy_record_diagnostics.get_custom_hostname_by_domain")

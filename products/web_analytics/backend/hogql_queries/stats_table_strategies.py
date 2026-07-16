@@ -9,9 +9,12 @@ from posthog.hogql.parser import parse_expr, parse_select
 from products.web_analytics.backend.hogql_queries.query_constants.stats_table_queries import (
     FRUSTRATION_METRICS_INNER_QUERY,
     MAIN_INNER_QUERY,
+    NO_JOIN_PATH_BOUNCE_AND_AVG_TIME_QUERY,
+    NO_JOIN_PATH_BOUNCE_QUERY,
     PATH_BOUNCE_AND_AVG_TIME_QUERY,
     PATH_BOUNCE_QUERY,
 )
+from products.web_analytics.backend.hogql_queries.web_analytics_query_runner import WEB_ANALYTICS_NO_JOIN_SERVED
 
 if TYPE_CHECKING:
     from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
@@ -208,6 +211,62 @@ class PathBounceAvgTimeStrategy(StatsTableQueryStrategy):
             )
         assert isinstance(query, ast.SelectQuery)
         return self._finalize_query(query)
+
+
+class NoJoinPathBounceStrategy(StatsTableQueryStrategy):
+    """PAGE breakdown with bounce rate, without the events↔sessions join.
+
+    Only selected when the runner's ``should_skip_session_join`` gate holds, so
+    nothing in the query constrains which sessions qualify: counts come straight
+    from events (bucketed by event timestamp instead of session start) and bounce
+    comes straight from the sessions table (bucketed by session start). Semantics
+    shift only at range boundaries; measured drift on team 2 over 30d was ≤0.8%
+    on visitors/views and ≤0.001 on bounce rate.
+    """
+
+    QUERY = NO_JOIN_PATH_BOUNCE_QUERY
+    TIMING_KEY = "stats_table_no_join_path_bounce"
+
+    def build_query(self) -> ast.SelectQuery:
+        WEB_ANALYTICS_NO_JOIN_SERVED.labels(family="stats_table_paths").inc()
+        with self.runner.timings.measure(self.TIMING_KEY):
+            query = parse_select(
+                self.QUERY,
+                timings=self.runner.timings,
+                placeholders=self._placeholders(),
+            )
+        assert isinstance(query, ast.SelectQuery)
+        return self._finalize_query(query)
+
+    def _placeholders(self) -> dict[str, ast.Expr]:
+        return {
+            "breakdown_value": self.runner._counts_breakdown_value(),
+            "events_session_id_present": self.runner.events_session_id_present,
+            "bounce_breakdown_value": self.runner._bounce_entry_pathname_breakdown_sessions(),
+            "current_timestamp_period": self.runner._current_period_expression("timestamp"),
+            "previous_timestamp_period": self.runner._previous_period_expression("timestamp"),
+            "inside_timestamp_periods": self.runner._periods_expression("timestamp"),
+            "current_session_period": self.runner._current_period_expression("$start_timestamp"),
+            "previous_session_period": self.runner._previous_period_expression("$start_timestamp"),
+            "inside_session_periods": self.runner._periods_expression("$start_timestamp"),
+        }
+
+
+class NoJoinPathBounceAvgTimeStrategy(NoJoinPathBounceStrategy):
+    """PAGE breakdown with average time on page and bounce rate, join-free.
+
+    The time-on-page subquery was already events-only in the join shape; it is
+    carried over unchanged.
+    """
+
+    QUERY = NO_JOIN_PATH_BOUNCE_AND_AVG_TIME_QUERY
+    TIMING_KEY = "stats_table_no_join_path_bounce_and_avg_time"
+
+    def _placeholders(self) -> dict[str, ast.Expr]:
+        return {
+            **super()._placeholders(),
+            "time_on_page_breakdown_value": self.runner._scroll_prev_pathname_breakdown(),
+        }
 
 
 class FrustrationMetricsStrategy(StatsTableQueryStrategy):

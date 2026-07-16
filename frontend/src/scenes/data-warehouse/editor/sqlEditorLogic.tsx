@@ -1,5 +1,5 @@
 import { Monaco } from '@monaco-editor/react'
-import equal from 'fast-deep-equal'
+import { deepEqual as equal } from 'fast-equals'
 import {
     actions,
     afterMount,
@@ -86,6 +86,7 @@ import { validateEndpointName } from 'products/endpoints/frontend/common'
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { validateSavedQueryName } from '../saved_queries/savedQueryNameValidation'
 import { dataModelingLogic } from '../scene/dataModelingLogic'
+import { connectionSelectorLogic } from './connectionSelectorLogic'
 import { draftsLogic } from './draftsLogic'
 import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
 import { findInnermostSelectAtOffset, findQueryAtCursor, type QueryRange, splitQueries } from './multiQueryUtils'
@@ -113,7 +114,11 @@ export interface SqlEditorLogicProps {
 // border from a className. Instead, we maintain an absolutely-positioned `div`
 // inside the editor's overlay layer and recompute its bounding box from the pixel
 // positions of the range's start/end on each line.
-function renderQueryOutline(editorInstance: editor.IStandaloneCodeEditor, node: HTMLElement, range: IRange): void {
+export function renderQueryOutline(
+    editorInstance: editor.IStandaloneCodeEditor,
+    node: HTMLElement,
+    range: IRange
+): void {
     const model = editorInstance.getModel()
     if (!model) {
         node.style.display = 'none'
@@ -125,9 +130,18 @@ function renderQueryOutline(editorInstance: editor.IStandaloneCodeEditor, node: 
     let minTop = Infinity
     let maxBottom = -Infinity
 
-    for (let line = range.startLineNumber; line <= range.endLineNumber; line++) {
-        const leftCol = line === range.startLineNumber ? range.startColumn : 1
-        const rightCol = line === range.endLineNumber ? range.endColumn : model.getLineMaxColumn(line)
+    // The cached range can outlive the document it was computed against: a paste or edit
+    // that removes lines shrinks the model, but this render path runs on scroll/layout
+    // without re-clamping. Passing an out-of-range line to `getLineMaxColumn` throws
+    // "Illegal value for lineNumber", so clamp every line/column against the live model.
+    const lineCount = model.getLineCount()
+    const startLine = Math.max(1, Math.min(range.startLineNumber, lineCount))
+    const endLine = Math.max(1, Math.min(range.endLineNumber, lineCount))
+
+    for (let line = startLine; line <= endLine; line++) {
+        const lineMaxColumn = model.getLineMaxColumn(line)
+        const leftCol = Math.min(line === startLine ? range.startColumn : 1, lineMaxColumn)
+        const rightCol = line === endLine ? Math.min(range.endColumn, lineMaxColumn) : lineMaxColumn
         if (leftCol >= rightCol) {
             continue
         }
@@ -456,6 +470,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             ['featureFlags'],
             sourcesDataLogic,
             ['dataWarehouseSources'],
+            connectionSelectorLogic,
+            ['connectionOptions'],
             databaseTableListLogic,
             ['database', 'databaseLoading', 'connectionId as databaseConnectionId'],
             outputPaneLogic({ tabId: props.tabId }),
@@ -484,6 +500,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             ['saveAsDraft', 'deleteDraft', 'saveAsDraftSuccess', 'deleteDraftSuccess'],
             databaseTableListLogic,
             ['setConnection', 'loadDatabase'],
+            connectionSelectorLogic,
+            ['loadConnectionOptionsSuccess', 'maybeLoadConnectionOptions'],
         ],
     })),
     actions(() => ({
@@ -629,6 +647,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         setEditorSource: (source: SqlEditorSource) => ({ source }),
         runSubquery: true,
         setSendRawQuery: (sendRawQuery: boolean) => ({ sendRawQuery }),
+        enforceConnectionRawQueryMode: true,
         setDashboardId: (dashboardId: number | null) => ({ dashboardId }),
         openMaterializationModal: (view?: DataWarehouseSavedQuery) => ({
             view,
@@ -656,13 +675,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             // subquery, which is too expensive to do on every arrow key.
             cache.cursorDisposable?.dispose()
             cache.cursorDisposable = props.editor.onDidChangeCursorPosition(() => {
-                if (cache.activeQueryDecorationDebounceTimeout) {
-                    window.clearTimeout(cache.activeQueryDecorationDebounceTimeout)
-                }
-                cache.activeQueryDecorationDebounceTimeout = window.setTimeout(() => {
-                    cache.activeQueryDecorationDebounceTimeout = null
-                    cache.updateActiveQueryDecoration?.()
-                }, 150)
+                cache.scheduleActiveQueryDecoration?.()
             })
 
             // Set up the active-query outline overlay. We render a single `div` parented
@@ -1133,6 +1146,20 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     },
                 })
                 actions.syncUrlWithQuery()
+            },
+            enforceConnectionRawQueryMode: () => {
+                // Raw-only connections cannot compile HogQL — force raw SQL mode.
+                if (
+                    values.selectedConnectionId &&
+                    !values.selectedConnectionSupportsHogQL &&
+                    !values.sourceQuery.source.sendRawQuery
+                ) {
+                    actions.setSendRawQuery(true)
+                }
+            },
+            // Options can load after a connection was restored from the URL.
+            loadConnectionOptionsSuccess: () => {
+                actions.enforceConnectionRawQueryMode()
             },
             runSubquery: async () => {
                 if (!props.editor) {
@@ -2033,8 +2060,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             // everything whenever the editor content changes.
             cache.subqueryValidationCache?.clear()
 
-            // Decorations are cheap and visual — update immediately for responsiveness.
-            cache.updateActiveQueryDecoration?.()
+            // Debounced — updating decorations parses the AST and can hit the metadata endpoint,
+            // which is too expensive to run on every keystroke.
+            cache.scheduleActiveQueryDecoration?.()
 
             // Skip re-parsing if the text hasn't changed since the last parse.
             if (cache.lastParsedQueryInput === queryInput && cache.lastParsedQueryResult !== undefined) {
@@ -2111,6 +2139,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             cache.lastSelectedConnectionId = selectedConnectionId
             actions.setConnection(selectedConnectionId ?? null)
             actions.loadDatabase()
+            if (selectedConnectionId) {
+                // Capability data must load wherever a connection is in play — including
+                // surfaces that never render the connection selector.
+                actions.maybeLoadConnectionOptions()
+            }
+            actions.enforceConnectionRawQueryMode()
         },
     })),
     selectors({
@@ -2202,6 +2236,17 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         sendRawQueryEnabled: [
             (s) => [s.sourceQuery, s.selectedConnectionId],
             (sourceQuery, selectedConnectionId) => !!selectedConnectionId && (sourceQuery.source.sendRawQuery ?? false),
+        ],
+        selectedConnectionSupportsHogQL: [
+            (s) => [s.connectionOptions, s.selectedConnectionId],
+            (connectionOptions, selectedConnectionId): boolean => {
+                if (!selectedConnectionId) {
+                    return true
+                }
+                const option = connectionOptions?.find((option) => option.id === selectedConnectionId)
+                // Unknown connections (options still loading) default to HogQL.
+                return option ? option.supports_hogql !== false : true
+            },
         ],
         isEditingMaterializedView: [
             (s) => [s.editingView],
@@ -2605,6 +2650,19 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         cache.lastSelectedConnectionId = values.selectedConnectionId
         cache.activeQueryDecorationIds = [] as string[]
         cache.decorationGeneration = 0
+
+        // Debounce the active-query decoration. It parses the HogQL AST (WASM, main thread) and
+        // can fire a HogQLMetadata request, so running it on every keystroke or arrow key stalls
+        // typing on long queries. Cursor moves and content changes both schedule through here.
+        cache.scheduleActiveQueryDecoration = (): void => {
+            if (cache.activeQueryDecorationDebounceTimeout) {
+                window.clearTimeout(cache.activeQueryDecorationDebounceTimeout)
+            }
+            cache.activeQueryDecorationDebounceTimeout = window.setTimeout(() => {
+                cache.activeQueryDecorationDebounceTimeout = null
+                cache.updateActiveQueryDecoration?.()
+            }, 150)
+        }
 
         cache.updateActiveQueryDecoration = async (): Promise<void> => {
             // Bump the generation counter so any still-running invocation bails out before

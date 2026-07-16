@@ -32,8 +32,6 @@ class TestSourceConfig:
         assert config.label == "Easypromos"
         assert config.category == DataWarehouseSourceCategory.MARKETING___EMAIL
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        # Stays hidden until it has synced end-to-end against a live White Label account.
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/easypromos"
 
     def test_single_secret_access_token_field(self) -> None:

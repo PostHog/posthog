@@ -66,7 +66,6 @@ import {
     OBSERVATION_TRIGGER_TAG,
     type ScannerType,
 } from '../replay_scanners/types'
-import { ImproveScannerPromptButton, describeObservationOutcome } from './ImproveScannerPromptButton'
 import { ObservationLabelControl } from './ObservationLabelControl'
 import { neighborFilterParams, observationDetailUrl, replayObservationLogic } from './replayObservationLogic'
 import { replayObservationSceneLogic } from './replayObservationSceneLogic'
@@ -417,18 +416,6 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                                     observationId={observation.id}
                                     initialLabel={observation.label}
                                 />
-                            )}
-                            {qualityEnabled && prompt && scannerType && (
-                                <div className="flex justify-end pt-1">
-                                    <ImproveScannerPromptButton
-                                        scannerName={scannerName}
-                                        scannerType={scannerType}
-                                        prompt={prompt}
-                                        sessionId={observation.session_id}
-                                        outcome={describeObservationOutcome(observation)}
-                                        reasoning={reasoning}
-                                    />
-                                </div>
                             )}
                         </div>
                     )}

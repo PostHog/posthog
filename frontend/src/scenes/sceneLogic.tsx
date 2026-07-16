@@ -1,4 +1,4 @@
-import equal from 'fast-deep-equal'
+import { deepEqual as equal } from 'fast-equals'
 import { BuiltLogic, actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
@@ -110,6 +110,9 @@ const pathPrefixesOnboardingNotRequiredFor = [
     '/agentic',
     // /cli/authorize, /cli/live (CLI auth round-trip).
     '/cli',
+    // /stamphog/install/callback — GitHub App install round-trip carrying a one-time OAuth code;
+    // if /onboarding swallows it the installation completes on GitHub but no repos ever connect.
+    '/stamphog/install/callback',
     // /verify_email/<uuid>/<token> — email verification/change confirmation must run its
     // urlToAction (POST /api/users/verify_email/) even when onboarding is incomplete, else
     // /onboarding swallows the click and the email is never updated.
@@ -746,20 +749,33 @@ export const sceneLogic = kea<sceneLogicType>([
     })),
 
     urlToAction(({ actions, values }) => {
-        const mapping: Record<
-            string,
-            (
-                params: Params,
-                searchParams: Params,
-                hashParams: Params,
-                payload: {
-                    method: string
+        type RouteHandler = (
+            params: Params,
+            searchParams: Params,
+            hashParams: Params,
+            payload: {
+                method: string
+            }
+        ) => any
+        const mapping: Record<string, RouteHandler> = {}
+
+        // Malformed URLs (a stray `%`, embedded whitespace) can make redirect building or
+        // scene dispatch throw synchronously while kea-router matches the route. Nothing
+        // upstream catches it, so the whole app fails to render. Guard every route handler:
+        // capture the error and fall back to a 404 instead of crashing.
+        const guardRoute =
+            (handler: RouteHandler): RouteHandler =>
+            (params, searchParams, hashParams, payload) => {
+                try {
+                    return handler(params, searchParams, hashParams, payload)
+                } catch (error) {
+                    posthog.captureException(error, { extra: { source: 'sceneLogic.urlToAction' } })
+                    actions.loadScene(Scene.Error404, undefined, emptySceneParams, payload.method)
                 }
-            ) => any
-        > = {}
+            }
 
         for (const path of Object.keys(redirects)) {
-            mapping[path] = (params, searchParams, hashParams) => {
+            mapping[path] = guardRoute((params, searchParams, hashParams) => {
                 const redirect = redirects[path]
                 const redirectUrl =
                     typeof redirect === 'function' ? redirect(params, searchParams, hashParams) : redirect
@@ -767,7 +783,7 @@ export const sceneLogic = kea<sceneLogicType>([
                 router.actions.replace(
                     withForwardedSearchParams(redirectUrl, searchParams, forwardedRedirectQueryParams)
                 )
-            }
+            })
         }
         // The Home button (via `/`) and a direct visit to /home should both land on the user's
         // configured homepage (set in the Configure home modal). Redirect there unless we're
@@ -796,18 +812,18 @@ export const sceneLogic = kea<sceneLogicType>([
             return true
         }
 
-        mapping['/'] = (_params, searchParams) => {
+        mapping['/'] = guardRoute((_params, searchParams) => {
             if (redirectToConfiguredHomepage(searchParams)) {
                 return
             }
             router.actions.replace(
                 withForwardedSearchParams(urls.projectHomepage(), searchParams, forwardedRedirectQueryParams)
             )
-        }
+        })
 
         const projectHomepagePath = urls.projectHomepage()
         for (const [path, [scene, sceneKey]] of Object.entries(routes)) {
-            mapping[path] = (params, searchParams, hashParams, { method }) => {
+            mapping[path] = guardRoute((params, searchParams, hashParams, { method }) => {
                 // A direct visit to /home honors the configured homepage just like the Home button.
                 if (path === projectHomepagePath && redirectToConfiguredHomepage(searchParams)) {
                     return
@@ -822,7 +838,7 @@ export const sceneLogic = kea<sceneLogicType>([
                     },
                     method
                 )
-            }
+            })
         }
 
         mapping['/*'] = (_, __, { method }) => {

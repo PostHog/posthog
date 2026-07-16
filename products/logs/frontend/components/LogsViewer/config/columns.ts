@@ -63,6 +63,11 @@ export function normalizeColumns(columns: LogsColumnConfig[]): LogsColumnConfig[
     return [...rest, ...columns.filter(isPinnedColumn)]
 }
 
+/** The one validation rule shared by the add-form and the draft: custom columns need an expression. */
+export function customColumnExpressionError(type: LogsColumnType, expression: string | undefined): string | null {
+    return type === 'custom' && !expression?.trim() ? 'Custom columns need an expression' : null
+}
+
 export function columnLabel(column: LogsColumnConfig): string {
     if (column.name) {
         return column.name

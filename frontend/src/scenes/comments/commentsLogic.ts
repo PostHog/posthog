@@ -148,6 +148,13 @@ export const commentsLogic = kea<commentsLogicType>([
             null as CommentType[] | null,
             {
                 loadComments: async () => {
+                    if (!props.item_id) {
+                        // A per-item discussion must target a specific item. Listing with only a
+                        // scope makes the backend return every comment in that scope across the
+                        // team, so fail closed rather than leak other items' comments.
+                        return []
+                    }
+
                     const response = await api.comments.list({
                         scope: props.scope,
                         item_id: props.item_id,
@@ -157,6 +164,11 @@ export const commentsLogic = kea<commentsLogicType>([
                 },
                 sendComposedContent: async ({ asTask }) => {
                     const existingComments = values.comments ?? []
+
+                    if (!props.item_id) {
+                        console.error('Failed to create a comment because no item_id was provided')
+                        return existingComments
+                    }
 
                     if (values.richContentEditor?.isEmpty()) {
                         console.error('Failed to create a comment because the content was empty')

@@ -65,6 +65,8 @@ import {
     SessionsQueryResponse,
     TracesQuery,
     TracesQueryResponse,
+    WebStatsTableQuery,
+    WebStatsTableQueryResponse,
 } from '~/queries/schema/schema-general'
 import {
     isAccountsQuery,
@@ -81,6 +83,7 @@ import {
     isSessionQuery,
     isSessionsQuery,
     isTracesQuery,
+    isWebStatsTableQuery,
 } from '~/queries/utils'
 import { TeamType } from '~/types'
 
@@ -464,7 +467,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         isErrorTrackingQuery(props.query) ||
                         isSessionsQuery(props.query) ||
                         isMarketingAnalyticsTableQuery(props.query) ||
-                        isAccountsQuery(props.query)
+                        isAccountsQuery(props.query) ||
+                        isWebStatsTableQuery(props.query)
                     ) {
                         const newResponse =
                             (await performQuery(
@@ -489,6 +493,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             | SessionsQueryResponse
                             | MarketingAnalyticsTableQueryResponse
                             | AccountsQueryResponse
+                            | WebStatsTableQueryResponse
 
                         let results = [...(queryResponse?.results ?? []), ...(newResponse?.results ?? [])]
 
@@ -837,7 +842,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         isSessionQuery(query) ||
                         isSessionsQuery(query) ||
                         isMarketingAnalyticsTableQuery(query) ||
-                        isAccountsQuery(query)) &&
+                        isAccountsQuery(query) ||
+                        isWebStatsTableQuery(query)) &&
                     !responseError &&
                     !dataLoading
                 ) {
@@ -853,6 +859,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                 | SessionsQueryResponse
                                 | MarketingAnalyticsTableQueryResponse
                                 | AccountsQueryResponse
+                                | WebStatsTableQueryResponse
                         )?.hasMore
                     ) {
                         const sortKey =
@@ -890,6 +897,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                     | SessionsQueryResponse
                                     | MarketingAnalyticsTableQueryResponse
                                     | AccountsQueryResponse
+                                    | WebStatsTableQueryResponse
                             )?.results
                             return {
                                 ...query,
@@ -908,6 +916,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                 | SessionsQuery
                                 | MarketingAnalyticsTableQuery
                                 | AccountsQuery
+                                | WebStatsTableQuery
                         }
                     }
                 }

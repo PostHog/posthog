@@ -8,6 +8,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { OrganizationFeatureFlag, OrganizationFeatureFlagRow, OrganizationType } from '~/types'
 
+import { flagSelectionLogic } from '../flagSelectionLogic'
 import { flagToggleKey, updateFlagActiveInProject } from '../updateFlagActiveInProject'
 import type { projectsGridLogicType } from './projectsGridLogicType'
 
@@ -26,6 +27,7 @@ export const projectsGridLogic = kea<projectsGridLogicType>([
     path(['scenes', 'feature-flags', 'projects-grid', 'projectsGridLogic']),
     connect(() => ({
         values: [teamLogic, ['currentTeamId'], organizationLogic, ['currentOrganization']],
+        actions: [flagSelectionLogic, ['bulkCopyFlagsFinished']],
     })),
     actions({
         setSearch: (search: string) => ({ search }),
@@ -213,6 +215,15 @@ export const projectsGridLogic = kea<projectsGridLogicType>([
         resetPickedTeamIds: () => {
             localStorage.removeItem(storageKey(getCurrentTeamId()))
             actions.loadFlagsPage({ offset: 0, search: values.search })
+        },
+        bulkCopyFlagsFinished: ({ result }) => {
+            // A bulk copy changes which projects the copied flags exist in, so the cached sibling
+            // data for those keys is stale — re-fetch the ones currently shown in the grid.
+            const loadedKeys = new Set(values.flags.map((f) => f.key))
+            const copiedKeys = (result?.copied ?? []).map((entry) => entry.key).filter((key) => loadedKeys.has(key))
+            if (copiedKeys.length) {
+                actions.enqueueSiblingFetches(copiedKeys)
+            }
         },
         toggleFlagActive: async ({ flagKey, teamId, flagId, active }) => {
             const updatedFlag = await updateFlagActiveInProject({ teamId, flagId, active })

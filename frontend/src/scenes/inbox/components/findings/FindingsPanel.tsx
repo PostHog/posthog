@@ -96,17 +96,19 @@ export function FindingsPanel(): JSX.Element {
                 />
             </div>
 
-            {hasLoadedOnce && emissionsLoadFailed && totalCount > 0 && (
-                // A later poll/retry of the batched fetch failed while a prior set is still on screen
-                // (stale). The list a user triages against may be incomplete — warn rather than show it
-                // silently.
-                <LemonBanner
-                    type="warning"
-                    action={{ children: 'Retry', onClick: () => loadEmissions(), loading: emissionsLoading }}
-                >
-                    Some findings couldn't be loaded, so this list may be incomplete.
-                </LemonBanner>
-            )}
+            {hasLoadedOnce &&
+                emissionsLoadFailed &&
+                totalCount > 0 && (
+                    // A later poll/retry of the batched fetch failed while a prior set is still on screen
+                    // (stale). The list a user triages against may be incomplete — warn rather than show it
+                    // silently.
+                    <LemonBanner
+                        type="warning"
+                        action={{ children: 'Retry', onClick: () => loadEmissions(), loading: emissionsLoading }}
+                    >
+                        Some findings couldn't be loaded, so this list may be incomplete.
+                    </LemonBanner>
+                )}
 
             {!hasLoadedOnce ? (
                 <div className="flex flex-col gap-2">

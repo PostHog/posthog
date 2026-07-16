@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 
 import api from 'lib/api'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { captureAccessControlEvent, pluralizeResource } from 'lib/utils/accessControlUtils'
 import { toSentenceCase } from 'lib/utils/strings'
 import { membersLogic } from 'scenes/organization/membersLogic'
@@ -13,13 +14,14 @@ import {
     AccessControlDefaultsResponse,
     AccessControlLevel,
     AccessControlMembersResponse,
+    AccessControlResourceType,
     AccessControlRolesResponse,
     AvailableFeature,
     OrganizationMemberType,
 } from '~/types'
 
 import { accessControlLogic } from '../accessControlLogic'
-import { resourcesAccessControlLogic } from '../resourcesAccessControlLogic'
+import { isResourceRolledOut, resourcesAccessControlLogic } from '../resourcesAccessControlLogic'
 import { roleAccessControlLogic } from '../roleAccessControlLogic'
 import type { accessControlsLogicType } from './accessControlsLogicType'
 import {
@@ -51,7 +53,11 @@ function getEffectiveLevel(entry: AccessControlSettingsEntry, resourceKey: APISc
     return entry.resources[resourceKey]?.effective_access_level ?? null
 }
 
-function matchesFilters(entry: AccessControlSettingsEntry, filters: AccessControlFilters): boolean {
+function matchesFilters(
+    entry: AccessControlSettingsEntry,
+    filters: AccessControlFilters,
+    visibleResources: Set<APIScopeObject>
+): boolean {
     const hasResourceFilter = filters.resourceKeys.length > 0
     const hasLevelFilter = filters.ruleLevels.length > 0
 
@@ -68,7 +74,10 @@ function matchesFilters(entry: AccessControlSettingsEntry, filters: AccessContro
     }
 
     if (hasLevelFilter) {
-        const allKeys = ['project', ...Object.keys(entry.resources)] as APIScopeObject[]
+        const allKeys = [
+            'project',
+            ...Object.keys(entry.resources).filter((k) => visibleResources.has(k as APIScopeObject)),
+        ] as APIScopeObject[]
         return filters.ruleLevels.some((rl) => allKeys.some((k) => getEffectiveLevel(entry, k) === rl))
     }
 
@@ -115,6 +124,8 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             ['roles'],
             resourcesAccessControlLogic,
             ['resources'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
     })),
 
@@ -208,13 +219,15 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
         ],
 
         resourceKeys: [
-            (s) => [s.defaults, s.resources],
-            (defaults, resources): { key: APIScopeObject; label: string }[] => {
+            (s) => [s.defaults, s.resources, s.featureFlags],
+            (defaults, resources, featureFlags): { key: APIScopeObject; label: string }[] => {
                 if (defaults) {
-                    return Object.keys(defaults.resource_access_levels).map((resource) => ({
-                        key: resource as APIScopeObject,
-                        label: toSentenceCase(pluralizeResource(resource as APIScopeObject)),
-                    }))
+                    return Object.keys(defaults.resource_access_levels)
+                        .filter((resource) => isResourceRolledOut(resource as AccessControlResourceType, featureFlags))
+                        .map((resource) => ({
+                            key: resource as APIScopeObject,
+                            label: toSentenceCase(pluralizeResource(resource as APIScopeObject)),
+                        }))
                 }
                 // Fallback to list of all resources while loading
                 return resources.map((resource) => ({
@@ -229,6 +242,11 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             (resourceKeys): { key: APIScopeObject; label: string }[] => {
                 return [{ key: 'project' as APIScopeObject, label: 'Project' }, ...resourceKeys]
             },
+        ],
+
+        visibleResourceKeySet: [
+            (s) => [s.resourceKeys],
+            (resourceKeys): Set<APIScopeObject> => new Set(resourceKeys.map((r) => r.key)),
         ],
 
         ruleOptions: [
@@ -252,8 +270,8 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
         ],
 
         filteredRoles: [
-            (s) => [s.rolesData, s.searchText, s.filters, s.canUseRoles],
-            (rolesData, searchText, filters, canUseRoles): AccessControlRoleEntry[] => {
+            (s) => [s.rolesData, s.searchText, s.filters, s.canUseRoles, s.visibleResourceKeySet],
+            (rolesData, searchText, filters, canUseRoles, visibleResourceKeySet): AccessControlRoleEntry[] => {
                 if (!canUseRoles || !rolesData) {
                     return []
                 }
@@ -265,14 +283,14 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                     if (search.length > 0 && !role.role_name.toLowerCase().includes(search)) {
                         return false
                     }
-                    return matchesFilters(role, filters)
+                    return matchesFilters(role, filters, visibleResourceKeySet)
                 })
             },
         ],
 
         filteredMembers: [
-            (s) => [s.membersData, s.searchText, s.filters],
-            (membersData, searchText, filters): AccessControlMemberEntry[] => {
+            (s) => [s.membersData, s.searchText, s.filters, s.visibleResourceKeySet],
+            (membersData, searchText, filters, visibleResourceKeySet): AccessControlMemberEntry[] => {
                 if (!membersData) {
                     return []
                 }
@@ -292,7 +310,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                     ) {
                         return false
                     }
-                    return matchesFilters(member, filters)
+                    return matchesFilters(member, filters, visibleResourceKeySet)
                 })
             },
         ],

@@ -98,6 +98,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _is_partitioned_table,
     _is_read_replica,
     _is_unsupported_function_error,
+    _is_unsupported_statement_timeout_error,
     _next_recovery_conflict_chunk_size,
     _normalize_function_names,
     _pk_uniqueness_probe_timeout_error,
@@ -380,6 +381,10 @@ class TestPostgresSourceNonRetryableErrors:
             # can hit on a hot-standby-disabled replica is non-retryable (see the permanent cases below).
             "consuming input failed: SSL SYSCALL error: EOF detected",
             "the connection is lost",
+            # A hot standby still reaching a consistent recovery point (SQLSTATE 57P03). Transient —
+            # it accepts connections once recovery completes — so unlike the permanent
+            # hot-standby-disabled refusal it must stay out of NonRetryableErrors.
+            'connection failed: connection to server at "127.0.0.1", port 5432 failed: FATAL:  the database system is not yet accepting connections DETAIL:  Consistent recovery state has not been yet reached.',
         ],
     )
     def test_transient_connection_errors_are_retryable(self, source, error_msg):
@@ -725,6 +730,29 @@ class TestPostgresSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Non-integer incremental cursor error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "builder",
+        [
+            # schema, table_name, should_use_incremental_field, table_type, incremental_field,
+            # incremental_field_type, db_incremental_field_last_value
+            lambda: _build_query("public", "my_table", True, None, None, None, None),
+            # _build_count_query has no `table_type` parameter
+            lambda: _build_count_query("public", "my_table", True, None, None, None),
+        ],
+    )
+    def test_missing_incremental_field_is_non_retryable(self, source, builder):
+        # Drive the real raise sites so a message change that breaks the classifier key is caught.
+        with pytest.raises(ValueError) as exc_info:
+            builder()
+        error_msg = str(exc_info.value)
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Missing incremental field error should be non-retryable: {error_msg}"
+
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Missing incremental field error should surface an actionable message"
+        assert "incremental field" in friendly[0]
 
     def test_exhausted_recovery_conflict_retries_are_non_retryable(self, source):
         error_msg = str(_recovery_conflict_abort_error(10))
@@ -1154,6 +1182,105 @@ class TestPostgresSourceSetupRecoveryConflictRetry:
         assert connect_mock.call_count == 1
 
 
+class TestSetupStatementTimeoutUnsupported:
+    """The row-serving setup connection raises a session `statement_timeout` before streaming.
+    Some Postgres-compatible engines/poolers reject `SET statement_timeout` with
+    FeatureNotSupported; that must degrade to the source's default rather than aborting the whole
+    import, mirroring the metadata-probe sites that already fall back."""
+
+    class _Cursor:
+        def __init__(self, *, is_setup: bool):
+            self._is_setup = is_setup
+            col = mock.Mock()
+            col.name = "id"
+            self.description = [col]
+
+        def execute(self, query, *args, **kwargs):
+            # Only the setup connection's SET is unguarded in the reported crash; the streaming
+            # cursor's SETs go through a separate (patched) psycopg.Cursor and stay benign.
+            if self._is_setup and "statement_timeout" in str(query):
+                raise psycopg.errors.FeatureNotSupported(
+                    'setting configuration parameter "statement_timeout" not supported'
+                )
+            return None
+
+        def fetchmany(self, _n: int):
+            return []
+
+        def fetchone(self):
+            return None
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    class _Connection:
+        def __init__(self):
+            self.autocommit = True
+            self.closed = False
+            self.broken = False
+            self.adapters = mock.Mock()
+
+        def cursor(self, *args, **kwargs):
+            return TestSetupStatementTimeoutUnsupported._Cursor(is_setup="name" not in kwargs)
+
+        def commit(self):
+            return None
+
+        def close(self):
+            self.closed = True
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    def test_feature_not_supported_on_set_statement_timeout_degrades_gracefully(self):
+        from contextlib import contextmanager
+
+        @contextmanager
+        def fake_tunnel():
+            yield ("localhost", 5432)
+
+        fake_table = mock.Mock()
+        fake_table.to_arrow_schema.return_value = pa.schema([pa.field("id", pa.int64())])
+        fake_table.type = "table"
+        fake_table.columns = []
+        fake_table.__contains__ = mock.Mock(return_value=False)
+
+        module = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres"
+        with (
+            patch(f"{module}.psycopg.connect", return_value=self._Connection()),
+            patch(f"{module}.psycopg.Cursor", return_value=self._Cursor(is_setup=False)),
+            patch(f"{module}._get_table", return_value=fake_table),
+            patch(f"{module}._is_read_replica", return_value=False),
+            patch(f"{module}._get_primary_keys", return_value=["id"]),
+            patch(f"{module}._is_partitioned_table", return_value=False),
+            patch(f"{module}._get_table_chunk_size", return_value=100),
+            patch(f"{module}._get_rows_to_sync", return_value=0),
+            patch(f"{module}._role_subject_to_rls", return_value=False),
+            patch(f"{module}._get_partition_settings", return_value=None),
+        ):
+            response = postgres_source(
+                tunnel=lambda: fake_tunnel(),
+                user="u",
+                password="p",
+                database="db",
+                sslmode="prefer",
+                schema="public",
+                table_names=["companies"],
+                should_use_incremental_field=False,
+                logger=structlog.get_logger(),
+                db_incremental_field_last_value=None,
+                team_id=1,
+            )
+            # Setup completes and streaming runs to exhaustion; the rejected SET does not abort it.
+            assert list(cast(Iterable[Any], response.items())) == []
+
+
 class TestIsConnectionDroppedError:
     @pytest.mark.parametrize(
         "error",
@@ -1232,6 +1359,11 @@ class TestIsConnectionDroppedError:
             psycopg.errors.ConnectionFailure(
                 "Failed to connect to database: authentication did not complete within 15000ms"
             ),
+            # pgcat refuses to hand out a backend when every pooled server is banned/down, reporting
+            # it as SQLSTATE 58000 (psycopg's SystemError, an OperationalError) rather than the
+            # Supavisor XX000 InternalError_ codes above. Transient — a banned server rejoins on a
+            # passing health check or once its ban expires — so the reconnect must catch it.
+            psycopg.errors.SystemError("could not get connection from the pool - AllServersDown"),
         ],
     )
     def test_connection_dropped_errors_are_detected(self, error):
@@ -1286,6 +1418,20 @@ class TestDroppedOrConnectTimeout:
             # The new case: the read-path reconnect that bootstraps offset-chunking recovery times
             # out establishing the socket. Transient — the source was reachable moments earlier.
             psycopg.errors.ConnectionTimeout("connection timeout expired"),
+            # A hot standby that hasn't yet reached a consistent recovery point refuses the
+            # reconnect with SQLSTATE 57P03 (cannot_connect_now). Transient — it starts accepting
+            # connections once recovery completes — so the offset-chunking reconnect must retry it
+            # in-process instead of failing the whole activity.
+            psycopg.OperationalError(
+                'connection failed: connection to server at "127.0.0.1", port 5432 failed: '
+                "FATAL:  the database system is not yet accepting connections "
+                "DETAIL:  Consistent recovery state has not been yet reached."
+            ),
+            # Sibling 57P03 refusals while the source is booting / crash-recovering.
+            psycopg.OperationalError(
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                "FATAL:  the database system is starting up"
+            ),
         ],
     )
     def test_transient_connect_path_errors_are_retryable(self, error):
@@ -1299,6 +1445,15 @@ class TestDroppedOrConnectTimeout:
             ),
             # A statement timeout is not a connect timeout — it must not be absorbed here.
             psycopg.errors.QueryCanceled("canceling statement due to statement timeout"),
+            # A standby started with hot_standby=off refuses every connection permanently — it reads
+            # "not accepting connections" (no "yet") with DETAIL "Hot standby mode is disabled". It
+            # must NOT be treated as a transient server-startup refusal, so it fails fast to the
+            # non-retryable classification rather than burning the in-process reconnect budget.
+            psycopg.OperationalError(
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                "FATAL:  the database system is not accepting connections "
+                "DETAIL:  Hot standby mode is disabled."
+            ),
         ],
     )
     def test_permanent_and_non_connect_errors_are_not_retryable(self, error):
@@ -1365,6 +1520,7 @@ class TestRaiseIfSetupConnectionBroken:
     def test_broken_connection_raises_retryable_dropped_error(self):
         connection = mock.MagicMock()
         connection.broken = True
+        connection._num_transactions = 0
 
         with pytest.raises(psycopg.OperationalError) as exc_info:
             _raise_if_setup_connection_broken(cast(Any, connection))
@@ -1375,11 +1531,27 @@ class TestRaiseIfSetupConnectionBroken:
         message = str(exc_info.value)
         assert not any(key in message for key in PostgresSource().get_non_retryable_errors())
 
+    def test_leaked_transaction_counter_raises_retryable_dropped_error(self):
+        # A drop while psycopg was entering/leaving a probe's transaction() block leaves the
+        # nesting counter incremented without flipping `broken` — the exact state (`INERROR`,
+        # not BAD) that made the exit-commit raise the masked ProgrammingError in production.
+        connection = mock.MagicMock()
+        connection.broken = False
+        connection._num_transactions = 1
+
+        with pytest.raises(psycopg.OperationalError) as exc_info:
+            _raise_if_setup_connection_broken(cast(Any, connection))
+
+        assert _is_connection_dropped_error(exc_info.value) is True
+        message = str(exc_info.value)
+        assert not any(key in message for key in PostgresSource().get_non_retryable_errors())
+
     def test_healthy_connection_is_a_noop(self):
         connection = mock.MagicMock()
         connection.broken = False
+        connection._num_transactions = 0
 
-        # A healthy connection must not raise.
+        # A healthy connection with no leaked transaction nesting must not raise.
         _raise_if_setup_connection_broken(cast(Any, connection))
 
 
@@ -2766,6 +2938,27 @@ class TestValidateCredentialsErrorMapping:
             (
                 "[Errno -5] No address associated with hostname",
                 "Could not resolve the database host. Check that the host is spelled correctly and reachable from the public internet.",
+            ),
+            # A resolved-but-unroutable host (IPv6-only, or a firewall dropping our IPs) surfaces as
+            # ENETUNREACH/EHOSTUNREACH, which the generic fallback couldn't explain.
+            (
+                'connection failed: connection to server at "2600:1f18::1", port 5432 failed: Network is unreachable',
+                "PostHog reached the network but couldn't open a connection to the database host. This usually "
+                "means the host only accepts IPv6 connections (PostHog connects over IPv4), or a firewall is "
+                "blocking PostHog's IP addresses. Use a host that's reachable over IPv4 (for example a "
+                "connection pooler), enable your provider's IPv4 add-on, or add PostHog's IP addresses to your "
+                "firewall allowlist, then try again.",
+            ),
+            # libpq can append the "Is the server running..." hint to a routing failure; the more
+            # specific unreachable-host message must still win over that generic entry.
+            (
+                'connection to server at "203.0.113.7", port 5432 failed: No route to host\n\t'
+                "Is the server running on that host and accepting TCP/IP connections?",
+                "PostHog reached the network but couldn't open a connection to the database host. This usually "
+                "means the host only accepts IPv6 connections (PostHog connects over IPv4), or a firewall is "
+                "blocking PostHog's IP addresses. Use a host that's reachable over IPv4 (for example a "
+                "connection pooler), enable your provider's IPv4 add-on, or add PostHog's IP addresses to your "
+                "firewall allowlist, then try again.",
             ),
             # Unmapped errors fall back to the generic message.
             (
@@ -6307,6 +6500,25 @@ class TestIsUnsupportedFunctionError:
         assert _is_unsupported_function_error(error, "row_security_active") is expected
 
 
+class TestIsUnsupportedStatementTimeoutError:
+    @pytest.mark.parametrize(
+        "error,expected",
+        [
+            (
+                psycopg.errors.FeatureNotSupported('setting configuration parameter "statement_timeout" not supported'),
+                True,
+            ),
+            # A wire-compatible engine may surface it as a generic error rather than FeatureNotSupported.
+            (Exception('setting configuration parameter "statement_timeout" not supported'), True),
+            # A genuine timeout cancellation must stay captured/retryable — it isn't an engine limitation.
+            (psycopg.errors.QueryCanceled("canceling statement due to statement timeout"), False),
+            (Exception("connection reset by peer"), False),
+        ],
+    )
+    def test_recognises_unsupported_statement_timeout(self, error, expected):
+        assert _is_unsupported_statement_timeout_error(error) is expected
+
+
 class TestRlsActiveFromConnErrorHandling:
     @staticmethod
     def _conn_raising(exc: Exception):
@@ -6320,6 +6532,20 @@ class TestRlsActiveFromConnErrorHandling:
         # A Postgres-wire engine without `row_security_active` is an expected shape: degrade to no
         # RLS warnings without flooding error tracking.
         conn = self._conn_raising(psycopg.errors.InternalError(_FLIGHT_MISSING_FUNCTION_MSG))
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.capture_exception"
+        ) as capture_mock:
+            result = _rls_active_from_conn(cast(Any, conn), "public", ["t"])
+        assert result == {}
+        capture_mock.assert_not_called()
+
+    def test_unsupported_statement_timeout_error_is_not_captured(self):
+        # A Postgres-wire engine that rejects the best-effort `SET statement_timeout` (CrateDB,
+        # Materialize, Aurora DSQL, etc.) is an expected shape: degrade to no RLS warnings without
+        # flooding error tracking.
+        conn = self._conn_raising(
+            psycopg.errors.FeatureNotSupported('setting configuration parameter "statement_timeout" not supported')
+        )
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.capture_exception"
         ) as capture_mock:
@@ -6371,6 +6597,22 @@ class TestRlsActiveFromConnErrorHandling:
             result = _rls_active_from_conn(cast(Any, conn), "public", ["t"])
         assert result == {}
         capture_mock.assert_not_called()
+
+    def test_feature_not_supported_after_timeout_guard_is_still_captured(self):
+        # The statement_timeout tolerance is scoped to the SET guard only. A FeatureNotSupported from
+        # a catalog query after it is a genuinely unexpected shape and must still surface, not be
+        # blanket-swallowed.
+        conn = mock.MagicMock()
+        conn.closed = False
+        conn.broken = False
+        cursor = conn.cursor.return_value.__enter__.return_value
+        cursor.execute.side_effect = [None, psycopg.errors.FeatureNotSupported("cannot open cursor on this engine")]
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.capture_exception"
+        ) as capture_mock:
+            result = _rls_active_from_conn(cast(Any, conn), "public", ["t"])
+        assert result == {}
+        capture_mock.assert_called_once()
 
 
 class TestGetRowsInitialConnectRetry:

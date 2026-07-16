@@ -1,7 +1,7 @@
 import { dayjs } from 'lib/dayjs'
 
 import type { ObservationVersionMarkerApi } from '../generated/api.schemas'
-import { fillLabelDays, promptUnchangedSince, versionAccuracyStrip } from './labelStats'
+import { buildChartDayFormatter, fillLabelDays, promptUnchangedSince, versionAccuracyStrip } from './labelStats'
 
 describe('labelStats', () => {
     describe('fillLabelDays', () => {
@@ -23,6 +23,23 @@ describe('labelStats', () => {
             expect(result.dates).toEqual(['2026-06-29', '2026-06-30', '2026-07-01', '2026-07-02', '2026-07-03'])
             expect(result.up).toEqual([0, 0, 2, 0, 0])
             expect(result.down).toEqual([0, 0, 1, 0, 3])
+        })
+    })
+
+    describe('buildChartDayFormatter', () => {
+        it('always renders month anchors by hiding the single tick adjacent to each', () => {
+            const { labels, dates } = fillLabelDays([], 6, dayjs('2026-07-03'))
+            const formatter = buildChartDayFormatter(dates)
+
+            // Jun 28..Jul 3: first tick and Jul 1 keep the month, their neighbors (29, 30) yield.
+            expect(labels.map((label, index) => formatter(label, index))).toEqual([
+                'Jun 28',
+                null,
+                null,
+                'Jul 1',
+                '2',
+                '3',
+            ])
         })
     })
 

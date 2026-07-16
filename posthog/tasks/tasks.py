@@ -25,6 +25,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorTooManySimultaneousQueries
 from posthog.exceptions_capture import capture_exception
 from posthog.metrics import pushed_metrics_registry
+from posthog.models.event.new_events_schema import events_read_table, use_new_events_schema
 from posthog.ph_client import get_regional_ph_client
 from posthog.redis import get_client
 from posthog.scoping_audit import skip_team_scope_audit
@@ -487,9 +488,9 @@ def ingestion_lag() -> None:
     from posthog.clickhouse.client import sync_execute
     from posthog.models.team.team import Team
 
-    query = """
+    query = f"""
     SELECT event, date_diff('second', max(timestamp), now())
-    FROM events
+    FROM {events_read_table(use_new_events_schema(None))}
     WHERE team_id IN %(team_ids)s
         AND event IN %(events)s
         AND timestamp > now() - interval 72 hours AND timestamp < now() + toIntervalMinute(3)
@@ -920,39 +921,6 @@ def process_scheduled_changes() -> None:
     from posthog.tasks.process_scheduled_changes import process_scheduled_changes
 
     process_scheduled_changes()
-
-
-@shared_task(ignore_result=True)
-def sync_insight_cache_states_task() -> None:
-    from posthog.caching.insight_caching_state import sync_insight_cache_states
-
-    sync_insight_cache_states()
-
-
-@shared_task(
-    ignore_result=True,
-    autoretry_for=(CHQueryErrorTooManySimultaneousQueries,),
-    retry_backoff=10,
-    retry_backoff_max=30,
-    max_retries=3,
-    retry_jitter=True,
-    queue=CeleryQueue.LONG_RUNNING.value,
-)
-def update_cache_task(caching_state_id: UUID) -> None:
-    from posthog.caching.insight_cache import update_cache
-
-    update_cache(caching_state_id)
-
-
-@shared_task(ignore_result=True)
-def sync_insight_caching_state(
-    team_id: int,
-    insight_id: Optional[int] = None,
-    dashboard_tile_id: Optional[int] = None,
-) -> None:
-    from posthog.caching.insight_caching_state import sync_insight_caching_state
-
-    sync_insight_caching_state(team_id, insight_id, dashboard_tile_id)
 
 
 @shared_task(ignore_result=True)
@@ -1631,7 +1599,7 @@ def sync_user_product_lists_for_new_team(team_id: int) -> None:
     Sync UserProductList for all users who have access to a new team.
     Called during project creation to avoid request timeouts for large organizations.
     """
-    from posthog.models.file_system.user_product_list import backfill_user_product_list_for_new_user
+    from posthog.models.file_system.user_product_list import add_default_products_for_user
     from posthog.models.team import Team
 
     try:
@@ -1648,6 +1616,6 @@ def sync_user_product_lists_for_new_team(team_id: int) -> None:
     )
 
     for user in users:
-        backfill_user_product_list_for_new_user(user, team)
+        add_default_products_for_user(user, team)
 
     logger.info("sync_user_product_lists_for_new_team: Completed", team_id=team_id)

@@ -1,7 +1,7 @@
 import { match } from 'ts-pattern'
 
 import { getSeriesColor } from 'lib/colors'
-import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
+import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout, MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { uuid } from 'lib/utils/dom'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
@@ -110,6 +110,24 @@ export function getFlagVariants(
     flag: FeatureFlagBasicType | FeatureFlagType | null | undefined
 ): MultivariateFlagVariant[] {
     return flag?.filters?.multivariate?.variants ?? []
+}
+
+/**
+ * The effective baseline variant, mirroring the backend rule (get_baseline_variant_key):
+ * the configured stats_config.baseline_variant_key, else 'control' when the flag has one,
+ * else the flag's first variant. A control-less draft can lack the configured key until
+ * launch pins it, so callers must not assume 'control' exists.
+ */
+export function getBaselineVariantKey(experiment: Partial<Experiment> | null | undefined): string {
+    const configured = experiment?.stats_config?.baseline_variant_key
+    if (configured) {
+        return configured
+    }
+    const variants = getExperimentVariants(experiment)
+    if (variants.length === 0 || variants.some((variant) => variant.key === 'control')) {
+        return 'control'
+    }
+    return variants[0].key
 }
 
 export function formatUnitByQuantity(value: number, unit: string): string {
@@ -381,16 +399,16 @@ export function getViewRecordingFiltersLegacy(
     return filters
 }
 
+// Mirrors the backend eligibility rule (experiment_eligibility_error): multivariate with 2-20 variants
 export function featureFlagEligibleForExperiment(featureFlag: FeatureFlagType): true {
     const variants = getFlagVariants(featureFlag)
-    if (variants.length > 1) {
-        if (variants[0].key !== 'control') {
-            throw new Error('Feature flag must have control as the first variant.')
-        }
-        return true
+    if (variants.length < 2) {
+        throw new Error('Feature flag must have at least 2 variants (a baseline and at least one test variant).')
     }
-
-    throw new Error('Feature flag must use multiple variants with control as the first variant.')
+    if (variants.length > MAX_EXPERIMENT_VARIANTS) {
+        throw new Error(`Feature flag must have at most ${MAX_EXPERIMENT_VARIANTS} variants.`)
+    }
+    return true
 }
 
 /**

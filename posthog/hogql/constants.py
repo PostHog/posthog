@@ -31,6 +31,11 @@ MAX_SELECT_RETENTION_LIMIT = 100000  # 100k
 MAX_SELECT_HEATMAPS_LIMIT = 1000000  # 1m datapoints
 # Max limit for all cohort calculations
 MAX_SELECT_COHORT_CALCULATION_LIMIT = 1000000000  # 1b persons
+# Max limit for notebook dataframe materialization (the sandbox kernel fetching a whole frame
+# over the object-storage frame store). Tier 1 of the rollout ladder in
+# products/notebooks/backend/sql_v2_frame_store.md — raised toward the kernel executor's
+# _MATERIALIZE_ROW_CAP (2M) on query-log evidence.
+MAX_SELECT_NOTEBOOK_MATERIALIZE_LIMIT = 500000  # 500k rows
 # Max limit for LLM traces
 MAX_SELECT_TRACES_LIMIT_EXPORT = 10000  # 10k traces
 # Max limit for PostHog AI queries
@@ -61,12 +66,14 @@ EXCEPTION_STRING_ARRAY_PROPERTIES = frozenset(
     }
 )
 
-type HogQLDialect = Literal["hogql", "clickhouse", "postgres", "duckdb", "mysql", "snowflake"]
+type HogQLDialect = Literal["hogql", "clickhouse", "postgres", "duckdb", "mysql", "snowflake", "redshift"]
 
 # All dialects that compile to an external SQL database queried directly (as opposed to
 # ClickHouse / HogQL). MySQL shares the standard-SQL keyword surface (CURRENT_DATE & co.)
 # but not Postgres-specific features like PIVOT/UNPIVOT, TRY_CAST, or positional references.
-SQL_TARGET_DIALECTS: frozenset[HogQLDialect] = frozenset({"postgres", "duckdb", "mysql"})
+# Redshift is a Postgres fork: it reuses the Postgres-family lazy-table resolution and
+# property lowering, then its printer blocks the constructs the Redshift engine can't run.
+SQL_TARGET_DIALECTS: frozenset[HogQLDialect] = frozenset({"postgres", "duckdb", "mysql", "redshift"})
 
 type HogQLParserBackend = Literal["cpp-json", "rust-json", "rust-py"]
 
@@ -77,6 +84,7 @@ class LimitContext(StrEnum):
     EXPORT = "export"
     COHORT_CALCULATION = "cohort_calculation"
     HEATMAPS = "heatmaps"
+    NOTEBOOK_MATERIALIZE = "notebook_materialize"
     SAVED_QUERY = "saved_query"
     RETENTION = "retention"
     POSTHOG_AI = "posthog_ai"
@@ -94,6 +102,8 @@ def get_max_limit_for_context(limit_context: LimitContext) -> int:
         return MAX_SELECT_HEATMAPS_LIMIT  # 1M
     elif limit_context == LimitContext.COHORT_CALCULATION:
         return MAX_SELECT_COHORT_CALCULATION_LIMIT  # 1b
+    elif limit_context == LimitContext.NOTEBOOK_MATERIALIZE:
+        return MAX_SELECT_NOTEBOOK_MATERIALIZE_LIMIT  # 500k
     elif limit_context == LimitContext.RETENTION:
         return MAX_SELECT_RETENTION_LIMIT  # 100k
     elif limit_context == LimitContext.SAVED_QUERY:
@@ -116,6 +126,8 @@ def get_default_limit_for_context(limit_context: LimitContext) -> int:
         return MAX_SELECT_HEATMAPS_LIMIT  # 1M
     elif limit_context == LimitContext.COHORT_CALCULATION:
         return MAX_SELECT_COHORT_CALCULATION_LIMIT  # 1b
+    elif limit_context == LimitContext.NOTEBOOK_MATERIALIZE:
+        return MAX_SELECT_NOTEBOOK_MATERIALIZE_LIMIT  # 500k
     elif limit_context == LimitContext.SAVED_QUERY:
         return sys.maxsize  # Max python int
     else:

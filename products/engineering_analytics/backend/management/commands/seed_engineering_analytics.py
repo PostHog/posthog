@@ -86,12 +86,14 @@ def _flatten_pr(pr: dict[str, Any]) -> dict[str, Any]:
 
 
 def _flatten_run(run: dict[str, Any]) -> dict[str, Any]:
-    scalar_keys = [key for key in WORKFLOW_RUNS_COLUMNS if key not in ("repository", "pull_requests")]
+    json_keys = ("repository", "pull_requests", "head_commit")
+    scalar_keys = [key for key in WORKFLOW_RUNS_COLUMNS if key not in json_keys]
     return {
         # .get() tolerates a pre-existing fixture captured before run_attempt / pull_requests were added.
         **{key: run.get(key) for key in scalar_keys},
         "repository": json.dumps(run["repository"]),
         "pull_requests": json.dumps(run.get("pull_requests", [])),
+        "head_commit": json.dumps(run.get("head_commit", {})),
     }
 
 

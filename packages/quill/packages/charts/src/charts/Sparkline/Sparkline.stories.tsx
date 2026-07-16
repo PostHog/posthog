@@ -1,5 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 
+import { DefaultTooltip } from '../../overlays/DefaultTooltip'
 import { Stage, useReactiveTheme } from '../../story-helpers'
 import { Sparkline } from './Sparkline'
 
@@ -66,6 +67,51 @@ export const FillOpacityVariants: Story = {
                 <Sparkline data={RISING} theme={theme} fillOpacity={0.35} />
                 <Sparkline data={RISING} theme={theme} fillOpacity={0.7} />
             </div>
+        )
+    },
+}
+
+export const Bars: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        return (
+            <Stage width={360} height={120}>
+                <Sparkline data={VOLATILE} theme={theme} type="bar" />
+            </Stage>
+        )
+    },
+}
+
+export const StackedBars: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        return (
+            <Stage width={360} height={120}>
+                <Sparkline
+                    type="bar"
+                    series={[
+                        { key: 'success', label: 'Success', data: RISING },
+                        { key: 'failure', label: 'Failure', data: VOLATILE.map((v) => v * 20) },
+                    ]}
+                    theme={theme}
+                />
+            </Stage>
+        )
+    },
+}
+
+export const WithTooltip: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        return (
+            <Stage width={360} height={120}>
+                <Sparkline
+                    data={RISING}
+                    labels={RISING.map((_, i) => `Week ${i + 1}`)}
+                    theme={theme}
+                    tooltip={(ctx) => <DefaultTooltip {...ctx} />}
+                />
+            </Stage>
         )
     },
 }

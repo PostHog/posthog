@@ -1,5 +1,6 @@
 from unittest.mock import patch
 
+from django.core.exceptions import PermissionDenied
 from django.test import TestCase
 
 from posthog.models import Organization, Team, User
@@ -13,6 +14,9 @@ class TestAutomationService(TestCase):
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
         self.user = User.objects.create_user(email="test@example.com", first_name="Test", password="password")
+        access_patcher = patch("products.tasks.backend.automation_service.has_tasks_access", return_value=True)
+        access_patcher.start()
+        self.addCleanup(access_patcher.stop)
 
     def create_automation(self) -> TaskAutomation:
         task = Task.objects.create(
@@ -97,6 +101,17 @@ class TestAutomationService(TestCase):
         self.assertEqual(Task.objects.filter(origin_product=Task.OriginProduct.AUTOMATION).count(), 1)
         self.assertEqual(TaskRun.objects.filter(task=first_task).count(), 2)
         self.assertEqual(mock_execute_workflow.call_count, 2)
+
+    @patch("products.tasks.backend.automation_service.has_tasks_access", return_value=False)
+    @patch("products.tasks.backend.automation_service.execute_task_processing_workflow_for_automation")
+    def test_run_task_automation_requires_code_access(self, mock_execute_workflow, _mock_access):
+        automation = self.create_automation()
+
+        with self.assertRaises(PermissionDenied):
+            run_task_automation(str(automation.id))
+
+        self.assertFalse(TaskRun.objects.filter(task=automation.task).exists())
+        mock_execute_workflow.assert_not_called()
 
     def test_automation_last_run_properties_come_from_last_task_run(self):
         automation = self.create_automation()

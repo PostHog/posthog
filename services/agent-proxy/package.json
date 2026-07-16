@@ -24,7 +24,7 @@
     "devDependencies": {
         "@types/node": "^22.17.2",
         "oxfmt": "catalog:",
-        "oxlint": "^1.8.0",
+        "oxlint": "^1.72.0",
         "pino-pretty": "^9.1.0",
         "tsx": "^4.20.5",
         "typescript": "catalog:",

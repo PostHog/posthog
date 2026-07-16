@@ -25,6 +25,73 @@ export interface WorkflowCostApi {
     excluded_jobs: number
 }
 
+/**
+ * * `breaking_master` - BREAKING_MASTER
+ * * `novel_burst` - NOVEL_BURST
+ * * `potentially_resolved` - POTENTIALLY_RESOLVED
+ * * `flaky` - FLAKY
+ * * `pr_only` - PR_ONLY
+ */
+export type BrokenTestRowStateEnumApi = (typeof BrokenTestRowStateEnumApi)[keyof typeof BrokenTestRowStateEnumApi]
+
+export const BrokenTestRowStateEnumApi = {
+    BreakingMaster: 'breaking_master',
+    NovelBurst: 'novel_burst',
+    PotentiallyResolved: 'potentially_resolved',
+    Flaky: 'flaky',
+    PrOnly: 'pr_only',
+} as const
+
+export interface BrokenTestRowApi {
+    /** Stable identity of this distinct failure: the failing test's node id plus a normalized error signature, so the same failure across runs groups into one row. */
+    fingerprint: string
+    /** The pytest node id from the CI 'FAILED <id>' line — the failing test. */
+    test_id: string
+    /** The trailing failure detail with volatile bits (numbers, hashes) normalized, shared across runs of the same failure. Empty when the FAILED line carried no detail. */
+    error_signature: string
+    /** The CI job the failure most recently came from. Matched against default-branch job status to decide whether trunk is currently broken by it. */
+    job_name: string
+    /** 'owner/name' repository the failure belongs to. */
+    repo: string
+    /** The classifier's verdict on how this failure is behaving right now: 'breaking_master' (failing on trunk, latest trunk run still red), 'novel_burst' (new within a day and spreading across branches, not on trunk yet), 'potentially_resolved' (hit trunk but trunk is green again), 'flaky' (sporadic across branches over more than a day), or 'pr_only' (confined to one branch — one PR's own problem).
+     *
+     * * `breaking_master` - BREAKING_MASTER
+     * * `novel_burst` - NOVEL_BURST
+     * * `potentially_resolved` - POTENTIALLY_RESOLVED
+     * * `flaky` - FLAKY
+     * * `pr_only` - PR_ONLY */
+    state: BrokenTestRowStateEnumApi
+    /** Earliest failure line for this fingerprint in the analysis window. */
+    first_seen: string
+    /** Most recent failure line for this fingerprint in the analysis window. */
+    last_seen: string
+    /** Total failure lines for this fingerprint in the window. An absolute count, never a rate — passing runs aren't in this data. */
+    occurrences: number
+    /** Distinct branches the failure appeared on in the window. */
+    branches: number
+    /** Failure lines on the default branch (master/main). 0 means it never reached trunk. */
+    master_hits: number
+    /** The most recent failing workflow run for this fingerprint — pass it to run_failure_logs to fetch the actual failing log lines. */
+    latest_run_id: number
+    /** The branch of the most recent failing run. */
+    latest_branch: string
+    /** Hourly failure counts over the last 24 hours, oldest first (fixed 24-slot array), for the row sparkline. All zeros when nothing failed in the last day. */
+    trend_24h?: number[]
+}
+
+export interface BrokenTestsResultApi {
+    /** Classified failures ranked by triage urgency — breaking trunk first, single-PR failures last. */
+    rows: BrokenTestRowApi[]
+    /** Default-branch job names whose latest completed run is failing — the 'what's on fire right now' summary. Empty when the job-level source isn't synced or trunk is green. */
+    breaking_master_jobs: string[]
+    /** Length in days of the analysis window the counts cover. */
+    window_days: number
+    /** True when more failures qualified than the cap; `rows` is the top `limit` by urgency. */
+    truncated: boolean
+    /** Maximum number of rows returned. */
+    limit: number
+}
+
 export interface CICardSummaryApi {
     /** Count of open pull requests. */
     open_prs: number
@@ -89,6 +156,17 @@ export interface CIFailureLogsApi {
     truncated: boolean
 }
 
+export interface CurrentBranchHealthApi {
+    /** Detected default branch ('master' or 'main') from runs in the same 24-hour window. */
+    default_branch: string
+    /** Workflows with at least one completed run in the last 24 hours. */
+    settled_workflows: number
+    /** Workflows whose latest completed run in the last 24 hours failed or timed out. */
+    failing_workflows: number
+    /** Alphabetical preview of failing workflow names, capped at 20; use failing_workflows for the complete count. */
+    failing_workflow_names: string[]
+}
+
 export interface FlakyTestItemApi {
     /** Reconstructed pytest nodeid (the CI span name), e.g. 'posthog/api/test/test_event/TestEvents::test_x'. A stable grouping key, not a runnable selector — use `selector` to run or quarantine the test. */
     nodeid: string
@@ -100,6 +178,8 @@ export interface FlakyTestItemApi {
     failed_count: number
     /** Distinct pull requests among the failed/error spans. Failures on master or unattributed branches carry no PR number and are excluded here (still in failed_count). */
     failed_pr_count: number
+    /** Failed/error spans on the default branch (master/main approximation) — the 'matters right now' signal that a flake is breaking the trunk, not just PR branches. */
+    master_failed_count: number
     /** Distinct git branches across all of the test's flaky-signal spans in the window. */
     branch_count: number
     /** Runs where the test failed while quarantined (xfail) — already masked in CI but still flaky. */
@@ -196,11 +276,24 @@ export interface RunCostApi {
     estimated_cost_usd: number | null
 }
 
+export interface PRLLMSpendApi {
+    /** Total agent LLM token cost in USD attributed to this PR (sum of $ai_total_cost_usd over the matched $ai_generation events). */
+    cost_usd: number
+    /** Total input (prompt) tokens across the attributed generations. */
+    input_tokens: number
+    /** Total output (completion) tokens across the attributed generations. */
+    output_tokens: number
+    /** Number of $ai_generation events attributed to this PR by git branch ($ai_git_branch). */
+    generations: number
+}
+
 export interface PRCostSummaryApi {
     /** Same spend broken down per workflow. */
     by_workflow: WorkflowCostApi[]
     /** Same spend broken down per workflow run, keyed by (run_id, run_attempt). */
     by_run: RunCostApi[]
+    /** Agent LLM token spend attributed to this PR by git branch ($ai_git_branch), or null when no generation matched — independent of the CI cost figures, so it can be present even when jobs_available is false. The UI hides the row when null. */
+    llm_spend?: PRLLMSpendApi | null
     /** False when the job-level source (github_workflow_jobs) isn't synced — every figure is then zero/null and the cost cards should be hidden. */
     jobs_available: boolean
     /** Billable CI minutes: each costed (self-hosted) job's elapsed time, summed. Parallel jobs add up, so this is compute time spent, not wall-clock run duration. */
@@ -668,13 +761,13 @@ export interface OpenToMergeBucketApi {
 }
 
 export interface RepoOverviewApi {
-    /** CI cost per merged PR across the window, oldest first, zero-filled, bucketed by cost_series_granularity. Empty when the job-level source isn't synced. */
+    /** CI cost per merged PR across the window, oldest first, zero-filled, bucketed by cost_series_granularity. Empty when the job-level source isn't synced or include_series=false. */
     cost_series: CostPerMergeBucketApi[]
-    /** Median time-to-green (p50 successful PR-attributed CI run duration) per bucket across the window, oldest first, bucketed by time_to_green_series_granularity. Empty buckets carry null. */
+    /** Median time-to-green (p50 successful PR-attributed CI run duration) per bucket across the window, oldest first, bucketed by time_to_green_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
     time_to_green_series: TimeToGreenBucketApi[]
-    /** CI pass rate (completed runs that succeeded, all branches) per bucket across the window, oldest first, bucketed by success_rate_series_granularity. Empty buckets carry null. */
+    /** CI pass rate (completed runs that succeeded, all branches) per bucket across the window, oldest first, bucketed by success_rate_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
     success_rate_series: PassRateBucketApi[]
-    /** Median time-to-merge (p50 open_to_merge_seconds, bots/drafts excluded) per bucket across the window, oldest first, bucketed by open_to_merge_series_granularity. Empty buckets carry null. */
+    /** Median time-to-merge (p50 open_to_merge_seconds, bots/drafts excluded) per bucket across the window, oldest first, bucketed by open_to_merge_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
     open_to_merge_series: OpenToMergeBucketApi[]
     /** Workflow runs started in the window, all branches and workflows. */
     run_count: number
@@ -694,6 +787,10 @@ export interface RepoOverviewApi {
     rerun_cycles: number
     /** Re-run cycles over the previous window. */
     rerun_cycles_prev: number
+    /** PRs merged in the window, all authors and bots included — the merge population that triggered the CI spend, so it divides cleanly into billable_minutes and estimated_cost_usd. */
+    merged_pr_count: number
+    /** Merged-PR count over the previous window. */
+    merged_pr_count_prev: number
     /**
      * Median merged_at - created_at over PRs merged in the window, bots and drafts excluded. Coarse by design: draft and ready-for-review time are fused. Null when nothing merged.
      * @nullable
@@ -768,6 +865,23 @@ export interface WorkflowRunActivityApi {
     truncated: boolean
     /** Maximum number of run points returned in `points`. */
     limit: number
+}
+
+export interface BranchPRMatchApi {
+    /** Repository the pull request belongs to, as 'owner/name'. */
+    repo: string
+    /** Pull request number within the repository — pair with `repo` to link to it. */
+    number: number
+    /**
+     * Pull request title, or null when the snapshot carries no title.
+     * @nullable
+     */
+    title: string | null
+    /**
+     * Derived PR state ('open', 'closed', 'merged'), or null when the snapshot carries no state.
+     * @nullable
+     */
+    state: string | null
 }
 
 export interface RunFailureLogsApi {
@@ -938,6 +1052,13 @@ export type EngineeringAnalyticsAuthorWorkflowCostsParams = {
     source_id?: string
 }
 
+export type EngineeringAnalyticsBrokenTestsParams = {
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
+}
+
 export type EngineeringAnalyticsCiCardsParams = {
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
@@ -954,6 +1075,13 @@ export type EngineeringAnalyticsCiFailureLogsParams = {
      * 'owner/name' repository the pull request belongs to.
      */
     repo: string
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
+}
+
+export type EngineeringAnalyticsCurrentBranchHealthParams = {
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
@@ -1110,6 +1238,10 @@ export type EngineeringAnalyticsRepoOverviewParams = {
      */
     date_to?: string
     /**
+     * Set false to skip the chart series (cost_series, time_to_green_series, success_rate_series, open_to_merge_series return empty) and their query cost — for headline-only consumers like the weekly digest. Defaults to true.
+     */
+    include_series?: boolean
+    /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string
@@ -1132,6 +1264,25 @@ export type EngineeringAnalyticsRepoRunActivityParams = {
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string
+}
+
+export type EngineeringAnalyticsResolveBranchParams = {
+    /**
+     * Git branch (the PR's head ref) to resolve. Open PRs are returned first, then most recently updated.
+     */
+    branch: string
+    /**
+     * Optional 'owner/name' repository to narrow matching to a single repo.
+     */
+    repo?: string
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
+    /**
+     * Optional ISO8601 timestamp, e.g. the trace's capture time. When a branch name has been reused across PRs over time, the PR whose lifetime window contains this moment is ranked first so the result matches the PR that was active when the trace was captured. A preference only, not a filter; omit to rank purely by open state then recency.
+     */
+    timestamp?: string
 }
 
 export type EngineeringAnalyticsRunFailureLogsParams = {

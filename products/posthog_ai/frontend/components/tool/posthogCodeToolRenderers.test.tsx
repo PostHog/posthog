@@ -157,6 +157,9 @@ describe('posthog-code tool renderers', () => {
     ])('resolves the %s key shape to the signed-commit renderer', (_label, toolCall, expectedKey) => {
         const resolved = resolveToolCall(toolCall)
         expect(resolved.resolvedKey).toEqual(expectedKey)
-        expect(lookupToolRenderer(resolved.resolvedKey).displayName).toEqual('Signed commits')
+        // The posthog-code git tools aren't origin-gated, so they resolve for a non-exec call too.
+        expect(lookupToolRenderer(resolved.resolvedKey, resolved.innerToolName != null).displayName).toEqual(
+            'Signed commits'
+        )
     })
 })

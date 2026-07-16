@@ -1,8 +1,8 @@
 import { afterMount, connect, kea, listeners, path } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import * as api from 'products/growth/frontend/generated/api'

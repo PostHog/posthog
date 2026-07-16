@@ -21,8 +21,9 @@ module.exports = {
         '<rootDir>/.tmp/',
         '<rootDir>/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/',
     ],
-    // `dev/` folders hold dev-only benchmarks/scripts, never CI tests.
-    testPathIgnorePatterns: ['/node_modules/', '/dev/'],
+    // `dev/` folders hold dev-only benchmarks/scripts, never CI tests. Anchored to rootDir:
+    // an unanchored '/dev/' also matches checkout paths like ~/dev/posthog and ignores every test.
+    testPathIgnorePatterns: ['/node_modules/', '<rootDir>/(src|tests)(/.*)?/dev/'],
 
     // NOTE: This should be kept in sync with tsconfig.json
     moduleNameMapper: {

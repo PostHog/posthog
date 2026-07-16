@@ -348,6 +348,7 @@ describe('mcpDashboardOverviewLogic', () => {
                 previousValue: 5,
                 deltaPct: 500,
                 sparkline: [10, 20], // current sorted by bucket
+                sparklineLabels: ['2024-01-08', '2024-01-09'],
                 goodDirection: 'up',
             })
             expect(kpis.toolCalls).toMatchObject({
@@ -362,9 +363,12 @@ describe('mcpDashboardOverviewLogic', () => {
                 deltaPct: 100,
                 goodDirection: 'down',
             })
-            expect(kpis.errorRatePct.value).toBeCloseTo(6.667, 2)
-            expect(kpis.errorRatePct.previousValue).toBeCloseTo(10, 5)
-            expect(kpis.errorRatePct.goodDirection).toBe('down')
+            expect(kpis.errorRatePct).toMatchObject({
+                value: 7.5,
+                previousValue: 10,
+                deltaPct: -25,
+                goodDirection: 'down',
+            })
         })
 
         it('returns null deltas when there is no prior-period data', () => {
@@ -470,6 +474,7 @@ describe('mcpDashboardOverviewLogic', () => {
                 previousValue: 30,
                 deltaPct: 40,
                 sparkline: [],
+                sparklineLabels: [],
                 goodDirection: 'up',
             })
         })

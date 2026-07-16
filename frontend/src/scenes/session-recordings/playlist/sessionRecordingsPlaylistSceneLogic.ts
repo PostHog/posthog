@@ -1,7 +1,7 @@
-import equal from 'fast-deep-equal'
+import { deepEqual as equal } from 'fast-equals'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { beforeUnload, router, urlToAction } from 'kea-router'
+import { beforeUnload, combineUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -142,6 +142,13 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
 
     listeners(({ actions, values }) => ({
         getPlaylistSuccess: ({ playlist }) => {
+            if (playlist?.type === 'filters') {
+                router.actions.replace(
+                    combineUrl(urls.replay(ReplayTabs.Home), { savedFilterId: playlist.short_id }).url
+                )
+                return
+            }
+
             if (!values.playlist?.is_synthetic && values.playlist?.derived_name !== values.derivedName) {
                 actions.updatePlaylist({ derived_name: values.derivedName }, true)
             }

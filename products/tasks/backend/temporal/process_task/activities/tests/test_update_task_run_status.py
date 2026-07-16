@@ -16,15 +16,18 @@ TOKEN_USAGE = {"input_tokens": 1200, "output_tokens": 300, "total_tokens": 1500,
 class TestUpdateTaskRunStatusActivity:
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
-        "status,sets_completed_at",
+        "status,environment,sets_completed_at",
         [
-            (TaskRun.Status.IN_PROGRESS, False),
-            (TaskRun.Status.COMPLETED, True),
-            (TaskRun.Status.FAILED, True),
-            (TaskRun.Status.CANCELLED, False),
+            (TaskRun.Status.IN_PROGRESS, TaskRun.Environment.CLOUD, False),
+            (TaskRun.Status.COMPLETED, TaskRun.Environment.CLOUD, True),
+            (TaskRun.Status.FAILED, TaskRun.Environment.CLOUD, True),
+            (TaskRun.Status.CANCELLED, TaskRun.Environment.CLOUD, True),
+            (TaskRun.Status.CANCELLED, TaskRun.Environment.LOCAL, False),
         ],
     )
-    def test_updates_status(self, activity_environment, test_task_run, status, sets_completed_at):
+    def test_updates_status(self, activity_environment, test_task_run, status, environment, sets_completed_at):
+        test_task_run.environment = environment
+        test_task_run.save(update_fields=["environment"])
         input_data = UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=status)
         async_to_sync(activity_environment.run)(update_task_run_status, input_data)
 
