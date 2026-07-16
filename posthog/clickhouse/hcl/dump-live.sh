@@ -35,6 +35,7 @@ chmod 0755 "$OUTDIR" 2>/dev/null || true
 # Match the published ports in docker-compose.multinode-clickhouse.yml.
 #   role  default-host  default-port  default-db
 ROLES=(
+  "data      localhost 9000 posthog"
   "ops       localhost 9300 posthog"
   "logs      localhost 9500 posthog"
   "ai_events localhost 9100 posthog"
@@ -42,21 +43,32 @@ ROLES=(
   "sessions  localhost 9400 posthog"
 )
 
-# Pin to the same chschema build as bin/hclexp; override via repo variable.
-HCLEXP_IMAGE="${HCLEXP_IMAGE:-ghcr.io/posthog/chschema:sha-deff440}"
+# Same pin as bin/hclexp; override for a single run via $HCLEXP_IMAGE.
+HCLEXP_IMAGE="${HCLEXP_IMAGE:-$(cat "$HCL/bin/image.txt")}"
 
-# hclexp that can reach ClickHouse on the host's published ports. Prefer a local
-# binary; otherwise a container sharing the host network namespace so localhost
-# resolves to the published compose ports (works on Linux CI; on macOS set
-# HCLEXP_BIN to a locally built binary).
+# hclexp that can reach ClickHouse on the host's published ports. Prefer a native
+# binary (bin/install-hclexp puts one on $PATH); otherwise a container sharing the
+# host network namespace so localhost resolves to the published compose ports
+# (works on Linux CI; on macOS install the binary or set HCLEXP_BIN).
 run_hclexp() {
   if [[ -n "${HCLEXP_BIN:-}" ]]; then
     "$HCLEXP_BIN" "$@"
     return
   fi
+  if command -v hclexp >/dev/null 2>&1; then
+    hclexp "$@"
+    return
+  fi
   local tmp="${TMPDIR:-/tmp}"; tmp="${tmp%/}"
   docker run --rm --network host -v "$PWD:/work" -v "$tmp:$tmp" -w /work "$HCLEXP_IMAGE" "$@"
 }
+
+# Record the hclexp build that produced this dump (informational provenance; not
+# gated by check-live). Best-effort: an image predating `-version` must not fail
+# the dump, so keep it off the rc path.
+run_hclexp -version > "$OUTDIR/hclexp-version.txt" 2>&1 \
+  || echo "WARN: hclexp -version unavailable (older image?) — see $OUTDIR/hclexp-version.txt" >&2
+chmod 0644 "$OUTDIR/hclexp-version.txt" 2>/dev/null || true
 
 rc=0
 for spec in "${ROLES[@]}"; do

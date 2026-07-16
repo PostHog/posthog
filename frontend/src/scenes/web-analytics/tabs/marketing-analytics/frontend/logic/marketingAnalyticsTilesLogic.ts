@@ -157,11 +157,14 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
 
                 // Gated behind the same flag as the backend cost precompute read-side: when off, the tile
                 // keeps reading the S3-backed cost adapters (createMarketingDataWarehouseNodes) so the
-                // precompute table can roll out independently. When on, read the native precompute table
-                // via a single DataWarehouseNode — TrendsQuery then gives us compare, per-source breakdown
-                // and currency formatting for free while the read stays off S3. `grain = 'campaign'` avoids
+                // precompute table can roll out independently. When on, read the native precompute via a
+                // single DataWarehouseNode — TrendsQuery then gives us compare, per-source breakdown and
+                // currency formatting for free while the read stays off S3. We target `marketing_costs_precomputed`,
+                // the deduplicated view, NOT the raw `marketing_costs_preaggregated`: the raw ReplacingMergeTree
+                // keeps one row per (job_id, cell), so a bare `sum()` double-counts re-materialized cells —
+                // the view collapses each cell to its latest job via argMax. `grain = 'campaign'` avoids
                 // double-counting the ad-group/ad grains; `expires_at > today()` keeps only fresh rows. The
-                // table exposes a virtual `timestamp` (cost_date as DateTime) so a DataWarehouseNode can target it.
+                // view exposes a virtual `timestamp` (cost_date as DateTime) so a DataWarehouseNode can target it.
                 const costsPrecomputeEnabled = !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_COSTS_PRECOMPUTATION]
                 const selectedSourceIds = integrationFilter.integrationSourceIds || []
                 // Typed property filter, not raw HogQL interpolation: source IDs come from the
@@ -180,10 +183,10 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                         : []
                 const costSeriesNode: DataWarehouseNode = {
                     kind: NodeKind.DataWarehouseNode,
-                    id: 'marketing_costs_preaggregated',
+                    id: 'marketing_costs_precomputed',
                     name: tileColumnSelectionName,
                     custom_name: tileColumnSelectionName,
-                    table_name: 'posthog.marketing_costs_preaggregated',
+                    table_name: 'marketing_costs_precomputed',
                     id_field: 'campaign_id',
                     distinct_id_field: 'campaign_id',
                     timestamp_field: 'timestamp',
@@ -238,7 +241,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                     kind: 'query',
                     tileId: TileId.MARKETING,
                     layout: {
-                        colSpanClassName: 'md:col-span-2',
+                        colSpanClassName: 'md:col-span-2 2xl:col-span-3',
                         orderWhenLargeClassName: '2xl:order-1',
                     },
                     title: `Marketing ${tileColumnSelectionName}`,
@@ -268,7 +271,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                           kind: 'query',
                           tileId: TileId.MARKETING_CAMPAIGN_BREAKDOWN,
                           layout: {
-                              colSpanClassName: 'md:col-span-2',
+                              colSpanClassName: 'md:col-span-2 2xl:col-span-3',
                               orderWhenLargeClassName: '2xl:order-2',
                           },
                           title: `${MARKETING_ANALYTICS_DRILL_DOWN_CONFIG[drillDownLevel].columnAlias} breakdown`,

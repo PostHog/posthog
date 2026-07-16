@@ -6,8 +6,6 @@ import { PieChart } from '@posthog/quill-charts'
 import type { PieChartConfig, RadialSlicePayload, Series, TooltipContext } from '@posthog/quill-charts'
 
 import { useChartTheme } from 'lib/charts/hooks'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import {
     formatAggregationAxisValue,
     formatAggregationAxisValueWithShareOfTotal,
@@ -30,7 +28,6 @@ import { QueryContext } from '~/queries/types'
 
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import type { TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
-import { TrendsTooltip } from '../shared/TrendsTooltip'
 import { buildTrendsPieSeries } from './trendsPieTransforms'
 
 interface TrendsPieChartProps {
@@ -47,8 +44,6 @@ const handleChartError = (error: Error, info: ErrorInfo): void => {
 }
 
 export function TrendsPieChart({ context, showPersonsModal = true }: TrendsPieChartProps): JSX.Element | null {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const quillTooltipEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
     const theme = useChartTheme()
 
     const { insightProps } = useValues(insightLogic)
@@ -218,27 +213,27 @@ export function TrendsPieChart({ context, showPersonsModal = true }: TrendsPieCh
                 showHeader: false as const,
                 renderCount,
             }
-            return quillTooltipEnabled ? (
-                <InsightSeriesTooltip {...sharedProps} />
-            ) : (
-                <TrendsTooltip {...sharedProps} formula={formula} />
-            )
+            return <InsightSeriesTooltip {...sharedProps} />
         },
         [
             breakdownFilter,
             trendsFilter,
-            formula,
             baseCurrency,
             resolvedGroupTypeLabel,
             context?.formatCompareLabel,
             onRowClick,
             renderCount,
-            quillTooltipEnabled,
         ]
     )
 
     if (!visibleResults.length) {
-        return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
+        return (
+            <InsightEmptyState
+                heading={context?.emptyStateHeading}
+                detail={context?.emptyStateDetail}
+                sampleDataVariant="pie"
+            />
+        )
     }
 
     return (

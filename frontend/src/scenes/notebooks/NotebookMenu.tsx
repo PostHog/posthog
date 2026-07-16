@@ -15,14 +15,13 @@ import { urls } from 'scenes/urls'
 
 import { notebooksModel } from '~/models/notebooksModel'
 
-import { isMarkdownNotebookContent } from './Notebook/markdownNotebookV2'
 import { NotebookLogicProps, notebookLogic } from './Notebook/notebookLogic'
 
-export function NotebookMenu({ shortId }: NotebookLogicProps): JSX.Element {
-    const { notebook, showHistory, isLocalOnly, content } = useValues(notebookLogic({ shortId }))
-    const { openShareModal, duplicateNotebook, exportJSON, downloadMarkdown, copyMarkdown, setShowHistory } =
-        useActions(notebookLogic({ shortId }))
-    const isMarkdownNotebook = isMarkdownNotebookContent(content)
+export function NotebookMenu({ shortId, inPanel }: NotebookLogicProps & { inPanel?: boolean }): JSX.Element {
+    const { notebook, showHistory, isLocalOnly } = useValues(notebookLogic({ shortId }))
+    const { openShareModal, duplicateNotebook, downloadMarkdown, copyMarkdown, setShowHistory } = useActions(
+        notebookLogic({ shortId })
+    )
 
     return (
         <DropdownMenu>
@@ -40,26 +39,17 @@ export function NotebookMenu({ shortId }: NotebookLogicProps): JSX.Element {
                         </ButtonPrimitive>
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild>
-                        {isMarkdownNotebook ? (
-                            <ButtonPrimitive onClick={() => downloadMarkdown()} menuItem>
-                                <IconDownload />
-                                Download
-                            </ButtonPrimitive>
-                        ) : (
-                            <ButtonPrimitive onClick={() => exportJSON()} menuItem>
-                                <IconDownload />
-                                Export JSON
-                            </ButtonPrimitive>
-                        )}
+                        <ButtonPrimitive onClick={() => downloadMarkdown()} menuItem>
+                            <IconDownload />
+                            Download .md
+                        </ButtonPrimitive>
                     </DropdownMenuItem>
-                    {isMarkdownNotebook ? (
-                        <DropdownMenuItem asChild>
-                            <ButtonPrimitive onClick={() => copyMarkdown()} menuItem>
-                                <IconCopy />
-                                Copy markdown
-                            </ButtonPrimitive>
-                        </DropdownMenuItem>
-                    ) : null}
+                    <DropdownMenuItem asChild>
+                        <ButtonPrimitive onClick={() => copyMarkdown()} menuItem>
+                            <IconCopy />
+                            Copy markdown
+                        </ButtonPrimitive>
+                    </DropdownMenuItem>
                     <DropdownMenuItem asChild>
                         <ButtonPrimitive onClick={() => setShowHistory(!showHistory)} menuItem>
                             <IconClock />
@@ -78,7 +68,11 @@ export function NotebookMenu({ shortId }: NotebookLogicProps): JSX.Element {
                             <ButtonPrimitive
                                 onClick={() => {
                                     notebooksModel.actions.deleteNotebook(shortId, notebook?.title)
-                                    router.actions.push(urls.notebooks())
+                                    // In the side panel the deleted notebook is swapped for the
+                                    // scratchpad in place, so we stay on the current scene.
+                                    if (!inPanel) {
+                                        router.actions.push(urls.notebooks())
+                                    }
                                 }}
                                 menuItem
                                 variant="danger"

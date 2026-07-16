@@ -21,6 +21,7 @@ describe('createAiConsumer', () => {
             INGESTION_CONSUMER_CONSUME_TOPIC: 't',
             INGESTION_PIPELINE: 'ai',
             INGESTION_LANE: 'main',
+            INGESTION_OVERFLOW_MODE: 'disabled',
             KAFKA_BATCH_START_LOGGING_ENABLED: false,
             INGESTION_OUTPUTS_PRODUCER_HEALTHCHECK: false,
             INGESTION_CONSUMER_OVERFLOW_TOPIC: '',
@@ -33,7 +34,6 @@ describe('createAiConsumer', () => {
             CDP_HOG_WATCHER_SAMPLE_RATE: 1,
             ...({} as Pick<
                 IngestionConsumerConfig,
-                | 'INGESTION_STATEFUL_OVERFLOW_ENABLED'
                 | 'INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS'
                 | 'INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS'
                 | 'EVENT_OVERFLOW_BUCKET_CAPACITY'

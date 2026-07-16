@@ -22,6 +22,18 @@ class TestHogFlow(TestCase):
         hog_flow = HogFlow.objects.create(name="Test Flow", team=self.team)
         mock_reload.assert_called_once_with(team_id=self.team.id, hog_flow_ids=[str(hog_flow.id)])
 
+    @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
+    def test_draft_only_save_skips_worker_reload(self, mock_reload):
+        hog_flow = HogFlow.objects.create(name="Test Flow", team=self.team)
+        mock_reload.reset_mock()
+
+        hog_flow.draft = {"name": "Draft name"}
+        hog_flow.save(update_fields=["draft", "draft_updated_at"])
+        mock_reload.assert_not_called()
+
+        hog_flow.save(update_fields=["draft", "name"])
+        mock_reload.assert_called_once_with(team_id=self.team.id, hog_flow_ids=[str(hog_flow.id)])
+
     @patch("products.workflows.backend.tasks.hog_flows.refresh_affected_hog_flows.delay")
     def test_action_saved_receiver(self, mock_refresh):
         action = Action.objects.create(team=self.team, name="Test Action")

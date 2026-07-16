@@ -133,6 +133,34 @@ pub struct Config {
     #[envconfig(from = "CONSUMER_MAX_BACKGROUND_TASKS", default = "1")]
     pub consumer_max_background_tasks: usize,
 
+    // ---- Debug API ----
+    /// Serve the real-time debug API (`/debug/load`, `/debug/state`,
+    /// `/debug/events` SSE) on the health server, recording structured events
+    /// (batch lifecycle, deferrals, retries, worker health) into a bounded
+    /// in-memory buffer. Consumed by the ingestion control plane UI. A pure
+    /// observer for dev and incident debugging; off by default. Requires
+    /// DEBUG_API_SECRET — enabling without a secret mounts nothing.
+    #[envconfig(from = "DEBUG_API_ENABLED", default = "false")]
+    pub debug_api_enabled: bool,
+
+    /// Shared secret callers must present as `X-Debug-Api-Secret` on every
+    /// `/debug/*` request. Dedicated to this one control-plane→consumer hop
+    /// (deliberately not `INTERNAL_API_SECRET` — see .agents/security.md).
+    /// Empty fails closed: the debug API is not mounted without it.
+    #[envconfig(from = "DEBUG_API_SECRET", default = "")]
+    pub debug_api_secret: String,
+
+    // ---- Ordering sentinels ----
+    /// Kill switch for the ordering sentinels (per-partition commit
+    /// contiguity/monotonicity checks and per-key send-order checks). They are
+    /// pure observers with per-batch lock/state overhead bounded by in-flight
+    /// work; disable only if that overhead is ever implicated. The commit-result
+    /// and rebalance metrics from the consumer context stay on regardless. The
+    /// worker-side feed-order sentinel has its own flag
+    /// (INGESTION_API_FEED_ORDER_SENTINEL_ENABLED on the Node.js side).
+    #[envconfig(from = "CONSUMER_ORDER_SENTINEL_ENABLED", default = "true")]
+    pub consumer_order_sentinel_enabled: bool,
+
     // ---- Worker transport ----
     /// Comma-separated list of worker HTTP URLs
     #[envconfig(default = "http://localhost:9001")]

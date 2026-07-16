@@ -40,9 +40,11 @@ from posthog.api.integration import (
     GitHubReposQuerySerializer,
     GitHubReposRefreshResponseSerializer,
     GitHubReposResponseSerializer,
+    github_rate_limited_response,
     validate_github_repository_name,
 )
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.egress.github.transport import GitHubRateLimitError, github_request
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS, Integration
 from posthog.models.user import User
@@ -227,6 +229,13 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
     permission_classes = [IsAuthenticated, APIScopePermission]
     http_method_names = ["get", "post", "delete"]
     serializer_class = UserGitHubIntegrationItemSerializer
+
+    def handle_exception(self, exc: Exception) -> Response:
+        # Personal-GitHub actions (repos, branches, refresh) raise the same egress
+        # GitHubRateLimitError as the team integration endpoints — same 429 mapping.
+        if isinstance(exc, GitHubRateLimitError):
+            return github_rate_limited_response(exc)
+        return super().handle_exception(exc)
 
     def _get_user(self) -> User:
         """Resolve the target user from the nested ``parent_lookup_uuid`` (same rules as ``UserViewSet``)."""
@@ -705,13 +714,12 @@ def _has_unlinked_github_installations(user: User) -> bool | None:
         return None
 
     try:
-        response = requests.get(
+        # Identity-blind: user OAuth token, metered against the user's budget, not an installation's.
+        response = github_request(
+            "GET",
             "https://api.github.com/user/installations",
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {token}",
-                "X-GitHub-Api-Version": "2022-11-28",
-            },
+            source="integration",
+            headers={"Authorization": f"Bearer {token}"},
             params={"per_page": 100},
             timeout=10,
         )

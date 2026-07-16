@@ -72,8 +72,9 @@ CREATE TABLE posthog.log_attributes_distributed (
   attribute_value String CODEC(ZSTD(5)),
   attribute_count SimpleAggregateFunction(sum, UInt64),
   attribute_type LowCardinality(String) DEFAULT 'log',
-  original_expiry_time_bucket DateTime DEFAULT now()
-) ENGINE = Distributed('posthog_single_shard', 'posthog', 'log_attributes2');
+  original_expiry_time_bucket DateTime DEFAULT now(),
+  severity_text LowCardinality(String)
+) ENGINE = Distributed('posthog_single_shard', 'posthog', 'log_attributes3');
 CREATE TABLE posthog.logs32 (
   time_bucket DateTime MATERIALIZED toStartOfDay(timestamp) CODEC(DoubleDelta, ZSTD(1)),
   original_expiry_timestamp DateTime64(6) CODEC(DoubleDelta, ZSTD(1)),
@@ -113,7 +114,17 @@ CREATE TABLE posthog.logs32 (
   INDEX idx_body_ngram3 lower(body) TYPE ngrambf_v1(3, 25000, 2, 0) GRANULARITY 1,
   INDEX idx_uuid_bloom uuid TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX idx_observed_minmax observed_timestamp TYPE minmax GRANULARITY 1,
-  INDEX idx_timestamp_minmax timestamp TYPE minmax GRANULARITY 1
+  INDEX idx_timestamp_minmax timestamp TYPE minmax GRANULARITY 1,
+  PROJECTION projection_aggregate_counts (SELECT
+  team_id,
+  time_bucket,
+  toStartOfMinute(timestamp),
+  service_name,
+  severity_text,
+  resource_fingerprint,
+  count() AS event_count
+GROUP BY
+  team_id, time_bucket, toStartOfMinute(timestamp), service_name, severity_text, resource_fingerprint)
 ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.logs32', '{replica}-{shard}') ORDER BY (team_id, time_bucket, service_name, resource_fingerprint, severity_text, timestamp) PARTITION BY toDate(original_expiry_timestamp) SETTINGS add_minmax_index_for_numeric_columns = 1, allow_experimental_reverse_key = 1, allow_remote_fs_zero_copy_replication = 1, index_granularity = 8192, index_granularity_bytes = 104857600, storage_policy = 'default', ttl_only_drop_parts = 1;
 CREATE TABLE posthog.logs34 (
   time_bucket DateTime MATERIALIZED toStartOfDay(timestamp),
@@ -154,7 +165,17 @@ CREATE TABLE posthog.logs34 (
   INDEX idx_body_ngram3 lower(body) TYPE ngrambf_v1(3, 25000, 2, 0) GRANULARITY 1,
   INDEX idx_uuid_bloom uuid TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX idx_observed_minmax observed_timestamp TYPE minmax GRANULARITY 1,
-  INDEX idx_timestamp_minmax timestamp TYPE minmax GRANULARITY 1
+  INDEX idx_timestamp_minmax timestamp TYPE minmax GRANULARITY 1,
+  PROJECTION projection_aggregate_counts (SELECT
+  team_id,
+  time_bucket,
+  toStartOfMinute(timestamp),
+  service_name,
+  severity_text,
+  resource_fingerprint,
+  count() AS event_count
+GROUP BY
+  team_id, time_bucket, toStartOfMinute(timestamp), service_name, severity_text, resource_fingerprint)
 ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.logs34', '{replica}-{shard}') ORDER BY (team_id, time_bucket, service_name, resource_fingerprint, severity_text, timestamp) PARTITION BY toDate(original_expiry_timestamp) TTL original_expiry_timestamp SETTINGS add_minmax_index_for_numeric_columns = 1, allow_experimental_reverse_key = 1, index_granularity = 8192, index_granularity_bytes = 104857600, map_serialization_version = 'with_buckets', ttl_only_drop_parts = 1;
 CREATE TABLE posthog.logs_billing_metrics (
   team_id Int32,

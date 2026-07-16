@@ -8,13 +8,13 @@ from posthog.models import Team
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+from products.warehouse_sources.backend.facade.source_management import (
+    Config,
     WebhookCreationResult,
     WebhookDeletionResult,
     WebhookSource,
     WebhookSyncResult,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.config import Config
 
 
 def get_webhook_url(hog_function_id: str) -> str:

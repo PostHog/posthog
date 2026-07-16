@@ -38,7 +38,7 @@ Schema reference for PostHog's core system models, organized by domain:
 - [Batch exports](./references/models-batch-exports.md)
 - [Early Access Features](./references/models-early-access-features.md)
 - [Cohorts & Persons](./references/models-cohorts.md)
-- [Customer analytics custom properties (`system.custom_property_definitions`)](./references/models-customer-analytics.md)
+- [Customer analytics accounts, relationships (CSM, account owner) & custom properties (`system.accounts`, `system.account_relationships`)](./references/models-customer-analytics.md)
 - [Dashboards, Tiles & Insights](./references/models-dashboards-insights.md)
 - [Data Warehouse](./references/models-data-warehouse.md)
 - [Data Modeling Endpoints](./references/models-endpoints.md)

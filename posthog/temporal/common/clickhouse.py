@@ -694,7 +694,7 @@ class ClickHouseClient:
             results = await self.read_query_as_jsonl(
                 query,
                 query_parameters={"query_id": query_id, "cluster_name": settings.CLICKHOUSE_CLUSTER},
-                query_id=f"{query_id}-CHECK-QUERY-LOG",
+                query_id=f"{query_id}-CHECK-QUERY-LOG-{uuid.uuid4()}",
             )
         except ClickHouseError as e:
             error_message = f"Error checking for query '{query_id}' in query log: {str(e)}"

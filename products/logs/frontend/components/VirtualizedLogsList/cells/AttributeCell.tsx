@@ -11,6 +11,7 @@ import { LogsViewerCellPopover } from 'products/logs/frontend/components/LogsVie
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
 import { LogRowScrollButtons } from 'products/logs/frontend/components/VirtualizedLogsList/LogRowScrollButtons'
 import { useCellScroll } from 'products/logs/frontend/components/VirtualizedLogsList/useCellScroll'
+import { logsConfigLogic } from 'products/logs/frontend/logsConfigLogic'
 import { isDistinctIdKey, isSessionIdKey } from 'products/logs/frontend/utils'
 
 export interface AttributeCellProps {
@@ -25,6 +26,7 @@ export const AttributeCell = memo(function AttributeCell({
     width,
 }: AttributeCellProps): JSX.Element {
     const { id, isAttributeColumn } = useValues(logsViewerLogic)
+    const { configuredSessionIdKeys } = useValues(logsConfigLogic)
     const { addFilter, toggleAttributeColumn } = useActions(logsViewerLogic)
 
     const { scrollRef, handleScroll, startScrolling, stopScrolling } = useCellScroll({
@@ -46,7 +48,7 @@ export const AttributeCell = memo(function AttributeCell({
                         <span className="font-mono text-xs whitespace-nowrap pr-24" title={value}>
                             <PersonDisplay person={{ distinct_id: value }} noEllipsis inline />
                         </span>
-                    ) : isSessionIdKey(attributeKey) && value ? (
+                    ) : isSessionIdKey(attributeKey, configuredSessionIdKeys) && value ? (
                         <ViewRecordingButton
                             sessionId={value}
                             openPlayerIn={RecordingPlayerType.Modal}

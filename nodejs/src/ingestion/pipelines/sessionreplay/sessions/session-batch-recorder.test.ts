@@ -7,8 +7,8 @@ import { ParsedMessageData, SnapshotEvent } from '~/ingestion/pipelines/sessionr
 import { RetentionPeriod } from '~/ingestion/pipelines/sessionreplay/shared/constants'
 import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
 import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
-import { createMockEncryptor, createMockKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/test-helpers'
-import { KeyStore, RecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/types'
+import { createMockEncryptor, createMockSessionKey } from '~/ingestion/pipelines/sessionreplay/shared/test-helpers'
+import { RecordingEncryptor, SessionKey } from '~/ingestion/pipelines/sessionreplay/shared/types'
 import { MessageWithTeam } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
 import { SessionBatchMetrics } from './metrics'
@@ -16,8 +16,7 @@ import { SessionBatchFileStorage, SessionBatchFileWriter } from './session-batch
 import { SessionBatchRecorder } from './session-batch-recorder'
 import { SessionConsoleLogRecorder } from './session-console-log-recorder'
 import { SessionConsoleLogStore } from './session-console-log-store'
-import { SessionFilter } from './session-filter'
-import { SessionTracker } from './session-tracker'
+import { SessionFeatureRecorder } from './session-feature-recorder'
 import { EndResult, SnappySessionRecorder } from './snappy-session-recorder'
 
 // RRWeb event type constants
@@ -183,6 +182,7 @@ jest.mock('./metrics', () => ({
         incrementEventsRateLimited: jest.fn(),
         incrementNewSessionsDetected: jest.fn(),
         incrementNewSessionsRateLimited: jest.fn(),
+        observeE2eLag: jest.fn(),
     },
 }))
 
@@ -204,14 +204,15 @@ describe('SessionBatchRecorder', () => {
     let mockMetadataStore: jest.Mocked<SessionMetadataStore>
     let mockConsoleLogStore: jest.Mocked<SessionConsoleLogStore>
     let mockFeatureStore: jest.Mocked<SessionFeatureStore>
-    let mockSessionTracker: jest.Mocked<SessionTracker>
-    let mockSessionFilter: jest.Mocked<SessionFilter>
-    let mockKeyStore: jest.Mocked<KeyStore>
     let mockEncryptor: jest.Mocked<RecordingEncryptor>
 
-    // Records a message with its resolved retention (defaults to 30d — most tests don't vary it).
-    const record = (message: MessageWithTeam, retentionPeriod: RetentionPeriod = '30d'): Promise<number> =>
-        recorder.record(message, retentionPeriod)
+    // Records a message with its resolved retention and encryption key (both resolved upstream in
+    // production). Defaults to 30d and a fresh cleartext key — most tests don't vary either.
+    const record = (
+        message: MessageWithTeam,
+        retentionPeriod: RetentionPeriod = '30d',
+        sessionKey: SessionKey = createMockSessionKey()
+    ): Promise<number> => recorder.record(message, retentionPeriod, sessionKey)
 
     beforeEach(() => {
         jest.clearAllMocks()
@@ -231,7 +232,6 @@ describe('SessionBatchRecorder', () => {
 
         mockOffsetManager = {
             trackOffset: jest.fn(),
-            discardPartition: jest.fn(),
             commit: jest.fn(),
         } as unknown as jest.Mocked<KafkaOffsetManager>
 
@@ -252,16 +252,6 @@ describe('SessionBatchRecorder', () => {
             newBatch: jest.fn().mockReturnValue(mockWriter),
         } as unknown as jest.Mocked<SessionBatchFileStorage>
 
-        mockSessionTracker = {
-            trackSession: jest.fn().mockResolvedValue(false),
-        } as unknown as jest.Mocked<SessionTracker>
-
-        mockSessionFilter = {
-            isBlocked: jest.fn().mockResolvedValue(false),
-            handleNewSession: jest.fn().mockResolvedValue(undefined),
-        } as unknown as jest.Mocked<SessionFilter>
-
-        mockKeyStore = createMockKeyStore()
         mockEncryptor = createMockEncryptor()
 
         recorder = new SessionBatchRecorder(
@@ -270,9 +260,6 @@ describe('SessionBatchRecorder', () => {
             mockMetadataStore,
             mockConsoleLogStore,
             mockFeatureStore,
-            mockSessionTracker,
-            mockSessionFilter,
-            mockKeyStore,
             mockEncryptor,
             Number.MAX_SAFE_INTEGER
         )
@@ -289,6 +276,7 @@ describe('SessionBatchRecorder', () => {
             teamId,
             consoleLogIngestionEnabled: false,
             aiTrainingOptedIn: true,
+            firstPartyHosts: [],
         },
         message: {
             distinct_id: distinctId,
@@ -347,6 +335,23 @@ describe('SessionBatchRecorder', () => {
     })
 
     describe('recording and writing', () => {
+        it('skips the feature recorder for pre-serialized (native-anonymizer) messages', async () => {
+            // The feature recorder throws on pre-serialized input; calling it per message would
+            // spam Sentry and stop feature blocks. The call site must skip it instead.
+            const message = createMessage('session1', [])
+            message.message.eventsByWindowId = {}
+            message.message.preSerialized = {
+                lines: Buffer.from('["window1",{"type":3,"timestamp":1000}]\n'),
+                events: [{ ts: 1000, flags: 0 }],
+                consoleLogCount: 0,
+                consoleWarnCount: 0,
+                consoleErrorCount: 0,
+            }
+            await record(message)
+            const featureRecorder = jest.mocked(SessionFeatureRecorder).mock.results[0].value
+            expect(featureRecorder.recordMessage).not.toHaveBeenCalled()
+        })
+
         it('should write events in correct format', async () => {
             const message = createMessage('session1', [
                 {
@@ -1216,97 +1221,6 @@ describe('SessionBatchRecorder', () => {
             expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalledTimes(1)
             expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
         })
-
-        it('should not flush discarded partitions', async () => {
-            const messages = [
-                createMessage(
-                    'session1',
-                    [
-                        {
-                            type: EventType.FullSnapshot,
-                            timestamp: 1000,
-                            data: { source: 1 },
-                        },
-                    ],
-                    { partition: 1 }
-                ),
-                createMessage(
-                    'session2',
-                    [
-                        {
-                            type: EventType.IncrementalSnapshot,
-                            timestamp: 2000,
-                            data: { source: 2 },
-                        },
-                    ],
-                    { partition: 2 }
-                ),
-            ]
-
-            for (const message of messages) {
-                await record(message)
-            }
-            recorder.discardPartition(1)
-            await recorder.flush()
-
-            const writtenData = captureWrittenData(mockWriter.writeSession as jest.Mock)
-            const lines = parseLines(writtenData[0])
-            // Should only contain message from partition 2
-            expect(lines).toEqual([['window1', messages[1].message.eventsByWindowId.window1[0]]])
-        })
-
-        it('should correctly update size when discarding partitions', async () => {
-            const message1 = createMessage(
-                'session1',
-                [
-                    {
-                        type: EventType.FullSnapshot,
-                        timestamp: 1000,
-                        data: { source: 1 },
-                    },
-                ],
-                { partition: 1 }
-            )
-            const message2 = createMessage(
-                'session2',
-                [
-                    {
-                        type: EventType.IncrementalSnapshot,
-                        timestamp: 2000,
-                        data: { source: 2 },
-                    },
-                ],
-                { partition: 2 }
-            )
-
-            const size1 = await record(message1)
-            const size2 = await record(message2)
-            expect(recorder.size).toBe(size1 + size2)
-
-            recorder.discardPartition(1)
-            expect(mockOffsetManager.discardPartition).toHaveBeenCalledWith(1)
-            expect(recorder.size).toBe(size2)
-
-            recorder.discardPartition(2)
-            expect(mockOffsetManager.discardPartition).toHaveBeenCalledWith(2)
-            expect(recorder.size).toBe(0)
-        })
-
-        it('should handle discarding non-existent partitions', async () => {
-            const message = createMessage('session1', [
-                {
-                    type: EventType.FullSnapshot,
-                    timestamp: 1000,
-                    data: { source: 1 },
-                },
-            ])
-
-            const bytesWritten = await record(message)
-            expect(recorder.size).toBe(bytesWritten)
-
-            recorder.discardPartition(999)
-            expect(recorder.size).toBe(bytesWritten)
-        })
     })
 
     describe('metrics', () => {
@@ -1351,45 +1265,6 @@ describe('SessionBatchRecorder', () => {
             expect(SessionBatchMetrics.incrementBatchesFlushed).toHaveBeenCalledTimes(0)
             expect(SessionBatchMetrics.incrementSessionsFlushed).toHaveBeenCalledTimes(0)
             expect(SessionBatchMetrics.incrementEventsFlushed).toHaveBeenCalledTimes(0)
-        })
-
-        it('should not count events from discarded partitions', async () => {
-            const messages = [
-                createMessage(
-                    'session1',
-                    [
-                        {
-                            type: EventType.FullSnapshot,
-                            timestamp: 1000,
-                            data: { source: 1 },
-                        },
-                    ],
-                    { partition: 1 }
-                ),
-                createMessage(
-                    'session2',
-                    [
-                        {
-                            type: EventType.IncrementalSnapshot,
-                            timestamp: 2000,
-                            data: { source: 2 },
-                        },
-                    ],
-                    { partition: 2 }
-                ),
-            ]
-
-            for (const message of messages) {
-                await record(message)
-            }
-            recorder.discardPartition(1)
-            await recorder.flush()
-
-            expect(SessionBatchMetrics.incrementBatchesFlushed).toHaveBeenCalledTimes(1)
-            expect(SessionBatchMetrics.incrementSessionsFlushed).toHaveBeenCalledTimes(1)
-            expect(SessionBatchMetrics.incrementEventsFlushed).toHaveBeenCalledTimes(1)
-            expect(SessionBatchMetrics.incrementSessionsFlushed).toHaveBeenLastCalledWith(1) // Only session from partition 2
-            expect(SessionBatchMetrics.incrementEventsFlushed).toHaveBeenLastCalledWith(1) // Only event from partition 2
         })
 
         it('should not count sessions again on subsequent flushes', async () => {
@@ -1499,9 +1374,6 @@ describe('SessionBatchRecorder', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockFeatureStore,
-                mockSessionTracker,
-                mockSessionFilter,
-                mockKeyStore,
                 mockEncryptor,
                 Number.MAX_SAFE_INTEGER
             )
@@ -1702,9 +1574,6 @@ describe('SessionBatchRecorder', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockFeatureStore,
-                mockSessionTracker,
-                mockSessionFilter,
-                mockKeyStore,
                 mockEncryptor,
                 3
             )
@@ -1732,9 +1601,6 @@ describe('SessionBatchRecorder', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockFeatureStore,
-                mockSessionTracker,
-                mockSessionFilter,
-                mockKeyStore,
                 mockEncryptor,
                 2
             )
@@ -1765,9 +1631,6 @@ describe('SessionBatchRecorder', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockFeatureStore,
-                mockSessionTracker,
-                mockSessionFilter,
-                mockKeyStore,
                 mockEncryptor,
                 1
             )
@@ -1791,9 +1654,6 @@ describe('SessionBatchRecorder', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockFeatureStore,
-                mockSessionTracker,
-                mockSessionFilter,
-                mockKeyStore,
                 mockEncryptor,
                 2
             )
@@ -1830,9 +1690,6 @@ describe('SessionBatchRecorder', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockFeatureStore,
-                mockSessionTracker,
-                mockSessionFilter,
-                mockKeyStore,
                 mockEncryptor,
                 2
             )
@@ -1862,39 +1719,6 @@ describe('SessionBatchRecorder', () => {
             expect(bytesWritten2).toBeGreaterThan(0)
         })
 
-        it('should clean up rate limiter state when partition is discarded', async () => {
-            recorder = new SessionBatchRecorder(
-                mockOffsetManager,
-                mockStorage,
-                mockMetadataStore,
-                mockConsoleLogStore,
-                mockFeatureStore,
-                mockSessionTracker,
-                mockSessionFilter,
-                mockKeyStore,
-                mockEncryptor,
-                1
-            )
-
-            const message1 = createMessage('session1', [{ type: EventType.Meta, timestamp: 1000, data: {} }], {
-                partition: 1,
-            })
-            const message2 = createMessage('session1', [{ type: EventType.Meta, timestamp: 2000, data: {} }], {
-                partition: 1,
-            })
-
-            await record(message1)
-            await record(message2)
-
-            recorder.discardPartition(1)
-
-            const message3 = createMessage('session1', [{ type: EventType.Meta, timestamp: 3000, data: {} }], {
-                partition: 2,
-            })
-            const bytesWritten = await record(message3)
-            expect(bytesWritten).toBeGreaterThan(0)
-        })
-
         it('should handle rate limiting with different team IDs', async () => {
             recorder = new SessionBatchRecorder(
                 mockOffsetManager,
@@ -1902,9 +1726,6 @@ describe('SessionBatchRecorder', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockFeatureStore,
-                mockSessionTracker,
-                mockSessionFilter,
-                mockKeyStore,
                 mockEncryptor,
                 1
             )
@@ -1937,9 +1758,6 @@ describe('SessionBatchRecorder', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockFeatureStore,
-                mockSessionTracker,
-                mockSessionFilter,
-                mockKeyStore,
                 mockEncryptor,
                 2
             )
@@ -1969,9 +1787,6 @@ describe('SessionBatchRecorder', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockFeatureStore,
-                mockSessionTracker,
-                mockSessionFilter,
-                mockKeyStore,
                 mockEncryptor,
                 1
             )
@@ -2000,9 +1815,6 @@ describe('SessionBatchRecorder', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockFeatureStore,
-                mockSessionTracker,
-                mockSessionFilter,
-                mockKeyStore,
                 mockEncryptor,
                 1
             )
@@ -2032,9 +1844,6 @@ describe('SessionBatchRecorder', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockFeatureStore,
-                mockSessionTracker,
-                mockSessionFilter,
-                mockKeyStore,
                 mockEncryptor,
                 1
             )
@@ -2067,42 +1876,12 @@ describe('SessionBatchRecorder', () => {
     })
 
     describe('encryption key handling', () => {
-        it('should drop messages for sessions with deleted encryption keys', async () => {
-            mockSessionTracker.trackSession.mockResolvedValue(false)
-            mockKeyStore.getKey.mockResolvedValue({
-                plaintextKey: Buffer.alloc(0),
-                encryptedKey: Buffer.alloc(0),
-                sessionState: 'deleted',
-                deletedAt: 1700000000,
-            })
-
-            const message = createMessage(
-                'session1',
-                [{ type: EventType.FullSnapshot, timestamp: 1000, data: { source: 1 } }],
-                { partition: 1, offset: 42 }
-            )
-
-            const bytesWritten = await record(message)
-
-            expect(bytesWritten).toBe(0)
-        })
-
-        it('should drop messages when session key changes between calls', async () => {
-            const keyA = Buffer.from('key-a')
-            const keyB = Buffer.from('key-b')
-
-            mockSessionTracker.trackSession.mockResolvedValueOnce(true).mockResolvedValueOnce(false)
-
-            mockKeyStore.generateKey.mockResolvedValue({
-                plaintextKey: Buffer.alloc(0),
-                encryptedKey: keyA,
-                sessionState: 'cleartext',
-            })
-            mockKeyStore.getKey.mockResolvedValue({
-                plaintextKey: Buffer.alloc(0),
-                encryptedKey: keyB,
-                sessionState: 'cleartext',
-            })
+        it('should drop messages when the session key changes between calls for the same session', async () => {
+            // The key is resolved upstream; the recorder must reject a second message that arrives
+            // with a different key for a session already in the batch, so a block isn't corrupted by
+            // events encrypted for two different keys.
+            const keyA = createMockSessionKey({ encryptedKey: Buffer.from('key-a') })
+            const keyB = createMockSessionKey({ encryptedKey: Buffer.from('key-b') })
 
             const message1 = createMessage(
                 'session1',
@@ -2115,66 +1894,11 @@ describe('SessionBatchRecorder', () => {
                 { partition: 1, offset: 1 }
             )
 
-            const bytes1 = await record(message1)
-            const bytes2 = await record(message2)
+            const bytes1 = await record(message1, '30d', keyA)
+            const bytes2 = await record(message2, '30d', keyB)
 
             expect(bytes1).toBeGreaterThan(0)
             expect(bytes2).toBe(0)
-        })
-    })
-
-    describe('new session rate limiting', () => {
-        it('should call handleNewSession for new sessions', async () => {
-            mockSessionTracker.trackSession.mockResolvedValue(true)
-
-            const message = createMessage('session1', [
-                { type: EventType.FullSnapshot, timestamp: 1000, data: { source: 1 } },
-            ])
-
-            await record(message)
-
-            expect(mockSessionFilter.handleNewSession).toHaveBeenCalledWith(1, 'session1')
-        })
-
-        it('should not call handleNewSession for existing sessions', async () => {
-            mockSessionTracker.trackSession.mockResolvedValue(false)
-
-            const message = createMessage('session1', [
-                { type: EventType.FullSnapshot, timestamp: 1000, data: { source: 1 } },
-            ])
-
-            await record(message)
-
-            expect(mockSessionFilter.handleNewSession).not.toHaveBeenCalled()
-        })
-
-        it('should drop message when session is blocked after handleNewSession', async () => {
-            mockSessionTracker.trackSession.mockResolvedValue(true)
-            // Simulate handleNewSession blocking the session by having isBlocked return true
-            mockSessionFilter.isBlocked.mockResolvedValue(true)
-
-            const message = createMessage('session1', [
-                { type: EventType.FullSnapshot, timestamp: 1000, data: { source: 1 } },
-            ])
-
-            const bytesWritten = await record(message)
-
-            expect(bytesWritten).toBe(0)
-            expect(mockSessionFilter.handleNewSession).toHaveBeenCalledWith(1, 'session1')
-            expect(mockSessionFilter.isBlocked).toHaveBeenCalledWith(1, 'session1')
-        })
-
-        it('should allow new session when not blocked', async () => {
-            mockSessionTracker.trackSession.mockResolvedValue(true)
-            mockSessionFilter.isBlocked.mockResolvedValue(false)
-
-            const message = createMessage('session1', [
-                { type: EventType.FullSnapshot, timestamp: 1000, data: { source: 1 } },
-            ])
-
-            const bytesWritten = await record(message)
-
-            expect(bytesWritten).toBeGreaterThan(0)
         })
     })
 })

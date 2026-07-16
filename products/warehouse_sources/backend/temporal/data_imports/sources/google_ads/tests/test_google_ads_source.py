@@ -13,6 +13,8 @@ from google.ads.googleads.v23.errors.types.request_error import RequestErrorEnum
 from google.api_core import exceptions as google_api_exceptions
 from google.auth import exceptions as google_auth_exceptions
 
+from posthog.schema import SourceFieldOauthConfig
+
 from posthog.models.integration import Integration
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GoogleAdsSourceConfig
@@ -38,6 +40,17 @@ from products.warehouse_sources.backend.types import IncrementalFieldType
 
 _CUSTOMER_ID_ERROR = "valid Google Ads customer ID"
 _MANAGER_ID_ERROR = "valid Google Ads manager customer ID"
+
+
+def test_get_source_config_oauth_field_declares_required_scope():
+    oauth_field = next(
+        (field for field in GoogleAdsSource().get_source_config.fields if field.name == "google_ads_integration_id"),
+        None,
+    )
+    assert oauth_field is not None, "OAuth field 'google_ads_integration_id' not found in source config"
+    assert isinstance(oauth_field, SourceFieldOauthConfig)
+    assert oauth_field.kind == "google-ads"
+    assert oauth_field.requiredScopes == "https://www.googleapis.com/auth/adwords"
 
 
 class TestCleanCustomerId:
@@ -202,14 +215,28 @@ class TestGoogleAdsNonRetryableErrors:
                 "token, login cookie or other valid authentication credential. See "
                 "https://developers.google.com/identity/sign-in/web/devconsole-project."
             ),
+            # The other gapic-wrapped Unauthenticated message, seen on the sync path when the OAuth
+            # access token is rejected — same "401 {message}" shape, no bare UNAUTHENTICATED token.
+            (
+                "401 Request had invalid authentication credentials. Expected OAuth 2 access "
+                "token, login cookie or other valid authentication credential. See "
+                "https://developers.google.com/identity/sign-in/web/devconsole-project."
+            ),
         ],
     )
     def test_missing_auth_credential_is_non_retryable(self, error_msg):
         is_non_retryable = any(pattern in error_msg for pattern in self.non_retryable.keys())
         assert is_non_retryable, f"Expected error to be non-retryable: {error_msg}"
 
-    def test_missing_auth_credential_has_friendly_message(self):
-        friendly = self.non_retryable["Request is missing required authentication credential"]
+    @pytest.mark.parametrize(
+        "pattern",
+        [
+            "Request is missing required authentication credential",
+            "Request had invalid authentication credentials",
+        ],
+    )
+    def test_auth_credential_patterns_have_friendly_message(self, pattern):
+        friendly = self.non_retryable[pattern]
         assert friendly is not None
         assert "reconnect" in friendly.lower()
 
@@ -248,6 +275,7 @@ class TestGoogleAdsNonRetryableErrors:
             "invalid_grant",
             "access_not_configured",
             "Request is missing required authentication credential",
+            "Request had invalid authentication credentials",
         ],
     )
     def test_documented_patterns_present(self, pattern):
@@ -363,6 +391,27 @@ class TestValidateCredentials:
 
         assert ok is False
         assert "reconnect your Google Ads account" in (message or "")
+
+    def test_permission_denied_returns_actionable_message(self):
+        # A connected login that can't access the customer ID surfaces as a raw gRPC PERMISSION_DENIED
+        # dump (with a per-request peer IP) at validate time. Surface a clean, actionable prompt rather
+        # than leaking the protobuf dump to the wizard.
+        config = GoogleAdsSourceConfig(customer_id="1234567890", google_ads_integration_id=1)
+        client = mock.Mock()
+        client.get_service.return_value.list_accessible_customers.side_effect = Exception(
+            'status = StatusCode.PERMISSION_DENIED\n\tdetails = "The caller does not have permission"\n\t'
+            'debug_error_string = "peer_address:ipv4:216.239.36.223:443"'
+        )
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.google_ads_client",
+            return_value=client,
+        ):
+            ok, message = GoogleAdsSource().validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert "reconnect your Google Ads account" in (message or "")
+        assert "216.239.36.223" not in (message or "")
+        assert "StatusCode" not in (message or "")
 
     def test_transient_google_side_error_returns_retry_message(self):
         # A transient INTERNAL/UNAVAILABLE blip from Google stringifies as a raw gRPC status plus a

@@ -1,9 +1,10 @@
 from typing import Any
 
 import structlog
-from drf_spectacular.utils import extend_schema
-from rest_framework import mixins, serializers, viewsets
+from drf_spectacular.utils import OpenApiResponse, extend_schema
+from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import APIException
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -15,6 +16,15 @@ from posthog.models.organization_integration import OrganizationIntegration
 from posthog.permissions import OrganizationAdminWritePermissions
 
 logger = structlog.get_logger(__name__)
+
+
+class OpenInvoicesError(APIException):
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = (
+        "This integration has unpaid invoices that must be resolved before disconnecting. "
+        "Please contact support@posthog.com for help."
+    )
+    default_code = "open_invoices_error"
 
 
 class OrganizationIntegrationSerializer(serializers.ModelSerializer):
@@ -66,7 +76,13 @@ class OrganizationIntegrationViewSet(
     serializer_class = OrganizationIntegrationSerializer
     permission_classes = [OrganizationAdminWritePermissions]
 
-    @extend_schema(operation_id="organization_integrations_destroy")
+    @extend_schema(
+        operation_id="organization_integrations_destroy",
+        responses={
+            204: None,
+            409: OpenApiResponse(description="Deauthorization is blocked because the account has unpaid invoices."),
+        },
+    )
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return super().destroy(request, *args, **kwargs)
 
@@ -74,10 +90,22 @@ class OrganizationIntegrationViewSet(
         is_marketplace = instance.config.get("type") != "connectable"
 
         if is_marketplace and instance.integration_id:
-            try:
-                from ee.vercel.integration import VercelIntegration
+            from ee.billing.billing_manager import BillingServiceOpenInvoicesError
+            from ee.vercel.integration import VercelIntegration
 
+            try:
                 VercelIntegration.delete_installation(instance.integration_id)
+            except BillingServiceOpenInvoicesError as e:
+                # Expected business condition, not a crash: billing blocks deauthorization while
+                # invoices are unpaid. Mirror the marketplace DELETE API (409) so the UI disconnect
+                # can't sidestep the guard, and abort the local delete instead of capturing an error.
+                logger.warning(
+                    "organization_integration.delete_installation_blocked_by_open_invoices",
+                    organization_id=str(instance.organization_id),
+                    integration_id=instance.integration_id,
+                    reason=e.message,
+                )
+                raise OpenInvoicesError(detail=e.message)
             except Exception as e:
                 capture_exception(
                     e,

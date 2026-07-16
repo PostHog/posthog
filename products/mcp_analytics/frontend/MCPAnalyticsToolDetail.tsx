@@ -5,14 +5,12 @@ import { IconArrowLeft, IconArrowRight } from '@posthog/icons'
 import { LemonDivider, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import {
     type ChartTheme,
-    MetricCard,
     type Series,
     TimeSeriesLineChart,
     type TimeSeriesLineChartConfig,
 } from '@posthog/quill-charts'
 import {
     Card,
-    CardContent,
     CardDescription,
     CardHeader,
     CardTitle,
@@ -26,21 +24,21 @@ import {
     TableRow,
 } from '@posthog/quill-primitives'
 
-import { useChartTheme } from 'lib/charts/hooks'
+import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
 import { FeaturePreviewSceneGate } from '~/layout/scenes/components/FeaturePreviewSceneGate'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { SceneExport } from '~/scenes/sceneTypes'
 
-import { formatMs, formatMsAsSeconds } from './dashboard/formatters'
+import { formatBucketLabel, formatMs, formatMsAsSeconds } from './dashboard/formatters'
 import { HarnessLogo, HarnessPill } from './dashboard/harness'
+import { MetricTile } from './dashboard/MetricTile'
 import { mcpAnalyticsFeaturePreviewGate } from './featurePreviewGate'
 import {
     type DailyChartData,
@@ -50,6 +48,7 @@ import {
     ToolSummary,
     mcpAnalyticsToolDetailLogic,
 } from './mcpAnalyticsToolDetailLogic'
+import { mcpToolQualityUrlWithDates } from './mcpAnalyticsToolQualityLogic'
 
 export const scene: SceneExport<MCPAnalyticsToolDetailLogicProps> = {
     component: MCPAnalyticsToolDetail,
@@ -57,52 +56,6 @@ export const scene: SceneExport<MCPAnalyticsToolDetailLogicProps> = {
     paramsToProps: ({ params: { toolName } }) => ({
         toolName: decodeURIComponent(toolName ?? ''),
     }),
-}
-
-function StatTile({
-    label,
-    value,
-    formatValue,
-    data,
-    theme,
-    color,
-    goodDirection,
-    loading,
-}: {
-    label: string
-    value: number
-    formatValue: (n: number) => string
-    data?: number[]
-    theme: ChartTheme
-    color?: string
-    goodDirection?: 'up' | 'down'
-    loading: boolean
-}): JSX.Element {
-    return (
-        <Card size="sm" className="flex-1">
-            {loading ? (
-                <CardContent className="flex flex-col gap-2">
-                    <Skeleton className="h-3 w-16" />
-                    <Skeleton className="h-7 w-20" />
-                </CardContent>
-            ) : (
-                <CardContent>
-                    <MetricCard
-                        className="text-primary"
-                        title={label}
-                        value={value}
-                        data={data}
-                        theme={theme}
-                        color={color}
-                        formatValue={formatValue}
-                        goodDirection={goodDirection}
-                        sparklineHeight={40}
-                        sparklineClassName="mt-2 -mx-3 -mb-3"
-                    />
-                </CardContent>
-            )}
-        </Card>
-    )
 }
 
 // Renderer for the "person" column in the Top users table. The loader maps each row's
@@ -163,7 +116,7 @@ function ResultTable({
     rows,
     loading,
     columns,
-    emptyMessage = 'No data for the last 7 days.',
+    emptyMessage = 'No data for the selected date range.',
 }: {
     title?: React.ReactNode
     description?: React.ReactNode
@@ -237,12 +190,9 @@ function SectionHeader({ title, subtitle }: { title: string; subtitle?: string }
     )
 }
 
-// Tile sparkline window — the trailing slice of the 30-day daily series.
-const SPARKLINE_DAYS = 7
-
-// Trailing window of a daily series, coalescing latency gaps (NaN) to 0 for the sparkline.
+// Coalesce latency gaps (NaN) to 0 so the sparkline draws a continuous line over the window.
 function spark(values: number[]): number[] {
-    return values.slice(-SPARKLINE_DAYS).map((v) => (Number.isFinite(v) ? v : 0))
+    return values.map((v) => (Number.isFinite(v) ? v : 0))
 }
 
 function StatTiles({
@@ -250,79 +200,91 @@ function StatTiles({
     loading,
     daily,
     theme,
+    dateRangeLabel,
 }: {
     summary: ToolSummary | null
     loading: boolean
     daily: DailyChartData
     theme: ChartTheme
+    dateRangeLabel: string
 }): JSX.Element {
     const calls = summary?.calls ?? 0
     const errors = summary?.errors ?? 0
     const errorRate = calls ? (errors / calls) * 100 : 0
     const errorRateDaily = daily.calls.map((c, i) => (c ? (daily.errors[i] / c) * 100 : 0))
+    const sparkLabels = daily.labels.map(formatBucketLabel)
+
+    const tiles: {
+        label: string
+        value: number
+        formatValue: (n: number) => string
+        data: number[]
+        color: string
+        goodDirection: 'up' | 'down'
+    }[] = [
+        {
+            label: 'Calls',
+            value: calls,
+            formatValue: humanFriendlyNumber,
+            data: spark(daily.calls),
+            color: theme.colors[0],
+            goodDirection: 'up',
+        },
+        {
+            label: 'Error rate',
+            value: errorRate,
+            formatValue: (n) => `${n.toFixed(1)}%`,
+            data: spark(errorRateDaily),
+            color: theme.colors[4],
+            goodDirection: 'down',
+        },
+        {
+            label: 'p50 latency',
+            value: summary?.p50_ms ?? 0,
+            formatValue: formatMs,
+            data: spark(daily.p50),
+            color: theme.colors[0],
+            goodDirection: 'down',
+        },
+        {
+            label: 'p95 latency',
+            value: summary?.p95_ms ?? 0,
+            formatValue: formatMs,
+            data: spark(daily.p95),
+            color: theme.colors[0],
+            goodDirection: 'down',
+        },
+        {
+            label: 'Users',
+            value: summary?.users ?? 0,
+            formatValue: humanFriendlyNumber,
+            data: spark(daily.users),
+            color: theme.colors[0],
+            goodDirection: 'up',
+        },
+        {
+            label: 'Sessions',
+            value: summary?.conversations ?? 0,
+            formatValue: humanFriendlyNumber,
+            data: spark(daily.sessions),
+            color: theme.colors[6],
+            goodDirection: 'up',
+        },
+    ]
 
     return (
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6" data-quill>
-            <StatTile
-                label="Calls"
-                loading={loading}
-                value={calls}
-                formatValue={humanFriendlyNumber}
-                data={spark(daily.calls)}
-                theme={theme}
-                color={theme.colors[0]}
-                goodDirection="up"
-            />
-            <StatTile
-                label="Error rate"
-                loading={loading}
-                value={errorRate}
-                formatValue={(n) => `${n.toFixed(1)}%`}
-                data={spark(errorRateDaily)}
-                theme={theme}
-                color={theme.colors[4]}
-                goodDirection="down"
-            />
-            <StatTile
-                label="p50 latency"
-                loading={loading}
-                value={summary?.p50_ms ?? 0}
-                formatValue={formatMs}
-                data={spark(daily.p50)}
-                theme={theme}
-                color={theme.colors[0]}
-                goodDirection="down"
-            />
-            <StatTile
-                label="p95 latency"
-                loading={loading}
-                value={summary?.p95_ms ?? 0}
-                formatValue={formatMs}
-                data={spark(daily.p95)}
-                theme={theme}
-                color={theme.colors[0]}
-                goodDirection="down"
-            />
-            <StatTile
-                label="Users"
-                loading={loading}
-                value={summary?.users ?? 0}
-                formatValue={humanFriendlyNumber}
-                data={spark(daily.users)}
-                theme={theme}
-                color={theme.colors[0]}
-                goodDirection="up"
-            />
-            <StatTile
-                label="Sessions"
-                loading={loading}
-                value={summary?.conversations ?? 0}
-                formatValue={humanFriendlyNumber}
-                data={spark(daily.sessions)}
-                theme={theme}
-                color={theme.colors[6]}
-                goodDirection="up"
-            />
+            {tiles.map((tile) => (
+                <MetricTile
+                    key={tile.label}
+                    {...tile}
+                    loading={loading}
+                    labels={sparkLabels}
+                    theme={theme}
+                    restingSubtitle={dateRangeLabel}
+                    sparklineHeight={40}
+                />
+            ))}
         </div>
     )
 }
@@ -397,10 +359,13 @@ function DescriptionBlock({
 
 function trendChartConfig(timezone: string, yAxis?: TimeSeriesLineChartConfig['yAxis']): TimeSeriesLineChartConfig {
     return {
-        yAxis: { showGrid: false, ...yAxis },
+        curve: 'monotone',
         showAxisLines: true,
-        xAxis: { interval: 'day', timezone },
+        showTickMarks: true,
         showCrosshair: true,
+        showGrid: true,
+        yAxis,
+        xAxis: { interval: 'day', timezone },
         tooltip: { placement: 'cursor' },
     }
 }
@@ -447,7 +412,7 @@ function TrendChart({
                     <Skeleton className="flex-1" />
                 ) : labels.length === 0 ? (
                     <div className="flex flex-1 items-center justify-center text-[12px] text-secondary">
-                        No data for the last 7 days.
+                        No data for the selected date range.
                     </div>
                 ) : (
                     <TimeSeriesLineChart
@@ -493,6 +458,8 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
         byHarnessRowsLoading,
         topUserRows,
         topUserRowsLoading,
+        dateRangeLabel,
+        dateFilter,
     } = useValues(mcpAnalyticsToolDetailLogic({ toolName }))
     const { timezone } = useValues(teamLogic)
 
@@ -505,31 +472,40 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
         () => seriesFor(dailyChartData, theme, ['p50', 'p95']),
         [dailyChartData, theme]
     )
-    const countsConfig = useMemo(() => trendChartConfig(timezone), [timezone])
-    const latencyConfig = useMemo(() => trendChartConfig(timezone, { tickFormatter: formatMsAsSeconds }), [timezone])
+    const countsConfig = useChartConfig(() => trendChartConfig(timezone), [timezone])
+    const latencyConfig = useChartConfig(
+        () => trendChartConfig(timezone, { tickFormatter: formatMsAsSeconds }),
+        [timezone]
+    )
 
     return (
         <SceneContent>
             <SceneTitleSection
                 name={toolName}
                 description={null}
-                resourceType={{ type: 'llm_analytics' }}
+                resourceType={{ type: 'mcp_analytics' }}
                 forceBackTo={{
                     name: 'Tool quality',
-                    path: urls.mcpAnalyticsToolQuality(),
+                    path: mcpToolQualityUrlWithDates(dateFilter),
                     key: 'mcp-analytics-tool-quality',
                 }}
             />
 
             <div className="flex flex-col gap-3 px-4 pb-4">
                 <DescriptionBlock descriptions={descriptions} loading={descriptionsLoading} />
-                <StatTiles summary={summary} loading={summaryLoading} daily={dailyChartData} theme={theme} />
+                <StatTiles
+                    summary={summary}
+                    loading={summaryLoading}
+                    daily={dailyChartData}
+                    theme={theme}
+                    dateRangeLabel={dateRangeLabel}
+                />
             </div>
 
             <LemonDivider />
 
             <div className="flex flex-col gap-3 px-4 pb-4">
-                <SectionHeader title="Reliability" subtitle="Last 30 days" />
+                <SectionHeader title="Reliability" subtitle={dateRangeLabel} />
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                     <TrendChart
                         title="Calls and errors"
@@ -562,7 +538,7 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
                         action={<IntentCoverageTag coverage={intentCoverage} loading={intentCoverageLoading} />}
                         rows={sampleIntentRows}
                         loading={sampleIntentRowsLoading}
-                        emptyMessage="No intents captured in the last 7 days."
+                        emptyMessage="No intents captured for the selected date range."
                         columns={[
                             { header: 'When', render: (r) => <TZLabel time={String(r[0])} /> },
                             { header: 'Intent', expand: true, render: (r) => <span>{String(r[1] ?? '')}</span> },
@@ -671,13 +647,13 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
             <div className="flex flex-col gap-3 px-4 pb-4">
                 <ResultTable
                     title="Failures"
-                    description="Top exception messages paired with this tool. Sourced from $exception events."
+                    description="Errored calls of this tool grouped by error type and HTTP status. Sourced from the $mcp_is_error flag on $mcp_tool_call events, the same source as the error rate above."
                     rows={failureRows}
                     loading={failureRowsLoading}
-                    emptyMessage="No exceptions recorded for this tool in the last 7 days."
+                    emptyMessage="No errored calls recorded for this tool in the selected date range."
                     columns={[
                         {
-                            header: 'Message',
+                            header: 'Error type',
                             expand: true,
                             render: (r) => <span className="font-mono text-xs">{String(r[0] ?? '')}</span>,
                         },

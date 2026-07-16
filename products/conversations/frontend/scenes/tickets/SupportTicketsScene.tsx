@@ -254,7 +254,7 @@ function SupportTicketsBulkActions(): JSX.Element {
                 }
                 bulkUpdateStatus(selectedTicketIds, value as TicketStatus)
             }}
-            value={currentStatus === 'mixed' ? null : currentStatus}
+            value={null}
             placeholder="Mark as"
             loading={bulkUpdating}
             disabledReason={!hasSelection ? 'Select tickets first' : bulkUpdating ? 'Updating…' : undefined}

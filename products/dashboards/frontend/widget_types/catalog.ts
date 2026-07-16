@@ -1,6 +1,6 @@
 import type { ComponentType } from 'react'
 
-import { IconFlask, IconList, IconLive, IconRewindPlay, IconWarning } from '@posthog/icons'
+import { IconFlask, IconList, IconLive, IconMessage, IconRewindPlay, IconWarning } from '@posthog/icons'
 
 import { urls } from 'scenes/urls'
 
@@ -14,6 +14,7 @@ import {
     experimentsWidgetConfigSchema,
     logsWidgetConfigSchema,
     sessionReplayWidgetConfigSchema,
+    surveyResultsWidgetConfigSchema,
 } from '../generated/widget-configs.zod'
 import type { DashboardWidgetProductAccess } from '../types'
 import { ActivityEventsWidgetPreview } from '../widgets/previews/ActivityEventsWidgetPreview'
@@ -24,6 +25,7 @@ import {
 } from '../widgets/previews/ExperimentsWidgetPreviews'
 import { LogsWidgetPreview } from '../widgets/previews/LogsWidgetPreview'
 import { SessionReplayWidgetPreview } from '../widgets/previews/SessionReplayWidgetPreview'
+import { SurveyResultsWidgetPreview } from '../widgets/previews/SurveysWidgetPreviews'
 import type { WidgetAvailabilityConfig, WidgetAvailabilityRequirementId } from './widgetAvailability'
 
 export const DASHBOARD_WIDGET_HEADER_LAYOUTS = ['simple', 'dashboard_tile'] as const
@@ -81,6 +83,7 @@ export const DASHBOARD_WIDGET_GROUP_LABELS = {
     error_tracking: 'Error tracking',
     session_replay: 'Session replay',
     experiments: 'Experiments',
+    surveys: 'Surveys',
     logs: 'Logs',
 } as const satisfies Record<string, string>
 
@@ -94,6 +97,7 @@ export const DASHBOARD_WIDGET_GROUP_ICONS = {
     error_tracking: IconWarning,
     session_replay: IconRewindPlay,
     experiments: IconFlask,
+    surveys: IconMessage,
     logs: IconList,
 } as const satisfies Record<keyof typeof DASHBOARD_WIDGET_GROUP_LABELS, ComponentType<{ className?: string }>>
 
@@ -259,6 +263,20 @@ export const DASHBOARD_WIDGET_CATALOG = {
             message: 'Log in to PostHog to see experiment results from this dashboard.',
         },
     },
+    survey_results: {
+        groupId: 'surveys',
+        label: 'Survey results',
+        description: 'Performance stats and recent responses for a selected survey.',
+        headerTitle: 'Survey results',
+        defaultConfig: surveyResultsWidgetConfigSchema.parse({}),
+        defaultLayout: { w: 6, h: 5, minW: 3, minH: 3 },
+        productAccess: 'survey',
+        titleHref: urls.surveys(),
+        sharedPlaceholder: {
+            title: 'Survey results',
+            message: 'Log in to PostHog to see survey results from this dashboard.',
+        },
+    },
     activity_events_list: {
         groupId: 'activity',
         label: 'Recent events',
@@ -301,6 +319,7 @@ export const DASHBOARD_WIDGET_PREVIEWS: Record<DashboardWidgetCatalogKey, () => 
     session_replay_list: SessionReplayWidgetPreview,
     experiments_list: ExperimentsListWidgetPreview,
     experiment_results: ExperimentResultsWidgetPreview,
+    survey_results: SurveyResultsWidgetPreview,
     logs_list: LogsWidgetPreview,
 }
 
@@ -379,7 +398,7 @@ function getDashboardWidgetCatalogGroups(): DashboardWidgetCatalogGroup[] {
         group.widgets.push({ widgetType: widgetType as DashboardWidgetCatalogKey, entry })
     }
 
-    const groupDisplayOrder = ['session_replay', 'error_tracking', 'activity', 'logs', 'experiments']
+    const groupDisplayOrder = ['session_replay', 'error_tracking', 'activity', 'logs', 'experiments', 'surveys']
 
     return [...groupsById.values()].sort((a, b) => {
         const aIndex = groupDisplayOrder.indexOf(a.groupId)

@@ -31,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     SourceInputs,
     SourceResponse,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import log_connection_open
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     AnsiIdentifierQuoter,
     ValidatedRowFilter,
@@ -86,11 +87,20 @@ SNOWFLAKE_SYSTEM_SCHEMA = "INFORMATION_SCHEMA"
 # thread. The sync activities are threaded and the heartbeater runs on a separate event-loop task,
 # so the stall isn't surfaced by a missed heartbeat — the activity just runs until Temporal's
 # `start_to_close_timeout` cancels the thread mid socket-read, surfacing a misleading
-# `WantReadError`/`CancelledError`. Bounding it turns the stall into a fast, retryable
-# `OperationalError` well before the activity is cancelled. It applies per request, so it never caps
-# a long-running streaming sync. Kept comfortably under the schema-discovery activity's 10-minute
-# `start_to_close_timeout` while leaving ample room for legitimate per-request round-trips and retries.
+# `WantReadError`/`CancelledError`. Bounding it turns the stall into a fast, retryable error well
+# before the activity is cancelled. It applies per HTTP request, so it never caps the total wall-clock
+# of a long-running query.
 _SNOWFLAKE_NETWORK_TIMEOUT_SECONDS = 300
+
+# The connector also reuses `network_timeout` as a client-side query "timebomb": it arms a timer on
+# `cursor.execute()` and cancels the running query once the timeout elapses, raising
+# `ProgrammingError` 000604 (57014, "SQL execution was cancelled by the client due to a timeout").
+# That's harmless for the short metadata queries, but it must not cancel a legitimately long
+# full-table data scan — so those pass this explicit, much larger per-query `timeout`, overriding the
+# timebomb while leaving the retry budget above intact. It mirrors the import activity's 6h
+# `start_to_close_timeout`, which is the real ceiling: the connector defers to Temporal rather than
+# pre-empting a sync that is still making progress.
+_SNOWFLAKE_QUERY_TIMEOUT_SECONDS = 6 * 60 * 60
 
 
 def _split_display_name(display_name: str, default_schema: Optional[str]) -> tuple[Optional[str], str]:
@@ -265,6 +275,10 @@ class SnowflakeImplementation(
                 "user": config.auth_type.user,
             }
 
+        # Mirrors the connector's own host derivation for the common account-id formats.
+        # Deliberately not importing the connector's private `construct_hostname` — a rename
+        # there would crash every Snowflake sync at import time just to feed a log field.
+        log_connection_open(db_host=f"{config.account_id}.snowflakecomputing.com", via="vendor_https")
         with snowflake.connector.connect(
             account=config.account_id,
             warehouse=config.warehouse,
@@ -504,8 +518,27 @@ class SnowflakeImplementation(
         fully qualified `database.schema.table` reference, so this method
         takes `database` in addition to schema/table_name — the only
         driver to do so.
+
+        Permission- and session-sensitive, like the schema-level
+        `get_primary_keys`: some roles can't see PK metadata and the `SHOW`
+        can transiently fail or return nothing. Swallow a failing `SHOW` and
+        return None so the pipeline falls back to a persisted or `id`-column
+        primary key instead of crashing an incremental merge. A missing
+        `column_name` still raises — that's a driver shape change, not a
+        transient issue, and it's worth surfacing.
         """
-        cursor.execute("SHOW PRIMARY KEYS IN IDENTIFIER(%s)", (f"{database}.{schema}.{table_name}",))
+        try:
+            cursor.execute("SHOW PRIMARY KEYS IN IDENTIFIER(%s)", (f"{database}.{schema}.{table_name}",))
+        except Exception as e:
+            structlog.get_logger().warning(
+                "Failed to detect primary key for Snowflake table",
+                database=database,
+                schema=schema,
+                table_name=table_name,
+                exc_info=e,
+            )
+            capture_exception(e)
+            return None
 
         column_index = next((i for i, row in enumerate(cursor.description) if row.name == "column_name"), -1)
 
@@ -527,7 +560,7 @@ class SnowflakeImplementation(
         try:
             query = f"SELECT COUNT(*) FROM ({inner_query}) as t"
 
-            cursor.execute(query, inner_query_args)
+            cursor.execute(query, inner_query_args, timeout=_SNOWFLAKE_QUERY_TIMEOUT_SECONDS)
             row = cursor.fetchone()
 
             if row is None:
@@ -606,7 +639,7 @@ class SnowflakeImplementation(
                         row_filters=row_filters,
                     )
                     logger.debug(f"Snowflake query: {query.format(params)}")
-                    streaming_cursor.execute(query, params)
+                    streaming_cursor.execute(query, params, timeout=_SNOWFLAKE_QUERY_TIMEOUT_SECONDS)
 
                     # We cant control the batch size from snowflake when using the arrow function
                     # https://github.com/snowflakedb/snowflake-connector-python/issues/1712

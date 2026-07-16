@@ -31,6 +31,7 @@ import type {
     PauseUntilRequestApi,
     ProjectProfileApi,
     RememberRequestApi,
+    ReportSignalsResponseApi,
     ScoutEmissionReportLinkApi,
     ScoutMemberApi,
     ScoutMetadataApi,
@@ -42,6 +43,9 @@ import type {
     SignalReportArtefactWriteResponseApi,
     SignalReportBulkStateRequestApi,
     SignalReportBulkStateResponseApi,
+    SignalReportRefundRequestApi,
+    SignalReportRefundResponseApi,
+    SignalReportRefundSummaryResponseApi,
     SignalReportStateRequestApi,
     SignalScoutConfigApi,
     SignalScoutConfigCreateApi,
@@ -208,6 +212,47 @@ export const signalsReportsPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedSignalReportContentUpdateApi),
+    })
+}
+
+export const getSignalsReportsRefundCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/refund/`
+}
+
+/**
+ * Refund the flat charge for this report's implementation PR and archive the report. Refunds auto-approve: the charge is either excluded from usage before it is ever reported to billing (refund on the same UTC day as the PR run) or returned as a Stripe customer-balance credit on the next invoice. A refunded PR does not count toward the free monthly PR allowance. One refund per report, ever — repeat calls return the existing refund with already_refunded=true. The report is archived as part of the refund (a resolved report stays resolved) and can't be restored afterwards.
+ * @summary Refund a report's implementation PR
+ */
+export const signalsReportsRefundCreate = async (
+    projectId: string,
+    id: string,
+    signalReportRefundRequestApi: SignalReportRefundRequestApi,
+    options?: RequestInit
+): Promise<SignalReportRefundResponseApi> => {
+    return apiMutator<SignalReportRefundResponseApi>(getSignalsReportsRefundCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalReportRefundRequestApi),
+    })
+}
+
+export const getSignalsReportsSignalsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/signals/`
+}
+
+/**
+ * Fetch all signals for a report from ClickHouse, including full metadata.
+ * @summary List a report's signals
+ */
+export const signalsReportsSignalsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ReportSignalsResponseApi> => {
+    return apiMutator<ReportSignalsResponseApi>(getSignalsReportsSignalsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -416,6 +461,24 @@ export const signalsReportsBulkStateCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(signalReportBulkStateRequestApi),
+    })
+}
+
+export const getSignalsReportsRefundSummaryRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/reports/refund-summary/`
+}
+
+/**
+ * Aggregate credited-path refunds across the whole organization for the current billing period — counts only, no per-team detail. The billing usage widget needs this because billing usage is org-wide while reports (and their refunds) are team-scoped: subtract the refunded credits from billing usage to show the net PR count. Excluded-path refunds never reach billing usage, so no adjustment is needed for them. Also carries the org's live billable credits for the period (billing's recorded usage lags by up to a day), so the widget can count just-created PRs and react to same-day refunds.
+ * @summary Summarize credited PR refunds for the billing period
+ */
+export const signalsReportsRefundSummaryRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SignalReportRefundSummaryResponseApi> => {
+    return apiMutator<SignalReportRefundSummaryResponseApi>(getSignalsReportsRefundSummaryRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 

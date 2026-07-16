@@ -1,5 +1,5 @@
 import { Monaco } from '@monaco-editor/react'
-import equal from 'fast-deep-equal'
+import { deepEqual as equal } from 'fast-equals'
 import {
     actions,
     afterMount,
@@ -19,9 +19,17 @@ import { router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { type IRange, Uri, editor } from 'monaco-editor'
 import posthog from 'posthog-js'
-import { Suspense, lazy } from 'react'
+import { Suspense } from 'react'
 
-import { LemonCheckbox, LemonDialog, LemonInput, LemonSelect, Spinner, lemonToast, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonCheckbox,
+    LemonDialog,
+    LemonInput,
+    LemonSearchableSelect,
+    Spinner,
+    lemonToast,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import api, { ApiError } from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
@@ -33,6 +41,7 @@ import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { clearLogicReference, initModel } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { objectsEqual } from 'lib/utils/objects'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { slugify } from 'lib/utils/strings'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
@@ -61,11 +70,12 @@ import {
 import {
     AccessControlResourceType,
     ChartDisplayType,
+    DataModelingEdge,
+    DataModelingNode,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryDraft,
     ExportContext,
     ExternalDataSource,
-    LineageGraph,
     QueryBasedInsightModel,
 } from '~/types'
 
@@ -103,7 +113,11 @@ export interface SqlEditorLogicProps {
 // border from a className. Instead, we maintain an absolutely-positioned `div`
 // inside the editor's overlay layer and recompute its bounding box from the pixel
 // positions of the range's start/end on each line.
-function renderQueryOutline(editorInstance: editor.IStandaloneCodeEditor, node: HTMLElement, range: IRange): void {
+export function renderQueryOutline(
+    editorInstance: editor.IStandaloneCodeEditor,
+    node: HTMLElement,
+    range: IRange
+): void {
     const model = editorInstance.getModel()
     if (!model) {
         node.style.display = 'none'
@@ -115,9 +129,18 @@ function renderQueryOutline(editorInstance: editor.IStandaloneCodeEditor, node: 
     let minTop = Infinity
     let maxBottom = -Infinity
 
-    for (let line = range.startLineNumber; line <= range.endLineNumber; line++) {
-        const leftCol = line === range.startLineNumber ? range.startColumn : 1
-        const rightCol = line === range.endLineNumber ? range.endColumn : model.getLineMaxColumn(line)
+    // The cached range can outlive the document it was computed against: a paste or edit
+    // that removes lines shrinks the model, but this render path runs on scroll/layout
+    // without re-clamping. Passing an out-of-range line to `getLineMaxColumn` throws
+    // "Illegal value for lineNumber", so clamp every line/column against the live model.
+    const lineCount = model.getLineCount()
+    const startLine = Math.max(1, Math.min(range.startLineNumber, lineCount))
+    const endLine = Math.max(1, Math.min(range.endLineNumber, lineCount))
+
+    for (let line = startLine; line <= endLine; line++) {
+        const lineMaxColumn = model.getLineMaxColumn(line)
+        const leftCol = Math.min(line === startLine ? range.startColumn : 1, lineMaxColumn)
+        const rightCol = line === endLine ? Math.min(range.endColumn, lineMaxColumn) : lineMaxColumn
         if (leftCol >= rightCol) {
             continue
         }
@@ -216,7 +239,7 @@ export interface SuggestionPayload {
     acceptText?: string
     rejectText?: string
     diffShowRunButton?: boolean
-    source?: 'max_ai' | 'hogql_fixer'
+    source?: 'max_ai' | 'hogql_fixer' | 'materialization_fix'
     onAccept: (
         shouldRunQuery: boolean,
         actions: sqlEditorLogicType['actions'],
@@ -296,7 +319,9 @@ export function toDataVisualizationNode(
         return undefined
     }
     if (query.kind === NodeKind.DataVisualizationNode) {
-        return query as DataVisualizationNode
+        // A hand-crafted open_query URL can carry a node with no source; only adopt it when the HogQL source is present
+        const source = (query as DataVisualizationNode).source
+        return source?.kind === NodeKind.HogQLQuery ? (query as DataVisualizationNode) : undefined
     }
     // Insights created from the old DataTableNode path store the HogQLQuery under `.source`.
     // Wrap it so the SQL editor can render and save it through the visualization pipeline.
@@ -424,7 +449,9 @@ function applyUndoableModelEdit(monaco: Monaco | null | undefined, uri: Uri | un
     model.pushStackElement()
 }
 
-const LazyQuery = lazy(() => import('~/queries/Query/Query').then((m) => ({ default: m.Query<DataVisualizationNode> })))
+const LazyQuery = lazyWithRetry(() =>
+    import('~/queries/Query/Query').then((m) => ({ default: m.Query<DataVisualizationNode> }))
+)
 
 export const sqlEditorLogic = kea<sqlEditorLogicType>([
     path(['data-warehouse', 'editor', 'sqlEditorLogic']),
@@ -642,13 +669,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             // subquery, which is too expensive to do on every arrow key.
             cache.cursorDisposable?.dispose()
             cache.cursorDisposable = props.editor.onDidChangeCursorPosition(() => {
-                if (cache.activeQueryDecorationDebounceTimeout) {
-                    window.clearTimeout(cache.activeQueryDecorationDebounceTimeout)
-                }
-                cache.activeQueryDecorationDebounceTimeout = window.setTimeout(() => {
-                    cache.activeQueryDecorationDebounceTimeout = null
-                    cache.updateActiveQueryDecoration?.()
-                }, 150)
+                cache.scheduleActiveQueryDecoration?.()
             })
 
             // Set up the active-query outline overlay. We render a single `div` parented
@@ -699,10 +720,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
     }),
     loaders(() => ({
         upstream: [
-            null as LineageGraph | null,
+            null as { nodes: DataModelingNode[]; edges: DataModelingEdge[] } | null,
             {
                 loadUpstream: async (payload: { modelId: string }) => {
-                    return await api.upstream.get(payload.modelId)
+                    return await api.dataModelingNodes.lineage({ savedQueryId: payload.modelId })
                 },
             },
         ],
@@ -983,8 +1004,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 editor.focus()
             },
             setSuggestedQueryInput: ({ suggestedQueryInput, source }) => {
-                // If there's no active tab, create one first to ensure Monaco Editor is available
-                if (!values.activeTab) {
+                // If there's no active tab, create one first to ensure Monaco Editor is available.
+                // Embedded mode has no tabs at all — falling into createTab would replace the query
+                // outright instead of showing the accept/reject diff.
+                if (!values.activeTab && !values.isEmbeddedMode) {
                     actions.createTab(suggestedQueryInput)
                     return
                 }
@@ -1317,6 +1340,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
                 LemonDialog.openForm({
                     title: 'Save as view',
+                    showErrorsOnTouch: true,
                     initialValues: {
                         viewName: values.activeTab?.name || '',
                         folderId: null,
@@ -1326,7 +1350,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             ? (values.dags.find((d) => d.id === values.selectedDagId)?.id ?? values.dags[0]?.id ?? null)
                             : undefined,
                     },
-                    description: `View names can only contain letters, numbers, '_', or '$'. Spaces are not allowed.`,
+                    description: `View names must start with a letter, '_', or '$' and can only contain letters, numbers, '_', '.', or '$'. Spaces are not allowed.`,
                     content: (isLoading) =>
                         isLoading ? (
                             <div className="h-[37px] flex items-center">
@@ -1334,7 +1358,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             </div>
                         ) : (
                             <>
-                                <LemonField name="viewName">
+                                <LemonField name="viewName" label="Name">
                                     <LemonInput
                                         data-attr="sql-editor-input-save-view-name"
                                         disabled={isLoading}
@@ -1345,9 +1369,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                 <div className="flex gap-2 mt-2">
                                     <LemonField name="folderId" label="Add to folder" className="flex-1">
                                         {({ value, onChange }) => (
-                                            <LemonSelect<string | null>
+                                            <LemonSearchableSelect<string | null>
                                                 value={value}
                                                 onChange={onChange}
+                                                searchPlaceholder="Search folders"
                                                 options={[
                                                     ...folderOptions,
                                                     {
@@ -1356,7 +1381,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                                         labelInMenu: () => (
                                                             <button
                                                                 type="button"
-                                                                className="w-full text-left text-primary px-2 py-1.5"
+                                                                className="w-full text-left text-primary px-2 py-1.5 cursor-pointer"
                                                                 onClick={() => createFolderAndSelect(onChange)}
                                                             >
                                                                 + Add new folder
@@ -2015,8 +2040,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             // everything whenever the editor content changes.
             cache.subqueryValidationCache?.clear()
 
-            // Decorations are cheap and visual — update immediately for responsiveness.
-            cache.updateActiveQueryDecoration?.()
+            // Debounced — updating decorations parses the AST and can hit the metadata endpoint,
+            // which is too expensive to run on every keystroke.
+            cache.scheduleActiveQueryDecoration?.()
 
             // Skip re-parsing if the text hasn't changed since the last parse.
             if (cache.lastParsedQueryInput === queryInput && cache.lastParsedQueryResult !== undefined) {
@@ -2506,8 +2532,27 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     tabAdded = true
                     router.actions.replace(urls.sqlEditor(), undefined, getTabHash(values))
                 } else if (searchParams.open_query) {
-                    // kea-router decodes numeric/JSON-shaped URL values to non-strings; coerce so queryInput stays a string
-                    actions.createTab(String(searchParams.open_query))
+                    // kea-router decodes JSON-shaped URL values to objects — a node here carries
+                    // visualization settings (display, chartSettings) alongside the SQL
+                    const openQueryNode =
+                        typeof searchParams.open_query === 'object'
+                            ? toDataVisualizationNode(searchParams.open_query)
+                            : undefined
+                    if (openQueryNode) {
+                        actions.createTab(openQueryNode.source.query || '')
+                        actions.setSourceQuery(hasFiltersHashParam ? applyFiltersFromUrl(openQueryNode) : openQueryNode)
+                        if (!outputTabFromUrl) {
+                            actions.setActiveTab(OutputTab.Visualization)
+                        }
+                        // Prefill only, don't auto-run: open_query is fully URL-controlled, so running here
+                        // would let a crafted link execute arbitrary HogQL in the user's project on load
+                    } else {
+                        // kea-router also decodes numeric/JSON-shaped values; a non-node object is a
+                        // malformed URL, so fall back to an empty query rather than "[object Object]"
+                        actions.createTab(
+                            typeof searchParams.open_query === 'object' ? '' : String(searchParams.open_query)
+                        )
+                    }
                     tabAdded = true
                 } else if (
                     hashParams.q &&
@@ -2568,6 +2613,19 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         cache.lastSelectedConnectionId = values.selectedConnectionId
         cache.activeQueryDecorationIds = [] as string[]
         cache.decorationGeneration = 0
+
+        // Debounce the active-query decoration. It parses the HogQL AST (WASM, main thread) and
+        // can fire a HogQLMetadata request, so running it on every keystroke or arrow key stalls
+        // typing on long queries. Cursor moves and content changes both schedule through here.
+        cache.scheduleActiveQueryDecoration = (): void => {
+            if (cache.activeQueryDecorationDebounceTimeout) {
+                window.clearTimeout(cache.activeQueryDecorationDebounceTimeout)
+            }
+            cache.activeQueryDecorationDebounceTimeout = window.setTimeout(() => {
+                cache.activeQueryDecorationDebounceTimeout = null
+                cache.updateActiveQueryDecoration?.()
+            }, 150)
+        }
 
         cache.updateActiveQueryDecoration = async (): Promise<void> => {
             // Bump the generation counter so any still-running invocation bails out before

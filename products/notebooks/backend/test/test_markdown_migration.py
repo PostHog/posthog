@@ -214,6 +214,60 @@ class TestNotebookMarkdownConversion(BaseTest):
         assert "> ! **Heads** and *note*" in markdown
         assert "[https://app.posthog.com/cohorts/37958](https://app.posthog.com/cohorts/37958)" in markdown
 
+    def test_splits_embedded_cards_and_headings_out_of_blockquotes_and_callouts(self) -> None:
+        content = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "blockquote",
+                    "content": [
+                        {"type": "paragraph", "content": [{"type": "text", "text": "Quoted context"}]},
+                        {
+                            "type": "ph-query",
+                            "attrs": {
+                                "query": {"kind": "SavedInsightNode", "shortId": "abc123"},
+                                "hideFilters": True,
+                            },
+                        },
+                        {
+                            "type": "blockquote",
+                            "content": [
+                                {
+                                    "type": "heading",
+                                    "attrs": {"level": 2},
+                                    "content": [{"type": "text", "text": "Where to improve"}],
+                                },
+                                {"type": "ph-python", "attrs": {"code": "print(1)", "hideFilters": True}},
+                            ],
+                        },
+                    ],
+                },
+                {
+                    "type": "callout",
+                    "attrs": {"emoji": "!"},
+                    "content": [
+                        {"type": "paragraph", "content": [{"type": "text", "text": "Watch this"}]},
+                        {
+                            "type": "ph-query",
+                            "attrs": {
+                                "query": {"kind": "SavedInsightNode", "shortId": "abc123"},
+                                "hideFilters": True,
+                            },
+                        },
+                    ],
+                },
+            ],
+        }
+
+        markdown = convert_notebook_content_to_markdown(content)
+
+        assert "> Quoted context" in markdown
+        assert "\n\n<Query " in markdown
+        assert "\n\n## Where to improve" in markdown
+        assert "\n\n<Python " in markdown
+        assert "> ! Watch this" in markdown
+        assert "> <" not in markdown
+
 
 class TestNotebookMarkdownMigration(BaseTest):
     def test_stats_count_all_notebooks_for_optional_team_scope(self) -> None:
@@ -251,6 +305,41 @@ class TestNotebookMarkdownMigration(BaseTest):
             "content": [{"type": "paragraph", "content": [{"type": "text", "text": "body"}]}],
         }
         assert not ActivityLog.objects.filter(scope="Notebook", item_id=notebook.short_id).exists()
+
+    @patch("products.notebooks.backend.markdown_collab.publish_notebook_update")
+    def test_batches_include_pending_notebooks_without_first_content_node_type(self, mock_publish) -> None:
+        no_content_array = Notebook.objects.create(team=self.team, content={"type": "doc"}, version=1)
+        null_content = Notebook.objects.create(team=self.team, content=None, version=2)
+        Notebook.objects.create(team=self.team, content=build_markdown_notebook_content("done"))
+
+        dry_run_result = migrate_notebooks_to_markdown(
+            user=self.user,
+            team_id=self.team.id,
+            dry_run=True,
+            batch_size=10,
+        )
+
+        assert dry_run_result.pending_before == 2
+        assert dry_run_result.converted == 2
+        assert dry_run_result.pending_after == 2
+
+        with self.captureOnCommitCallbacks(execute=True):
+            apply_result = migrate_notebooks_to_markdown(
+                user=self.user,
+                team_id=self.team.id,
+                dry_run=False,
+                batch_size=10,
+            )
+
+        no_content_array.refresh_from_db()
+        null_content.refresh_from_db()
+
+        assert apply_result.converted == 2
+        assert apply_result.pending_before == 2
+        assert apply_result.pending_after == 0
+        assert no_content_array.content == build_markdown_notebook_content("")
+        assert null_content.content == build_markdown_notebook_content("")
+        assert mock_publish.call_count == 2
 
     @patch("products.notebooks.backend.markdown_collab.publish_notebook_update")
     def test_batches_dry_run_and_apply_without_processing_every_pending_notebook(self, mock_publish) -> None:

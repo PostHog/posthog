@@ -3,12 +3,12 @@ import { Group } from 'kea-forms'
 import { IconInfo } from '@posthog/icons'
 import { LemonCheckbox, LemonCollapse, Tooltip } from '@posthog/lemon-ui'
 
-import { AlertFormType, ongoingIntervalField } from 'lib/components/Alerts/alertFormLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { AlertCalculationInterval } from '~/queries/schema/schema-general'
 
-import { isHighFrequencyAlertInterval } from 'products/alerts/frontend/logic/alertIntervalHelpers'
+import { AlertFormType, ongoingIntervalField } from 'products/alerts/frontend/logic/alertFormLogic'
+import { isSubDailyAlertInterval } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 
 import { QuietHoursFields } from '../QuietHoursFields'
 
@@ -76,7 +76,7 @@ export function AlertAdvancedOptionsSection({
                                     <LemonCheckbox
                                         checked={
                                             (alertForm?.calculation_interval === AlertCalculationInterval.DAILY ||
-                                                isHighFrequencyAlertInterval(
+                                                isSubDailyAlertInterval(
                                                     alertForm?.calculation_interval ?? AlertCalculationInterval.DAILY
                                                 )) &&
                                             alertForm?.skip_weekend
@@ -86,7 +86,7 @@ export function AlertAdvancedOptionsSection({
                                         label="Skip checking on weekends"
                                         disabledReason={
                                             alertForm?.calculation_interval !== AlertCalculationInterval.DAILY &&
-                                            !isHighFrequencyAlertInterval(
+                                            !isSubDailyAlertInterval(
                                                 alertForm?.calculation_interval ?? AlertCalculationInterval.DAILY
                                             ) &&
                                             'Can only skip weekend checking for 15-minute, hourly, or daily alerts'

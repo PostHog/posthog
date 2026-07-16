@@ -18,6 +18,7 @@ import {
     COOKIELESS_SENTINEL_VALUE,
 } from '~/ingestion/common/cookieless/cookieless-manager'
 import { createPrepareEventStep } from '~/ingestion/common/steps/event-processing/prepare-event-step'
+import { createProcessGroupsStep } from '~/ingestion/common/steps/event-processing/process-groups-step'
 import { AnalyticsConsumerConfig } from '~/ingestion/pipelines/analytics'
 import { AnalyticsTestConsumer, startAnalyticsTestConsumer } from '~/tests/helpers/analytics-consumer'
 import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
@@ -36,7 +37,7 @@ jest.mock('~/common/utils/posthog', () => {
     }
 })
 
-// Mock the prepare event step for error testing
+// Mock the prepare event step for error testing (a step without a retry option)
 jest.mock('~/ingestion/common/steps/event-processing/prepare-event-step', () => ({
     createPrepareEventStep: jest.fn(),
 }))
@@ -46,6 +47,11 @@ jest.mock('~/ingestion/common/steps/event-processing/prepare-event-step', () => 
 jest.mock('~/common/kafka/consumer', () => ({
     ...jest.requireActual('~/common/kafka/consumer'),
     createKafkaConsumer: jest.fn(),
+}))
+
+// Mock the process groups step for error testing (a step with a retry option)
+jest.mock('~/ingestion/common/steps/event-processing/process-groups-step', () => ({
+    createProcessGroupsStep: jest.fn(),
 }))
 
 // Mock the IngestionWarningLimiter to always allow warnings (prevents rate limiting between tests)
@@ -169,6 +175,11 @@ describe('IngestionConsumer', () => {
             return original.createPrepareEventStep(...args)
         })
 
+        jest.mocked(createProcessGroupsStep).mockImplementation((...args) => {
+            const original = jest.requireActual('~/ingestion/common/steps/event-processing/process-groups-step')
+            return original.createProcessGroupsStep(...args)
+        })
+
         ingester = await createIngestionConsumer(infra)
     })
 
@@ -265,9 +276,13 @@ describe('IngestionConsumer', () => {
 
         describe('overflow', () => {
             const now = () => DateTime.now().toMillis()
-            beforeEach(() => {
+            beforeEach(async () => {
                 // Just to make it easy to see what is configured
                 expect(infra.config.EVENT_OVERFLOW_BUCKET_CAPACITY).toEqual(1000)
+                // Overflow is now gated on explicit mode; the main lane redirects.
+                infra.config.INGESTION_OVERFLOW_MODE = 'redirect'
+                await ingester.stop()
+                ingester = await createIngestionConsumer(infra)
             })
 
             it('should emit to overflow if token and distinct_id are overflowed', async () => {
@@ -292,7 +307,8 @@ describe('IngestionConsumer', () => {
             })
 
             it('does not overflow if it is consuming from the overflow topic', async () => {
-                // Create a new consumer that consumes from the overflow topic
+                // Overflow lane consumes the overflow topic; it never redirects back.
+                infra.config.INGESTION_OVERFLOW_MODE = 'consume'
                 const overflowIngester = await createIngestionConsumer(infra, {
                     INGESTION_CONSUMER_CONSUME_TOPIC: 'events_plugin_ingestion_overflow_test',
                 })
@@ -314,10 +330,9 @@ describe('IngestionConsumer', () => {
 
             describe('stateful overflow redirect', () => {
                 it('refreshes Redis TTL when processing events in overflow lane', async () => {
-                    // Enable stateful overflow
-                    infra.config.INGESTION_STATEFUL_OVERFLOW_ENABLED = true
                     infra.config.INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS = 300
                     infra.config.INGESTION_LANE = 'overflow'
+                    infra.config.INGESTION_OVERFLOW_MODE = 'consume'
 
                     // Create overflow lane consumer
                     const overflowIngester = await createIngestionConsumer(infra, {
@@ -356,10 +371,9 @@ describe('IngestionConsumer', () => {
                 })
 
                 it('does not create keys when refreshing TTL for non-existent keys', async () => {
-                    // Enable stateful overflow
-                    infra.config.INGESTION_STATEFUL_OVERFLOW_ENABLED = true
                     infra.config.INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS = 300
                     infra.config.INGESTION_LANE = 'overflow'
+                    infra.config.INGESTION_OVERFLOW_MODE = 'consume'
 
                     // Create overflow lane consumer
                     const overflowIngester = await createIngestionConsumer(infra, {
@@ -954,15 +968,14 @@ describe('IngestionConsumer', () => {
         })
 
         it('should handle explicitly non retriable errors by sending to DLQ', async () => {
-            // NOTE: I don't think this makes a lot of sense but currently is just mimicing existing behavior for the migration
-            // We should figure this out better and have more explictly named errors
-
+            // Non-retriable errors are converted to DLQ results by the retry wrapper,
+            // so the throwing step must be one that carries a retry option.
             const error: any = new Error('test')
             error.isRetriable = false
 
-            // Mock the prepare event step to throw the error
-            jest.mocked(createPrepareEventStep).mockImplementation(() => {
-                return async function prepareEventStepWrapper() {
+            // Mock the process groups step (retry-wrapped) to throw the error
+            jest.mocked(createProcessGroupsStep).mockImplementation(() => {
+                return async function processGroupsStepWrapper() {
                     return Promise.reject(error)
                 }
             })
@@ -970,7 +983,11 @@ describe('IngestionConsumer', () => {
             const ingester = await createIngestionConsumer(infra)
             await ingester.handleKafkaBatch(messages)
 
-            expect(jest.mocked(logger.error)).toHaveBeenCalledWith('🔥', 'Error processing message', expect.any(Object))
+            expect(jest.mocked(logger.error)).toHaveBeenCalledWith(
+                '🔥',
+                'Step process_groups failed',
+                expect.any(Object)
+            )
 
             expect(forSnapshot(mockProducerObserver.getProducedKafkaMessages())).toMatchSnapshot()
         })
@@ -990,14 +1007,31 @@ describe('IngestionConsumer', () => {
             await expect(ingester.handleKafkaBatch(messages)).rejects.toThrow()
         })
 
+        it('should throw non retriable errors from steps without a retry option', async () => {
+            // Steps without a retry option have no error classification: an
+            // explicitly non-retriable error crashes the batch instead of DLQing.
+            const error: any = new Error('test')
+            error.isRetriable = false
+
+            // Mock the prepare event step (no retry option) to throw the error
+            jest.mocked(createPrepareEventStep).mockImplementation(() => {
+                return async function prepareEventStepWrapper() {
+                    return Promise.reject(error)
+                }
+            })
+
+            const ingester = await createIngestionConsumer(infra)
+            await expect(ingester.handleKafkaBatch(messages)).rejects.toThrow()
+        })
+
         it('should emit failures to dead letter queue for non-retriable errors', async () => {
             const error = new Error('Non-retriable processing error')
             const errorAny = error as any
             errorAny.isRetriable = false
 
-            // Mock the prepare event step to throw the error
-            jest.mocked(createPrepareEventStep).mockImplementation(() => {
-                return async function prepareEventStepWrapper() {
+            // Mock the process groups step (retry-wrapped) to throw the error
+            jest.mocked(createProcessGroupsStep).mockImplementation(() => {
+                return async function processGroupsStepWrapper() {
                     return Promise.reject(error)
                 }
             })

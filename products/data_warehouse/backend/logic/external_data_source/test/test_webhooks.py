@@ -12,10 +12,7 @@ from products.data_warehouse.backend.logic.external_data_source.webhooks import 
     reconcile_webhook_events,
 )
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
-    WebhookCreationResult,
-    WebhookSyncResult,
-)
+from products.warehouse_sources.backend.facade.source_management import WebhookCreationResult, WebhookSyncResult
 
 pytestmark = [
     pytest.mark.django_db,

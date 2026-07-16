@@ -39,6 +39,7 @@ high volume, `exploring-llm-clusters`.
 | `posthog:execute-sql`                    | Find metric outliers, discover the trace taxonomy, count failure modes   |
 | `posthog:llma-evaluation-list`           | Find existing evals whose failures might reveal a new mode               |
 | `posthog:llma-evaluation-summary-create` | Summarize an existing eval's failures into patterns                      |
+| `posthog:generate-app-url`               | Build a region- and project-qualified deep link to a trace or list       |
 
 Detailed queries for each strategy below are in
 [references/finding-traces.md](references/finding-traces.md). The full `$ai_*` event schema (and the
@@ -133,8 +134,17 @@ niche domains.
 
 ## Constructing UI links
 
-- **Traces list:** `https://app.posthog.com/ai-observability/traces` (filter to your use case)
-- **Single trace:** `https://app.posthog.com/ai-observability/traces/<trace_id>?timestamp=<url_encoded_timestamp>`.
+`query-llm-trace` does not return a `_posthogUrl`, so build links with `posthog:generate-app-url` —
+never hand-write the host or the `/project/<id>/` prefix. The `url` must be a canonical catalog
+template; pass concrete ids via `params`, never inline them into the path.
+
+- **Traces list:** `generate-app-url {url: "/ai-observability/traces"}` (then filter to your use case)
+- **Single trace:** `generate-app-url {url: "/ai-observability/traces/{id}", params: {id: "<trace_id>"}}`,
+  then append `?timestamp=<url_encoded_timestamp>` to the returned URL (the timestamp isn't expressible via the tool).
+
+These resolve to the correct region host and project prefix (e.g.
+`https://us.posthog.com/project/<id>/ai-observability/traces/<trace_id>`), so a user not already on the
+target project still lands in the right place.
 
 ## Tips
 

@@ -1,10 +1,10 @@
 name: Storybook
 on:
     pull_request:
-        # Draft PRs run a narrowed visual-regression matrix (affected stories only);
-        # ready PRs run the full chromium matrix (the merge gate). ready_for_review
-        # re-triggers the full run on the current head when a PR leaves draft. To
-        # force the full matrix on a draft, add the `run-ci-frontend` label —
+        # Draft PRs run a narrowed visual-regression matrix when the Storybook module
+        # graph can safely identify affected stories. Ready PRs run the full chromium
+        # matrix as the merge gate. To force the full matrix on a draft, add the
+        # `run-ci-frontend` label —
         # labeled/unlabeled re-trigger the run so it starts without needing a push.
         types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
     merge_group:
@@ -21,7 +21,7 @@ permissions:
 
 jobs:
     # Job to decide if we should run storybook ci
-    # See https://github.com/dorny/paths-filter#conditional-execution for more details
+    # See .github/actions/paths-filter/README.md for filter semantics
     changes:
         runs-on: ubuntu-latest
         timeout-minutes: 5
@@ -29,16 +29,16 @@ jobs:
         if: github.event_name != 'merge_group'
         # Set job outputs to values from filter step
         outputs:
-            # With dorny's default predicate-quantifier (some), '!path' matches
-            # every file NOT at that path — effectively matching ALL changes
-            # including backend files. Instead we use two positive filters and
-            # compare counts to exclude generated-only PRs.
+            # Two positive filters compared by count exclude generated-only PRs.
+            # This predates the vendored paths-filter's include-exclude matching;
+            # it could now be a plain '!frontend/src/generated/**' exclude on the
+            # frontend filter, kept as-is here to leave gating behavior untouched.
             #
             # Additionally skip when a bot's push adds only snapshot baselines —
             # Visual Review auto-commits frontend/snapshots.yml after human review
             # and CI approval, so re-running the suite is pure waste. The detect
             # step keys off the push delta (this push's commits), not the whole-PR
-            # diff dorny reports, so it fires even when the PR also has code changes.
+            # diff the filter reports, so it fires even when the PR also has code changes.
             frontend: >-
                 ${{
                     github.event_name == 'push'
@@ -50,9 +50,10 @@ jobs:
                 }}
             matrix: ${{ steps.matrix.outputs.matrix }}
         steps:
-            # Needed by the "Derive Node-only product workspace exclusions" step below,
-            # which reads pnpm-workspace.yaml + bin/frontend-exclude-filter. dorny itself
-            # needs no checkout (it diffs via the API), so this job didn't check out before.
+            # Needed by the "Derive Node-only product workspace exclusions" step (reads
+            # pnpm-workspace.yaml + bin/frontend-exclude-filter) and by the local
+            # ./.github/actions/paths-filter steps, which must exist on disk (on
+            # pull_request events they still diff via the API, not the checkout).
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
@@ -61,7 +62,7 @@ jobs:
               with:
                   client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
-            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+            - uses: ./.github/actions/paths-filter
               id: filter
               if: github.event_name != 'push' # Run all tests on master push
               with:
@@ -121,19 +122,18 @@ jobs:
             # The excluded dirs are derived from pnpm-workspace.yaml (the product paths that
             # declare nested pnpm workspaces), not hardcoded — see bin/frontend-exclude-filter.
             #
-            # A separate `every`-quantifier step is required: a plain `!...` in the broad
-            # filter is neutralized by dorny's default `some` quantifier (same gotcha as the
-            # output comment above). With `every`, the filter is true only when some changed
-            # file lives OUTSIDE every excluded dir.
+            # A separate step is required because these exclusions are generated at
+            # runtime from pnpm-workspace.yaml into a filter file, while the main filter
+            # above is inline YAML — paths-filter takes one or the other. The exclude-only
+            # filter is true only when some changed file lives OUTSIDE every excluded dir.
             - name: Derive Node-only product workspace exclusions
               if: github.event_name != 'push'
               run: bin/frontend-exclude-filter > "$RUNNER_TEMP/frontend-exclude.yml"
-            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+            - uses: ./.github/actions/paths-filter
               id: exclude
               if: github.event_name != 'push'
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
-                  predicate-quantifier: 'every'
                   filters: ${{ runner.temp }}/frontend-exclude.yml
 
             # Build the visual-regression matrix.
@@ -165,7 +165,11 @@ jobs:
     build-storybook:
         name: Build Storybook (depot-ubuntu-latest)
         runs-on: depot-ubuntu-latest
-        timeout-minutes: 15
+        # The Vite build normally takes ~3.5 minutes, but a degraded runner can stretch
+        # the memory-heavy bundling phase past 15 minutes — leave headroom so a slow
+        # runner yields a slow-but-green build instead of a cancelled one that hard-fails
+        # the visual-regression gate.
+        timeout-minutes: 30
         needs: changes
         if: needs.changes.outputs.frontend == 'true'
         steps:
@@ -211,12 +215,16 @@ jobs:
                   path: ${{ steps.pnpm-store.outputs.path }}
                   key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
-            - name: Restore webpack build cache
+            # Vite's dependency optimization cache (node_modules/.vite) is the most
+            # expensive part of the build — without it, Vite re-bundles 15k+ modules
+            # from scratch (~14 min on degraded runners vs <1 min with cache). The
+            # pnpm lockfile hash ensures the cache is invalidated when deps change.
+            - name: Restore Vite build cache
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
-                  path: common/storybook/node_modules/.cache/
-                  key: ${{ runner.os }}-webpack-storybook-${{ hashFiles('pnpm-lock.yaml') }}
-                  restore-keys: ${{ runner.os }}-webpack-storybook-
+                  path: common/storybook/node_modules/.vite
+                  key: storybook-vite-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: storybook-vite-${{ runner.os }}-
 
             - name: Build Storybook
               env:
@@ -225,12 +233,12 @@ jobs:
                   bin/turbo --filter=@posthog/storybook prepare
                   pnpm --filter=@posthog/storybook build --test
 
-            - name: Save webpack build cache
+            - name: Save Vite build cache
               if: github.ref == 'refs/heads/master'
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
-                  path: common/storybook/node_modules/.cache/
-                  key: ${{ runner.os }}-webpack-storybook-${{ hashFiles('pnpm-lock.yaml') }}
+                  path: common/storybook/node_modules/.vite
+                  key: storybook-vite-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
             - name: Upload Storybook build artifact
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -242,8 +250,9 @@ jobs:
             # Consumed by the select-stories job below. Uploaded separately so
             # the visual-regression matrix doesn't pay to download it on every
             # shard.
+            # module-graph.json only exists once the Vite build completes, so no
+            # `if: always()`: on a failed/cancelled build it would just warn.
             - name: Upload module-graph artifact
-              if: always()
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: storybook-module-graph
@@ -347,10 +356,9 @@ jobs:
             fail-fast: false
             # Shard counts and worker config (maxWorkers in common/storybook/package.json)
             # are tuned for runner CPU — consult #team-devex before changing.
-            # On draft PRs, select-stories may narrow the matrix to a single chromium
-            # shard running just the affected story files. On ready PRs and master push
-            # it's skipped, so we fall back to changes.outputs.matrix (ready PRs:
-            # full chromium; master push: chromium + webkit).
+            # Draft PRs may use chromium shards running only affected story files.
+            # Ready PRs fall back to changes.outputs.matrix (full chromium), while
+            # master pushes run chromium + webkit.
             # Storybook CI is skipped entirely on merge_group (changes.if).
             matrix: ${{ fromJson(needs.select-stories.outputs.matrix || needs.changes.outputs.matrix) }}
         env:
@@ -463,13 +471,20 @@ jobs:
                   HOME: /root
                   STORYBOOK_SKIP_TAGS: 'test-skip,test-skip-${{ matrix.browser }}'
                   MODE: ${{ needs.select-stories.outputs.mode }}
-                  AFFECTED_FILES: ${{ needs.select-stories.outputs.affected_files }}
+                  AFFECTED_FILES_JSON: ${{ needs.select-stories.outputs.affected_files_json }}
               run: |
                   if [ "$MODE" = "selective" ]; then
                       # test-storybook is jest-based; positional path args filter the run to
-                      # only those story files. Single shard, so --shard 1/1 is a no-op.
-                      # shellcheck disable=SC2086
-                      pnpm --filter=@posthog/storybook test:visual:ci:update --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/${{ matrix.shard_count }} -- $AFFECTED_FILES
+                      # only those story files before Jest distributes them across shards.
+                      affected_files_path=$(mktemp)
+                      node -e 'for (const file of JSON.parse(process.env.AFFECTED_FILES_JSON)) process.stdout.write(`${file}\0`)' > "$affected_files_path"
+                      mapfile -d '' -t AFFECTED_FILES < "$affected_files_path"
+                      rm "$affected_files_path"
+                      if [ "${#AFFECTED_FILES[@]}" -eq 0 ]; then
+                          echo "::error::Selective mode did not provide affected story files"
+                          exit 1
+                      fi
+                      pnpm --filter=@posthog/storybook test:visual:ci:update --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/${{ matrix.shard_count }} -- "${AFFECTED_FILES[@]}"
                   else
                       pnpm --filter=@posthog/storybook test:visual:ci:update --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/${{ matrix.shard_count }}
                   fi
@@ -508,6 +523,7 @@ jobs:
                   name: junit-results-storybook-${{ matrix.browser }}-${{ matrix.shard }}
                   path: common/storybook/junit.xml
                   if-no-files-found: ignore
+                  retention-days: 1
 
     # Verify changed story files are stable by re-running them multiple times.
     # Catches flaky snapshots before they land on master.
@@ -590,7 +606,7 @@ jobs:
 
     # Collate matrix + VR completion status for the required check
     visual_regression_tests:
-        needs: [visual-regression, vr-setup, vr-complete]
+        needs: [changes, build-storybook, visual-regression, vr-setup, vr-complete]
         name: Visual regression tests pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
@@ -598,13 +614,32 @@ jobs:
         steps:
             - name: Check matrix outcome
               run: |
+                  # Change detection is the root of the graph: if it fails, build-storybook
+                  # (and everything after) is skipped, which the checks below would read as
+                  # a pass. Fail here so a broken paths-filter/checkout can't launder into a
+                  # green required check. A legitimate skip (e.g. merge_group) still passes.
+                  if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
+                    echo "Change detection did not succeed (result: ${{ needs.changes.result }}) — cannot certify visual regression."
+                    exit 1
+                  fi
+
+                  # A failed, timed-out or cancelled Storybook build skips the VR jobs
+                  # below rather than failing them, and this gate would read those skips
+                  # as a pass — a green required check with zero visual coverage. Naming
+                  # the build here makes its failure hit the gate directly. A legitimate
+                  # "no frontend changes" run leaves the build skipped, which still passes.
+                  if [[ "${{ needs.build-storybook.result }}" != "success" && "${{ needs.build-storybook.result }}" != "skipped" ]]; then
+                    echo "Storybook build did not succeed (result: ${{ needs.build-storybook.result }}) — visual regression is uncovered."
+                    exit 1
+                  fi
+
                   if [[ "${{ needs.visual-regression.result }}" != "success" && "${{ needs.visual-regression.result }}" != "skipped" ]]; then
                     echo "One or more jobs in the visual-regression test matrix failed."
                     exit 1
                   fi
 
-                  if [[ "${{ needs.vr-setup.result }}" == "failure" ]]; then
-                    echo "Visual Review setup failed — VR CLI or API error."
+                  if [[ "${{ needs.vr-setup.result }}" != "success" && "${{ needs.vr-setup.result }}" != "skipped" ]]; then
+                    echo "Visual Review setup failed or was cancelled (result: ${{ needs.vr-setup.result }})."
                     exit 1
                   fi
 
@@ -717,15 +752,47 @@ jobs:
                   github-token: ${{ steps.telemetry-app-token.outputs.token }}
                   status-job: 'Visual regression tests pass'
 
-    # Shadow measurement: reports which stories could have rendered differently
-    # Pick the visual-regression matrix on draft PRs based on which stories the
-    # webpack module graph (emitted by ModuleGraphPlugin) says are affected
-    # by the diff. On ready PRs and master push this job is skipped and
-    # visual-regression falls back to needs.changes.outputs.matrix (the full
-    # suite). The ready-for-review full run is the merge gate — storybook
-    # already skips merge_group entirely (changes.if). The run-ci-frontend
-    # label forces the full matrix on a draft. When selection can't be trusted
-    # on a draft, visual-regression is skipped and deferred to the ready run.
+    capture-story-selection:
+        name: Capture story selection
+        needs: [select-stories]
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        # select-stories only runs on internal draft PRs; fire only when it produced a
+        # decision. DevEx project only; continue-on-error so telemetry never reds CI.
+        if: |
+            always() && github.run_attempt == '1'
+            && github.actor != 'dependabot[bot]'
+            && github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
+            && needs.select-stories.result == 'success'
+        steps:
+            - name: Capture story selection to DevEx PostHog
+              continue-on-error: true
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+              with:
+                  posthog-token: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+                  event: 'posthog-ci-test-selection'
+                  properties: |
+                      {
+                        "suite": "storybook",
+                        "mode": ${{ toJSON(needs.select-stories.outputs.mode) }},
+                        "narrowed": ${{ needs.select-stories.outputs.narrowed || 'false' }},
+                        "skip_reason": ${{ toJSON(needs.select-stories.outputs.skip_reason || '') }},
+                        "total_story_count": ${{ needs.select-stories.outputs.total_story_count || 'null' }},
+                        "affected_story_count": ${{ needs.select-stories.outputs.affected_story_count || 'null' }},
+                        "suggested_shards": ${{ needs.select-stories.outputs.suggested_shards || 'null' }},
+                        "estimated_minutes_saved": ${{ needs.select-stories.outputs.estimated_minutes_saved || 'null' }},
+                        "event_type": ${{ toJSON(github.event_name) }},
+                        "branch": ${{ toJSON(github.head_ref || github.ref_name) }},
+                        "sha": ${{ toJSON(github.sha) }},
+                        "pr_number": ${{ github.event.pull_request.number || 'null' }},
+                        "run_id": ${{ toJSON(github.run_id) }}
+                      }
+
+    # Pick a narrowed visual-regression matrix for draft PRs based on which stories
+    # the Vite module graph says are affected by the diff. Ready PRs and drafts with
+    # the run-ci-frontend label skip this job and use the full chromium matrix.
+    # Selector uncertainty skips draft visual regression because the ready run is
+    # still the merge gate.
     select-stories:
         name: Story selection
         runs-on: ubuntu-latest
@@ -740,7 +807,14 @@ jobs:
             mode: ${{ steps.classify.outputs.mode }}
             matrix: ${{ steps.classify.outputs.matrix }}
             should_run: ${{ steps.classify.outputs.should_run }}
-            affected_files: ${{ steps.classify.outputs.affected_files }}
+            affected_files_json: ${{ steps.classify.outputs.affected_files_json }}
+            # Telemetry for the capture-story-selection job below.
+            narrowed: ${{ steps.classify.outputs.narrowed }}
+            skip_reason: ${{ steps.classify.outputs.skip_reason }}
+            total_story_count: ${{ steps.classify.outputs.total_story_count }}
+            affected_story_count: ${{ steps.classify.outputs.affected_story_count }}
+            suggested_shards: ${{ steps.classify.outputs.suggested_shards }}
+            estimated_minutes_saved: ${{ steps.classify.outputs.estimated_minutes_saved }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -791,50 +865,75 @@ jobs:
               run: |
                   set -euo pipefail
 
-                  # Untrusted selection on a draft skips visual-regression entirely
-                  # (should_run=false gates vr-setup and the test matrix off); the
-                  # ready-for-review full run is the gate. A skipped draft can't
-                  # trade green-by-default for green-by-skipping: drafts can't
-                  # merge, and ready re-runs the full suite. The run-ci-frontend
-                  # label forces the full matrix on a draft.
+                  # Selection telemetry (see the capture-story-selection job). Best-effort
+                  # story counts from the selector JSON; narrowed=false marks a skip/fallback.
+                  emit_metrics() {
+                      local total="" affected="" shards=""
+                      if [[ -s /tmp/selection-result.json ]]; then
+                          total=$(jq -r '.total_story_count // empty' /tmp/selection-result.json)
+                          affected=$(jq -r '.affected_story_count // empty' /tmp/selection-result.json)
+                          shards=$(jq -r '(([.suggested_shards, 16] | min) // empty)' /tmp/selection-result.json)
+                      fi
+                      {
+                          echo "narrowed=$1"
+                          echo "skip_reason=$2"
+                          echo "total_story_count=$total"
+                          echo "affected_story_count=$affected"
+                          echo "suggested_shards=$shards"
+                          echo "estimated_minutes_saved=${3:-}"
+                      } >> "$GITHUB_OUTPUT"
+                  }
+
                   fall_back_to_skip() {
                       echo "mode=skip" >> "$GITHUB_OUTPUT"
                       echo 'matrix={"include":[]}' >> "$GITHUB_OUTPUT"
                       echo "should_run=false" >> "$GITHUB_OUTPUT"
-                      echo "affected_files=" >> "$GITHUB_OUTPUT"
+                      echo "affected_files_json=[]" >> "$GITHUB_OUTPUT"
+                      emit_metrics false "$1"
                   }
 
                   if [[ "$SELECT_OUTCOME" != "success" ]] || [[ ! -s /tmp/selection-result.json ]]; then
-                      echo "::warning::story selector did not produce output; draft skips visual-regression (full run happens on ready for review)"
-                      fall_back_to_skip
+                      echo "::warning::story selector did not produce output; skipping draft visual regression"
+                      fall_back_to_skip selector_error
                       exit 0
                   fi
 
                   MODE=$(jq -r '.mode' /tmp/selection-result.json)
                   if [[ "$MODE" != "selective" ]]; then
-                      echo "Selector declined to narrow (mode=$MODE); draft skips visual-regression (full run happens on ready for review)"
-                      fall_back_to_skip
+                      echo "Selector declined to narrow (mode=$MODE); skipping draft visual regression"
+                      fall_back_to_skip "$(jq -r '.reason // "full_requested"' /tmp/selection-result.json)"
                       exit 0
                   fi
 
                   COUNT=$(jq -r '.affected_story_count' /tmp/selection-result.json)
                   if [[ "$COUNT" -eq 0 ]]; then
-                      # Selective mode found zero affected stories — skip visual-regression entirely.
                       echo "mode=selective" >> "$GITHUB_OUTPUT"
                       echo 'matrix={"include":[]}' >> "$GITHUB_OUTPUT"
                       echo "should_run=false" >> "$GITHUB_OUTPUT"
-                      echo "affected_files=" >> "$GITHUB_OUTPUT"
-                      echo "Selective mode: 0 affected stories, skipping visual-regression"
+                      echo "affected_files_json=[]" >> "$GITHUB_OUTPUT"
+                      emit_metrics true no_affected_stories
+                      echo "Selective mode: 0 affected stories, skipping draft visual regression"
                       exit 0
                   fi
 
-                  # Selective with affected stories: collapse to one chromium shard.
-                  AFFECTED_FILES=$(jq -r '.affected_stories | join(" ")' /tmp/selection-result.json)
+                  # Size the narrowed matrix from the estimated affected workload.
+                  AFFECTED_FILES_JSON=$(jq -c '.affected_stories' /tmp/selection-result.json)
+                  SHARDS=$(jq -r '[.suggested_shards, 16] | min' /tmp/selection-result.json)
+                  MATRIX=$(jq -cn --argjson count "$SHARDS" \
+                      '{include: [range(1; $count + 1) | {browser: "chromium", shard_count: $count, shard: .}]}')
                   echo "mode=selective" >> "$GITHUB_OUTPUT"
-                  echo 'matrix={"include":[{"browser":"chromium","shard":1,"shard_count":1}]}' >> "$GITHUB_OUTPUT"
+                  echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
                   echo "should_run=true" >> "$GITHUB_OUTPUT"
-                  echo "affected_files=$AFFECTED_FILES" >> "$GITHUB_OUTPUT"
-                  echo "Selective mode: $COUNT affected story files"
+                  echo "affected_files_json=$AFFECTED_FILES_JSON" >> "$GITHUB_OUTPUT"
+
+                  # Est. minutes saved vs the full 16-shard run — same formula as the
+                  # "Write summary" step (CURRENT_SHARDS=16, SHARD_OVERHEAD_MINUTES=3).
+                  AFFECTED_DUR=$(jq -r '.affected_duration_seconds' /tmp/selection-result.json)
+                  TOTAL_DUR=$(jq -r '.total_duration_seconds' /tmp/selection-result.json)
+                  FULL_MINUTES=$(( (16 * 3) + (TOTAL_DUR / 60) ))
+                  SELECTIVE_MINUTES=$(( (SHARDS * 3) + (AFFECTED_DUR / 60) ))
+                  emit_metrics true "" "$(( FULL_MINUTES - SELECTIVE_MINUTES ))"
+                  echo "Selective mode: $COUNT affected story files across $SHARDS shard(s)"
 
             - name: Write summary
               if: steps.selection.outcome == 'success'
@@ -850,8 +949,7 @@ jobs:
                       COUNT=$(echo "$RESULT" | jq -r '.affected_story_count')
                       AFFECTED_DUR=$(echo "$RESULT" | jq -r '.affected_duration_seconds')
                       TOTAL_DUR=$(echo "$RESULT" | jq -r '.total_duration_seconds')
-                      # Selected mode collapses to a single chromium shard (see classify step).
-                      SHARDS=1
+                      SHARDS=$(echo "$RESULT" | jq -r '[.suggested_shards, 16] | min')
 
                       SAVED_STORIES=$((TOTAL - COUNT))
                       SAVED_SHARDS=$((CURRENT_SHARDS - SHARDS))
@@ -869,7 +967,7 @@ jobs:
                   | Est. CI minutes | ~${FULL_MINUTES} | ~${SELECTIVE_MINUTES} | **~${SAVED_MINUTES}** |
                   | Est. render time | ${TOTAL_DUR}s | ${AFFECTED_DUR}s | **$((TOTAL_DUR - AFFECTED_DUR))s** |
 
-                  > Predictor: webpack module graph from build-storybook. Master push runs the full suite.
+                  > Predictor: Vite module graph from build-storybook. Shared code and uncertain changes run the full suite.
                   EOF
                       echo "SELECTION_METRICS: $(echo "$RESULT" | jq -c '{mode, affected: .affected_story_count, total: .total_story_count, current_shards: '$CURRENT_SHARDS', affected_dur: .affected_duration_seconds, total_dur: .total_duration_seconds}')"
                   else
@@ -883,3 +981,46 @@ jobs:
                   EOF
                       echo "SELECTION_METRICS: $(echo "$RESULT" | jq -c '{mode, reason, total: .total_story_count}')"
                   fi
+
+    trunk-upload:
+        name: Upload test results to Trunk
+        # visual-regression shards already emit and upload junit-results-storybook-* artifacts;
+        # this feeds them to Trunk (flaky-test detection) once. Trusted non-pull_request events
+        # only (master push), so the secret token never runs in a PR-controlled context; the
+        # uploader is a pinned external action, not a local one.
+        needs: [visual-regression]
+        runs-on: ubuntu-latest
+        continue-on-error: true
+        timeout-minutes: 10
+        # Storybook CI is skipped on merge_group, so visual-regression won't run there;
+        # != 'skipped' keeps this from spinning a runner that downloads nothing, while still
+        # uploading failed-test results (the flake signal Trunk needs) on master push.
+        if: always() && github.repository == 'PostHog/posthog' && github.event_name != 'pull_request' && needs.visual-regression.result != 'skipped'
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 1
+                  persist-credentials: false
+            - name: Download JUnit artifacts
+              uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
+              continue-on-error: true
+              with:
+                  path: ./junit-artifacts
+                  pattern: junit-results-storybook-*
+            # chromium and webkit run the same stories, so a single upload would give one test id
+            # both browsers' outcomes and a browser-specific failure would look like a flake.
+            # Upload each browser under its own Trunk variant to keep their histories distinct.
+            - name: Upload chromium results to Trunk
+              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              with:
+                  junit-paths: junit-artifacts/junit-results-storybook-chromium-*/*.xml
+                  org-slug: posthog-inc
+                  variant: chromium
+                  token: ${{ secrets.TRUNK_API_TOKEN }}
+            - name: Upload webkit results to Trunk
+              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              with:
+                  junit-paths: junit-artifacts/junit-results-storybook-webkit-*/*.xml
+                  org-slug: posthog-inc
+                  variant: webkit
+                  token: ${{ secrets.TRUNK_API_TOKEN }}

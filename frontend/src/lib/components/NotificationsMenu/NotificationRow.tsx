@@ -1,8 +1,12 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCheckCircle } from '@posthog/icons'
+import { IconArchive, IconCheckCircle } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
+import {
+    NotificationActionButton,
+    ROW_ACTION_REVEAL_CLASSES,
+} from 'lib/components/NotificationsMenu/NotificationActionButton'
 import { getNotificationDescriber } from 'lib/components/NotificationsMenu/notificationDescribers'
 import { getNotificationIcon } from 'lib/components/NotificationsMenu/notificationToasts'
 import { useAutoMarkRead } from 'lib/components/NotificationsMenu/useAutoMarkRead'
@@ -119,12 +123,15 @@ export function NotificationReadToggle({
 export function NotificationRow({
     notification,
     onNavigate,
+    readOnly = false,
 }: {
     notification: InAppNotification
     onNavigate?: () => void
+    readOnly?: boolean
 }): JSX.Element {
-    const { navigateToNotification, toggleRead, markAsRead } = useActions(sidePanelNotificationsLogic)
-    const { projectNameForNotification, sourcePathForNotification, manuallyToggledIds } =
+    const { navigateToNotification, toggleRead, markAsRead, archiveNotification } =
+        useActions(sidePanelNotificationsLogic)
+    const { projectNameForNotification, sourcePathForNotification, manuallyToggledIds, archivingEnabled } =
         useValues(sidePanelNotificationsLogic)
 
     // Don't auto-mark a notification the user deliberately toggled this session — respect their intent.
@@ -152,6 +159,11 @@ export function NotificationRow({
     const handleToggleRead = (e: React.MouseEvent): void => {
         e.stopPropagation()
         toggleRead(notification.id)
+    }
+
+    const handleArchive = (e: React.MouseEvent): void => {
+        e.stopPropagation()
+        archiveNotification(notification.id)
     }
 
     const handleNavigate = (e: React.MouseEvent): void => {
@@ -201,8 +213,16 @@ export function NotificationRow({
                     )}
                 </div>
             </div>
-            <div className="absolute bottom-1.5 right-1.5 opacity-0 transition-opacity group-hover/row:opacity-100">
-                <NotificationReadToggle read={notification.read} onToggle={handleToggleRead} />
+            <div className={`absolute bottom-1.5 right-1.5 flex items-center gap-1 ${ROW_ACTION_REVEAL_CLASSES}`}>
+                {archivingEnabled && !readOnly && notification.archivable && (
+                    <NotificationActionButton
+                        icon={<IconArchive className="size-4" />}
+                        tooltip="Archive"
+                        onClick={handleArchive}
+                        tone="danger"
+                    />
+                )}
+                {!readOnly && <NotificationReadToggle read={notification.read} onToggle={handleToggleRead} />}
             </div>
         </div>
     )

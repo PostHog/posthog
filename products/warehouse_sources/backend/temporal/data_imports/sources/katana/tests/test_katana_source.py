@@ -28,7 +28,6 @@ class TestKatanaSourceClass:
         assert config.label == "Katana"
         assert config.category == DataWarehouseSourceCategory.FINANCE___ACCOUNTING
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/katana"
         field_names = [f.name for f in config.fields]
         assert field_names == ["api_key"]

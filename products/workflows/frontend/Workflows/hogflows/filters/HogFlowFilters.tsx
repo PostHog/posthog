@@ -44,6 +44,11 @@ export type HogFlowFiltersProps = {
     setFilters: (filters: HogFlowAction['filters']) => void
     typeKey?: string
     buttonCopy?: string
+    // Drop group-property filters from the taxonomy. The subscription matcher wakes parked
+    // wait_until_condition jobs from person- and event-keyed signals only; a group-property change
+    // has no such key, so a group-based wait could never be woken and would only ever time out.
+    // Used by wait conditions to keep them constrained to matcher-observable signals.
+    excludeGroupProperties?: boolean
     // When filtering rows of a data warehouse table, pass the selected table's columns so they appear
     // as suggestions and resolve their distinct values.
     schemaColumns?: DatabaseSchemaField[]
@@ -53,7 +58,13 @@ export type HogFlowFiltersProps = {
 /**
  * Standard components wherever we do conditional matching to support whatever we know the hogflow engine supports
  */
-export function HogFlowEventFilters({ filters, setFilters, typeKey, buttonCopy }: HogFlowFiltersProps): JSX.Element {
+export function HogFlowEventFilters({
+    filters,
+    setFilters,
+    typeKey,
+    buttonCopy,
+    excludeGroupProperties,
+}: HogFlowFiltersProps): JSX.Element {
     const shouldShowInternalEvents = useFeatureFlag('WORKFLOWS_INTERNAL_EVENT_FILTERS')
     const sampleGlobals = useSampleGlobals()
     const { groupsTaxonomicTypes } = useValues(groupsModel)
@@ -73,7 +84,7 @@ export function HogFlowEventFilters({ filters, setFilters, typeKey, buttonCopy }
         TaxonomicFilterGroupType.EventFeatureFlags,
         TaxonomicFilterGroupType.Elements,
         TaxonomicFilterGroupType.PersonProperties,
-        ...groupsTaxonomicTypes,
+        ...(excludeGroupProperties ? [] : groupsTaxonomicTypes),
         TaxonomicFilterGroupType.HogQLExpression,
     ]
     if (shouldShowInternalEvents) {
@@ -110,6 +121,7 @@ export function HogFlowPropertyFilters({
     filtersKey,
     filters,
     setFilters,
+    excludeGroupProperties,
     schemaColumns,
     dataWarehouseTableName,
 }: HogFlowFiltersProps): JSX.Element {
@@ -141,7 +153,7 @@ export function HogFlowPropertyFilters({
                           TaxonomicFilterGroupType.EventProperties,
                           TaxonomicFilterGroupType.EventFeatureFlags,
                           TaxonomicFilterGroupType.PersonProperties,
-                          ...groupsTaxonomicTypes,
+                          ...(excludeGroupProperties ? [] : groupsTaxonomicTypes),
                           TaxonomicFilterGroupType.HogQLExpression,
                           TaxonomicFilterGroupType.EventMetadata,
                       ]

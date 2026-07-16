@@ -83,6 +83,18 @@ class TestLazyJoins(BaseTest):
         printed = self._print_select("select count() from persons")
         assert printed == self.snapshot
 
+    def test_sample_on_lazy_table_is_stripped(self):
+        # A lazy table expands into an aggregating subquery; ClickHouse rejects a SAMPLE modifier on
+        # a subquery, so it must be dropped rather than left to produce invalid SQL — but not
+        # silently: the user asked for sampling and needs to know it did not apply.
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=HogQLQueryModifiers())
+        expr = parse_select("select session_id, $channel_type from sessions SAMPLE 10")
+        printed, _ = prepare_and_print_ast(expr, context, "clickhouse")
+        assert "SAMPLE" not in printed
+        assert [warning.message for warning in context.warnings] == [
+            'SAMPLE clause ignored: the "sessions" table is computed on the fly and cannot be sampled'
+        ]
+
     def _print_select(self, select: str, modifiers: HogQLQueryModifiers | None = None):
         expr = parse_select(select)
         query, _ = prepare_and_print_ast(
@@ -158,6 +170,44 @@ class TestLazyJoins(BaseTest):
             HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED),
         )
         assert printed == self.snapshot
+
+    def test_person_override_join_ordered_before_dependent_warehouse_joins(self):
+        # A data-warehouse join keyed on `person_id` produces an ON constraint that references the
+        # person-overrides join (`e__override`). When another warehouse join that does *not* depend
+        # on the override is emitted between the events table and the override join, the override
+        # join must still come before the dependent one: ClickHouse resolves joins left-to-right, so
+        # a forward reference to `e__override` throws "Unknown identifier". Regression test for an
+        # aliased events actors query that produced exactly that broken ordering.
+        DataWarehouseJoin(
+            team=self.team,
+            source_table_name="events",
+            source_table_key="event",
+            joining_table_name="persons",
+            joining_table_key="id",
+            field_name="event_link",
+        ).save()
+        DataWarehouseJoin(
+            team=self.team,
+            source_table_name="events",
+            source_table_key="person_id",
+            joining_table_name="persons",
+            joining_table_key="id",
+            field_name="person_link",
+        ).save()
+
+        printed = self._print_select(
+            "SELECT e.person_id AS actor_id, e.event_link.id AS a, e.person_link.id AS b FROM events AS e",
+            HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS),
+        )
+
+        flat = " ".join(printed.split())
+        override_pos = flat.find("AS e__override ON")
+        dependent_pos = flat.find("AS e__person_link ON")
+        assert override_pos != -1, "person-overrides join was not emitted"
+        assert dependent_pos != -1, "person_id-keyed warehouse join was not emitted"
+        # Guard against a vacuous assertion: the dependent join's ON must actually reference the override.
+        assert "e__override." in flat[dependent_pos : dependent_pos + 300]
+        assert override_pos < dependent_pos, "override join must be emitted before the join that references it"
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_events_session_join_with_timestamp_filter(self):

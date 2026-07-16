@@ -26,6 +26,7 @@ from posthog.schema import (
     HogQLPropertyFilter,
     LogEntryPropertyFilter,
     LogPropertyFilter,
+    MetricPropertyFilter,
     PersonMetadataPropertyFilter,
     PersonPropertyFilter,
     PropertyGroupFilter,
@@ -737,6 +738,7 @@ def property_to_expr(
         | DataWarehousePersonPropertyFilter
         | ErrorTrackingIssueFilter
         | LogPropertyFilter
+        | MetricPropertyFilter
         | SpanPropertyFilter
         | WorkflowVariablePropertyFilter
     ),

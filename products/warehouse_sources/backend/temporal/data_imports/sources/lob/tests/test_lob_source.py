@@ -49,7 +49,6 @@ class TestLobSourceConfig:
         assert config.label == "Lob"
         assert config.category == DataWarehouseSourceCategory.MARKETING___EMAIL
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
 
     def test_source_config_has_single_secret_api_key_field(self) -> None:
         fields = LobSource().get_source_config.fields

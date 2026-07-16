@@ -4,11 +4,12 @@ import json
 import time
 import base64
 import hashlib
-from collections.abc import Iterable
+import secrets
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple, NoReturn, Optional, Self
-from urllib.parse import urlencode
+from urllib.parse import parse_qs, urlencode
 
 from products.workflows.backend.providers import MAILDEV_MOCK_DNS_RECORDS
 
@@ -19,8 +20,10 @@ if TYPE_CHECKING:
     from stripe import StripeClient
 
 from django.conf import settings
+from django.core.cache import cache
 from django.db import models, transaction
 from django.db.models import Q
+from django.dispatch import receiver
 from django.http import HttpRequest
 from django.utils import timezone
 
@@ -39,7 +42,8 @@ from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
 from posthog.cache_utils import cache_for
-from posthog.egress.github.transport import GITHUB_API_VERSION
+from posthog.egress.github.transport import github_request
+from posthog.egress.limiter.policies import Priority
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.github_integration_base import GitHubIntegrationBase, GitHubIntegrationError
@@ -81,8 +85,98 @@ def _decode_jwt_payload(token: str) -> dict | None:
 
 
 oauth_refresh_counter = Counter(
-    "integration_oauth_refresh", "Number of times an oauth refresh has been attempted", labelnames=["kind", "result"]
+    "integration_oauth_refresh",
+    "Number of times an oauth refresh has been attempted",
+    labelnames=["kind", "result", "reason", "attempt"],
 )
+
+# Terminal rows are skipped by the sweep and stop emitting failure metrics, so a gradual fleet
+# die-off would otherwise be invisible. Incremented once per row at the transition; a rising
+# rate means connections are permanently breaking (e.g. a provider mass-revoking grants).
+oauth_refresh_terminal_counter = Counter(
+    "integration_oauth_refresh_went_terminal",
+    "OAuth integrations whose refresh went terminal (unbroken invalid_grant streak)",
+    labelnames=["kind"],
+)
+
+# Consecutive-failure backoff for the every-minute refresh sweep (posthog/tasks/integrations.py).
+# Without it, permanently dead integrations (revoked grants, deleted consumers) are retried every
+# minute forever, hammering providers and drowning the failure metric in a noise floor that
+# masks real fleet-wide breakage.
+REFRESH_BACKOFF_BASE_SECONDS = 120
+REFRESH_BACKOFF_MAX_SECONDS = 3600
+REFRESH_TERMINAL_FAILURE_COUNT = 5
+
+# Values for the counter's `reason` label, bucketed from the OAuth error response.
+REFRESH_FAILURE_REASON_INVALID_GRANT = "invalid_grant"
+REFRESH_FAILURE_REASON_INVALID_CLIENT = "invalid_client"
+REFRESH_FAILURE_REASON_HTTP_5XX = "http_5xx"
+REFRESH_FAILURE_REASON_NETWORK = "network"
+REFRESH_FAILURE_REASON_OTHER = "other"
+
+
+def oauth_refresh_failure_reason(status_code: int, body: dict, kind: str | None = None) -> str:
+    error = body.get("error")
+    if error == REFRESH_FAILURE_REASON_INVALID_GRANT:
+        return REFRESH_FAILURE_REASON_INVALID_GRANT
+    if error == REFRESH_FAILURE_REASON_INVALID_CLIENT:
+        return REFRESH_FAILURE_REASON_INVALID_CLIENT
+    # Reddit reports a dead grant as `{"message": "Bad Request", "error": 400}` with no OAuth
+    # error code. Our refresh request shape is fixed and succeeds fleet-wide, so a 400 on this
+    # endpoint means the grant, not the request - match that exact shape for reddit only.
+    if kind == "reddit-ads" and status_code == 400 and error == 400:
+        return REFRESH_FAILURE_REASON_INVALID_GRANT
+    if status_code >= 500:
+        return REFRESH_FAILURE_REASON_HTTP_5XX
+    return REFRESH_FAILURE_REASON_OTHER
+
+
+def record_refresh_failure(integration: "Integration", *, reason: str = REFRESH_FAILURE_REASON_OTHER) -> str:
+    """Track a consecutive refresh failure on the integration's config; caller saves.
+
+    Schedules the next attempt with capped exponential backoff. `invalid_grant` means the grant
+    itself is dead and only a customer re-auth can fix it, so after an unbroken streak of them the
+    integration goes terminal and the sweep stops retrying entirely. The streak is tracked
+    separately from the total failure count and resets on any other reason, so one transient
+    invalid_grant amid e.g. a 5xx outage can't brick the integration. Other reasons
+    (invalid_client, 5xx, network) never go terminal - a platform-side credential fix must let
+    the fleet self-recover.
+
+    Returns "first"/"retry" for the metric's `attempt` label - a spike in first failures means
+    connections are newly breaking, regardless of retry noise.
+    """
+    count = int(integration.config.get("refresh_failure_count") or 0)
+    attempt = "first" if count == 0 else "retry"
+    count += 1
+    integration.config["refresh_failure_count"] = count
+    integration.config["refresh_next_attempt_at"] = int(time.time()) + min(
+        REFRESH_BACKOFF_BASE_SECONDS * 2 ** (count - 1), REFRESH_BACKOFF_MAX_SECONDS
+    )
+    if reason == REFRESH_FAILURE_REASON_INVALID_GRANT:
+        grant_streak = int(integration.config.get("refresh_invalid_grant_count") or 0) + 1
+        integration.config["refresh_invalid_grant_count"] = grant_streak
+        # Guarded so on-demand refreshes (which bypass the backoff) can't re-count a dead row
+        if grant_streak >= REFRESH_TERMINAL_FAILURE_COUNT and not integration.config.get("refresh_terminal"):
+            integration.config["refresh_terminal"] = True
+            oauth_refresh_terminal_counter.labels(kind=integration.kind).inc()
+    else:
+        integration.config.pop("refresh_invalid_grant_count", None)
+    return attempt
+
+
+def record_refresh_success(integration: "Integration") -> None:
+    for key in ("refresh_failure_count", "refresh_invalid_grant_count", "refresh_next_attempt_at", "refresh_terminal"):
+        integration.config.pop(key, None)
+
+
+def refresh_backoff_active(integration: "Integration") -> bool:
+    """Whether the refresh sweep should skip this integration. Reconnecting resets the state
+    (the OAuth callback replaces `config` wholesale), and on-demand API refreshes bypass this."""
+    if integration.config.get("refresh_terminal"):
+        return True
+    next_attempt_at = integration.config.get("refresh_next_attempt_at")
+    return bool(next_attempt_at) and time.time() < next_attempt_at
+
 
 # `owner/repo`, single slash, no traversal. Used to keep repo/ref/sha values out of GitHub API URL
 # paths where a crafted value (e.g. `../../other-repo/contents/x?ref=y`) could redirect the
@@ -248,6 +342,7 @@ class Integration(models.Model):
         # or reads this kind; see `products/slack_app/backend/api.py` for the live integration.
         SLACK_POSTHOG_CODE = "slack-posthog-code"
         SNAPCHAT = "snapchat"
+        SNOWFLAKE = "snowflake"
         STRIPE = "stripe"
         TIKTOK_ADS = "tiktok-ads"
         TWILIO = "twilio"
@@ -300,17 +395,28 @@ class Integration(models.Model):
             return self.integration_id or "unknown ID"
         if self.kind == Integration.IntegrationKind.AWS_S3:
             name = self.integration_id or "unknown ID"
-            # config["auth_type"] leaves room for a future OIDC / IAM-role mode; only keys exist today.
-            auth_label = self.config.get("auth_type", "access key")
+
             account_id = self.config.get("aws_account_id")
-            detail = f"{auth_label}, AWS account {account_id}" if account_id else auth_label
+            role = self.config.get("aws_role_arn")
+
+            if role:
+                detail = f"AWS role '{role}'"
+            elif account_id:
+                detail = f"AWS account {account_id}"
+            else:
+                detail = "access key"
+
             return f"{name} ({detail})"
         if self.kind == Integration.IntegrationKind.S3_COMPATIBLE:
             name = self.integration_id or "unknown ID"
-            auth_label = self.config.get("auth_type", "access key")
             endpoint_url = self.config.get("endpoint_url")
-            detail = f"{auth_label}, {endpoint_url}" if endpoint_url else auth_label
+            detail = f"access key, {endpoint_url}" if endpoint_url else "access key"
             return f"{name} ({detail})"
+        if self.kind == Integration.IntegrationKind.SNOWFLAKE:
+            name = self.integration_id or "unknown ID"
+            auth_type = self.config.get("authentication_type", "password")
+            account = self.config.get("account")
+            return f"{name} (account: {account}, {auth_type} auth)"
         if self.kind == "gitlab":
             return self.integration_id or "unknown ID"
         if self.kind == "email":
@@ -351,6 +457,12 @@ class OauthConfig:
     token_info_graphql_query: str | None = None
     token_info_config_fields: list[str] | None = None
     additional_authorize_params: dict[str, str] | None = None
+    client_id_fallback: str | None = None
+    client_secret_fallback: str | None = None
+    # When true, the authorize/token-exchange flow uses PKCE (RFC 7636, S256)
+    pkce: bool = False
+    # When set, disconnecting the integration also revokes the grant at the provider
+    token_revoke_url: str | None = None
 
 
 # Slack accepts comma-separated scopes on the OAuth authorize URL. The canonical list is the
@@ -405,6 +517,15 @@ class OauthIntegration:
     @classmethod
     @cache_for(timedelta(minutes=5))
     def oauth_config_for_kind(cls, kind: str) -> OauthConfig:
+        config = cls._build_oauth_config(kind)
+        fallback = settings.OAUTH_CLIENT_FALLBACKS.get(kind)
+        if fallback and fallback.get("client_secret"):
+            config.client_secret_fallback = fallback["client_secret"]
+            config.client_id_fallback = fallback.get("client_id") or config.client_id
+        return config
+
+    @classmethod
+    def _build_oauth_config(cls, kind: str) -> OauthConfig:
         if kind == "slack":
             from_settings = get_instance_settings(
                 [
@@ -433,11 +554,13 @@ class OauthIntegration:
             return OauthConfig(
                 authorize_url="https://login.salesforce.com/services/oauth2/authorize",
                 token_url="https://login.salesforce.com/services/oauth2/token",
+                token_revoke_url="https://login.salesforce.com/services/oauth2/revoke",
                 client_id=settings.SALESFORCE_CONSUMER_KEY,
                 client_secret=settings.SALESFORCE_CONSUMER_SECRET,
                 scope="full refresh_token",
                 id_path="instance_url",
                 name_path="instance_url",
+                pkce=True,
             )
         elif kind == "salesforce-sandbox":
             if not settings.SALESFORCE_CONSUMER_KEY or not settings.SALESFORCE_CONSUMER_SECRET:
@@ -446,11 +569,13 @@ class OauthIntegration:
             return OauthConfig(
                 authorize_url="https://test.salesforce.com/services/oauth2/authorize",
                 token_url="https://test.salesforce.com/services/oauth2/token",
+                token_revoke_url="https://test.salesforce.com/services/oauth2/revoke",
                 client_id=settings.SALESFORCE_CONSUMER_KEY,
                 client_secret=settings.SALESFORCE_CONSUMER_SECRET,
                 scope="full refresh_token",
                 id_path="instance_url",
                 name_path="instance_url",
+                pkce=True,
             )
         elif kind == "hubspot":
             if not settings.HUBSPOT_APP_CLIENT_ID or not settings.HUBSPOT_APP_CLIENT_SECRET:
@@ -758,6 +883,17 @@ class OauthIntegration:
                 **(oauth_config.additional_authorize_params or {}),
             }
 
+            if oauth_config.pkce:
+                # The verifier is cached against the state token so the token exchange —
+                # a separate request via the frontend callback — can retrieve it.
+                code_verifier = secrets.token_urlsafe(64)
+                code_challenge = (
+                    base64.urlsafe_b64encode(hashlib.sha256(code_verifier.encode()).digest()).rstrip(b"=").decode()
+                )
+                query_params["code_challenge"] = code_challenge
+                query_params["code_challenge_method"] = "S256"
+                cache.set(f"oauth_pkce_verifier/{token}", code_verifier, timeout=60 * 5)
+
         return f"{oauth_config.authorize_url}?{urlencode(query_params)}"
 
     @classmethod
@@ -765,6 +901,18 @@ class OauthIntegration:
         cls, kind: str, team_id: int, created_by: User, params: dict[str, str]
     ) -> Integration:
         oauth_config = cls.oauth_config_for_kind(kind)
+
+        code_verifier: str | None = None
+        if oauth_config.pkce:
+            state_token = parse_qs(params.get("state", "")).get("token", [""])[0]
+            if state_token:
+                verifier_cache_key = f"oauth_pkce_verifier/{state_token}"
+                code_verifier = cache.get(verifier_cache_key)
+                cache.delete(verifier_cache_key)  # single-use, per RFC 7636
+            # Missing verifier still exchanges without PKCE (Salesforce accepts that until it
+            # requires PKCE). Log it so the gap is visible before we enforce PKCE provider-side.
+            if not code_verifier:
+                logger.warning("oauth_pkce_verifier_missing", kind=kind, has_state_token=bool(state_token))
 
         # Reddit uses HTTP Basic Auth https://github.com/reddit-archive/reddit/wiki/OAuth2 and requires a User-Agent header
         if kind == "reddit-ads":
@@ -777,6 +925,7 @@ class OauthIntegration:
                     "grant_type": "authorization_code",
                 },
                 headers={"User-Agent": "PostHog/1.0 by PostHogTeam"},
+                timeout=10,
             )
         # Pinterest uses HTTP Basic Auth for token exchange (base64-encoded client_id:client_secret)
         elif kind == "pinterest-ads":
@@ -788,6 +937,7 @@ class OauthIntegration:
                     "redirect_uri": OauthIntegration.redirect_uri(kind),
                     "grant_type": "authorization_code",
                 },
+                timeout=10,
             )
         elif kind == "tiktok-ads":
             # TikTok Ads uses JSON request body instead of form data and maps 'code' to 'auth_code'
@@ -799,6 +949,7 @@ class OauthIntegration:
                     "auth_code": params["code"],
                 },
                 headers={"Content-Type": "application/json"},
+                timeout=10,
             )
         elif kind == "stripe":
             # Stripe Apps OAuth authenticates with the developer secret key as HTTP Basic
@@ -811,6 +962,7 @@ class OauthIntegration:
                     "code": params["code"],
                     "grant_type": "authorization_code",
                 },
+                timeout=10,
             )
         else:
             redirect_uri = OauthIntegration.redirect_uri(kind)
@@ -822,7 +974,9 @@ class OauthIntegration:
                     "code": params["code"],
                     "redirect_uri": redirect_uri,
                     "grant_type": "authorization_code",
+                    **({"code_verifier": code_verifier} if code_verifier else {}),
                 },
+                timeout=10,
             )
 
         try:
@@ -851,7 +1005,9 @@ class OauthIntegration:
                         "code": params["code"],
                         "redirect_uri": OauthIntegration.redirect_uri(kind),
                         "grant_type": "authorization_code",
+                        **({"code_verifier": code_verifier} if code_verifier else {}),
                     },
+                    timeout=10,
                 )
 
                 try:
@@ -886,11 +1042,13 @@ class OauthIntegration:
                     oauth_config.token_info_url,
                     headers={"Authorization": f"Bearer {config['access_token']}"},
                     json={"query": oauth_config.token_info_graphql_query},
+                    timeout=10,
                 )
             else:
                 token_info_res = requests.get(
                     oauth_config.token_info_url.replace(":access_token", config["access_token"]),
                     headers={"Authorization": f"Bearer {config['access_token']}"},
+                    timeout=10,
                 )
 
             if token_info_res.status_code == 200:
@@ -1064,6 +1222,43 @@ class OauthIntegration:
 
         return integration
 
+    def revoke_token(self) -> None:
+        """Revoke the OAuth grant at the provider, for kinds with a revoke endpoint.
+
+        Revoking the refresh token also invalidates its access tokens (per RFC 7009 and
+        Salesforce's revoke semantics), so the provider no longer considers PostHog authorized
+        after a disconnect. Callers treat this as best-effort — the local deletion proceeds
+        regardless.
+        """
+        oauth_config = self.oauth_config_for_kind(self.integration.kind)
+        if not oauth_config.token_revoke_url:
+            return
+
+        token = self.integration.sensitive_config.get("refresh_token") or self.integration.sensitive_config.get(
+            "access_token"
+        )
+        if not token:
+            return
+
+        revoke_url = oauth_config.token_revoke_url
+        # Salesforce sandbox integrations are stored as kind "salesforce" (the sandbox is only a
+        # token-exchange fallback), so the static prod revoke URL would miss them. Revoke at the
+        # org's own instance host instead - it serves oauth2/revoke and matches prod or sandbox.
+        instance_url = self.integration.config.get("instance_url")
+        if self.integration.kind == "salesforce" and instance_url:
+            revoke_url = f"{instance_url.rstrip('/')}/services/oauth2/revoke"
+
+        # allow_redirects=False so a misconfigured/compromised provider can't 30x us into
+        # resending the token to another host. raise_for_status surfaces a provider rejection
+        # to the caller's capture_exception instead of it passing silently as a revoke.
+        response = requests.post(
+            revoke_url,
+            data={"token": token},
+            timeout=10,
+            allow_redirects=False,
+        )
+        response.raise_for_status()
+
     def access_token_expired(self, time_threshold: timedelta | None = None) -> bool:
         # Not all integrations have refresh tokens or expiries, so we just return False if we can't check
 
@@ -1089,6 +1284,81 @@ class OauthIntegration:
 
         return time.time() > refreshed_at + expires_in - time_threshold.total_seconds()
 
+    def _post_token_refresh(self, oauth_config: OauthConfig, client_id: str, client_secret: str) -> requests.Response:
+        refresh_token = self.integration.sensitive_config["refresh_token"]
+        kind = self.integration.kind
+
+        # Reddit uses HTTP Basic Auth for token refresh
+        if kind == "reddit-ads":
+            return requests.post(
+                oauth_config.token_url,
+                auth=HTTPBasicAuth(client_id, client_secret),
+                data={"refresh_token": refresh_token, "grant_type": "refresh_token"},
+                # If I use a standard User-Agent, it will throw a 429 too many requests error
+                headers={"User-Agent": "PostHog/1.0 by PostHogTeam"},
+                timeout=10,
+            )
+        # Pinterest uses HTTP Basic Auth for token refresh
+        elif kind == "pinterest-ads":
+            return requests.post(
+                oauth_config.token_url,
+                auth=HTTPBasicAuth(client_id, client_secret),
+                data={"refresh_token": refresh_token, "grant_type": "refresh_token"},
+                timeout=10,
+            )
+        elif kind == "tiktok-ads":
+            return requests.post(
+                "https://open.tiktokapis.com/v2/oauth/token/",
+                data={
+                    "client_key": client_id,  # TikTok uses client_key instead of client_id
+                    "client_secret": client_secret,
+                    "refresh_token": refresh_token,
+                    "grant_type": "refresh_token",
+                },
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                timeout=10,
+            )
+        elif kind == "bing-ads":
+            # Microsoft Azure AD requires scope parameter on token refresh
+            return requests.post(
+                oauth_config.token_url,
+                data={
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "refresh_token": refresh_token,
+                    "grant_type": "refresh_token",
+                    "scope": oauth_config.scope,
+                },
+                timeout=10,
+            )
+        elif kind == "stripe":
+            # Stripe Apps OAuth: secret as HTTP Basic username, no client_id/client_secret in body.
+            return requests.post(
+                oauth_config.token_url,
+                auth=HTTPBasicAuth(client_secret, ""),
+                data={"refresh_token": refresh_token, "grant_type": "refresh_token"},
+                timeout=10,
+            )
+        else:
+            return requests.post(
+                oauth_config.token_url,
+                data={
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "refresh_token": refresh_token,
+                    "grant_type": "refresh_token",
+                },
+                timeout=10,
+            )
+
+    @staticmethod
+    def _parse_token_refresh_response(res: requests.Response) -> dict:
+        try:
+            return res.json()
+        except ValueError:
+            # e.g. an HTML error page from a proxy/5xx - still a failed refresh, not an exception
+            return {}
+
     def refresh_access_token(self):
         """
         Refresh the access token for the integration if necessary
@@ -1098,80 +1368,54 @@ class OauthIntegration:
         # Clear out previous token refreshing errors, as they'll be re-set below if another error occurs
         self.integration.errors = ""
 
-        # Reddit uses HTTP Basic Auth for token refresh
-        if self.integration.kind == "reddit-ads":
-            res = requests.post(
-                oauth_config.token_url,
-                auth=HTTPBasicAuth(oauth_config.client_id, oauth_config.client_secret),
-                data={
-                    "refresh_token": self.integration.sensitive_config["refresh_token"],
-                    "grant_type": "refresh_token",
-                },
-                # If I use a standard User-Agent, it will throw a 429 too many requests error
-                headers={"User-Agent": "PostHog/1.0 by PostHogTeam"},
-            )
-        # Pinterest uses HTTP Basic Auth for token refresh
-        elif self.integration.kind == "pinterest-ads":
-            res = requests.post(
-                oauth_config.token_url,
-                auth=HTTPBasicAuth(oauth_config.client_id, oauth_config.client_secret),
-                data={
-                    "refresh_token": self.integration.sensitive_config["refresh_token"],
-                    "grant_type": "refresh_token",
-                },
-            )
-        elif self.integration.kind == "tiktok-ads":
-            res = requests.post(
-                "https://open.tiktokapis.com/v2/oauth/token/",
-                data={
-                    "client_key": oauth_config.client_id,  # TikTok uses client_key instead of client_id
-                    "client_secret": oauth_config.client_secret,
-                    "refresh_token": self.integration.sensitive_config["refresh_token"],
-                    "grant_type": "refresh_token",
-                },
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
-            )
-        elif self.integration.kind == "bing-ads":
-            # Microsoft Azure AD requires scope parameter on token refresh
-            res = requests.post(
-                oauth_config.token_url,
-                data={
-                    "client_id": oauth_config.client_id,
-                    "client_secret": oauth_config.client_secret,
-                    "refresh_token": self.integration.sensitive_config["refresh_token"],
-                    "grant_type": "refresh_token",
-                    "scope": oauth_config.scope,
-                },
-            )
-        elif self.integration.kind == "stripe":
-            # Stripe Apps OAuth: secret as HTTP Basic username, no client_id/client_secret in body.
-            res = requests.post(
-                oauth_config.token_url,
-                auth=HTTPBasicAuth(oauth_config.client_secret, ""),
-                data={
-                    "refresh_token": self.integration.sensitive_config["refresh_token"],
-                    "grant_type": "refresh_token",
-                },
-            )
-        else:
-            res = requests.post(
-                oauth_config.token_url,
-                data={
-                    "client_id": oauth_config.client_id,
-                    "client_secret": oauth_config.client_secret,
-                    "refresh_token": self.integration.sensitive_config["refresh_token"],
-                    "grant_type": "refresh_token",
-                },
-            )
+        res: requests.Response | None = None
+        config: dict = {}
+        used_fallback = False
+        try:
+            res = self._post_token_refresh(oauth_config, oauth_config.client_id, oauth_config.client_secret)
+            config = self._parse_token_refresh_response(res)
+        except requests.RequestException as e:
+            # A network error (timeout, connection reset) is a failed refresh, not a crash. Without
+            # this the Celery sweep task errors out before recording the failure, so the backoff and
+            # the TOKEN_REFRESH_FAILED reconnect state are never persisted.
+            logger.warning(f"Network error on primary credentials for {self}", error=str(e))
 
-        config: dict = res.json()
+        # A rotated or migrated OAuth app leaves users with refresh tokens only the previous
+        # credentials can refresh. Retry with the fallback pair — including when the primary hit a
+        # network error — so they keep working until they reconnect.
+        if (
+            res is None or res.status_code != 200 or not config.get("access_token")
+        ) and oauth_config.client_secret_fallback:
+            try:
+                res = self._post_token_refresh(
+                    oauth_config,
+                    oauth_config.client_id_fallback or oauth_config.client_id,
+                    oauth_config.client_secret_fallback,
+                )
+                config = self._parse_token_refresh_response(res)
+                used_fallback = True
+            except requests.RequestException as e:
+                logger.warning(f"Network error on fallback credentials for {self}", error=str(e))
+                res = None
+                config = {}
 
-        if res.status_code != 200 or not config.get("access_token"):
-            logger.warning(f"Failed to refresh token for {self}", response=res.text)
+        if res is None or res.status_code != 200 or not config.get("access_token"):
+            logger.warning(
+                f"Failed to refresh token for {self}", response=res.text if res is not None else "network error"
+            )
             self.integration.errors = ERROR_TOKEN_REFRESH_FAILED
-            oauth_refresh_counter.labels(self.integration.kind, "failed").inc()
+            reason = (
+                oauth_refresh_failure_reason(res.status_code, config, kind=self.integration.kind)
+                if res is not None
+                else REFRESH_FAILURE_REASON_NETWORK
+            )
+            attempt = record_refresh_failure(self.integration, reason=reason)
+            oauth_refresh_counter.labels(
+                kind=self.integration.kind, result="failed", reason=reason, attempt=attempt
+            ).inc()
         else:
             logger.info(f"Refreshed access token for {self}")
+            record_refresh_success(self.integration)
             self.integration.sensitive_config["access_token"] = config["access_token"]
 
             # Some providers (e.g. Atlassian/Jira) rotate refresh tokens — each
@@ -1191,7 +1435,12 @@ class OauthIntegration:
             self.integration.config["expires_in"] = expires_in
             self.integration.config["refreshed_at"] = int(time.time())
             reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
-            oauth_refresh_counter.labels(self.integration.kind, "success").inc()
+            oauth_refresh_counter.labels(
+                kind=self.integration.kind,
+                result="success_fallback" if used_fallback else "success",
+                reason="",
+                attempt="",
+            ).inc()
 
         self.integration.save()
 
@@ -1400,6 +1649,7 @@ class GoogleAdsIntegration:
                 "developer-token": settings.GOOGLE_ADS_DEVELOPER_TOKEN,
                 **({"login-customer-id": parent_id} if parent_id else {}),
             },
+            timeout=10,
         )
 
         if response.status_code == 401:
@@ -1440,6 +1690,7 @@ class GoogleAdsIntegration:
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
                 "developer-token": settings.GOOGLE_ADS_DEVELOPER_TOKEN,
             },
+            timeout=10,
         )
 
         if response.status_code == 401:
@@ -1483,6 +1734,7 @@ class GoogleAdsIntegration:
                     "developer-token": settings.GOOGLE_ADS_DEVELOPER_TOKEN,
                     **({"login-customer-id": parent_id} if parent_id else {}),
                 },
+                timeout=10,
             )
 
             if response.status_code != 200:
@@ -1709,8 +1961,11 @@ class GoogleCloudIntegration:
         try:
             credentials.refresh(GoogleRequest())
         except Exception:
+            record_refresh_failure(self.integration)
+            self.integration.save(update_fields=["config"])
             raise ValidationError(f"Failed to authenticate with provided service account key")
 
+        # Wholesale replacement also clears any refresh backoff state
         self.integration.config = {
             "expires_in": credentials.expiry.timestamp() - int(time.time()),
             "refreshed_at": int(time.time()),
@@ -1806,8 +2061,11 @@ class FirebaseIntegration:
         try:
             credentials.refresh(GoogleRequest())
         except Exception:
+            record_refresh_failure(self.integration)
+            self.integration.save(update_fields=["config"])
             raise ValidationError("Failed to authenticate with provided Firebase service account key")
 
+        record_refresh_success(self.integration)
         self.integration.config["expires_in"] = credentials.expiry.timestamp() - int(time.time())
         self.integration.config["refreshed_at"] = int(time.time())
         self.integration.sensitive_config["access_token"] = credentials.token
@@ -1830,6 +2088,7 @@ class ApplePushIntegration:
       - team_id: Apple Developer Team ID
       - bundle_id: App bundle identifier (e.g. com.example.app)
       - key_id: The Key ID for the .p8 signing key
+      - environment: "production" or "sandbox" (defaults to "production")
 
     sensitive_config stores:
       - signing_key: The .p8 signing key contents
@@ -1851,9 +2110,13 @@ class ApplePushIntegration:
         bundle_id: str,
         team_id: int,
         created_by: User | None = None,
+        environment: str = "production",
     ) -> "Integration":
         if not all([signing_key, key_id, team_id_apple, bundle_id]):
             raise ValidationError("All APNS fields are required: signing_key, key_id, team_id_apple, bundle_id")
+
+        if environment not in ("production", "sandbox"):
+            raise ValidationError("APNS environment must be 'production' or 'sandbox'")
 
         integration, created = Integration.objects.update_or_create(
             team_id=team_id,
@@ -1864,6 +2127,7 @@ class ApplePushIntegration:
                     "team_id": team_id_apple,
                     "bundle_id": bundle_id,
                     "key_id": key_id,
+                    "environment": environment,
                 },
                 "sensitive_config": {
                     "signing_key": signing_key,
@@ -1939,6 +2203,7 @@ class LinkedInAdsIntegration:
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
                 "LinkedIn-Version": "202508",
             },
+            timeout=10,
         )
 
         self._check_auth_error(response, "listing conversion rules")
@@ -1953,6 +2218,7 @@ class LinkedInAdsIntegration:
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
                 "LinkedIn-Version": "202508",
             },
+            timeout=10,
         )
 
         self._check_auth_error(response, "listing ad accounts")
@@ -1995,6 +2261,7 @@ class ClickUpIntegration:
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
             },
+            timeout=10,
         )
 
         self._check_auth_error(response, "listing spaces")
@@ -2012,6 +2279,7 @@ class ClickUpIntegration:
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
             },
+            timeout=10,
         )
 
         self._check_auth_error(response, "listing lists")
@@ -2029,6 +2297,7 @@ class ClickUpIntegration:
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
             },
+            timeout=10,
         )
 
         self._check_auth_error(response, "listing folders")
@@ -2043,6 +2312,7 @@ class ClickUpIntegration:
             "GET",
             "https://api.clickup.com/api/v2/team",
             headers={"Authorization": f"Bearer {self.integration.sensitive_config['access_token']}"},
+            timeout=10,
         )
 
         self._check_auth_error(response, "listing workspaces")
@@ -2246,6 +2516,7 @@ class LinearIntegration:
             "https://api.linear.app/graphql",
             headers={"Authorization": f"Bearer {self.integration.sensitive_config['access_token']}"},
             json={"query": query, "variables": variables or {}},
+            timeout=10,
         )
         return response.json()
 
@@ -2315,6 +2586,7 @@ class JiraIntegration:
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
                 "Accept": "application/json",
             },
+            timeout=10,
         )
         body = response.json()
         projects = body.get("values", [])
@@ -2359,6 +2631,7 @@ class JiraIntegration:
                 "Content-Type": "application/json",
             },
             json=payload,
+            timeout=10,
         )
 
         issue = response.json()
@@ -2529,13 +2802,12 @@ class GitHubIntegration(GitHubIntegrationBase):
             )
             return None
 
-        user_response = requests.get(
+        # Identity-blind: a fresh user OAuth token with no installation budget behind it.
+        user_response = github_request(
+            "GET",
             "https://api.github.com/user",
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": "2022-11-28",
-            },
+            source="integration",
+            headers={"Authorization": f"Bearer {access_token}"},
             timeout=10,
         )
         if user_response.status_code != 200:
@@ -2559,7 +2831,9 @@ class GitHubIntegration(GitHubIntegrationBase):
         )
 
     @classmethod
-    def first_for_team_repository(cls, team_id: int, repository: str) -> "GitHubIntegration | None":
+    def first_for_team_repository(
+        cls, team_id: int, repository: str, *, source: str | None = None
+    ) -> "GitHubIntegration | None":
         """First GitHub integration for the team whose installation can access ``repository`` (``owner/name``).
 
         ``repository`` reaches us from team-writable content (e.g. artefact payloads), and the access
@@ -2570,27 +2844,39 @@ class GitHubIntegration(GitHubIntegrationBase):
         if not _is_safe_github_repo_path(repository):
             return None
         for integration in Integration.objects.filter(team_id=team_id, kind="github").order_by("id"):
-            github = cls(integration)
+            github = cls(integration, source=source)
             if github.installation_can_access_repository(repository):
                 return github
         return None
 
-    def __init__(self, integration: Integration) -> None:
+    def __init__(
+        self, integration: Integration, *, source: str | None = None, priority: Priority | None = None
+    ) -> None:
         if integration.kind != "github":
             raise Exception("GitHubIntegration init called with Integration with wrong 'kind'")
         self.integration = integration
+        if source is not None:
+            self.source = source
+        if priority is not None:
+            self.priority = priority
 
     def _on_token_refresh_failed(self, response: requests.Response) -> None:
         logger.warning(f"Failed to refresh token for {self}", response=response.text)
         self.integration.errors = ERROR_TOKEN_REFRESH_FAILED
-        oauth_refresh_counter.labels(self.integration.kind, "failed").inc()
+        # A permanently-gone installation (uninstalled/suspended) drops expires_in/refreshed_at so the
+        # every-minute beat loop stops re-minting it; the errors + config change persist in one save.
+        self._disarm_proactive_refresh_if_installation_gone(response)
+        reason = REFRESH_FAILURE_REASON_HTTP_5XX if response.status_code >= 500 else REFRESH_FAILURE_REASON_OTHER
+        attempt = record_refresh_failure(self.integration, reason=reason)
+        oauth_refresh_counter.labels(kind=self.integration.kind, result="failed", reason=reason, attempt=attempt).inc()
         self.integration.save()
 
     def _on_token_refreshed(self) -> None:
         logger.info(f"Refreshed access token for {self}")
         self.integration.errors = ""
+        record_refresh_success(self.integration)
         reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
-        oauth_refresh_counter.labels(self.integration.kind, "success").inc()
+        oauth_refresh_counter.labels(kind=self.integration.kind, result="success", reason="", attempt="").inc()
 
     @database_sync_to_async
     def list_cached_repositories_async(
@@ -2598,25 +2884,28 @@ class GitHubIntegration(GitHubIntegrationBase):
     ) -> tuple[list[dict], bool]:
         return self.list_cached_repositories(search=search, limit=limit, offset=offset)
 
-    def create_issue(self, config: dict[str, str]):
+    def create_issue(self, config: dict[str, Any]):
         title: str = config.pop("title")
         body: str = config.pop("body")
         repository: str = config.pop("repository")
+        labels = config.pop("labels", None)
 
-        org = self.organization()
-        access_token = self.integration.sensitive_config["access_token"]
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        json_body: dict[str, Any] = {"title": title, "body": body}
+        if labels:
+            json_body["labels"] = labels
 
-        response = self._github_api_post(
-            f"https://api.github.com/repos/{org}/{repository}/issues",
+        response = self.api_request(
+            "POST",
+            f"/repos/{repo_path}/issues",
             endpoint="/repos/{owner}/{repo}/issues",
-            json_body={"title": title, "body": body},
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": GITHUB_API_VERSION,
-            },
+            json_body=json_body,
         )
-
+        if response.status_code != 201:
+            raise GitHubIntegrationError(
+                f"GitHubIntegration: failed to create issue in {repo_path}: {response.text[:300]}",
+                status_code=response.status_code,
+            )
         issue = response.json()
 
         return {"number": issue["number"], "repository": repository}
@@ -2624,21 +2913,16 @@ class GitHubIntegration(GitHubIntegrationBase):
     def create_branch(self, repository: str, branch_name: str, base_branch: str | None = None) -> dict[str, Any]:
         """Create a new branch from a base branch."""
         org = self.organization()
-        access_token = self.integration.sensitive_config["access_token"]
 
         # Get the SHA of the base branch (default to repository's default branch)
         if not base_branch:
             base_branch = self.get_default_branch(repository)
 
         # Get the SHA of the base branch
-        ref_response = self._github_api_get(
-            f"https://api.github.com/repos/{org}/{repository}/git/ref/heads/{base_branch}",
+        ref_response = self.api_request(
+            "GET",
+            f"/repos/{org}/{repository}/git/ref/heads/{base_branch}",
             endpoint="/repos/{owner}/{repo}/git/ref/heads/{branch}",
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": GITHUB_API_VERSION,
-            },
         )
 
         if ref_response.status_code != 200:
@@ -2650,17 +2934,13 @@ class GitHubIntegration(GitHubIntegrationBase):
         base_sha = ref_response.json()["object"]["sha"]
 
         # Create the new branch
-        response = self._github_api_post(
-            f"https://api.github.com/repos/{org}/{repository}/git/refs",
+        response = self.api_request(
+            "POST",
+            f"/repos/{org}/{repository}/git/refs",
             endpoint="/repos/{owner}/{repo}/git/refs",
             json_body={
                 "ref": f"refs/heads/{branch_name}",
                 "sha": base_sha,
-            },
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": GITHUB_API_VERSION,
             },
         )
 
@@ -2716,20 +2996,15 @@ class GitHubIntegration(GitHubIntegrationBase):
         # validated values, so the compare path can't be steered off-endpoint.
         base_ref = base_sha or base_branch
         target_ref = target_sha or target_branch
-        access_token = self.integration.sensitive_config["access_token"]
 
         try:
-            response = self._github_api_get(
-                f"https://api.github.com/repos/{repo_path}/compare/{base_ref}...{target_ref}",
+            response = self.api_request(
+                "GET",
+                f"/repos/{repo_path}/compare/{base_ref}...{target_ref}",
                 endpoint="/repos/{owner}/{repo}/compare/{basehead}",
-                headers={
-                    "Accept": "application/vnd.github.diff",
-                    "Authorization": f"Bearer {access_token}",
-                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
-                },
-                timeout=10,
+                headers={"Accept": "application/vnd.github.diff"},
             )
-        except requests.RequestException:
+        except GitHubIntegrationError:
             # Don't let a slow/unreachable GitHub hang a worker or 500 the caller.
             return {"success": False, "error": "Could not reach GitHub.", "status_code": 502}
         if response.status_code != 200:
@@ -2748,19 +3023,14 @@ class GitHubIntegration(GitHubIntegrationBase):
     ) -> dict[str, Any]:
         """Create or update a file in the repository."""
         org = self.organization()
-        access_token = self.integration.sensitive_config["access_token"]
 
         # If no SHA provided, try to get existing file's SHA
         if not sha:
-            get_response = self._github_api_get(
-                f"https://api.github.com/repos/{org}/{repository}/contents/{file_path}",
+            get_response = self.api_request(
+                "GET",
+                f"/repos/{org}/{repository}/contents/{file_path}",
                 endpoint="/repos/{owner}/{repo}/contents/{path}",
                 params={"ref": branch},
-                headers={
-                    "Accept": "application/vnd.github+json",
-                    "Authorization": f"Bearer {access_token}",
-                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
-                },
             )
             if get_response.status_code == 200:
                 sha = get_response.json()["sha"]
@@ -2776,15 +3046,11 @@ class GitHubIntegration(GitHubIntegrationBase):
         if sha:
             data["sha"] = sha
 
-        response = self._github_api_put(
-            f"https://api.github.com/repos/{org}/{repository}/contents/{file_path}",
+        response = self.api_request(
+            "PUT",
+            f"/repos/{org}/{repository}/contents/{file_path}",
             endpoint="/repos/{owner}/{repo}/contents/{path}",
             json_body=data,
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": GITHUB_API_VERSION,
-            },
         )
 
         if response.status_code in [200, 201]:
@@ -2810,18 +3076,13 @@ class GitHubIntegration(GitHubIntegrationBase):
         pass it straight to ``update_file`` for a conflict-safe write. Counterpart to
         ``update_file``, kept here so URL and token handling stay inside the client.
         """
-        org = self.organization()
-        access_token = self.integration.sensitive_config["access_token"]
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
 
-        response = self._github_api_get(
-            f"https://api.github.com/repos/{org}/{repository}/contents/{file_path}",
+        response = self.api_request(
+            "GET",
+            f"/repos/{repo_path}/contents/{file_path}",
             endpoint="/repos/{owner}/{repo}/contents/{path}",
             params={"ref": ref} if ref else None,
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": GITHUB_API_VERSION,
-            },
         )
         if response.status_code == 404:
             return None
@@ -2838,24 +3099,19 @@ class GitHubIntegration(GitHubIntegrationBase):
     ) -> dict[str, Any]:
         """Create a pull request."""
         org = self.organization()
-        access_token = self.integration.sensitive_config["access_token"]
 
         if not base_branch:
             base_branch = self.get_default_branch(repository)
 
-        response = self._github_api_post(
-            f"https://api.github.com/repos/{org}/{repository}/pulls",
+        response = self.api_request(
+            "POST",
+            f"/repos/{org}/{repository}/pulls",
             endpoint="/repos/{owner}/{repo}/pulls",
             json_body={
                 "title": title,
                 "body": body,
                 "head": head_branch,
                 "base": base_branch,
-            },
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": GITHUB_API_VERSION,
             },
         )
 
@@ -2878,16 +3134,11 @@ class GitHubIntegration(GitHubIntegrationBase):
     def get_branch_info(self, repository: str, branch_name: str) -> dict[str, Any]:
         """Get information about a specific branch."""
         org = self.organization()
-        access_token = self.integration.sensitive_config["access_token"]
 
-        response = self._github_api_get(
-            f"https://api.github.com/repos/{org}/{repository}/branches/{branch_name}",
+        response = self.api_request(
+            "GET",
+            f"/repos/{org}/{repository}/branches/{branch_name}",
             endpoint="/repos/{owner}/{repo}/branches/{branch}",
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": GITHUB_API_VERSION,
-            },
         )
 
         if response.status_code == 200:
@@ -2915,18 +3166,13 @@ class GitHubIntegration(GitHubIntegrationBase):
     def list_pull_requests(self, repository: str, state: str = "open") -> dict[str, Any]:
         """List pull requests for a repository."""
         org = self.organization()
-        access_token = self.integration.sensitive_config["access_token"]
 
         params: dict[str, str | int] = {"state": state, "per_page": 100}
-        response = self._github_api_get(
-            f"https://api.github.com/repos/{org}/{repository}/pulls",
+        response = self.api_request(
+            "GET",
+            f"/repos/{org}/{repository}/pulls",
             endpoint="/repos/{owner}/{repo}/pulls",
             params=params,
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": GITHUB_API_VERSION,
-            },
         )
 
         if response.status_code == 200:
@@ -2974,6 +3220,7 @@ class GitLabIntegration:
             headers={"PRIVATE-TOKEN": project_access_token},
             # disallow redirects to prevent SSRF on redirected host
             allow_redirects=False,
+            timeout=10,
         )
 
         return response.json()
@@ -2991,6 +3238,7 @@ class GitLabIntegration:
             headers={"PRIVATE-TOKEN": project_access_token},
             # disallow redirects to prevent SSRF on redirected host
             allow_redirects=False,
+            timeout=10,
         )
 
         return response.json()
@@ -3078,23 +3326,32 @@ class MetaAdsIntegration:
                 "grant_type": "fb_exchange_token",
                 "set_token_expires_in_60_days": True,
             },
+            timeout=10,
         )
 
-        config: dict = res.json()
+        try:
+            config: dict = res.json()
+        except ValueError:
+            config = {}
 
         if res.status_code != 200 or not config.get("access_token"):
             logger.warning(f"Failed to refresh token for {self}", response=res.text)
             self.integration.errors = ERROR_TOKEN_REFRESH_FAILED
-            oauth_refresh_counter.labels(self.integration.kind, "failed").inc()
+            reason = oauth_refresh_failure_reason(res.status_code, config, kind=self.integration.kind)
+            attempt = record_refresh_failure(self.integration, reason=reason)
+            oauth_refresh_counter.labels(
+                kind=self.integration.kind, result="failed", reason=reason, attempt=attempt
+            ).inc()
         else:
             logger.info(f"Refreshed access token for {self}")
+            record_refresh_success(self.integration)
             self.integration.sensitive_config["access_token"] = config["access_token"]
             self.integration.errors = ""
             self.integration.config["expires_in"] = config.get("expires_in")
             self.integration.config["refreshed_at"] = int(time.time())
             # not used in CDP yet
             # reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
-            oauth_refresh_counter.labels(self.integration.kind, "success").inc()
+            oauth_refresh_counter.labels(kind=self.integration.kind, result="success", reason="", attempt="").inc()
         self.integration.save()
 
 
@@ -3538,6 +3795,84 @@ def _create_unique_s3_integration(
         raise S3CredentialIntegrationError(f"An integration named '{name}' already exists")
 
 
+def is_unique_aws_role_by_organization_id(aws_role_arn: str, organization_id: str) -> bool:
+    """Check if the AWS role is only in one organization.
+
+    This is used as a security measure to block multiple organizations from
+    assuming the same role.
+
+    In the future we may lift this restriction, but initially we want to make sure about
+    AWS role ownership with this check. This complements other runtime checks in
+    batch exports; see `get_credentials_using_user_aws_role` in
+    `s3_batch_export.py`.
+    """
+    has_same_aws_role_integrations = (
+        Integration.objects.select_related("team__organization")
+        .filter(
+            kind=Integration.IntegrationKind.AWS_S3,
+            config__aws_role_arn=aws_role_arn,
+        )
+        .exclude(team__organization_id=organization_id)
+    ).exists()
+
+    if has_same_aws_role_integrations:
+        return False
+
+    return True
+
+
+def _return_non_empty_str_from_config(config: Mapping, key: str) -> str | None:
+    if (value := config.get(key)) is not None and isinstance(value, str) and len(value) > 0:
+        return value
+    return None
+
+
+class AwsS3RoleBasedIntegration:
+    """An AWS S3 integration storing a customer's AWS role."""
+
+    integration: Integration
+    aws_role_arn: str
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != Integration.IntegrationKind.AWS_S3:
+            raise S3CredentialIntegrationError(
+                f"Integration provided is not an AWS S3 integration (got kind='{integration.kind}')"
+            )
+        self.integration = integration
+        try:
+            self.aws_role_arn = integration.config["aws_role_arn"]
+        except KeyError:
+            raise S3CredentialIntegrationError("S3 integration is not valid: 'aws_role_arn' missing")
+
+    @classmethod
+    def integration_from_config(
+        cls,
+        team_id: int,
+        organization_id: str,
+        created_by: "User | None" = None,
+        **config,
+    ) -> Integration:
+        name = _return_non_empty_str_from_config(config, "name")
+        if not name:
+            raise S3CredentialIntegrationError("A name is required for an AWS S3 integration")
+
+        aws_role_arn = _return_non_empty_str_from_config(config, "aws_role_arn")
+        if not aws_role_arn:
+            raise S3CredentialIntegrationError("A valid role ARN is required for an AWS S3 integration")
+
+        if not is_unique_aws_role_by_organization_id(aws_role_arn, organization_id):
+            raise ValidationError("Cannot create AWS S3 integration: Invalid role")
+
+        return _create_unique_s3_integration(
+            team_id=team_id,
+            kind=Integration.IntegrationKind.AWS_S3,
+            name=name,
+            config={"name": name, "aws_role_arn": aws_role_arn},
+            sensitive_config={},
+            created_by=created_by,
+        )
+
+
 class AwsS3Integration:
     """An AWS S3 integration storing reusable AWS credentials.
 
@@ -3602,13 +3937,20 @@ class AwsS3Integration:
     def integration_from_config(
         cls,
         team_id: int,
-        name: str,
-        aws_access_key_id: str,
-        aws_secret_access_key: str,
         created_by: "User | None" = None,
+        **config,
     ) -> Integration:
+        name = _return_non_empty_str_from_config(config, "name")
         if not name:
             raise S3CredentialIntegrationError("A name is required for an AWS S3 integration")
+
+        aws_access_key_id = _return_non_empty_str_from_config(config, "aws_access_key_id")
+        if not aws_access_key_id:
+            raise S3CredentialIntegrationError("Access key ID is required for an AWS S3 integration")
+
+        aws_secret_access_key = _return_non_empty_str_from_config(config, "aws_secret_access_key")
+        if not aws_secret_access_key:
+            raise S3CredentialIntegrationError("Secret access key is required for an AWS S3 integration")
 
         # Fail fast on invalid/expired credentials, and capture the (non-sensitive) account id.
         account_id = cls.validate_credentials(aws_access_key_id, aws_secret_access_key)
@@ -3956,3 +4298,160 @@ class PostgreSQLIntegration:
         else:
             # Preserve the default ssl_root_cert if one was not provided
             return TLS(ssl_mode=self.integration.config["ssl_mode"])
+
+
+@receiver(models.signals.post_delete, sender=Integration)
+def cleanup_ses_identity_on_integration_delete(sender: Any, instance: Integration, **kwargs: Any) -> None:
+    # A post_delete signal (rather than viewset perform_destroy) so SES identities are
+    # also cleaned up when integrations die via cascade, e.g. project or org deletion.
+    # Leaving the identity behind permanently blocks the domain for every other
+    # organization via the foreign-tenant guard in SESProvider.create_email_domain.
+    if instance.kind != "email" or instance.config.get("provider") != "ses":
+        return
+    domain = instance.config.get("domain")
+    if not domain:
+        return
+
+    from posthog.tasks.integrations import (
+        delete_ses_identity_if_unused,  # noqa: PLC0415 - breaks circular import with the tasks module
+    )
+
+    transaction.on_commit(lambda: delete_ses_identity_if_unused.delay(domain))
+
+
+class SnowflakeIntegrationError(Exception):
+    """Error raised when a Snowflake integration is not valid."""
+
+    pass
+
+
+# A Snowflake account identifier: an alphanumeric first character followed by alphanumerics, dots,
+# hyphens and underscores.
+_SNOWFLAKE_ACCOUNT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+
+class SnowflakeIntegration:
+    """A Snowflake integration storing reusable Snowflake credentials.
+
+    Holds the account, user, and authentication material (a password, or a key-pair) needed to
+    connect to Snowflake. Database, warehouse, schema, table name and role stay on the batch export
+    destination config, so one credential can be reused across many exports.
+
+    Supports both of Snowflake's authentication types:
+      - "password": `password` in sensitive_config.
+      - "keypair": `private_key` (PEM) plus optional `private_key_passphrase` in sensitive_config.
+
+    Rather than using an auto-generated ID (e.g. '{account}-{user}-{auth_type}'), we use a
+    user-provided name, similarly to how we do for S3 integrations. The benefits of this approach
+    are:
+        - a user can create multiple integrations for the same account, allowing for credential rotation
+        - we don't overwrite an existing integration if creating an integration for the same account,
+          so existing exports can continue to use the old credentials
+        - a human-readable name in the UI
+    """
+
+    integration: Integration
+    account: str
+    user: str
+    authentication_type: str
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != Integration.IntegrationKind.SNOWFLAKE:
+            raise SnowflakeIntegrationError(
+                f"Integration provided is not a Snowflake integration (got kind='{integration.kind}')"
+            )
+        self.integration = integration
+        try:
+            self.account = integration.config["account"]
+            self.user = integration.config["user"]
+            self.authentication_type = integration.config["authentication_type"]
+        except KeyError as e:
+            raise SnowflakeIntegrationError(f"Snowflake integration is not valid: {str(e)} missing")
+
+    @property
+    def password(self) -> str | None:
+        return self.integration.sensitive_config.get("password")
+
+    @property
+    def private_key(self) -> str | None:
+        return self.integration.sensitive_config.get("private_key")
+
+    @property
+    def private_key_passphrase(self) -> str | None:
+        return self.integration.sensitive_config.get("private_key_passphrase")
+
+    @staticmethod
+    def validate_account(account: str) -> None:
+        """Validate the Snowflake account identifier format.
+
+        Snowflake has no user-supplied host: the connector derives the host from the account, always
+        on a fixed Snowflake-owned domain suffix, so there is no SSRF surface as there is for
+        Databricks or S3-compatible. We validate the identifier's shape to reject URLs and arbitrary
+        hosts (for example, anything with a scheme, `/`, `@`, `:`, `#`, or whitespace).
+        """
+        if not _SNOWFLAKE_ACCOUNT_RE.fullmatch(account):
+            raise SnowflakeIntegrationError(
+                f"Snowflake integration is not valid: invalid account identifier '{account}'"
+            )
+
+    @classmethod
+    def integration_from_config(
+        cls,
+        team_id: int,
+        name: str,
+        account: str,
+        user: str,
+        authentication_type: str,
+        password: str | None = None,
+        private_key: str | None = None,
+        private_key_passphrase: str | None = None,
+        created_by: User | None = None,
+    ) -> Integration:
+        if not (name and account and user):
+            raise SnowflakeIntegrationError("Name, account, and user must be provided")
+        if not all(isinstance(value, str) for value in (name, account, user, authentication_type)):
+            raise SnowflakeIntegrationError("Name, account, user, and authentication type must be strings")
+        if not all(
+            value is None or isinstance(value, str) for value in (password, private_key, private_key_passphrase)
+        ):
+            raise SnowflakeIntegrationError("Password, private key, and private key passphrase must be strings")
+
+        cls.validate_account(account)
+
+        sensitive_config: dict[str, str] = {}
+        if authentication_type == "password":
+            if not password:
+                raise SnowflakeIntegrationError("Password is required for password authentication")
+            sensitive_config["password"] = password
+        elif authentication_type == "keypair":
+            if not private_key:
+                raise SnowflakeIntegrationError("Private key is required for key-pair authentication")
+            sensitive_config["private_key"] = private_key
+            if private_key_passphrase:
+                sensitive_config["private_key_passphrase"] = private_key_passphrase
+        else:
+            raise SnowflakeIntegrationError(f"Invalid authentication type: {authentication_type}")
+
+        # `name` is the unencrypted, frontend-visible identifier — never a credential. Unlike most
+        # integrations, it is a free-form user-supplied name rather than one derived from the
+        # connection, so we create rather than upsert: re-using a name is a 400, not a silent
+        # overwrite of an unrelated credential set.
+        try:
+            # Savepoint so the unique-constraint IntegrityError aborts only this INSERT, not the
+            # surrounding transaction.
+            with transaction.atomic():
+                return Integration.objects.create(
+                    team_id=team_id,
+                    kind=Integration.IntegrationKind.SNOWFLAKE,
+                    integration_id=name,
+                    config={
+                        "name": name,
+                        "account": account,
+                        "user": user,
+                        "authentication_type": authentication_type,
+                    },
+                    sensitive_config=sensitive_config,
+                    created_by=created_by,
+                )
+        except IntegrityError:
+            raise SnowflakeIntegrationError(f"An integration named '{name}' already exists")

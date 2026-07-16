@@ -83,6 +83,8 @@ export type SessionRecordingConfig = {
     SESSION_RECORDING_FEATURES_ENABLED: boolean
     SESSION_RECORDING_FEATURES_ROLLOUT_PERCENTAGE: number
     SESSION_RECORDING_CRYPTO_INTEGRITY_CHECK_RATE: number
+    /** Caps how many sessions resolve their encryption key concurrently, bounding KMS/DynamoDB fan-out. */
+    SESSION_RECORDING_KEY_RESOLUTION_MAX_CONCURRENCY: number
 
     // Kafka consumer config
     INGESTION_SESSION_REPLAY_CONSUMER_CONSUME_TOPIC: string
@@ -143,6 +145,7 @@ export function getDefaultSessionRecordingConfig(): SessionRecordingConfig {
         SESSION_RECORDING_FEATURES_ENABLED: true,
         SESSION_RECORDING_FEATURES_ROLLOUT_PERCENTAGE: 10,
         SESSION_RECORDING_CRYPTO_INTEGRITY_CHECK_RATE: 0,
+        SESSION_RECORDING_KEY_RESOLUTION_MAX_CONCURRENCY: 20,
 
         // Kafka consumer config
         INGESTION_SESSION_REPLAY_CONSUMER_CONSUME_TOPIC: KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,

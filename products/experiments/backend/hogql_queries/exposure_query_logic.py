@@ -248,6 +248,26 @@ def _build_property_filters(
     return [ast.And(exprs=property_filters)] if property_filters else []
 
 
+def build_exposure_event_conditions(
+    exposure_criteria: Union[ExperimentExposureCriteria, dict, None],
+    team: Team,
+    feature_flag_key: Optional[str],
+) -> list[ast.Expr]:
+    """
+    Builds the event/action and property filters that define what counts as an exposure event —
+    the exposure-identity subset of build_common_exposure_conditions, without the analysis-only
+    conditions (date range, variant filter, test-account exclusion). Used directly by consumers
+    that need "who was exposed" for serving decisions rather than metric analysis, such as the
+    freeze-exposure snapshot scan.
+    """
+    criteria = normalize_to_exposure_criteria(exposure_criteria)
+    exposure_config = criteria.exposure_config if criteria else None
+    return [
+        *_build_event_filters(exposure_config, team, feature_flag_key),
+        *_build_property_filters(exposure_config, team),
+    ]
+
+
 def build_common_exposure_conditions(
     feature_flag_variant_property: str,
     variants: list[str],
@@ -268,7 +288,6 @@ def build_common_exposure_conditions(
         feature_flag_key: Feature flag key (required for $feature_flag_called events)
     """
     criteria = normalize_to_exposure_criteria(exposure_criteria)
-    exposure_config = criteria.exposure_config if criteria else None
 
     return [
         # Date range filters
@@ -290,10 +309,8 @@ def build_common_exposure_conditions(
         ),
         # Test accounts filter
         *get_test_accounts_filter(team, criteria),
-        # Event/action filters
-        *_build_event_filters(exposure_config, team, feature_flag_key),
-        # Property filters
-        *_build_property_filters(exposure_config, team),
+        # Event/action and property filters
+        *build_exposure_event_conditions(criteria, team, feature_flag_key),
     ]
 
 

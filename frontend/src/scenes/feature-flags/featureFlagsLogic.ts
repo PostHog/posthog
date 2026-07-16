@@ -8,8 +8,7 @@ import api, { CountedPaginatedResponse } from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { objectsEqual } from 'lib/utils/objects'
 import { parseNumericArrayFilter, parseTagsFilter, toParams } from 'lib/utils/url'
-import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
-import { dispatchChangeRequestCreated } from 'scenes/approvals/utils'
+import { handleFlagApprovalRequired } from 'scenes/feature-flags/updateFlagActiveInProject'
 import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -201,16 +200,13 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                         )
                         return { ...values.featureFlags, results: updatedFlags, lastUpdatedFlagId: id }
                     } catch (e: any) {
-                        if (e.status === 409 && e.data?.change_request_id) {
-                            const actionDescription =
-                                payload.active === true
-                                    ? 'enable this feature flag'
-                                    : payload.active === false
-                                      ? 'disable this feature flag'
-                                      : 'update this feature flag'
-                            showApprovalRequiredToast(e.data.change_request_id, actionDescription)
-                            dispatchChangeRequestCreated({ resourceType: 'feature_flag', resourceId: id })
-                        }
+                        const actionDescription =
+                            payload.active === true
+                                ? 'enable this feature flag'
+                                : payload.active === false
+                                  ? 'disable this feature flag'
+                                  : 'update this feature flag'
+                        handleFlagApprovalRequired(e, id, actionDescription)
                         throw e
                     }
                 },

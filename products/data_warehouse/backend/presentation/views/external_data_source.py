@@ -8,6 +8,7 @@ from typing import Any, cast
 from urllib.parse import quote
 
 from django.conf import settings
+from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import connection, transaction
 from django.db.models import Prefetch, Q
@@ -21,6 +22,7 @@ from openai import APIConnectionError
 from psycopg import OperationalError
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.exceptions import APIException, ValidationError
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from sshtunnel import BaseSSHTunnelForwarderError
@@ -29,6 +31,7 @@ from posthog.schema import (
     SourceFieldFileUploadConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+    SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
     SourceFieldSelectConfig,
     SourceFieldSSHTunnelConfig,
@@ -40,9 +43,16 @@ from posthog.hogql.direct_sql.capability import direct_capable_source_types
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.event_usage import report_user_action
+from posthog.event_usage import EventSource, get_event_source, is_wizard_self_driving_program, report_user_action
 from posthog.exceptions_capture import capture_exception
+from posthog.models.integration import Integration
 from posthog.models.user import User
+from posthog.permissions import (
+    AccessControlPermission,
+    APIScopePermission,
+    TeamMemberAccessPermission,
+    TeamMemberAdminManagementPermission,
+)
 from posthog.rate_limit import (
     CustomSourceAIBuilderBurstThrottle,
     CustomSourceAIBuilderDailyThrottle,
@@ -70,6 +80,7 @@ from products.data_warehouse.backend.facade.api import (
     get_mysql_source_location,
     get_or_create_webhook_hog_function,
     get_postgres_source_location,
+    get_redshift_source_location,
     get_webhook_url,
     is_any_external_data_schema_paused,
     is_cdc_enabled_for_team,
@@ -78,6 +89,7 @@ from products.data_warehouse.backend.facade.api import (
     is_xmin_enabled_for_team,
     reconcile_mysql_schemas,
     reconcile_postgres_schemas,
+    reconcile_redshift_schemas,
     reconcile_refresh_name_substitutions as reconcile_postgres_refresh_name_substitutions,
     reconcile_snowflake_schemas,
     source_namespace_is_blank,
@@ -87,6 +99,7 @@ from products.data_warehouse.backend.facade.api import (
     trigger_external_data_source_workflow,
     upsert_direct_mysql_table,
     upsert_direct_postgres_table,
+    upsert_direct_redshift_table,
     upsert_direct_snowflake_table,
 )
 from products.data_warehouse.backend.facade.models import ExternalDataSourceRevenueAnalyticsConfig
@@ -98,6 +111,10 @@ from products.data_warehouse.backend.presentation.views.external_data_schema imp
     unsupported_row_filter_reason,
 )
 from products.data_warehouse.backend.presentation.views.public_source_configs import build_source_configs
+from products.data_warehouse.backend.presentation.views.source_api_versions import (
+    ExternalDataSourceApiVersionDeprecationSerializer,
+    api_version_deprecation_payload,
+)
 from products.revenue_analytics.backend.facade.api import ensure_person_join, remove_person_join
 from products.warehouse_sources.backend.facade.api import (
     mysql_columns_to_dwh_columns,
@@ -122,6 +139,8 @@ from products.warehouse_sources.backend.facade.source_management import (
     PREVIEW_DEFAULT_ROWS,
     PREVIEW_MAX_ROWS,
     AnySource,
+    CDCRepairError,
+    CDCRepairInProgress,
     CDCSourceAdapter,
     ClickHouseSource,
     Config,
@@ -130,7 +149,9 @@ from products.warehouse_sources.backend.facade.source_management import (
     DocsFetchError,
     ExternalWebhookInfo,
     FieldType,
+    IntegrationAccountListingError,
     MySQLSource,
+    OAuthMixin,
     PostgresSource,
     RowFilterValidationError,
     SourceRegistry,
@@ -143,9 +164,11 @@ from products.warehouse_sources.backend.facade.source_management import (
     draft_manifest_sync,
     fetch_docs_text,
     filter_dwh_columns_by_enabled_columns,
+    filter_integration_accounts,
     get_cdc_adapter,
     get_primary_key_columns,
     manifest_request_hosts,
+    repair_cdc_source,
     source_requires_ssl,
     source_type_supports_cdc,
     sql_schema_metadata,
@@ -222,6 +245,30 @@ def get_sensitive_field_names(fields: list[FieldType]) -> set[str]:
     return sensitive
 
 
+def get_oauth_integration_kinds(fields: list[FieldType]) -> set[str]:
+    """The integration kinds a source connects with, declared by its `oauth` fields (`kind`) and its
+    `oauth-account-select` fields (`integrationKind`). Every OAuth account listing is served by one
+    endpoint that takes an integration id from the caller, so this is what the endpoint checks that id
+    against — a Google integration id must not be able to route its token into the LinkedIn Ads client
+    just because both rows belong to the caller's team.
+
+    Both field types are read because a source can list accounts without rendering a picker: GitHub
+    serves repositories to its own component off a plain `oauth` field."""
+    kinds: set[str] = set()
+    for field in fields:
+        if isinstance(field, SourceFieldOauthAccountSelectConfig):
+            kinds.add(field.integrationKind)
+        elif isinstance(field, SourceFieldOauthConfig):
+            kinds.add(field.kind)
+        elif isinstance(field, SourceFieldSwitchGroupConfig):
+            kinds.update(get_oauth_integration_kinds(field.fields))
+        elif isinstance(field, SourceFieldSelectConfig):
+            for option in field.options:
+                if option.fields:
+                    kinds.update(get_oauth_integration_kinds(option.fields))
+    return kinds
+
+
 def _add_name_variants(target: set[str], name: str) -> None:
     """Add a field name and its underscore variant to a set.
 
@@ -263,7 +310,9 @@ def get_nonsensitive_and_sensitive_field_names(fields: list[FieldType]) -> tuple
             ns, s = get_nonsensitive_and_sensitive_field_names(field.fields)
             nonsensitive.update(ns)
             sensitive.update(s)
-        elif isinstance(field, SourceFieldOauthConfig):
+        elif isinstance(field, SourceFieldOauthConfig | SourceFieldOauthAccountSelectConfig):
+            # The selected account/property is a plain identifier (e.g. Bing Ads account_id,
+            # GSC site_url), not a secret — keep it so the form can prefill on edit.
             _add_name_variants(nonsensitive, field.name)
         elif isinstance(field, SourceFieldSSHTunnelConfig):
             _add_name_variants(nonsensitive, field.name)
@@ -466,12 +515,31 @@ def get_snowflake_source_table_location(
     return catalog, normalized_default_schema or "", schema_name
 
 
+def get_redshift_source_table_location(
+    *,
+    schema_name: str,
+    source_schema: SourceSchema | None,
+    default_schema: str | None,
+    default_catalog: str | None = None,
+) -> tuple[str | None, str, str]:
+    return get_redshift_source_location(
+        schema_name=schema_name,
+        schema_metadata={
+            "source_catalog": source_schema.source_catalog if source_schema else None,
+            "source_schema": source_schema.source_schema if source_schema else None,
+            "source_table_name": source_schema.source_table_name if source_schema else None,
+        },
+        default_catalog=default_catalog,
+        default_schema=default_schema,
+    )
+
+
 CUSTOM_SOURCE_LIMIT_MESSAGE = f"You can create at most {MAX_CUSTOM_SOURCES_PER_TEAM} custom sources per project."
 DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE = (
-    "Direct query mode is currently supported only for Postgres, MySQL, and Snowflake sources."
+    "Direct query mode is currently supported only for Postgres, MySQL, Snowflake, and Redshift sources."
 )
 # Engines surfaced on a direct connection's `connection_metadata.engine` (duckdb backs direct Postgres).
-DIRECT_CONNECTION_ENGINE_CHOICES = ["duckdb", "postgres", "mysql", "snowflake"]
+DIRECT_CONNECTION_ENGINE_CHOICES = ["duckdb", "postgres", "mysql", "snowflake", "redshift"]
 
 
 def count_active_custom_sources(team_id: int) -> int:
@@ -530,11 +598,31 @@ class ExternalDataSourceConnectionOptionSerializer(serializers.ModelSerializer):
         choices=DIRECT_CONNECTION_ENGINE_CHOICES,
         help_text="Backend engine detected for the direct connection.",
     )
+    source_type = serializers.ChoiceField(
+        choices=ExternalDataSourceType.choices,
+        read_only=True,
+        help_text="The source type (e.g. 'Postgres', 'MySQL', 'Snowflake').",
+    )
+    access_method = serializers.ChoiceField(
+        choices=ExternalDataSource.AccessMethod.choices,
+        read_only=True,
+        help_text="'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.",
+    )
+    supports_hogql = serializers.SerializerMethodField(
+        help_text="Whether HogQL queries compile for this connection. When false, only raw SQL (sendRawQuery) works.",
+    )
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_supports_hogql(self, source: ExternalDataSource) -> bool:
+        # Function-local: keeps the direct-SQL driver imports off the django.setup() path.
+        from posthog.hogql.direct_sql.capability import direct_supports_hogql  # noqa: PLC0415
+
+        return direct_supports_hogql(source)
 
     class Meta:
         model = ExternalDataSource
-        fields = ["id", "prefix", "engine"]
-        read_only_fields = ["id", "prefix", "engine"]
+        fields = ["id", "prefix", "engine", "source_type", "access_method", "supports_hogql"]
+        read_only_fields = ["id", "prefix", "engine", "source_type", "access_method", "supports_hogql"]
 
 
 class ExternalDataSourceBulkUpdateSchemaSerializer(serializers.Serializer):
@@ -714,7 +802,9 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         allow_null=True,
         help_text=(
             "How this source was created. Defaults to `api` on create when omitted. "
-            "`web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. "
+            "`web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, "
+            "`wizard` for the setup wizard and `self_driving` for the PostHog Code app "
+            "(both derived server-side from the caller's user agent). "
             "Ignored on update."
         ),
     )
@@ -722,7 +812,22 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         required=False,
         help_text=(
             "Whether this synced source is also live-queryable via direct connection. "
-            "Defaults to true for new sources; ignored for pure direct-query sources."
+            "Defaults to false for new sources; ignored for pure direct-query sources."
+        ),
+    )
+    api_version = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe "
+            "date version). Null resolves to the source type's default version at sync time."
+        ),
+    )
+    api_version_deprecation = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "Set when the vendor has deprecated the API version this source is pinned to; "
+            "null otherwise. Drives the in-product deprecation warning."
         ),
     )
 
@@ -750,6 +855,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "user_access_level",
             "supports_webhooks",
             "supports_column_selection",
+            "api_version",
+            "api_version_deprecation",
         ]
         read_only_fields = [
             "id",
@@ -766,6 +873,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "access_method",
             "supports_webhooks",
             "supports_column_selection",
+            "api_version",
+            "api_version_deprecation",
         ]
 
     def to_representation(self, instance):
@@ -822,6 +931,10 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
     def get_supports_column_selection(self, instance: ExternalDataSource) -> bool:
         return source_supports_column_selection(instance.source_type)
+
+    @extend_schema_field(ExternalDataSourceApiVersionDeprecationSerializer(allow_null=True))
+    def get_api_version_deprecation(self, instance: ExternalDataSource) -> dict[str, Any] | None:
+        return api_version_deprecation_payload(instance.source_type, instance.api_version)
 
     def get_status(self, instance: ExternalDataSource) -> str:
         active_schemas: list[ExternalDataSchema] = list(instance.active_schemas)  # type: ignore
@@ -1167,6 +1280,12 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                         source_schemas=discovered_schemas,
                         team_id=instance.team_id,
                     )
+                elif updated_source.source_type == ExternalDataSourceType.REDSHIFT:
+                    reconcile_redshift_schemas(
+                        source=updated_source,
+                        source_schemas=discovered_schemas,
+                        team_id=instance.team_id,
+                    )
                 else:
                     reconcile_mysql_schemas(
                         source=updated_source,
@@ -1214,17 +1333,29 @@ class ExternalDataSourceCreateSerializer(serializers.Serializer):
         help_text="Connection mode: 'warehouse' (import) or 'direct' (live query).",
     )
     created_via = serializers.ChoiceField(
-        choices=ExternalDataSource.CreatedVia.values,
+        # `wizard` and `self_driving` are intentionally omitted: they are never accepted from a
+        # caller (that would let any client self-label as wizard- or self-driving-created). They
+        # are derived server-side by upgrading a machine-injected `mcp` value based on the request
+        # transport (the wizard, PostHog Code, or the wizard's self-driving program).
+        choices=[
+            ExternalDataSource.CreatedVia.WEB,
+            ExternalDataSource.CreatedVia.API,
+            ExternalDataSource.CreatedVia.MCP,
+        ],
         required=False,
         default=ExternalDataSource.CreatedVia.API,
-        help_text="Where the request came from",
+        help_text=(
+            "Where the request came from: `web` for the in-app UI, `api` for direct API callers, "
+            "`mcp` for agent/MCP tool calls. `wizard` and `self_driving` cannot be set directly — "
+            "they are derived server-side for wizard- and PostHog Code-driven MCP calls. Defaults to `api`."
+        ),
     )
     direct_query_enabled = serializers.BooleanField(
         required=False,
-        default=True,
+        default=False,
         help_text=(
             "Whether a synced source should also be live-queryable via direct connection. "
-            "Defaults to true; ignored for pure direct-query sources."
+            "Defaults to false; ignored for pure direct-query sources."
         ),
     )
 
@@ -1262,10 +1393,10 @@ class SourceSetupSerializer(serializers.Serializer):
     )
     direct_query_enabled = serializers.BooleanField(
         required=False,
-        default=True,
+        default=False,
         help_text=(
             "Whether a synced source should also be live-queryable via direct connection. "
-            "Defaults to true; ignored for pure direct-query sources."
+            "Defaults to false; ignored for pure direct-query sources."
         ),
     )
 
@@ -1528,6 +1659,39 @@ class SimpleExternalDataSourceSerializers(serializers.ModelSerializer):
         read_only_fields = ["id", "created_by", "created_at", "status", "source_type"]
 
 
+class IntegrationAccountSerializer(serializers.Serializer):
+    """A selectable account/resource exposed by an OAuth integration, in the shared shape every ad
+    platform produces (see ``IntegrationAccount`` in the data-imports common module). One serializer
+    and one frontend selector work across all platforms."""
+
+    value = serializers.CharField(
+        help_text="The identifier stored in the source config and used for API calls (numeric account id as a string, a site url, etc.)."
+    )
+    display_name = serializers.CharField(help_text="Primary human-readable label for the account.")
+    is_primary = serializers.BooleanField(
+        help_text="True when this account belongs to the connected user's own (primary) account context, rather than one they merely have access to. Sorted/marked first."
+    )
+    badges = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Short status chips for the account, e.g. ['Active'] or ['Pause'].",
+    )
+    group = serializers.CharField(
+        allow_null=True,
+        help_text="Optional grouping label for hierarchical platforms (e.g. the owning customer/manager name).",
+    )
+    secondary_text = serializers.CharField(
+        allow_null=True,
+        help_text="Extra identifier shown in parentheses and searchable, e.g. the alphanumeric account number.",
+    )
+
+
+class IntegrationAccountsResponseSerializer(serializers.Serializer):
+    accounts = IntegrationAccountSerializer(
+        many=True,
+        help_text="All accounts the connected integration can access.",
+    )
+
+
 @extend_schema(extensions={"x-product": "warehouse_sources"})
 class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """
@@ -1555,7 +1719,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         "check_cdc_prerequisites_for_source",
         "enable_cdc",
         "disable_cdc",
+        "repair_cdc",
         "update_cdc_settings",
+        # Enumerates the connected provider's accounts/sites — write-scoped so a read-only token can't
+        # list them (info disclosure); also gated behind admin in dangerously_get_permissions.
+        "oauth_accounts",
         # Live outbound HTTP to a caller-supplied manifest (including POSTs) — a
         # side-effecting action, so it needs write scope, not read.
         "preview_resource",
@@ -1581,6 +1749,20 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     # source type ("Stripe", "Postgres") and the HogQL table prefix.
     search_fields = ["source_type", "prefix"]
     ordering = "-created_at"
+
+    def dangerously_get_permissions(self):
+        # The account picker enumerates every account/site the connected provider exposes, so require
+        # manage access even though it's a GET — a read-only member shouldn't discover unrelated
+        # accounts (info disclosure). Other actions fall back to the viewset defaults.
+        if self.action == "oauth_accounts":
+            return [
+                IsAuthenticated(),
+                APIScopePermission(),
+                AccessControlPermission(),
+                TeamMemberAccessPermission(),
+                TeamMemberAdminManagementPermission(),
+            ]
+        raise NotImplementedError()
 
     def get_throttles(self):
         # The AI manifest builder fans out to several Opus calls per request and isn't billed to the
@@ -1647,24 +1829,170 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         )
 
     @extend_schema(request=ExternalDataSourceCreateSerializer, responses=ExternalDataSourceSerializers)
+    def _resolve_stored_credential(
+        self, source_type: str, payload: dict
+    ) -> tuple[dict, PendingSourceCredential | None, Response | None]:
+        """Merge a connect-link stored credential into `payload` when it carries a `credential_id`.
+
+        Lets the create and setup flows reference credentials the user entered on the connect page
+        instead of passing secrets inline. Returns the (possibly merged) payload, the resolved
+        credential (which the caller deletes once consumed — stored credentials are single-use), and
+        a 400 Response to return as-is on a lookup miss or source-type mismatch.
+        """
+        credential_id = payload.pop("credential_id", None)
+        if credential_id is None:
+            return payload, None, None
+        try:
+            credential = PendingSourceCredential.objects.for_team(self.team_id).get(
+                id=credential_id, expires_at__gt=timezone.now()
+            )
+        except (PendingSourceCredential.DoesNotExist, ValueError, TypeError, DjangoValidationError):
+            return (
+                payload,
+                None,
+                Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": f"Stored credential '{credential_id}' not found or expired"},
+                ),
+            )
+        if credential.source_type != source_type:
+            return (
+                payload,
+                None,
+                Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={
+                        "message": f"Stored credential '{credential_id}' is for "
+                        f"'{credential.source_type}', not '{source_type}'"
+                    },
+                ),
+            )
+        # Stored credentials win over inline keys so an agent can't override what the user entered.
+        return {**payload, **credential.payload}, credential, None
+
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        secret_ref_response = _unresolved_secret_ref_response(serializer.validated_data["payload"])
+        source_type = serializer.validated_data["source_type"]
+        payload = dict(serializer.validated_data["payload"] or {})
+
+        secret_ref_response = _unresolved_secret_ref_response(payload)
         if secret_ref_response is not None:
             return secret_ref_response
 
-        return self._create_external_data_source(
+        # A `credential_id` in the payload references connection details the user entered on the
+        # connect-link page — resolve it to the real secrets so `create` can target a specific
+        # `schemas` set (unlike `setup`, which discovers and enables every table).
+        payload, credential, credential_error = self._resolve_stored_credential(source_type, payload)
+        if credential_error is not None:
+            return credential_error
+
+        response = self._create_external_data_source(
             request,
-            source_type=serializer.validated_data["source_type"],
-            payload=serializer.validated_data["payload"],
+            source_type=source_type,
+            payload=payload,
             prefix=serializer.validated_data.get("prefix"),
             description=serializer.validated_data.get("description"),
             access_method=serializer.validated_data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE),
             created_via=serializer.validated_data.get("created_via", ExternalDataSource.CreatedVia.API),
-            direct_query_enabled=serializer.validated_data.get("direct_query_enabled", True),
+            direct_query_enabled=serializer.validated_data.get("direct_query_enabled", False),
         )
+        # Stored credentials are single-use: once the source owns them (in job_inputs), drop the stash.
+        if credential is not None and response.status_code == status.HTTP_201_CREATED:
+            credential.delete()
+        return response
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="source_type",
+                type=str,
+                required=True,
+                description="The data warehouse source type (e.g. 'BingAds', 'GoogleSearchConsole').",
+            ),
+            OpenApiParameter(
+                name="integration_id",
+                type=int,
+                required=True,
+                description="The OAuth integration id whose accounts should be listed.",
+            ),
+            OpenApiParameter(
+                name="search",
+                type=str,
+                required=False,
+                description="Optional case-insensitive filter over account name/value, for sources whose "
+                "resource list is large (e.g. GitHub repositories).",
+            ),
+        ],
+        responses={200: IntegrationAccountsResponseSerializer},
+    )
+    @action(methods=["GET"], detail=False, url_path="oauth_accounts")
+    def oauth_accounts(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """List the accounts/properties a connected OAuth integration exposes, in the shared
+        IntegrationAccount shape. The logic lives in each source (via OAuthMixin.get_oauth_accounts);
+        this endpoint just routes by source type, applies the optional search filter, and serializes."""
+        source_type = request.query_params.get("source_type")
+        integration_id = request.query_params.get("integration_id")
+        search = request.query_params.get("search") or None
+        if not source_type or not integration_id:
+            raise ValidationError("source_type and integration_id are required")
+
+        try:
+            integration_id_int = int(integration_id)
+        except ValueError:
+            raise ValidationError("integration_id must be an integer")
+
+        try:
+            source = SourceRegistry.get_source(cast(ExternalDataSourceType, source_type))
+        except ValueError:
+            raise ValidationError(f"Unknown source type: {source_type}")
+
+        if not isinstance(source, OAuthMixin):
+            raise ValidationError(f"Source type {source_type} does not support listing OAuth accounts")
+
+        # The integration id is caller-supplied and each source looks it up by (id, team_id) only, so
+        # without this a same-team integration of a different provider would be accepted here and its
+        # OAuth token handed to this source's provider. Pin it to the kind(s) the source's picker
+        # declares before any of that runs.
+        expected_kinds = get_oauth_integration_kinds(source.get_source_config.fields)
+        if not expected_kinds:
+            raise ValidationError(f"Source type {source_type} does not support listing OAuth accounts")
+        if not Integration.objects.filter(
+            id=integration_id_int, team_id=self.team_id, kind__in=expected_kinds
+        ).exists():
+            # One message for "gone" and "wrong kind" alike: from the UI both mean the picker is holding
+            # a connection this source can't use, and neither tells the caller anything about ids it
+            # isn't already allowed to see.
+            raise ValidationError(
+                f"No {source_type} connection was found for this integration. Please reconnect the integration."
+            )
+
+        cache_key = f"oauth_accounts/{self.team_id}/{source_type}/{integration_id_int}/{search or ''}"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return Response(cached)
+
+        try:
+            accounts = source.get_oauth_accounts(integration_id_int, self.team_id, search=search)
+        except NotImplementedError:
+            # An OAuth source that hasn't implemented account listing yet (passes the isinstance check).
+            raise ValidationError(f"Source type {source_type} does not support listing OAuth accounts")
+        except IntegrationAccountListingError as e:
+            # Actionable, customer-side failure (revoked/expired token, deleted integration, the provider
+            # rejecting the credentials) — surface the message as a 400. Anything else (e.g. a bare
+            # ValueError from an internal bug) stays uncaught and becomes a 500 so monitors see it.
+            raise ValidationError(str(e))
+
+        # Belt-and-suspenders: sources that support server-side search already return matching results;
+        # this filters sources that returned a full list and ignored `search`.
+        accounts = filter_integration_accounts(accounts, search)
+        response_data = {"accounts": IntegrationAccountSerializer(accounts, many=True).data}
+        # Don't cache an empty result: a transient provider hiccup that returns [] without raising would
+        # otherwise poison the picker for 60s for every admin on the team.
+        if accounts:
+            cache.set(cache_key, response_data, 60)
+        return Response(response_data)
 
     def perform_update(self, serializer: serializers.BaseSerializer) -> None:
         # Runs for both PUT and PATCH (DRF's partial_update delegates to update -> perform_update).
@@ -1694,16 +2022,33 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         description: str | None,
         access_method: str,
         created_via: str,
-        direct_query_enabled: bool = True,
+        direct_query_enabled: bool = False,
         skip_credential_validation: bool = False,
     ) -> Response:
         # `skip_credential_validation` is set only by the `setup` action, which has already run the
         # full config + credential gate (including the SSRF host check) before discovering schemas.
         # It avoids a second live credential round-trip — and the confusing failure mode where the
         # first check passes but a transient blip fails the second, leaving nothing created.
+
+        # The setup wizard and PostHog Code drive creation through the MCP tools, which inject
+        # `created_via=mcp` before the request reaches us — the agent can't set the field itself.
+        # Upgrade that machine-injected value when the transport identifies one of them, so their
+        # runs are distinguishable from other MCP clients. Explicit `web`/`api` values are left alone.
+        if created_via == ExternalDataSource.CreatedVia.MCP:
+            transport_created_via = {
+                EventSource.WIZARD: ExternalDataSource.CreatedVia.WIZARD,
+                EventSource.POSTHOG_CODE: ExternalDataSource.CreatedVia.SELF_DRIVING,
+            }
+            created_via = transport_created_via.get(get_event_source(request), created_via)
+            # The wizard's `self-driving` onboarding program shares the generic `posthog/wizard`
+            # transport but marks its UA distinctly — attribute its sources as self_driving too, so
+            # a source connected during a self-driving run isn't lumped in with plain wizard setups.
+            if created_via == ExternalDataSource.CreatedVia.WIZARD and is_wizard_self_driving_program(request):
+                created_via = ExternalDataSource.CreatedVia.SELF_DRIVING
         is_direct_query = access_method == ExternalDataSource.AccessMethod.DIRECT
         is_direct_mysql = is_direct_query and source_type == ExternalDataSourceType.MYSQL
         is_direct_snowflake = is_direct_query and source_type == ExternalDataSourceType.SNOWFLAKE
+        is_direct_redshift = is_direct_query and source_type == ExternalDataSourceType.REDSHIFT
 
         if is_direct_query and source_type not in direct_capable_source_types():
             return Response(
@@ -1727,10 +2072,17 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 if self.prefix_required(source_type):
                     return Response(
                         status=status.HTTP_400_BAD_REQUEST,
-                        data={"message": "Source type already exists. Prefix is required"},
+                        data={
+                            "message": "You already have a source of this type. Add a table prefix so this connection's tables don't clash with your existing source."
+                        },
                     )
             elif self.prefix_exists(source_type, prefix):
-                return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Prefix already exists"})
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={
+                        "message": f"Another source of this type already uses the prefix '{prefix}'. Choose a different prefix so this connection's tables don't clash."
+                    },
+                )
 
         if access_method == ExternalDataSource.AccessMethod.WAREHOUSE and is_any_external_data_schema_paused(
             self.team_id
@@ -1774,6 +2126,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             team=self.team,
             status="Running",
             source_type=source_type_model,
+            api_version=source.default_version,
             job_inputs=source_config.to_dict(),
             prefix=prefix,
             description=description,
@@ -1813,7 +2166,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             new_source_model.save(update_fields=["connection_metadata", "updated_at"])
         source_schemas_by_name = {schema.name: schema for schema in source_schemas}
         schema_names = [schema.name for schema in source_schemas]
-        default_source_schema = source_config.to_dict().get("schema")
+        source_config_dict = source_config.to_dict()
+        default_source_schema = source_config_dict.get("schema")
+        default_source_catalog = source_config_dict.get("database")
         schema_label_by_name = {s.name: s.label for s in source_schemas}
 
         payload_schemas = payload.get("schemas", None)
@@ -2003,7 +2358,16 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                         schema_name=schema_name,
                         source_schema=source_schema,
                         default_schema=default_source_schema,
-                        default_catalog=source_config.to_dict().get("database"),
+                        default_catalog=default_source_catalog,
+                    )
+                )
+            elif is_direct_redshift:
+                metadata_source_catalog, metadata_source_schema, metadata_source_table_name = (
+                    get_redshift_source_table_location(
+                        schema_name=schema_name,
+                        source_schema=source_schema,
+                        default_schema=default_source_schema,
+                        default_catalog=default_source_catalog,
                     )
                 )
             else:
@@ -2024,6 +2388,17 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
 
             if row_filters is not None:
+                # Only sources that push filters into their query (SQL WHERE) can honor them — a
+                # saved-but-ignored filter would silently sync unfiltered rows.
+                if not source.supports_row_filters:
+                    new_source_model.delete()
+                    return Response(
+                        status=status.HTTP_400_BAD_REQUEST,
+                        data={
+                            "message": f"Row filter not allowed for schema '{schema_name}': "
+                            "row filters are not supported for this source type."
+                        },
+                    )
                 if reason := unsupported_row_filter_reason(
                     is_direct_query=new_source_model.is_direct_query, is_cdc=sync_type == "cdc"
                 ):
@@ -2079,6 +2454,18 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                                 "message": f"incremental_field_lookback_seconds must be an integer between 0 and 5184000 (60 days) for schema '{schema_name}'."
                             },
                         )
+                # Canonicalize the incremental field against what the source declares for this
+                # endpoint: discovery surfaces both a display `label` and the underlying `field`
+                # (e.g. Stripe's label "created_at" -> field "created"), and API callers regularly
+                # send the label — which then fails every sync with a missing-column error. Match on
+                # either and persist the declared field + its real field_type.
+                if incremental_field is not None and source_schema is not None:
+                    for declared in source_schema.incremental_fields:
+                        if incremental_field in (declared["field"], declared["label"]):
+                            incremental_field = declared["field"]
+                            incremental_field_type = str(declared["field_type"])
+                            break
+
                 sync_type_config = {
                     "incremental_field": incremental_field,
                     "incremental_field_type": incremental_field_type,
@@ -2190,6 +2577,25 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     source_table_name=cast(str, metadata_source_table_name),
                 )
                 schema_model.save(update_fields=["table"])
+            elif new_source_model.is_direct_redshift and should_sync:
+                schema_model.table = upsert_direct_redshift_table(
+                    None,
+                    schema_name=schema_name,
+                    source=new_source_model,
+                    columns=filter_dwh_columns_by_enabled_columns(
+                        # Redshift information_schema types are Postgres-style, so reuse the Postgres mapper.
+                        postgres_columns_to_dwh_columns(source_schema.columns if source_schema else []),
+                        enabled_columns,
+                        source_schema.detected_primary_keys if source_schema else None,
+                        incremental_field,
+                        # Direct-redshift columns are keyed by raw source names.
+                        normalize=False,
+                    ),
+                    source_catalog=metadata_source_catalog,
+                    source_schema=cast(str, metadata_source_schema),
+                    source_table_name=cast(str, metadata_source_table_name),
+                )
+                schema_model.save(update_fields=["table"])
 
             if should_sync and new_source_model.supports_scheduled_sync:
                 active_schemas.append(schema_model)
@@ -2240,9 +2646,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             managed_viewset.sync_views()
             ensure_person_join(self.team.pk, new_source_model.prefix)
 
-        # `source` (web/api/mcp) is derived from the request by report_user_action; `created_via`
-        # is the caller's explicit intent. They usually agree but are kept separate so a transport
-        # change (e.g. a new wrapper UA) doesn't silently rewrite historical attribution.
+        # `source` (web/api/mcp/wizard/posthog_code) is derived from the request by report_user_action;
+        # `created_via` is the caller's explicit intent (with one exception: the machine-injected `mcp`
+        # is upgraded above when the transport identifies the wizard or PostHog Code). They usually
+        # agree but are kept separate so a transport change (e.g. a new wrapper UA) doesn't silently
+        # rewrite historical attribution.
         report_user_action(
             cast(User, request.user),
             "data warehouse source created",
@@ -2592,6 +3000,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 )
                 if reconciled_deleted_schemas:
                     schemas_deleted = list({*schemas_deleted, *reconciled_deleted_schemas})
+            elif instance.source_type == ExternalDataSourceType.REDSHIFT:
+                reconciled_deleted_schemas = reconcile_redshift_schemas(
+                    source=instance,
+                    source_schemas=schemas,
+                    team_id=self.team_id,
+                )
+                if reconciled_deleted_schemas:
+                    schemas_deleted = list({*schemas_deleted, *reconciled_deleted_schemas})
             elif isinstance(source, (SQLSource, ClickHouseSource)) and source.supports_column_selection:
                 # ClickHouse isn't a SQLSource but exposes the same column-selection
                 # capability and reconcile hook, so it reuses this path.
@@ -2754,28 +3170,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         if secret_ref_response is not None:
             return secret_ref_response
 
-        credential: PendingSourceCredential | None = None
-        credential_id = payload.pop("credential_id", None)
-        if credential_id is not None:
-            try:
-                credential = PendingSourceCredential.objects.for_team(self.team_id).get(
-                    id=credential_id, expires_at__gt=timezone.now()
-                )
-            except (PendingSourceCredential.DoesNotExist, ValueError, TypeError, DjangoValidationError):
-                return Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": f"Stored credential '{credential_id}' not found or expired"},
-                )
-            if credential.source_type != source_type:
-                return Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={
-                        "message": f"Stored credential '{credential_id}' is for "
-                        f"'{credential.source_type}', not '{source_type}'"
-                    },
-                )
-            # Stored credentials win over inline keys so an agent can't override what the user entered.
-            payload = {**payload, **credential.payload}
+        payload, credential, credential_error = self._resolve_stored_credential(source_type, payload)
+        if credential_error is not None:
+            return credential_error
 
         source_type_model = ExternalDataSourceType(source_type)
         source = SourceRegistry.get_source(source_type_model)
@@ -2828,7 +3225,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             description=serializer.validated_data.get("description"),
             access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
             created_via=ExternalDataSource.CreatedVia.MCP,
-            direct_query_enabled=serializer.validated_data.get("direct_query_enabled", True),
+            direct_query_enabled=serializer.validated_data.get("direct_query_enabled", False),
             skip_credential_validation=True,
         )
         # Stored credentials are single-use: once the source owns them (in job_inputs), drop the stash.
@@ -3565,6 +3962,74 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         return Response(status=status.HTTP_200_OK, data={"success": True})
 
+    @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(
+                response={
+                    "type": "object",
+                    "properties": {
+                        "success": {"type": "boolean"},
+                        "schemas_reset": {"type": "integer"},
+                    },
+                },
+                description="CDC repaired; schemas_reset CDC schemas will fully re-sync.",
+            ),
+            400: OpenApiResponse(
+                description="CDC not enabled, no active CDC schemas, source looks healthy, or engine-side recreation failed."
+            ),
+            409: OpenApiResponse(description="A repair is already running for this source."),
+        },
+    )
+    @action(methods=["POST"], detail=True)
+    def repair_cdc(self, request: Request, *arg: Any, **kwargs: Any):
+        """Repair CDC on a source whose replication resources were lost.
+
+        Only proceeds on evidence of breakage (a persisted broken marker, or a live probe
+        showing the slot/publication missing) — repairing a healthy source would drop its
+        slot and force a full re-sync. Cancels running CDC jobs, recreates the engine-side
+        slot/publication against the stored CDC config, resets every active CDC schema to
+        snapshot mode for a full re-sync (changes since the old slot died are
+        unrecoverable), clears the broken markers, and resumes the paused schedules.
+        Idempotent: safe to retry after a partial failure. Concurrent repairs of the same
+        source are rejected with a 409.
+        """
+        instance: ExternalDataSource = self.get_object()
+
+        adapter, err = self._get_cdc_adapter_or_400(instance)
+        if err is not None:
+            return err
+        assert adapter is not None  # narrowed by _get_cdc_adapter_or_400
+
+        cdc_config = adapter.parse_cdc_config(instance)
+        if not cdc_config.enabled:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "CDC is not enabled on this source."},
+            )
+
+        try:
+            schemas_reset = repair_cdc_source(instance)
+        except CDCRepairInProgress as e:
+            return Response(status=status.HTTP_409_CONFLICT, data={"message": str(e)})
+        except CDCRepairError as e:
+            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(e)})
+        except (OperationalError, BaseSSHTunnelForwarderError, SSLRequiredError) as e:
+            # Expected user/upstream connection failure — surface as a 400 without capturing,
+            # mirroring the enable_cdc handler.
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Could not connect to source to repair CDC: {e}"},
+            )
+        except Exception as e:
+            capture_exception(e, {"source_id": str(instance.id), "team_id": self.team_id})
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Could not repair CDC: {e}"},
+            )
+
+        return Response(status=status.HTTP_200_OK, data={"success": True, "schemas_reset": schemas_reset})
+
     @action(methods=["POST"], detail=True)
     def update_cdc_settings(self, request: Request, *arg: Any, **kwargs: Any):
         """Update CDC tuning fields without enabling/disabling.
@@ -3695,10 +4160,17 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             if self.prefix_required(source_type):
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": "Source type already exists. Prefix is required"},
+                    data={
+                        "message": "You already have a source of this type. Add a table prefix so this connection's tables don't clash with your existing source."
+                    },
                 )
         elif self.prefix_exists(source_type, prefix):
-            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Prefix already exists"})
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={
+                    "message": f"Another source of this type already uses the prefix '{prefix}'. Choose a different prefix so this connection's tables don't clash."
+                },
+            )
 
         return Response(status=status.HTTP_200_OK)
 
@@ -3780,7 +4252,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     )
     @action(methods=["GET"], detail=False)
     def wizard(self, request: Request, *arg: Any, **kwargs: Any):
-        configs = build_source_configs()
+        # The documented-tables catalog is only consumed by the posthog.com docs build (via the
+        # public endpoint) — skipping it here cuts ~40% off an already >1 MB response.
+        configs = build_source_configs(include_tables=False)
 
         requested = request.query_params.get("source_type")
         if requested:
@@ -3857,16 +4331,17 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         return Response(status=status.HTTP_200_OK, data=SourceConnectLinkSerializer(data).data)
 
     @extend_schema(responses=ExternalDataSourceConnectionOptionSerializer(many=True))
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET"], detail=False, pagination_class=None, filter_backends=[])
     def connections(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         queryset = (
             ExternalDataSource._base_manager.filter(
                 team_id=self.team_id,
-                access_method=ExternalDataSource.AccessMethod.DIRECT,
                 source_type__in=direct_capable_source_types(),
             )
+            # Pure-direct sources are always live; synced sources only when the toggle is on.
+            .filter(Q(access_method=ExternalDataSource.AccessMethod.DIRECT) | Q(direct_query_enabled=True))
             .exclude(deleted=True)
-            .only("id", "prefix", "connection_metadata")
+            .only("id", "prefix", "connection_metadata", "source_type", "access_method")
             .order_by(self.ordering)
         )
         queryset = self.user_access_control.filter_queryset_by_access_level(queryset)

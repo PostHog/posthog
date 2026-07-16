@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import datetime as dt
 
@@ -67,7 +68,20 @@ class TestPatternsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert by_template["User <*> not found"]["estimated_count"] == 3
         assert by_template["User <*> not found"]["error_count"] == 3
         assert by_template["User <*> not found"]["estimated_error_count"] == 3
+        assert by_template["User <*> not found"]["severity_counts"] == {"error": 3}
         assert by_template["User <*> not found"]["services"] == ["auth"]
+        # Examples are structured sampled rows, not bare bodies.
+        example = by_template["User <*> not found"]["examples"][0]
+        assert example["body"] == "User alice not found"
+        assert example["severity_text"] == "error"
+        assert example["service_name"] == "auth"
+        assert example["timestamp"].startswith("2026-06-23T12:00:00")
+        # The pivot predicate ships validated: it must match the pattern's own examples.
+        assert re.search(by_template["User <*> not found"]["match_regex"], example["body"])
+        assert by_template["User <*> not found"]["match_literal"] == "not found"
+        # Unsliced windows bucket uniformly; every sampled occurrence lands in some bucket.
+        assert len(results["sparkline_buckets"]) == 24
+        assert sum(by_template["User <*> not found"]["sparkline"]) == 3
 
     @freeze_time(_FROZEN_NOW)
     def test_sets_sampled_and_caps_scanned_count_above_the_limit(self) -> None:
@@ -117,6 +131,10 @@ class TestPatternsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         (pattern,) = results["patterns"]
         assert pattern["count"] == 30
         assert pattern["estimated_count"] == 60
+        # Sliced scans use the slices as sparkline buckets: 6 slices x 5 eligible rows each,
+        # extrapolated by the same x2 factor as estimated_count.
+        assert len(results["sparkline_buckets"]) == 6
+        assert pattern["sparkline"] == [10] * 6
 
     @parameterized.expand(
         [

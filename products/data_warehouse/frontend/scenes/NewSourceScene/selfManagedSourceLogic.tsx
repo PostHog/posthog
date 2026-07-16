@@ -103,7 +103,9 @@ export const selfManagedSourceLogic = kea<selfManagedSourceLogicType>([
             defaults: { ...NEW_WAREHOUSE_TABLE } as DataWarehouseTable,
             errors: ({ name, url_pattern, credential, format }) => {
                 const HOGQL_TABLE_NAME_REGEX = /^[a-zA-Z_][a-zA-Z0-9_]*$/
-                if (!HOGQL_TABLE_NAME_REGEX.test(name)) {
+                // Let the empty-name case fall through to the friendlier "Please enter a name." below,
+                // rather than the naming-rules error which only makes sense once something's been typed.
+                if (name && !HOGQL_TABLE_NAME_REGEX.test(name)) {
                     return {
                         name: 'Invalid table name. Table names must start with a letter or underscore and contain only alphanumeric characters or underscores.',
                     }

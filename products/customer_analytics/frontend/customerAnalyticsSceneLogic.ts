@@ -101,6 +101,10 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
         setBusinessType: (businessType: BusinessType) => ({ businessType }),
         setSelectedGroupType: (selectedGroupType: number) => ({ selectedGroupType }),
         setFilterTestAccounts: (filterTestAccounts: boolean) => ({ filterTestAccounts }),
+        // Shared "My accounts" (assigned-to-me) toggle backing the checkbox on both the
+        // Accounts and Notes tabs. Held here (not per-tab) so the choice persists as the
+        // user switches between them.
+        setMineOnly: (mineOnly: boolean) => ({ mineOnly }),
     }),
     reducers(() => ({
         dateFilter: [
@@ -133,6 +137,13 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
             persistConfig,
             {
                 setFilterTestAccounts: (_, { filterTestAccounts }) => filterTestAccounts,
+            },
+        ],
+        mineOnly: [
+            false,
+            persistConfig,
+            {
+                setMineOnly: (_, { mineOnly }) => mineOnly,
             },
         ],
     })),

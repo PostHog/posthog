@@ -47,6 +47,8 @@ from posthog.temporal.common.logger import configure_logger, get_logger
 from posthog.temporal.common.worker import ManagedWorker, create_worker
 from posthog.temporal.data_modeling import (
     ACTIVITIES as DATA_MODELING_ACTIVITIES,
+    SEMANTIC_ENRICHMENT_ACTIVITIES,
+    SEMANTIC_ENRICHMENT_WORKFLOWS,
     WORKFLOWS as DATA_MODELING_WORKFLOWS,
 )
 from posthog.temporal.delete_persons import (
@@ -139,9 +141,17 @@ from posthog.temporal.session_replay.summarization_sweep import (
     SUMMARIZATION_SWEEP_ACTIVITIES,
     SUMMARIZATION_SWEEP_WORKFLOWS,
 )
+from posthog.temporal.session_replay.surfacing_score_export_sweep import (
+    SURFACING_SCORE_EXPORT_SWEEP_ACTIVITIES,
+    SURFACING_SCORE_EXPORT_SWEEP_WORKFLOWS,
+)
 from posthog.temporal.session_replay.surfacing_scoring_sweep import (
     SURFACING_SCORING_SWEEP_ACTIVITIES,
     SURFACING_SCORING_SWEEP_WORKFLOWS,
+)
+from posthog.temporal.signup_enrichment import (
+    ACTIVITIES as SIGNUP_ENRICHMENT_ACTIVITIES,
+    WORKFLOWS as SIGNUP_ENRICHMENT_WORKFLOWS,
 )
 from posthog.temporal.sync_events_retention import SYNC_EVENTS_RETENTION_ACTIVITIES, SYNC_EVENTS_RETENTION_WORKFLOWS
 from posthog.temporal.sync_person_distinct_ids import (
@@ -184,6 +194,8 @@ from products.error_tracking.backend.facade.temporal import (
 )
 from products.experiments.backend.temporal import (
     ACTIVITIES as EXPERIMENTS_RECALCULATION_ACTIVITIES,
+    EXPERIMENT_CANARY_ACTIVITIES,
+    EXPERIMENT_CANARY_WORKFLOWS,
     WORKFLOWS as EXPERIMENTS_RECALCULATION_WORKFLOWS,
 )
 from products.exports.backend.temporal.subscriptions import (
@@ -194,9 +206,17 @@ from products.logs.backend.facade.temporal import (
     ACTIVITIES as LOGS_ALERTING_ACTIVITIES,
     WORKFLOWS as LOGS_ALERTING_WORKFLOWS,
 )
+from products.notebooks.backend.facade.temporal import (
+    ACTIVITIES as NOTEBOOKS_ACTIVITIES,
+    WORKFLOWS as NOTEBOOKS_WORKFLOWS,
+)
 from products.replay_vision.backend.temporal import (
     ACTIVITIES as REPLAY_VISION_ACTIVITIES,
     WORKFLOWS as REPLAY_VISION_WORKFLOWS,
+)
+from products.review_hog.backend.temporal import (
+    ACTIVITIES as REVIEW_HOG_ACTIVITIES,
+    WORKFLOWS as REVIEW_HOG_WORKFLOWS,
 )
 from products.signals.backend.emission.temporal_settings import (
     EMIT_SIGNALS_ACTIVITIES as DATA_IMPORT_EMIT_SIGNALS_ACTIVITIES,
@@ -212,12 +232,12 @@ from products.tasks.backend.facade.temporal import (
 )
 from products.warehouse_sources.backend.facade.temporal import (
     ACTIVITIES as DATA_SYNC_ACTIVITIES,
+    METADATA_ACTIVITIES as DATA_WAREHOUSE_METADATA_ACTIVITIES,
+    METADATA_WORKFLOWS as DATA_WAREHOUSE_METADATA_WORKFLOWS,
+    PERSON_PROPERTY_SYNC_ACTIVITIES,
+    PERSON_PROPERTY_SYNC_WORKFLOWS,
     WORKFLOWS as DATA_SYNC_WORKFLOWS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources import load_all_sources
-from products.warehouse_sources.backend.temporal.data_imports.table_metadata_settings import (
-    ACTIVITIES as DATA_WAREHOUSE_METADATA_ACTIVITIES,
-    WORKFLOWS as DATA_WAREHOUSE_METADATA_WORKFLOWS,
+    load_all_sources,
 )
 from products.web_analytics.backend.temporal import (
     ACTIVITIES as WA_DIGEST_ACTIVITIES,
@@ -249,8 +269,8 @@ _task_queue_specs = [
     ),
     (
         settings.DATA_WAREHOUSE_METADATA_TASK_QUEUE,
-        DATA_WAREHOUSE_METADATA_WORKFLOWS,
-        DATA_WAREHOUSE_METADATA_ACTIVITIES,
+        DATA_WAREHOUSE_METADATA_WORKFLOWS + SEMANTIC_ENRICHMENT_WORKFLOWS + PERSON_PROPERTY_SYNC_WORKFLOWS,
+        DATA_WAREHOUSE_METADATA_ACTIVITIES + SEMANTIC_ENRICHMENT_ACTIVITIES + PERSON_PROPERTY_SYNC_ACTIVITIES,
     ),
     (
         settings.DATA_MODELING_TASK_QUEUE,
@@ -268,13 +288,15 @@ _task_queue_specs = [
         + DLQ_REPLAY_WORKFLOWS
         + SYNC_PERSON_DISTINCT_IDS_WORKFLOWS
         + EXPERIMENTS_WORKFLOWS
-        + EXPERIMENTS_RECALCULATION_WORKFLOWS
+        + EXPERIMENT_CANARY_WORKFLOWS
         + CLEANUP_PROPDEFS_WORKFLOWS
         + BACKFILL_GROUP_TYPE_CREATED_AT_WORKFLOWS
         + INGESTION_ACCEPTANCE_TEST_WORKFLOWS
         + WAREHOUSE_SOURCES_QUEUE_PARTITION_WORKFLOWS
         + SYNC_EVENTS_RETENTION_WORKFLOWS
-        + JOB_LOGS_WORKFLOWS,
+        + JOB_LOGS_WORKFLOWS
+        + NOTEBOOKS_WORKFLOWS
+        + SIGNUP_ENRICHMENT_WORKFLOWS,
         PROXY_SERVICE_ACTIVITIES
         + DELETE_PERSONS_ACTIVITIES
         + DELETE_TEAMS_ACTIVITIES
@@ -285,13 +307,28 @@ _task_queue_specs = [
         + DLQ_REPLAY_ACTIVITIES
         + SYNC_PERSON_DISTINCT_IDS_ACTIVITIES
         + EXPERIMENTS_ACTIVITIES
-        + EXPERIMENTS_RECALCULATION_ACTIVITIES
+        + EXPERIMENT_CANARY_ACTIVITIES
         + CLEANUP_PROPDEFS_ACTIVITIES
         + BACKFILL_GROUP_TYPE_CREATED_AT_ACTIVITIES
         + INGESTION_ACCEPTANCE_TEST_ACTIVITIES
         + WAREHOUSE_SOURCES_QUEUE_PARTITION_ACTIVITIES
         + SYNC_EVENTS_RETENTION_ACTIVITIES
-        + JOB_LOGS_ACTIVITIES,
+        + JOB_LOGS_ACTIVITIES
+        + NOTEBOOKS_ACTIVITIES
+        + SIGNUP_ENRICHMENT_ACTIVITIES,
+    ),
+    # Dedicated landing zone for signup enrichment. Defaults to the general-purpose queue name (so it
+    # merges into that fleet until a dedicated worker exists); setting SIGNUP_ENRICHMENT_TASK_QUEUE on a
+    # worker registers these workflows under the dedicated queue, letting dispatch move there with no code change.
+    (
+        settings.SIGNUP_ENRICHMENT_TASK_QUEUE,
+        SIGNUP_ENRICHMENT_WORKFLOWS,
+        SIGNUP_ENRICHMENT_ACTIVITIES,
+    ),
+    (
+        settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
+        EXPERIMENTS_RECALCULATION_WORKFLOWS,
+        EXPERIMENTS_RECALCULATION_ACTIVITIES,
     ),
     (
         settings.HEALTH_CHECK_TASK_QUEUE,
@@ -338,11 +375,13 @@ _task_queue_specs = [
         SIGNALS_PRODUCT_WORKFLOWS
         + DATA_IMPORT_EMIT_SIGNALS_WORKFLOWS
         + BUSINESS_KNOWLEDGE_WORKFLOWS
-        + CONVERSATIONS_WORKFLOWS,
+        + CONVERSATIONS_WORKFLOWS
+        + REVIEW_HOG_WORKFLOWS,
         SIGNALS_PRODUCT_ACTIVITIES
         + DATA_IMPORT_EMIT_SIGNALS_ACTIVITIES
         + BUSINESS_KNOWLEDGE_ACTIVITIES
-        + CONVERSATIONS_ACTIVITIES,
+        + CONVERSATIONS_ACTIVITIES
+        + REVIEW_HOG_ACTIVITIES,
     ),
     (
         settings.SESSION_REPLAY_TASK_QUEUE,
@@ -355,6 +394,7 @@ _task_queue_specs = [
         + SESSION_SUMMARY_WORKFLOWS
         + SESSION_SUMMARY_GROUP_WORKFLOWS
         + SUMMARIZATION_SWEEP_WORKFLOWS
+        + SURFACING_SCORE_EXPORT_SWEEP_WORKFLOWS
         + SURFACING_SCORING_SWEEP_WORKFLOWS,
         GEMINI_CLEANUP_SWEEP_ACTIVITIES
         + COUNT_PLAYLIST_ITEMS_ACTIVITIES
@@ -365,6 +405,7 @@ _task_queue_specs = [
         + SESSION_SUMMARY_ACTIVITIES
         + SESSION_SUMMARY_GROUP_ACTIVITIES
         + SUMMARIZATION_SWEEP_ACTIVITIES
+        + SURFACING_SCORE_EXPORT_SWEEP_ACTIVITIES
         + SURFACING_SCORING_SWEEP_ACTIVITIES,
     ),
     (

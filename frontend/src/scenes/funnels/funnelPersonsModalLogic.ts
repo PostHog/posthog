@@ -26,7 +26,7 @@ import {
 
 import { funnelDataLogic } from './funnelDataLogic'
 import type { funnelPersonsModalLogicType } from './funnelPersonsModalLogicType'
-import { getBreakdownStepValues, parseBreakdownValue, parseEventAndProperty } from './funnelUtils'
+import { parseBreakdownValue, parseEventAndProperty } from './funnelUtils'
 
 const DEFAULT_FUNNEL_LOGIC_KEY = 'default_funnel_key'
 
@@ -135,11 +135,11 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
             if (!converted && stepNo === 1) {
                 return
             }
-            const breakdownValues = getBreakdownStepValues(series, series.order)
+            // No breakdown value in the title: the modal's breakdown dropdown communicates (and can
+            // change) the selected value, so a static title would go stale.
             const title = funnelTitle({
                 converted,
                 step: stepNo,
-                breakdown_value: breakdownValues.isEmpty ? undefined : breakdownValues.breakdown_value.join(', '),
                 label: step.name,
                 seriesId: step.order,
                 order_type: values.funnelsFilter?.funnelOrderType,

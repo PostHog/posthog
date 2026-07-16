@@ -40,6 +40,8 @@ const GROUPING_UNIT_TO_HUMAN_DAYJS_FORMAT: Record<IntervalType, string> = {
     day: 'MMMM D, YYYY',
     week: 'MMMM D, YYYY',
     month: 'MMMM D, YYYY',
+    quarter: 'MMMM D, YYYY',
+    year: 'MMMM D, YYYY',
 }
 
 interface AnnotationBadgeCluster {

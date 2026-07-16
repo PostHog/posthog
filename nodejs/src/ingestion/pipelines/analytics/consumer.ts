@@ -35,6 +35,7 @@ import { MainLaneOverflowRedirectComponent } from '~/ingestion/common/overflow-r
 import { OverflowLaneOverflowRedirectComponent } from '~/ingestion/common/overflow-redirect/overflow-lane-overflow-redirect'
 import { RedisOverflowRepositoryComponent } from '~/ingestion/common/overflow-redirect/overflow-redis-repository'
 import { BatchWritingPersonsStoreComponent } from '~/ingestion/common/persons/batch-writing-person-store'
+import { effectivePersonMergeEventsEnabled } from '~/ingestion/common/persons/person-merge-event'
 import { Scope, extend } from '~/ingestion/common/scopes'
 import { AiEventSubpipelineFactory } from '~/ingestion/common/subpipelines/ai-subpipeline.contract'
 import { PromiseSchedulerComponent } from '~/ingestion/common/utils/promise-scheduler'
@@ -98,10 +99,8 @@ export function createAnalyticsConsumer(
     lane: string
 ) {
     const splitTokens = (value: string): string[] => value.split(',').filter((x) => !!x)
-    const overflowEnabled =
-        !!config.INGESTION_CONSUMER_OVERFLOW_TOPIC &&
-        config.INGESTION_CONSUMER_OVERFLOW_TOPIC !== config.INGESTION_CONSUMER_CONSUME_TOPIC
-    const overflowLaneEnabled = config.INGESTION_LANE === 'overflow' && config.INGESTION_STATEFUL_OVERFLOW_ENABLED
+    // Overflow role for this consumer (redirect / consume / disabled).
+    const overflowMode = config.INGESTION_OVERFLOW_MODE
 
     // Parent layer: the overflow Redis repository, shared by both redirect services below.
     const baseScope = extend(sharedScope, 'analytics-base', (container, builder) =>
@@ -129,20 +128,21 @@ export function createAnalyticsConsumer(
             .add('eventFilterManager', new EventFilterManagerComponent(container.postgres))
             .add(
                 'overflowRedirectService',
-                overflowEnabled
+                // Redirect hot partitions to the overflow topic (main lane).
+                overflowMode === 'redirect'
                     ? new MainLaneOverflowRedirectComponent({
                           redisRepository: container.overflowRedisRepository,
                           localCacheTTLSeconds: config.INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
                           bucketCapacity: config.EVENT_OVERFLOW_BUCKET_CAPACITY,
                           replenishRate: config.EVENT_OVERFLOW_BUCKET_REPLENISH_RATE,
-                          statefulEnabled: config.INGESTION_STATEFUL_OVERFLOW_ENABLED,
                           overflowType: 'events',
                       })
                     : new DisabledOverflowRedirectComponent()
             )
             .add(
                 'overflowLaneTTLRefreshService',
-                overflowLaneEnabled
+                // Drain the overflow topic and refresh stateful TTLs (overflow lane).
+                overflowMode === 'consume'
                     ? new OverflowLaneOverflowRedirectComponent({
                           redisRepository: container.overflowRedisRepository,
                           overflowType: 'events',
@@ -171,10 +171,10 @@ export function createAnalyticsConsumer(
             .add(
                 'groupStore',
                 new BatchWritingGroupStoreComponent(
-                    container.outputs,
                     container.repositories.groupRepository,
                     new ClickhouseGroupRepository(container.outputs),
                     {
+                        useBatchUpdates: config.GROUP_BATCH_WRITING_USE_BATCH_UPDATES,
                         maxConcurrentUpdates: config.GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
                         maxOptimisticUpdateRetries: config.GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
                         optimisticUpdateRetryInterval: config.GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
@@ -187,9 +187,10 @@ export function createAnalyticsConsumer(
         createJoinedIngestionPipeline(
             {
                 eventSchemaEnforcementEnabled: config.EVENT_SCHEMA_ENFORCEMENT_ENABLED,
-                overflowEnabled,
+                overflowMode: config.INGESTION_OVERFLOW_MODE,
                 preservePartitionLocality: config.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
                 personsPrefetchEnabled: config.PERSONS_PREFETCH_ENABLED,
+                groupsPrefetchEnabled: config.GROUPS_PREFETCH_ENABLED,
                 cdpHogWatcherSampleRate: config.CDP_HOG_WATCHER_SAMPLE_RATE,
                 outputs: container.outputs,
                 perDistinctIdOptions: {
@@ -197,8 +198,9 @@ export function createAnalyticsConsumer(
                     PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: config.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT,
                     PERSON_MERGE_ASYNC_ENABLED: config.PERSON_MERGE_ASYNC_ENABLED,
                     PERSON_MERGE_SYNC_BATCH_SIZE: config.PERSON_MERGE_SYNC_BATCH_SIZE,
-                    PERSON_MERGE_EVENTS_ENABLED: config.PERSON_MERGE_EVENTS_ENABLED,
+                    PERSON_MERGE_EVENTS_ENABLED: effectivePersonMergeEventsEnabled(config),
                     PERSON_MERGE_EVENTS_PARTITION_COUNT: config.PERSON_MERGE_EVENTS_PARTITION_COUNT,
+                    PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: config.PERSON_MERGE_EVENTS_TEAM_ALLOWLIST,
                     PERSON_JSONB_SIZE_ESTIMATE_ENABLE: config.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
                     PERSON_PROPERTIES_UPDATE_ALL: config.PERSON_PROPERTIES_UPDATE_ALL,
                     FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: config.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,

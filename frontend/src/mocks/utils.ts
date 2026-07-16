@@ -52,12 +52,14 @@ export const mocksToHandlers = (mocks: Mocks): HttpHandler[] => {
                 const pathWithoutTrailingSlash = path.replace(/\/$/, '')
                 handlers.push(
                     (http[method] as (typeof http)['get'])(pathWithoutTrailingSlash, async (info) => {
-                        // A function handler returns one of the MockResult forms (sync or async);
-                        // any other value is a static JSON body (arrays serialized as-is, matching v1).
+                        // Function handlers and static values support the same MockResult forms:
+                        // a `[status, body]` tuple, a Response, or a plain JSON body. Static
+                        // `[status, body]` tuples used to be serialized as a literal array body,
+                        // which silently broke every mock relying on the status.
                         if (typeof handler === 'function') {
                             return toResponse(await handler(info))
                         }
-                        return HttpResponse.json((handler as DefaultBodyType) ?? null)
+                        return toResponse(handler as MockResult)
                     })
                 )
             })

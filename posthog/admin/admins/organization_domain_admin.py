@@ -27,6 +27,10 @@ class OrganizationDomainAdmin(admin.ModelAdmin):
         "verified_at",
         "verification_challenge",
         "last_verification_retry",
+        # Legacy, frozen columns — edit SAML settings via IdentityProviderConfigAdmin instead.
+        "_saml_entity_id",
+        "_saml_acs_url",
+        "_saml_x509_cert",
     )
     autocomplete_fields = ["organization", "identity_provider_config"]
     fieldsets = (

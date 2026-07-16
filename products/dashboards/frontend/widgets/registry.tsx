@@ -1,5 +1,7 @@
 import posthog from 'posthog-js'
-import { type ComponentType, type LazyExoticComponent, lazy } from 'react'
+import { type ComponentType, type LazyExoticComponent } from 'react'
+
+import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import type { DashboardWidgetTopHeadingProps } from '../components/WidgetCard/WidgetCardHeader'
 import type { DashboardWidgetProductAccess } from '../types'
@@ -24,75 +26,85 @@ import {
 } from './experiments/experimentsWidgetConfigValidation'
 import { parseLogsWidgetConfigApiError } from './logs/logsWidgetConfigValidation'
 import { parseSessionReplayWidgetConfigApiError } from './session_replay/sessionReplayWidgetConfigValidation'
+import { parseSurveyResultsWidgetConfigApiError } from './surveys/surveysWidgetConfigValidation'
 
 // Widget UI is code-split: the static graph keeps only config-error parsers, types, and the lazy
 // factories below, so a logged-in page no longer eagerly downloads every widget's renderer, edit
 // modal, and tile-filter bar. Each widget's subtree loads only when its tile actually renders.
 // Rendered through <Suspense> boundaries in DashboardWidgetItem and WidgetCardHeader.
-const ActivityEventsWidget = lazy(() =>
+const ActivityEventsWidget = lazyWithRetry(() =>
     import('./activity/ActivityEventsWidget').then((m) => ({ default: m.ActivityEventsWidget }))
 )
-const ActivityEventsWidgetTileFilters = lazy(() =>
+const ActivityEventsWidgetTileFilters = lazyWithRetry(() =>
     import('./activity/ActivityEventsWidgetTileFilters').then((m) => ({ default: m.ActivityEventsWidgetTileFilters }))
 )
-const EditActivityEventsWidgetModal = lazy(() =>
+const EditActivityEventsWidgetModal = lazyWithRetry(() =>
     import('./activity/EditActivityEventsWidgetModal').then((m) => ({ default: m.EditActivityEventsWidgetModal }))
 )
-const ErrorTrackingWidget = lazy(() =>
+const ErrorTrackingWidget = lazyWithRetry(() =>
     import('./error_tracking/ErrorTrackingWidget').then((m) => ({ default: m.ErrorTrackingWidget }))
 )
-const ErrorTrackingWidgetTileFilters = lazy(() =>
+const ErrorTrackingWidgetTileFilters = lazyWithRetry(() =>
     import('./error_tracking/ErrorTrackingWidgetTileFilters').then((m) => ({
         default: m.ErrorTrackingWidgetTileFilters,
     }))
 )
-const EditErrorTrackingWidgetModal = lazy(() =>
+const EditErrorTrackingWidgetModal = lazyWithRetry(() =>
     import('./error_tracking/EditErrorTrackingWidgetModal').then((m) => ({ default: m.EditErrorTrackingWidgetModal }))
 )
-const ExperimentResultsWidget = lazy(() =>
+const ExperimentResultsWidget = lazyWithRetry(() =>
     import('./experiments/ExperimentResultsWidget').then((m) => ({ default: m.ExperimentResultsWidget }))
 )
-const ExperimentResultsWidgetTileFilters = lazy(() =>
+const ExperimentResultsWidgetTileFilters = lazyWithRetry(() =>
     import('./experiments/ExperimentResultsWidgetTileFilters').then((m) => ({
         default: m.ExperimentResultsWidgetTileFilters,
     }))
 )
-const EditExperimentResultsWidgetModal = lazy(() =>
+const EditExperimentResultsWidgetModal = lazyWithRetry(() =>
     import('./experiments/EditExperimentResultsWidgetModal').then((m) => ({
         default: m.EditExperimentResultsWidgetModal,
     }))
 )
-const ExperimentsListWidget = lazy(() =>
+const ExperimentsListWidget = lazyWithRetry(() =>
     import('./experiments/ExperimentsListWidget').then((m) => ({ default: m.ExperimentsListWidget }))
 )
-const ExperimentsListWidgetTileFilters = lazy(() =>
+const ExperimentsListWidgetTileFilters = lazyWithRetry(() =>
     import('./experiments/ExperimentsListWidgetTileFilters').then((m) => ({
         default: m.ExperimentsListWidgetTileFilters,
     }))
 )
-const EditExperimentsListWidgetModal = lazy(() =>
+const EditExperimentsListWidgetModal = lazyWithRetry(() =>
     import('./experiments/EditExperimentsListWidgetModal').then((m) => ({ default: m.EditExperimentsListWidgetModal }))
 )
-const LogsWidget = lazy(() => import('./logs/LogsWidget').then((m) => ({ default: m.LogsWidget })))
-const LogsWidgetTileFilters = lazy(() =>
+const LogsWidget = lazyWithRetry(() => import('./logs/LogsWidget').then((m) => ({ default: m.LogsWidget })))
+const LogsWidgetTileFilters = lazyWithRetry(() =>
     import('./logs/LogsWidgetTileFilters').then((m) => ({ default: m.LogsWidgetTileFilters }))
 )
-const EditLogsWidgetModal = lazy(() =>
+const EditLogsWidgetModal = lazyWithRetry(() =>
     import('./logs/EditLogsWidgetModal').then((m) => ({ default: m.EditLogsWidgetModal }))
 )
-const SessionReplayWidget = lazy(() =>
+const SessionReplayWidget = lazyWithRetry(() =>
     import('./session_replay/SessionReplayWidget').then((m) => ({ default: m.SessionReplayWidget }))
 )
-const SessionReplayWidgetTopHeading = lazy(() =>
+const SessionReplayWidgetTopHeading = lazyWithRetry(() =>
     import('./session_replay/SessionReplayWidget').then((m) => ({ default: m.SessionReplayWidgetTopHeading }))
 )
-const SessionReplayWidgetTileFilters = lazy(() =>
+const SessionReplayWidgetTileFilters = lazyWithRetry(() =>
     import('./session_replay/SessionReplayWidgetTileFilters').then((m) => ({
         default: m.SessionReplayWidgetTileFilters,
     }))
 )
-const EditSessionReplayWidgetModal = lazy(() =>
+const EditSessionReplayWidgetModal = lazyWithRetry(() =>
     import('./session_replay/EditSessionReplayWidgetModal').then((m) => ({ default: m.EditSessionReplayWidgetModal }))
+)
+const SurveyResultsWidget = lazyWithRetry(() =>
+    import('./surveys/SurveyResultsWidget').then((m) => ({ default: m.SurveyResultsWidget }))
+)
+const SurveyResultsWidgetTileFilters = lazyWithRetry(() =>
+    import('./surveys/SurveyResultsWidgetTileFilters').then((m) => ({ default: m.SurveyResultsWidgetTileFilters }))
+)
+const EditSurveyResultsWidgetModal = lazyWithRetry(() =>
+    import('./surveys/EditSurveyResultsWidgetModal').then((m) => ({ default: m.EditSurveyResultsWidgetModal }))
 )
 
 export type DashboardWidgetConfigApiErrorParser = (
@@ -232,6 +244,13 @@ export const DASHBOARD_WIDGET_REGISTRY = {
         EditModal: EditExperimentResultsWidgetModal,
         productAccess: 'experiment',
         parseConfigApiError: parseExperimentResultsWidgetConfigApiError,
+    },
+    survey_results: {
+        Component: SurveyResultsWidget,
+        TileFilters: SurveyResultsWidgetTileFilters,
+        EditModal: EditSurveyResultsWidgetModal,
+        productAccess: 'survey',
+        parseConfigApiError: parseSurveyResultsWidgetConfigApiError,
     },
     logs_list: {
         Component: LogsWidget,

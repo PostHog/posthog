@@ -43,32 +43,37 @@ pub trait SymbolResolver: Send + Sync + 'static {
     ) -> Result<Exception, UnhandledError> {
         let resolve_java_module_and_type =
             async |exception: &Exception| -> Result<(String, String), ResolveError> {
-                if let RawFrame::Java(java_frame) = exception
+                // Pick the first Java frame that carries a ProGuard mapping ref,
+                // not just the first frame. Wire-order normalization can move a
+                // ref-less framework frame to the front, so anchoring on the
+                // frame that actually has a `map_id` keeps class remapping
+                // order-independent.
+                let symbolset_ref = exception
                     .get_raw_frame()
-                    .first()
+                    .iter()
+                    .find_map(|frame| match frame {
+                        RawFrame::Java(java_frame) => java_frame.get_ref().ok(),
+                        _ => None,
+                    })
                     .ok_or(ProguardError::NoOriginalFrames)
-                    .map_err(ResolveError::from)?
-                {
-                    let module = exception
-                        .module
-                        .clone()
-                        .ok_or(ProguardError::NoModuleProvided)
-                        .map_err(ResolveError::from)?;
+                    .map_err(ResolveError::from)?;
 
-                    let exc_type = exception.exception_type.clone();
+                let module = exception
+                    .module
+                    .clone()
+                    .ok_or(ProguardError::NoModuleProvided)
+                    .map_err(ResolveError::from)?;
 
-                    let class = format!("{}.{}", module, exc_type);
-                    let symbolset_ref = java_frame.get_ref()?;
+                let exc_type = exception.exception_type.clone();
 
-                    let new_class = self
-                        .resolve_java_class(team_id, symbolset_ref, class)
-                        .await?;
+                let class = format!("{}.{}", module, exc_type);
 
-                    let (new_module, new_type) = split_last_dot(new_class.as_str())?;
-                    Ok((new_module, new_type))
-                } else {
-                    Err(ProguardError::NoOriginalFrames.into())
-                }
+                let new_class = self
+                    .resolve_java_class(team_id, symbolset_ref, class)
+                    .await?;
+
+                let (new_module, new_type) = split_last_dot(new_class.as_str())?;
+                Ok((new_module, new_type))
             };
 
         match resolve_java_module_and_type(&exception).await {

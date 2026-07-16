@@ -94,6 +94,20 @@ def _nested_replace(depth: int) -> str:
     return inner
 
 
+def _between_trailing_chain(n: int) -> str:
+    """`x BETWEEN lo1 AND hi1 BETWEEN lo2 AND hi2 …` — `n` links folded
+    left-associatively through the Pratt loop (each high bound stops at the
+    next BETWEEN). The `between_chain_20` bench query (see EXPR_QUERIES)."""
+    return "x0 " + " ".join(f"BETWEEN lo{i} AND hi{i}" for i in range(1, n + 1))
+
+
+def _between_and_chain(n: int) -> str:
+    """`x1 BETWEEN a1 AND b1 AND x2 BETWEEN a2 AND b2 AND …` — `n` BETWEENs
+    joined by AND, the production `WHERE`-clause shape the two-tier grammar
+    fixed. The `between_and_chain_20` bench query (see EXPR_QUERIES)."""
+    return " AND ".join(f"x{i} BETWEEN a{i} AND b{i}" for i in range(1, n + 1))
+
+
 EXPR_QUERIES: dict[str, str] = {
     "int_literal": "1",
     "arith": "1 + 2 * 3",
@@ -115,34 +129,27 @@ EXPR_QUERIES: dict[str, str] = {
     "tuple_access": "t.1",
     "typical_where": "event = '$pageview' AND timestamp > now() AND properties.foo = 'bar'",
     "and_chain_10": "a = 1 AND b = 2 AND c = 3 AND d = 4 AND e = 5 AND f = 6 AND g = 7 AND h = 8 AND i = 9 AND j = 10",
-    # Worst-case backtracking probe — twelve BETWEENs in an array
-    # literal, with each body chosen to absorb the separator `AND`
-    # into a non-AND-rooted subtree (lambda body, AS-alias, named-arg,
-    # ternary else). For a hand-rolled parser that resolves BETWEEN
-    # by speculating across the body's `low AND high` split this
-    # forces the slowest recovery path on every BETWEEN, and the last
-    # four rows nest an inner BETWEEN inside the outer's body via
-    # parens — so the inner is re-parsed once per outer speculation
-    # alternative, doubling speculation work.
-    #
-    # For ANTLR ALL(*) (cpp) this is just twelve linear-lookahead
-    # disambiguations — the ratio against `between` (a single trivial
-    # BETWEEN) is the speculation-overhead signal: if `nasty_backtrack`
-    # is significantly slower per BETWEEN than `between` on the
-    # candidate, speculation cost is showing up.
+    # Deep/wide BETWEEN probe — twelve BETWEENs in an array literal, the
+    # last four nesting an inner BETWEEN inside the outer's bounds via
+    # parens. BETWEEN binds at the comparison tier, so its bounds are
+    # value-tier and cannot swallow the array's separator commas or a
+    # trailing AND chain — there is no speculative low/high split to
+    # recover from. This row guards against a parse-time blow-up on a
+    # dense array of nested BETWEENs (the ratio against `between`, a
+    # single trivial BETWEEN, should stay roughly linear in the count).
     "nasty_backtrack": """[
-        x1 BETWEEN lambda a : a AND b1,
-        x2 BETWEEN col AS y2 AND c2,
-        x3 BETWEEN p := 1 AND b3,
-        x4 BETWEEN c1 ? c2 : c3 AND b4,
-        x5 BETWEEN lambda e : e AND b5,
-        x6 BETWEEN q := 2 AND b6,
-        x7 BETWEEN d AS y7 AND b7,
-        x8 BETWEEN f1 ? f2 : f3 AND b8,
-        x9  BETWEEN lambda g : (h BETWEEN col AS i AND j) AND b9,
-        x10 BETWEEN lambda k : (l BETWEEN p2 := 3 AND m) AND b10,
-        x11 BETWEEN col AS y11 AND (n BETWEEN f4 ? f5 : f6 AND o),
-        x12 BETWEEN q2 := 4 AND (r BETWEEN lambda s : s AND t)
+        x1 BETWEEN a1 + 1 AND b1,
+        x2 BETWEEN f(c2) AND c2 * 2,
+        x3 BETWEEN p3 AND b3 AND c3,
+        x4 BETWEEN c1 AND c3,
+        x5 BETWEEN e5 % 3 AND b5,
+        x6 BETWEEN q6 AND b6,
+        x7 BETWEEN d7 AND b7,
+        x8 BETWEEN f1 AND f3,
+        x9  BETWEEN (h BETWEEN i9 AND j9) AND b9,
+        x10 BETWEEN (l BETWEEN m10 AND n10) AND b10,
+        x11 BETWEEN y11 AND (n BETWEEN o11 AND p11),
+        x12 BETWEEN q12 AND (r BETWEEN s12 AND t12)
     ]""",
     "mixed_and_or": """
         (event = '$pageview' OR event = '$autocapture' OR event = '$identify')
@@ -151,6 +158,13 @@ EXPR_QUERIES: dict[str, str] = {
         AND (properties.url LIKE '%admin%' OR properties.url LIKE '%dashboard%')
         AND NOT (properties.os = 'Linux' AND properties.device = 'Desktop')
     """,
+    # Deep BETWEEN chains — the shapes that must stay linear in parse time.
+    # `between_chain_20` folds trailing BETWEENs left-associatively;
+    # `between_and_chain_20` is twenty BETWEENs joined by AND (the production
+    # WHERE-clause shape). Per-call µs on either row growing faster than the
+    # link count means a super-linear regression on the BETWEEN path.
+    "between_chain_20": _between_trailing_chain(20),
+    "between_and_chain_20": _between_and_chain(20),
     # Deeply-nested `columns(* replace(… as b))`. Each REPLACE item
     # parse runs a forward scan (`find_replace_item_as_pos`, and the
     # sibling `find_cast_separator_pos`) to locate the item's

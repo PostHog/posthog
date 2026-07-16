@@ -7,6 +7,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { FeatureFlagKey } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { createFuse } from 'lib/utils/fuseSearch'
+import { objectsEqual } from 'lib/utils/objects'
 import { getSourceDisplayStatus } from 'scenes/data-pipelines/utils/nonHogFunctionTemplatesLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -66,6 +67,8 @@ export interface CatalogItem {
     url: string
     disabledReason?: string | null
     existingSource?: boolean
+    /** Self-managed: the user keeps the data in their own bucket, PostHog only links to it. */
+    selfManaged?: boolean
 }
 
 export interface CatalogCategory {
@@ -176,11 +179,16 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                         keywords: MANUAL_SOURCE_KEYWORDS[source.type] ?? [],
                         status: 'stable',
                         url: urls.dataWarehouseSourceNew(source.type),
+                        selfManaged: true,
                     })
                 )
 
                 return [...managed, ...selfManaged]
             },
+            // featureFlags is a broad dependency that changes identity on every flag refresh;
+            // keeping the previous array when the derived catalog is unchanged stops the Fuse
+            // index and every tile from re-deriving on unrelated flag updates.
+            { resultEqualityCheck: objectsEqual },
         ],
 
         categoriesWithCounts: [
@@ -225,8 +233,20 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                     selectedCategory === ALL_SOURCES_CATEGORY
                         ? base
                         : base.filter((item) => item.category === selectedCategory)
-                // Keep fuzzy-search relevance order when searching; otherwise sort by name.
-                return trimmed ? filtered : [...filtered].sort((a, b) => a.label.localeCompare(b.label))
+                // Keep fuzzy-search relevance order when searching. When browsing, lead with the
+                // sources the user can connect right now (alphabetically), then "Coming soon" ones,
+                // so the catalog doesn't open on a wall of unavailable tiles.
+                if (trimmed) {
+                    return filtered
+                }
+                return [...filtered].sort((a, b) => {
+                    const aComingSoon = a.status === 'coming_soon'
+                    const bComingSoon = b.status === 'coming_soon'
+                    if (aComingSoon !== bComingSoon) {
+                        return aComingSoon ? 1 : -1
+                    }
+                    return a.label.localeCompare(b.label)
+                })
             },
         ],
     }),

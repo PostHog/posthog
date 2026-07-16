@@ -3,13 +3,16 @@ import {
     convertPropertiesToPropertyGroup,
     convertPropertyGroupToProperties,
     createDefaultPropertyFilter,
+    isAnyPropertyfilter,
     isGroupCardFilterKey,
     isValidPropertyFilter,
     normalizePropertyFilterValue,
     propertyFilterTypeToTaxonomicFilterType,
+    resolvePropertyDefinitionId,
     taxonomicFilterTypeToPropertyFilterType,
 } from 'lib/components/PropertyFilters/utils'
 
+import { propertyDefinitionsModelType } from '~/models/propertyDefinitionsModelType'
 import { BreakdownFilter } from '~/queries/schema/schema-general'
 
 import {
@@ -18,6 +21,8 @@ import {
     ElementPropertyFilter,
     EmptyPropertyFilter,
     FilterLogicalOperator,
+    PropertyDefinition,
+    PropertyDefinitionType,
     PropertyFilterType,
     PropertyGroupFilter,
     PropertyOperator,
@@ -260,6 +265,20 @@ describe('normalizePropertyFilterValue()', () => {
     })
 })
 
+describe('isAnyPropertyfilter()', () => {
+    // A taxonomic-backed attribute filter that isn't recognized here resolves to no
+    // activeTaxonomicGroup, so its value picker loses `valuesEndpoint` and falls back to a
+    // bogus `api/<type>/values` URL that returns nothing. Guards that regression for each
+    // attribute family (metric_attribute broke exactly this way).
+    it.each([PropertyFilterType.MetricAttribute, PropertyFilterType.LogAttribute, PropertyFilterType.SpanAttribute])(
+        'recognizes %s as a property filter',
+        (type) => {
+            const filter = { type, key: 'env', operator: PropertyOperator.Exact, value: ['prod'] } as AnyPropertyFilter
+            expect(isAnyPropertyfilter(filter)).toBe(true)
+        }
+    )
+})
+
 describe('type mapping round-trip', () => {
     it.each([
         [PropertyFilterType.Event, TaxonomicFilterGroupType.EventProperties],
@@ -280,6 +299,14 @@ describe('type mapping round-trip', () => {
 
         const backToPropertyType = taxonomicFilterTypeToPropertyFilterType(taxonomicType)
         expect(backToPropertyType).toEqual(propertyType)
+    })
+
+    it('MCPProperties maps one-way to the Event property filter type', () => {
+        // The rebuild menu commits with the tab's own group type, so without this
+        // mapping an MCP-tab selection would produce a filter with no type.
+        expect(taxonomicFilterTypeToPropertyFilterType(TaxonomicFilterGroupType.MCPProperties)).toEqual(
+            PropertyFilterType.Event
+        )
     })
 
     it('Group type round-trips with group_type_index preserved', () => {
@@ -449,5 +476,45 @@ describe('createDefaultPropertyFilter()', () => {
             noopDescribeProperty
         )
         expect(result).toEqual(expect.objectContaining({ key: 'user.email', value: null }))
+    })
+})
+
+describe('resolvePropertyDefinitionId()', () => {
+    const modelWith = (
+        byKey: Record<string, PropertyDefinition>
+    ): propertyDefinitionsModelType['values']['getPropertyDefinition'] =>
+        ((name, type) =>
+            byKey[`${type}/${name}`] ?? null) as propertyDefinitionsModelType['values']['getPropertyDefinition']
+
+    it('returns the id already on the definition without consulting the model', () => {
+        const getPropertyDefinition = jest.fn()
+        expect(
+            resolvePropertyDefinitionId(
+                { id: 'abc', name: '$browser' },
+                TaxonomicFilterGroupType.EventProperties,
+                getPropertyDefinition as unknown as propertyDefinitionsModelType['values']['getPropertyDefinition']
+            )
+        ).toBe('abc')
+        expect(getPropertyDefinition).not.toHaveBeenCalled()
+    })
+
+    // Recovers a name-only pinned/default property's id from the model, keyed by the
+    // group type mapped through to a PropertyDefinitionType — the /properties/undefined regression.
+    it.each([
+        [TaxonomicFilterGroupType.EventProperties, PropertyDefinitionType.Event, '$current_url', 'event-url-id'],
+        [TaxonomicFilterGroupType.PersonProperties, PropertyDefinitionType.Person, 'email', 'person-email-id'],
+    ])('recovers a name-only %s id from the model', (groupType, defType, name, id) => {
+        const get = modelWith({ [`${defType}/${name}`]: { id, name } as PropertyDefinition })
+        expect(resolvePropertyDefinitionId({ name } as PropertyDefinition, groupType, get)).toBe(id)
+    })
+
+    it('returns undefined when the model has no matching definition', () => {
+        expect(
+            resolvePropertyDefinitionId(
+                { name: 'never-loaded' } as PropertyDefinition,
+                TaxonomicFilterGroupType.EventProperties,
+                () => null
+            )
+        ).toBeUndefined()
     })
 })

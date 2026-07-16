@@ -1,4 +1,4 @@
-import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, key, listeners, path, props, reducers } from 'kea'
 import { router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -13,14 +13,18 @@ import {
     TaskExecutionModeEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
-import { runStreamLogic } from '../../api/logics'
+import { attachedContextItemKey, attachedContextLogic, runStreamLogic } from '../../api/logics'
 import type { SuggestionGroup, SuggestionItem } from '../../api/primitives'
 import { DEFAULT_HEADLINES, pickHeadline } from '../../api/primitives'
+import { runnerPanelLogic } from '../../logics/runnerPanelLogic'
 import { tasksLogic } from '../../logics/tasksLogic'
-import type { RepositoryConfig } from '../../types/taskTypes'
+import type { RepositoryConfig, Task } from '../../types/taskTypes'
 import { OriginProduct, TaskUpsertProps } from '../../types/taskTypes'
 import { DEFAULT_COMPOSER_EFFORT, DEFAULT_COMPOSER_MODEL, resolveEffortForModel } from '../../utils/composerModels'
+import { wrapWithPosthogContext } from '../../utils/posthogContextBlock'
 import type { taskTrackerSceneLogicType } from './taskTrackerSceneLogicType'
+
+export type { ActiveCreation } from '../../logics/runnerPanelLogic'
 
 export interface TaskCreateForm {
     description: string
@@ -33,13 +37,12 @@ export interface TaskCreateForm {
 // want the branch picker to re-derive the repo's actual default branch (from the GitHub API), not pin a stale one.
 export type PersistedRepositoryConfig = Pick<RepositoryConfig, 'integrationId' | 'repository'>
 
-// The optimistic run opened on send, before the task/run exist. `streamKey` is the client key the pending
-// `RunSurface` (and its seeded `runStreamLogic`) bind to; `taskId`/`runId` are filled once known (reserved
-// for a future zero-flash in-place handoff — today the scene navigates to the detail page once the run exists).
-export interface ActiveCreation {
-    streamKey: string
-    taskId?: string
-    runId?: string
+// `panelId` is set only by an embedded instance (e.g. Max's side panel runner), which mounts this logic
+// under its own key rather than the scene's default singleton. Embedded instances stay in place on submit
+// (no `/tasks/:id` navigation — the host renders the run from `activeCreation` itself) and ignore the scene's
+// `urlToAction` cleanup (main-app navigation must never release a side panel's in-flight creation).
+export interface TaskTrackerSceneLogicProps {
+    panelId?: string
 }
 
 const LAST_REPOSITORY_CONFIG_STORAGE_KEY = 'posthog_ai.tasks.lastRepositoryConfig'
@@ -56,14 +59,32 @@ const EMPTY_TASK_FORM: TaskCreateForm = {
 
 export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
     path(['products', 'posthog_ai', 'frontend', 'scenes', 'TaskTracker', 'taskTrackerSceneLogic']),
+    props({} as TaskTrackerSceneLogicProps),
+    // No `panelId` (the scene's own mount) resolves to the same 'scene' key every existing unbound
+    // `useValues(taskTrackerSceneLogic)` / `taskTrackerSceneLogic.actions...` call site already relies on —
+    // only an embedded caller that passes `panelId` gets its own instance.
+    key((props) => props.panelId ?? 'scene'),
 
-    connect(() => ({
-        values: [tasksLogic, ['tasks', 'repositories', 'taskListParams'], integrationsLogic, ['integrations']],
+    connect((props: TaskTrackerSceneLogicProps) => ({
+        values: [
+            runnerPanelLogic(props),
+            ['activeCreation', 'historyExpanded'],
+            tasksLogic,
+            ['tasks', 'repositories', 'taskListParams'],
+            integrationsLogic,
+            ['integrations'],
+            attachedContextLogic,
+            ['contextItems'],
+        ],
         actions: [
+            runnerPanelLogic(props),
+            ['setActiveCreation', 'clearActiveCreation', 'toggleHistory', 'setHistoryExpanded'],
             tasksLogic,
             ['loadTasks', 'loadRepositories', 'deleteTask'],
             integrationsLogic,
             ['loadIntegrationsSuccess'],
+            attachedContextLogic,
+            ['markContextSent'],
         ],
     })),
 
@@ -78,8 +99,10 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         applySuggestion: (item: SuggestionItem) => ({ item }),
         setHeadline: (headline: string) => ({ headline }),
         setPersistedRepositoryConfig: (config: PersistedRepositoryConfig) => ({ config }),
-        setActiveCreation: (creation: ActiveCreation) => ({ creation }),
-        clearActiveCreation: true,
+        openExistingTask: (task: Task) => ({ task }),
+        // Re-points the panel at a fresh run started from the composer on a reopened terminal task
+        // (the run surface's own re-pointing targets the detail scene, which the panel doesn't render).
+        updateActiveCreationRun: (runId: string) => ({ runId }),
     }),
 
     reducers({
@@ -122,26 +145,9 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 setHeadline: (_, { headline }) => headline,
             },
         ],
-        // The in-flight optimistic create. While set (and no task is selected) the scene shows the pending
-        // run thread instead of the composer.
-        activeCreation: [
-            null as ActiveCreation | null,
-            {
-                setActiveCreation: (_, { creation }) => creation,
-                clearActiveCreation: () => null,
-            },
-        ],
     }),
 
-    selectors({
-        sendDisabledReason: [
-            (s) => [s.newTaskData],
-            (newTaskData): string | undefined =>
-                !newTaskData.description.trim() ? 'Describe the task first' : undefined,
-        ],
-    }),
-
-    listeners(({ actions, values, cache }) => ({
+    listeners(({ actions, values, cache, props }) => ({
         // Release the manually-mounted optimistic stream once the create resolves (navigated to the real run)
         // or fails (returned to the composer), so the throwaway draft instance never leaks.
         clearActiveCreation: () => {
@@ -234,6 +240,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 // Auto-run the task after creation; the detail scene shows the latest run by default. The
                 // run checks out the chosen branch (server falls back to the repo's default branch if unset)
                 // and launches with the picked model / reasoning effort (clamped to one the model supports).
+                // Snapshot the context here so the keys marked sent below match exactly what got wrapped.
+                const seededContext = values.contextItems
                 const runResponse = await api.tasks.run(newTask.id, {
                     branch: repositoryConfig.branch ?? null,
                     runtime_adapter: ClaudeRuntimeAdapterEnumApi.Claude,
@@ -245,14 +253,27 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     // pending_user_message from run state (the workflow doesn't forward it), so seed the
                     // typed message as turn 1 — otherwise the first prompt is lost and the run idles.
                     mode: TaskExecutionModeEnumApi.Interactive,
-                    pending_user_message: description,
+                    // Wrap only the message sent to the agent with the on-screen context block; the task
+                    // `description` field and the optimistic seed (`startOptimisticRun`) stay raw.
+                    pending_user_message: wrapWithPosthogContext(description, seededContext),
                 })
+
+                // Mark the seeded non-text refs sent under the created task, so the run's first follow-up
+                // (sent via `runInteractionLogic`) doesn't re-wrap them. Text items always resend.
+                const seededKeys = seededContext.filter((item) => item.type !== 'text').map(attachedContextItemKey)
+                if (seededKeys.length > 0) {
+                    actions.markContextSent(newTask.id, seededKeys)
+                }
 
                 // Attach the real ids to the optimistic creation so the detail page adopts this seeded stream
                 // (same `streamKey` + real `runId`) instead of cold-bootstrapping a fresh, skeleton-flashing one.
                 // Kept set across navigation; cleared by the `urlToAction` below once the user leaves this run.
                 actions.setActiveCreation({ streamKey, taskId: newTask.id, runId: runResponse.latest_run?.id })
-                router.actions.push(`/tasks/${newTask.id}`)
+                // An embedded instance (`panelId` set) keeps the run in place — the host renders it from
+                // `activeCreation` — rather than navigating the main app to the `/tasks/:id` detail page.
+                if (!props.panelId) {
+                    router.actions.push(`/tasks/${newTask.id}`)
+                }
 
                 actions.submitNewTaskSuccess()
                 actions.resetNewTaskData()
@@ -264,6 +285,24 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 lemonToast.error('Failed to create task')
                 actions.submitNewTaskFailure(error instanceof Error ? error.message : 'Unknown error')
             }
+        },
+        openExistingTask: ({ task }) => {
+            if (task.latest_run) {
+                // No optimistic stream seeding — the run surface bootstraps the thread from the API.
+                actions.setActiveCreation({ streamKey: task.latest_run.id, taskId: task.id, runId: task.latest_run.id })
+                return
+            }
+            // Never-ran task (rare for this panel's posthog_ai origin) — fall back to the full detail page.
+            // No `setActiveCreation` on this branch, so collapse history explicitly (the runnerPanelLogic
+            // listener that normally does this only fires off that action).
+            actions.setHistoryExpanded(false)
+            router.actions.push(`/tasks/${task.id}`)
+        },
+        updateActiveCreationRun: ({ runId }) => {
+            if (!values.activeCreation?.taskId) {
+                return
+            }
+            actions.setActiveCreation({ streamKey: runId, taskId: values.activeCreation.taskId, runId })
         },
     })),
 
@@ -287,7 +326,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         },
     })),
 
-    urlToAction(({ actions, values }) => {
+    urlToAction(({ actions, values, props }) => {
         // The optimistic creation is kept alive across the success navigation so the detail page can adopt
         // its seeded stream. Release it once the user lands anywhere other than the created task — another
         // task, the list, or back to `/tasks/new`. Guarded on `taskId` being set so the pre-id provisioning
@@ -299,8 +338,10 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             }
         }
         return {
-            '/tasks': () => clearIfLeftCreatedTask(),
-            '/tasks/:taskId': ({ taskId }) => clearIfLeftCreatedTask(taskId),
+            // An embedded instance never navigates the main app on its own creation (see `submitNewTask`), so
+            // main-app URL changes are unrelated to its run — never release the side panel's active creation.
+            '/tasks': () => (props.panelId ? undefined : clearIfLeftCreatedTask()),
+            '/tasks/:taskId': ({ taskId }) => (props.panelId ? undefined : clearIfLeftCreatedTask(taskId)),
         }
     }),
 ])

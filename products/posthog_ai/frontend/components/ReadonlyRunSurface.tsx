@@ -1,4 +1,6 @@
-import { lazy, Suspense } from 'react'
+import { Suspense } from 'react'
+
+import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import type { ReadonlyRunSurfaceProps } from './ReadonlyRunSurfaceImpl'
 import { RunLogSkeleton } from './RunLogSkeleton'
@@ -9,7 +11,7 @@ export type { ReadonlyRunSurfaceProps } from './ReadonlyRunSurfaceImpl'
 // demand; the RunLogSkeleton fallback matches the loaded thread, so the surface keeps its shape across
 // chunk-load → bootstrap → first frame. Only `react` + the lightweight skeleton are imported statically — the
 // impl is reached solely via dynamic `import()` (the type import below is erased), so the chunk genuinely splits.
-const Lazy = lazy(() => import('./ReadonlyRunSurfaceImpl'))
+const Lazy = lazyWithRetry(() => import('./ReadonlyRunSurfaceImpl'))
 
 /**
  * Prepackaged read-only run surface, code-split behind a `RunLogSkeleton` fallback. This is the common

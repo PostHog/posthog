@@ -16,6 +16,13 @@ import type { CachedOrg, CachedProject, CachedUser, State } from '@/tools/types'
 
 const CACHE_TTL_MS = 10 * 60 * 1000 // 10 minutes
 
+// Entitlement-related fields shared by both org shapes we read from — the
+// standalone org endpoint and the org embedded in `/api/users/@me/`.
+type OrgEntitlementFields = {
+    is_ai_data_processing_approved?: boolean | null
+    available_product_features?: Array<{ key: string }> | null
+}
+
 export class StateManager {
     private _cache: ScopedCache<State>
     private _api: ApiClient
@@ -415,30 +422,49 @@ export class StateManager {
         }
     }
 
-    async getAiConsentGiven(): Promise<boolean | undefined> {
+    /**
+     * Resolve a field from the active organization, failing closed to `undefined`.
+     *
+     * Tries `/api/organizations/{id}/` first. Team-scoped tokens (e.g. sandbox
+     * OAuth tokens) can never fetch that endpoint — see the guard in
+     * getCachedOrFetchOrg — so fall back to the org embedded in
+     * `/api/users/@me/` (exempt from team scoping). That embedded org is the
+     * user's *current* org, which isn't necessarily the one owning the scoped
+     * project, so only trust it when it matches the active project's owning org.
+     * Any failure resolves to `undefined` so callers keep failing closed.
+     */
+    private async getOrgField<T>(extract: (org: OrgEntitlementFields) => T): Promise<T | undefined> {
         try {
             const org = await this.getCachedOrFetchOrg()
             if (org) {
-                const consent = (org as { is_ai_data_processing_approved?: boolean | null })
-                    .is_ai_data_processing_approved
-                return !!consent
+                return extract(org as OrgEntitlementFields)
             }
 
-            // Team-scoped tokens (e.g. sandbox OAuth tokens) can never fetch
-            // `/api/organizations/{id}/` — see the guard in getCachedOrFetchOrg.
-            // But `/api/users/@me/` is exempt from team scoping and embeds the
-            // full org serializer (including the consent flag) for the user's
-            // *current* org. That org isn't necessarily the one owning the
-            // scoped project, so only trust the flag when it matches the active
-            // project's owning org; otherwise stay undefined so callers keep
-            // failing closed.
             const [user, project] = await Promise.all([this.getCachedOrFetchUser(), this.getCachedOrFetchProject()])
             if (user?.organization && project?.organization === user.organization.id) {
-                return !!user.organization.is_ai_data_processing_approved
+                return extract(user.organization)
             }
             return undefined
         } catch {
             return undefined
         }
+    }
+
+    async getAiConsentGiven(): Promise<boolean | undefined> {
+        return this.getOrgField((org) => !!org.is_ai_data_processing_approved)
+    }
+
+    async getAvailableFeatures(): Promise<string[] | undefined> {
+        // A fetched org resolves to its entitlement keys, treating both `null`
+        // and a missing field as "no features" (`[]`) rather than falling
+        // through — the fallback only exists for tokens that can't fetch the org
+        // at all, where getCachedOrFetchOrg returns undefined.
+        return this.getOrgField((org) => {
+            const features = org.available_product_features
+            if (!Array.isArray(features)) {
+                return []
+            }
+            return features.map((f) => f.key).filter((k): k is string => typeof k === 'string')
+        })
     }
 }

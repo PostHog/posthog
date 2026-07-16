@@ -77,7 +77,7 @@ class TestStrictAndFixContracts:
     ) -> None:
         result = runner.invoke(cli, ["ci:preflight", "--fix"])
         assert result.exit_code == 0
-        assert "run `hogli build:openapi` and commit drift" in result.output
+        assert "run `hogli build:openapi` and commit before pushing" in result.output
 
 
 class TestStalenessRisks:

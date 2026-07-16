@@ -38,6 +38,9 @@ pub struct Stage2GcCursor(Option<Vec<u8>>);
 /// GC one partition's `cf_stage2` orphans for one tick: scan up to `scan_limit` rows, delete every
 /// row whose cohort is no longer composable in `catalog`, and advance the cursor (wrapping on
 /// exhaustion). A no-op before the first catalog load or against an empty catalog (the two safety gates).
+// Sync GC core; runs on the blocking pool inside `StoreHandle::run_section`, so its direct
+// `CohortStore` I/O is already off the runtime threads.
+#[allow(clippy::disallowed_methods)]
 pub fn handle_stage2_orphan_gc(
     partition_id: u16,
     store: &CohortStore,
@@ -148,7 +151,9 @@ fn is_orphan(snapshot: &FilterCatalog, key: &Stage2Key) -> Option<bool> {
     Some(!live)
 }
 
+// Tests seed and read stage-2 rows directly against the store.
 #[cfg(test)]
+#[allow(clippy::disallowed_methods)]
 mod tests {
     use super::*;
     use tempfile::TempDir;

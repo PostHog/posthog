@@ -107,7 +107,13 @@ def format_aggregation_value(
         case _:  # NUMERIC or unset
             formatted = _human_friendly_number(value, decimal_places, min_decimal_places)
 
-    return f"{prefix or ''}{formatted}{postfix or ''}"
+    # Currency format already embeds the symbol, so a matching prefix ("$" + "$94.02") would double it.
+    effective_prefix = (
+        ""
+        if (axis_format == AggregationAxisFormat.CURRENCY and prefix and formatted.startswith(prefix))
+        else (prefix or "")
+    )
+    return f"{effective_prefix}{formatted}{postfix or ''}"
 
 
 def _clamp_decimal_places(value: float | None, fallback: int) -> int:

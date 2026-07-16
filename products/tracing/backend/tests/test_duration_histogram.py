@@ -47,8 +47,8 @@ class TestTraceSpansDurationHistogram(_TraceSpansTestBase):
             "timestamp, end_time, observed_timestamp, status_code, service_name) VALUES " + ",".join(rows)
         )
 
-    def _histogram(self, *, service_names: list[str] | None = None) -> list[dict]:
-        query: dict = {"dateRange": {"date_from": DATE_FROM, "date_to": DATE_TO}}
+    def _histogram(self, *, service_names: list[str] | None = None, **extra_query: object) -> list[dict]:
+        query: dict = {"dateRange": {"date_from": DATE_FROM, "date_to": DATE_TO}, **extra_query}
         if service_names is not None:
             query["serviceNames"] = service_names
         response = self.client.post(
@@ -75,3 +75,23 @@ class TestTraceSpansDurationHistogram(_TraceSpansTestBase):
     def test_service_filter_flows_through(self):
         rows = {(row["bucket_ns"], row["service"]): row["count"] for row in self._histogram(service_names=["web"])}
         self.assertEqual(rows, {(1 * MS, "web"): 1, (2 * MS, "web"): 2})
+
+    def test_root_spans_false_counts_child_spans_for_operation_scope(self):
+        # The operation detail page scopes by span name and needs child spans counted: the 5s
+        # 'db query' child (invisible to the root-only histogram above) must appear.
+        rows = {
+            (row["bucket_ns"], row["service"]): row["count"]
+            for row in self._histogram(
+                rootSpans=False,
+                filterGroup={
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [{"type": "span", "key": "name", "operator": "exact", "value": ["db query"]}],
+                        }
+                    ],
+                },
+            )
+        }
+        self.assertEqual(rows, {(5_000 * MS, "web"): 1})

@@ -1,4 +1,4 @@
-import equal from 'fast-deep-equal'
+import { deepEqual as equal } from 'fast-equals'
 import { actions, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
@@ -153,6 +153,11 @@ AND properties.$lib != 'web'`
                     }
 
                     existingEvents = existingEvents.filter((e) => !e.fullyLoaded)
+                    if (!existingEvents.length) {
+                        // nothing left to load (e.g. the events list was replaced while this action
+                        // was queued) — bail out before reducing over an empty timestamps list
+                        return cachedSessionEventsData
+                    }
                     const timestamps = existingEvents.map((ee) => dayjs(ee.timestamp).utc().valueOf())
                     const eventNames = Array.from(new Set(existingEvents.map((ee) => ee.event)))
                     const eventIds = existingEvents.map((ee) => ee.id)

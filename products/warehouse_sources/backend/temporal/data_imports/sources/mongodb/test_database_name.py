@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.so
     _MONGO_AUTHENTICATION_FAILED_MESSAGE,
     _MONGO_CONNECT_FAILED_MESSAGE,
     _MONGO_HOST_UNRESOLVED_MESSAGE,
+    _MONGO_NO_COLLECTIONS_MESSAGE,
     _MONGO_NOT_AUTHORIZED_MESSAGE,
     _MONGO_UNESCAPED_CREDENTIALS_MESSAGE,
     _MONGO_UNREACHABLE_MESSAGE,
@@ -59,6 +60,18 @@ class TestMongoValidateCredentialsDatabaseName:
 
         assert ok is True
         assert err is None
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source.get_collection_names")
+    def test_no_collections_returns_actionable_error(self, mock_get_collections):
+        # Connecting to /admin or /test, or a user lacking read access, surfaces zero collections.
+        # That must fail with guidance about the wrong database / missing access, not a terse message.
+        mock_get_collections.return_value = []
+        config = MongoDBSourceConfig.from_dict({"connection_string": _SRV_WITH_DB})
+
+        ok, err = MongoDBSource().validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert err == _MONGO_NO_COLLECTIONS_MESSAGE
 
 
 class TestMongoValidateCredentialsServerSelection:

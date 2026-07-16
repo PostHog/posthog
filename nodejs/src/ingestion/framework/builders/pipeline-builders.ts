@@ -1,21 +1,17 @@
 import { BranchDecisionFn, BranchingPipeline } from '~/ingestion/framework/branching-pipeline'
 import { Pipeline } from '~/ingestion/framework/pipeline.interface'
-import { RetryingPipeline, RetryingPipelineOptions } from '~/ingestion/framework/retrying-pipeline'
+import { RetryOptions, withStepRetry } from '~/ingestion/framework/retry'
 import { StartPipeline } from '~/ingestion/framework/start-pipeline'
 import { StepPipeline } from '~/ingestion/framework/step-pipeline'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 
 export class StartPipelineBuilder<T, C> {
-    pipe<U, R extends string = never>(step: ProcessingStep<T, U, R>): PipelineBuilder<T, U, C, R> {
-        return new PipelineBuilder(new StepPipeline(step, new StartPipeline<T, C>()))
-    }
-
-    retry<U, R extends string = never>(
-        callback: (builder: StartPipelineBuilder<T, C>) => PipelineBuilder<T, U, C, R>,
-        options?: RetryingPipelineOptions
+    pipe<U, R extends string = never>(
+        step: ProcessingStep<T, U, R>,
+        options?: { retry?: RetryOptions }
     ): PipelineBuilder<T, U, C, R> {
-        const innerPipeline = callback(new StartPipelineBuilder<T, C>()).build()
-        return new PipelineBuilder(new RetryingPipeline(innerPipeline, options))
+        const wrappedStep = options?.retry ? withStepRetry(step, options.retry) : step
+        return new PipelineBuilder(new StepPipeline(wrappedStep, new StartPipeline<T, C>()))
     }
 
     branching<TBranch extends string, U, RBranch extends string = never>(
@@ -36,8 +32,12 @@ export class StartPipelineBuilder<T, C> {
 export class PipelineBuilder<TInput, TOutput, C, R extends string = never> {
     constructor(protected pipeline: Pipeline<TInput, TOutput, C, R>) {}
 
-    pipe<U, R2 extends string = never>(step: ProcessingStep<TOutput, U, R2>): PipelineBuilder<TInput, U, C, R | R2> {
-        return new PipelineBuilder(new StepPipeline(step, this.pipeline))
+    pipe<U, R2 extends string = never>(
+        step: ProcessingStep<TOutput, U, R2>,
+        options?: { retry?: RetryOptions }
+    ): PipelineBuilder<TInput, U, C, R | R2> {
+        const wrappedStep = options?.retry ? withStepRetry(step, options.retry) : step
+        return new PipelineBuilder(new StepPipeline(wrappedStep, this.pipeline))
     }
 
     branching<TBranch extends string, U, RBranch extends string = never>(

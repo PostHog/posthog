@@ -4,6 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { userLogic } from 'scenes/userLogic'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -29,6 +30,9 @@ const createMockTask = (id: string): Task => ({
 })
 
 describe('tasksLogic', () => {
+    // Safety net for the test that calls silenceKeaLoadersErrors() inline
+    afterEach(resumeKeaLoadersErrors)
+
     let logic: ReturnType<typeof tasksLogic.build>
 
     beforeEach(() => {
@@ -125,6 +129,8 @@ describe('tasksLogic', () => {
         // and the infinite-scroll spinner never goes away after a failed page load.
         it('clears tasksNext on failure so the list stops reporting more pages', async () => {
             logic.actions.setTasksNext('/api/projects/1/tasks/?cursor=page-2')
+            // Deliberate loader failure — kea-loaders would log it
+            silenceKeaLoadersErrors()
             jest.spyOn(api, 'get').mockRejectedValueOnce(new Error('network error'))
 
             logic.actions.loadMoreTasks()

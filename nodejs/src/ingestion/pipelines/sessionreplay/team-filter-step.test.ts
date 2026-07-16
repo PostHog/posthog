@@ -13,6 +13,7 @@ describe('createTeamFilterStep', () => {
         teamId: 1,
         consoleLogIngestionEnabled: false,
         aiTrainingOptedIn: true,
+        firstPartyHosts: [],
     }
 
     it('should enrich message with team context when team is valid', async () => {

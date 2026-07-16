@@ -41,6 +41,7 @@ from contextlib import closing
 from datetime import date, datetime, timedelta
 from typing import Any, Literal
 
+from django.db import DatabaseError
 from django.utils import timezone
 
 import psycopg
@@ -50,6 +51,7 @@ from clickhouse_driver.errors import Error as ClickHouseError
 from dagster import (
     AssetExecutionContext,
     Config,
+    DagsterRun,
     DagsterRunStatus,
     DefaultSensorStatus,
     DynamicPartitionsDefinition,
@@ -72,6 +74,16 @@ from posthog.dags.common import JobOwners, dagster_tags, settings_with_log_comme
 from posthog.ducklake.client import make_duckgres_conninfo
 from posthog.ducklake.common import DUCKGRES_BUCKET_REGION, _get_org_id_for_team, get_duckgres_server_for_organization
 from posthog.ducklake.models import DuckgresServerTeam
+
+from products.data_warehouse.backend.facade.backfill_status import (
+    BackfillOutcome,
+    historical_backfill_months,
+    record_backfill_finished,
+    record_backfill_outcome,
+    record_backfill_started,
+    stale_running_partitions,
+)
+from products.data_warehouse.backend.facade.models import ManagedWarehouseBackfillPartition
 
 logger = structlog.get_logger(__name__)
 
@@ -690,6 +702,58 @@ EXPECTED_DUCKLAKE_PERSONS_COLUMNS = {
 
 duckling_events_partitions_def = DynamicPartitionsDefinition(name="duckling_events_backfill")
 duckling_persons_partitions_def = DynamicPartitionsDefinition(name="duckling_persons_backfill")
+
+
+# The recording API itself lives in the product (logic.backfill_status) and knows nothing about
+# Dagster. This adapter is the boundary: it translates Dagster's run vocabulary into ours, so a
+# different scheduler only has to supply its own translation.
+def _outcome_from_run_status(run_status: DagsterRunStatus) -> BackfillOutcome:
+    if run_status == DagsterRunStatus.SUCCESS:
+        return BackfillOutcome.SUCCEEDED
+    if run_status in (DagsterRunStatus.FAILURE, DagsterRunStatus.CANCELED):
+        return BackfillOutcome.FAILED
+    return BackfillOutcome.RUNNING
+
+
+def _stale_run_outcome(run: DagsterRun | None) -> BackfillOutcome | None:
+    """How to resolve a row stuck in RUNNING, given its scheduler run — None means leave it alone.
+
+    Only a run's own process may declare it finished while it is still in flight, so a live (or
+    queued) run is never touched. A vanished run resolves to FAILED: there is no proof the data
+    landed, and re-running a partition is safe while trusting a ghost run is not.
+    """
+    if run is None:
+        return BackfillOutcome.FAILED
+    outcome = _outcome_from_run_status(run.status)
+    return None if outcome is BackfillOutcome.RUNNING else outcome
+
+
+# Bounds the run-storage lookups a single sensor tick spends resolving crashed runs.
+STALE_RUNNING_REPAIR_LIMIT = 25
+
+
+def _repair_stale_running_statuses(context: SensorEvaluationContext, dataset: str) -> None:
+    """Resolve status rows whose recording process died before writing a terminal state.
+
+    record_backfill_started/finished bracket the run in-process, so an OOM or pod eviction in
+    between leaves the row RUNNING forever — and the UI reporting "backfilling" indefinitely.
+    Each tick asks Dagster what actually happened to the oldest sufficiently stale RUNNING rows.
+    """
+    for row in stale_running_partitions(dataset=dataset, limit=STALE_RUNNING_REPAIR_LIMIT):
+        run = context.instance.get_run_by_id(row.run_id)
+        outcome = _stale_run_outcome(run)
+        if outcome is None:
+            continue
+        record_backfill_finished(
+            team_id=row.team_id,
+            dataset=dataset,
+            partition_key=row.partition_key,
+            run_id=row.run_id,
+            failure_reason=(
+                None if outcome is BackfillOutcome.SUCCEEDED else "RunLost" if run is None else "RunDidNotComplete"
+            ),
+        )
+
 
 # SQL for creating the events table in DuckLake if it doesn't exist
 # Uses TIMESTAMPTZ because ClickHouse exports DateTime64 as TIMESTAMP WITH TIME ZONE in Parquet.
@@ -2298,6 +2362,39 @@ def register_persons_files_with_duckling(
     tags={"owner": JobOwners.TEAM_MANAGED_WAREHOUSE.value, **EVENTS_CONCURRENCY_TAG},
 )
 def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBackfillConfig) -> None:
+    team_id, _ = parse_partition_key_dates(context.partition_key)
+    if config.dry_run:
+        _run_duckling_events_backfill(context, config)
+        return
+
+    run_id = context.run.run_id
+    record_backfill_started(
+        team_id=team_id,
+        dataset=ManagedWarehouseBackfillPartition.Dataset.EVENTS,
+        partition_key=context.partition_key,
+        run_id=run_id,
+    )
+    try:
+        _run_duckling_events_backfill(context, config)
+    except Exception as error:
+        record_backfill_finished(
+            team_id=team_id,
+            dataset=ManagedWarehouseBackfillPartition.Dataset.EVENTS,
+            partition_key=context.partition_key,
+            run_id=run_id,
+            error=error,
+        )
+        raise
+
+    record_backfill_finished(
+        team_id=team_id,
+        dataset=ManagedWarehouseBackfillPartition.Dataset.EVENTS,
+        partition_key=context.partition_key,
+        run_id=run_id,
+    )
+
+
+def _run_duckling_events_backfill(context: AssetExecutionContext, config: DucklingBackfillConfig) -> None:
     """Backfill events from ClickHouse to a customer's duckling.
 
     Supports both daily (YYYY-MM-DD) and monthly (YYYY-MM) partition keys.
@@ -2468,6 +2565,42 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
     tags={"owner": JobOwners.TEAM_MANAGED_WAREHOUSE.value, **PERSONS_CONCURRENCY_TAG},
 )
 def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBackfillConfig) -> None:
+    partition_key = context.partition_key
+    team_id = (
+        int(partition_key) if is_full_export_partition(partition_key) else parse_partition_key_dates(partition_key)[0]
+    )
+    if config.dry_run:
+        _run_duckling_persons_backfill(context, config)
+        return
+
+    run_id = context.run.run_id
+    record_backfill_started(
+        team_id=team_id,
+        dataset=ManagedWarehouseBackfillPartition.Dataset.PERSONS,
+        partition_key=partition_key,
+        run_id=run_id,
+    )
+    try:
+        _run_duckling_persons_backfill(context, config)
+    except Exception as error:
+        record_backfill_finished(
+            team_id=team_id,
+            dataset=ManagedWarehouseBackfillPartition.Dataset.PERSONS,
+            partition_key=partition_key,
+            run_id=run_id,
+            error=error,
+        )
+        raise
+
+    record_backfill_finished(
+        team_id=team_id,
+        dataset=ManagedWarehouseBackfillPartition.Dataset.PERSONS,
+        partition_key=partition_key,
+        run_id=run_id,
+    )
+
+
+def _run_duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBackfillConfig) -> None:
     """Backfill persons from ClickHouse to a customer's duckling.
 
     Supports two partition formats with different export strategies:
@@ -2704,6 +2837,14 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
             session.close()
 
 
+# Cap on current-month CATCH-UP partitions (every day older than yesterday) emitted in one
+# tick. Yesterday is always emitted on top of this so freshness never starves; the cap only
+# bounds the backlog a burst of newly enabled teams can create, which then drains over the
+# following hourly ticks. Execution is throttled independently by the duckling_events_v1
+# concurrency limit, so this only bounds sensor-eval work and Dagster queue depth.
+DAILY_BACKFILL_MAX_CATCHUP_PARTITIONS_PER_TICK = 1000
+
+
 @sensor(
     name="duckling_events_daily_backfill_sensor",
     minimum_interval_seconds=3600,  # Run hourly
@@ -2712,73 +2853,106 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
 def duckling_events_daily_backfill_sensor(
     context: SensorEvaluationContext,
 ) -> SensorResult:
-    """Discover teams with backfills enabled (DuckgresServerTeam) and create daily backfill partitions.
+    """Discover teams with backfills enabled (DuckgresServerTeam) and keep the current month's
+    daily backfill partitions filled.
 
-    This sensor runs periodically to:
-    1. Find all teams with backfills enabled (DuckgresServerTeam)
-    2. Create partitions for yesterday's data (if not already exists)
-    3. Trigger backfill runs for new partitions
-    4. Retry failed partitions that already exist
+    This sensor owns the CURRENT month; the full-backfill sensor owns every complete prior
+    month. The two are disjoint by day, so they never write the same team-day (which is what
+    used to make the current-month monthly partition race the daily runs).
+
+    Each tick it, per enabled team:
+    1. Creates a daily partition for every day from the 1st of the current month through
+       yesterday that doesn't exist yet. In steady state only yesterday is new; for a team
+       enabled partway through the month this catches up the earlier days the full-backfill
+       sensor won't touch, closing the gap between its history and daily coverage. Yesterday
+       is always emitted; the older catch-up days are bounded per tick
+       (DAILY_BACKFILL_MAX_CATCHUP_PARTITIONS_PER_TICK) so a burst of newly enabled teams
+       can't flood one tick — the remainder drains over the following ticks.
+    2. Retries yesterday's partition if its last run failed (bounding the per-tick run lookup
+       to one query per team — older caught-up days are left as-is once they've run).
+
+    On the 1st of the month there are no current-month days on or before yesterday, so the
+    sensor is a no-op; yesterday (last month's final day) is covered by last month's now-complete
+    monthly partition from the full-backfill sensor.
     """
-    yesterday = (timezone.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+    today = timezone.now().date()
+    yesterday_date = today - timedelta(days=1)
+    first_of_month = today.replace(day=1)
+
+    # Current-month days up to yesterday (empty on the 1st — see docstring).
+    current_month_dates: list[date] = []
+    day = first_of_month
+    while day <= yesterday_date:
+        current_month_dates.append(day)
+        day += timedelta(days=1)
 
     # Get existing partitions
     existing = set(context.instance.get_dynamic_partitions("duckling_events_backfill"))
 
     new_partitions: list[str] = []
     run_requests: list[RunRequest] = []
+    catchup_emitted = 0  # older-than-yesterday days created this tick, bounded below
 
     for backfill in DuckgresServerTeam.objects.filter(backfill_enabled=True):
-        partition_key = f"{backfill.team_id}_{yesterday}"
+        for partition_date in current_month_dates:
+            date_str = partition_date.strftime("%Y-%m-%d")
+            partition_key = f"{backfill.team_id}_{date_str}"
+            is_yesterday = partition_date == yesterday_date
 
-        if partition_key not in existing:
-            # New partition - create and trigger run
-            new_partitions.append(partition_key)
-            run_requests.append(
-                RunRequest(
-                    partition_key=partition_key,
-                    run_key=f"{partition_key}_new",
+            if partition_key not in existing:
+                # Yesterday is always emitted (freshness); older catch-up days are bounded per
+                # tick so a burst of newly enabled teams can't emit tens of thousands of run
+                # requests at once — the remainder drains over subsequent hourly ticks.
+                if not is_yesterday and catchup_emitted >= DAILY_BACKFILL_MAX_CATCHUP_PARTITIONS_PER_TICK:
+                    continue
+                new_partitions.append(partition_key)
+                run_requests.append(
+                    RunRequest(
+                        partition_key=partition_key,
+                        run_key=f"{partition_key}_new",
+                    )
                 )
-            )
-            context.log.info(f"Creating partition for team_id={backfill.team_id}, date={yesterday}")
-        else:
-            # Existing partition - check if the last run failed and needs retry
-            # Query for runs with this partition key (stored in dagster/partition tag)
-            runs = context.instance.get_runs(
-                filters=RunsFilter(
-                    job_name="duckling_events_backfill_job",
-                    tags={"dagster/partition": partition_key},
-                ),
-                limit=1,
-            )
-            if runs:
-                latest_run = runs[0]
-                # Only retry if failed - skip if in progress or succeeded
-                if latest_run.status == DagsterRunStatus.FAILURE:
-                    # Failed run - trigger retry with unique run_key
-                    run_requests.append(
-                        RunRequest(
-                            partition_key=partition_key,
-                            run_key=f"{partition_key}_retry_{latest_run.run_id[:8]}",
+                if not is_yesterday:
+                    catchup_emitted += 1
+                context.log.info(f"Creating partition for team_id={backfill.team_id}, date={date_str}")
+            elif is_yesterday:
+                # Existing freshest partition - check if the last run failed and needs retry.
+                # Only yesterday is retried, so the run lookup stays at one query per team.
+                runs = context.instance.get_runs(
+                    filters=RunsFilter(
+                        job_name="duckling_events_backfill_job",
+                        tags={"dagster/partition": partition_key},
+                    ),
+                    limit=1,
+                )
+                if runs:
+                    latest_run = runs[0]
+                    # Only retry if failed - skip if in progress or succeeded
+                    if latest_run.status == DagsterRunStatus.FAILURE:
+                        # Failed run - trigger retry with unique run_key
+                        run_requests.append(
+                            RunRequest(
+                                partition_key=partition_key,
+                                run_key=f"{partition_key}_retry_{latest_run.run_id[:8]}",
+                            )
                         )
-                    )
-                    context.log.info(
-                        f"Retrying failed partition team_id={backfill.team_id}, date={yesterday} "
-                        f"(previous run: {latest_run.run_id[:8]})"
-                    )
-                    logger.info(
-                        "duckling_sensor_retry_failed_partition",
-                        team_id=backfill.team_id,
-                        date=yesterday,
-                        previous_run_id=latest_run.run_id,
-                    )
-                elif latest_run.status in (
-                    DagsterRunStatus.STARTED,
-                    DagsterRunStatus.QUEUED,
-                ):
-                    context.log.debug(
-                        f"Skipping partition team_id={backfill.team_id}, date={yesterday} - run in progress"
-                    )
+                        context.log.info(
+                            f"Retrying failed partition team_id={backfill.team_id}, date={date_str} "
+                            f"(previous run: {latest_run.run_id[:8]})"
+                        )
+                        logger.info(
+                            "duckling_sensor_retry_failed_partition",
+                            team_id=backfill.team_id,
+                            date=date_str,
+                            previous_run_id=latest_run.run_id,
+                        )
+                    elif latest_run.status in (
+                        DagsterRunStatus.STARTED,
+                        DagsterRunStatus.QUEUED,
+                    ):
+                        context.log.debug(
+                            f"Skipping partition team_id={backfill.team_id}, date={date_str} - run in progress"
+                        )
 
     if new_partitions:
         context.log.info(f"Discovered {len(new_partitions)} new partitions to backfill")
@@ -2827,6 +3001,9 @@ EVENTS_BACKFILL_MAX_PARTITIONS_PER_TICK = 100
 # Cap on per-team earliest-event ClickHouse lookups per tick. This is the only expensive
 # sensor op; it runs once per team ever, then the result is cached on the model row.
 EVENTS_BACKFILL_MAX_EARLIEST_LOOKUPS_PER_TICK = 5
+# Existing installations predate the durable UI projection. Reconcile a bounded
+# number of historical partitions per tick so the sensor stays within its budget.
+EVENTS_BACKFILL_STATUS_RECONCILE_LIMIT = 25
 # Stored in DuckgresServerTeam.earliest_event_date for a team with no events, so the sensor
 # caches "nothing to backfill" instead of re-querying every tick. Far enough in the future
 # that the generated months range is always empty.
@@ -2837,21 +3014,66 @@ _NO_HISTORY_SENTINEL = date(9999, 12, 31)
 _FULL_BACKFILL_RUN_TAG = {"duckling_backfill_type": "full"}
 
 
-def get_months_in_range(start_date: date, end_date: date) -> list[str]:
-    """Generate list of month strings (YYYY-MM) between start and end dates."""
-    months = []
-    current = date(start_date.year, start_date.month, 1)
-    end_month = date(end_date.year, end_date.month, 1)
+def _reconcile_events_backfill_statuses(context: SensorEvaluationContext, partition_keys: list[str]) -> None:
+    """Backfill the status projection for partitions that ran before it existed.
 
-    while current <= end_month:
-        months.append(current.strftime("%Y-%m"))
-        # Move to next month
-        if current.month == 12:
-            current = date(current.year + 1, 1, 1)
-        else:
-            current = date(current.year, current.month + 1, 1)
+    TEMPORARY BRIDGE — the only part of this instrumentation that can't move off Dagster: it
+    reconstructs status by reading Dagster's own run storage. Everything else records status as
+    the run happens, through the scheduler-agnostic API in logic.backfill_status.
 
-    return months
+    Delete this (and its persons counterpart in the full-backfill sensor) once every live
+    partition has a row, which happens within a few ticks of deploy. Until then, a scheduler
+    migration would have to drop it rather than port it.
+    """
+    if not partition_keys:
+        return
+
+    team_ids = {int(partition_key.split("_", 1)[0]) for partition_key in partition_keys}
+    try:
+        projected = set(
+            ManagedWarehouseBackfillPartition.objects.unscoped()
+            # team_id == environment_id for these rows; filtering on team_id hits the unique
+            # constraint's index, which leads with team.
+            .filter(
+                team_id__in=team_ids,
+                dataset=ManagedWarehouseBackfillPartition.Dataset.EVENTS,
+            )
+            .values_list("partition_key", flat=True)
+        )
+    except DatabaseError:
+        logger.exception("managed_warehouse_backfill_status_reconciliation_failed")
+        return
+
+    unprojected = [partition_key for partition_key in partition_keys if partition_key not in projected]
+    for partition_key in unprojected[:EVENTS_BACKFILL_STATUS_RECONCILE_LIMIT]:
+        runs = context.instance.get_runs(
+            filters=RunsFilter(
+                job_name="duckling_events_backfill_job",
+                tags={"dagster/partition": partition_key},
+            ),
+            limit=1,
+        )
+        if not runs:
+            # A registered partition with no findable run offers no evidence its data ever
+            # landed (dropped run request, wiped run storage). Project it failed — re-running a
+            # partition is safe — rather than leaving it to occupy this budget on every tick.
+            record_backfill_outcome(
+                team_id=int(partition_key.split("_", 1)[0]),
+                dataset=ManagedWarehouseBackfillPartition.Dataset.EVENTS,
+                partition_key=partition_key,
+                run_id="unknown",
+                outcome=BackfillOutcome.FAILED,
+                failure_reason="RunNotFound",
+            )
+            continue
+        latest_run = runs[0]
+        record_backfill_outcome(
+            team_id=int(partition_key.split("_", 1)[0]),
+            dataset=ManagedWarehouseBackfillPartition.Dataset.EVENTS,
+            partition_key=partition_key,
+            run_id=latest_run.run_id,
+            outcome=_outcome_from_run_status(latest_run.status),
+        )
 
 
 @sensor(
@@ -2866,7 +3088,9 @@ def duckling_events_full_backfill_sensor(
     """Full historical events backfill — monthly partitions, enqueued round-robin under a bounded queue.
 
     Monthly partitions (``{team_id}_{YYYY-MM}``) keep the partition count down; each one
-    backfills all days in its month.
+    backfills all days in its month. Only COMPLETE historical months are enqueued — the
+    current, in-progress month is left to the daily backfill sensor, so a team whose earliest
+    event is only in the current month gets no full-backfill partition at all.
 
     Enqueue strategy, decoupled from execution (which the duckling_events_v1 concurrency
     limit throttles to a handful of concurrent runs to protect ClickHouse):
@@ -2886,7 +3110,14 @@ def duckling_events_full_backfill_sensor(
     the partition key, so re-ticks and restarts never double-enqueue. Any cursor written by
     the previous serial implementation is simply ignored (safe rollback either way).
     """
-    yesterday = (timezone.now() - timedelta(days=1)).date()
+    # Full backfill covers only COMPLETE historical months, up to the end of last month. The
+    # current, in-progress month is owned by the daily backfill sensor (which fills it in
+    # day-by-day), so emitting a whole-month partition for it is redundant — it re-DELETEs and
+    # re-registers exactly the days the daily runs are handling, racing them under DuckLake's
+    # per-table OCC (that conflict is why the current-month monthly partition goes red while the
+    # daily partitions succeed).
+    today = timezone.now().date()
+    last_month_end = today.replace(day=1) - timedelta(days=1)
 
     backfills = list(DuckgresServerTeam.objects.filter(backfill_enabled=True).order_by("team_id"))
     if not backfills:
@@ -2913,15 +3144,22 @@ def duckling_events_full_backfill_sensor(
     # 2. Per-team remaining months (oldest first), skipping already-registered partitions.
     existing = set(context.instance.get_dynamic_partitions("duckling_events_backfill"))
     per_team_remaining: list[list[str]] = []
+    existing_historical_partitions: list[str] = []
     for bf in backfills:
         earliest = bf.earliest_event_date
-        if earliest is None or earliest > yesterday:
-            # Unresolved this tick, or no-history sentinel / brand-new team (nothing historical yet).
+        if earliest is None or earliest > last_month_end:
+            # Unresolved this tick, no-history sentinel, or a team whose earliest event is only
+            # in the current month — no complete month to full-backfill (the daily sensor owns
+            # the current month), so skip it.
             continue
-        keys = [f"{bf.team_id}_{m}" for m in get_months_in_range(earliest, yesterday)]
+        keys = [f"{bf.team_id}_{m}" for m in historical_backfill_months(earliest, today=today)]
+        existing_historical_partitions.extend(key for key in keys if key in existing)
         remaining = [k for k in keys if k not in existing]
         if remaining:
             per_team_remaining.append(remaining)
+
+    _reconcile_events_backfill_statuses(context, existing_historical_partitions)
+    _repair_stale_running_statuses(context, ManagedWarehouseBackfillPartition.Dataset.EVENTS)
 
     # 3. Round-robin interleave by month index: round r takes each team's r-th remaining
     #    month, so the queue order is team0-m0, team1-m0, ..., team0-m1, ... — fair under FIFO.
@@ -3113,6 +3351,22 @@ def duckling_persons_full_backfill_sensor(
 
     # Check existing partitions
     existing_partitions = set(context.instance.get_dynamic_partitions("duckling_persons_backfill"))
+    try:
+        projected_persons_partitions = set(
+            ManagedWarehouseBackfillPartition.objects.unscoped()
+            # team_id == environment_id for these rows; filtering on team_id hits the unique
+            # constraint's index, which leads with team.
+            .filter(
+                team_id__in=[backfill.team_id for backfill in backfills],
+                dataset=ManagedWarehouseBackfillPartition.Dataset.PERSONS,
+            )
+            .values_list("partition_key", flat=True)
+        )
+    except DatabaseError:
+        logger.exception("managed_warehouse_backfill_status_reconciliation_failed")
+        projected_persons_partitions = existing_partitions
+
+    _repair_stale_running_statuses(context, ManagedWarehouseBackfillPartition.Dataset.PERSONS)
 
     new_partitions: list[str] = []
     run_requests: list[RunRequest] = []
@@ -3146,6 +3400,14 @@ def duckling_persons_full_backfill_sensor(
             )
             if runs:
                 latest_run = runs[0]
+                if partition_key not in projected_persons_partitions:
+                    record_backfill_outcome(
+                        team_id=team_id,
+                        dataset=ManagedWarehouseBackfillPartition.Dataset.PERSONS,
+                        partition_key=partition_key,
+                        run_id=latest_run.run_id,
+                        outcome=_outcome_from_run_status(latest_run.status),
+                    )
                 # Only retry if failed - skip if in progress or succeeded
                 if latest_run.status == DagsterRunStatus.FAILURE:
                     run_requests.append(
@@ -3165,6 +3427,17 @@ def duckling_persons_full_backfill_sensor(
                     DagsterRunStatus.QUEUED,
                 ):
                     context.log.debug(f"Skipping team_id={team_id} - run in progress")
+            elif partition_key not in projected_persons_partitions:
+                # Registered partition with no findable run: no evidence the data ever landed,
+                # so project it failed rather than re-checking it every tick forever.
+                record_backfill_outcome(
+                    team_id=team_id,
+                    dataset=ManagedWarehouseBackfillPartition.Dataset.PERSONS,
+                    partition_key=partition_key,
+                    run_id="unknown",
+                    outcome=BackfillOutcome.FAILED,
+                    failure_reason="RunNotFound",
+                )
 
     if new_partitions:
         context.log.info(f"Creating {len(new_partitions)} full persons backfill partitions")

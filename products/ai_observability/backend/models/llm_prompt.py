@@ -57,6 +57,9 @@ class LLMPrompt(UUIDModel):
     version = models.PositiveIntegerField(default=1)
     is_latest = models.BooleanField(default=True)
 
+    # Optional "what changed" note set when the version is published; immutable like the rest of the row
+    version_description = models.CharField(max_length=400, null=True, blank=True)
+
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     created_by = models.ForeignKey(
         "posthog.User",

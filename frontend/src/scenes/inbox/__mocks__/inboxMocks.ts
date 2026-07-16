@@ -5,7 +5,7 @@
 
 import { SignalNode } from 'scenes/debug/signals/types'
 
-import { SignalReport, SignalReportStatus } from '../types'
+import { SignalReport, SignalReportStatus, SignalSourceProduct } from '../types'
 
 const BASE_DATE = '2026-06-10T12:00:00Z'
 
@@ -257,12 +257,19 @@ export function mockSignals(reportId: string, count = 4): SignalNode[] {
             'Error fingerprint `2c6be0b` first seen 2026-05-26, now recurring ~12×/day.',
             'Support ticket references the same flow: "I keep getting an error when inviting my team".',
         ][i % 4],
-        source_product: ['error_tracking', 'session_replay', 'error_tracking', 'zendesk'][i % 4],
+        source_product: (
+            [
+                SignalSourceProduct.ErrorTracking,
+                SignalSourceProduct.SessionReplay,
+                SignalSourceProduct.ErrorTracking,
+                SignalSourceProduct.Zendesk,
+            ] as const
+        )[i % 4],
         source_type: 'issue',
         source_id: `${reportId}-src-${i}`,
         weight: Number((1.5 - i * 0.2).toFixed(1)),
         timestamp: BASE_DATE,
-        extra: {},
+        extra: { fingerprint: `${reportId}-fp-${i}` },
     }))
 }
 

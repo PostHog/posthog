@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -13,6 +13,108 @@ export interface PrecomputationTeam {
     organization_name: string | null
     organization_arr: number | null
     experiment_precomputation_enabled: boolean
+}
+
+export type ExperimentsTab = 'slowest_queries' | 'precompute_overview' | 'cache_health'
+
+// ClickHouse exit codes we see on experiment queries and precompute builds, in UI copy.
+export const EXCEPTION_CODE_LABELS: Record<string, string> = {
+    '307': 'byte limit',
+    '159': 'timeout',
+    '241': 'out of memory',
+    '202': 'cluster busy',
+    '164': 'readonly',
+    '47': 'unknown identifier',
+}
+
+export interface PrecomputePathStats {
+    reads: number
+    failed_reads: number
+    // Reads where precompute was attempted (no skip reason). On the direct_scan path these paid
+    // for the build AND the full events scan — the failure bucket to watch.
+    attempted: number
+    skip_reasons: Record<string, number>
+    avg_duration_ms: number | null
+    p50_duration_ms: number | null
+    p90_duration_ms: number | null
+    avg_read_bytes: number | null
+    total_read_bytes: number
+}
+
+export interface PrecomputeBuildStats {
+    total: number
+    succeeded: number
+    failed: number
+    total_duration_ms: number
+    total_read_bytes: number
+    // Optional: responses served by a backend from before these fields existed omit them.
+    failed_duration_ms?: number
+    failed_read_bytes?: number
+    by_table: Record<string, { succeeded: number; failed: number }>
+    failures_by_code: Record<string, number>
+}
+
+export interface PrecomputeJobStats {
+    ready: number
+    failed: number
+    pending: number
+    stale_failed: number
+    stuck_pending: number
+}
+
+export interface PrecomputeOverviewResponse {
+    hours: number
+    reads: {
+        total: number
+        failed: number
+        by_exposures_path: Record<string, PrecomputePathStats>
+        metric_events: { precomputed: number; direct_scan: number; not_applicable: number }
+    }
+    builds: PrecomputeBuildStats
+    jobs: PrecomputeJobStats
+}
+
+export interface PrecomputeTimeseriesResponse {
+    hours: number
+    interval: 'hour' | 'day'
+    buckets: string[] // ISO timestamps; all arrays below align to this axis (zero-filled)
+    reads: {
+        total: number[]
+        precomputed: number[]
+        fallback: number[]
+    }
+    builds: {
+        failed_by_code: Record<string, number[]>
+        failed_read_bytes: number[]
+    }
+}
+
+export interface CachePartitionStats {
+    partition: string // YYYYMMDD — the expiry day of the partition (tables partition by toYYYYMMDD(expires_at))
+    rows: number
+    bytes_on_disk: number
+    parts: number
+}
+
+export interface CacheTableStats {
+    table: string
+    total_rows: number
+    bytes_on_disk: number
+    active_parts: number
+    partition_count: number
+    oldest_partition: string | null
+    newest_partition: string | null
+    partitions: CachePartitionStats[]
+}
+
+export interface CacheHealthResponse {
+    tables: CacheTableStats[]
+}
+
+// One row of the partition breakdown table: a single expiry day, with each cache table's stats for that day.
+export interface CachePartitionRow {
+    partition: string
+    perTable: Record<string, CachePartitionStats>
 }
 
 export interface SlowestQuery {
@@ -61,6 +163,9 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
         setExperimentIdFilter: (experimentId: string) => ({ experimentId }),
         setMetricTypeFilter: (metricType: string) => ({ metricType }),
         setExceptionCodeFilter: (exceptionCode: string) => ({ exceptionCode }),
+        setExperimentsTab: (tab: ExperimentsTab) => ({ tab }),
+        setOverviewHoursBack: (hours: number) => ({ hours }),
+        setTimeseriesHoursBack: (hours: number) => ({ hours }),
     }),
     reducers({
         search: [
@@ -99,6 +204,24 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
                 setExceptionCodeFilter: (_, { exceptionCode }) => exceptionCode,
             },
         ],
+        experimentsTab: [
+            'slowest_queries' as ExperimentsTab,
+            {
+                setExperimentsTab: (_, { tab }) => tab,
+            },
+        ],
+        overviewHoursBack: [
+            24,
+            {
+                setOverviewHoursBack: (_, { hours }) => hours,
+            },
+        ],
+        timeseriesHoursBack: [
+            336,
+            {
+                setTimeseriesHoursBack: (_, { hours }) => hours,
+            },
+        ],
     }),
     loaders(({ values }) => ({
         precomputationTeams: [
@@ -123,6 +246,32 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
                     return values.search
                         ? updatedList
                         : updatedList.filter((team) => team.experiment_precomputation_enabled)
+                },
+            },
+        ],
+        cacheHealth: [
+            null as CacheHealthResponse | null,
+            {
+                loadCacheHealth: async () => {
+                    return await api.get('api/debug_ch_queries/cache_health/')
+                },
+            },
+        ],
+        precomputeOverview: [
+            null as PrecomputeOverviewResponse | null,
+            {
+                loadPrecomputeOverview: async () => {
+                    return await api.get(`api/debug_ch_queries/precompute_overview/?hours=${values.overviewHoursBack}`)
+                },
+            },
+        ],
+        precomputeTimeseries: [
+            null as PrecomputeTimeseriesResponse | null,
+            {
+                loadPrecomputeTimeseries: async () => {
+                    return await api.get(
+                        `api/debug_ch_queries/precompute_timeseries/?hours=${values.timeseriesHoursBack}`
+                    )
                 },
             },
         ],
@@ -153,6 +302,24 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
             },
         ],
     })),
+    selectors({
+        cachePartitionRows: [
+            (s) => [s.cacheHealth],
+            (cacheHealth): CachePartitionRow[] => {
+                const byPartition: Record<string, CachePartitionRow> = {}
+                for (const table of cacheHealth?.tables ?? []) {
+                    for (const partition of table.partitions) {
+                        const row = (byPartition[partition.partition] ??= {
+                            partition: partition.partition,
+                            perTable: {},
+                        })
+                        row.perTable[table.table] = partition
+                    }
+                }
+                return Object.values(byPartition).sort((a, b) => a.partition.localeCompare(b.partition))
+            },
+        ],
+    }),
     listeners(({ actions }) => ({
         setSearch: async (_, breakpoint) => {
             await breakpoint(300)
@@ -175,11 +342,21 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
         setExceptionCodeFilter: () => {
             actions.loadSlowestQueries()
         },
+        setOverviewHoursBack: () => {
+            actions.loadPrecomputeOverview()
+            actions.loadPrecomputeTimeseries()
+        },
+        setTimeseriesHoursBack: () => {
+            actions.loadPrecomputeTimeseries()
+        },
     })),
     afterMount(({ actions }) => {
         if (userLogic.findMounted()?.values.user?.is_staff) {
             actions.loadPrecomputationTeams()
             actions.loadSlowestQueries()
+            actions.loadCacheHealth()
+            actions.loadPrecomputeOverview()
+            actions.loadPrecomputeTimeseries()
         }
     }),
 ])

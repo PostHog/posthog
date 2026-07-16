@@ -38,15 +38,23 @@ The GitHub helpers wrap the key construction; other domains expose their own thi
 ### Budgets (policies)
 
 A budget is a `RatePolicy`: one or more `(count, period_seconds)` limits enforced _together_, so you can cap the hour and smooth per-minute bursts on the same key.
-Each domain registers its policy with `register_policy(domain, policy)`, usually as a zero-arg provider so the budget is read from Django settings at acquire time rather than frozen at import.
-GitHub's budget is per **installation** (the unit GitHub meters): 13,500 requests/hour plus a 450/minute smoothing cap, deliberately under GitHub's real 15,000/hour ceiling so reactive backoff absorbs drift (clock skew, multi-process races, untracked PAT traffic on the same account).
+Each domain registers its policy with `register_policy(domain, policy)`, usually as a provider taking the full limiter key, so the budget is read at acquire time (settings + per-scope state) rather than frozen at import.
+GitHub meters its REST resources on **separate per-installation counters**, so it registers three domains — one per resource — and the transport routes each request to its meter by URL:
+
+- `github` — the `core` resource (5,000–15,000/hour), budgeted per **installation** and scaled to the installation's real tier: `api_request` persists each installation's last-observed core `X-RateLimit-Limit` (only trusted installation-token responses feed this), and the policy budgets 90% of it for the hour with a proportional per-minute smoothing cap (most installations sit on GitHub's 5,000/hour tier, not the 15,000 top tier). Unobserved installations fall back to the settings defaults (13,500/hour + 750/minute) until their first recorded response.
+- `github_search` — the `search` resource, a static 27/minute (under GitHub's real 30/min).
+- `github_code_search` — the `code_search` resource (`/search/code`), a static 8/minute (under GitHub's real 10/min).
+
+The two search budgets are static because GitHub's search rate limits are fixed regardless of the account's plan tier, so there is no tier to observe (unlike core).
+Budgets stay deliberately under the real ceiling so reactive backoff absorbs drift (clock skew, multi-process races, untracked PAT traffic on the same account).
 
 ### Priority lanes
 
 Priority (`CRITICAL` / `NORMAL` / `BATCH`) controls how sheddable a call is when the budget gets tight.
 All priorities draw from the _same_ per-key counter — the lane only changes how much headroom must stay free for the call to be admitted (a _reserved floor_), so deferrable bulk traffic (`BATCH`) is denied before critical traffic as the budget fills, without ever splitting the budget into separate buckets.
 Admission tests `n + reserve` but only consumes `n`, so an empty reserve is bit-identical to pre-priority behavior.
-GitHub ships with no active reserves yet: the mechanism is wired end to end (callers already declare their lane), and turning it on is a one-line change once a `CRITICAL` path is actually gated.
+GitHub's reserve ladder is active: `BATCH` calls are denied once 70% of a window is consumed and `NORMAL` at 90%, while `CRITICAL` may use the full budget.
+Deferrable background callers construct their client on the `BATCH` lane (`GitHubIntegration(integration, source=..., priority=Priority.BATCH)`; `api_request` also takes a per-call override) — a shed sweep stops for the cycle and resumes on the next scheduled run.
 
 ### Backend
 
@@ -86,7 +94,8 @@ resp = github_request(
 It's **token-agnostic** (installation token, user token, PAT, or PostHog's shared token) and stateless.
 The generic `EgressClient` base owns the gate → request → record algorithm and the priority-based denial semantics (CRITICAL proceeds even when the budget is spent — GitHub's own 429 is the backstop; sheddable lanes raise `EgressBudgetExhausted`); `GitHubClient` fills the domain hooks.
 Response handling — what to do on a 403/429 — stays with the caller: `raise_if_github_rate_limited` / `GitHubRateLimitError` (GitHub's own 429, the reactive twin of our `EgressBudgetExhausted`) live in `github/transport.py` for callers that want to raise-and-retry.
-The model-coupled `GitHubIntegrationBase` is a _consumer_ of this, not the general path.
+The model-coupled `GitHubIntegrationBase.api_request` layers the installation-token lifecycle (proactive refresh, 401 refresh-retry, rate-limit raising, per-instance `source` attribution) on top — hold an integration, call that; hold a bare token, call `github_request`.
+Raw `requests` calls against `api.github.com` are blocked by the `github-api-calls-go-through-egress` semgrep rule (`.semgrep/devex-rules/`), so new callers land on one of these two paths by construction.
 
 ## The one identity rule
 

@@ -5,10 +5,11 @@ import pytest
 from unittest.mock import AsyncMock, patch
 
 from ee.billing.salesforce_enrichment.redis_cache import (
+    OrgMappingsCacheMissingError,
     _compress_redis_data,
     get_cached_org_mappings_count,
     get_org_mappings_from_redis,
-    get_org_mappings_page_from_redis,
+    get_org_mappings_page,
     get_stripe_enrichment_watermark,
     set_stripe_enrichment_watermark,
     store_org_mappings_in_redis,
@@ -91,7 +92,11 @@ class TestStoreOrgMappingsInRedis:
             mock_pipe.execute.assert_called_once()
 
 
-class TestGetOrgMappingsPageFromRedis:
+class TestGetOrgMappingsPage:
+    """A missing key must never look like a completed run, and transient Redis
+    errors must propagate (so activity retries absorb them) instead of
+    triggering a needless cache rebuild."""
+
     @pytest.mark.asyncio
     async def test_get_page_success(self):
         raw_items = [
@@ -105,40 +110,66 @@ class TestGetOrgMappingsPageFromRedis:
             "ee.billing.salesforce_enrichment.redis_cache.get_async_client",
             return_value=mock_redis,
         ):
-            result = await get_org_mappings_page_from_redis(0, 10000)
+            result = await get_org_mappings_page(0, 10000)
 
             assert result == [
                 {"salesforce_account_id": "001ABC", "posthog_org_id": "uuid-1"},
                 {"salesforce_account_id": "001DEF", "posthog_org_id": "uuid-2"},
             ]
 
+    # offset == total is the terminal page of any run whose mapping count is an
+    # exact multiple of the page size, so the equality boundary matters.
     @pytest.mark.asyncio
-    async def test_get_page_cache_miss(self):
+    @pytest.mark.parametrize("offset", [42, 50])
+    async def test_get_page_past_end_returns_empty(self, offset):
         mock_redis = AsyncMock()
         mock_redis.lrange.return_value = []
+        mock_redis.llen.return_value = 42
 
         with patch(
             "ee.billing.salesforce_enrichment.redis_cache.get_async_client",
             return_value=mock_redis,
         ):
-            result = await get_org_mappings_page_from_redis(0, 10000)
+            result = await get_org_mappings_page(offset, 10000)
 
-            assert result is None
+            assert result == []
 
     @pytest.mark.asyncio
-    async def test_get_page_redis_error(self):
+    async def test_get_page_missing_key_raises(self):
         mock_redis = AsyncMock()
-        mock_redis.lrange.side_effect = Exception("Redis connection error")
+        mock_redis.lrange.return_value = []
+        mock_redis.llen.return_value = 0
 
         with patch(
             "ee.billing.salesforce_enrichment.redis_cache.get_async_client",
             return_value=mock_redis,
         ):
-            with patch("ee.billing.salesforce_enrichment.redis_cache.capture_exception") as mock_capture:
-                result = await get_org_mappings_page_from_redis(0, 10000)
+            with pytest.raises(OrgMappingsCacheMissingError):
+                await get_org_mappings_page(0, 10000)
 
-                assert result is None
-                mock_capture.assert_called_once()
+    @pytest.mark.asyncio
+    async def test_get_page_corrupt_entry_raises_cache_missing(self):
+        mock_redis = AsyncMock()
+        mock_redis.lrange.return_value = [b"not-json"]
+
+        with patch(
+            "ee.billing.salesforce_enrichment.redis_cache.get_async_client",
+            return_value=mock_redis,
+        ):
+            with pytest.raises(OrgMappingsCacheMissingError):
+                await get_org_mappings_page(0, 10000)
+
+    @pytest.mark.asyncio
+    async def test_get_page_redis_error_propagates(self):
+        mock_redis = AsyncMock()
+        mock_redis.lrange.side_effect = ConnectionError("redis unreachable")
+
+        with patch(
+            "ee.billing.salesforce_enrichment.redis_cache.get_async_client",
+            return_value=mock_redis,
+        ):
+            with pytest.raises(ConnectionError, match="redis unreachable"):
+                await get_org_mappings_page(0, 10000)
 
 
 class TestGetOrgMappingsFromRedis:

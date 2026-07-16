@@ -1,3 +1,4 @@
+import datetime
 import dataclasses
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
@@ -16,6 +17,7 @@ from posthog.schema import (
     SourceConfig,
     SourceFieldFileUploadConfig,
     SourceFieldInputConfig,
+    SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
     SourceFieldSelectConfig,
     SourceFieldSSHTunnelConfig,
@@ -84,11 +86,24 @@ FieldType = Union[
     SourceFieldSwitchGroupConfig,
     SourceFieldSelectConfig,
     SourceFieldOauthConfig,
+    SourceFieldOauthAccountSelectConfig,
     SourceFieldFileUploadConfig,
     SourceFieldSSHTunnelConfig,
 ]
 
 SourceCredentialsValidationResult = tuple[bool, str | None]
+
+# Label used by sources whose vendor has no meaningful API versioning. Version strings are
+# opaque vendor labels (Stripe date versions, semver, names) — never parsed or ordered.
+UNVERSIONED_API_VERSION = "v1"
+
+
+@dataclasses.dataclass(frozen=True)
+class VersionDeprecation:
+    """Deprecation metadata for a single supported version of a source's vendor API."""
+
+    version: str
+    sunset_at: datetime.date | None = None
 
 
 class _BaseSource(ABC, Generic[ConfigType]):
@@ -100,7 +115,23 @@ class _BaseSource(ABC, Generic[ConfigType]):
 
     # Default `False` for every source; `SQLSource` flips to `True` (subclasses opt out
     # via their own override if a driver genuinely can't project columns).
+    # `True` means the source lists typed columns at schema discovery and applies
+    # `enabled_columns` itself (SELECT projection). Sources left `False` still get column
+    # selection — the pipeline drops non-enabled columns just before the Delta write and
+    # captures the observed columns into `schema_metadata` after the first sync.
     supports_column_selection: bool = False
+
+    # `True` only for sources that push `row_filters` into their query (SQL WHERE).
+    # Sources without pushdown must reject filters — a saved-but-ignored filter would
+    # silently sync unfiltered rows.
+    supports_row_filters: bool = False
+
+    # `True` for sources whose HogQL tables use a PostHog-managed canonical schema
+    # (`external_table_definitions`) — Stripe, Paddle, Zendesk. Their query exposes a fixed
+    # field set (and powers revenue analytics), so the physical column set must stay complete.
+    # Column selection is disabled for these: dropping a canonically-referenced column makes the
+    # generated s3() structure miss it and the query fails to resolve the field.
+    has_managed_hogql_schema: bool = False
 
     # Opt-in: set `True` only on sources whose `get_schemas` iterates a static endpoint
     # catalog with NO I/O — no network, no DB, no credentials. Those sources surface their
@@ -108,6 +139,24 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # API sources that discover schemas over a live connection, since calling their
     # `get_schemas` with a placeholder config could connect, hang, or close the DB session.
     lists_tables_without_credentials: bool = False
+
+    # Vendor API versions this source implements, as opaque vendor labels (Stripe date
+    # versions, semver, names) — never parsed or ordered by the framework. Sources whose
+    # vendor has no meaningful API versioning keep the `UNVERSIONED_API_VERSION` default.
+    # `ExternalDataSource.api_version` pins one per source instance; the sync pipeline
+    # resolves the pin (falling back to `default_version`) into `SourceInputs.api_version`.
+    supported_versions: tuple[str, ...] = (UNVERSIONED_API_VERSION,)
+
+    # Version used when a source instance has no pin, and stamped onto newly created sources.
+    default_version: str = UNVERSIONED_API_VERSION
+
+    # Vendor API docs/changelog URL — where the vendor announces new API versions. Distinct
+    # from `SourceConfig.docsUrl` (the posthog.com docs page for the source).
+    api_docs_url: str | None = None
+
+    # Versions from `supported_versions` the vendor has deprecated. Drives the generic
+    # in-product deprecation warning; no per-source UI work.
+    deprecated_versions: tuple[VersionDeprecation, ...] = ()
 
     @property
     @abstractmethod
@@ -121,6 +170,21 @@ class _BaseSource(ABC, Generic[ConfigType]):
             raise ValueError(f"Config class for {self.source_type} does not exist in SOURCE_CONFIG_MAPPING")
 
         return config
+
+    def resolve_api_version(self, pinned: str | None) -> str:
+        """Effective vendor API version for a source instance's stored pin.
+
+        A present pin is honored verbatim — even one no longer declared — because silently
+        moving a customer to another version is the failure mode this framework exists to
+        prevent; the vendor API is the real validator of the label. A missing/empty pin
+        falls back to `default_version`.
+        """
+        return pinned or self.default_version
+
+    def get_version_deprecation(self, version: str | None) -> VersionDeprecation | None:
+        """Deprecation metadata for the given pin (resolved through the default), if any."""
+        effective = self.resolve_api_version(version)
+        return next((d for d in self.deprecated_versions if d.version == effective), None)
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         """Returns the errors for which the source should be disabled on.

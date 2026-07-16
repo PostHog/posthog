@@ -29,9 +29,9 @@ pub struct LinkingStage {
     pub app_context: Arc<AppContext>,
     // Cross-batch `(team_id, fingerprint) -> issue_id` mapping cache. Owned by AppContext.
     pub issue_cache: Cache<(TeamId, String), Uuid>,
-    // Per-batch fingerprint -> Issue dedup. Built fresh per batch (LinkingStage is
-    // constructed per batch via `From`), so events sharing a fingerprint within a single
-    // batch resolve the Issue exactly once. moka's `try_get_with` also deduplicates
+    // Per-batch fingerprints -> resolved issue dedup. Built fresh per batch (LinkingStage is
+    // constructed per batch via `From`), so events sharing candidate fingerprints within a
+    // single batch resolve the Issue exactly once. moka's `try_get_with` also deduplicates
     // concurrent misses for the same key inside the same batch.
     pub batch_issue_cache: Cache<(TeamId, String), Issue>,
 }

@@ -102,7 +102,7 @@ export function NewSourceScene(): JSX.Element {
 // The wizard endpoint failed (a timeout, a 5xx, or a 403 for members without data-source
 // access). Without this the scene keeps rendering a bare skeleton indefinitely, which reads
 // as a permanently stuck loading state.
-function AvailableSourcesError(): JSX.Element {
+export function AvailableSourcesError(): JSX.Element {
     const { load } = useActions(availableSourcesLogic)
 
     return (

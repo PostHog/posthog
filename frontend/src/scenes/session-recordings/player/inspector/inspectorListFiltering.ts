@@ -71,9 +71,14 @@ function isLogEvent(item: InspectorListItem): item is InspectorListItemLog {
 }
 
 function isContextItem(item: InspectorListItem): boolean {
-    return ['browser-visibility', 'offline-status', 'inspector-summary', 'inactivity', 'session-change'].includes(
-        item.type
-    )
+    return [
+        'browser-visibility',
+        'offline-status',
+        'inspector-summary',
+        'inactivity',
+        'session-change',
+        'experiment-variant',
+    ].includes(item.type)
 }
 
 const eventsMatch = (

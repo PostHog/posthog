@@ -193,6 +193,8 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
             ) from e
 
         if SourceRegistry.is_registered(source_type):
+            new_source = SourceRegistry.get_source(source_type)
+
             source_inputs = SourceInputs(
                 schema_name=schema.name,
                 schema_id=str(schema.id),
@@ -214,10 +216,18 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
                 row_filters=row_filters,
                 schema_metadata=schema.schema_metadata,
                 s3_folder_name=schema.resolved_s3_folder_name,
+                # A schema-level override (user-managed) wins over the source pin.
+                api_version=new_source.resolve_api_version(schema.api_version or model.pipeline.api_version),
             )
 
-            new_source = SourceRegistry.get_source(source_type)
-            config = new_source.parse_config(model.pipeline.job_inputs)
+            try:
+                config = new_source.parse_config(model.pipeline.job_inputs)
+            except Exception as e:
+                # A stored config that can't be parsed (corrupt or double-encoded `job_inputs`)
+                # fails identically on every attempt — there is nothing to retry. Treat it as
+                # non-retryable so the job gives up cleanly instead of crash-looping and spamming
+                # error tracking. Mirrors the skip in `sync_new_schemas_activity`.
+                await handle_non_retryable_error(job_inputs, str(e), logger, e)
 
             resumable_source_manager: ResumableSourceManager | None = None
             try:

@@ -10,6 +10,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getEntryAccessDisabledReason, getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { withTimeout } from 'lib/utils/async'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
@@ -1020,9 +1021,9 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                             folderStates,
                             users,
                             foldersFirst: true,
-                            disabledReason: onlyFolders
-                                ? (item) => (item.type !== 'folder' ? 'Only folders can be selected' : undefined)
-                                : undefined,
+                            disabledReason: (item) =>
+                                getEntryAccessDisabledReason(item) ??
+                                (onlyFolders && item.type !== 'folder' ? 'Only folders can be selected' : undefined),
                         })[0]
 
                         if (shortcut.type === 'folder' && shortcut.ref) {
@@ -1035,9 +1036,11 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                                 users,
                                 foldersFirst: true,
                                 searchTerm,
-                                disabledReason: onlyFolders
-                                    ? (item) => (item.type !== 'folder' ? 'Only folders can be selected' : undefined)
-                                    : undefined,
+                                disabledReason: (item) =>
+                                    getEntryAccessDisabledReason(item) ??
+                                    (onlyFolders && item.type !== 'folder'
+                                        ? 'Only folders can be selected'
+                                        : undefined),
                             })
                             for (let i = 0; i < splitPath(shortcut.ref).length; i++) {
                                 converted = converted[0]?.children || []
@@ -1096,9 +1099,9 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         users: {},
                         foldersFirst: false,
                         searchTerm,
-                        disabledReason: onlyFolders
-                            ? (item) => (item.type !== 'folder' ? 'Only folders can be selected' : undefined)
-                            : undefined,
+                        disabledReason: (item) =>
+                            getProductAccessDisabledReason(item as FileSystemImport) ??
+                            (onlyFolders && item.type !== 'folder' ? 'Only folders can be selected' : undefined),
                     })
                 return function getStaticItems(searchTerm: string, onlyFolders: boolean): TreeDataItem[] {
                     const data: [string, FileSystemImport[]][] = [
@@ -1187,19 +1190,25 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         }
                     }
 
+                    const imports = selectedProducts
+                        .filter((f) => !f.flag || (featureFlags as Record<string, boolean>)[f.flag])
+                        .map((i) => ({
+                            ...i,
+                            protocol: 'custom-products://',
+                        }))
+
                     return convertFileSystemEntryToTreeDataItem({
                         root: 'custom-products://',
-                        imports: selectedProducts
-                            .filter((f) => !f.flag || (featureFlags as Record<string, boolean>)[f.flag])
-                            .map((i) => ({
-                                ...i,
-                                protocol: 'custom-products://',
-                            })),
+                        imports,
                         checkedItems: {},
                         folderStates,
                         users,
                         foldersFirst: false,
                         searchTerm,
+                        // With only a few tools pinned, category headers add more noise than structure —
+                        // list them in sequence instead.
+                        disableCategories: imports.length < 5,
+                        disabledReason: (item) => getProductAccessDisabledReason(item as FileSystemImport),
                     })
                 }
             },

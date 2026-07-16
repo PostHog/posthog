@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
 
-import { HedgehogShocked } from '@posthog/brand/hoggies'
+import * as shockedPng from '@posthog/brand/hoggies/png/shocked'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { HeartHog } from 'lib/components/hedgehogs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
@@ -9,6 +10,8 @@ import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { wizardLogic } from './wizardLogic'
+
+const HedgehogShocked = pngHoggie(shockedPng)
 
 export const scene: SceneExport = {
     component: Wizard,

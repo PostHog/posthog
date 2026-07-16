@@ -1,0 +1,53 @@
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+    CanonicalDescriptions,
+)
+
+CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "repositories": {
+        "description": "A container image repository in the configured Docker Hub namespace (user or organization).",
+        "docs_url": "https://docs.docker.com/reference/api/hub/latest/#tag/repositories",
+        "columns": {
+            "name": "Name of the repository, unique within its namespace.",
+            "namespace": "Namespace (user or organization) that owns the repository.",
+            "repository_type": "Type of the repository, e.g. image.",
+            "status": "Numeric status code of the repository (1 = active).",
+            "status_description": "Human-readable repository status, e.g. active or inactive.",
+            "description": "Short free-text description of the repository.",
+            "is_private": "Whether the repository is private (true) or public (false).",
+            "star_count": "Number of users who starred the repository.",
+            "pull_count": "Total number of image pulls from the repository.",
+            "last_updated": "Timestamp of the last image push to the repository.",
+            "last_modified": "Timestamp of the last change to the repository's settings or metadata.",
+            "date_registered": "Timestamp when the repository was created.",
+            "affiliation": "Requesting user's affiliation with the repository, e.g. owner.",
+            "media_types": "Media types stored in the repository, e.g. container image manifests.",
+            "content_types": "Content types stored in the repository, e.g. image.",
+            "categories": "Docker Hub catalog categories assigned to the repository.",
+            "storage_size": "Total storage used by the repository, in bytes.",
+        },
+    },
+    "tags": {
+        "description": "A tag on a repository in the configured Docker Hub namespace, including its per-architecture images.",
+        "docs_url": "https://docs.docker.com/reference/api/hub/latest/#tag/repositories/operation/ListRepositoryTags",
+        "columns": {
+            "id": "Numeric identifier of the tag assigned by Docker Hub.",
+            "name": "Name of the tag, unique within its repository.",
+            "namespace": "Namespace (user or organization) that owns the repository. Added by PostHog to every row.",
+            "repository_name": "Name of the repository the tag belongs to. Added by PostHog to every row.",
+            "repository": "Numeric identifier of the repository the tag belongs to.",
+            "creator": "Numeric identifier of the user who created the tag.",
+            "images": "Per-architecture images the tag points at, including digest, os, architecture, and size.",
+            "full_size": "Compressed size of the tag's image, in bytes.",
+            "last_updated": "Timestamp when the tag was last updated.",
+            "last_updater": "Numeric identifier of the user who last updated the tag.",
+            "last_updater_username": "Username of the user who last updated the tag.",
+            "tag_status": "Status of the tag, e.g. active or inactive.",
+            "tag_last_pulled": "Timestamp when the tag was last pulled.",
+            "tag_last_pushed": "Timestamp when the tag was last pushed.",
+            "v2": "Whether the tag uses a v2 image manifest.",
+            "media_type": "Media type of the tag's manifest.",
+            "content_type": "Content type of the tag, e.g. image.",
+            "digest": "Content digest of the tag's manifest.",
+        },
+    },
+}

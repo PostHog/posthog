@@ -26,8 +26,10 @@ export interface DefaultTooltipProps<Meta = unknown> extends TooltipContext<Meta
      *  header (e.g. pie slices, aggregated single-column bars). */
     showHeader?: boolean
     /** Append a footer row summing the visible series at the hovered point. `overlay` series
-     *  (e.g. goal lines) are excluded from the sum, and the row is suppressed when fewer than two
-     *  summable series remain — a single-series total would just restate the one row. */
+     *  (e.g. goal lines) and series with `visibility.total: false` (values that don't sum
+     *  meaningfully, e.g. a percentage alongside counts) are excluded from the sum, and the row is
+     *  suppressed when fewer than two summable series remain — a single-series total would just
+     *  restate the one row. */
     showTotal?: boolean
     /** Label for the total row. Defaults to 'Total'. */
     totalLabel?: string
@@ -69,7 +71,7 @@ export function DefaultTooltip<Meta = unknown>({
         : visible[0]?.yPixel != null
           ? [...visible].sort((a, b) => (a.yPixel ?? Infinity) - (b.yPixel ?? Infinity))
           : visible
-    const summable = rows.filter((s) => !s.series.overlay)
+    const summable = rows.filter((s) => !s.series.overlay && s.series.visibility?.total !== false)
     const closestKey =
         hoverPosition != null && rows.length > 1 ? findClosestSeriesKey(rows, hoverPosition.y) : null
     const renderTotal = showTotal && summable.length > 1

@@ -1,13 +1,16 @@
 import { useValues } from 'kea'
 
-import { HedgehogMagnifyingGlass } from '@posthog/brand/hoggies'
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { SkeletonLog } from 'lib/components/ActivityLog/ActivityLog'
 import { describerFor } from 'lib/components/ActivityLog/activityLogLogic'
 import { humanize } from 'lib/components/ActivityLog/humanizeActivity'
 
 import { advancedActivityLogsLogic } from './advancedActivityLogsLogic'
 import { AuditLogTable } from './AuditLogTable'
+
+const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 
 export function AdvancedActivityLogsList(): JSX.Element {
     const { advancedActivityLogs, advancedActivityLogsLoading, pagination, isOrganizationView, teamsById } =

@@ -5,13 +5,16 @@ import { LemonModal, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 import { mcpStoreLogic } from '@posthog/products-mcp-store/frontend/mcpStoreLogic'
 import { ServerIcon } from '@posthog/products-mcp-store/frontend/scene/icons'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { slackChannelDisplayName } from 'lib/integrations/slackChannel'
 import { IconSlack } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
 import { scoutFleetLogic } from '../../logics/scoutFleetLogic'
+import { signalTeamConfigLogic } from '../../logics/signalTeamConfigLogic'
 import { userAutonomyLogic } from '../../logics/userAutonomyLogic'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
 import { ScoutsFleetSection } from '../config/scouts/ScoutsFleetSection'
@@ -243,10 +246,18 @@ function NotificationsWidget(): JSX.Element {
     useMountedLogic(userAutonomyLogic)
     const { slackIntegrations, integrationsLoading } = useValues(integrationsLogic)
     const { autonomyConfig } = useValues(userAutonomyLogic)
+    const { teamConfig } = useValues(signalTeamConfigLogic)
     const { openSetupModal } = useActions(agentSetupModalLogic)
 
-    const channel = autonomyConfig?.slack_notification_channel ?? null
-    const notifying = (slackIntegrations?.length ?? 0) > 0 && !!channel
+    // Either target counts as set up: the team-wide channel catches every actionable report,
+    // the personal channel pings the suggested reviewer. The status names each configured one.
+    const teamChannel = teamConfig?.default_slack_notification_channel ?? null
+    const userChannel = autonomyConfig?.slack_notification_channel ?? null
+    const channelLabels = [
+        teamChannel ? `Team ${slackChannelDisplayName(teamChannel)}` : null,
+        userChannel ? `You ${slackChannelDisplayName(userChannel)}` : null,
+    ].filter(Boolean)
+    const notifying = (slackIntegrations?.length ?? 0) > 0 && channelLabels.length > 0
     return (
         <SetupWidgetCard
             icon={<IconSlack className="grayscale" />}
@@ -254,7 +265,7 @@ function NotificationsWidget(): JSX.Element {
             size="md"
             tone={notifying ? 'done' : 'todo'}
             loading={integrationsLoading && slackIntegrations === undefined}
-            status={notifying && channel ? `Slack ${slackChannelDisplayName(channel)}` : 'Not connected'}
+            status={notifying ? channelLabels.join(' · ') : 'Not connected'}
             onClick={() => openSetupModal('slack')}
         />
     )
@@ -324,6 +335,7 @@ function SetupModal(): JSX.Element {
 export function AgentSetupColumn({ layout }: { layout: 'rail' | 'stacked' }): JSX.Element {
     useMountedLogic(integrationsLogic)
     useMountedLogic(signalSourcesLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <div
@@ -339,7 +351,7 @@ export function AgentSetupColumn({ layout }: { layout: 'rail' | 'stacked' }): JS
             <SetupSection title="Connections">
                 <CodeAccessWidget />
                 <NotificationsWidget />
-                <McpServersWidget />
+                {featureFlags[FEATURE_FLAGS.MCP_SERVERS] && <McpServersWidget />}
             </SetupSection>
             <SetupSection title="Usage">
                 <InboxUsageWidget />

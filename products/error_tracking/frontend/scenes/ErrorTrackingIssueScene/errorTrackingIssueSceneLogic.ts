@@ -13,7 +13,7 @@ import {
 } from 'lib/components/Errors/types'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { uuid } from 'lib/utils/dom'
+import { objectsEqual } from 'lib/utils/objects'
 import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
 import { Scene } from 'scenes/sceneTypes'
 import { Params } from 'scenes/sceneTypes'
@@ -221,11 +221,8 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     }),
                     { refresh: 'blocking' }
                 )
-                const issue = response.results[0]
-                let positionEvent = null
-                if (issue.last_event) {
-                    positionEvent = issue.last_event
-                } else {
+                const positionEvent = response.results[0]?.last_event
+                if (!positionEvent) {
                     return null
                 }
                 const initialEvent: ErrorEventType = {
@@ -378,14 +375,16 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     dateRange,
                     columns: ['*', 'timestamp', 'person'],
                 }),
+            // Deep-equal recomputes (e.g. a fingerprints refetch returning the same list) must not
+            // produce a new query identity, or the key below remounts the whole events table.
+            { resultEqualityCheck: objectsEqual },
         ],
 
-        eventsQueryKey: [
-            (s) => [s.eventsQuery],
-            () => {
-                return uuid()
-            },
-        ],
+        // The key is the kea key of eventsSourceLogic, whose dataNodeLogic is wired in connect()
+        // once per key: it MUST change when the query content changes (that's how a new query
+        // reaches the data layer) and must NOT change otherwise — every key change unmounts and
+        // remounts the entire events table tree.
+        eventsQueryKey: [(s) => [s.eventsQuery], (eventsQuery): string => JSON.stringify(eventsQuery)],
 
         maxContext: [
             (s) => [s.issue, s.issueId],

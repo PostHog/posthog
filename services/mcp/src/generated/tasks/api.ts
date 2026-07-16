@@ -20,6 +20,7 @@ export const TasksListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const tasksListQueryAllTeamTasksDefault = false
 export const tasksListQueryLimitDefault = 50
 export const tasksListQueryLimitMax = 100
 
@@ -27,12 +28,19 @@ export const tasksListQueryOffsetDefault = 0
 export const tasksListQueryOffsetMin = 0
 
 export const TasksListQueryParams = /* @__PURE__ */ zod.object({
+    all_team_tasks: zod
+        .boolean()
+        .default(tasksListQueryAllTeamTasksDefault)
+        .describe(
+            'Staff-only. When true, list every task on the team regardless of creator or channel, bypassing the per-user visibility filter. Ignored for non-staff users.'
+        ),
     archived: zod
         .enum(['true', 'false', 'all'])
         .optional()
         .describe(
             "Filter by archived state. Defaults to excluding archived tasks. Use 'true' to list only archived tasks, 'false' for the default, or 'all' to include both.\n\n* `true` - true\n* `false` - false\n* `all` - all"
         ),
+    channel: zod.string().optional().describe("Filter tasks to a channel's feed."),
     created_by: zod.number().optional().describe('Filter by creator user ID'),
     internal: zod
         .enum(['true', 'false', 'all'])

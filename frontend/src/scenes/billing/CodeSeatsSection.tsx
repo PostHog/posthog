@@ -6,18 +6,8 @@ import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
-import { billingLogic } from './billingLogic'
-import { CODE_PLAN_PRO } from './constants'
-import {
-    canReactivateSeat,
-    isAlphaPlanKey,
-    isProPlanKey,
-    seatBillingLogic,
-    seatPriceFromPlanKey,
-} from './seatBillingLogic'
+import { canCancelSeat, isAlphaPlanKey, isProPlanKey, seatBillingLogic, seatPriceFromPlanKey } from './seatBillingLogic'
 import type { SeatData, SeatStatus } from './types'
-
-const ALPHA_PLAN_MIGRATION_DATE = 'June 4, 2026'
 
 function planLabel(planKey: string): string {
     if (isAlphaPlanKey(planKey)) {
@@ -55,18 +45,9 @@ function statusColor(status: SeatStatus): 'success' | 'warning' | 'muted' | 'pri
 }
 
 export function CodeSeatsSection(): JSX.Element {
-    const {
-        displaySeats,
-        orgSeatsLoading,
-        isAdmin,
-        members,
-        activeCount,
-        cancelingCount,
-        monthlyTotal,
-        hasAlphaSeats,
-    } = useValues(seatBillingLogic)
-    const { adminCancelSeat, adminUpgradeSeat, adminReactivateSeat } = useActions(seatBillingLogic)
-    const { billing } = useValues(billingLogic)
+    const { displaySeats, orgSeatsLoading, isAdmin, members, activeCount, cancelingCount, monthlyTotal } =
+        useValues(seatBillingLogic)
+    const { adminCancelSeat } = useActions(seatBillingLogic)
 
     function getUserInfo(seat: SeatData): { name: string; email: string } | null {
         if (!members) {
@@ -94,17 +75,15 @@ export function CodeSeatsSection(): JSX.Element {
                     )}
                 </div>
             </div>
-            {hasAlphaSeats && (
-                <LemonBanner type="info" className="mb-4">
-                    Alpha plan seats will be moved to the free plan automatically on {ALPHA_PLAN_MIGRATION_DATE}. After
-                    that, you'll be able to upgrade them to the Pro plan.
-                </LemonBanner>
-            )}
+            <LemonBanner type="info" className="mb-4">
+                PostHog Code with usage-based billing is launching shortly. New seats, upgrades, and reactivations are
+                no longer available. You can still cancel active seats below.
+            </LemonBanner>
             <LemonTable
                 loading={orgSeatsLoading}
                 dataSource={displaySeats}
                 defaultSorting={{ columnKey: 'user', order: 1 }}
-                emptyState="No Code seats have been provisioned yet"
+                emptyState="No Code seats"
                 columns={[
                     {
                         title: 'User',
@@ -132,17 +111,16 @@ export function CodeSeatsSection(): JSX.Element {
                         key: 'plan',
                         align: 'center',
                         render: (_, seat: SeatData) => {
-                            if (isAlphaPlanKey(seat.plan_key)) {
-                                return (
-                                    <Tooltip
-                                        title={`Alpha seats will be migrated to the free plan on ${ALPHA_PLAN_MIGRATION_DATE}.`}
-                                    >
-                                        <LemonTag type="completion">{planLabel(seat.plan_key)}</LemonTag>
-                                    </Tooltip>
-                                )
-                            }
                             return (
-                                <LemonTag type={isProPlanKey(seat.plan_key) ? 'primary' : 'muted'}>
+                                <LemonTag
+                                    type={
+                                        isAlphaPlanKey(seat.plan_key)
+                                            ? 'completion'
+                                            : isProPlanKey(seat.plan_key)
+                                              ? 'primary'
+                                              : 'muted'
+                                    }
+                                >
                                     {planLabel(seat.plan_key)}
                                 </LemonTag>
                             )
@@ -179,76 +157,31 @@ export function CodeSeatsSection(): JSX.Element {
                         key: 'actions',
                         width: 0,
                         render: (_, seat: SeatData) => {
-                            if (!billing?.has_active_subscription || !isAdmin) {
-                                return null
-                            }
-                            const canUpgrade =
-                                seat.status === 'active' &&
-                                !isProPlanKey(seat.plan_key) &&
-                                !isAlphaPlanKey(seat.plan_key)
-                            const canCancel = seat.status === 'active'
-                            const canReactivate = canReactivateSeat(seat)
-
-                            if (!canUpgrade && !canCancel && !canReactivate) {
+                            if (!canCancelSeat(seat, isAdmin)) {
                                 return null
                             }
 
                             return (
                                 <More
                                     overlay={
-                                        <>
-                                            {canUpgrade && (
-                                                <LemonButton
-                                                    fullWidth
-                                                    onClick={() => {
-                                                        LemonDialog.open({
-                                                            title: 'Upgrade this seat to Pro?',
-                                                            description:
-                                                                'A prorated charge will be applied for the remainder of the billing period. This cannot be reverted without canceling.',
-                                                            primaryButton: {
-                                                                children: 'Upgrade to Pro',
-                                                                onClick: () =>
-                                                                    adminUpgradeSeat(
-                                                                        seat.user_distinct_id,
-                                                                        CODE_PLAN_PRO
-                                                                    ),
-                                                            },
-                                                            secondaryButton: { children: 'Cancel' },
-                                                        })
-                                                    }}
-                                                >
-                                                    Upgrade to Pro
-                                                </LemonButton>
-                                            )}
-                                            {canReactivate && (
-                                                <LemonButton
-                                                    fullWidth
-                                                    onClick={() => adminReactivateSeat(seat.user_distinct_id)}
-                                                >
-                                                    Reactivate
-                                                </LemonButton>
-                                            )}
-                                            {canCancel && (
-                                                <LemonButton
-                                                    fullWidth
-                                                    onClick={() => {
-                                                        LemonDialog.open({
-                                                            title: 'Cancel this seat?',
-                                                            description:
-                                                                'The seat will remain active until the end of the current billing period.',
-                                                            primaryButton: {
-                                                                children: 'Cancel seat',
-                                                                status: 'danger',
-                                                                onClick: () => adminCancelSeat(seat.user_distinct_id),
-                                                            },
-                                                            secondaryButton: { children: 'Keep seat' },
-                                                        })
-                                                    }}
-                                                >
-                                                    Cancel seat
-                                                </LemonButton>
-                                            )}
-                                        </>
+                                        <LemonButton
+                                            fullWidth
+                                            onClick={() => {
+                                                LemonDialog.open({
+                                                    title: 'Cancel this seat?',
+                                                    description:
+                                                        'The seat will remain active until the end of the current billing period.',
+                                                    primaryButton: {
+                                                        children: 'Cancel seat',
+                                                        status: 'danger',
+                                                        onClick: () => adminCancelSeat(seat.user_distinct_id),
+                                                    },
+                                                    secondaryButton: { children: 'Keep seat' },
+                                                })
+                                            }}
+                                        >
+                                            Cancel seat
+                                        </LemonButton>
                                     }
                                 />
                             )

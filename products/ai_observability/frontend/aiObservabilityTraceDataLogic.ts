@@ -19,7 +19,7 @@ import {
 import { InsightLogicProps } from '~/types'
 
 import type { aiObservabilityTraceDataLogicType } from './aiObservabilityTraceDataLogicType'
-import { aiObservabilityTraceLogic } from './aiObservabilityTraceLogic'
+import { type TraceGitMetadata, aiObservabilityTraceLogic } from './aiObservabilityTraceLogic'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { captureNormalizationFailure, normalizeMessages } from './messageNormalization'
 import {
@@ -29,7 +29,7 @@ import {
     findSidebarOccurrences,
     findTraceOccurrences,
 } from './searchUtils'
-import { formatLLMUsage, getEventType, getSessionID, isLLMEvent } from './utils'
+import { formatLLMUsage, getEventType, getSessionID, isLLMEvent, operationStartMs } from './utils'
 
 export interface TraceDataLogicProps {
     traceId: string
@@ -178,6 +178,43 @@ export function reportTraceNormalizationFailures(trace: LLMTrace): void {
             captureNormalizationFailure(output)
         }
     }
+}
+
+function nonEmptyStringProp(value: unknown): string | null {
+    return typeof value === 'string' && value.length > 0 ? value : null
+}
+
+// Default-branch names to look past when a trace spans a branch switch. The frontend doesn't know
+// the repo's real base ref; these cover GitHub's defaults, and a trace stamped only with them still
+// surfaces that stamp via the fallback below.
+const DEFAULT_BRANCHES = new Set(['master', 'main'])
+
+// A coding agent often starts a session on the default branch and creates the feature branch
+// mid-trace, so the first stamped event can carry master/main while the work (and the PR the spend
+// belongs to) lives on a later stamp. Prefer the latest non-default branch stamp — the branch the
+// trace's most recent work happened on — and fall back to the first stamped event when the trace
+// never left the default branch.
+export function deriveTraceGitMetadata(trace: LLMTrace | undefined): TraceGitMetadata | null {
+    if (!trace) {
+        return null
+    }
+    // The trace's capture time scopes branch→PR resolution to the moment the work ran, so a reused
+    // branch name resolves to the PR active then rather than whichever PR is newest now.
+    const timestamp = nonEmptyStringProp(trace.createdAt)
+    let first: TraceGitMetadata | null = null
+    let lastFeature: TraceGitMetadata | null = null
+    for (const event of trace.events) {
+        const branch = nonEmptyStringProp(event.properties.$ai_git_branch)
+        const repo = nonEmptyStringProp(event.properties.$ai_git_repo)
+        if (!branch && !repo) {
+            continue
+        }
+        first = first ?? { branch, repo, timestamp }
+        if (branch && !DEFAULT_BRANCHES.has(branch)) {
+            lastFeature = { branch, repo, timestamp }
+        }
+    }
+    return lastFeature ?? first
 }
 
 export const aiObservabilityTraceDataLogic = kea<aiObservabilityTraceDataLogicType>([
@@ -343,6 +380,7 @@ export const aiObservabilityTraceDataLogic = kea<aiObservabilityTraceDataLogicTy
             (trace): LLMTraceEvent[] | undefined =>
                 trace?.events.filter((event) => event.event === '$ai_feedback' && event.properties.$ai_feedback_text),
         ],
+        traceGitMetadata: [(s) => [s.trace], (trace): TraceGitMetadata | null => deriveTraceGitMetadata(trace)],
         metricsAndFeedbackEvents: [
             (s) => [s.metricEvents, s.feedbackEvents],
             (metricEvents, feedbackEvents): { metric: string; value: any }[] =>
@@ -393,6 +431,10 @@ export const aiObservabilityTraceDataLogic = kea<aiObservabilityTraceDataLogicTy
                 }
                 return undefined
             },
+        ],
+        highlightedEventId: [
+            (s) => [s.event],
+            (event: LLMTrace | LLMTraceEvent | null): string | null => getHighlightedEventId(event),
         ],
         selectedNode: [
             (s) => [s.event, s.enrichedTree],
@@ -494,13 +536,21 @@ export const aiObservabilityTraceDataLogic = kea<aiObservabilityTraceDataLogicTy
                 actions.setEventId(mostRelevantEvent.id)
             }
         },
-        trace: (trace: LLMTrace | undefined) => {
+        trace: (trace: LLMTrace | undefined, oldTrace: LLMTrace | undefined) => {
             if (trace?.createdAt && props.traceId) {
                 aiObservabilityTraceLogic.actions.loadNeighbors(props.traceId, trace.createdAt)
             }
 
             if (trace?.distinctId) {
                 llmPersonsLazyLoaderLogic.actions.ensurePersonLoaded(trace.distinctId)
+            }
+
+            // Resolve the branch to a PR only when the branch or repo actually changed — re-dispatching
+            // on an unrelated trace update would refire the same resolution request.
+            const gitMetadata = values.traceGitMetadata
+            const previous = deriveTraceGitMetadata(oldTrace)
+            if (gitMetadata?.branch !== previous?.branch || gitMetadata?.repo !== previous?.repo) {
+                aiObservabilityTraceLogic.actions.loadBranchPRMatches(gitMetadata)
             }
 
             actions.reportSingleTraceLoadIfReady()
@@ -681,6 +731,10 @@ export function resolveTraceEventById(showableEvents: LLMTraceEvent[], effective
     )
 }
 
+export function getHighlightedEventId(event: LLMTrace | LLMTraceEvent | null): string | null {
+    return event && isLLMEvent(event) ? event.id : null
+}
+
 function findOrphanedRoots(idMap: Map<string, LLMTraceEvent>, traceId: string): string[] {
     const orphanedRoots: string[] = []
     for (const [eventId, event] of idMap) {
@@ -717,6 +771,21 @@ export function restoreTree(events: LLMTraceEvent[], traceId: string): TraceTree
         }
     }
 
+    // Order siblings by when their operation began (longer first on ties),
+    // matching the timeline — events are captured at completion, so raw
+    // timestamp order can differ.
+    const byOperationStart = (a: string, b: string): number => {
+        const eventA = idMap.get(a)
+        const eventB = idMap.get(b)
+        if (!eventA || !eventB) {
+            return 0
+        }
+        return (
+            operationStartMs(eventA) - operationStartMs(eventB) ||
+            (Number(eventB.properties.$ai_latency) || 0) - (Number(eventA.properties.$ai_latency) || 0)
+        )
+    }
+
     function traverse(spanId: any): TraceTreeNode | null {
         if (visitedNodes.has(spanId)) {
             console.warn('Circular reference detected in trace tree:', spanId)
@@ -732,7 +801,11 @@ export function restoreTree(events: LLMTraceEvent[], traceId: string): TraceTree
         const children = childrenMap.get(spanId)
         const result: TraceTreeNode = {
             event,
-            children: children?.map((child) => traverse(child)).filter((node): node is TraceTreeNode => node !== null),
+            children: children
+                ?.slice()
+                .sort(byOperationStart)
+                .map((child) => traverse(child))
+                .filter((node): node is TraceTreeNode => node !== null),
         }
 
         if (result.children && result.children.length > 0 && event.event !== '$ai_generation') {
@@ -744,6 +817,6 @@ export function restoreTree(events: LLMTraceEvent[], traceId: string): TraceTree
     }
 
     const directChildren = childrenMap.get(traceId) || []
-    const rootIds = [...directChildren, ...findOrphanedRoots(idMap, traceId)]
+    const rootIds = [...directChildren, ...findOrphanedRoots(idMap, traceId)].sort(byOperationStart)
     return rootIds.map((childId) => traverse(childId)).filter((node): node is TraceTreeNode => node !== null)
 }

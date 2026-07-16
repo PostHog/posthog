@@ -3,23 +3,10 @@ import { postSection } from '../../frontend/bin/ci-report/update-ci-report.mjs'
 
 const [workflowType, mode, changesJson, repo, commitSha, snapshotSha] = process.argv.slice(2)
 
-if (process.argv.length !== 7 && process.argv.length !== 8) {
+if (process.argv.length !== 8) {
     console.error(
-        'Usage: post-snapshot-section.mjs <workflow_type> <mode> <changes_json> <repo> <commit_sha> [snapshot_sha]'
+        'Usage: post-snapshot-section.mjs <workflow_type> <mode> <changes_json> <repo> <commit_sha> <snapshot_sha>'
     )
-    process.exit(0)
-}
-
-if (mode !== 'update') {
-    console.error(`Unknown mode: ${mode} — skipping snapshot section.`)
-    process.exit(0)
-}
-
-const changes = JSON.parse(changesJson)
-const { total, added, modified, deleted } = changes
-
-if (total === 0) {
-    console.info('No snapshot changes — nothing to post.')
     process.exit(0)
 }
 
@@ -75,6 +62,36 @@ const CONFIGS = {
 const config = CONFIGS[workflowType]
 if (!config) {
     console.error(`Unknown workflow type: ${workflowType} — skipping snapshot section.`)
+    process.exit(0)
+}
+
+if (mode === 'skip') {
+    const currentShort = snapshotSha.slice(0, 7)
+    const testedShort = commitSha.slice(0, 7)
+    await postSection(
+        {
+            id: config.id,
+            status: 'info',
+            summary: `skipped stale run for ${testedShort}`,
+            body: `Skipped the snapshot commit because the branch advanced to \`${currentShort}\` while the workflow was testing \`${testedShort}\`.
+
+The new commit will trigger its own snapshot update workflow. If a fresh run does not start, merge master or push an empty commit.`,
+        },
+        { legacyPrefixes: ['⏭️ Skipped snapshot commit because branch advanced'] }
+    )
+    process.exit(0)
+}
+
+if (mode !== 'update') {
+    console.error(`Unknown mode: ${mode} — skipping snapshot section.`)
+    process.exit(0)
+}
+
+const changes = JSON.parse(changesJson)
+const { total, added, modified, deleted } = changes
+
+if (total === 0) {
+    console.info('No snapshot changes — nothing to post.')
     process.exit(0)
 }
 

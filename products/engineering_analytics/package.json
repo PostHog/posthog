@@ -6,6 +6,7 @@
     },
     "dependencies": {
         "@posthog/icons": "catalog:",
+        "@posthog/quill-charts": "workspace:*",
         "kea": "catalog:",
         "kea-loaders": "catalog:",
         "kea-router": "catalog:"
@@ -14,6 +15,8 @@
         "kea-test-utils": "catalog:"
     },
     "peerDependencies": {
+        "@posthog/icons": "catalog:",
+        "@storybook/react": "catalog:",
         "@types/react": "*",
         "react": "*"
     }

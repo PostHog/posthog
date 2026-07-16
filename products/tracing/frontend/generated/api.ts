@@ -21,12 +21,13 @@ import type {
     _SymbolStatsResponseApi,
     _TracingAggregationRequestApi,
     _TracingAttributeBreakdownRequestApi,
+    _TracingAttributeBreakdownResponseApi,
     _TracingAttributesResponseApi,
     _TracingCountRequestApi,
     _TracingCountResponseApi,
+    _TracingDurationHistogramRequestApi,
     _TracingQueryRequestApi,
     _TracingSparklineRequestApi,
-    _TracingTimeseriesRequestApi,
     _TracingTraceRequestApi,
     _TracingTreeRequestApi,
 } from './api.schemas'
@@ -73,8 +74,8 @@ export const tracingSpansAttributeBreakdownCreate = async (
     projectId: string,
     _tracingAttributeBreakdownRequestApi: _TracingAttributeBreakdownRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getTracingSpansAttributeBreakdownCreateUrl(projectId), {
+): Promise<_TracingAttributeBreakdownResponseApi> => {
+    return apiMutator<_TracingAttributeBreakdownResponseApi>(getTracingSpansAttributeBreakdownCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -135,14 +136,14 @@ export const getTracingSpansDurationHistogramCreateUrl = (projectId: string) => 
 
 export const tracingSpansDurationHistogramCreate = async (
     projectId: string,
-    _tracingTimeseriesRequestApi: _TracingTimeseriesRequestApi,
+    _tracingDurationHistogramRequestApi: _TracingDurationHistogramRequestApi,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getTracingSpansDurationHistogramCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(_tracingTimeseriesRequestApi),
+        body: JSON.stringify(_tracingDurationHistogramRequestApi),
     })
 }
 

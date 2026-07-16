@@ -28,7 +28,7 @@ import structlog
 from prometheus_client import Counter
 
 from posthog.cloud_utils import is_cloud
-from posthog.dags.common import JobOwners
+from posthog.dags.common import JobOwners, chunk_ranges
 from posthog.models import Team
 
 from products.web_analytics.backend.hogql_queries.web_dimensional_precompute import (
@@ -77,22 +77,6 @@ def get_selected_team_ids() -> list[int]:
     if raw is None:
         return list(DEFAULT_ROLLOUT_TEAM_IDS) if is_cloud() else []
     return [int(part.strip()) for part in raw.split(",") if part.strip().isdigit()]
-
-
-def chunk_ranges(start: datetime, end: datetime, chunk_days: int) -> list[tuple[datetime, datetime]]:
-    """Split [start, end) into <=chunk_days sub-windows, newest first.
-
-    Newest-first so recent data (which carries the shortest TTL and is requested
-    most) is refreshed before older history is backfilled.
-    """
-    chunks = []
-    cur_end = end
-    step = timedelta(days=max(chunk_days, 1))
-    while cur_end > start:
-        cur_start = max(start, cur_end - step)
-        chunks.append((cur_start, cur_end))
-        cur_end = cur_start
-    return chunks
 
 
 WEB_DIMENSIONAL_PRECOMPUTE_TEAM_DONE = Counter(

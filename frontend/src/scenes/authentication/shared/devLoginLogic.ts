@@ -13,6 +13,8 @@ export interface DevUser {
 
 export const DEV_LOGIN_SECONDS_SAVED_PER_CLICK = 5
 
+export const DEV_LOGIN_DEFAULT_EMAIL = 'test@posthog.com'
+
 export const devLoginLogic = kea<devLoginLogicType>([
     path(['scenes', 'authentication', 'shared', 'devLoginLogic']),
     actions({
@@ -36,7 +38,13 @@ export const devLoginLogic = kea<devLoginLogicType>([
                     breakpoint()
                     try {
                         const response = await api.get<{ users: DevUser[] }>('api/login/dev')
-                        return response.users
+                        // Pin the default seeded user to the top; the rest keep the backend's alphabetical order.
+                        const users = [...response.users]
+                        const defaultIndex = users.findIndex((u) => u.email === DEV_LOGIN_DEFAULT_EMAIL)
+                        if (defaultIndex > 0) {
+                            users.unshift(...users.splice(defaultIndex, 1))
+                        }
+                        return users
                     } catch {
                         // Endpoint is unavailable unless allow_dev_login is set in preflight.
                         return []

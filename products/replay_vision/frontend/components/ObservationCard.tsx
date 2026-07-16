@@ -1,8 +1,11 @@
-import { IconRewindPlay, IconSparkles } from '@posthog/icons'
-import { LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { IconRefresh, IconRewindPlay, IconSparkles } from '@posthog/icons'
+import { LemonButton, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { colonDelimitedDuration } from 'lib/utils/durations'
 import { urls } from 'scenes/urls'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { ReplayObservationApi } from '../generated/api.schemas'
 import {
@@ -15,6 +18,7 @@ import {
     parseIneligibleReason,
     scannerTypeLabel,
 } from '../replay_scanners/types'
+import { parseCitedSegments } from '../utils/citations'
 import { ObservationProgressBar } from './ObservationProgressBar'
 
 export function ObservationStatusTag({
@@ -69,24 +73,6 @@ export function readResult(observation: ReplayObservationApi): Record<string, un
     return output && typeof output === 'object' ? (output as Record<string, unknown>) : null
 }
 
-// `uuid` is legacy — only old event-uuid citations carry it; timestamp citations use `timestamp_ms` alone.
-type Segment = { kind: 'text'; value: string } | { kind: 'chip'; timestamp_ms: number; uuid?: string }
-
-function isSegment(value: unknown): value is Segment {
-    if (!value || typeof value !== 'object') {
-        return false
-    }
-    const candidate = value as Partial<Segment>
-    if (candidate.kind === 'text') {
-        return typeof (candidate as { value?: unknown }).value === 'string'
-    }
-    if (candidate.kind === 'chip') {
-        const chip = candidate as Partial<Extract<Segment, { kind: 'chip' }>>
-        return typeof chip.timestamp_ms === 'number'
-    }
-    return false
-}
-
 /** Dumb renderer for parsed citation segments. Pass `onSeek` to make citation chips interactive; omit for plain-text timestamps. */
 export function CitedText({
     text,
@@ -97,7 +83,7 @@ export function CitedText({
     segments: unknown
     onSeek?: (timestampMs: number) => void
 }): JSX.Element {
-    const list = Array.isArray(segments) ? (segments.filter(isSegment) as Segment[]) : []
+    const list = parseCitedSegments(text, segments)
     if (list.length === 0) {
         return <>{text}</>
     }
@@ -374,9 +360,13 @@ export function IneligibleDetail({ errorReason }: { errorReason: string }): JSX.
 export function ObservationDockCard({
     observation,
     onSeek,
+    onRetry,
+    retrying = false,
 }: {
     observation: ReplayObservationApi
     onSeek?: (timestampMs: number) => void
+    onRetry?: () => void
+    retrying?: boolean
 }): JSX.Element {
     const snapshot = observation.scanner_snapshot
     const scannerType = snapshot?.scanner_type
@@ -396,7 +386,26 @@ export function ObservationDockCard({
             </div>
 
             {observation.status === 'failed' && observation.error_reason && (
-                <FailureDetail errorReason={observation.error_reason} />
+                <div className="space-y-2">
+                    <FailureDetail errorReason={observation.error_reason} />
+                    {onRetry && (
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.SessionRecording}
+                            minAccessLevel={AccessControlLevel.Editor}
+                        >
+                            <LemonButton
+                                size="xsmall"
+                                type="secondary"
+                                icon={<IconRefresh />}
+                                onClick={onRetry}
+                                loading={retrying}
+                                data-attr="vision-dock-retry-observation"
+                            >
+                                Retry scan
+                            </LemonButton>
+                        </AccessControlAction>
+                    )}
+                </div>
             )}
 
             {observation.status === 'ineligible' && observation.error_reason && (

@@ -10,6 +10,7 @@ import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { escapeHogQLString, hogql } from '~/queries/utils'
+import { LogEntryLevel, PersonType } from '~/types'
 
 import { hogFunctionsRerunCreate } from 'products/cdp/frontend/generated/api'
 import type { HogInvocationRerunFilterStatusEnumApi } from 'products/cdp/frontend/generated/api.schemas'
@@ -17,7 +18,7 @@ import { hogFlowsRerunCreate } from 'products/workflows/frontend/generated/api'
 
 import type { hogInvocationsLogicType } from './hogInvocationsLogicType'
 
-export const HOG_INVOCATIONS_PAGE_SIZE = 200
+export const HOG_INVOCATIONS_PAGE_SIZE = 100
 
 /** Display-side mirror of the backend cap. Backend enforces the actual limit via the
  * `HOG_INVOCATION_RERUN_MAX_COUNT` env var (Django serializer + Node CDP config). */
@@ -81,6 +82,14 @@ export interface HogInvocationsFilters {
      * aren't otherwise findable here without scanning the logs tab.
      */
     problem_only?: boolean
+    /**
+     * UUID of a person picked from the person search chip. Resolved on the frontend via
+     * `api.persons.list` (Django), then applied to the invocations query as a hard
+     * `AND person_id = '<uuid>'`. Keeps the invocations query on its own CH cluster —
+     * no cross-shard subquery against `persons`.
+     */
+    person_uuid?: string
+    log_levels?: LogEntryLevel[]
 }
 
 export interface HogInvocationsLogicProps {
@@ -120,6 +129,8 @@ const URL_PARAMS = {
     search: `${URL_PARAM_PREFIX}search`,
     order_by: `${URL_PARAM_PREFIX}order`,
     problem_only: `${URL_PARAM_PREFIX}problems`,
+    person_uuid: `${URL_PARAM_PREFIX}person`,
+    log_levels: `${URL_PARAM_PREFIX}log_levels`,
 } as const
 
 const filtersToSearchParams = (filters: HogInvocationsFilters): Record<string, string | undefined> => ({
@@ -131,6 +142,8 @@ const filtersToSearchParams = (filters: HogInvocationsFilters): Record<string, s
     [URL_PARAMS.search]: filters.search,
     [URL_PARAMS.order_by]: filters.order_by === 'first_scheduled' ? undefined : filters.order_by,
     [URL_PARAMS.problem_only]: filters.problem_only ? '1' : undefined,
+    [URL_PARAMS.person_uuid]: filters.person_uuid,
+    [URL_PARAMS.log_levels]: filters.log_levels?.length ? filters.log_levels.join(',') : undefined,
 })
 
 const searchParamsToFilters = (searchParams: Record<string, string | undefined>): Partial<HogInvocationsFilters> => {
@@ -164,6 +177,13 @@ const searchParamsToFilters = (searchParams: Record<string, string | undefined>)
     if (searchParams[URL_PARAMS.problem_only]) {
         next.problem_only = true
     }
+    if (searchParams[URL_PARAMS.person_uuid]) {
+        next.person_uuid = searchParams[URL_PARAMS.person_uuid]
+    }
+    const logLevels = searchParams[URL_PARAMS.log_levels]
+    if (logLevels) {
+        next.log_levels = logLevels.split(',').filter(Boolean) as LogEntryLevel[]
+    }
     return next
 }
 
@@ -175,9 +195,22 @@ const DEFAULT_FILTERS: HogInvocationsFilters = {
     kind: undefined,
     search: undefined,
     order_by: 'first_scheduled',
+    person_uuid: undefined,
 }
 
-const AUTO_REFRESH_INTERVAL_MS = 5000
+/**
+ * Build the `inv_`-prefixed router search params that deep-link the Invocations tab to a filter
+ * subset. Lets callers outside the tab (e.g. the workflow metrics tiles) point at it without
+ * duplicating the URL param scheme. Unset keys fall back to defaults and are dropped from the URL.
+ */
+export function buildHogInvocationsSearchParams(filters: Partial<HogInvocationsFilters>): Record<string, string> {
+    const params = filtersToSearchParams({ ...DEFAULT_FILTERS, ...filters })
+    return Object.fromEntries(
+        Object.entries(params).filter((entry): entry is [string, string] => entry[1] !== undefined)
+    )
+}
+
+const AUTO_REFRESH_INTERVAL_MS = 10000
 // After a rerun is enqueued the matching rows aren't `running` yet (the worker
 // drains asynchronously), so the `hasRunningRows` guard alone wouldn't restart
 // polling. Force a short polling window so the re-run rows surface on their own.
@@ -189,14 +222,22 @@ const scheduleAutoRefresh = (
     // dynamic so the narrow type isn't visible at this call site.
     cache: Record<string, any>,
     actions: { loadRuns: (payload: null) => void },
-    values: { hasRunningRows: boolean }
+    values: { hasRunningRows: boolean; runsLoading: boolean }
 ): void => {
     const forcing = typeof cache.forceRefreshUntil === 'number' && Date.now() < cache.forceRefreshUntil
     if (!values.hasRunningRows && !forcing) {
         return
     }
     cache.disposables.add(() => {
-        const timeoutId = setTimeout(() => actions.loadRuns(null), AUTO_REFRESH_INTERVAL_MS)
+        const timeoutId = setTimeout(() => {
+            // Skip this tick if a load is still in flight — don't stack a second
+            // heavy aggregation on ClickHouse. Re-arm so polling resumes once it settles.
+            if (values.runsLoading) {
+                scheduleAutoRefresh(cache, actions, values)
+            } else {
+                actions.loadRuns(null)
+            }
+        }, AUTO_REFRESH_INTERVAL_MS)
         return () => clearTimeout(timeoutId)
     }, 'autoRefresh')
 }
@@ -311,6 +352,45 @@ export const problemClauseFor = (
 }
 
 /**
+ * The main search box: one term matches an exact invocation / event / distinct / person id, OR — like
+ * the old Logs tab — a run that logged an entry whose message contains it (case-insensitive
+ * substring). `log_levels` narrows only the message match and is set solely by metric drill-downs
+ * (e.g. the "Bounced" tile carries WARN/ERROR so it doesn't also match the INFO "Email sent to
+ * bounce@…" log); manual searches leave it unset and match any level. The message subquery is
+ * deliberately not date-scoped — a bounce/complaint can land after the run's scheduled window, and
+ * the outer `scheduled_at` filter already bounds which invocations appear. Empty when no search.
+ */
+export const buildSearchClause = (
+    props: HogInvocationsLogicProps,
+    filters: HogInvocationsFilters
+): ReturnType<typeof hogql.raw> => {
+    const search = filters.search?.trim()
+    if (!search) {
+        return hogql.raw('')
+    }
+    const levels = filters.log_levels ?? []
+    const levelClause = levels.length
+        ? `AND lower(level) IN (${levels.map((level) => escapeHogQLString(level.toLowerCase())).join(',')})`
+        : ''
+    // Escape ILIKE wildcards for the message arm so a term with % or _ (e.g. "50%") matches literally
+    // (ClickHouse ILIKE uses backslash as its escape char); the exact-id arms use the raw term.
+    const likeTerm = search.replace(/[\\%_]/g, '\\$&')
+    return hogql.raw(
+        `AND (` +
+            `invocation_id = ${escapeHogQLString(search)} ` +
+            `OR event_uuid = ${escapeHogQLString(search)} ` +
+            `OR distinct_id = ${escapeHogQLString(search)} ` +
+            `OR person_id = ${escapeHogQLString(search)} ` +
+            `OR invocation_id IN (` +
+            `SELECT instance_id FROM log_entries ` +
+            `WHERE log_source = ${escapeHogQLString(props.functionKind)} ` +
+            `AND log_source_id = ${escapeHogQLString(props.id)} ` +
+            `AND message ILIKE concat('%', ${escapeHogQLString(likeTerm)}, '%') ` +
+            `${levelClause}))`
+    )
+}
+
+/**
  * Tier selection for the sparkline. Each tier carries both the HogQL bucket
  * expression and the equivalent client-side interval (in ms) so we can
  * generate every bucket boundary in the filter range, not just the ones CH
@@ -376,16 +456,11 @@ async function fetchSparkline(props: HogInvocationsLogicProps, filters: HogInvoc
     const optionalErrorKindClause = filters.error_kind?.length
         ? hogql.raw(`AND error_kind IN (${filters.error_kind.map(escapeHogQLString).join(',')})`)
         : hogql.raw('')
-    const trimmedSearch = filters.search?.trim()
-    const optionalSearchClause = trimmedSearch
-        ? hogql.raw(
-              `AND (
-                  invocation_id = ${escapeHogQLString(trimmedSearch)}
-                  OR event_uuid = ${escapeHogQLString(trimmedSearch)}
-                  OR distinct_id = ${escapeHogQLString(trimmedSearch)}
-                  OR person_id = ${escapeHogQLString(trimmedSearch)}
-              )`
-          )
+    // Person filter is applied as a hard equality on `person_id`. The UUID is resolved
+    // client-side via `api.persons.list` (Django/Postgres) — we can't join `persons` in
+    // the invocations query itself because the two tables live on different CH clusters.
+    const optionalPersonClause = filters.person_uuid
+        ? hogql.raw(`AND person_id = ${escapeHogQLString(filters.person_uuid)}`)
         : hogql.raw('')
 
     const kindClause = kindClauseFor(props, filters)
@@ -412,7 +487,8 @@ async function fetchSparkline(props: HogInvocationsLogicProps, filters: HogInvoc
             HAVING argMax(is_deleted, version) = 0
                ${optionalStatusClause}
                ${optionalErrorKindClause}
-               ${optionalSearchClause}
+               ${buildSearchClause(props, filters)}
+               ${optionalPersonClause}
                ${problemClauseFor(props, filters)}
         )
         GROUP BY bucket, status
@@ -467,16 +543,11 @@ async function fetchRunsPage(
     const optionalErrorKindClause = filters.error_kind?.length
         ? hogql.raw(`AND error_kind IN (${filters.error_kind.map(escapeHogQLString).join(', ')})`)
         : hogql.raw('')
-    const trimmedSearch = filters.search?.trim()
-    const optionalSearchClause = trimmedSearch
-        ? hogql.raw(
-              `AND (
-                  invocation_id = ${escapeHogQLString(trimmedSearch)}
-                  OR event_uuid = ${escapeHogQLString(trimmedSearch)}
-                  OR distinct_id = ${escapeHogQLString(trimmedSearch)}
-                  OR person_id = ${escapeHogQLString(trimmedSearch)}
-              )`
-          )
+    // Person filter is applied as a hard equality on `person_id`. The UUID is resolved
+    // client-side via `api.persons.list` (Django/Postgres) — we can't join `persons` in
+    // the invocations query itself because the two tables live on different CH clusters.
+    const optionalPersonClause = filters.person_uuid
+        ? hogql.raw(`AND person_id = ${escapeHogQLString(filters.person_uuid)}`)
         : hogql.raw('')
 
     // `ORDER BY max(scheduled_at)` is safe only because the SELECT alias isn't
@@ -514,7 +585,8 @@ async function fetchRunsPage(
         HAVING argMax(is_deleted, version) = 0
            ${optionalStatusClause}
            ${optionalErrorKindClause}
-           ${optionalSearchClause}
+           ${buildSearchClause(props, filters)}
+           ${optionalPersonClause}
            ${problemClauseFor(props, filters)}
         ${orderClause}
         LIMIT ${HOG_INVOCATIONS_PAGE_SIZE}
@@ -590,40 +662,44 @@ async function fetchRunsPage(
         }
     })
 
-    // Enrich the page with the worst log-entry level per invocation. An SES bounce/complaint
-    // (and similar async failures) writes an error/warn log entry after the invocation already
-    // finished `succeeded`, so without this a delivery failure reads as a clean success here.
-    // Best-effort: a failed lookup just leaves the rows without the indicator.
-    const ids = rows.map((r) => r.invocation_id)
-    if (ids.length > 0) {
-        const idClause = hogql.raw(`instance_id IN (${ids.map(escapeHogQLString).join(',')})`)
-        const severityQuery = hogql`
-            SELECT instance_id, max(multiIf(lower(level) = 'error', 2, lower(level) = 'warn', 1, 0)) AS sev
-            FROM log_entries
-            WHERE log_source = ${props.functionKind}
-              AND log_source_id = ${props.id}
-              AND ${idClause}
-            GROUP BY instance_id
-            HAVING sev > 0
-        `
-        try {
-            const severityResponse = await api.queryHogQL(severityQuery, {
-                scene: 'HogInvocations',
-                productKey: 'pipeline_destinations',
-            })
-            const levelByInvocationId: Record<string, 'warn' | 'error'> = {}
-            for (const severityRow of severityResponse.results ?? []) {
-                const [instanceId, sev] = severityRow as unknown as [string, number]
-                levelByInvocationId[instanceId] = Number(sev) >= 2 ? 'error' : 'warn'
-            }
-            for (const row of rows) {
-                row.problem_log_level = levelByInvocationId[row.invocation_id] ?? null
-            }
-        } catch {
-            // Leave problem_log_level as null — the run statuses are still accurate.
-        }
-    }
+    // Problem-level enrichment is deferred to `enrichProblems` so the table renders
+    // on the main query alone — the severity lookup patches the rows in afterwards.
     return rows
+}
+
+/**
+ * Worst log-entry level (`warn`/`error`) per invocation for the given page ids.
+ * An SES bounce/complaint (and similar async failures) writes an error/warn log entry
+ * after the invocation already finished `succeeded`, so without this a delivery failure
+ * reads as a clean success. Kept off the runs query's critical path — see `enrichProblems`.
+ */
+async function fetchProblemLevels(
+    props: HogInvocationsLogicProps,
+    ids: string[]
+): Promise<Record<string, 'warn' | 'error'>> {
+    if (ids.length === 0) {
+        return {}
+    }
+    const idClause = hogql.raw(`instance_id IN (${ids.map(escapeHogQLString).join(',')})`)
+    const severityQuery = hogql`
+        SELECT instance_id, max(multiIf(lower(level) = 'error', 2, lower(level) = 'warn', 1, 0)) AS sev
+        FROM log_entries
+        WHERE log_source = ${props.functionKind}
+          AND log_source_id = ${props.id}
+          AND ${idClause}
+        GROUP BY instance_id
+        HAVING sev > 0
+    `
+    const severityResponse = await api.queryHogQL(severityQuery, {
+        scene: 'HogInvocations',
+        productKey: 'pipeline_destinations',
+    })
+    const levelByInvocationId: Record<string, 'warn' | 'error'> = {}
+    for (const severityRow of severityResponse.results ?? []) {
+        const [instanceId, sev] = severityRow as unknown as [string, number]
+        levelByInvocationId[instanceId] = Number(sev) >= 2 ? 'error' : 'warn'
+    }
+    return levelByInvocationId
 }
 
 /**
@@ -647,6 +723,11 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
         rerunInvocations: (invocationIds: string[]) => ({ invocationIds }),
         bulkRerun: (params: BulkRerunParams) => ({ params }),
         setHasMore: (hasMore: boolean) => ({ hasMore }),
+        // Person filter picker: user picks a person from the typeahead → chip stays in the
+        // input row. Passing `null` clears the filter. `setFilters` still owns URL sync and
+        // refresh; `pickedPerson` just carries display state so the chip can render name/email
+        // without an extra roundtrip.
+        setPickedPerson: (person: PersonType | null) => ({ person }),
     }),
 
     reducers({
@@ -701,9 +782,21 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
                 setHasMore: () => true,
             },
         ],
+        pickedPerson: [
+            null as PersonType | null,
+            {
+                setPickedPerson: (_, { person }) => person,
+                // A URL-driven filter change without a matching pickedPerson means we came in
+                // from a shared link — clear the stale display until the hydrator populates it.
+                // `person.uuid` is the actual UUID; `person.id` is Django's numeric PK.
+                setFilters: (state, { filters }) =>
+                    'person_uuid' in filters && filters.person_uuid !== state?.uuid ? null : state,
+                resetFilters: () => null,
+            },
+        ],
     }),
 
-    loaders(({ props, values, actions }) => ({
+    loaders(({ props, values, actions, cache }) => ({
         runs: [
             [] as HogInvocationRow[],
             {
@@ -711,6 +804,12 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
                     await breakpoint(100)
                     const rows = await fetchRunsPage(props, values.filters, 0)
                     breakpoint()
+                    // Carry forward already-resolved problem levels so the indicator
+                    // doesn't flicker off each refresh before `enrichProblems` re-resolves it.
+                    const priorLevels = new Map(values.runs.map((r) => [r.invocation_id, r.problem_log_level]))
+                    for (const row of rows) {
+                        row.problem_log_level = priorLevels.get(row.invocation_id) ?? null
+                    }
                     actions.setHasMore(rows.length >= HOG_INVOCATIONS_PAGE_SIZE)
                     return rows
                 },
@@ -720,7 +819,35 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
                     const newRows = await fetchRunsPage(props, values.filters, offset)
                     breakpoint()
                     actions.setHasMore(newRows.length >= HOG_INVOCATIONS_PAGE_SIZE)
+                    // Prior pages are already enriched — stash the new ids so
+                    // `loadMoreSuccess` scopes the severity query to this page only.
+                    cache.lastPageInvocationIds = newRows.map((r) => r.invocation_id)
                     return [...values.runs, ...newRows]
+                },
+                // Deferred, best-effort enrichment — runs after the table renders and
+                // patches the worst log level onto each row without blocking the load.
+                // `invocationIds` scopes the severity query (Load More passes just the
+                // new page); null enriches every loaded row (refresh path).
+                enrichProblems: async (invocationIds: string[] | null, breakpoint) => {
+                    const ids = invocationIds ?? values.runs.map((r) => r.invocation_id)
+                    if (ids.length === 0) {
+                        return values.runs
+                    }
+                    let levelByInvocationId: Record<string, 'warn' | 'error'>
+                    try {
+                        levelByInvocationId = await fetchProblemLevels(props, ids)
+                    } catch {
+                        // Leave levels as-is — the run statuses are still accurate.
+                        return values.runs
+                    }
+                    breakpoint()
+                    // Patch onto the *current* runs (not a pre-await snapshot) so a refresh
+                    // that landed mid-flight isn't clobbered with a stale page; unresolved
+                    // rows keep any carried-forward level.
+                    return values.runs.map((row) => ({
+                        ...row,
+                        problem_log_level: levelByInvocationId[row.invocation_id] ?? row.problem_log_level ?? null,
+                    }))
                 },
             },
         ],
@@ -732,6 +859,26 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
                     const data = await fetchSparkline(props, values.filters)
                     breakpoint()
                     return data
+                },
+            },
+        ],
+        personSearchResults: [
+            [] as PersonType[],
+            {
+                searchPersons: async ({ search }: { search: string }, breakpoint) => {
+                    const trimmed = search.trim()
+                    if (!trimmed) {
+                        return []
+                    }
+                    // Debounce so quick typing doesn't fan out to N requests.
+                    await breakpoint(300)
+                    try {
+                        const response = await api.persons.list({ search: trimmed, limit: 10 })
+                        breakpoint()
+                        return response.results ?? []
+                    } catch {
+                        return []
+                    }
                 },
             },
         ],
@@ -783,7 +930,7 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
     selectors({
         statusCounts: [
             (s) => [s.runs],
-            (runs): Record<RunStatus, number> => {
+            (runs: HogInvocationRow[]): Record<RunStatus, number> => {
                 const counts: Record<RunStatus, number> = { running: 0, succeeded: 0, failed: 0 }
                 for (const r of runs) {
                     counts[r.status] = (counts[r.status] ?? 0) + 1
@@ -791,14 +938,17 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
                 return counts
             },
         ],
-        selectedCount: [(s) => [s.selectedIds], (selectedIds) => Object.keys(selectedIds).length],
+        selectedCount: [
+            (s) => [s.selectedIds],
+            (selectedIds: Record<string, boolean>) => Object.keys(selectedIds).length,
+        ],
         canBulkRerun: [
             (s) => [s.selectedCount],
-            (selectedCount) => selectedCount > 0 && selectedCount <= HOG_INVOCATIONS_RERUN_MAX_COUNT,
+            (selectedCount: number) => selectedCount > 0 && selectedCount <= HOG_INVOCATIONS_RERUN_MAX_COUNT,
         ],
         rerunableSelectedIds: [
             (s) => [s.selectedIds, s.runs],
-            (selectedIds, runs): string[] => {
+            (selectedIds: Record<string, boolean>, runs: HogInvocationRow[]): string[] => {
                 const ids = Object.keys(selectedIds)
                 if (ids.length === 0) {
                     return []
@@ -811,17 +961,20 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
                 })
             },
         ],
-        hasRunningRows: [(s) => [s.runs], (runs): boolean => runs.some((r) => r.status === 'running')],
+        hasRunningRows: [
+            (s) => [s.runs],
+            (runs: HogInvocationRow[]): boolean => runs.some((r) => r.status === 'running'),
+        ],
         selectableIds: [
             (s) => [s.runs],
-            (runs): string[] =>
+            (runs: HogInvocationRow[]): string[] =>
                 runs
                     .filter((r) => !isRerunWrapperKind(r.function_kind) && r.status !== 'running')
                     .map((r) => r.invocation_id),
         ],
         selectAllState: [
             (s) => [s.selectedIds, s.selectableIds],
-            (selectedIds, selectableIds): 'all' | 'some' | 'none' => {
+            (selectedIds: Record<string, boolean>, selectableIds: string[]): 'all' | 'some' | 'none' => {
                 if (selectableIds.length === 0) {
                     return 'none'
                 }
@@ -839,14 +992,39 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
             actions.loadRuns(null)
             actions.loadSparkline(null)
         },
-        setFilters: () => {
+        setFilters: async ({ filters }) => {
             actions.refresh()
+            // Hydrate the picked-person display when a shared link seeds `person_uuid`
+            // without a matching pickedPerson (e.g. someone pasted the URL).
+            if ('person_uuid' in filters && filters.person_uuid && values.pickedPerson?.uuid !== filters.person_uuid) {
+                const targetUuid = filters.person_uuid
+                try {
+                    const byUuid = await api.persons.getByUUIDs([targetUuid])
+                    // Re-check after the await: the user may have cleared the filter or picked a
+                    // different person while the hydrate was in flight. Restoring the stale hit
+                    // would silently reload invocations for the wrong person.
+                    if (values.filters.person_uuid !== targetUuid) {
+                        return
+                    }
+                    const person = byUuid[targetUuid]
+                    if (person) {
+                        actions.setPickedPerson(person)
+                    }
+                } catch {
+                    // Best-effort; the chip falls back to showing the raw UUID.
+                }
+            }
         },
         resetFilters: () => {
             actions.refresh()
         },
+        setPickedPerson: ({ person }) => {
+            actions.setFilters({ person_uuid: person?.uuid ?? undefined })
+        },
         loadRunsSuccess: () => {
             scheduleAutoRefresh(cache, actions, values)
+            // Full-list enrichment: a 10s poll can surface brand-new invocation ids.
+            actions.enrichProblems(null)
             const personIds = Array.from(new Set(values.runs.map((r) => r.person_id).filter(Boolean)))
             if (personIds.length > 0) {
                 actions.hydratePeople(personIds)
@@ -854,6 +1032,7 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
         },
         loadMoreSuccess: () => {
             scheduleAutoRefresh(cache, actions, values)
+            actions.enrichProblems((cache.lastPageInvocationIds as string[] | undefined) ?? null)
             const personIds = Array.from(new Set(values.runs.map((r) => r.person_id).filter(Boolean)))
             if (personIds.length > 0) {
                 actions.hydratePeople(personIds)

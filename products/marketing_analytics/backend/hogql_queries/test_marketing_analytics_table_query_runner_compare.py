@@ -31,7 +31,7 @@ from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
     ExternalDataSource,
 )
-from products.warehouse_sources.backend.test.utils import create_data_warehouse_table_from_csv
+from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
 TEST_DATE_FROM = "2024-11-01"
 TEST_DATE_TO = "2024-12-31"

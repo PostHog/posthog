@@ -8,6 +8,7 @@ from posthog.schema import (
     SourceConfig,
     SourceFieldFileUploadConfig,
     SourceFieldInputConfig,
+    SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
     SourceFieldSelectConfig,
     SourceFieldSSHTunnelConfig,
@@ -24,6 +25,7 @@ _SourceField = (
     | SourceFieldSwitchGroupConfig
     | SourceFieldSelectConfig
     | SourceFieldOauthConfig
+    | SourceFieldOauthAccountSelectConfig
     | SourceFieldFileUploadConfig
     | SourceFieldSSHTunnelConfig
 )

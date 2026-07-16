@@ -9,19 +9,19 @@ How scouts get discovered, scheduled, and dispatched; the two distribution paths
   No registration step.
 - **Config.** Each scout has one `SignalScoutConfig` per `(project, skill_name)` carrying `run_interval_minutes` (default 1440), `enabled`, `emit`, and a `last_run_at` stamp.
   A config is **auto-registered** the first time the coordinator sees a `signals-scout-*` skill without one — authoring the skill is enough to get a scout.
-  To configure a fresh scout immediately (instead of waiting for the tick), register the config yourself with `posthog:signals-scout-config-create`, setting the schedule / emit posture in the same call; until one of those happens, the scout has no config row and won't show in `-config-list`.
+  To configure a fresh scout immediately (instead of waiting for the tick), register the config yourself with `posthog:scout-config-create`, setting the schedule / emit posture in the same call; until one of those happens, the scout has no config row and won't show in `-config-list`.
   Config responses also carry the scout's `description`, read live from the skill's frontmatter — not a config field you set.
 - **Coordinator.** A periodic Temporal workflow ticks (~every 30 min).
   Each tick it bounds candidates to projects enrolled via the `signals-scout` feature-flag allowlist, then dispatches every **enabled** scout whose schedule is **due** (`last_run_at is None`, or `now - last_run_at ≥ run_interval_minutes`), most-overdue first, capped per tick.
   There is no sampling — every due scout runs.
   `last_run_at` advances for everything dispatched.
 - **Run.** Each dispatched scout becomes one sandboxed agent run with a short budget (single-digit minutes).
-  The body is the system prompt; the agent orients, explores, emits or remembers, and writes a one-paragraph summary to the run row.
+  The body is the system prompt; the agent orients, explores, files reports or remembers, and writes a one-paragraph summary to the run row.
 
 Pausing a scout = `enabled=false`.
 Slowing it = a larger `run_interval_minutes`.
 Dry-running it = `emit=false`.
-All three via `posthog:signals-scout-config-update` (get the `id` from `-config-list`), or set at creation time via `-config-create`.
+All three via `posthog:scout-config-update` (get the `id` from `-config-list`), or set at creation time via `-config-create`.
 
 ## Path A — per-team (skills store)
 
@@ -35,12 +35,12 @@ posthog:skill-list {"search": "signals-scout"}
 # Read a canonical scout to use as a template
 posthog:skill-get {"skill_name": "signals-scout-error-tracking"}
 
-# New scout from scratch
-posthog:skill-create {"name": "signals-scout-<scope>", "description": "...", "body": "...", "compatibility": "...", "metadata": {"owner_team": "<team>", "scope": "<scope>"}}
+# New scout from scratch — always include the report-channel allowed_tools
+posthog:skill-create {"name": "signals-scout-<scope>", "description": "...", "body": "...", "allowed_tools": ["emit_report", "edit_report"], "compatibility": "...", "metadata": {"owner_team": "<team>", "scope": "<scope>"}}
 
 # Register its config immediately with the schedule you want (otherwise the coordinator
 # auto-registers the default every-24-hours schedule on its next tick)
-posthog:signals-scout-config-create {"skill_name": "signals-scout-<scope>", "run_interval_minutes": 120}
+posthog:scout-config-create {"skill_name": "signals-scout-<scope>", "run_interval_minutes": 120}
 
 # Adapt an existing per-team scout — use the SMALLEST primitive (find/replace, not full-body)
 posthog:skill-get {"skill_name": "signals-scout-<scope>"}          # get current version first
@@ -60,8 +60,8 @@ Notes:
   Every write bumps an immutable `version`; chain further edits via `base_version`.
 - **Divergence:** once you edit a canonical scout's row for your team, canonical sync treats it as **diverged** and stops force-updating it — you keep your edits but lose upstream improvements to that scout.
   To customize _without_ diverging, `duplicate` the canonical scout into a new `signals-scout-<your-scope>` row and edit that; leave the original alone.
-- Emitting needs the `signal_scout_internal:write` scope (the sandbox has it).
-  Authoring a scout doesn't require it — only the harness emits.
+- Writing reports needs the `signal_scout_report:write` scope, and the scratchpad needs `signal_scout_internal:write` (the sandbox has both).
+  Authoring a scout doesn't require either — only the harness writes.
 
 ## Path B — canonical (in-repo, for PostHog contributors)
 
@@ -82,11 +82,11 @@ Authoring a new canonical scout is just creating `signals-scout-<scope>/SKILL.md
 
 ## Testing
 
-**Dogfood the scout yourself first — before spending any real run.** The authoring agent has the same PostHog MCP tools a scout uses at runtime (`execute-sql`, `read-data-schema`, the per-product list tools, `signals-scout-project-profile-get`), so the cheapest iteration is to walk the scout's own logic against the live project by hand: confirm the watched entity exists and has the assumed shape, run the **discriminator** to check it separates signal from noise on this project's data, and run each **explore pattern**'s queries.
+**Dogfood the scout yourself first — before spending any real run.** The authoring agent has the same PostHog MCP tools a scout uses at runtime (`execute-sql`, `read-data-schema`, the per-product list tools, `scout-project-profile-get`), so the cheapest iteration is to walk the scout's own logic against the live project by hand: confirm the watched entity exists and has the assumed shape, run the **discriminator** to check it separates signal from noise on this project's data, and run each **explore pattern**'s queries.
 Free and instant — refine the body, re-run the queries, repeat, until the logic holds on real data.
 
 Only once you're happy do you spend a real run.
-`posthog:signals-scout-run-now {"id": <config_id>}` dispatches one run of the scout immediately, regardless of its schedule (get the `id` from `-config-list`) — the **initial real run**, the scout executing end-to-end in the harness.
+`posthog:scout-run-now {"id": <config_id>}` dispatches one run of the scout immediately, regardless of its schedule (get the `id` from `-config-list`) — the **initial real run**, the scout executing end-to-end in the harness.
 The run is **asynchronous** — the call returns a workflow id right away; poll `-runs-list` / `-runs-retrieve` for the result.
 A disabled scout can still be run this way (test before enabling), and a manual run doesn't touch the schedule or `last_run_at`.
 It inherits the scheduled path's guards (403 not enabled, 429 over quota / daily run budget, 409 a run already in progress) and draws from the **same daily run budget** as scheduled runs — a dry-run (`emit=false`) counts too.
@@ -97,14 +97,14 @@ The loop is **dogfood → run once ready → inspect**:
 1. Dogfood the discriminator + explore patterns yourself against the live project (above), refining the body until the logic holds — the cheap, iterable part.
 2. Author the scout and register its config (`-config-create`, default `emit=true`), leaving `run_interval_minutes` at a sustainable value — no short-interval trick needed.
    Then spend one `-run-now` to watch the whole scout execute end-to-end, and inspect once it finishes:
-   - `posthog:inbox-reports-list` — the findings it actually emitted.
-   - `posthog:signals-scout-runs-list` — run summaries.
-   - `posthog:signals-scout-runs-retrieve` — the full reasoning for one run.
-   - `posthog:signals-scout-scratchpad-search` — the durable memory it wrote.
+   - `posthog:inbox-reports-list` — the reports it actually wrote.
+   - `posthog:scout-runs-list` — run summaries.
+   - `posthog:scout-runs-retrieve` — the full reasoning for one run.
+   - `posthog:scout-scratchpad-search` — the durable memory it wrote.
 3. If it needs work, go back to dogfooding the queries by hand for the iteration, re-edit via `skill-update`, and spend another `-run-now` only once you've batched a meaningful change.
 
-**Extra-careful variant — dry-run first.** For a scout you expect to be chatty, expensive, or high-stakes, set `emit=false` so it runs and logs what it _would_ have emitted (visible in `-runs-list` / `-runs-retrieve`) without writing to the inbox.
+**Extra-careful variant — dry-run first.** For a scout you expect to be chatty, expensive, or high-stakes, set `emit=false` so it runs and logs what it _would_ have written (visible in `-runs-list` / `-runs-retrieve`) without writing to the inbox.
 Trigger it with `-run-now`, inspect, refine, then `config-update` to `emit=true`.
-For most scouts, emitting straight away and watching the inbox is the faster calibration.
+For most scouts, writing straight away and watching the inbox is the faster calibration.
 
 Repo contributors additionally get `hogli sync:skill` to run the scout against the local harness for a tighter loop before merging.

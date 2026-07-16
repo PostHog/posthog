@@ -1,10 +1,15 @@
 import * as motion from 'motion/react-client'
 import { ComponentType } from 'react'
 
-import { HedgehogMagnifyingGlass, HedgehogShocked } from '@posthog/brand/hoggies'
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
+import * as shockedPng from '@posthog/brand/hoggies/png/shocked'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { WavingHog } from 'lib/components/hedgehogs'
+
+const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
+const HedgehogShocked = pngHoggie(shockedPng)
 
 interface Props {
     type: 'question' | 'survey'

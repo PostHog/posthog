@@ -1,7 +1,7 @@
 import json
 import logging
 from collections.abc import Sequence
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from functools import lru_cache
 from typing import Any, Union, cast
 
@@ -69,11 +69,14 @@ from posthog.helpers.trigram_search import (
     NAME_FIELD,
     TrigramSearchField,
     apply_trigram_search,
+    drop_similar_when_exact_exists,
 )
 from posthog.hogql_queries.apply_dashboard_filters import (
     WRAPPER_NODE_KINDS,
     apply_dashboard_filters_to_dict,
     apply_dashboard_variables_to_dict,
+    resolve_effective_dashboard_filters,
+    resolve_filter_layers_by_priority,
 )
 from posthog.hogql_queries.legacy_compatibility.feature_flag import get_query_method
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
@@ -88,6 +91,8 @@ from posthog.models import Filter, User
 from posthog.models.activity_logging.activity_log import (
     Change,
     Detail,
+    LogActivityEntry,
+    bulk_log_activity,
     changes_between,
     describe_change,
     load_activity,
@@ -107,11 +112,16 @@ from posthog.rate_limit import (
     ClickHouseSustainedRateThrottle,
 )
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlError, UserAccessControlSerializerMixin
+from posthog.rbac.user_access_control import (
+    UserAccessControlError,
+    UserAccessControlSerializerMixin,
+    access_level_satisfied_for_resource,
+)
 from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.settings import CAPTURE_TIME_TO_SEE_DATA, SITE_URL
+from posthog.shared_link_user import SharedLinkUser
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import (
     filters_override_requested_by_client,
@@ -126,11 +136,13 @@ from products.alerts.backend.models.alert import AlertConfiguration
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.product_analytics.backend.api.insight_metadata import generate_insight_metadata
+from products.product_analytics.backend.api.insight_metadata import (
+    InsightMetadataTimeoutError,
+    generate_insight_metadata,
+)
 from products.product_analytics.backend.api.insight_suggestions import get_insight_analysis, get_insight_suggestions
 from products.product_analytics.backend.api.insight_variable import map_stale_to_latest
 from products.product_analytics.backend.models.insight import Insight, InsightViewed
-from products.product_analytics.backend.models.insight_caching_state import InsightCachingState
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 from common.hogvm.python.utils import HogVMException
@@ -441,23 +453,16 @@ class QueryFieldSerializer(serializers.Serializer):
         return data
 
 
-def _last_refresh_for_shared_gate(insight: Insight, dashboard_tile: DashboardTile | None) -> datetime | None:
-    """Throttle clock for `?refresh=force_blocking` on shared insights. On DB error, returns
-    ``now()`` so the gate fails closed."""
-    try:
-        if dashboard_tile is not None:
-            cs = next(iter(dashboard_tile.caching_states.all()), None)
-        else:
-            cs = (
-                InsightCachingState.objects.filter(insight=insight, dashboard_tile=None)
-                .only("last_refresh", "created_at")
-                .first()
-            )
-    except Exception:
-        return datetime.now(UTC)
-    if cs is None:
-        return insight.created_at
-    return cs.last_refresh or cs.created_at
+class InsightFilterOverrideContext(BaseModel):
+    dashboard: schema.DashboardFilter | None = PydanticField(
+        default=None, description="Dashboard filters that remain active after applying tile precedence."
+    )
+    tile: schema.DashboardFilter | None = PydanticField(
+        default=None, description="Tile filters applied above the dashboard filters."
+    )
+    overridden_dashboard: schema.DashboardFilter | None = PydanticField(
+        default=None, description="Dashboard filters replaced by the tile filters."
+    )
 
 
 class InsightSerializer(InsightBasicSerializer):
@@ -514,6 +519,11 @@ class InsightSerializer(InsightBasicSerializer):
     resolved_date_range = serializers.SerializerMethodField(read_only=True)
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
     alerts = serializers.SerializerMethodField(read_only=True)
+    filter_override_context = serializers.SerializerMethodField(
+        read_only=True,
+        allow_null=True,
+        help_text="Resolved dashboard and tile filter layers used to explain filter precedence in the UI.",
+    )
 
     class Meta:
         model = Insight
@@ -555,6 +565,7 @@ class InsightSerializer(InsightBasicSerializer):
             "resolved_date_range",
             "_create_in_folder",
             "alerts",
+            "filter_override_context",
             "last_viewed_at",
             "search_match_type",
         ]
@@ -950,6 +961,30 @@ class InsightSerializer(InsightBasicSerializer):
 
         return AlertSerializer(alerts, many=True, context=self.context).data
 
+    @extend_schema_field(InsightFilterOverrideContext)  # type: ignore[arg-type]
+    def get_filter_override_context(self, insight: Insight) -> dict[str, object] | None:
+        dashboard: Dashboard | None = self.context.get("dashboard")
+        request: Request | None = self.context.get("request")
+        if request is None:
+            return None
+
+        is_shared = self.context.get("is_shared", False)
+        dashboard_filters_override = filters_override_requested_by_client(request, dashboard, is_shared=is_shared)
+        dashboard_tile = self.dashboard_tile_from_context(insight, dashboard)
+        tile_filters_override = tile_filters_override_requested_by_client(request, dashboard_tile, is_shared=is_shared)
+        dashboard_filters = (
+            dashboard_filters_override
+            if dashboard_filters_override is not None
+            else dashboard.filters
+            if dashboard
+            else {}
+        )
+        if not dashboard_filters and not tile_filters_override:
+            return None
+
+        resolved_layers = resolve_filter_layers_by_priority(dashboard_filters, tile_filters_override)
+        return {key: value or None for key, value in resolved_layers.items()}
+
     def get_effective_restriction_level(self, insight: Insight) -> Dashboard.RestrictionLevel:
         if self.context.get("is_shared"):
             return Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
@@ -965,8 +1000,6 @@ class InsightSerializer(InsightBasicSerializer):
 
         # Check if user has access to this insight when viewed in dashboard context
         if self.context.get("dashboard"):
-            from posthog.rbac.user_access_control import access_level_satisfied_for_resource
-
             user_access_level = representation.get("user_access_level")
             if user_access_level and not access_level_satisfied_for_resource("insight", user_access_level, "viewer"):
                 # User doesn't have sufficient access - return minimal insight data
@@ -987,35 +1020,44 @@ class InsightSerializer(InsightBasicSerializer):
 
         dashboard: Dashboard | None = self.context.get("dashboard")
         request: Request | None = self.context.get("request")
-        dashboard_filters_override = filters_override_requested_by_client(request, dashboard) if request else None
+        is_shared = self.context.get("is_shared", False)
+        dashboard_filters_override = (
+            filters_override_requested_by_client(request, dashboard, is_shared=is_shared) if request else None
+        )
         dashboard_variables_override = variables_override_requested_by_client(
-            request, dashboard, list(self.context["insight_variables"])
+            request, dashboard, list(self.context["insight_variables"]), is_shared=is_shared
         )
 
-        # Tile filters completely replace dashboard filters (same semantics as the compute path in
-        # calculate_results.py). Without this, the returned `query` field would reflect dashboard
-        # filters while the cached result was computed with tile filters — causing the persons modal
-        # to use a different filter set than the chart.
+        # Tile filters merge on top of dashboard filters (same semantics as the compute path in
+        # calculate_results.py). Keeping this in sync ensures the returned `query` field matches the
+        # filter set the cached result was computed with — otherwise the persons modal would use a
+        # different filter set than the chart.
         dashboard_tile = self.dashboard_tile_from_context(instance, dashboard)
-        tile_filters_override = tile_filters_override_requested_by_client(request, dashboard_tile) if request else {}
+        tile_filters_override = (
+            tile_filters_override_requested_by_client(request, dashboard_tile, is_shared=is_shared) if request else {}
+        )
 
         if instance.query is not None or instance.query_from_filters is not None:
-            query = instance.query or instance.query_from_filters
+            # Upgrade before applying dashboard filters: the stored query may predate the current
+            # schema, and apply_dashboard_filters_to_dict validates against the latest one
+            query = upgrade(instance.query or instance.query_from_filters)
             if (
                 dashboard is not None
                 or dashboard_filters_override is not None
                 or dashboard_variables_override is not None
+                or tile_filters_override
             ):
-                effective_filters = (
-                    tile_filters_override
-                    if tile_filters_override
-                    else (
-                        dashboard_filters_override
-                        if dashboard_filters_override is not None
-                        else dashboard.filters
-                        if dashboard
-                        else {}
-                    )
+                base_filters = (
+                    dashboard_filters_override
+                    if dashboard_filters_override is not None
+                    else dashboard.filters
+                    if dashboard
+                    else {}
+                )
+                # Same dashboard+tile+insight precedence the compute path applies in calculate_results.py,
+                # so the returned query matches what the cached result was actually computed with.
+                query, effective_filters = resolve_effective_dashboard_filters(
+                    query, base_filters, tile_filters_override
                 )
                 query = apply_dashboard_filters_to_dict(
                     query,
@@ -1092,33 +1134,40 @@ class InsightSerializer(InsightBasicSerializer):
 
         with upgrade_query(insight):
             try:
+                is_shared = self.context.get("is_shared", False)
                 refresh_requested = refresh_requested_by_client(self.context["request"])
                 execution_mode = execution_mode_from_refresh(refresh_requested)
-                filters_override = filters_override_requested_by_client(self.context["request"], dashboard)
+                filters_override = filters_override_requested_by_client(
+                    self.context["request"], dashboard, is_shared=is_shared
+                )
                 variables_override = variables_override_requested_by_client(
-                    self.context["request"], dashboard, list(self.context["insight_variables"])
+                    self.context["request"], dashboard, list(self.context["insight_variables"]), is_shared=is_shared
                 )
 
                 dashboard_tile = self.dashboard_tile_from_context(insight, dashboard)
                 tile_filters_override = tile_filters_override_requested_by_client(
-                    self.context["request"], dashboard_tile
+                    self.context["request"], dashboard_tile, is_shared=is_shared
                 )
 
-                is_shared = self.context.get("is_shared", False)
+                shared_cache_age_seconds: int | None = None
                 if is_shared:
-                    execution_mode = shared_insights_execution_mode(
-                        execution_mode,
-                        last_refresh=_last_refresh_for_shared_gate(insight, dashboard_tile),
-                    )
+                    execution_mode, shared_cache_age_seconds = shared_insights_execution_mode(execution_mode)
 
                 # Shared rendering bypasses the FE scene-tag flow, so set product/feature
                 # tags here. No-op overwrite for authenticated paths (same values).
                 shared_tags = {"access_method": AccessMethod.SHARING_TOKEN} if is_shared else {}
                 request_user = None if self.context["request"].user.is_anonymous else self.context["request"].user
+                if request_user is None and is_shared:
+                    # Anonymous shared views execute as the shared-link user, so
+                    # warehouse-backed tiles resolve instead of failing with "no access"
+                    request_user = self.context.get("shared_link_user")
                 # Reuse the request's single UserAccessControl across all of a dashboard's insight
                 # runners, so the cache fingerprint resolves access once per request, not per tile.
+                # Real users only - a shared-link viewer has no access-control snapshot.
                 view = self.context.get("view")
-                request_user_access_control = getattr(view, "user_access_control", None) if request_user else None
+                request_user_access_control = (
+                    getattr(view, "user_access_control", None) if isinstance(request_user, User) else None
+                )
                 with tags_context(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.INSIGHT, **shared_tags):
                     return calculate_for_query_based_insight(
                         insight,
@@ -1130,6 +1179,7 @@ class InsightSerializer(InsightBasicSerializer):
                         filters_override=filters_override,
                         variables_override=variables_override,
                         tile_filters_override=tile_filters_override,
+                        cache_age_seconds=shared_cache_age_seconds,
                         analytics_props=get_request_analytics_properties(self.context["request"]),
                     )
             except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
@@ -1266,6 +1316,50 @@ class InsightViewedRequestSerializer(serializers.Serializer):
     )
 
 
+INSIGHT_BULK_DELETE_MAX_IDS = 1000
+
+
+class InsightBulkDeleteRequestSerializer(serializers.Serializer):
+    ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        allow_empty=False,
+        max_length=INSIGHT_BULK_DELETE_MAX_IDS,
+        help_text=(
+            f"Insight IDs to soft-delete (or restore). At most {INSIGHT_BULK_DELETE_MAX_IDS} ids per request. "
+            "Soft-deleted insights can be brought back via the bulk_restore endpoint."
+        ),
+    )
+
+
+class InsightBulkOperationResultSerializer(serializers.Serializer):
+    id = serializers.IntegerField(help_text="ID of the insight that was soft-deleted or restored.")
+    name = serializers.CharField(
+        allow_null=True,
+        help_text="The insight's name (or derived name) at the time of the operation; null when it has neither.",
+    )
+
+
+class InsightBulkOperationSkippedSerializer(serializers.Serializer):
+    id = serializers.IntegerField(help_text="ID of the insight that was skipped.")
+    reason = serializers.CharField(
+        help_text="Human-readable reason the insight was skipped (for example, not found or no edit permission)."
+    )
+
+
+class InsightBulkDeleteResponseSerializer(serializers.Serializer):
+    deleted = InsightBulkOperationResultSerializer(many=True, help_text="Insights that were successfully soft-deleted.")
+    skipped = InsightBulkOperationSkippedSerializer(
+        many=True, help_text="Insights that were not deleted, with the reason for each."
+    )
+
+
+class InsightBulkRestoreResponseSerializer(serializers.Serializer):
+    restored = InsightBulkOperationResultSerializer(many=True, help_text="Insights that were successfully restored.")
+    skipped = InsightBulkOperationSkippedSerializer(
+        many=True, help_text="Insights that were not restored, with the reason for each."
+    )
+
+
 @extend_schema(extensions={"x-product": ProductKey.PRODUCT_ANALYTICS})
 @extend_schema_view(
     list=extend_schema(
@@ -1294,9 +1388,9 @@ Background calculation can be tracked using the `query_status` response field.""
                 name="search",
                 type=OpenApiTypes.STR,
                 description=(
-                    "Search term matched across name, derived_name, description, and tag names. Returns case-insensitive "
-                    "substring matches and fuzzy trigram matches together in one list, ordered exact-first; each "
-                    "result's `search_match_type` is `exact` or `similar`."
+                    "Search term matched across name, derived_name, description, and tag names. Returns exact "
+                    "(case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy "
+                    "trigram) matches instead. Each result's `search_match_type` is `exact` or `similar`."
                 ),
             ),
             OpenApiParameter(
@@ -1379,6 +1473,8 @@ class InsightViewSet(
     viewsets.ModelViewSet,
 ):
     scope_object = "insight"
+    # Record a tags change per insight when bulk_update_tags mutates it, matching the single-object path.
+    bulk_tag_activity_scope = "Insight"
     serializer_class = InsightSerializer
     throttle_classes = [
         ClickHouseBurstRateThrottle,
@@ -1458,6 +1554,10 @@ class InsightViewSet(
             self.request.successful_authenticator,
             SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication,
         )
+        if isinstance(self.request.user, SharedLinkUser):
+            # Sharing-token API refreshes authenticate as the shared-link viewer; expose it under
+            # the same context key the /shared/ page render uses (SharingViewerPageViewSet).
+            context["shared_link_user"] = self.request.user
         context["insight_variables"] = InsightVariable.objects.filter(team=self.team).all()
 
         return context
@@ -1504,7 +1604,11 @@ class InsightViewSet(
                 ),
                 Prefetch(
                     "alertconfiguration_set",
-                    queryset=AlertConfiguration.objects.select_related("created_by"),
+                    # AlertSerializer emits threshold and subscribed_users per alert; without these,
+                    # every alert in the list costs two extra queries
+                    queryset=AlertConfiguration.objects.select_related("created_by", "threshold").prefetch_related(
+                        "subscribed_users"
+                    ),
                     to_attr="_prefetched_alerts",
                 ),
             )
@@ -1540,6 +1644,9 @@ class InsightViewSet(
             if pk_match is not None:
                 return pk_match
         return queryset.filter(short_id=lookup_value).first()
+
+    def filter_queryset(self, queryset: QuerySet) -> QuerySet:
+        return drop_similar_when_exact_exists(super().filter_queryset(queryset))
 
     def order_queryset(self, queryset: QuerySet) -> QuerySet:
         order = self.request.GET.get("order", None)
@@ -1853,6 +1960,21 @@ When set, the specified dashboard's filters and date range override will be appl
                 .first()
             )
 
+            if dashboard_tile is not None:
+                authenticator = request.successful_authenticator
+                if isinstance(
+                    authenticator,
+                    SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication,
+                ):
+                    can_view_dashboard = authenticator.sharing_configuration.dashboard_id == dashboard_tile.dashboard_id
+                else:
+                    can_view_dashboard = self.user_access_control.check_access_level_for_object(
+                        dashboard_tile.dashboard, "viewer"
+                    )
+
+                if not can_view_dashboard:
+                    dashboard_tile = None
+
         if dashboard_tile is not None:
             # context is used in the to_representation method to report filters used
             serializer_context.update({"dashboard": dashboard_tile.dashboard})
@@ -2003,6 +2125,9 @@ When set, the specified dashboard's filters and date range override will be appl
 
         try:
             metadata = generate_insight_metadata(validated_query, self.team)
+        except InsightMetadataTimeoutError as e:
+            capture_exception(e)
+            raise APIException("Generating a name took too long. Please try again.")
         except Exception as e:
             capture_exception(e)
             raise APIException("Failed to generate insight metadata. Please try again.")
@@ -2181,6 +2306,159 @@ When set, the specified dashboard's filters and date range override will be appl
             )
 
         return Response(status=status.HTTP_201_CREATED)
+
+    # `Sequence` rather than `list` here: this viewset defines a `list` method that shadows the builtin `list`
+    # in the class namespace, so `list[...]` in this signature breaks both at class-definition time and for mypy.
+    def _bulk_filter_editable_insights(
+        self, ids: Sequence[int], *, deleted: bool
+    ) -> tuple[Sequence[Insight], Sequence[dict[str, Any]]]:
+        """Resolve `ids` to insights in this project with the given `deleted` state, split into the ones
+        the requester may edit and `skipped` entries (not found, or missing edit permission)."""
+        # objects_including_soft_deleted so the restore path (deleted=True) can find soft-deleted insights;
+        # the default manager excludes them.
+        insights = list(
+            Insight.objects_including_soft_deleted.filter(
+                id__in=ids, team__project_id=self.team.project_id, deleted=deleted
+            )
+        )
+        found_ids = {insight.id for insight in insights}
+        skipped: list[dict[str, Any]] = [
+            {"id": missing_id, "reason": "Insight not found"} for missing_id in ids if missing_id not in found_ids
+        ]
+
+        if not insights or not self.user_access_control:
+            return insights, skipped
+
+        self.user_access_control.preload_object_access_controls(cast(list, insights))
+        editable: list[Insight] = []
+        for insight in insights:
+            user_access_level = self.user_access_control.get_user_access_level(insight)
+            if user_access_level and access_level_satisfied_for_resource("insight", user_access_level, "editor"):
+                editable.append(insight)
+            else:
+                skipped.append({"id": insight.id, "reason": "You don't have permission to edit this insight"})
+        return editable, skipped
+
+    @validated_request(
+        request_serializer=InsightBulkDeleteRequestSerializer,
+        responses={200: OpenApiResponse(response=InsightBulkDeleteResponseSerializer)},
+        description=(
+            "Soft-delete insights in bulk by ID. Mirrors the single-insight delete: sets deleted=True, "
+            "soft-deletes the insights' dashboard tiles, and removes their linked alerts. Insights the "
+            "requester cannot edit are skipped and reported in `skipped`. Reversible via the bulk_restore endpoint."
+        ),
+    )
+    @action(methods=["POST"], detail=False, required_scopes=["insight:write"])
+    def bulk_delete(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        ids: list[int] = request.validated_data["ids"]
+        insights, skipped = self._bulk_filter_editable_insights(ids, deleted=False)
+
+        deleted: list[dict[str, Any]] = []
+        if insights:
+            current_user = cast(User, request.user)
+            was_impersonated = is_impersonated(request)
+            organization_id = current_user.current_organization_id
+            insight_ids = [insight.id for insight in insights]
+
+            with transaction.atomic():
+                Insight.objects_including_soft_deleted.filter(
+                    id__in=insight_ids, team__project_id=self.team.project_id
+                ).update(deleted=True, last_modified_at=now(), last_modified_by=current_user)
+                # Match InsightSerializer.update: hide the insights' tiles and remove linked alerts. Alerts are
+                # deleted one at a time (not a queryset .delete()) so ModelActivityMixin.delete logs each removal.
+                DashboardTile.objects_including_soft_deleted.filter(insight_id__in=insight_ids).update(deleted=True)
+                for alert in AlertConfiguration.objects.filter(insight_id__in=insight_ids):
+                    alert.delete()
+
+                activity_log_entries: list[LogActivityEntry] = []
+                for insight in insights:
+                    insight_name = insight.name or insight.derived_name
+                    deleted.append({"id": insight.id, "name": insight_name})
+                    # The experiments feature creates unnamed insights; the single-delete path skips logging those.
+                    if insight_name:
+                        activity_log_entries.append(
+                            LogActivityEntry(
+                                organization_id=organization_id,
+                                team_id=self.team_id,
+                                user=current_user,
+                                was_impersonated=was_impersonated,
+                                item_id=insight.id,
+                                scope="Insight",
+                                activity="deleted",
+                                detail=Detail(name=insight_name, short_id=insight.short_id),
+                            )
+                        )
+                bulk_log_activity(activity_log_entries)
+
+            self.user_permissions.reset_insights_dashboard_cached_results()
+
+        return Response({"deleted": deleted, "skipped": skipped})
+
+    @validated_request(
+        request_serializer=InsightBulkDeleteRequestSerializer,
+        responses={200: OpenApiResponse(response=InsightBulkRestoreResponseSerializer)},
+        description=(
+            "Restore soft-deleted insights in bulk by ID — the inverse of bulk_delete. Sets deleted=False and "
+            "re-activates the insights' dashboard tiles on dashboards that still exist. Linked alerts are not "
+            "restored (they are removed on delete). Insights the requester cannot edit are reported in `skipped`."
+        ),
+    )
+    @action(methods=["POST"], detail=False, required_scopes=["insight:write"])
+    def bulk_restore(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        ids: list[int] = request.validated_data["ids"]
+        insights, skipped = self._bulk_filter_editable_insights(ids, deleted=True)
+
+        restored: list[dict[str, Any]] = []
+        if insights:
+            current_user = cast(User, request.user)
+            was_impersonated = is_impersonated(request)
+            organization_id = current_user.current_organization_id
+            insight_ids = [insight.id for insight in insights]
+
+            with transaction.atomic():
+                Insight.objects_including_soft_deleted.filter(
+                    id__in=insight_ids, team__project_id=self.team.project_id
+                ).update(deleted=False, last_modified_at=now(), last_modified_by=current_user)
+                # Re-activate tiles linking these insights to live dashboards, but only ones the requester may
+                # edit — mirrors the per-dashboard CAN_EDIT check in InsightSerializer._update_insight_dashboards
+                # so a restore can't force an insight back onto a dashboard the user can only view. Tiles removed
+                # before the bulk delete may also reappear; acceptable for the immediate-undo case this backs.
+                candidate_tiles = DashboardTile.objects_including_soft_deleted.filter(
+                    insight_id__in=insight_ids, deleted=True, dashboard__deleted=False
+                ).select_related("dashboard")
+                restorable_tile_ids = [
+                    tile.id
+                    for tile in candidate_tiles
+                    if self.user_permissions.dashboard(tile.dashboard).effective_privilege_level
+                    == Dashboard.PrivilegeLevel.CAN_EDIT
+                ]
+                if restorable_tile_ids:
+                    DashboardTile.objects_including_soft_deleted.filter(id__in=restorable_tile_ids).update(
+                        deleted=False
+                    )
+
+                activity_log_entries: list[LogActivityEntry] = []
+                for insight in insights:
+                    insight_name = insight.name or insight.derived_name
+                    restored.append({"id": insight.id, "name": insight_name})
+                    if insight_name:
+                        activity_log_entries.append(
+                            LogActivityEntry(
+                                organization_id=organization_id,
+                                team_id=self.team_id,
+                                user=current_user,
+                                was_impersonated=was_impersonated,
+                                item_id=insight.id,
+                                scope="Insight",
+                                activity="restored",
+                                detail=Detail(name=insight_name, short_id=insight.short_id),
+                            )
+                        )
+                bulk_log_activity(activity_log_entries)
+
+            self.user_permissions.reset_insights_dashboard_cached_results()
+
+        return Response({"restored": restored, "skipped": skipped})
 
     @extend_schema(
         operation_id="insights_all_activity_retrieve",

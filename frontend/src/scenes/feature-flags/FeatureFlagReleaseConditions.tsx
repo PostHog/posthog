@@ -2,7 +2,6 @@ import './FeatureFlag.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { Fragment } from 'react'
 
 import { IconCopy, IconFlag, IconInfo, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonLabel, LemonSelect, LemonSnack, Link, Tooltip } from '@posthog/lemon-ui'
@@ -52,6 +51,7 @@ import {
     featureFlagReleaseConditionsLogic,
     isDistinctIdFilter,
 } from './featureFlagReleaseConditionsLogic'
+import { getPropertySelectErrorMessages } from './propertySelectErrorMessages'
 
 function PropertyValueComponent({
     property,
@@ -131,6 +131,7 @@ export function FeatureFlagReleaseConditions({
         propertySelectErrors,
         affectedCounts,
         totalCounts,
+        blastRadiusErrors,
         filtersTaxonomicOptions,
         aggregationTargetName,
         properties,
@@ -146,6 +147,7 @@ export function FeatureFlagReleaseConditions({
         addConditionSet,
         moveConditionSetUp,
         moveConditionSetDown,
+        calculateBlastRadiusForCondition,
     } = useActions(releaseConditionsLogic)
 
     const { showGroupsOptions, groupTypes, aggregationLabel } = useValues(groupsModel)
@@ -381,22 +383,7 @@ export function FeatureFlagReleaseConditions({
                                           }
                                         : undefined
                                 }
-                                errorMessages={
-                                    propertySelectErrors?.[index]?.properties?.some((message) => !!message.value)
-                                        ? propertySelectErrors[index].properties?.map((message, index) => {
-                                              return message.value ? (
-                                                  <div
-                                                      key={index}
-                                                      className="text-danger flex items-center gap-1 text-sm Field--error"
-                                                  >
-                                                      <IconErrorOutline className="text-xl" /> {message.value}
-                                                  </div>
-                                              ) : (
-                                                  <Fragment key={index} />
-                                              )
-                                          })
-                                        : null
-                                }
+                                errorMessages={getPropertySelectErrorMessages(propertySelectErrors, index)}
                                 hideBehavioralCohorts={!realtimeCohortFlagTargeting}
                             />
                         </div>
@@ -459,16 +446,39 @@ export function FeatureFlagReleaseConditions({
                                 of <b>{aggregationTargetName(group.aggregation_group_type_index)}</b> in this set.
                                 {(() => {
                                     const targetIndex = group.aggregation_group_type_index
+                                    const resolvedGroupTypeIndex = resolveAggregationGroupTypeIndex(
+                                        targetIndex,
+                                        filters.aggregation_group_type_index
+                                    )
                                     const pluralName = aggregationTargetName(targetIndex)
-                                    const singularName = aggregationLabel(
-                                        resolveAggregationGroupTypeIndex(
-                                            targetIndex,
-                                            filters.aggregation_group_type_index
-                                        ),
-                                        true
-                                    ).singular
-                                    const affected = group.sort_key ? affectedCounts[group.sort_key] : undefined
-                                    const total = group.sort_key ? totalCounts[group.sort_key] : undefined
+                                    const singularName = aggregationLabel(resolvedGroupTypeIndex, true).singular
+                                    const sortKey = group.sort_key
+                                    const affected = sortKey ? affectedCounts[sortKey] : undefined
+                                    const total = sortKey ? totalCounts[sortKey] : undefined
+                                    if (sortKey && blastRadiusErrors[sortKey]) {
+                                        return (
+                                            <div
+                                                role="status"
+                                                className="basis-full flex items-center gap-2 mt-1 text-secondary"
+                                            >
+                                                <IconErrorOutline className="text-danger text-base shrink-0" />
+                                                <span>Couldn't estimate how many {pluralName} match.</span>
+                                                <LemonButton
+                                                    type="secondary"
+                                                    size="xsmall"
+                                                    onClick={() =>
+                                                        calculateBlastRadiusForCondition(
+                                                            sortKey,
+                                                            group.properties,
+                                                            resolvedGroupTypeIndex
+                                                        )
+                                                    }
+                                                >
+                                                    Retry
+                                                </LemonButton>
+                                            </div>
+                                        )
+                                    }
                                     if (affected === undefined || affected < 0 || total === undefined) {
                                         return (
                                             <div className="basis-full flex items-center mt-1">
@@ -551,13 +561,12 @@ export function FeatureFlagReleaseConditions({
             description={
                 !readOnly &&
                 !excludeTitle && (
-                    <>
-                        <div className="text-secondary mb-2">
-                            Specify users for flag release. Condition sets are evaluated top to bottom - the first
-                            matching set is used. A condition matches when all property filters pass AND the target
-                            falls within the rollout percentage.
-                        </div>
-                    </>
+                    // span, not div: SceneSection renders the description inside a <p>
+                    <span className="block text-secondary mb-2">
+                        Specify users for flag release. Condition sets are evaluated top to bottom - the first matching
+                        set is used. A condition matches when all property filters pass AND the target falls within the
+                        rollout percentage.
+                    </span>
                 )
             }
         >

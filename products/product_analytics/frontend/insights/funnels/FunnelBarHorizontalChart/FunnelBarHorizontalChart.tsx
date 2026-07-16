@@ -103,9 +103,22 @@ export function FunnelBarHorizontalChart({
 
                     const onSegmentClick = (meta: FunnelBarHorizontalSegmentMeta): void => {
                         // Stacked breakdown + compare: the drop-off band aggregates every value for the
-                        // period, so it can't be scoped to one value and isn't clickable. Pure compare tags
-                        // each drop-off with its period's breakdownIndex, so it stays interactive.
+                        // period, so open the period's whole-step drop-off — compare-scoped, but with no
+                        // breakdown filter. Pure compare tags each drop-off with its period's
+                        // breakdownIndex instead, so it routes through the series branch below.
                         if (isComparedFunnel && meta.isDropOff && meta.breakdownIndex == null) {
+                            if (meta.compareLabel) {
+                                openPersonsModalForSeries({
+                                    step,
+                                    series: {
+                                        ...step,
+                                        breakdown: undefined,
+                                        breakdown_value: undefined,
+                                        compare_label: meta.compareLabel,
+                                    },
+                                    converted: false,
+                                })
+                            }
                             return
                         }
                         // Compare: both the bar and its drop-off filler carry a period breakdownIndex, so
@@ -143,6 +156,7 @@ export function FunnelBarHorizontalChart({
                             context={ctx}
                             step={step}
                             stepIndex={stepIndex}
+                            firstStep={steps[0]}
                             breakdownFilter={breakdownFilter}
                             groupTypeLabel={groupTypeLabel}
                             showPersonsModal={showPersonsModal}

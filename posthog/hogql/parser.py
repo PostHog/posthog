@@ -181,13 +181,14 @@ _PARSER_MODE_BACKENDS: dict[ParserMode, tuple[HogQLParserBackend, HogQLParserBac
 
 # Fraction of `*_shadow` parses in PROD that also run the shadow backend. With rust-py promoted to the default primary,
 # the shadow leg now runs the cpp parser on ~0.1% of requests purely as a divergence canary. Bump if a fresh regression
-# surfaces and tighter coverage is needed. Tests always sample 100%.
+# surfaces and tighter coverage is needed.
 _SHADOW_SAMPLE_RATE = 0.001
 
 
 def _shadow_sample_rate() -> float:
-    """Shadow sampling fraction: 100% in tests (every parse compared, regressions fail loud), `_SHADOW_SAMPLE_RATE` in
-    prod. Divergence behavior also differs by env (TEST raises, prod records) in `_run_shadow_comparison`."""
+    """Shadow sampling fraction: 100% in tests (an explicitly requested shadow mode compares every parse, so
+    regressions fail loud and deterministically), `_SHADOW_SAMPLE_RATE` in prod. Divergence behavior also differs
+    by env (TEST raises, prod records) in `_run_shadow_comparison`."""
     return 1.0 if settings.TEST else _SHADOW_SAMPLE_RATE
 
 
@@ -196,12 +197,18 @@ def _resolve_parser_mode(
 ) -> tuple[HogQLParserBackend, HogQLParserBackend | None]:
     """Resolve a `parserMode` modifier to `(primary, shadow)` backends.
 
-    With neither `parser_mode` nor an explicit `backend=` set, the default is
-    `RUST_PY_WITH_CPP_SHADOW`: rust-py is the primary (its result is always
-    returned) and cpp runs as the shadow, sampled per `_shadow_sample_rate`
-    (100% in test, 0.1% in prod). The divergence behavior differs by
-    environment downstream (`_run_shadow_comparison`): TEST raises on any
-    mismatch, prod only reports it (never failing the request).
+    With neither `parser_mode` nor an explicit `backend=` set, the prod
+    default is `RUST_PY_WITH_CPP_SHADOW`: rust-py is the primary (its result
+    is always returned) and cpp runs as the shadow, sampled per
+    `_shadow_sample_rate` (0.1% in prod), recording divergences without ever
+    failing the request (`_run_shadow_comparison`).
+
+    In TEST the default is `RUST_PY_ONLY` — no shadow. Prod's sampled shadow
+    already provides cross-backend parity coverage over real traffic, and
+    shadowing every test parse roughly doubled parser cost across the suite
+    for no additional signal. Tests that exercise the shadow machinery itself
+    opt in with an explicit `parser_mode`, which still shadow-compares 100%
+    of parses and raises on divergence.
 
     If the rust wheel failed to import (`_RUST_PARSER_AVAILABLE` is False)
     the default falls back to cpp-only, so a broken wheel can't take the
@@ -228,6 +235,8 @@ def _resolve_parser_mode(
     if backend is not None:
         return backend, None
     if _RUST_PARSER_AVAILABLE:
+        if settings.TEST:
+            return _PARSER_MODE_BACKENDS[ParserMode.RUST_PY_ONLY]
         return _PARSER_MODE_BACKENDS[ParserMode.RUST_PY_WITH_CPP_SHADOW]
     return DEFAULT_BACKEND, None
 

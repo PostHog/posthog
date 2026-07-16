@@ -631,14 +631,14 @@ class TestCSPModule(TestCase):
         """
 
         # Test specific URL+time combinations with known expected outcomes
-        # These were determined by calculating hash(url + "-" + timestamp) % 100
+        # These were determined by calculating hash(url + "-" + timestamp) % 10000
         deterministic_test_cases = [
-            # URL, time_string, expected_result_at_50_percent, hash_mod_100
-            ("https://example.com/other", "2023-01-01 12:00:00", True, 8),  # 8 < 50 = True
-            ("https://example.com/other", "2023-01-01 12:01:00", False, 99),  # 99 >= 50 = False
-            ("https://test.com/page", "2023-01-01 12:03:00", False, 52),  # 52 >= 50 = False
-            ("https://test.com/page", "2023-01-01 12:04:00", True, 43),  # 43 < 50 = True
-            ("https://test.com/page", "2023-01-01 12:09:00", False, 98),  # 98 >= 50 = False
+            # URL, time_string, expected_result_at_50_percent, hash_mod_10000
+            ("https://example.com/other", "2023-01-01 12:00:00", True, 1608),  # 1608 < 5000 = True
+            ("https://example.com/other", "2023-01-01 12:08:00", False, 9936),  # 9936 >= 5000 = False
+            ("https://example.com/other", "2023-01-01 12:09:00", False, 9727),  # 9727 >= 5000 = False
+            ("https://test.com/page", "2023-01-01 12:03:00", True, 2352),  # 2352 < 5000 = True
+            ("https://test.com/page", "2023-01-01 12:04:00", True, 2143),  # 2143 < 5000 = True
         ]
 
         for url, time_string, expected_result, expected_hash_mod in deterministic_test_cases:
@@ -646,15 +646,15 @@ class TestCSPModule(TestCase):
                 properties = {"document_url": url, "effective_directive": "script-src"}
                 result = sample_csp_report(properties, 0.5)
                 assert result == expected_result, (
-                    f"Expected {expected_result} for {url} at {time_string} (hash%100={expected_hash_mod}), got {result}"
+                    f"Expected {expected_result} for {url} at {time_string} (hash%10000={expected_hash_mod}), got {result}"
                 )
 
         # Demonstrate the key improvement: same URL gets different sampling decisions across time
-        url = "https://test.com/page"
+        url = "https://example.com/other"
         time_sampling_pairs = [
-            ("2023-01-01 12:03:00", False),  # hash%100=52 >= 50
-            ("2023-01-01 12:04:00", True),  # hash%100=43 < 50
-            ("2023-01-01 12:09:00", False),  # hash%100=98 >= 50
+            ("2023-01-01 12:03:00", True),  # hash%10000=981 < 5000
+            ("2023-01-01 12:08:00", False),  # hash%10000=9936 >= 5000
+            ("2023-01-01 12:09:00", False),  # hash%10000=9727 >= 5000
         ]
 
         sampled_in_results = []

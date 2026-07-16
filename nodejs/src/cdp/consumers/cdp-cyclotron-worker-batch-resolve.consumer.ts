@@ -194,7 +194,8 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
                     team,
                     state.filters,
                     state.groupTypeIndex,
-                    state.cursor
+                    state.cursor,
+                    state.dedupeKey
                 )
             )
         } catch (err) {

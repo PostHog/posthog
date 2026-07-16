@@ -2,6 +2,7 @@ import { expandRecentsForDisplay, hasRecentContext } from 'lib/components/Taxono
 import { hasPinnedContext } from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
 import {
     ExcludedOperators,
+    ExcludedProperties,
     SelectingKeyOnly,
     TaxonomicDefinitionTypes,
     TaxonomicFilterGroupType,
@@ -24,7 +25,8 @@ export function filterRecentsForContext(
     recentFilterItems: TaxonomicDefinitionTypes[],
     taxonomicGroupTypes: TaxonomicFilterGroupType[],
     excludedOperators?: ExcludedOperators,
-    selectingKeyOnly?: SelectingKeyOnly
+    selectingKeyOnly?: SelectingKeyOnly,
+    excludedProperties?: ExcludedProperties
 ): TaxonomicDefinitionTypes[] {
     if (!recentFilterItems?.length) {
         return []
@@ -32,6 +34,12 @@ export function filterRecentsForContext(
     const availableTypes = new Set(taxonomicGroupTypes)
     const inScope = recentFilterItems.filter((item) => {
         if (!hasRecentContext(item) || !availableTypes.has(item._recentContext.sourceGroupType)) {
+            return false
+        }
+        // A group's excluded values (e.g. `message` for the logs group-by picker) must be dropped
+        // from the Recent tab too, not just the group's own option list.
+        const excludedValues = excludedProperties?.[item._recentContext.sourceGroupType]
+        if (excludedValues?.length && excludedValues.includes(item._recentContext.sourceValue)) {
             return false
         }
         const excludedForGroup = excludedOperators?.[item._recentContext.sourceGroupType]

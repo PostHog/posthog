@@ -1,5 +1,4 @@
 import { actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
-import { forms } from 'kea-forms'
 
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -11,10 +10,16 @@ import {
     visionActionsList,
     visionActionsPartialUpdate,
 } from '../generated/api'
-import { DeliveryTargetTypeEnumApi } from '../generated/api.schemas'
-import type { VisionActionApi } from '../generated/api.schemas'
-import { CadenceState, cadenceToRrule, DEFAULT_CADENCE, parseRruleToCadence } from './cadence'
-import { visionActionRunsLogic } from './visionActionRunsLogic'
+import {
+    AlertConfigFrequencyEnumApi,
+    DeliveryTargetTypeEnumApi,
+    VisionActionModeEnumApi,
+    VisionAlertDirectionEnumApi,
+    VisionAlertMetricEnumApi,
+    WindowDaysEnumApi,
+} from '../generated/api.schemas'
+import type { VerdictEnumApi, VisionActionApi } from '../generated/api.schemas'
+import { CadenceState, cadenceToRrule, DEFAULT_CADENCE } from './cadence'
 import type { visionActionsLogicType } from './visionActionsLogicType'
 
 export interface VisionActionsLogicProps {
@@ -29,26 +34,85 @@ export interface VisionActionForm {
     prompt_guide: string
     integration_id: number | null
     channel: string
+    // Targeting ("run this on…") — empty means all of the scanner's observations.
+    verdict: VerdictEnumApi[]
+    tags: string[]
+    min_score: number | null
+    max_score: number | null
+    // What the action produces; alerts carry a condition instead of synthesizing a summary.
+    mode: VisionActionModeEnumApi
+    alert_frequency: AlertConfigFrequencyEnumApi
+    alert_metric: VisionAlertMetricEnumApi
+    alert_threshold: number | null
+    alert_direction: VisionAlertDirectionEnumApi
+    alert_window_days: WindowDaysEnumApi
 }
 
-const NEW_ACTION_FORM = (): VisionActionForm => ({
+export const NEW_ACTION_FORM = (): VisionActionForm => ({
     name: '',
     cadence: { ...DEFAULT_CADENCE },
     timezone: dayjs.tz.guess(),
     prompt_guide: '',
     integration_id: null,
     channel: '',
+    verdict: [],
+    tags: [],
+    min_score: null,
+    max_score: null,
+    mode: VisionActionModeEnumApi.GroupSummary,
+    // Default alert flavor: notify about every new match ("every time the result is X, tell me").
+    alert_frequency: AlertConfigFrequencyEnumApi.EveryMatch,
+    alert_metric: VisionAlertMetricEnumApi.Count,
+    alert_threshold: 1,
+    alert_direction: VisionAlertDirectionEnumApi.Above,
+    alert_window_days: 1,
 })
 
 // Map the UI form shape to the API body shared by create + partial-update. Kept standalone so the
 // rrule + delivery-target mapping (the part most likely to grow beyond a single Slack target) is
 // unit-testable without the form machinery.
 export function buildActionBody(form: VisionActionForm, scannerId: string): Parameters<typeof visionActionsCreate>[1] {
+    // Always send selection (even empty) so clearing every targeting control on edit persists as
+    // "run on everything" rather than silently keeping the previous predicate.
+    const selection: NonNullable<Parameters<typeof visionActionsCreate>[1]['selection']> = {}
+    if (form.verdict.length) {
+        selection.verdict = form.verdict
+    }
+    if (form.tags.length) {
+        selection.tags = form.tags
+    }
+    if (form.min_score != null) {
+        selection.min_score = form.min_score
+    }
+    if (form.max_score != null) {
+        selection.max_score = form.max_score
+    }
+    const isAlert = form.mode === VisionActionModeEnumApi.Alert
     return {
         name: form.name.trim(),
         scanner: scannerId,
-        trigger_config: { rrule: cadenceToRrule(form.cadence), timezone: form.timezone },
-        synthesis_config: { prompt_guide: form.prompt_guide },
+        mode: form.mode,
+        // Alerts have no user-facing schedule: the engine checks them on every scanner sweep and
+        // ignores this rrule (kept so the trigger stays well-formed); summaries run on the picked days/time.
+        trigger_config: isAlert
+            ? { rrule: 'FREQ=HOURLY', timezone: form.timezone }
+            : { rrule: cadenceToRrule(form.cadence), timezone: form.timezone },
+        selection,
+        synthesis_config: { prompt_guide: isAlert ? '' : form.prompt_guide },
+        ...(isAlert
+            ? {
+                  alert_config:
+                      form.alert_frequency === AlertConfigFrequencyEnumApi.EveryMatch
+                          ? { frequency: form.alert_frequency, metric: VisionAlertMetricEnumApi.Count }
+                          : {
+                                frequency: form.alert_frequency,
+                                metric: form.alert_metric,
+                                threshold: form.alert_threshold ?? 1,
+                                direction: form.alert_direction,
+                                window_days: form.alert_window_days,
+                            },
+              }
+            : {}),
         delivery_config:
             form.integration_id && form.channel
                 ? [
@@ -73,14 +137,12 @@ export const visionActionsLogic = kea<visionActionsLogicType>([
         loadActions: true,
         loadActionsSuccess: (visionActions: VisionActionApi[]) => ({ visionActions }),
         loadActionsFailure: true,
+        addAction: (action: VisionActionApi) => ({ action }),
         toggleActionEnabled: (id: string) => ({ id }),
         revertActionEnabled: (id: string) => ({ id }),
         toggleActionEnabledDone: (id: string) => ({ id }),
         deleteAction: (id: string) => ({ id }),
         deleteActionSuccess: (id: string) => ({ id }),
-        openCreateForm: true,
-        openEditForm: (action: VisionActionApi) => ({ action }),
-        closeForm: true,
     }),
 
     reducers({
@@ -88,6 +150,7 @@ export const visionActionsLogic = kea<visionActionsLogicType>([
             [] as VisionActionApi[],
             {
                 loadActionsSuccess: (_, { visionActions }) => visionActions,
+                addAction: (state, { action }) => [...state, action],
                 deleteActionSuccess: (state, { id }) => state.filter((a) => a.id !== id),
                 // Optimistic flip on toggle; revert mirrors it back on failure.
                 toggleActionEnabled: (state, { id }) =>
@@ -112,51 +175,7 @@ export const visionActionsLogic = kea<visionActionsLogicType>([
                 revertActionEnabled: (state, { id }) => state.filter((i) => i !== id),
             },
         ],
-        formVisible: [
-            false,
-            {
-                openCreateForm: () => true,
-                openEditForm: () => true,
-                closeForm: () => false,
-            },
-        ],
-        editingAction: [
-            null as VisionActionApi | null,
-            {
-                openCreateForm: () => null,
-                openEditForm: (_, { action }) => action,
-                closeForm: () => null,
-            },
-        ],
     }),
-
-    forms(({ props, values }) => ({
-        visionActionForm: {
-            defaults: NEW_ACTION_FORM(),
-            errors: ({ name, cadence, integration_id, channel }) => ({
-                name: !name?.trim() ? 'Give this action a name' : undefined,
-                // weekdays is a number[], which kea-forms can't carry a string error on, so we hang
-                // the "pick a day" error on the cadence object via `hour` to mark the form invalid.
-                // This blocks Enter-to-submit (enableFormOnSubmit); the user-facing message is the
-                // inline danger text + the submit button's disabledReason.
-                cadence: cadence.weekdays.length === 0 ? { hour: 'Pick at least one day' } : undefined,
-                channel: integration_id && !channel ? 'Pick a channel' : undefined,
-            }),
-            submit: async (form) => {
-                const teamId = teamLogic.values.currentTeamId
-                if (!teamId) {
-                    throw new Error('No team selected')
-                }
-                const body = buildActionBody(form, props.scannerId)
-                const editing = values.editingAction
-                if (editing) {
-                    await visionActionsPartialUpdate(String(teamId), editing.id, body)
-                } else {
-                    await visionActionsCreate(String(teamId), body)
-                }
-            },
-        },
-    })),
 
     listeners(({ actions, props, values }) => ({
         loadActions: async () => {
@@ -168,7 +187,7 @@ export const visionActionsLogic = kea<visionActionsLogicType>([
                 const response = await visionActionsList(String(teamId), { scanner: props.scannerId, limit: 100 })
                 actions.loadActionsSuccess(response.results ?? [])
             } catch (error: any) {
-                lemonToast.error(`Failed to load actions${error.detail ? `: ${error.detail}` : ''}`)
+                lemonToast.error(`Failed to load summaries${error.detail ? `: ${error.detail}` : ''}`)
                 actions.loadActionsFailure()
             }
         },
@@ -186,7 +205,7 @@ export const visionActionsLogic = kea<visionActionsLogicType>([
                 actions.toggleActionEnabledDone(id)
             } catch (error: any) {
                 const verb = action.enabled ? 'enable' : 'disable'
-                lemonToast.error(`Failed to ${verb} action${error.detail ? `: ${error.detail}` : ''}`)
+                lemonToast.error(`Failed to ${verb} summary${error.detail ? `: ${error.detail}` : ''}`)
                 actions.revertActionEnabled(id)
             }
         },
@@ -199,48 +218,10 @@ export const visionActionsLogic = kea<visionActionsLogicType>([
             try {
                 await visionActionsDestroy(String(teamId), id)
                 actions.deleteActionSuccess(id)
-                lemonToast.success('Action deleted')
+                lemonToast.success('Summary deleted')
             } catch (error: any) {
-                lemonToast.error(`Failed to delete action${error.detail ? `: ${error.detail}` : ''}`)
+                lemonToast.error(`Failed to delete summary${error.detail ? `: ${error.detail}` : ''}`)
             }
-        },
-
-        openCreateForm: () => {
-            actions.resetVisionActionForm(NEW_ACTION_FORM())
-        },
-
-        openEditForm: ({ action }) => {
-            actions.setVisionActionFormValues({
-                name: action.name,
-                cadence: parseRruleToCadence(action.trigger_config?.rrule),
-                timezone: action.trigger_config?.timezone || dayjs.tz.guess(),
-                prompt_guide: action.synthesis_config?.prompt_guide ?? '',
-                integration_id: action.delivery_config?.[0]?.integration_id ?? null,
-                channel: action.delivery_config?.[0]?.channel ?? '',
-            })
-        },
-
-        closeForm: () => {
-            actions.resetVisionActionForm(NEW_ACTION_FORM())
-        },
-
-        submitVisionActionFormSuccess: () => {
-            // Capture before closeForm() clears editingAction.
-            const edited = values.editingAction
-            lemonToast.success(edited ? 'Action updated' : 'Action created')
-            actions.closeForm()
-            actions.loadActions()
-            // If this edit came from the action's own page, refresh it in place. findMounted acts only
-            // when that page is open (returns null otherwise) — no key coupling, no accidental mount.
-            if (edited) {
-                const runsLogic = visionActionRunsLogic.findMounted({ actionId: edited.id })
-                runsLogic?.actions.loadAction()
-                runsLogic?.actions.loadRuns()
-            }
-        },
-
-        submitVisionActionFormFailure: ({ error }: { error?: Error & { detail?: string } }) => {
-            lemonToast.error(`Failed to save action${error?.detail ? `: ${error.detail}` : ''}`)
         },
     })),
 
