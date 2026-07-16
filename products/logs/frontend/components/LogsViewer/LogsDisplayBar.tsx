@@ -29,8 +29,9 @@ export interface LogsDisplayBarProps {
  *    the filters toggle, the Logs⇄Patterns⇄Group switch, and a lens-aware count indicator.
  *  - lens configuration: the group-by key picker, shown only in Group mode (the mode lives
  *    in the segmented bar; the key is that mode's setting, like Patterns owns its mining).
- *  - contextual-right: the Logs-only presentation tools (sort, wrap, timezone, export,
- *    shortcuts), hidden in Patterns/Group modes where none of them apply.
+ *  - contextual-right: each lens's own tools. Logs mode gets the presentation tools (sort,
+ *    wrap, timezone, export, shortcuts); Patterns mode gets the compare controls; Group
+ *    mode has none.
  *
  * Sits below the sparkline, next to the table it affects.
  */
@@ -140,7 +141,9 @@ export const LogsDisplayBar = ({
  * and in its own component so `logsPatternsLogic` only mounts while Patterns is active.
  */
 const PatternsCompareControls = ({ id }: { id: string }): JSX.Element => {
-    const { compareEnabled, baselineMode, diffResponseLoading } = useValues(logsPatternsLogic({ id }))
+    const { compareEnabled, baselineMode, diffResponseLoading, patternsResponseLoading } = useValues(
+        logsPatternsLogic({ id })
+    )
     const { setCompareEnabled, setBaselineMode } = useActions(logsPatternsLogic({ id }))
 
     return (
@@ -161,6 +164,8 @@ const PatternsCompareControls = ({ id }: { id: string }): JSX.Element => {
             <LemonSwitch
                 checked={compareEnabled}
                 onChange={setCompareEnabled}
+                // Toggling swaps which loader runs, so a toggle mid-flight is a double submission.
+                loading={diffResponseLoading || patternsResponseLoading}
                 label="Compare"
                 bordered
                 size="small"

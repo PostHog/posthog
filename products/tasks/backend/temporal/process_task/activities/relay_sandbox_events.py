@@ -47,6 +47,9 @@ HEARTBEAT_INTERVAL_SECONDS = 30
 SSE_CONNECT_TIMEOUT_SECONDS = 30
 SSE_READ_TIMEOUT_SECONDS = 300  # 5 min per chunk
 MAX_RECONNECT_ATTEMPTS = 5
+# Coalesce streamed prose into one agent_text_delta signal per interval instead of one per
+# chunk, which would bloat the parent workflow's history and trip the 2s deadlock detector.
+TEXT_DELTA_FLUSH_INTERVAL_SECONDS = 1.0
 
 TERMINAL_NOTIFICATION_METHODS = frozenset(
     {
@@ -334,6 +337,9 @@ async def _relay_loop(
     final_message_parts: list[str] = []
     # ACP emits one tool_call + N tool_call_update per id; only render the start.
     emitted_tool_call_ids: set[str] = set()
+    # Buffered prose + last flush time (monotonic); see TEXT_DELTA_FLUSH_INTERVAL_SECONDS.
+    pending_text_parts: list[str] = []
+    last_text_flush: list[float] = [0.0]
 
     stop_heartbeat = asyncio.Event()
     heartbeat_task = asyncio.create_task(
@@ -421,7 +427,11 @@ async def _relay_loop(
                                 final_message_parts.clear()
                                 if is_agent_design_enabled and slack_turn_active[0] and workflow_handle is not None:
                                     slack_turn_active[0] = False
-                                    asyncio.create_task(_signal_safely(workflow_handle, "turn_completed"))
+                                    # Awaited in order: the final prose must be recorded before
+                                    # turn_completed, which clears the parent's relay id and would
+                                    # otherwise drop a delta that arrived after it.
+                                    await _flush_pending_text(workflow_handle, pending_text_parts, last_text_flush)
+                                    await _signal_safely(workflow_handle, "turn_completed")
                             elif not agent_active[0] and _is_active_agent_update(event_data):
                                 agent_active[0] = True
 
@@ -433,25 +443,31 @@ async def _relay_loop(
                             if is_agent_design_enabled and workflow_handle is not None:
                                 if not slack_turn_active[0] and _is_session_update(event_data):
                                     slack_turn_active[0] = True
-                                    asyncio.create_task(
-                                        _signal_safely(
-                                            workflow_handle,
-                                            "turn_started",
-                                            arg={"slack_thread_context": slack_thread_context or {}},
-                                        )
+                                    # Await so turn_started is recorded before any delta of this turn,
+                                    # and reset the flush clock so the first delta buffers rather than
+                                    # racing turn_started to the parent.
+                                    last_text_flush[0] = time.monotonic()
+                                    await _signal_safely(
+                                        workflow_handle,
+                                        "turn_started",
+                                        arg={"slack_thread_context": slack_thread_context or {}},
                                     )
                                 if slack_turn_active[0]:
                                     step_payload = _extract_tool_call_step(event_data, emitted_tool_call_ids)
                                     if step_payload is not None:
+                                        # Flush buffered prose first to keep text-before-tool order.
+                                        await _flush_pending_text(workflow_handle, pending_text_parts, last_text_flush)
                                         asyncio.create_task(
                                             _signal_safely(workflow_handle, "agent_status_update", arg=step_payload)
                                         )
                                 if slack_turn_active[0] and _is_session_update(event_data):
                                     text_delta = _extract_agent_message_text(event_data)
                                     if text_delta:
-                                        asyncio.create_task(
-                                            _signal_safely(workflow_handle, "agent_text_delta", arg=text_delta)
-                                        )
+                                        pending_text_parts.append(text_delta)
+                                        if (time.monotonic() - last_text_flush[0]) >= TEXT_DELTA_FLUSH_INTERVAL_SECONDS:
+                                            await _flush_pending_text(
+                                                workflow_handle, pending_text_parts, last_text_flush
+                                            )
 
                             now = time.monotonic()
                             if (
@@ -468,11 +484,13 @@ async def _relay_loop(
                                     )
 
                             if _is_terminal_event(event_data):
+                                await _flush_pending_text(workflow_handle, pending_text_parts, last_text_flush)
                                 if finalize_stream_on_exit:
                                     await redis_stream.mark_complete()
                                 return
 
                     # SSE stream ended normally (sandbox closed connection)
+                    await _flush_pending_text(workflow_handle, pending_text_parts, last_text_flush)
                     if finalize_stream_on_exit:
                         await redis_stream.mark_complete()
                     logger.info("relay_sandbox_events_stream_closed", run_id=run_id)
@@ -483,6 +501,8 @@ async def _relay_loop(
                 # May have missed an end_of_turn on the dropped stream — assume idle until re-confirmed.
                 agent_active[0] = False
                 final_message_parts.clear()
+                # Drop un-flushed partial prose — the agent replays events on reconnect.
+                pending_text_parts.clear()
                 logger.warning(
                     "relay_sandbox_events_read_timeout",
                     run_id=run_id,
@@ -505,6 +525,8 @@ async def _relay_loop(
                 reconnect_count += 1
                 agent_active[0] = False  # missed-end_of_turn guard (see ReadTimeout above)
                 final_message_parts.clear()
+                # Drop un-flushed partial prose — the agent replays events on reconnect.
+                pending_text_parts.clear()
                 logger.warning(
                     "relay_sandbox_events_http_error",
                     run_id=run_id,
@@ -518,6 +540,8 @@ async def _relay_loop(
                 reconnect_count += 1
                 agent_active[0] = False  # missed-end_of_turn guard (see ReadTimeout above)
                 final_message_parts.clear()
+                # Drop un-flushed partial prose — the agent replays events on reconnect.
+                pending_text_parts.clear()
                 logger.warning(
                     "relay_sandbox_events_connection_error",
                     run_id=run_id,
@@ -677,6 +701,25 @@ def _extract_agent_message_text(event_data: dict) -> str | None:
         return None
     text = content.get("text")
     return text if isinstance(text, str) and text else None
+
+
+async def _flush_pending_text(
+    workflow_handle: temporalio.client.WorkflowHandle | None,
+    pending_text_parts: list[str],
+    last_text_flush: list[float],
+) -> None:
+    """Flush buffered prose to the parent as one agent_text_delta signal.
+
+    Awaited (not fire-and-forget) so the delta is recorded before the caller sends the next
+    boundary signal, and so a flush at turn-end / terminal / stream-close isn't abandoned
+    mid-delivery. The buffer is cleared only after the send returns."""
+    last_text_flush[0] = time.monotonic()
+    if not pending_text_parts:
+        return
+    text = "".join(pending_text_parts)
+    if workflow_handle is not None and text:
+        await _signal_safely(workflow_handle, "agent_text_delta", arg=text)
+    pending_text_parts.clear()
 
 
 async def _signal_safely(

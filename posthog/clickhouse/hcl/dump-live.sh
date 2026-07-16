@@ -13,7 +13,7 @@
 #   Keep it under $TMPDIR or the repo so the containerized hclexp can see it.
 #
 # Env knobs:
-#   VERIFY_LIVE_ENV=<env>  names the dump files (default: local).
+#   VERIFY_LIVE_ENV=<env>  names the dump files (default: local-multi).
 #   HCLEXP_BIN=<path>      local hclexp binary (host network); otherwise a
 #                          `--network host` container reaches the published ports.
 #   <ROLE>_HOST/_PORT/_DB  override a role's connection (e.g. OPS_PORT=9300).
@@ -22,7 +22,7 @@ set -euo pipefail
 
 HCL=posthog/clickhouse/hcl
 EXCLUDE="$HCL/exclude.hcl"
-ENV="${VERIFY_LIVE_ENV:-local}"
+ENV="${VERIFY_LIVE_ENV:-local-multi}"
 CH_USER="${CLICKHOUSE_USER:-default}"
 CH_PASSWORD="${CLICKHOUSE_PASSWORD:-}"
 OUTDIR="${1:-${LIVE_DUMP_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/ch-live-dump.XXXXXX")}}"
