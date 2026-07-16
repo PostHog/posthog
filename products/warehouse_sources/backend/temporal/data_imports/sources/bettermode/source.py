@@ -44,6 +44,13 @@ class BettermodeSource(ResumableSource[BettermodeSourceConfig, BettermodeResumeC
         return ExternalDataSourceType.BETTERMODE
 
     @property
+    def connection_host_fields(self) -> list[str]:
+        # `region` picks the host the stored client secret is sent to, and `network_id` selects
+        # which community the minted token is scoped to; retargeting either must re-require the
+        # secret so a preserved credential can't be aimed elsewhere without re-entry.
+        return ["region", "network_id"]
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.BETTERMODE,

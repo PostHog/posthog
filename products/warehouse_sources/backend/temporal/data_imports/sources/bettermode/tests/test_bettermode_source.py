@@ -44,6 +44,11 @@ class TestBettermodeSource:
         assert region_field.defaultValue == "us"
         assert {option.value for option in region_field.options} == {"us", "eu"}
 
+    def test_connection_host_fields_gate_credential_retargeting(self):
+        # Removing either field lets an editor retarget the preserved client secret at a
+        # different host/community without re-entering it.
+        assert self.source.connection_host_fields == ["region", "network_id"]
+
     def test_client_secret_field_is_secret_password(self):
         config = self.source.get_source_config
         secret_field = next(
