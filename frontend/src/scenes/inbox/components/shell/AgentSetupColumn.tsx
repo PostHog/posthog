@@ -1,6 +1,14 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 
-import { IconBolt, IconCheckCircle, IconChevronRight, IconCompass, IconGithub, IconServer } from '@posthog/icons'
+import {
+    IconBolt,
+    IconCheckCircle,
+    IconChevronRight,
+    IconCompass,
+    IconGithub,
+    IconRocket,
+    IconServer,
+} from '@posthog/icons'
 import { LemonModal, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 import { mcpStoreLogic } from '@posthog/products-mcp-store/frontend/mcpStoreLogic'
 import { ServerIcon } from '@posthog/products-mcp-store/frontend/scene/icons'
@@ -18,6 +26,7 @@ import { signalTeamConfigLogic } from '../../logics/signalTeamConfigLogic'
 import { userAutonomyLogic } from '../../logics/userAutonomyLogic'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
 import { ScoutsFleetSection } from '../config/scouts/ScoutsFleetSection'
+import { SelfDrivingSection } from '../config/SelfDrivingSection'
 import { SignalSourcesPanel } from '../config/SignalSourcesPanel'
 import { SlackNotificationsSection } from '../config/SlackNotificationsSection'
 import { AgentSetupModalKey, agentSetupModalLogic } from './agentSetupModalLogic'
@@ -200,6 +209,31 @@ function ScoutTroopWidget(): JSX.Element {
     )
 }
 
+function SelfDrivingWidget(): JSX.Element {
+    const { teamConfig, teamConfigLoading } = useValues(signalTeamConfigLogic)
+    const { openSetupModal } = useActions(agentSetupModalLogic)
+    // Null (never set) means autostart is on; only an explicit false disables it.
+    const enabled = teamConfig?.autostart_enabled !== false
+    const priority = teamConfig?.default_autostart_priority ?? 'P4'
+    return (
+        <SetupWidgetCard
+            icon={<IconRocket />}
+            title="Self-driving"
+            size="md"
+            tone={enabled ? 'done' : 'neutral'}
+            loading={teamConfigLoading && teamConfig === null}
+            status={
+                enabled
+                    ? priority === 'P4'
+                        ? 'Auto-starts all reports'
+                        : `Auto-starts ${priority} and above`
+                    : 'Manual review only'
+            }
+            onClick={() => openSetupModal('self-driving')}
+        />
+    )
+}
+
 function CodeAccessWidget(): JSX.Element {
     const { getIntegrationsByKind, integrationsLoading } = useValues(integrationsLogic)
     const hasGithub = getIntegrationsByKind(['github']).length > 0
@@ -298,6 +332,12 @@ const SETUP_MODALS: Record<
         width: 760,
         body: <ScoutsFleetSection />,
     },
+    'self-driving': {
+        title: 'Self-driving',
+        description: 'Choose whether agents start work on actionable reports automatically.',
+        width: 560,
+        body: <SelfDrivingSection />,
+    },
     slack: {
         title: 'Notifications',
         description: 'Get pinged in Slack when you’re a suggested reviewer on a new inbox item.',
@@ -347,6 +387,7 @@ export function AgentSetupColumn({ layout }: { layout: 'rail' | 'stacked' }): JS
             <SetupSection title="Agents">
                 <SignalSourcesWidget />
                 <ScoutTroopWidget />
+                <SelfDrivingWidget />
             </SetupSection>
             <SetupSection title="Connections">
                 <CodeAccessWidget />

@@ -239,7 +239,9 @@ export interface SignalUserAutonomyConfig {
 
 export interface SignalTeamConfig {
     id?: string
-    /** Team-wide default PR auto-start threshold. null = never auto-start by default. */
+    /** Master switch for autonomous inbox PRs. Only an explicit false disables auto-start; null (never set) leaves it on. */
+    autostart_enabled?: boolean | null
+    /** Team-wide default PR auto-start threshold (P0–P4, non-null from the API). "Never" is expressed via autostart_enabled instead. */
     default_autostart_priority: SignalReportPriority | null
     /** Default Slack channel for this team's inbox notifications. */
     default_slack_notification_channel?: string | null
