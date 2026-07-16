@@ -113,13 +113,15 @@ export class CyclotronV2Manager {
     private readonly depthCheckIntervalMs: number
     private depthCheckPromise: Promise<boolean> | null = null
     private depthCheckExpiresAt = 0
-    private readonly rescheduleFloorSeconds: number
-    private readonly rescheduleWakeRatePerSecond: number
-    private readonly rescheduleMinWindowSeconds: number
-    private readonly rescheduleMaxWindowSeconds: number
-    private readonly rescheduleChunkSize: number
-    private readonly rescheduleMaxChunksPerCall: number
-    private readonly rescheduleChunkSleepMs: number
+    private readonly reschedule: {
+        floorSeconds: number
+        wakeRatePerSecond: number
+        minWindowSeconds: number
+        maxWindowSeconds: number
+        chunkSize: number
+        maxChunksPerCall: number
+        chunkSleepMs: number
+    }
 
     constructor(config: CyclotronV2ManagerConfig) {
         this.pool = new Pool({
@@ -129,13 +131,15 @@ export class CyclotronV2Manager {
         })
         this.depthLimit = config.depthLimit ?? 1_000_000
         this.depthCheckIntervalMs = config.depthCheckIntervalMs ?? 10_000
-        this.rescheduleFloorSeconds = config.rescheduleFloorSeconds ?? 600
-        this.rescheduleWakeRatePerSecond = config.rescheduleWakeRatePerSecond ?? 200
-        this.rescheduleMinWindowSeconds = config.rescheduleMinWindowSeconds ?? 300
-        this.rescheduleMaxWindowSeconds = config.rescheduleMaxWindowSeconds ?? 14_400
-        this.rescheduleChunkSize = config.rescheduleChunkSize ?? 5_000
-        this.rescheduleMaxChunksPerCall = config.rescheduleMaxChunksPerCall ?? 20
-        this.rescheduleChunkSleepMs = config.rescheduleChunkSleepMs ?? 100
+        this.reschedule = {
+            floorSeconds: config.rescheduleFloorSeconds ?? 600,
+            wakeRatePerSecond: config.rescheduleWakeRatePerSecond ?? 200,
+            minWindowSeconds: config.rescheduleMinWindowSeconds ?? 300,
+            maxWindowSeconds: config.rescheduleMaxWindowSeconds ?? 14_400,
+            chunkSize: config.rescheduleChunkSize ?? 5_000,
+            maxChunksPerCall: config.rescheduleMaxChunksPerCall ?? 20,
+            chunkSleepMs: config.rescheduleChunkSleepMs ?? 100,
+        }
     }
 
     async connect(): Promise<void> {
@@ -479,7 +483,7 @@ export class CyclotronV2Manager {
 
         try {
             let bounds: { sweepFloor: Date; sweepUntil: Date } | null = null
-            const staleBoundsCutoff = new Date(Date.now() + this.rescheduleMinWindowSeconds * 1000)
+            const staleBoundsCutoff = new Date(Date.now() + this.reschedule.minWindowSeconds * 1000)
             if (options.sweepFloor && options.sweepUntil && options.sweepUntil > staleBoundsCutoff) {
                 // The floor is this sweep's safety property (no sweep-induced wake sooner than
                 // floorSeconds from now — the config-cache staleness bound), so it is enforced
@@ -487,7 +491,7 @@ export class CyclotronV2Manager {
                 // would land the random targets in the past and mass-wake the backlog. Clamping
                 // per slice only compresses the tail of the spread, never the predicate, so
                 // cross-slice idempotency (scheduled > sweepUntil) is unaffected.
-                const minFloor = new Date(Date.now() + this.rescheduleFloorSeconds * 1000)
+                const minFloor = new Date(Date.now() + this.reschedule.floorSeconds * 1000)
                 const sweepFloor = options.sweepFloor > minFloor ? options.sweepFloor : minFloor
                 if (sweepFloor < options.sweepUntil) {
                     bounds = { sweepFloor, sweepUntil: options.sweepUntil }
@@ -511,9 +515,9 @@ export class CyclotronV2Manager {
             const { sweepFloor, sweepUntil } = bounds
 
             let swept = 0
-            for (let chunk = 0; chunk < this.rescheduleMaxChunksPerCall; chunk++) {
+            for (let chunk = 0; chunk < this.reschedule.maxChunksPerCall; chunk++) {
                 if (chunk > 0) {
-                    await sleep(this.rescheduleChunkSleepMs)
+                    await sleep(this.reschedule.chunkSleepMs)
                 }
                 const result = await this.pool.query(
                     `WITH candidates AS (
@@ -528,10 +532,10 @@ export class CyclotronV2Manager {
                     SET scheduled = LEAST(j.scheduled, $4::timestamptz + random() * ($5::timestamptz - $4::timestamptz))
                     FROM candidates c
                     WHERE j.id = c.id`,
-                    [teamId, functionId, actionIds, sweepFloor, sweepUntil, this.rescheduleChunkSize]
+                    [teamId, functionId, actionIds, sweepFloor, sweepUntil, this.reschedule.chunkSize]
                 )
                 swept += result.rowCount ?? 0
-                if ((result.rowCount ?? 0) < this.rescheduleChunkSize) {
+                if ((result.rowCount ?? 0) < this.reschedule.chunkSize) {
                     break
                 }
             }
@@ -581,7 +585,7 @@ export class CyclotronV2Manager {
              WHERE team_id = $1 AND function_id = $2 AND status = 'available'
                AND action_id = ANY($3::text[])
                AND scheduled > NOW() + make_interval(secs => $4)`,
-            [teamId, functionId, actionIds, this.rescheduleFloorSeconds]
+            [teamId, functionId, actionIds, this.reschedule.floorSeconds]
         )
         const count = countResult.rows[0].count
         if (count === 0) {
@@ -589,12 +593,12 @@ export class CyclotronV2Manager {
         }
 
         const windowSeconds = Math.min(
-            this.rescheduleMaxWindowSeconds,
-            Math.max(this.rescheduleMinWindowSeconds, Math.ceil(count / this.rescheduleWakeRatePerSecond))
+            this.reschedule.maxWindowSeconds,
+            Math.max(this.reschedule.minWindowSeconds, Math.ceil(count / this.reschedule.wakeRatePerSecond))
         )
         rescheduleWindowHistogram.observe(windowSeconds)
 
-        const sweepFloor = new Date(Date.now() + this.rescheduleFloorSeconds * 1000)
+        const sweepFloor = new Date(Date.now() + this.reschedule.floorSeconds * 1000)
         const sweepUntil = new Date(sweepFloor.getTime() + windowSeconds * 1000)
         return { sweepFloor, sweepUntil }
     }
