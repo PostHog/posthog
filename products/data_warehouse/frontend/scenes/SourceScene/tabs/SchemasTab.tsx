@@ -36,6 +36,7 @@ import {
     ExternalDataSourceSchema,
 } from '~/types'
 
+import { syncErrorTooltip } from 'products/data_warehouse/frontend/scenes/SourceScene/syncErrorTooltip'
 import { splitQualifiedTableName } from 'products/data_warehouse/frontend/shared/components/forms/schemaGroupingUtils'
 import { DATA_WAREHOUSE_APP_SOURCE } from 'products/data_warehouse/frontend/shared/components/metrics/DataWarehouseMetrics'
 import {
@@ -422,7 +423,7 @@ function ManagedSchemaTable({
                             </LemonTag>
                         )
                         return schema.latest_error && schema.status === 'Failed' ? (
-                            <Tooltip title={schema.latest_error} interactive>
+                            <Tooltip title={syncErrorTooltip(schema.latest_error)} interactive>
                                 {tagContent}
                             </Tooltip>
                         ) : (

@@ -14,6 +14,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { ExternalDataJob, ExternalDataJobStatus, LogEntryLevel } from '~/types'
 
+import { syncErrorTooltip } from '../syncErrorTooltip'
 import { sourceSettingsLogic } from './sourceSettingsLogic'
 
 const StatusTagSetting: Record<ExternalDataJob['status'], LemonTagType> = {
@@ -128,7 +129,7 @@ export const SyncsTab = ({ id }: SyncsTabProps): JSX.Element => {
                                 <LemonTag type={StatusTagSetting[job.status] || 'default'}>{job.status}</LemonTag>
                             )
                             return job.latest_error && job.status === ExternalDataJobStatus.Failed ? (
-                                <Tooltip title={job.latest_error} interactive>
+                                <Tooltip title={syncErrorTooltip(job.latest_error)} interactive>
                                     {tagContent}
                                 </Tooltip>
                             ) : (
