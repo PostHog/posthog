@@ -1240,7 +1240,9 @@ export const notebookLogic = kea<notebookLogicType>([
             // oxlint-disable-next-line @typescript-eslint/no-unused-vars
             (nodeLogics: Record<string, BuiltLogic<notebookNodeLogicType>>, _content: JSONContent) => {
                 // NOTE: _content is not but is needed to retrigger as it could mean the children have changed
-                return Object.values(nodeLogics).filter((nodeLogic) => nodeLogic.props.attributes?.children)
+                return Object.values(nodeLogics).filter((nodeLogic) =>
+                    Array.isArray(nodeLogic.props.attributes?.children)
+                )
             },
         ],
 

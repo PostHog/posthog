@@ -40,11 +40,13 @@ const Widgets = ({ nodeLogic }: { nodeLogic: BuiltLogic<notebookNodeLogicType> }
 
     // TODO: IMPORTANT: The nodeId is basically now required, so we should be checking that in the logic
     // otherwise we end up in horrible re-rendering loops
-    children.forEach((content) => {
-        if (!content.attrs.nodeId) {
-            content.attrs.nodeId = uuid()
-        }
-    })
+    if (Array.isArray(children)) {
+        children.forEach((content) => {
+            if (!content.attrs.nodeId) {
+                content.attrs.nodeId = uuid()
+            }
+        })
+    }
 
     return (
         <>
