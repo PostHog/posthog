@@ -183,7 +183,7 @@ You can create an API client in your controller under **Administration → API C
         )
 
     def _metric_paths_for_config(self, config: AppdynamicsSourceConfig) -> list[str]:
-        paths = [line.strip() for line in (config.metric_paths or "").splitlines() if line.strip()]
+        paths: list[str] = [line.strip() for line in (config.metric_paths or "").splitlines() if line.strip()]
         return paths or list(DEFAULT_METRIC_PATHS)
 
     def get_schemas(
