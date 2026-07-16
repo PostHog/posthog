@@ -1798,7 +1798,7 @@ fn anonymize_via_tree_mut(
 
 #[cfg(test)]
 mod tests {
-    use super::{host_pattern, stamp_host_pattern, SNAPSHOT_HOST_NEEDLE, SNAPSHOT_HOST_PROPERTY};
+    use super::{stamp_host_pattern, SNAPSHOT_HOST_NEEDLE, SNAPSHOT_HOST_PROPERTY};
 
     #[test]
     fn snapshot_host_needle_matches_the_property() {
@@ -1809,33 +1809,46 @@ mod tests {
     }
 
     #[test]
-    fn url_entry_reduction_matches_the_fixture() {
+    fn url_entry_reduction_cases() {
         // Bare-host and URL-shaped entries both reduce through `url_entry_host_pattern`, the
-        // reduction applied to the team's raw recording-domain/app-URL config.
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/fixtures/host-pattern.json");
-        let data = std::fs::read_to_string(&path).unwrap();
-        let cases: Vec<serde_json::Value> = serde_json::from_str(&data).unwrap();
-        assert!(!cases.is_empty());
-        for case in cases {
-            let input = case["input"].as_str().unwrap();
-            let expected = case["expected"].as_str();
+        // reduction applied to the team's raw recording-domain/app-URL config and (via
+        // `host_pattern`) to the stamp and Meta href.
+        let cases: &[(&str, Option<&str>)] = &[
+            ("app.customer-x.com", Some("customer-x.com")),
+            ("APP.Customer-X.COM", Some("customer-x.com")),
+            // Multi-part public suffix: the registrable domain keeps both suffix labels.
+            ("www.acme.co.uk", Some("acme.co.uk")),
+            // Private suffix keeps the tenant label; reducing to `vercel.app` would classify
+            // every Vercel-hosted site as first-party.
+            ("myapp.vercel.app", Some("myapp.vercel.app")),
+            ("localhost", Some("localhost")),
+            ("127.0.0.1", Some("127.0.0.1")),
+            // Bracket/port/trailing-dot normalization matches `normalized_host_port`, so
+            // IP-literal and FQDN self-links classify first-party.
+            ("[::1]", Some("::1")),
+            ("[::1]:8443", Some("::1")),
+            ("example.com.", Some("example.com")),
+            ("app.example.com:5000", Some("example.com")),
+            // URL-shaped entries: scheme/userinfo/path stripped, `*.` wildcards reduce to base.
+            ("https://www.example.com", Some("example.com")),
+            ("https://*.example.com", Some("example.com")),
+            ("https://app.example.com:5000/welcome", Some("example.com")),
+            ("capacitor://LocalHost", Some("localhost")),
+            ("https://user:pw@app.example.com", Some("example.com")),
+            // A bare public suffix as a pattern would match every host under it.
+            ("com", None),
+            ("https://*.com", None),
+            ("*", None),
+            ("", None),
+            ("not a host!", None),
+        ];
+        for (input, expected) in cases {
             assert_eq!(
                 super::url_entry_host_pattern(input).as_deref(),
-                expected,
-                "host-pattern case: {}",
-                case["name"]
+                *expected,
+                "url-entry case: {input:?}"
             );
         }
-    }
-
-    #[test]
-    fn host_pattern_rust_only_cases() {
-        // IPv6 stays out of the shared fixture (tldts's bracket handling differs); the bracket
-        // strip matches `normalized_host_port`, so a `[::1]` page's own links classify first-party.
-        assert_eq!(host_pattern("[::1]").as_deref(), Some("::1"));
-        assert_eq!(host_pattern("[::1]:8443").as_deref(), Some("::1"));
-        assert_eq!(host_pattern("example.com.").as_deref(), Some("example.com"));
     }
 
     #[test]
