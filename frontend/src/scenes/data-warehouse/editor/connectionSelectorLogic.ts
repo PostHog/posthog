@@ -1,4 +1,4 @@
-import { afterMount, connect, kea, listeners, path, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { ApiConfig } from 'lib/api'
@@ -57,7 +57,9 @@ const ENGINE_ICONS: Record<ConnectionEngine, string> = {
     redshift: IconRedshift,
 }
 
-function getConnectionEngine(source: Pick<ExternalDataSourceConnectionOptionApi, 'engine'>): ConnectionEngine {
+function getConnectionEngine(
+    source: Pick<ExternalDataSourceConnectionOptionApi, 'engine' | 'source_type'>
+): ConnectionEngine {
     if (
         source.engine === 'duckdb' ||
         source.engine === 'mysql' ||
@@ -65,6 +67,11 @@ function getConnectionEngine(source: Pick<ExternalDataSourceConnectionOptionApi,
         source.engine === 'redshift'
     ) {
         return source.engine
+    }
+    // Synced sources have no detected connection engine — derive it from the source type.
+    const sourceTypeEngine = source.source_type?.toLowerCase()
+    if (sourceTypeEngine && sourceTypeEngine in ENGINE_LABELS) {
+        return sourceTypeEngine as ConnectionEngine
     }
     return 'postgres'
 }
@@ -90,6 +97,9 @@ export const connectionSelectorLogic = kea<connectionSelectorLogicType>([
     connect(() => ({
         actions: [sourcesDataLogic, ['loadSourcesSuccess']],
     })),
+    actions({
+        maybeLoadConnectionOptions: true,
+    }),
     loaders(() => ({
         connectionOptions: [
             null as ExternalDataSourceConnectionOptionApi[] | null,
@@ -121,10 +131,13 @@ export const connectionSelectorLogic = kea<connectionSelectorLogicType>([
                     ? [{ value: LOADING_CONNECTIONS, label: 'Loading...', disabled: true }]
                     : (connectionOptions ?? []).map((source) => {
                           const engine = getConnectionEngine(source)
+                          const isSynced = source.access_method === 'warehouse'
 
                           return {
                               value: source.id,
-                              label: `${source.prefix ? source.prefix : source.id} (${ENGINE_LABELS[engine]})`,
+                              label: `${source.prefix ? source.prefix : source.id} (${ENGINE_LABELS[engine]}${
+                                  isSynced ? ' · synced' : ''
+                              })`,
                               iconSrc: ENGINE_ICONS[engine],
                               managementUrl: urls.dataWarehouseSource(`managed-${source.id}`),
                           }
@@ -171,14 +184,20 @@ export const connectionSelectorLogic = kea<connectionSelectorLogicType>([
             },
         ],
     }),
-    afterMount(({ actions, values }) => {
-        if (values.connectionOptions === null && !values.connectionOptionsLoading) {
-            actions.loadConnectionOptions()
-        }
-    }),
-    listeners(({ actions }) => ({
+    // No afterMount auto-load: sqlEditorLogic connects this logic, so it mounts with every
+    // embedded SQL editor (notebooks, logs, endpoints). Only surfaces that render the
+    // connection selector should pay for the fetch — they call maybeLoadConnectionOptions.
+    listeners(({ actions, values }) => ({
+        maybeLoadConnectionOptions: () => {
+            if (values.connectionOptions === null && !values.connectionOptionsLoading) {
+                actions.loadConnectionOptions()
+            }
+        },
         loadSourcesSuccess: () => {
-            actions.loadConnectionOptions()
+            // Refresh only where the options were fetched in the first place.
+            if (values.connectionOptions !== null) {
+                actions.loadConnectionOptions()
+            }
         },
     })),
 ])
