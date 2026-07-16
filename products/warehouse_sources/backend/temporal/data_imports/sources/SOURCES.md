@@ -572,8 +572,6 @@ doesn't conflict with concurrent PRs.
 - babelforce
 - backblaze
 - basecamp
-- better_stack
-- bettermode
 - bigcommerce
 - bitbucket
 - bitly
