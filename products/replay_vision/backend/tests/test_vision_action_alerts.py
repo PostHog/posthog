@@ -90,7 +90,7 @@ class TestVisionActionAlerts(BaseTest):
         self.assertEqual(result.metric_value, 2.0)
         run.refresh_from_db()
         run_url = f"{settings.SITE_URL}/project/{self.team.id}/replay-vision/actions/{action.id}/runs/{run.pk}"
-        self.assertIn(f"Alert: [watcher]({run_url})", run.synthesized_markdown)
+        self.assertIn(f"Alert: [alert-watcher]({run_url})** for scanner watcher", run.synthesized_markdown)
         self.assertIn("over the last 24 hours", run.synthesized_markdown)
         self.assertIn("at or above the threshold of 2", run.synthesized_markdown)
         self.assertIn("2 observations matched", run.synthesized_markdown)
@@ -99,7 +99,7 @@ class TestVisionActionAlerts(BaseTest):
         self.assertEqual(run.observation_ids, [str(newest.id), str(older.id)])
         self.assertIn("[obs 1]", run.synthesized_markdown)
         self.assertIn("[obs 2]", run.synthesized_markdown)
-        self.assertIn(f"<{run_url}|watcher>", run.output["slack"])
+        self.assertIn(f"<{run_url}|alert-watcher>", run.output["slack"])
         self.assertIn(f"/observations/{newest.id}|[1]>", run.output["slack"])
         self.assertIn(f"/observations/{older.id}|[2]>", run.output["slack"])
         # Every match is already listed, so there's no "see all" overflow link to add noise.
@@ -162,7 +162,7 @@ class TestVisionActionAlerts(BaseTest):
 
         self.assertEqual(recovered.status, AlertStatus.RECOVERED)
         recovery_run.refresh_from_db()
-        self.assertIn("Recovered:", recovery_run.synthesized_markdown)
+        self.assertIn("Recovered: [alert-watcher](", recovery_run.synthesized_markdown)
         self.assertIn("below the threshold of 1", recovery_run.synthesized_markdown)
         self.assertIn("had been firing since", recovery_run.synthesized_markdown)
         self.assertTrue(recovery_run.output["recovered"])
