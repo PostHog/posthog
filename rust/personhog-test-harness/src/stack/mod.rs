@@ -355,33 +355,36 @@ impl Stack {
 
     /// Index of the router currently holding the coordinator election,
     /// resolved live from etcd so chaos targets the actual coordinator
-    /// even if leadership migrated after bring-up. A vacant election
-    /// (mid-campaign) falls back to the earliest-spawned candidate — the
-    /// only router that can have led, and a valid failover target either
-    /// way. Bails if the holder is the traffic router: candidacy is
-    /// disabled there, so this can only mean the opt-out broke — a loud
-    /// failure here is the regression signal for that wiring.
+    /// even if leadership migrated after bring-up. Never guesses: lookup
+    /// errors propagate (steering a kill off a failed read could target a
+    /// standby and pass the gate vacuously), and a vacant election is
+    /// polled until a winner emerges — with the 1s campaign retry, well
+    /// inside the deadline. Bails if the holder is the traffic router:
+    /// candidacy is disabled there, so this can only mean the opt-out
+    /// broke — a loud failure here is the regression signal for that
+    /// wiring.
     async fn coordinator_router_index(&self) -> Result<usize> {
         let traffic_router = format!("harness-router-{}", self.config.routers - 1);
-        let holder = self
-            .store
-            .get_leader()
-            .await
-            .ok()
-            .flatten()
-            .map(|leader| leader.holder);
-        match holder {
-            Some(holder) if holder == traffic_router => bail!(
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let holder = loop {
+            if let Some(leader) = self.store.get_leader().await? {
+                break leader.holder;
+            }
+            if std::time::Instant::now() >= deadline {
+                bail!("no coordinator elected within 5s; cannot target coordinator chaos");
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        };
+        if holder == traffic_router {
+            bail!(
                 "election held by the traffic router {traffic_router}, which must never \
                  campaign (COORDINATOR_ENABLED=false) — candidacy opt-out is broken"
-            ),
-            Some(holder) => self
-                .routers
-                .iter()
-                .position(|(name, _)| *name == holder)
-                .with_context(|| format!("election holder {holder} is not a live router")),
-            None => Ok(0),
+            );
         }
+        self.routers
+            .iter()
+            .position(|(name, _)| *name == holder)
+            .with_context(|| format!("election holder {holder} is not a live router"))
     }
 
     /// SIGKILL the router holding the coordinator election and revoke
@@ -392,8 +395,11 @@ impl Stack {
     /// false, neither lease is revoked — a true crash whose failover
     /// waits out both TTLs.
     pub async fn kill_coordinator_router(&mut self, fast: bool) -> Result<String> {
-        if self.routers.len() < 2 {
-            bail!("coordinator kill requires at least 2 routers");
+        if self.routers.len() < 3 {
+            bail!(
+                "coordinator kill requires at least 3 routers: the traffic router never \
+                 campaigns, so 2 leaves no standby to win the failover election"
+            );
         }
         let index = self.coordinator_router_index().await?;
         let (name, mut proc) = self.routers.remove(index);
@@ -417,8 +423,11 @@ impl Stack {
     /// exit whose election handover must come from the revoke-on-exit
     /// path, immediately, never from waiting out the lease TTL.
     pub async fn shutdown_coordinator_router(&mut self) -> Result<String> {
-        if self.routers.len() < 2 {
-            bail!("coordinator shutdown requires at least 2 routers");
+        if self.routers.len() < 3 {
+            bail!(
+                "coordinator shutdown requires at least 3 routers: the traffic router never \
+                 campaigns, so 2 leaves no standby to win the failover election"
+            );
         }
         let index = self.coordinator_router_index().await?;
         let (name, proc) = self.routers.remove(index);

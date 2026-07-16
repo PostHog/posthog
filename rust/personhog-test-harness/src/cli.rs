@@ -216,7 +216,7 @@ pub struct GateArgs {
     pub writer_pause_duration: Duration,
 
     /// SIGKILL the router holding the coordinator election this long
-    /// into the traffic phase. Requires --routers >= 2.
+    /// into the traffic phase. Requires --routers >= 3.
     #[arg(long, value_parser = humantime::parse_duration)]
     pub router_kill_after: Option<Duration>,
 
@@ -230,7 +230,7 @@ pub struct GateArgs {
     /// Gracefully shut down (SIGTERM) the router holding the coordinator
     /// election this long into the traffic phase: the election must hand
     /// over to a survivor immediately via the revoke-on-exit path, not by
-    /// waiting out the lease TTL. Requires --routers >= 2.
+    /// waiting out the lease TTL. Requires --routers >= 3.
     #[arg(long, value_parser = humantime::parse_duration)]
     pub router_shutdown_after: Option<Duration>,
 
