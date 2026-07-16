@@ -10,7 +10,11 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'lib/posthog-typed'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { dashboardSubscribeNudgeStoreLogic, freshTimestamps } from 'scenes/dashboard/dashboardSubscribeNudgeStoreLogic'
+import {
+    dashboardNudgeScopeKey,
+    dashboardSubscribeNudgeStoreLogic,
+    freshTimestamps,
+} from 'scenes/dashboard/dashboardSubscribeNudgeStoreLogic'
 import { showDashboardSubscribeNudgeToast } from 'scenes/dashboard/DashboardSubscribeNudgeToast'
 import { userLogic } from 'scenes/userLogic'
 
@@ -40,13 +44,13 @@ export const dashboardSubscribeNudgeLogic = kea<dashboardSubscribeNudgeLogicType
             ['dashboard', 'canEditDashboard', 'placement'],
             userLogic,
             ['hasAvailableFeature'],
-            dashboardSubscribeNudgeStoreLogic,
+            dashboardSubscribeNudgeStoreLogic({ scope: dashboardNudgeScopeKey() }),
             ['viewLog', 'suppressedDashboardIds', 'notifiedDashboardIds'],
         ],
         actions: [
             dashboardLogic({ id: props.dashboardId }),
             ['reportDashboardViewed'],
-            dashboardSubscribeNudgeStoreLogic,
+            dashboardSubscribeNudgeStoreLogic({ scope: dashboardNudgeScopeKey() }),
             ['recordDashboardView', 'suppressDashboardNudge', 'markDashboardNotified'],
         ],
     })),

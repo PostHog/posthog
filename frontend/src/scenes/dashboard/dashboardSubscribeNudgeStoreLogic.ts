@@ -1,4 +1,6 @@
-import { actions, kea, path, reducers } from 'kea'
+import { actions, kea, key, path, props, reducers } from 'kea'
+
+import { getCurrentTeamIdOrNone, getCurrentUserIdOrNone } from 'lib/utils/getAppContext'
 
 import type { dashboardSubscribeNudgeStoreLogicType } from './dashboardSubscribeNudgeStoreLogicType'
 
@@ -42,11 +44,26 @@ function pruneViewLog(log: DashboardViewLog, now: number): DashboardViewLog {
     return changed ? pruned : log
 }
 
-// Singleton store behind the dashboard subscribe nudge: one persisted map of recent views for
+export interface DashboardSubscribeNudgeStoreLogicProps {
+    /** Isolates persisted state per team+user so a second account on the same browser never
+     * inherits the first account's view counts, suppressions, or notified markers. */
+    scope: string
+}
+
+// Derived at mount time from app context, which is set before any logic mounts. Anonymous viewers
+// (public/shared dashboards) fall back to 'anon' rather than throwing.
+export function dashboardNudgeScopeKey(): string {
+    return `${getCurrentTeamIdOrNone() ?? 'anon'}:${getCurrentUserIdOrNone() ?? 'anon'}`
+}
+
+// Per-scope store behind the dashboard subscribe nudge: one persisted map of recent views for
 // all dashboards (instead of a localStorage entry per dashboard ever viewed), plus the set of
-// dashboards permanently excluded from the nudge.
+// dashboards permanently excluded from the nudge. Keyed by scope so kea derives a distinct
+// localStorage key per team+user.
 export const dashboardSubscribeNudgeStoreLogic = kea<dashboardSubscribeNudgeStoreLogicType>([
-    path(['scenes', 'dashboard', 'dashboardSubscribeNudgeStoreLogic']),
+    path((key) => ['scenes', 'dashboard', 'dashboardSubscribeNudgeStoreLogic', key]),
+    props({} as DashboardSubscribeNudgeStoreLogicProps),
+    key((props) => props.scope),
     actions({
         recordDashboardView: (dashboardId: number) => ({ dashboardId }),
         suppressDashboardNudge: (dashboardId: number) => ({ dashboardId }),

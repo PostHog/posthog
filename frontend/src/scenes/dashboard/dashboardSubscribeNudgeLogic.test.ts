@@ -8,7 +8,10 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'lib/posthog-typed'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { dashboardSubscribeNudgeStoreLogic } from 'scenes/dashboard/dashboardSubscribeNudgeStoreLogic'
+import {
+    dashboardNudgeScopeKey,
+    dashboardSubscribeNudgeStoreLogic,
+} from 'scenes/dashboard/dashboardSubscribeNudgeStoreLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
@@ -52,6 +55,8 @@ const mockSubscriptionsList = subscriptionsList as jest.Mock
 
 const DASHBOARD_ID = 1
 const START_TIME = 1_700_000_000_000
+/** kea-localstorage derives each persisted entry's key from the logic's path (which carries the scope). */
+const STORE_PATH = 'scenes.dashboard.dashboardSubscribeNudgeStoreLogic'
 
 const USER_WITH_SUBSCRIPTIONS_FEATURE: UserType = {
     ...MOCK_DEFAULT_USER,
@@ -76,6 +81,7 @@ function capturesOf(event: string): any[][] {
 
 describe('dashboardSubscribeNudgeLogic', () => {
     let logic: ReturnType<typeof dashboardSubscribeNudgeLogic.build>
+    let storeLogic: ReturnType<typeof dashboardSubscribeNudgeStoreLogic.build>
     let now: number
     let dateSpy: jest.SpyInstance
     let nudgePostCount: number
@@ -117,6 +123,8 @@ describe('dashboardSubscribeNudgeLogic', () => {
         }).mount()
         logic = dashboardSubscribeNudgeLogic({ dashboardId: DASHBOARD_ID })
         logic.mount()
+        // Same keyed instance the logic connects to — already mounted via that connect.
+        storeLogic = dashboardSubscribeNudgeStoreLogic({ scope: dashboardNudgeScopeKey() })
         ;(posthog.capture as jest.Mock).mockClear()
     })
 
@@ -155,10 +163,10 @@ describe('dashboardSubscribeNudgeLogic', () => {
         // A re-dispatch inside the dedupe window with nothing stale to prune must not mint a new
         // map object, so kea-localstorage skips a redundant full-map persist write.
         logic.actions.recordDashboardView(DASHBOARD_ID)
-        const before = dashboardSubscribeNudgeStoreLogic.values.viewLog
+        const before = storeLogic.values.viewLog
         now += 1000
         logic.actions.recordDashboardView(DASHBOARD_ID)
-        expect(dashboardSubscribeNudgeStoreLogic.values.viewLog).toBe(before)
+        expect(storeLogic.values.viewLog).toBe(before)
     })
 
     it('prunes stale views across the whole map and drops emptied dashboards', () => {
@@ -171,7 +179,7 @@ describe('dashboardSubscribeNudgeLogic', () => {
         expect(logic.values.viewCount7d).toBe(1)
         expect(logic.values.isPastViewThreshold).toBe(false)
         // The persisted map is bounded: fully-stale dashboards disappear entirely.
-        expect(Object.keys(dashboardSubscribeNudgeStoreLogic.values.viewLog)).toEqual([String(DASHBOARD_ID)])
+        expect(Object.keys(storeLogic.values.viewLog)).toEqual([String(DASHBOARD_ID)])
     })
 
     describe('free-tier subscription limit', () => {
@@ -385,7 +393,7 @@ describe('dashboardSubscribeNudgeLogic', () => {
         })
 
         it('does not notify already-notified dashboards, and skips their eligibility fetch entirely', async () => {
-            dashboardSubscribeNudgeStoreLogic.actions.markDashboardNotified(DASHBOARD_ID)
+            storeLogic.actions.markDashboardNotified(DASHBOARD_ID)
 
             await expectLogic(logic, () => {
                 recordViews(DASHBOARD_SUBSCRIBE_NUDGE_VIEW_THRESHOLD)
@@ -459,7 +467,7 @@ describe('dashboardSubscribeNudgeLogic', () => {
         for (let i = 1; i <= MAX_TRACKED_DASHBOARDS + 1; i++) {
             logic.actions.suppressDashboardNudge(i)
         }
-        const suppressed = dashboardSubscribeNudgeStoreLogic.values.suppressedDashboardIds
+        const suppressed = storeLogic.values.suppressedDashboardIds
         expect(suppressed).toHaveLength(MAX_TRACKED_DASHBOARDS)
         expect(suppressed).not.toContain(1) // oldest evicted
         expect(suppressed).toContain(MAX_TRACKED_DASHBOARDS + 1) // newest kept
@@ -470,9 +478,35 @@ describe('dashboardSubscribeNudgeLogic', () => {
             now += 1000
             logic.actions.recordDashboardView(i)
         }
-        const trackedIds = Object.keys(dashboardSubscribeNudgeStoreLogic.values.viewLog)
+        const trackedIds = Object.keys(storeLogic.values.viewLog)
         expect(trackedIds).toHaveLength(MAX_TRACKED_DASHBOARDS)
         expect(trackedIds).not.toContain('1') // least recently viewed evicted
         expect(trackedIds).toContain(String(MAX_TRACKED_DASHBOARDS + 1)) // newest kept
+    })
+
+    it('isolates persisted state between scopes so a second account never inherits the first', () => {
+        // Two accounts on the same browser: distinct scope keys must not share view counts.
+        const scopeA = dashboardSubscribeNudgeStoreLogic({ scope: '1:user-a' })
+        const scopeB = dashboardSubscribeNudgeStoreLogic({ scope: '2:user-b' })
+        scopeA.mount()
+        scopeB.mount()
+
+        scopeA.actions.recordDashboardView(DASHBOARD_ID)
+
+        expect(scopeA.values.viewLog[DASHBOARD_ID]).toHaveLength(1)
+        expect(scopeB.values.viewLog[DASHBOARD_ID]).toBeUndefined()
+
+        // The scope reaches the persistence layer: each account gets its own namespaced entry,
+        // and there is no shared unscoped entry both would read back on a later visit.
+        const persistedViewLogKeys = Object.keys(window.localStorage).filter(
+            (storageKey) => storageKey.startsWith(`${STORE_PATH}.`) && storageKey.endsWith('.viewLog')
+        )
+        expect(persistedViewLogKeys).toEqual(
+            expect.arrayContaining([`${STORE_PATH}.1:user-a.viewLog`, `${STORE_PATH}.2:user-b.viewLog`])
+        )
+        expect(window.localStorage.getItem(`${STORE_PATH}.viewLog`)).toBeNull()
+
+        scopeA.unmount()
+        scopeB.unmount()
     })
 })
