@@ -27,7 +27,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BuzzsproutSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -84,7 +87,7 @@ You can find both your API token and podcast ID in your [Buzzsprout API settings
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            # An invalid or revoked token surfaces as a requests HTTPError when `_fetch` calls
+            # An invalid or revoked token surfaces as a requests HTTPError when the REST client calls
             # `raise_for_status()`. Retrying can never satisfy a credential problem. Match the stable
             # status text and base host, not the per-request path.
             "401 Client Error: Unauthorized for url: https://www.buzzsprout.com": "Your Buzzsprout API token is invalid or has been revoked. Create a new token in your Buzzsprout account settings, then reconnect.",
@@ -99,24 +102,23 @@ You can find both your API token and podcast ID in your [Buzzsprout API settings
         names: list[str] | None = None,
         force_refresh: bool = False,
     ) -> list[SourceSchema]:
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                # Buzzsprout returns the full array on every request with no server-side timestamp
-                # filter, so an "incremental" sync would cost the same as a full refresh. Ship full
-                # refresh only — merge on the primary key keeps mutable fields (e.g. total_plays) fresh.
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-                should_sync_default=BUZZSPROUT_ENDPOINTS[endpoint].should_sync_default,
-                description=BUZZSPROUT_ENDPOINTS[endpoint].description,
-            )
-            for endpoint in ENDPOINTS
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        # Buzzsprout returns the full array on every request with no server-side timestamp filter, so
+        # an "incremental" sync would cost the same as a full refresh. Every endpoint has no
+        # incremental fields, so this ships full refresh only — merge on the primary key keeps
+        # mutable fields (e.g. total_plays) fresh.
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            descriptions={
+                endpoint: config.description
+                for endpoint, config in BUZZSPROUT_ENDPOINTS.items()
+                if config.description is not None
+            },
+            should_sync_default={
+                endpoint: config.should_sync_default for endpoint, config in BUZZSPROUT_ENDPOINTS.items()
+            },
+        )
 
     def validate_credentials(
         self, config: BuzzsproutSourceConfig, team_id: int, schema_name: Optional[str] = None
@@ -128,5 +130,6 @@ You can find both your API token and podcast ID in your [Buzzsprout API settings
             api_token=config.api_token,
             podcast_id=config.podcast_id,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
         )

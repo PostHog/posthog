@@ -133,5 +133,6 @@ class TestBuzzsproutSource:
             api_token="test-token",
             podcast_id="123456",
             endpoint="podcasts",
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
         )
