@@ -251,3 +251,37 @@ class TestKernelSessionRunNode(SimpleTestCase):
         envelope = self._run_duckdb("select * from out", inputs=[{"name": "out", "kind": "local"}])
         self.assertEqual(envelope["status"], "error")
         self.assertIn("out", envelope["error"])
+
+    def test_snapshot_lists_only_what_sql_can_select_from(self):
+        # The browser's contract is "things you can SELECT from", so the snapshot is read from
+        # DuckDB's catalog rather than the namespace. Walking user_ns for DataFrames instead —
+        # the tempting shortcut — would leak `raw` in and miss `agg`, which has no result file
+        # at all (a frameless DDL run writes none) and is invisible to anything document-derived.
+        self._run("import pandas as pd\npd.DataFrame({'a': [1, 2, 3]})", output_name="sql_df")
+        self._run("raw = pd.DataFrame({'zz': [1]})\nNone")
+        envelope = self._run_duckdb("create table agg as select a from sql_df")
+
+        by_name = {frame["name"]: frame for frame in envelope["frames"]}
+        self.assertEqual(sorted(by_name), ["agg", "sql_df"])
+        self.assertEqual(by_name["sql_df"]["kind"], "frame")
+        self.assertEqual(by_name["sql_df"]["row_count"], 3)
+        self.assertEqual(by_name["sql_df"]["columns"], [["a", "BIGINT"]])
+        self.assertEqual(by_name["agg"]["kind"], "table")
+
+    def test_snapshot_rides_a_failed_run(self):
+        # A run that raises part-way can still have changed the catalog, so snapshotting only
+        # successful runs would hide `scratch` until some later run happened to succeed.
+        self._run_duckdb("create table scratch as select 1 as n")
+        envelope = self._run("raise ValueError('boom')")
+
+        self.assertEqual(envelope["status"], "error")
+        self.assertEqual([frame["name"] for frame in envelope["frames"]], ["scratch"])
+
+    def test_snapshot_drops_a_deleted_frame(self):
+        # `del df` unregisters it, so it stops being SELECT-able and must stop being listed —
+        # this is the phantom-frame case that sank deriving the list from the document.
+        self._run("import pandas as pd\npd.DataFrame({'a': [1]})", output_name="doomed")
+        self._run("del doomed")
+        envelope = self._run("1 + 1")
+
+        self.assertEqual([frame["name"] for frame in envelope["frames"]], [])

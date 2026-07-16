@@ -822,6 +822,10 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 "kernel_id": runtime.kernel_id if runtime else None,
                 "kernel_pid": runtime.kernel_pid if runtime else None,
                 "sandbox_id": runtime.sandbox_id if runtime else None,
+                # Journey 7: what a SQL node can currently SELECT from. Gated on the live-checked
+                # status, not runtime.status — the row above is the latest by last_used_at
+                # regardless of state, and a dead kernel's frames are not SELECT-able.
+                "frames": (runtime.frames or []) if runtime and status == KernelRuntime.Status.RUNNING else [],
                 "cpu_cores": cpu_cores,
                 "memory_gb": sandbox_config.memory_gb,
                 "disk_size_gb": sandbox_config.disk_size_gb,

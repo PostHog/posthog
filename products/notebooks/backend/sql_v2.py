@@ -288,6 +288,11 @@ def dispatch_sql_v2_run(
     """
     runtime = ensure_sql_v2_server(notebook, user)
     assert runtime.server_url  # ensure_sql_v2_server always returns a runtime with a live server_url
+    # Record which kernel took the run: the sandbox can't name it (its secret is a one-way
+    # derivation of the runtime id, not the id), and letting it name one would let a sandbox
+    # write over another kernel's state. So the backend decides here and the callback follows.
+    run.kernel_runtime_id = runtime.id
+    run.save(update_fields=["kernel_runtime_id", "updated_at"])
     command_token = mint_command_token(kernel_server_secret(str(runtime.id)), str(run.id))
     user_id = user.id if isinstance(user, User) else None
     payload: dict = {

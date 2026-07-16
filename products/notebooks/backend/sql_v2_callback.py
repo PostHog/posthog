@@ -13,7 +13,7 @@ from django.http import JsonResponse
 import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 
-from products.notebooks.backend.models import NotebookNodeRun
+from products.notebooks.backend.models import KernelRuntime, NotebookNodeRun
 from products.notebooks.backend.sql_v2 import verify_callback_token
 from products.notebooks.backend.sql_v2_serializers import NotebookSQLV2CallbackRequestSerializer
 
@@ -92,4 +92,21 @@ def notebook_sql_v2_callback(request, run_id: str) -> JsonResponse:
     run.error = envelope.get("error")
     run.save(update_fields=["status", "envelope", "result_id", "error", "updated_at"])
 
+    _store_frame_snapshot(run, envelope, team_id)
+
     return JsonResponse({"ok": True})
+
+
+def _store_frame_snapshot(run: NotebookNodeRun, envelope: dict, team_id: int) -> None:
+    """File the run's DuckDB catalog snapshot against the kernel that produced it (Journey 7).
+
+    Only kernel runs (python/duckdb) carry `frames`; a hogql run never enters the kernel and
+    so leaves the previous snapshot standing, which is correct — it changes no local state.
+    """
+    frames = envelope.get("frames")
+    if frames is None or not run.kernel_runtime_id:
+        return
+    # Team-scoped so a forged run_id can never reach another team's runtime row. Scoped to the
+    # dispatch-time kernel rather than "the notebook's current kernel": if the kernel was
+    # replaced mid-run, this snapshot describes the dead one and must not overwrite the live one.
+    KernelRuntime.objects.filter(id=run.kernel_runtime_id, team_id=team_id).update(frames=frames)

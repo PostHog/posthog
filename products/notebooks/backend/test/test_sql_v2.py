@@ -168,6 +168,54 @@ class TestSQLV2Callback(APIBaseTest):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(self._reload_run().status, NotebookNodeRun.Status.RUNNING)
 
+    def _create_runtime(self, status: str) -> KernelRuntime:
+        return KernelRuntime.objects.create(
+            team=self.team,
+            notebook=self.notebook,
+            notebook_short_id=self.notebook.short_id,
+            user=self.user,
+            status=status,
+            backend=KernelRuntime.Backend.DOCKER,
+        )
+
+    def test_frame_snapshot_lands_on_the_kernel_that_ran_it(self):
+        # A snapshot describes one kernel's state, so it must follow the run's dispatch-time
+        # kernel. Resolving "the notebook's current kernel" at callback time instead would let a
+        # kernel that died mid-run overwrite the frames of the live one that replaced it.
+        ran_on = self._create_runtime(KernelRuntime.Status.STOPPED)
+        replaced_by = self._create_runtime(KernelRuntime.Status.RUNNING)
+        with team_scope(self.team.id):
+            self.node_run.kernel_runtime_id = ran_on.id
+            self.node_run.save(update_fields=["kernel_runtime_id"])
+        frames = [{"name": "sql_df", "kind": "frame", "columns": [["a", "BIGINT"]], "row_count": 3}]
+
+        token = mint_callback_token(str(self.node_run.id), self.team.id)
+        response = self._post(token, envelope={**self.envelope, "frames": frames})
+
+        self.assertEqual(response.status_code, 200)
+        ran_on.refresh_from_db()
+        replaced_by.refresh_from_db()
+        self.assertEqual(ran_on.frames, frames)
+        self.assertIsNone(replaced_by.frames)
+
+    def test_hogql_envelope_leaves_the_previous_snapshot_standing(self):
+        # A hogql run never enters the kernel, so it reports no frames and must not be read as
+        # "the kernel now has none" — that would blank the browser on every SQL run.
+        ran_on = self._create_runtime(KernelRuntime.Status.RUNNING)
+        existing = [{"name": "sql_df", "kind": "frame", "columns": [["a", "BIGINT"]], "row_count": 3}]
+        ran_on.frames = existing
+        ran_on.save(update_fields=["frames"])
+        with team_scope(self.team.id):
+            self.node_run.kernel_runtime_id = ran_on.id
+            self.node_run.save(update_fields=["kernel_runtime_id"])
+
+        token = mint_callback_token(str(self.node_run.id), self.team.id)
+        response = self._post(token)
+
+        self.assertEqual(response.status_code, 200)
+        ran_on.refresh_from_db()
+        self.assertEqual(ran_on.frames, existing)
+
     def test_unknown_run_returns_404(self):
         other_id = "00000000-0000-0000-0000-000000000000"
         token = mint_callback_token(other_id, self.team.id)

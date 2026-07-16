@@ -173,6 +173,11 @@ class KernelRuntime(UUIDTModel):
     last_error = models.TextField(null=True, blank=True)
     server_url = models.TextField(null=True, blank=True)
     server_connect_token = models.TextField(null=True, blank=True)
+    # The DuckDB objects a SQL node can currently SELECT from, as of this kernel's last run
+    # (Journey 7). Kernel-scoped rather than notebook-scoped on purpose: a row is only ever
+    # reused while its sandbox is verifiably alive, so the snapshot cannot outlive the kernel
+    # that produced it and go stale — a restarted kernel gets a new row with this unset.
+    frames: JSONField = JSONField(default=None, null=True, blank=True)
 
     class Meta:
         db_table = "posthog_kernelruntime"
@@ -213,6 +218,11 @@ class NotebookNodeRun(TeamScopedRootMixin, UUIDModel):
     status = models.CharField(choices=Status, default=Status.RUNNING, max_length=20)
     envelope: JSONField = JSONField(default=None, null=True, blank=True)
     result_id = models.UUIDField(null=True, blank=True)
+    # Which kernel this run was dispatched to, so the callback can file the run's frame
+    # snapshot against the right KernelRuntime. A plain id rather than an FK: runtime rows
+    # are transient (starting/stopped/discarded/error) and run history must not be coupled
+    # to their churn — see sql_v2_result_delivery.md, "Related model notes".
+    kernel_runtime_id = models.UUIDField(null=True, blank=True)
     error = models.TextField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
