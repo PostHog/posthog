@@ -114,7 +114,8 @@ class TestResumableWiring:
     def test_source_for_pipeline_plumbs_arguments(self) -> None:
         inputs = MagicMock()
         inputs.schema_name = "licenses"
-        inputs.logger = MagicMock()
+        inputs.team_id = 1
+        inputs.job_id = "j"
         manager = MagicMock()
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.bluetally.source.bluetally_source"
@@ -123,7 +124,8 @@ class TestResumableWiring:
         mocked.assert_called_once_with(
             api_key="key",
             endpoint="licenses",
-            logger=inputs.logger,
+            team_id=1,
+            job_id="j",
             resumable_source_manager=manager,
             tenant_id="3",
         )
