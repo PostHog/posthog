@@ -117,6 +117,7 @@ from posthog.rbac.user_access_control import (
     UserAccessControlSerializerMixin,
     access_level_satisfied_for_resource,
 )
+from posthog.renderers import SafeJSONRenderer
 from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.schema_migrations.upgrade_manager import upgrade_query
@@ -1168,6 +1169,18 @@ class InsightSerializer(InsightBasicSerializer):
                 request_user_access_control = (
                     getattr(view, "user_access_control", None) if isinstance(request_user, User) else None
                 )
+                # Raw cached results (orjson.Fragment) are only valid when the response is
+                # rendered by orjson: SafeJSONRenderer directly, or a caller that declares it
+                # renders tiles with SafeJSONRenderer itself (the SSE tile stream sets
+                # raw_results_supported — SSE content negotiation alone doesn't guarantee an
+                # orjson boundary). Pretty-printed output (?indent=) would not indent inside a
+                # fragment, so keep the parsed path there.
+                accepted_renderer = getattr(self.context["request"], "accepted_renderer", None)
+                allow_raw_results = (
+                    (isinstance(accepted_renderer, SafeJSONRenderer) or bool(self.context.get("raw_results_supported")))
+                    and not self.context["request"].query_params.get("indent")
+                    and not self.context.get("require_parsed_results")
+                )
                 with tags_context(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.INSIGHT, **shared_tags):
                     return calculate_for_query_based_insight(
                         insight,
@@ -1181,6 +1194,7 @@ class InsightSerializer(InsightBasicSerializer):
                         tile_filters_override=tile_filters_override,
                         cache_age_seconds=shared_cache_age_seconds,
                         analytics_props=get_request_analytics_properties(self.context["request"]),
+                        allow_raw_results=allow_raw_results,
                     )
             except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
                 raise ValidationError(str(e), getattr(e, "code_name", None))

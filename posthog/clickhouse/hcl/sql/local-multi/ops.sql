@@ -1,5 +1,5 @@
 -- AUTO-GENERATED from the declarative HCL by ops/gen-sql.sh — do not edit.
--- Full CREATE schema for the local/ops node. Apply to a fresh ClickHouse to build it.
+-- Full CREATE schema for the local-multi/ops node. Apply to a fresh ClickHouse to build it.
 
 CREATE TABLE posthog.events_team_daily_stats (
   analysis_date Date,

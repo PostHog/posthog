@@ -403,9 +403,11 @@ export interface workflowMetricsSummaryLogicValues {
 export interface workflowMetricsSummaryLogicActions {
     loadAppMetricsTrendsSuccess: (
         appMetricsTrends: AppMetricsTimeSeriesResponse,
-        payload?: {
-            value: true
-        }
+        payload?:
+            | {
+                  value: true
+              }
+            | undefined
     ) => {
         appMetricsTrends: AppMetricsTimeSeriesResponse
         payload?: {

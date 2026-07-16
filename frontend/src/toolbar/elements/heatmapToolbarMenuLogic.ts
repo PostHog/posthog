@@ -428,9 +428,11 @@ export interface heatmapToolbarMenuLogicActions {
     } // heatmapDataLogic
     loadHeatmapSuccess: (
         rawHeatmap: HeatmapResponseType | null,
-        payload?: {
-            value: true
-        }
+        payload?:
+            | {
+                  value: true
+              }
+            | undefined
     ) => {
         payload?: {
             value: true

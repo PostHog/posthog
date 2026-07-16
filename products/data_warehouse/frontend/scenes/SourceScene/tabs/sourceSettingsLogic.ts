@@ -1011,7 +1011,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     allowBlankSensitiveFields: true,
                 })
             },
-            submit: async ({ payload = {}, description, prefix, access_method }) => {
+            submit: async ({ payload = {}, description, prefix, access_method, direct_query_enabled }) => {
                 const sanitizedPayload = clonePayloadPreservingFiles(payload) as Record<string, any>
                 if (values.sourceFieldConfig?.fields) {
                     removeEmptySensitiveValues(values.sourceFieldConfig.fields, sanitizedPayload)
@@ -1053,6 +1053,10 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                         job_inputs: newJobInputs,
                         prefix: prefix !== undefined ? prefix : values.source?.prefix,
                         access_method: access_method !== undefined ? access_method : values.source?.access_method,
+                        direct_query_enabled:
+                            direct_query_enabled !== undefined
+                                ? direct_query_enabled
+                                : values.source?.direct_query_enabled,
                         description: description !== '' ? description : (values.source?.description ?? null),
                     })
                     actions.loadSource()
