@@ -2257,6 +2257,39 @@ describe('processResultsForSurveyQuestions', () => {
         })
     })
 
+    describe('Translated Choices', () => {
+        it('aggregates translated responses under their base-language choice', () => {
+            const questions = [
+                {
+                    id: 'multi-q1',
+                    type: SurveyQuestionType.MultipleChoice as const,
+                    question: 'Pick many',
+                    choices: ['Analytics', 'Feature Flags'],
+                    translations: {
+                        'zh-cn': { choices: ['分析', '功能标记'] },
+                    },
+                },
+            ]
+            const rows: [string, string, number][] = [
+                ['multi-q1', 'Analytics', 2],
+                ['multi-q1', '分析', 3],
+                ['multi-q1', '功能标记', 1],
+                ['multi-q1', 'Something else', 1],
+                ['multi-q1', '__total__', 7],
+            ]
+
+            const processed = processResultsForSurveyQuestions(questions, rows)
+            const multiData = processed['multi-q1'] as ChoiceQuestionProcessedResponses
+
+            const dataMap = new Map(multiData.data.map((item) => [item.label, item]))
+            expect(dataMap.get('Analytics')).toEqual({ label: 'Analytics', value: 5, isPredefined: true })
+            expect(dataMap.get('Feature Flags')).toEqual({ label: 'Feature Flags', value: 1, isPredefined: true })
+            expect(dataMap.get('Something else')).toEqual({ label: 'Something else', value: 1, isPredefined: false })
+            // The translated label is folded into the base choice, not surfaced on its own.
+            expect(dataMap.has('分析')).toBe(false)
+        })
+    })
+
     describe('Open Questions', () => {
         it('returns total count with empty data (raw data comes from open-ended query)', () => {
             const questions = [
@@ -2403,6 +2436,35 @@ describe('processOpenEndedResults', () => {
 
         expect(choiceData.data).toHaveLength(1)
         expect(choiceData.data[0].label).toBe('Custom text')
+    })
+
+    it('does not collect translated predefined choices as "Other" text', () => {
+        const questions = [
+            {
+                id: 'choice-q1',
+                type: SurveyQuestionType.SingleChoice as const,
+                question: 'Pick one',
+                choices: ['Yes', 'No', 'Other'],
+                hasOpenChoice: true,
+                translations: {
+                    'zh-cn': { choices: ['是', '否', '其他'] },
+                },
+            },
+        ]
+        const columnMap: OpenEndedColumnMap = {
+            'choice-q1': { columnIndex: 0, questionIndex: 0, type: SurveyQuestionType.SingleChoice },
+        }
+        const rows = [
+            ['是', 'user1', '2024-01-15T10:00:00Z'],
+            ['我自己的理由', 'user2', '2024-01-15T11:00:00Z'],
+        ]
+
+        const result = processOpenEndedResults(questions, columnMap, rows)
+        const choiceData = result['choice-q1'] as ChoiceQuestionProcessedResponses
+
+        // Only the genuinely free-text answer is collected; the translated "Yes" is recognised.
+        expect(choiceData.data).toHaveLength(1)
+        expect(choiceData.data[0].label).toBe('我自己的理由')
     })
 
     it('returns empty object for null rows', () => {

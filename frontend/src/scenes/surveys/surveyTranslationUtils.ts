@@ -1,6 +1,25 @@
-import { Survey, SurveyAppearance, SurveyQuestion, SurveyQuestionType } from '~/types'
+import { MultipleSurveyQuestion, Survey, SurveyAppearance, SurveyQuestion, SurveyQuestionType } from '~/types'
 
 import { NewSurvey } from './constants'
+
+// Respondents are shown choices in their own language and submit the translated text, so a
+// translated choice has to map back to its base-language choice (matched by position) to be
+// recognised as a predefined answer rather than a free-text "Other" response.
+export function buildChoiceTranslationMap(question: MultipleSurveyQuestion): Map<string, string> {
+    const baseChoices = question.choices ?? []
+    const map = new Map<string, string>(baseChoices.map((choice) => [choice, choice]))
+
+    for (const translation of Object.values(question.translations ?? {})) {
+        translation.choices?.forEach((choice, index) => {
+            const baseChoice = baseChoices[index]
+            if (choice && baseChoice !== undefined) {
+                map.set(choice, baseChoice)
+            }
+        })
+    }
+
+    return map
+}
 
 export function getSurveyWithTranslatedContent<TSurvey extends Survey | NewSurvey>(
     survey: TSurvey,

@@ -7007,6 +7007,44 @@ class TestSurveyStatsPerQuestion(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(per_q[self.open_qid]["response_count"], 3)
         self.assertEqual(per_q[self.open_qid]["distribution"], {})
 
+    def test_per_question_stats_aggregates_translated_choices(self):
+        choice_qid = str(uuid.uuid4())
+        survey = Survey.objects.create(
+            team=self.team,
+            name="Translated",
+            type="popover",
+            questions=[
+                {
+                    "id": choice_qid,
+                    "type": "single_choice",
+                    "question": "Pick one",
+                    "choices": ["yes", "no"],
+                    "translations": {"zh-cn": {"choices": ["是", "否"]}},
+                },
+            ],
+            start_date=datetime(2024, 5, 1, tzinfo=UTC),
+        )
+        for distinct_id, choice in [("u-1", "yes"), ("u-2", "是"), ("u-3", "否")]:
+            create_person(team=self.team, distinct_ids=[distinct_id])
+            _create_event(
+                team=self.team,
+                event="survey sent",
+                distinct_id=distinct_id,
+                timestamp="2024-06-10 09:00:00",
+                properties={"$survey_id": str(survey.id), f"$survey_response_{choice_qid}": choice},
+            )
+        flush_persons_and_events()
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/stats/?include_per_question_stats=true"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        per_q = {q["question_id"]: q for q in response.json()["per_question_stats"]}
+
+        # The Chinese "是" answer folds into base "yes"; nothing is redacted into <other>.
+        self.assertEqual(per_q[choice_qid]["distribution"], {"yes": 2, "no": 1})
+        self.assertEqual(per_q[choice_qid]["response_count"], 3)
+
 
 class TestSurveyFeatureFlagScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
     SURVEY_PAYLOAD = {
