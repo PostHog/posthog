@@ -11,7 +11,7 @@ export function AdminLoginButtons({
     adminLoginUrls: AdminLoginUrl[]
     useRegionLabels?: boolean
 }): JSX.Element {
-    const disabledReason = !ticketContext?.email ? 'This ticket has no associated email' : undefined
+    const email = ticketContext?.email
 
     // Region is ambiguous when we couldn't infer it, so we offer one button per
     // region and label each so staff know which admin page they're opening.
@@ -19,9 +19,13 @@ export function AdminLoginButtons({
 
     return (
         <div className="flex flex-wrap justify-end gap-2">
-            {disabledReason ? (
-                <LemonButton type="secondary" size="small" disabledReason={disabledReason}>
-                    Login
+            {!email ? (
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    disabledReason="This ticket has no associated email"
+                >
+                    {useRegionLabels ? 'Login' : 'Login as customer'}
                 </LemonButton>
             ) : (
                 adminLoginUrls.map(({ region, url }) => (
@@ -29,10 +33,12 @@ export function AdminLoginButtons({
                         key={region}
                         type="secondary"
                         size="small"
-                        tooltip={`Login as ${ticketContext?.email} on ${region}. This currently redirects to the admin login page, but in future will log you in directly.`}
+                        tooltip={`Login as ${email} on ${region}. This currently redirects to the admin login page, but in future will log you in directly.`}
                         onClick={() => window.open(url, '_blank')}
                     >
-                        {useRegionLabels ? `${region} region` : `Login${showRegionLabel ? ` (${region})` : ''}`}
+                        {useRegionLabels
+                            ? `${region} region`
+                            : `Login as ${email}${showRegionLabel ? ` (${region})` : ''}`}
                     </LemonButton>
                 ))
             )}

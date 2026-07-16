@@ -33,7 +33,7 @@ function PanelWithContext({ context }: { context: ImpersonationTicketContext | n
     }, [context, setTicketContext])
 
     return (
-        <div className="max-w-md">
+        <div className="w-[300px]">
             <StaffActionsPanel />
         </div>
     )
@@ -46,7 +46,9 @@ export const KnownRegion: Story = {
 }
 
 export const AmbiguousRegion: Story = {
-    render: () => <PanelWithContext context={{ ticketId: 'ticket-2', email: 'customer@example.com' }} />,
+    render: () => (
+        <PanelWithContext context={{ ticketId: 'ticket-2', email: 'customer.with.a.long.email@example.com' }} />
+    ),
 }
 
 export const NoCustomerEmail: Story = {
