@@ -138,7 +138,7 @@ class Migration(migrations.Migration):
                 ("absolute_delta", models.DecimalField(blank=True, decimal_places=6, max_digits=20, null=True)),
                 (
                     "relative_delta_percentage",
-                    models.DecimalField(blank=True, decimal_places=6, max_digits=12, null=True),
+                    models.DecimalField(blank=True, decimal_places=6, max_digits=28, null=True),
                 ),
                 (
                     "threshold_value_snapshot",
