@@ -1,13 +1,6 @@
-import time
 import dataclasses
-from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode
-
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.brex.settings import (
@@ -15,39 +8,47 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.brex.setti
     BrexEndpointConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+    rest_api_resources,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    JSONResponseCursorPaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    Endpoint,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 
 BREX_BASE_URL = "https://api.brex.com"
 # Expenses caps `limit` at 100; other endpoints don't document a max, so 100 is used uniformly.
 PAGE_SIZE = 100
-REQUEST_TIMEOUT_SECONDS = 60
-MAX_RETRIES = 5
-MAX_RETRY_AFTER_SECONDS = 60
 
 CASH_ACCOUNTS_PATH = "/v2/accounts/cash"
 # Injected into cash transaction rows so rows from different cash accounts stay distinguishable.
 CASH_ACCOUNT_ID_KEY = "account_id"
-
-
-class BrexRetryableError(Exception):
-    pass
+# Parent resource name in the cash-transactions fan-out config. With include_from_parent=["id"]
+# the framework injects the parent account id into child rows as `_cash_accounts_id`; a data_map
+# renames it to the `account_id` key the rows carried before the rest_source migration.
+_CASH_ACCOUNTS_PARENT = "cash_accounts"
+_PARENT_ACCOUNT_ID_KEY = f"_{_CASH_ACCOUNTS_PARENT}_id"
 
 
 @dataclasses.dataclass
 class BrexResumeConfig:
+    # Pre-framework fields, kept so previously saved state still parses (dataclass(**saved)).
     # `next_cursor` of the last fully-yielded page for the endpoint (or current cash account).
     cursor: Optional[str] = None
     # Cash account currently being paged; None for top-level endpoints.
     account_id: Optional[str] = None
     # Cash accounts already fully synced in this run.
     completed_account_ids: list[str] = dataclasses.field(default_factory=list)
-
-
-def _get_headers(api_key: str) -> dict[str, str]:
-    return {
-        "Authorization": f"Bearer {api_key}",
-        "Accept": "application/json",
-    }
+    # Framework fan-out checkpoint for cash_transactions
+    # ({"completed": [child_path, ...], "current": child_path | None, "child_state": {...} | None}).
+    fanout_state: Optional[dict[str, Any]] = None
 
 
 def _to_rfc3339(value: Any) -> Optional[str]:
@@ -69,211 +70,157 @@ def _to_rfc3339(value: Any) -> Optional[str]:
     return None
 
 
-def _build_url(path: str, params: dict[str, Any]) -> str:
-    clean_params = {key: value for key, value in params.items() if value is not None}
-    if not clean_params:
-        return f"{BREX_BASE_URL}{path}"
-    return f"{BREX_BASE_URL}{path}?{urlencode(clean_params)}"
+def _paginator() -> JSONResponseCursorPaginator:
+    # All Brex sub-APIs paginate with `cursor` + `limit` params and `next_cursor` +
+    # `items` in the response body.
+    return JSONResponseCursorPaginator(cursor_path="next_cursor", cursor_param="cursor")
 
 
-def _build_params(
-    config: BrexEndpointConfig,
-    cursor: Optional[str],
-    incremental_value: Optional[str],
-) -> dict[str, Any]:
-    params: dict[str, Any] = {"limit": PAGE_SIZE}
-    if cursor is not None:
-        params["cursor"] = cursor
-    # Brex docs don't state whether the cursor re-encodes the original filters, so the
-    # timestamp filter is re-sent on every page to be safe.
-    if config.incremental_param is not None and incremental_value is not None:
-        params[config.incremental_param] = incremental_value
-    return params
+def _client_config(api_key: str) -> ClientConfig:
+    return {
+        "base_url": BREX_BASE_URL,
+        # Bearer auth via the framework auth config so the token is redacted from logs;
+        # only the non-secret accept header is set here. Brex rate-limits at 1,000
+        # requests per 60s — the client retries 429/5xx and honors Retry-After.
+        "headers": {"Accept": "application/json"},
+        "auth": {"type": "bearer", "token": api_key},
+        "paginator": _paginator(),
+    }
 
 
-def validate_credentials(api_key: str) -> bool:
-    """Confirm the API user token is genuine. /v2/users/me is a cheap authenticated probe.
-
-    A 403 means the token is valid but wasn't granted the Team scope — users may
-    legitimately scope tokens to only the endpoints they want to sync, so it's accepted.
-    """
-    try:
-        response = make_tracked_session().get(
-            f"{BREX_BASE_URL}/v2/users/me",
-            headers=_get_headers(api_key),
-            timeout=10,
-        )
-        return response.status_code in (200, 403)
-    except Exception:
-        return False
+def _endpoint_config(config: BrexEndpointConfig, path: str, should_use_incremental_field: bool) -> Endpoint:
+    endpoint: Endpoint = {
+        "path": path,
+        "params": {"limit": PAGE_SIZE},
+        "data_selector": "items",
+    }
+    if should_use_incremental_field and config.incremental_param is not None:
+        # Brex docs don't state whether the cursor re-encodes the original filters, so the
+        # timestamp filter is re-sent on every page to be safe.
+        endpoint["incremental"] = {"start_param": config.incremental_param, "convert": _to_rfc3339}
+    return endpoint
 
 
-PageFetcher = Callable[[str], dict[str, Any]]
+def _inject_account_id(row: dict[str, Any]) -> dict[str, Any]:
+    row[CASH_ACCOUNT_ID_KEY] = row.pop(_PARENT_ACCOUNT_ID_KEY)
+    return row
 
 
-def _make_page_fetcher(api_key: str, logger: FilteringBoundLogger) -> PageFetcher:
-    headers = _get_headers(api_key)
-
-    @retry(
-        retry=retry_if_exception_type((BrexRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-        stop=stop_after_attempt(MAX_RETRIES),
-        wait=wait_exponential_jitter(initial=1, max=60),
-        reraise=True,
-    )
-    def fetch_page(page_url: str) -> dict[str, Any]:
-        response = make_tracked_session().get(page_url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
-
-        # Brex rate-limits at 1,000 requests per 60s. Honor Retry-After when present,
-        # otherwise tenacity's exponential backoff covers it.
-        if response.status_code == 429:
-            retry_after = response.headers.get("Retry-After")
-            if retry_after is not None:
-                try:
-                    time.sleep(min(int(retry_after), MAX_RETRY_AFTER_SECONDS))
-                except ValueError:
-                    pass
-            raise BrexRetryableError(f"Brex API rate limited: status=429, url={page_url}")
-
-        if response.status_code >= 500:
-            raise BrexRetryableError(f"Brex API error (retryable): status={response.status_code}, url={page_url}")
-
-        if not response.ok:
-            logger.error(f"Brex API error: status={response.status_code}, body={response.text}, url={page_url}")
-            response.raise_for_status()
-
-        return response.json()
-
-    return fetch_page
-
-
-def _list_cash_account_ids(fetch_page: PageFetcher, logger: FilteringBoundLogger) -> list[str]:
-    account_ids: list[str] = []
-    cursor: Optional[str] = None
-
-    while True:
-        url = _build_url(CASH_ACCOUNTS_PATH, {"limit": PAGE_SIZE, "cursor": cursor})
-        data = fetch_page(url)
-        items = data.get("items", []) or []
-        account_ids.extend(item["id"] for item in items)
-
-        cursor = data.get("next_cursor")
-        if not cursor:
-            break
-
-    logger.debug(f"Brex: found {len(account_ids)} cash accounts")
-    return account_ids
-
-
-def get_rows(
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[BrexResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-) -> Iterator[list[dict[str, Any]]]:
-    config = BREX_ENDPOINTS[endpoint]
-    fetch_page = _make_page_fetcher(api_key, logger)
-
-    incremental_value = _to_rfc3339(db_incremental_field_last_value) if should_use_incremental_field else None
-
-    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    if resume_config is not None:
-        logger.debug(
-            f"Brex: resuming {endpoint}. cursor={resume_config.cursor}, account_id={resume_config.account_id}, "
-            f"completed_account_ids={resume_config.completed_account_ids}"
-        )
-
-    if config.fan_out_cash_accounts:
-        yield from _get_fan_out_rows(
-            config, fetch_page, logger, resumable_source_manager, resume_config, incremental_value
-        )
-        return
-
-    cursor = resume_config.cursor if resume_config is not None else None
-
-    while True:
-        url = _build_url(config.path, _build_params(config, cursor, incremental_value))
-        data = fetch_page(url)
-        items = data.get("items", []) or []
-
-        if items:
-            yield items
-
-        cursor = data.get("next_cursor")
-        if not cursor:
-            break
-
-        # Save after yielding so a crash re-yields the last batch (merge dedupes on
-        # primary key) rather than skipping it.
-        resumable_source_manager.save_state(BrexResumeConfig(cursor=cursor))
-
-
-def _get_fan_out_rows(
-    config: BrexEndpointConfig,
-    fetch_page: PageFetcher,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[BrexResumeConfig],
-    resume_config: Optional[BrexResumeConfig],
-    incremental_value: Optional[str],
-) -> Iterator[list[dict[str, Any]]]:
-    account_ids = _list_cash_account_ids(fetch_page, logger)
-
-    completed_account_ids = list(resume_config.completed_account_ids) if resume_config is not None else []
-    completed_set = set(completed_account_ids)
-
-    for account_id in account_ids:
-        if account_id in completed_set:
-            continue
-
-        cursor = resume_config.cursor if resume_config is not None and resume_config.account_id == account_id else None
-        path = config.path.format(account_id=account_id)
-
-        while True:
-            url = _build_url(path, _build_params(config, cursor, incremental_value))
-            data = fetch_page(url)
-            items = data.get("items", []) or []
-
-            if items:
-                yield [{**item, CASH_ACCOUNT_ID_KEY: account_id} for item in items]
-
-            cursor = data.get("next_cursor")
-            if not cursor:
-                break
-
-            resumable_source_manager.save_state(
-                BrexResumeConfig(
-                    cursor=cursor,
-                    account_id=account_id,
-                    completed_account_ids=list(completed_account_ids),
-                )
-            )
-
-        completed_account_ids.append(account_id)
-        completed_set.add(account_id)
-        resumable_source_manager.save_state(BrexResumeConfig(completed_account_ids=list(completed_account_ids)))
+def _fanout_initial_state(config: BrexEndpointConfig, resume: BrexResumeConfig) -> Optional[dict[str, Any]]:
+    if resume.fanout_state is not None:
+        return resume.fanout_state
+    # Translate pre-framework resume state (account ids + cursor) into the framework's
+    # fan-out checkpoint shape (resolved child paths).
+    if not (resume.completed_account_ids or resume.account_id):
+        return None
+    current = config.path.format(account_id=resume.account_id) if resume.account_id else None
+    return {
+        "completed": [config.path.format(account_id=account_id) for account_id in resume.completed_account_ids],
+        "current": current,
+        "child_state": {"cursor": resume.cursor} if resume.cursor is not None and current is not None else None,
+    }
 
 
 def brex_source(
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[BrexResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = BREX_ENDPOINTS[endpoint]
 
+    resume: Optional[BrexResumeConfig] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+
+    if config.fan_out_cash_accounts:
+        initial_state = _fanout_initial_state(config, resume) if resume is not None else None
+
+        def save_fanout_checkpoint(state: Optional[dict[str, Any]]) -> None:
+            if state is not None:
+                resumable_source_manager.save_state(BrexResumeConfig(fanout_state=state))
+
+        rest_config: RESTAPIConfig = {
+            "client": _client_config(api_key),
+            "resources": [
+                {
+                    "name": _CASH_ACCOUNTS_PARENT,
+                    "endpoint": {
+                        "path": CASH_ACCOUNTS_PATH,
+                        "params": {"limit": PAGE_SIZE},
+                        "data_selector": "items",
+                    },
+                },
+                {
+                    "name": endpoint,
+                    "endpoint": {
+                        **_endpoint_config(config, config.path, should_use_incremental_field),
+                        "params": {
+                            "limit": PAGE_SIZE,
+                            "account_id": {
+                                "type": "resolve",
+                                "resource": _CASH_ACCOUNTS_PARENT,
+                                "field": "id",
+                            },
+                        },
+                        # The path ends in `{account_id}`, which the framework would otherwise
+                        # treat as a single-entity endpoint (SinglePagePaginator) — each
+                        # account's transaction list is cursor-paged like everything else.
+                        "paginator": _paginator(),
+                    },
+                    "include_from_parent": ["id"],
+                    "data_map": _inject_account_id,
+                },
+            ],
+        }
+        resources = {
+            res.name: res
+            for res in rest_api_resources(
+                rest_config,
+                team_id,
+                job_id,
+                db_incremental_field_last_value,
+                resume_hook=save_fanout_checkpoint,
+                initial_paginator_state=initial_state,
+            )
+        }
+        resource = resources[endpoint]
+    else:
+        initial_paginator_state: Optional[dict[str, Any]] = None
+        if resume is not None and resume.cursor is not None:
+            initial_paginator_state = {"cursor": resume.cursor}
+
+        def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+            # Persist only while a next page remains; the framework calls the hook AFTER a page
+            # is yielded, so a crash re-yields the last batch (merge dedupes on primary key)
+            # rather than skipping it.
+            if state is not None and state.get("cursor") is not None:
+                resumable_source_manager.save_state(BrexResumeConfig(cursor=state["cursor"]))
+
+        rest_config = {
+            "client": _client_config(api_key),
+            "resources": [
+                {
+                    "name": endpoint,
+                    "endpoint": _endpoint_config(config, config.path, should_use_incremental_field),
+                }
+            ],
+        }
+        resource = rest_api_resource(
+            rest_config,
+            team_id,
+            job_id,
+            db_incremental_field_last_value,
+            resume_hook=save_checkpoint,
+            initial_paginator_state=initial_paginator_state,
+        )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         # Brex doesn't expose a sort param and doesn't document list ordering. "desc" makes the
         # pipeline commit the incremental watermark only after a fully successful run, which is
@@ -285,3 +232,18 @@ def brex_source(
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
     )
+
+
+def validate_credentials(api_key: str) -> bool:
+    """Confirm the API user token is genuine. /v2/users/me is a cheap authenticated probe.
+
+    A 403 means the token is valid but wasn't granted the Team scope — users may
+    legitimately scope tokens to only the endpoints they want to sync, so it's accepted.
+    """
+    ok, _status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,)),
+        f"{BREX_BASE_URL}/v2/users/me",
+        headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
+        ok_statuses=(200, 403),
+    )
+    return ok
