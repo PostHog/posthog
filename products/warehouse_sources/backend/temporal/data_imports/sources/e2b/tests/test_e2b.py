@@ -86,9 +86,10 @@ class TestPagination:
         rows, _ = _collect(_FakeResumableManager(), monkeypatch, pages)
         assert rows == []
 
-    def test_builds_a_redacted_redirect_pinned_session(self, monkeypatch: Any) -> None:
+    def test_builds_a_redacted_redirect_pinned_uncaptured_session(self, monkeypatch: Any) -> None:
         # The sync session carries the same X-API-Key header the scrubber can't see, so it must redact the
-        # key and refuse redirects just like the credential probe.
+        # key and refuse redirects; `capture=False` keeps secret-bearing sandbox metadata out of sample
+        # storage, which the row-level `_scrub` can't do (it only runs after capture).
         session = MagicMock()
         monkeypatch.setattr(e2b, "_fetch_page", lambda *a, **k: _response([]))
         with patch.object(e2b, "make_tracked_session", return_value=session) as make_session:
@@ -100,7 +101,11 @@ class TestPagination:
                     resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
                 )
             )
-        assert make_session.call_args.kwargs == {"redact_values": ("e2b_secret",), "allow_redirects": False}
+        assert make_session.call_args.kwargs == {
+            "redact_values": ("e2b_secret",),
+            "allow_redirects": False,
+            "capture": False,
+        }
 
     def test_drops_sensitive_metadata_before_ingesting(self, monkeypatch: Any) -> None:
         # E2B lets users stash secrets in sandbox metadata; writing it to the table would leak them to
@@ -163,8 +168,13 @@ class TestValidateCredentials:
         with patch.object(e2b, "make_tracked_session", return_value=session) as make_session:
             assert validate_credentials("e2b_test") is expected
         # The key rides in the X-API-Key header, which the generic scrubber's denylist doesn't cover, so
-        # the probe must redact it from tracked samples and pin redirects off to stop it replaying elsewhere.
-        assert make_session.call_args.kwargs == {"redact_values": ("e2b_test",), "allow_redirects": False}
+        # the probe must redact it from tracked samples, pin redirects off to stop it replaying elsewhere,
+        # and disable capture so the sandbox response body never reaches sample storage.
+        assert make_session.call_args.kwargs == {
+            "redact_values": ("e2b_test",),
+            "allow_redirects": False,
+            "capture": False,
+        }
 
     @parameterized.expand([("rate_limited", 429), ("server_error", 503)])
     def test_transient_status_raises_rather_than_reporting_invalid(self, _name: str, status: int) -> None:

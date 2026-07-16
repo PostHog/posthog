@@ -55,8 +55,10 @@ def validate_credentials(api_key: str) -> bool:
     # transient upstream problem that says nothing about the key, so raise rather than mislabel a valid
     # key "invalid" and send the user down the wrong recovery path.
     # `redact_values` masks the key from tracked HTTP samples (the `X-API-Key` header isn't on the
-    # generic scrubber's denylist); `allow_redirects=False` keeps the key from replaying to another host.
-    session = make_tracked_session(redact_values=(api_key,), allow_redirects=False)
+    # generic scrubber's denylist); `allow_redirects=False` keeps the key from replaying to another host;
+    # `capture=False` keeps the raw response body out of sample storage, since a sandbox's user-set
+    # metadata can carry secrets the name-based scrubbers can't recognise (see `SENSITIVE_FIELDS`).
+    session = make_tracked_session(redact_values=(api_key,), allow_redirects=False, capture=False)
     response = session.get(
         f"{E2B_BASE_URL}/v2/sandboxes",
         headers=_get_headers(api_key),
@@ -112,8 +114,10 @@ def get_rows(
     headers = _get_headers(api_key)
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
     # One session reused across every page so urllib3 keeps the connection alive. `redact_values` masks
-    # the key from tracked HTTP samples; `allow_redirects=False` keeps it from replaying to another host.
-    session = make_tracked_session(redact_values=(api_key,), allow_redirects=False)
+    # the key from tracked HTTP samples; `allow_redirects=False` keeps it from replaying to another host;
+    # `capture=False` keeps raw response bodies (which can hold secret-bearing sandbox metadata that the
+    # name-based scrubbers miss) out of sample storage, since `_scrub` only runs after capture.
+    session = make_tracked_session(redact_values=(api_key,), allow_redirects=False, capture=False)
     url = f"{E2B_BASE_URL}{config.path}"
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
