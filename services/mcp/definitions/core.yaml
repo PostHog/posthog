@@ -596,8 +596,8 @@ tools:
             `project-get` for full project details, and the organization-scoped tools for organization details.
         param_overrides:
             uuid:
-                default: '@me'
                 description: User UUID, or `@me` to target the authenticated user. Defaults to `@me` when omitted.
+                default: '@me'
         response:
             include:
                 - id
