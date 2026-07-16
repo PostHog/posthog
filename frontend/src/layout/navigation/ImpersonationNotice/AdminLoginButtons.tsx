@@ -5,9 +5,11 @@ import { AdminLoginUrl, ImpersonationTicketContext } from './impersonationNotice
 export function AdminLoginButtons({
     ticketContext,
     adminLoginUrls,
+    useRegionLabels = false,
 }: {
     ticketContext: ImpersonationTicketContext | null
     adminLoginUrls: AdminLoginUrl[]
+    useRegionLabels?: boolean
 }): JSX.Element {
     const disabledReason = !ticketContext?.email ? 'This ticket has no associated email' : undefined
 
@@ -30,7 +32,7 @@ export function AdminLoginButtons({
                         tooltip={`Login as ${ticketContext?.email} on ${region}. This currently redirects to the admin login page, but in future will log you in directly.`}
                         onClick={() => window.open(url, '_blank')}
                     >
-                        Login{showRegionLabel ? ` (${region})` : ''}
+                        {useRegionLabels ? `${region} region` : `Login${showRegionLabel ? ` (${region})` : ''}`}
                     </LemonButton>
                 ))
             )}

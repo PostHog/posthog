@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { LemonCollapse } from '@posthog/lemon-ui'
+import { LemonCard, LemonCollapse } from '@posthog/lemon-ui'
 
 import { AdminLoginButtons } from '~/layout/navigation/ImpersonationNotice/AdminLoginButtons'
 import { impersonationNoticeLogic } from '~/layout/navigation/ImpersonationNotice/impersonationNoticeLogic'
@@ -17,20 +17,18 @@ export function StaffActionsPanel(): JSX.Element {
                     key: 'staff-actions',
                     header: 'Staff actions',
                     content: (
-                        <div className="space-y-2">
-                            <div className="flex items-center justify-between gap-2">
-                                <span className="text-xs text-muted-alt">
-                                    {ticketContext?.email ? (
-                                        <>
-                                            Customer: <span className="text-success">{ticketContext.email}</span>
-                                        </>
-                                    ) : (
-                                        'No customer email on this ticket'
-                                    )}
-                                </span>
-                                <AdminLoginButtons ticketContext={ticketContext} adminLoginUrls={adminLoginUrls} />
-                            </div>
-                        </div>
+                        <LemonCard hoverEffect={false} className="flex flex-col gap-2 p-3">
+                            <h3 className="text-sm font-semibold">
+                                {ticketContext?.email
+                                    ? `Login as ${ticketContext.email}`
+                                    : 'No customer email on this ticket'}
+                            </h3>
+                            <AdminLoginButtons
+                                ticketContext={ticketContext}
+                                adminLoginUrls={adminLoginUrls}
+                                useRegionLabels
+                            />
+                        </LemonCard>
                     ),
                 },
             ]}
