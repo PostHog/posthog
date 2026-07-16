@@ -37,6 +37,10 @@ class SumoLogicEndpointConfig:
     # Top-level keys stripped from every record before it's yielded. Used to drop credential-bearing
     # fields (e.g. webhook URLs and auth headers) that a warehouse reader must never see.
     redact_fields: frozenset[str] = frozenset()
+    # Keys stripped wherever they appear in the record tree (any depth), for credential-bearing
+    # fields that live below the top level — e.g. monitor notification payload overrides nested
+    # under the `notifications` list.
+    redact_nested_fields: frozenset[str] = frozenset()
 
 
 # Endpoint catalog. The headline stream is `logs` via the async Search Job API (the only Sumo Logic
@@ -95,6 +99,10 @@ SUMO_LOGIC_ENDPOINTS: dict[str, SumoLogicEndpointConfig] = {
         pagination="offset",
         nest_key="item",
         extra_params={"query": "type:monitor"},
+        # A monitor's `notifications` embed destination secrets in `payloadOverride` /
+        # `resolutionPayloadOverride` (nested below the top level). Drop them wherever they appear
+        # so a warehouse reader sees the monitor and its notification routing without the secrets.
+        redact_nested_fields=frozenset({"payloadOverride", "resolutionPayloadOverride"}),
     ),
     "partitions": SumoLogicEndpointConfig(name="partitions", path="/v1/partitions", data_key="data"),
     "ingest_budgets": SumoLogicEndpointConfig(name="ingest_budgets", path="/v1/ingestBudgets", data_key="data"),

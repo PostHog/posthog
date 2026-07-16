@@ -221,6 +221,54 @@ class TestCredentialRedaction:
             [{"id": "c1", "name": "prod-alerts", "type": "WebhookConnection", "description": "Slack alerts"}]
         ]
 
+    def test_monitors_drop_nested_notification_payload_overrides(self) -> None:
+        # A monitor's notification payload overrides live below the top level (under the
+        # `notifications` list) and can carry destination credentials, so the shallow key filter
+        # can't reach them; they must be stripped while the rest of the notification routing stays.
+        manager, _saved = _make_manager()
+
+        def handler(method: str, url: str, json: Any = None, timeout: Any = None) -> Any:
+            return _response(
+                [
+                    {
+                        "item": {
+                            "id": "m1",
+                            "name": "high-errors",
+                            "notifications": [
+                                {
+                                    "notification": {
+                                        "connectionType": "Webhook",
+                                        "connectionId": "conn-1",
+                                        "payloadOverride": '{"token": "secret"}',
+                                        "resolutionPayloadOverride": '{"token": "secret"}',
+                                    },
+                                    "runForTriggerTypes": ["Critical"],
+                                }
+                            ],
+                        },
+                        "path": "/m/m1",
+                    }
+                ]
+            )
+
+        rows = _run_get_rows("monitors", handler, manager)
+
+        assert rows == [
+            [
+                {
+                    "id": "m1",
+                    "name": "high-errors",
+                    "notifications": [
+                        {
+                            "notification": {"connectionType": "Webhook", "connectionId": "conn-1"},
+                            "runForTriggerTypes": ["Critical"],
+                        }
+                    ],
+                    "path": "/m/m1",
+                }
+            ]
+        ]
+
 
 class TestTokenPagination:
     def test_yields_pages_saves_token_after_yield_and_sends_it(self) -> None:

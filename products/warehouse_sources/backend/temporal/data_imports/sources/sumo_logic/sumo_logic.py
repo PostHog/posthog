@@ -147,11 +147,26 @@ def _extract_items(response_json: Any, config: SumoLogicEndpointConfig) -> list[
     return []
 
 
-def _redact_row(row: dict[str, Any], redact_fields: frozenset[str]) -> dict[str, Any]:
+def _redact_nested(value: Any, redact_fields: frozenset[str]) -> Any:
+    """Drop credential-bearing keys wherever they appear in a nested record (any depth).
+
+    Monitor notifications embed destination secrets in ``payloadOverride`` /
+    ``resolutionPayloadOverride`` below the top level, so a shallow key filter can't reach them.
+    """
+    if isinstance(value, dict):
+        return {key: _redact_nested(val, redact_fields) for key, val in value.items() if key not in redact_fields}
+    if isinstance(value, list):
+        return [_redact_nested(item, redact_fields) for item in value]
+    return value
+
+
+def _redact_row(row: dict[str, Any], config: SumoLogicEndpointConfig) -> dict[str, Any]:
     """Drop credential-bearing keys from a record before it reaches the warehouse."""
-    if not redact_fields:
-        return row
-    return {key: value for key, value in row.items() if key not in redact_fields}
+    if config.redact_fields:
+        row = {key: value for key, value in row.items() if key not in config.redact_fields}
+    if config.redact_nested_fields:
+        row = _redact_nested(row, config.redact_nested_fields)
+    return row
 
 
 def _unnest_item(item: dict[str, Any], config: SumoLogicEndpointConfig) -> dict[str, Any]:
@@ -435,9 +450,9 @@ def get_rows(
     else:
         batches = _get_token_paginated_rows(fetch, host, config, resumable_source_manager)
 
-    if config.redact_fields:
+    if config.redact_fields or config.redact_nested_fields:
         for batch in batches:
-            yield [_redact_row(row, config.redact_fields) for row in batch]
+            yield [_redact_row(row, config) for row in batch]
     else:
         yield from batches
 
