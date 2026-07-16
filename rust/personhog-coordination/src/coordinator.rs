@@ -665,9 +665,18 @@ impl Coordinator {
             .filter(|a| !handoff_partitions.contains(&a.partition))
             .collect();
 
-        store
+        if !store
             .create_assignments_and_handoffs(&stable_assignments, &handoff_objects)
-            .await?;
+            .await?
+        {
+            // A concurrent invocation (the empty-set re-trigger racing a
+            // pod event, or a failing-over coordinator) created a handoff
+            // first. Its plan acted on fresher state than ours; whatever
+            // this plan wanted beyond it is replanned by the next pod
+            // event or the final sweep.
+            tracing::info!("concurrent plan won handoff creation; standing down");
+            return Ok(());
+        }
 
         // Nudge advancement for handoffs whose preconditions are already
         // satisfied at creation time (no old_owner, dead old_owner, vacuous

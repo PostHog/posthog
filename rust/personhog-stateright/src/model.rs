@@ -384,7 +384,11 @@ impl Model for HandoffModel {
             // the checker explores a rebalance racing every handoff
             // phase. Only the etcd writes are applied model-side, and
             // assignments for moved/fresh partitions are deferred until
-            // Complete (`create_assignments_and_handoffs`).
+            // Complete (`create_assignments_and_handoffs`). This action
+            // is atomic (plan and apply in one transition); production
+            // earns that abstraction with create-if-absent guards on the
+            // handoff keys, so a concurrent plan's txn fails instead of
+            // replacing an in-flight handoff between read and write.
             Action::Rebalance => {
                 let current: HashMap<u32, String> = state
                     .assignments

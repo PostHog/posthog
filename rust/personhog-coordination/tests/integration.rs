@@ -2747,3 +2747,58 @@ async fn stuck_handoff_defers_only_its_own_partition() {
         );
     }
 }
+
+/// Concurrent planners can both read a partition as unpinned and plan it;
+/// handoff creation is guarded create-if-absent so the second plan's txn
+/// fails whole instead of replacing the first handoff and orphaning its
+/// acks. The losing plan's writes — including its innocent assignments —
+/// must not land either: it was computed against a stale snapshot.
+#[tokio::test]
+async fn conflicting_plan_cannot_replace_an_in_flight_handoff() {
+    use personhog_coordination::types::{
+        AssignmentStatus, HandoffPhase, HandoffState, PartitionAssignment,
+    };
+
+    let store = test_store("conflicting_plan_cannot_replace_an_in_flight_handoff").await;
+
+    let first = HandoffState {
+        partition: 0,
+        old_owner: Some("writer-0".to_string()),
+        new_owner: "writer-1".to_string(),
+        phase: HandoffPhase::Warming,
+        started_at: 0,
+        handoff_id: "first".to_string(),
+    };
+    assert!(store
+        .create_assignments_and_handoffs(&[], std::slice::from_ref(&first))
+        .await
+        .unwrap());
+
+    // A competing plan targets the same partition (different owner and
+    // id) alongside an uncontested assignment write.
+    let competing = HandoffState {
+        partition: 0,
+        old_owner: Some("writer-0".to_string()),
+        new_owner: "writer-2".to_string(),
+        phase: HandoffPhase::Freezing,
+        started_at: 0,
+        handoff_id: "second".to_string(),
+    };
+    let stable = PartitionAssignment {
+        partition: 1,
+        owner: "writer-0".to_string(),
+        status: AssignmentStatus::Active,
+    };
+    assert!(!store
+        .create_assignments_and_handoffs(&[stable], &[competing])
+        .await
+        .unwrap());
+
+    // The in-flight handoff survives with its original identity, and the
+    // losing plan's assignment never landed.
+    let handoffs = store.list_handoffs().await.unwrap();
+    assert_eq!(handoffs.len(), 1);
+    assert_eq!(handoffs[0].handoff_id, "first");
+    assert_eq!(handoffs[0].new_owner, "writer-1");
+    assert!(store.list_assignments().await.unwrap().is_empty());
+}

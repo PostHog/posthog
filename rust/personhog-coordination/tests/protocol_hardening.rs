@@ -49,10 +49,10 @@ async fn put_handoff(
         started_at: 0,
         handoff_id: format!("test-handoff-{partition}"),
     };
-    store
-        .create_assignments_and_handoffs(&[], &[handoff])
-        .await
-        .expect("write handoff");
+    // Raw put on purpose: fixtures force arbitrary handoff states,
+    // including overwriting an existing one, which the guarded
+    // plan-application path rightly refuses.
+    store.put_handoff(&handoff).await.expect("write handoff");
 }
 
 /// Wait until the pod's recorded events contain `expected`.
@@ -1314,7 +1314,7 @@ async fn late_joining_router_stashes_before_populating_table() {
 
     // Pre-existing state: an assignment for partition 0 and an in-flight
     // Freezing handoff moving it.
-    store
+    assert!(store
         .create_assignments_and_handoffs(
             &[PartitionAssignment {
                 partition: 0,
@@ -1324,7 +1324,7 @@ async fn late_joining_router_stashes_before_populating_table() {
             &[],
         )
         .await
-        .expect("write assignment");
+        .expect("write assignment"));
     put_handoff(
         &store,
         0,

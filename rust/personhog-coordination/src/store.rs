@@ -427,11 +427,20 @@ impl PersonhogStore {
     // ── Transactional operations ────────────────────────────────
 
     /// Atomically write assignments and create handoff states.
+    /// Returns whether the transaction applied. It is guarded on every
+    /// handoff key being absent: concurrent planners (the pod watch racing
+    /// the handoff watch's re-trigger, or a failing-over coordinator) can
+    /// both plan the same partition, and an unguarded put would replace
+    /// the first handoff and orphan its acks. All-or-nothing on purpose —
+    /// a plan is one consistent placement computation, and the losing
+    /// caller replans off the winner's writes rather than applying a
+    /// half-stale plan.
     pub async fn create_assignments_and_handoffs(
         &self,
         assignments: &[PartitionAssignment],
         handoffs: &[HandoffState],
-    ) -> Result<()> {
+    ) -> Result<bool> {
+        let mut guards: Vec<Compare> = Vec::with_capacity(handoffs.len());
         let mut ops: Vec<TxnOp> = Vec::with_capacity(assignments.len() + handoffs.len());
 
         for a in assignments {
@@ -442,12 +451,15 @@ impl PersonhogStore {
         for h in handoffs {
             let key = self.key(StoreKey::Handoff(h.partition));
             let value = serde_json::to_vec(h)?;
+            // A key that was never created has create_revision 0 — the
+            // canonical etcd existence guard.
+            guards.push(Compare::create_revision(key.clone(), CompareOp::Equal, 0));
             ops.push(TxnOp::put(key, value, None));
         }
 
-        let txn = Txn::new().and_then(ops);
-        self.inner.txn(txn).await?;
-        Ok(())
+        let txn = Txn::new().when(guards).and_then(ops);
+        let resp = self.inner.txn(txn).await?;
+        Ok(resp.succeeded())
     }
 
     /// Atomically: set handoff phase to Complete and update the assignment owner.
