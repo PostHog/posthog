@@ -248,7 +248,7 @@ describe('DashboardItems', () => {
         expect(container.firstChild).toMatchSnapshot()
     })
 
-    it('shows and refreshes widget tiles on public dashboards', () => {
+    it('shows widget tiles and dispatches an explicit refresh mode on public dashboards', () => {
         const widgetTile = {
             id: 2,
             widget: { id: 1, widget_type: 'error_tracking_list', config: {} },
