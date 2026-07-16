@@ -19,7 +19,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.chargedesk
     validate_credentials as validate_chargedesk_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.chargedesk.settings import (
-    CHARGEDESK_ENDPOINTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
@@ -29,7 +28,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ChargedeskSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -78,7 +80,7 @@ Each company has its own secret key. Create one in your ChargeDesk account under
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            # A bad or disabled secret key surfaces as a requests HTTPError when `_fetch_page` calls
+            # A bad or disabled secret key surfaces as a requests HTTPError when the REST client calls
             # `raise_for_status()`. Retrying can't fix a credential problem, so stop the sync. Match the
             # stable status text and base host, not the per-request path/query.
             "401 Client Error: Unauthorized for url: https://api.chargedesk.com": "Your ChargeDesk secret API key is invalid or has been revoked. Issue a new key in your ChargeDesk account (Setup → API / Webhooks) and reconnect.",
@@ -93,20 +95,7 @@ Each company has its own secret key. Create one in your ChargeDesk account under
         names: list[str] | None = None,
         force_refresh: bool = False,
     ) -> list[SourceSchema]:
-        def _build_schema(endpoint: str) -> SourceSchema:
-            cfg = CHARGEDESK_ENDPOINTS[endpoint]
-            return SourceSchema(
-                name=endpoint,
-                supports_incremental=cfg.supports_incremental,
-                supports_append=cfg.supports_incremental,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-            )
-
-        schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
         self, config: ChargedeskSourceConfig, team_id: int, schema_name: Optional[str] = None
@@ -128,6 +117,8 @@ Each company has its own secret key. Create one in your ChargeDesk account under
         return chargedesk_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
