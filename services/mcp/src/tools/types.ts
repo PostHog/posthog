@@ -147,7 +147,8 @@ export type PostHogToolMeta = {
      * Output format for the tool response.
      * `'optimized'` surfaces the LLM-friendly formatter output (from `ee/hogai/context/insight/format/`)
      * via `formatted_results` when available; `'json'` returns raw JSON-stringified content. When unset,
-     * the text content is TOON-encoded by default.
+     * the text content follows the request-level default — TOON, unless the `mcp-output-format` flag
+     * resolves to `'json'` (see `resolveDefaultOutputFormat` in `lib/posthog/flags`).
      */
     outputFormat?: 'optimized' | 'json'
 }

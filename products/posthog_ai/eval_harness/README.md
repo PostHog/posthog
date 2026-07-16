@@ -81,6 +81,9 @@ Sandbox-only flags (`--provider`, `--max-sandboxes`, `--agent-runtime`, `--reaso
 `EXPORT_EVAL_RESULTS=1` additionally appends one structured JSON summary per experiment to `eval_results.jsonl`.
 The full plain-text run transcript is always written without this setting.
 
+`FEATURE_FLAG_OVERRIDES` (a JSON object of flag key → value) is merged into the harness-started MCP server's dev-only flag override seam, on top of the harness defaults.
+Use it to compare flag-gated MCP behavior across runs — e.g. `FEATURE_FLAG_OVERRIDES='{"mcp-output-format":"json"}' hogli evals cli_mcp` scores the agent against JSON tool output instead of the default TOON encoding.
+
 ### Codex runtime
 
 `--agent-runtime codex` runs the same agent-server with OpenAI's Codex harness instead of Claude, defaulting the model to `gpt-5.5`.

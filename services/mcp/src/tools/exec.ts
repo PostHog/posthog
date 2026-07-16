@@ -57,6 +57,13 @@ export interface ExecToolOptions {
      * re-homed onto `_meta`. Computed from the client profile at the call site.
      */
     isInlineExecUiHost?: boolean
+    /**
+     * Request-level default text encoding, resolved from the `mcp-output-format`
+     * flag at the call site. 'json' makes bare `call` (no `--json`) JSON-encode
+     * results; `--json`, a stray `output_format`, and tool-level `outputFormat`
+     * in `_meta` still win. Unset behaves as 'toon'.
+     */
+    defaultOutputFormat?: 'toon' | 'json'
 }
 
 function makeExecSchema(commandReference: string): z.ZodObject<{ command: z.ZodString }> {
@@ -486,7 +493,7 @@ export function createExecTool(
                     const useJson =
                         forceJson ||
                         strayOutputFormat === 'json' ||
-                        tool._meta?.[POSTHOG_META_KEY]?.outputFormat === 'json'
+                        (tool._meta?.[POSTHOG_META_KEY]?.outputFormat ?? options.defaultOutputFormat) === 'json'
                     // Fold the flag back into the tool's own `output_format` field when it has
                     // one: formatter-toggle tools then skip the server-side formatter (clean raw
                     // JSON, no `__formatted_results_override` duplication), and tools where the
@@ -548,6 +555,7 @@ export function createExecTool(
                                 toolMeta: tool._meta,
                                 toolName: tool.name,
                                 params: useJson ? { ...input, output_format: 'json' } : input,
+                                defaultOutputFormat: options.defaultOutputFormat,
                                 // Inline-exec UI-app hosts (PostHog Code, Claude Code, Cowork)
                                 // surface `structuredContent` to the model in preference to the
                                 // text content, which would bury the compact formatted table

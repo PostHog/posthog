@@ -1,12 +1,14 @@
 import type { GroupType } from '@/api/client'
 import { hasScope } from '@/lib/api'
 import { MCPClientProfile } from '@/lib/client-detection'
-import { isCloudApi, isLocalApi, PRODUCT_DATA_CATALOG_FLAG } from '@/lib/constants'
+import { isCloudApi, isLocalApi, MCP_OUTPUT_FORMAT_FLAG, PRODUCT_DATA_CATALOG_FLAG } from '@/lib/constants'
 import { buildMCPAnalyticsGroups } from '@/lib/posthog/analytics'
 import {
     type EvaluatedFlags,
     evaluateFeatureFlags,
     type FlagGroups,
+    type McpDefaultOutputFormat,
+    resolveDefaultOutputFormat,
     resolveFeatureFlagOverrides,
 } from '@/lib/posthog/flags'
 import type { RequestProperties } from '@/lib/request-properties'
@@ -31,6 +33,9 @@ export interface ResolvedState {
     context: Context
     useSingleExec: boolean
     toolFeatureFlags: EvaluatedFlags | undefined
+    // Default text encoding for tool results ('toon' unless the mcp-output-format
+    // flag says 'json'). Per-call output_format and tool-level _meta still win.
+    defaultOutputFormat: McpDefaultOutputFormat
     apiKeyScopes: string[]
     clientProfile: MCPClientProfile
     requestContext: MCPRequestContext
@@ -106,8 +111,11 @@ export class RequestStateResolver {
         }
 
         // PRODUCT_DATA_CATALOG_FLAG gates instructions content (the metric-discovery prompt
-        // section), not a tool, so the tool-definition scan can't discover it.
-        const allFlagKeys = [...new Set([...getRequiredFeatureFlags(), PRODUCT_DATA_CATALOG_FLAG])]
+        // section) and MCP_OUTPUT_FORMAT_FLAG gates result serialization — neither gates a
+        // tool, so the tool-definition scan can't discover them.
+        const allFlagKeys = [
+            ...new Set([...getRequiredFeatureFlags(), PRODUCT_DATA_CATALOG_FLAG, MCP_OUTPUT_FORMAT_FLAG]),
+        ]
 
         const flagAnalyticsContext = await reqCtx.safelyGetAnalyticsContext(context)
         const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined
@@ -127,6 +135,7 @@ export class RequestStateResolver {
         // even when no catalog tool referenced it.
         const flagKeysForState = [...new Set([...allFlagKeys, ...Object.keys(overrides)])]
         const toolFeatureFlags = Object.fromEntries(flagKeysForState.map((k) => [k, mergedFlags[k]]))
+        const defaultOutputFormat = resolveDefaultOutputFormat(toolFeatureFlags)
 
         const oauthClientName = (await reqCtx.tokenCache.get('clientName')) || undefined
 
@@ -193,6 +202,7 @@ export class RequestStateResolver {
             context,
             useSingleExec,
             toolFeatureFlags,
+            defaultOutputFormat,
             apiKeyScopes,
             clientProfile,
             requestContext,

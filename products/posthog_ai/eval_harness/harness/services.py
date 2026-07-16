@@ -100,6 +100,28 @@ def start_mcp_server(live_server_url: str) -> Callable[[], None]:
 
     api_url = live_server_url
 
+    # The MCP server evaluates feature flags via posthog-node, which is disabled
+    # here (no POSTHOG_ANALYTICS_* config), so every flag would resolve false.
+    # Force flag-gated behavior on for evals via the dev/test-only override seam
+    # (honored only when NODE_ENV is explicitly development/test — set below).
+    # product-data-catalog gates the metric-discovery section of the execute-sql
+    # description; the governed-metrics evals exercise that path.
+    flag_overrides: dict[str, object] = {"product-data-catalog": True}
+    # Merge overrides from the caller's environment on top, so an eval run can
+    # force flag-gated behavior without editing this file — e.g.
+    # FEATURE_FLAG_OVERRIDES='{"mcp-output-format":"json"}' to compare JSON vs
+    # TOON tool output.
+    caller_overrides = os.environ.get("FEATURE_FLAG_OVERRIDES")
+    if caller_overrides:
+        try:
+            parsed = json.loads(caller_overrides)
+        except json.JSONDecodeError:
+            parsed = None
+        if isinstance(parsed, dict):
+            flag_overrides.update(parsed)
+        else:
+            logger.warning("Ignoring FEATURE_FLAG_OVERRIDES: not a JSON object: %s", caller_overrides)
+
     # The Hono server reads config directly from process env — no wrangler
     # --var wiring needed. PORT picks the listen port; the dev:hono script
     # bundles via esbuild then spawns Node on the bundle.
@@ -111,13 +133,7 @@ def start_mcp_server(live_server_url: str) -> Callable[[], None]:
         "NODE_ENV": "development",
         "PORT": str(MCP_PORT),
         "HOST": "0.0.0.0",
-        # The MCP server evaluates feature flags via posthog-node, which is disabled
-        # here (no POSTHOG_ANALYTICS_* config), so every flag would resolve false.
-        # Force flag-gated behavior on for evals via the dev/test-only override seam
-        # (honored only when NODE_ENV is explicitly development/test — set above).
-        # product-data-catalog gates the metric-discovery section of the execute-sql
-        # description; the governed-metrics evals exercise that path.
-        "FEATURE_FLAG_OVERRIDES": json.dumps({"product-data-catalog": True}),
+        "FEATURE_FLAG_OVERRIDES": json.dumps(flag_overrides),
     }
 
     logger.info("Starting MCP server (Hono runtime) on port %d (API: %s)", MCP_PORT, api_url)

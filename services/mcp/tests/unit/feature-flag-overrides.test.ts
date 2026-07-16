@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { resolveFeatureFlagOverrides } from '@/lib/posthog/flags'
+import { MCP_OUTPUT_FORMAT_FLAG } from '@/lib/constants'
+import { resolveDefaultOutputFormat, resolveFeatureFlagOverrides } from '@/lib/posthog/flags'
 
 describe('resolveFeatureFlagOverrides', () => {
     const ORIG_OVERRIDES = process.env.FEATURE_FLAG_OVERRIDES
@@ -52,5 +53,24 @@ describe('resolveFeatureFlagOverrides', () => {
 
     it('returns an empty object when nothing is set', () => {
         expect(resolveFeatureFlagOverrides()).toEqual({})
+    })
+})
+
+describe('resolveDefaultOutputFormat', () => {
+    // Only the explicit 'json' variant may switch the default: inverting the
+    // fail-safe would flip every tool result to JSON whenever flag evaluation
+    // fails or local dev's enable-all returns booleans.
+    it.each([
+        ['json', 'json'],
+        ['toon', 'toon'],
+        [true, 'toon'],
+        [false, 'toon'],
+    ] as const)('resolves flag value %j to %s', (flagValue, expected) => {
+        expect(resolveDefaultOutputFormat({ [MCP_OUTPUT_FORMAT_FLAG]: flagValue })).toBe(expected)
+    })
+
+    it('falls back to toon when flags are missing or the key is unset', () => {
+        expect(resolveDefaultOutputFormat(undefined)).toBe('toon')
+        expect(resolveDefaultOutputFormat({})).toBe('toon')
     })
 })

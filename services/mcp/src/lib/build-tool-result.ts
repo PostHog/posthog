@@ -1,6 +1,7 @@
 import { RESOURCE_URI_META_KEY } from '@modelcontextprotocol/ext-apps/server'
 
 import { estimateTokens } from '@/lib/estimate-tokens'
+import type { McpDefaultOutputFormat } from '@/lib/posthog/flags'
 import { formatResponse } from '@/lib/response'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, POSTHOG_META_KEY } from '@/tools/types'
 import { APP_DATA_META_KEY, type AnalyticsMetadata, type WithAnalytics } from '@/ui-apps/types'
@@ -19,6 +20,12 @@ export interface BuildToolResultOptions {
     toolName: string
     /** The input params passed to the tool (used to read `output_format=json` escape hatch). */
     params: unknown
+    /**
+     * Request-level default text encoding, resolved from the `mcp-output-format`
+     * flag. Lowest precedence: an explicit caller `output_format` and a tool-level
+     * `outputFormat` in `_meta` both win. Unset behaves as 'toon'.
+     */
+    defaultOutputFormat?: McpDefaultOutputFormat | undefined
     /** Whether formatted-result text should win over structuredContent for this client profile. */
     suppressStructuredContentForFormattedResults?: boolean | undefined
     /**
@@ -106,6 +113,7 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
         toolMeta,
         toolName,
         params,
+        defaultOutputFormat,
         suppressStructuredContentForFormattedResults,
         forceUiDataToMeta,
         distinctId,
@@ -132,9 +140,11 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
 
     const resourceUri = toolMeta?.ui?.resourceUri
     const hasUiResource = !!resourceUri
-    // Caller's per-call `output_format` wins over the tool's YAML default in `_meta`.
+    // Caller's per-call `output_format` wins over the tool's YAML default in `_meta`,
+    // which wins over the flag-resolved request default.
     const callerOutputFormat = (params as { output_format?: 'optimized' | 'json' } | undefined)?.output_format
-    const effectiveOutputFormat = callerOutputFormat ?? toolMeta?.[POSTHOG_META_KEY]?.outputFormat
+    const effectiveOutputFormat =
+        callerOutputFormat ?? toolMeta?.[POSTHOG_META_KEY]?.outputFormat ?? defaultOutputFormat
     const useJson = effectiveOutputFormat === 'json'
     const callerWantsJson = callerOutputFormat === 'json'
 
@@ -150,7 +160,11 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
         }
     }
 
-    const text = formattedResults ?? (useJson ? JSON.stringify(rawResult) : formatResponse(rawResult))
+    // String results are already final text — JSON-stringifying them would wrap
+    // them in quotes (and double-encode strings that already carry JSON).
+    const text =
+        formattedResults ??
+        (isStringResult ? (rawResult as string) : useJson ? JSON.stringify(rawResult) : formatResponse(rawResult))
 
     // Inline-exec UI-app hosts always drop top-level structuredContent (routed to
     // `_meta` below); other coding-agent clients only drop it when a formatted table

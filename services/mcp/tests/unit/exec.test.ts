@@ -173,6 +173,26 @@ describe('exec tool', () => {
             expect(parsed).toEqual({ id: 1, name: 'test', items: [{ a: 1 }, { a: 2 }] })
         })
 
+        it('returns JSON without --json when defaultOutputFormat option is json (mcp-output-format flag)', async () => {
+            const exec = createExec([makeMockTool()], undefined, { defaultOutputFormat: 'json' })
+            const result = await exec.handler(mockContext, { command: 'call mock-tool' })
+            const parsed = JSON.parse(result as string)
+            expect(parsed).toEqual({ id: 1, name: 'test', items: [{ a: 1 }, { a: 2 }] })
+        })
+
+        it('keeps formatted output when tool meta outputFormat=optimized despite defaultOutputFormat=json', async () => {
+            const tool = makeMockTool({
+                _meta: { [POSTHOG_META_KEY]: { outputFormat: 'optimized' } },
+                handler: async () => ({
+                    results: [{ data: [1, 2, 3], count: 6 }],
+                    [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: 'Date|count\n2026-05-07|6',
+                }),
+            })
+            const exec = createExec([tool], undefined, { defaultOutputFormat: 'json' })
+            const result = await exec.handler(mockContext, { command: 'call mock-tool' })
+            expect(result).toBe('Date|count\n2026-05-07|6')
+        })
+
         it('returns ONLY the formatted table when result has __formatted_results_override and mode is optimized', async () => {
             const tool = makeMockTool({
                 handler: async () => ({

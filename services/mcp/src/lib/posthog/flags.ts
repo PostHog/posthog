@@ -1,3 +1,4 @@
+import { MCP_OUTPUT_FORMAT_FLAG } from '@/lib/constants'
 import { env } from '@/lib/env'
 
 import { getPostHogClient } from './client'
@@ -39,6 +40,21 @@ export async function evaluateFeatureFlags(
         result[key] = allFlags[key] as FlagValue
     }
     return result
+}
+
+/** Request-level default text encoding for tool results, resolved from {@link MCP_OUTPUT_FORMAT_FLAG}. */
+export type McpDefaultOutputFormat = 'toon' | 'json'
+
+/**
+ * Resolves the `mcp-output-format` flag into the default text encoding for tool
+ * results. Only the explicit `'json'` variant switches the default to JSON —
+ * anything else (unset flag, the `'toon'` variant, boolean `true` from local
+ * dev's enable-all, a failed evaluation) keeps TOON, so the flag fails safe to
+ * the shipped default. Per-call `output_format` and tool-level `outputFormat`
+ * in `_meta` both take precedence over this default.
+ */
+export function resolveDefaultOutputFormat(flags: EvaluatedFlags | undefined): McpDefaultOutputFormat {
+    return flags?.[MCP_OUTPUT_FORMAT_FLAG] === 'json' ? 'json' : 'toon'
 }
 
 // Env var (or Cloudflare var) holding a JSON object of flag overrides, e.g.

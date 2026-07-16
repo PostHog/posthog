@@ -50,6 +50,7 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
         } as any,
         useSingleExec: false,
         toolFeatureFlags: undefined,
+        defaultOutputFormat: 'toon',
         apiKeyScopes: [],
         clientProfile: {
             capabilities: { supportsInstructions: true },

@@ -210,6 +210,56 @@ describe('buildToolResultPayload — non-query use cases', () => {
             _posthogUrl: 'http://...',
         })
     })
+
+    it('JSON-encodes rawResult when defaultOutputFormat=json and neither caller nor tool sets a format', () => {
+        // The mcp-output-format flag resolves to the request-level default; dropping the
+        // fallback in buildToolResultPayload would make the flag a silent no-op.
+        const payload = buildToolResultPayload({
+            handlerResult: { results: [{ a: 1 }], _posthogUrl: 'http://...' },
+            toolMeta: undefined,
+            toolName: 'query-logs',
+            params: {},
+            defaultOutputFormat: 'json',
+            suppressStructuredContentForFormattedResults: true,
+            distinctId: undefined,
+        })
+
+        expect(JSON.parse(payload.content[0]!.text)).toEqual({
+            results: [{ a: 1 }],
+            _posthogUrl: 'http://...',
+        })
+    })
+
+    it('passes string handler results through verbatim even when defaultOutputFormat=json', () => {
+        // Exec and execute-sql return pre-serialized text; JSON-quoting it under a
+        // json rollout would double-encode exec results and mangle SQL tables.
+        const payload = buildToolResultPayload({
+            handlerResult: '{"rows":[1]}',
+            toolMeta: undefined,
+            toolName: 'exec',
+            params: {},
+            defaultOutputFormat: 'json',
+            suppressStructuredContentForFormattedResults: true,
+            distinctId: undefined,
+        })
+
+        expect(payload.content[0]!.text).toBe('{"rows":[1]}')
+    })
+
+    it('formatted override still wins when defaultOutputFormat=json', () => {
+        // A json rollout must not regress optimized tools to raw JSON dumps.
+        const payload = buildToolResultPayload({
+            handlerResult: queryTrendsHandlerResult(),
+            toolMeta: queryTrendsToolMeta,
+            toolName: 'query-trends',
+            params: {},
+            defaultOutputFormat: 'json',
+            suppressStructuredContentForFormattedResults: false,
+            distinctId: 'd',
+        })
+
+        expect(payload.content[0]!.text).toBe(FORMATTED_TABLE)
+    })
 })
 
 describe('isToolCallPayload — nominal brand', () => {

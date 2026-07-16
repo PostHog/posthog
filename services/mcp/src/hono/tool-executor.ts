@@ -209,6 +209,7 @@ export class ToolExecutor {
                     toolMeta: tool._meta,
                     toolName: tool.name,
                     params: validation.data,
+                    defaultOutputFormat: state.defaultOutputFormat,
                     suppressStructuredContentForFormattedResults: state.clientProfile.isCliModeEnabled(),
                     distinctId,
                 })
@@ -311,6 +312,8 @@ export class ToolExecutor {
                       toolMeta: resolved._meta,
                       toolName: 'exec',
                       params: validation.data,
+                      // No defaultOutputFormat here: the exec handler already applied it
+                      // (via ExecToolOptions) and returns final serialized text.
                       suppressStructuredContentForFormattedResults: state.clientProfile.isCliModeEnabled(),
                       distinctId: undefined,
                   })
@@ -414,6 +417,7 @@ export class ToolExecutor {
             {
                 isInlineExecUiHost: state.clientProfile.isInlineExecUiHost(),
                 helpCatalog: this.instructionsBuilder.buildExecHelpCatalog(state),
+                defaultOutputFormat: state.defaultOutputFormat,
             }
         )
 

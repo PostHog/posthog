@@ -30,6 +30,7 @@ function makeState(overrides: Partial<ResolvedState> = {}): ResolvedState {
         } as any,
         useSingleExec: true,
         toolFeatureFlags: undefined,
+        defaultOutputFormat: 'toon',
         apiKeyScopes: [],
         clientProfile: {} as any,
         requestContext: {

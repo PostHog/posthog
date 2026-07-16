@@ -42,6 +42,10 @@ function buildBaseProperties(
         $mcp_consumer: requestContext.mcpConsumer,
         $mcp_mode: requestContext.mode,
         $mcp_region: requestContext.region,
+        // Request-level default from the mcp-output-format flag, so a TOON-vs-JSON
+        // rollout can be sliced in analytics. Per-call overrides (--json,
+        // output_format, tool-level _meta) are not reflected here.
+        $mcp_default_output_format: state.defaultOutputFormat,
         ...(analyticsContext
             ? {
                   $mcp_organization_id: analyticsContext.organizationId,

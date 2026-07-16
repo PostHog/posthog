@@ -1,4 +1,5 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest'
+import { z } from 'zod'
 
 vi.mock('@/resources/internals', () => ({
     fetchContextMillResources: vi.fn().mockRejectedValue(new Error('mocked')),
@@ -46,6 +47,7 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
         } as any,
         useSingleExec: false,
         toolFeatureFlags: undefined,
+        defaultOutputFormat: 'toon',
         apiKeyScopes: [],
         clientProfile: {
             capabilities: { supportsInstructions: true },
@@ -136,6 +138,52 @@ describe('ToolExecutor', () => {
 
             expect(result).not.toBeNull()
             expect(result.content).not.toBeNull()
+        })
+
+        it('JSON-encodes a tools-mode result when state defaultOutputFormat is json', async () => {
+            // The mcp-output-format flag must reach buildToolResultPayload through
+            // callTool; dropping the threading leaves the flag evaluated but ignored.
+            vi.spyOn(catalog, 'getToolByName').mockReturnValueOnce({
+                name: 'fake-format-tool',
+                base: {
+                    schema: z.object({}),
+                    handler: vi.fn().mockResolvedValue({ rows: [{ a: 1 }, { a: 2 }] }),
+                },
+            } as any)
+
+            const result = (await executor.handleToolCall(
+                { name: 'fake-format-tool', arguments: {} },
+                makeState([{ name: 'fake-format-tool' }], { defaultOutputFormat: 'json' })
+            )) as any
+
+            expect(JSON.parse(result.content[0].text)).toEqual({ rows: [{ a: 1 }, { a: 2 }] })
+        })
+
+        it('JSON-encodes an exec call result when state defaultOutputFormat is json', async () => {
+            // Same guard for single-exec mode, where the format rides on ExecToolOptions.
+            // Real catalog name (the instructions builder resolves its definition), fake handler.
+            const fakeTool = {
+                name: 'organization-get',
+                title: 'Organization get',
+                description: 'returns an object',
+                schema: z.object({}),
+                scopes: [],
+                annotations: {
+                    destructiveHint: false,
+                    idempotentHint: true,
+                    openWorldHint: false,
+                    readOnlyHint: true,
+                },
+                handler: async () => ({ rows: [{ a: 1 }, { a: 2 }] }),
+            }
+
+            const result = (await executor.handleToolCall(
+                { name: 'exec', arguments: { command: 'call organization-get {}' } },
+                makeState([fakeTool] as any, { useSingleExec: true, defaultOutputFormat: 'json' })
+            )) as any
+
+            expect(result.isError).toBeFalsy()
+            expect(JSON.parse(result.content[0].text)).toEqual({ rows: [{ a: 1 }, { a: 2 }] })
         })
 
         it('accepts cached exec calls even when the current session is in tools mode', async () => {

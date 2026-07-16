@@ -5,7 +5,10 @@ const { mockSessionStore, mockTokenStore } = vi.hoisted(() => ({
     mockTokenStore: new Map<string, unknown>(),
 }))
 
-vi.mock('@/lib/posthog/flags', () => ({
+vi.mock('@/lib/posthog/flags', async (importOriginal) => ({
+    // Keep pure helpers (e.g. resolveDefaultOutputFormat) real; stub only the
+    // posthog-node-backed evaluation.
+    ...(await importOriginal<typeof import('@/lib/posthog/flags')>()),
     evaluateFeatureFlags: vi.fn(async () => ({})),
     resolveFeatureFlagOverrides: vi.fn(() => ({})),
 }))
