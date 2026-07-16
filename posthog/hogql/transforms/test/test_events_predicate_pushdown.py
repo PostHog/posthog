@@ -48,7 +48,7 @@ from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState, PropertyDefinition
-from posthog.models.utils import uuid7
+from posthog.uuidt import uuid7
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import recalculate_cohortpeople

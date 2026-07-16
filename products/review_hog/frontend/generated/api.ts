@@ -18,7 +18,7 @@ import type {
     ReviewHogReviewsListParams,
     ReviewPerspectiveConfigApi,
     ReviewPerspectiveStatsApi,
-    ReviewRecentReviewApi,
+    ReviewRecentReviewsPageApi,
     ReviewUserSettingsApi,
     ReviewValidatorConfigApi,
 } from './api.schemas'
@@ -120,15 +120,15 @@ export const getReviewHogReviewsListUrl = (projectId: string, params?: ReviewHog
 }
 
 /**
- * Recent ReviewHog reviews on this project: actively running reviews first (with the in-flight turn's stage), then the most recent completed ones (at most 5 rows). By default only the requesting user's reviews; `scope=everyone` lists every review on the project.
+ * Recent ReviewHog reviews on this project: actively running reviews first (with the in-flight turn's stage), then the most recent completed ones — at most `limit` rows (default 5), plus `has_more` for whether a larger `limit` would reveal more. By default only the requesting user's reviews; `scope=everyone` lists every review on the project.
  * @summary List recent reviews
  */
 export const reviewHogReviewsList = async (
     projectId: string,
     params?: ReviewHogReviewsListParams,
     options?: RequestInit
-): Promise<ReviewRecentReviewApi[]> => {
-    return apiMutator<ReviewRecentReviewApi[]>(getReviewHogReviewsListUrl(projectId, params), {
+): Promise<ReviewRecentReviewsPageApi> => {
+    return apiMutator<ReviewRecentReviewsPageApi>(getReviewHogReviewsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
