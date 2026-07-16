@@ -55,10 +55,14 @@ class TestSendCommentToSlack(APIBaseTest):
         thread = CommentSlackThread(slack_channel_id="C1", slack_thread_ts=ts, slack_team_id="T123")
         assert _slack_thread_url(thread) == expected
 
-    def _send(self, comment_id, channel_id: str = "C1", integration_id: int | None = None):
+    def _send(self, comment_id, channel_id: str = "C1", integration_id: int | None = None, channel_name: str = ""):
         return self.client.post(
             f"/api/projects/{self.team.id}/comments/{comment_id}/send_to_slack/",
-            {"integration_id": integration_id or self.integration.id, "channel_id": channel_id},
+            {
+                "integration_id": integration_id or self.integration.id,
+                "channel_id": channel_id,
+                "channel_name": channel_name,
+            },
         )
 
     @patch("posthog.api.comments.backfill_comment_slack_thread.delay")
@@ -68,13 +72,16 @@ class TestSendCommentToSlack(APIBaseTest):
         mock_slack.return_value.client.chat_postMessage.return_value = {"ts": "1700.1"}
         comment = self._comment()
 
-        res = self._send(comment.id)
+        res = self._send(comment.id, channel_name="#team-support")
 
         assert res.status_code == status.HTTP_200_OK, res.json()
         mirror = CommentSlackThread.objects.for_team(self.team.id).get()
         assert mirror.source_comment_id == comment.id
         assert mirror.slack_thread_ts == "1700.1"
         assert (mirror.slack_channel_id, mirror.slack_team_id) == ("C1", "T123")
+        # Channel name is stored for display with the leading # stripped.
+        assert mirror.slack_channel_name == "team-support"
+        assert res.json()["slack_channel_name"] == "team-support"
         # Only the root is posted synchronously; replies are backfilled out-of-band.
         assert mock_slack.return_value.client.chat_postMessage.call_count == 1
         mock_backfill.assert_called_once_with(comment_slack_thread_id=str(mirror.id))
@@ -430,6 +437,7 @@ class TestSlackThreadSerialization(APIBaseTest):
             source_comment=self.parent,
             integration=self.integration,
             slack_channel_id="C1",
+            slack_channel_name="team-support",
             slack_thread_ts="1700.1",
         )
 
@@ -442,6 +450,7 @@ class TestSlackThreadSerialization(APIBaseTest):
         assert res.status_code == status.HTTP_200_OK
         assert res.json()["slack_thread"] == {
             "channel_id": "C1",
+            "channel_name": "team-support",
             "url": "https://app.slack.com/archives/C1/p17001",
         }
 

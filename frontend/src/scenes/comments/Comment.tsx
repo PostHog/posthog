@@ -226,9 +226,15 @@ const CommentTopRow = ({ comment }: { comment: CommentType }): JSX.Element => {
                         size="xsmall"
                         to={slackThread.url}
                         targetBlank
-                        tooltip="Open in Slack"
+                        tooltip={
+                            slackThread.channel_name
+                                ? `Open the mirrored thread in #${slackThread.channel_name}`
+                                : 'Open in Slack'
+                        }
                         data-attr="discussions-comment-open-in-slack"
-                    />
+                    >
+                        {slackThread.channel_name ? `#${slackThread.channel_name}` : null}
+                    </LemonButton>
                 ) : null}
                 {comment.created_at ? (
                     <span className="text-xs">

@@ -62,10 +62,11 @@ export const sendCommentToSlackLogic = kea<sendCommentToSlackLogicType>([
     selectors({
         isOpen: [(s) => [s.comment], (comment): boolean => comment !== null],
         channelId: [(s) => [s.channel], (channel): string | null => (channel ? channel.split('|')[0] : null)],
+        channelName: [(s) => [s.channel], (channel): string => channel?.split('|')[1]?.replace(/^#/, '') ?? ''],
     }),
     listeners(({ actions, values }) => ({
         submit: async () => {
-            const { comment, integrationId, channelId, currentProjectId } = values
+            const { comment, integrationId, channelId, channelName, currentProjectId } = values
             if (!comment || !integrationId || !channelId || !currentProjectId) {
                 actions.submitFailure()
                 return
@@ -76,6 +77,7 @@ export const sendCommentToSlackLogic = kea<sendCommentToSlackLogicType>([
                 await commentsSendToSlackCreate(String(currentProjectId), comment.id, {
                     integration_id: integrationId,
                     channel_id: channelId,
+                    channel_name: channelName,
                 })
                 actions.submitSuccess()
             } catch (e) {

@@ -6016,7 +6016,7 @@ export type CommentType = {
     completed_at: string | null
     completed_by: UserBasicType | null
     /** The Slack thread this comment's discussion is mirrored to (read-only); set only on a tracked thread root. */
-    slack_thread?: { channel_id: string; url: string } | null
+    slack_thread?: { channel_id: string; channel_name: string; url: string } | null
 }
 
 export type CommentCreationParams = { mentions?: number[]; slug?: string }

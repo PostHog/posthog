@@ -72,6 +72,11 @@ def _slack_thread_url(thread: CommentSlackThread) -> str:
 
 class CommentSlackThreadRefSerializer(serializers.Serializer):
     channel_id = serializers.CharField(help_text="Slack channel ID this discussion is mirrored to.")
+    channel_name = serializers.CharField(
+        allow_blank=True,
+        help_text="Slack channel name captured when the discussion was sent (no leading #). "
+        "Empty when unknown; may lag behind a rename in Slack.",
+    )
     url = serializers.CharField(help_text="Deep link that opens the mirrored Slack thread.")
 
 
@@ -131,7 +136,11 @@ class CommentSerializer(serializers.ModelSerializer):
         # keeps offering "send to Slack" rather than a dead "Open in Slack" link.
         if thread is None or not thread.slack_thread_ts:
             return None
-        return {"channel_id": thread.slack_channel_id, "url": _slack_thread_url(thread)}
+        return {
+            "channel_id": thread.slack_channel_id,
+            "channel_name": thread.slack_channel_name,
+            "url": _slack_thread_url(thread),
+        }
 
     class Meta:
         model = Comment
@@ -320,6 +329,7 @@ class CommentSlackThreadSerializer(serializers.ModelSerializer):
             "source_comment",
             "integration",
             "slack_channel_id",
+            "slack_channel_name",
             "slack_thread_ts",
             "slack_team_id",
             "created_at",
@@ -332,6 +342,9 @@ class CommentSlackThreadSerializer(serializers.ModelSerializer):
             "source_comment": {"help_text": "The thread-root comment whose replies mirror to the Slack thread."},
             "integration": {"help_text": "Slack integration used to post to and read from the thread."},
             "slack_channel_id": {"help_text": "Slack channel the mirrored thread lives in."},
+            "slack_channel_name": {
+                "help_text": "Slack channel name captured at send time (no leading #). Empty when unknown."
+            },
             "slack_thread_ts": {"help_text": "Slack thread timestamp anchoring the mirrored thread."},
             "slack_team_id": {"help_text": "Slack workspace ID, used to route inbound replies back."},
         }
@@ -345,6 +358,17 @@ class SendCommentToSlackSerializer(serializers.Serializer):
         max_length=255,
         help_text="Slack channel ID to create the mirrored thread in. The bot must be a member of the channel.",
     )
+    channel_name = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Display name of the channel, with or without a leading #. Stored for the UI "
+        "to show where the discussion lives; the channel ID stays authoritative for posting.",
+    )
+
+    def validate_channel_name(self, value: str) -> str:
+        return value.lstrip("#")
 
 
 @extend_schema(extensions={"x-product": "platform_features"})
@@ -580,6 +604,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         params.is_valid(raise_exception=True)
         integration_id = params.validated_data["integration_id"]
         channel_id = params.validated_data["channel_id"]
+        channel_name = params.validated_data["channel_name"]
 
         integration = Integration.objects.filter(team=team, id=integration_id, kind="slack").first()
         if integration is None:
@@ -596,6 +621,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
                 "item_id": comment.item_id,
                 "integration": integration,
                 "slack_channel_id": channel_id,
+                "slack_channel_name": channel_name,
                 "slack_team_id": integration.integration_id,
                 "created_by": cast(User, request.user),
             },
@@ -617,11 +643,19 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             # re-bounds the reply backfill to this attempt.
             slack_thread.integration = integration
             slack_thread.slack_channel_id = channel_id
+            slack_thread.slack_channel_name = channel_name
             slack_thread.slack_team_id = integration.integration_id
             slack_thread.created_by = cast(User, request.user)
             slack_thread.created_at = timezone.now()
             slack_thread.save(
-                update_fields=["integration", "slack_channel_id", "slack_team_id", "created_by", "created_at"]
+                update_fields=[
+                    "integration",
+                    "slack_channel_id",
+                    "slack_channel_name",
+                    "slack_team_id",
+                    "created_by",
+                    "created_at",
+                ]
             )
 
         author_name, author_email = slack_author_from_user(comment.created_by)

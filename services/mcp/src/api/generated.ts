@@ -15269,6 +15269,8 @@ export namespace Schemas {
     export interface CommentSlackThreadRef {
       /** Slack channel ID this discussion is mirrored to. */
       channel_id: string;
+      /** Slack channel name captured when the discussion was sent (no leading #). Empty when unknown; may lag behind a rename in Slack. */
+      channel_name: string;
       /** Deep link that opens the mirrored Slack thread. */
       url: string;
     }
@@ -15323,6 +15325,8 @@ export namespace Schemas {
       readonly integration: number;
       /** Slack channel the mirrored thread lives in. */
       readonly slack_channel_id: string;
+      /** Slack channel name captured at send time (no leading #). Empty when unknown. */
+      readonly slack_channel_name: string;
       /** Slack thread timestamp anchoring the mirrored thread. */
       readonly slack_thread_ts: string;
       /**
@@ -60918,6 +60922,11 @@ export namespace Schemas {
          * @maxLength 255
          */
       channel_id: string;
+      /**
+         * Display name of the channel, with or without a leading #. Stored for the UI to show where the discussion lives; the channel ID stays authoritative for posting.
+         * @maxLength 255
+         */
+      channel_name?: string;
     }
 
     export interface SendInvitesRequest {
