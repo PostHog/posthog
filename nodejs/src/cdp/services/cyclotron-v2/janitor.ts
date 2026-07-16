@@ -75,6 +75,8 @@ export class CyclotronV2Janitor {
     private readonly maxTouchCount: number
     private readonly cleanupGraceMs: number
     private readonly poisonRecoveryEnabled: boolean
+    private readonly stallBackoffBaseMs: number
+    private readonly stallBackoffMaxMs: number
 
     constructor(
         config: CyclotronV2JanitorConfig,
@@ -95,6 +97,8 @@ export class CyclotronV2Janitor {
         this.maxTouchCount = config.maxTouchCount ?? 3
         this.cleanupGraceMs = config.cleanupGraceMs ?? 10000
         this.poisonRecoveryEnabled = config.poisonRecoveryEnabled ?? true
+        this.stallBackoffBaseMs = config.stallBackoffBaseMs ?? 1000
+        this.stallBackoffMaxMs = config.stallBackoffMaxMs ?? 30000
 
         if (!this.poisonRecoveryEnabled) {
             logger.warn(
@@ -339,6 +343,22 @@ export class CyclotronV2Janitor {
     private async resetStalledJobs(): Promise<number> {
         const heartbeatCutoff = new Date(Date.now() - this.stallTimeoutMs)
 
+        // Exponential backoff with half-jitter on the next scheduled time, keyed
+        // on janitor_touch_count, so repeated stalls back off and a fleet-wide
+        // stall doesn't immediately re-flood the workers that just recovered.
+        // Half-jitter (delay in [0.5, 1] x the capped backoff) still defers the
+        // job while spreading a synchronized herd across the window. Disabled when
+        // stallBackoffBaseMs <= 0 — scheduled is left untouched (immediate retry).
+        const backoffEnabled = this.stallBackoffBaseMs > 0
+        const backoffClause = backoffEnabled
+            ? `, scheduled = NOW() + (
+                   LEAST($2::float8 * POWER(2, janitor_touch_count), $3::float8) * (0.5 + 0.5 * random())
+               ) * INTERVAL '1 millisecond'`
+            : ''
+        const params: (Date | number)[] = backoffEnabled
+            ? [heartbeatCutoff, this.stallBackoffBaseMs, this.stallBackoffMaxMs]
+            : [heartbeatCutoff]
+
         const result = await this.pool.query(
             `WITH stalled AS (
                 SELECT id
@@ -349,10 +369,10 @@ export class CyclotronV2Janitor {
             )
             UPDATE cyclotron_jobs
             SET status = 'available', lock_id = NULL, last_heartbeat = NULL,
-                janitor_touch_count = janitor_touch_count + 1
+                janitor_touch_count = janitor_touch_count + 1${backoffClause}
             FROM stalled
             WHERE cyclotron_jobs.id = stalled.id`,
-            [heartbeatCutoff]
+            params
         )
 
         const count = result.rowCount ?? 0

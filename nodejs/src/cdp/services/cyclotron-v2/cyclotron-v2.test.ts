@@ -69,6 +69,9 @@ function createJanitor(overrides?: Record<string, unknown>, results?: HogInvocat
             cleanupGraceMs: 0,
             stallTimeoutMs: 0,
             maxTouchCount: 2,
+            // Off by default so existing reset tests keep immediate-retry semantics;
+            // the backoff tests opt in explicitly.
+            stallBackoffBaseMs: 0,
             ...overrides,
         },
         results
@@ -1589,6 +1592,69 @@ describe('Cyclotron V2', () => {
             expect(row.status).toBe('available')
             expect(row.lock_id).toBeNull()
             expect(row.janitor_touch_count).toBe(1)
+        })
+
+        // Exponential-with-jitter backoff on the reset job's next scheduled time,
+        // keyed on janitor_touch_count. Bounds are loose to absorb jitter (delay is
+        // [0.5, 1] x the capped backoff) and test/db clock skew — they only need to
+        // prove: deferred at all, grows with touch count, and is capped.
+        // maxTouchCount is high so these aren't failed as poison pills before reset.
+        it.each([
+            { touchCount: 0, baseMs: 1000, maxMs: 30000, minDeferMs: 1, maxDeferMs: 3000 },
+            { touchCount: 3, baseMs: 1000, maxMs: 30000, minDeferMs: 3000, maxDeferMs: 10000 },
+            { touchCount: 5, baseMs: 1000, maxMs: 2000, minDeferMs: 1, maxDeferMs: 3000 },
+        ])(
+            'resetStalledJobs backs off the next scheduled time (touch=$touchCount, cap=$maxMs)',
+            async ({ touchCount, baseMs, maxMs, minDeferMs, maxDeferMs }) => {
+                const jobId = uuidv7()
+                await insertRawJob({
+                    id: jobId,
+                    status: 'running',
+                    lock_id: uuidv7(),
+                    last_heartbeat: new Date(Date.now() - 60_000),
+                    janitor_touch_count: touchCount,
+                })
+
+                const before = Date.now()
+                const janitor = createJanitor({
+                    stallTimeoutMs: 1_000,
+                    maxTouchCount: 100,
+                    stallBackoffBaseMs: baseMs,
+                    stallBackoffMaxMs: maxMs,
+                })
+                const result = await janitor.runOnce()
+                await janitor.stop()
+
+                expect(result.stalled).toBe(1)
+                const row = await queryJob(jobId)
+                expect(row.status).toBe('available')
+                const deferMs = new Date(row.scheduled).getTime() - before
+                expect(deferMs).toBeGreaterThan(minDeferMs)
+                expect(deferMs).toBeLessThanOrEqual(maxDeferMs)
+            }
+        )
+
+        it('resetStalledJobs leaves scheduled immediate when backoff is disabled (base 0)', async () => {
+            const jobId = uuidv7()
+            const pastScheduled = new Date(Date.now() - 5_000)
+            await insertRawJob({
+                id: jobId,
+                status: 'running',
+                lock_id: uuidv7(),
+                last_heartbeat: new Date(Date.now() - 60_000),
+                scheduled: pastScheduled,
+                janitor_touch_count: 0,
+            })
+
+            const before = Date.now()
+            const janitor = createJanitor({ stallTimeoutMs: 1_000, stallBackoffBaseMs: 0 })
+            await janitor.runOnce()
+            await janitor.stop()
+
+            const row = await queryJob(jobId)
+            expect(row.status).toBe('available')
+            // scheduled untouched → still in the past → immediately re-dequeuable.
+            expect(new Date(row.scheduled).getTime()).toBeLessThanOrEqual(before)
         })
 
         it('records a poison pill as a failed result and deletes it once recorded', async () => {

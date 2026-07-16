@@ -132,6 +132,12 @@ export type CyclotronV2JanitorConfig = {
     // Kill-switch. When false the janitor reverts to master's legacy path — mark
     // poison pills failed with no replay record (a give-up is lost). Defaults to true.
     poisonRecoveryEnabled?: boolean
+    // Exponential backoff (with jitter) applied to a stalled job's next scheduled
+    // time on each janitor reset, keyed on janitor_touch_count. Staggers
+    // re-dequeue during a fleet-wide stall instead of re-flooding the workers that
+    // just recovered. `stallBackoffBaseMs = 0` disables it (immediate retry).
+    stallBackoffBaseMs?: number
+    stallBackoffMaxMs?: number
 }
 
 export type CyclotronV2CleanupResult = {

@@ -150,6 +150,11 @@ export type CdpConfig = ClickhouseConfig & {
     // record (a give-up is lost, exactly as before this change). Flip to false to
     // roll back the recovery machinery instantly without a redeploy. Default true.
     CYCLOTRON_NODE_POISON_PILL_RECOVERY_ENABLED: boolean
+    // Exponential backoff (jittered) on a stalled job's next scheduled time per
+    // janitor reset — staggers re-dequeue during a fleet stall so recovering
+    // workers aren't immediately re-flooded. 0 disables (immediate retry).
+    CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_BASE_MS: number
+    CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_MAX_MS: number
 }
 
 export function getDefaultCdpConfig(): CdpConfig {
@@ -288,5 +293,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         CYCLOTRON_NODE_JANITOR_MAX_TOUCH_COUNT: 3,
         CYCLOTRON_NODE_JANITOR_CLEANUP_GRACE_MS: 10000,
         CYCLOTRON_NODE_POISON_PILL_RECOVERY_ENABLED: true,
+        CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_BASE_MS: 1000,
+        CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_MAX_MS: 30000,
     }
 }
