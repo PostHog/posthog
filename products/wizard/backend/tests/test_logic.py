@@ -5,9 +5,6 @@ from unittest.mock import patch
 
 from django.test import override_settings
 
-from celery.exceptions import Retry
-from parameterized import parameterized
-
 from posthog.models import Team
 
 from products.event_definitions.backend.models import EventDefinition
@@ -70,11 +67,12 @@ def test_upsert_with_same_session_id_replaces_state(_mock_sync, team):
 
 @pytest.mark.django_db
 @override_settings(CELERY_TASK_ALWAYS_EAGER=True, CELERY_TASK_EAGER_PROPAGATES=True)
-def test_completed_transition_creates_event_definitions_once(team):
+def test_completed_transition_creates_event_definitions_once(team, django_capture_on_commit_callbacks):
     event_plan = {"events": [{"name": "checkout_started", "description": "A checkout was started"}]}
     wizard_facade.upsert(_input(team.id, event_plan=event_plan))
 
-    completed_session, _ = wizard_facade.upsert(_input(team.id, run_phase=RunPhase.COMPLETED))
+    with django_capture_on_commit_callbacks(execute=True):
+        completed_session, _ = wizard_facade.upsert(_input(team.id, run_phase=RunPhase.COMPLETED))
     wizard_facade.upsert(
         _input(
             team.id,
@@ -93,14 +91,15 @@ def test_completed_transition_creates_event_definitions_once(team):
 
 @pytest.mark.django_db
 @override_settings(CELERY_TASK_ALWAYS_EAGER=True, CELERY_TASK_EAGER_PROPAGATES=True)
-def test_completed_transition_creates_enterprise_description(team):
-    wizard_facade.upsert(
-        _input(
-            team.id,
-            run_phase=RunPhase.COMPLETED,
-            event_plan={"events": [{"name": "subscription_started", "description": "A subscription was started"}]},
+def test_completed_transition_creates_enterprise_description(team, django_capture_on_commit_callbacks):
+    with django_capture_on_commit_callbacks(execute=True):
+        wizard_facade.upsert(
+            _input(
+                team.id,
+                run_phase=RunPhase.COMPLETED,
+                event_plan={"events": [{"name": "subscription_started", "description": "A subscription was started"}]},
+            )
         )
-    )
 
     event_definition = EnterpriseEventDefinition.objects.get(
         team=team, project_id=team.project_id, name="subscription_started"
@@ -108,38 +107,35 @@ def test_completed_transition_creates_enterprise_description(team):
     assert event_definition.description == "A subscription was started"
 
 
-@parameterized.expand(
-    [
-        ("empty", ""),
-        ("posthog", "$pageview"),
-        ("posthog_with_whitespace", " $pageview "),
-        ("too_long", "x" * 401),
-    ]
-)
 @pytest.mark.django_db
 @override_settings(CELERY_TASK_ALWAYS_EAGER=True, CELERY_TASK_EAGER_PROPAGATES=True)
-def test_completed_transition_skips_invalid_event_names(_label, event_name, team):
-    wizard_facade.upsert(_input(team.id, run_phase=RunPhase.COMPLETED, event_plan={"events": [{"name": event_name}]}))
+@pytest.mark.parametrize("event_name", ["", "$pageview", " $pageview ", "x" * 401])
+def test_completed_transition_skips_invalid_event_names(team, django_capture_on_commit_callbacks, event_name):
+    with django_capture_on_commit_callbacks(execute=True):
+        wizard_facade.upsert(
+            _input(team.id, run_phase=RunPhase.COMPLETED, event_plan={"events": [{"name": event_name}]})
+        )
 
     assert not EventDefinition.objects.filter(team=team).exists()
 
 
 @pytest.mark.django_db
 @override_settings(CELERY_TASK_ALWAYS_EAGER=True, CELERY_TASK_EAGER_PROPAGATES=True)
-def test_completed_transition_caps_valid_unique_event_definitions(team):
+def test_completed_transition_caps_valid_unique_event_definitions(team, django_capture_on_commit_callbacks):
     invalid_and_duplicate_events = [{"name": ""} for _ in range(50)] + [
         {"name": " planned_event_0 "},
         {"name": "planned_event_0"},
     ]
-    wizard_facade.upsert(
-        _input(
-            team.id,
-            run_phase=RunPhase.COMPLETED,
-            event_plan={
-                "events": invalid_and_duplicate_events + [{"name": f"planned_event_{index}"} for index in range(51)]
-            },
+    with django_capture_on_commit_callbacks(execute=True):
+        wizard_facade.upsert(
+            _input(
+                team.id,
+                run_phase=RunPhase.COMPLETED,
+                event_plan={
+                    "events": invalid_and_duplicate_events + [{"name": f"planned_event_{index}"} for index in range(51)]
+                },
+            )
         )
-    )
 
     assert EventDefinition.objects.filter(team=team).count() == 50
     assert EventDefinition.objects.filter(team=team, name="planned_event_0").count() == 1
@@ -151,10 +147,13 @@ def test_completed_transition_caps_valid_unique_event_definitions(team):
     "products.wizard.backend.logic.sessions.sync_wizard_event_definitions.delay",
     side_effect=RuntimeError("task dispatch failed"),
 )
-def test_event_definition_dispatch_failure_does_not_break_completed_upsert(_mock_sync, team):
-    session, created = wizard_facade.upsert(
-        _input(team.id, run_phase=RunPhase.COMPLETED, event_plan={"events": [{"name": "checkout_started"}]})
-    )
+def test_event_definition_dispatch_failure_does_not_break_completed_upsert(
+    _mock_sync, team, django_capture_on_commit_callbacks
+):
+    with django_capture_on_commit_callbacks(execute=True):
+        session, created = wizard_facade.upsert(
+            _input(team.id, run_phase=RunPhase.COMPLETED, event_plan={"events": [{"name": "checkout_started"}]})
+        )
 
     assert created is True
     assert session.run_phase == RunPhase.COMPLETED
@@ -172,7 +171,7 @@ def test_event_definition_task_recovers_after_transient_failure(team):
             "products.wizard.backend.tasks.tasks.create_placeholder_event_definitions",
             side_effect=RuntimeError("definition write failed"),
         ),
-        pytest.raises(Retry),
+        pytest.raises(RuntimeError, match="definition write failed"),
     ):
         sync_wizard_event_definitions.run(team.id, session.session_id)
 
@@ -194,9 +193,9 @@ def test_event_definition_task_uses_latest_completed_session_state(team):
     assert not EventDefinition.objects.filter(team=team, name="stale_completed_plan").exists()
 
 
-@parameterized.expand([("project_scoped", False), ("legacy", True)])
 @pytest.mark.django_db
-def test_event_definition_task_reuses_definition_from_sibling_environment(_label, is_legacy, team):
+@pytest.mark.parametrize("is_legacy", [False, True])
+def test_event_definition_task_reuses_definition_from_sibling_environment(team, is_legacy):
     sibling_team = Team.objects.create(
         organization=team.organization,
         project=team.project,
