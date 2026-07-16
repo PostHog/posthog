@@ -3950,7 +3950,8 @@ class SonarCloudSourceConfig(config.Config):
 
 @config.config
 class SonarqubeSourceConfig(config.Config):
-    pass
+    host: str
+    token: str
 
 
 @config.config
