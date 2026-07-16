@@ -20,10 +20,14 @@ class PabblyEndpointConfig:
     # envelope when there is simply no data (its Airbyte connector ignores those the same way).
     # When True, such responses are treated as an empty page instead of an error.
     ignore_no_data_errors: bool = False
-    # HTTP sample capture stores raw response bodies as diagnostic artifacts. Set False on
-    # endpoints whose bodies carry redeemable secrets the name-based scrubbers can't recognise
-    # (e.g. the raw license codes in a licenses batch); requests stay metered and logged.
-    capture_http_samples: bool = True
+    # HTTP sample capture stores raw response bodies as diagnostic artifacts on a shared prefix
+    # readable beyond the importing project. The name-based scrubbers only drop known auth keys, so
+    # capture is opt-in: it defaults off and is enabled only for endpoints whose bodies are limited
+    # to product/plan catalog metadata. It stays off for endpoints carrying customer PII (names,
+    # addresses, tax IDs), payment data, redeemable secrets (license/coupon codes), or bearer URLs
+    # (invoice links, gateway webhook URLs) the scrubbers can't recognise. Requests stay metered and
+    # logged either way.
+    capture_http_samples: bool = False
 
 
 # Pabbly Subscription Billing REST endpoints (https://apidocs.pabbly.com/pabbly/subscription-billing).
@@ -37,8 +41,19 @@ PABBLY_ENDPOINTS: dict[str, PabblyEndpointConfig] = {
     "customers": PabblyEndpointConfig(name="customers", path="/customers"),
     "subscriptions": PabblyEndpointConfig(name="subscriptions", path="/subscriptions"),
     "invoices": PabblyEndpointConfig(name="invoices", path="/invoices"),
-    "products": PabblyEndpointConfig(name="products", path="/products", ignore_no_data_errors=True),
-    "multiplans": PabblyEndpointConfig(name="multiplans", path="/multiplans"),
+    "products": PabblyEndpointConfig(
+        name="products",
+        path="/products",
+        ignore_no_data_errors=True,
+        # Product catalog metadata only (no customer content or credentials); safe to capture.
+        capture_http_samples=True,
+    ),
+    "multiplans": PabblyEndpointConfig(
+        name="multiplans",
+        path="/multiplans",
+        # Checkout-page catalog metadata only (no customer content or credentials); safe to capture.
+        capture_http_samples=True,
+    ),
     "payment_gateways": PabblyEndpointConfig(name="payment_gateways", path="/paymentgateways"),
     "addons": PabblyEndpointConfig(
         name="addons",
@@ -47,6 +62,8 @@ PABBLY_ENDPOINTS: dict[str, PabblyEndpointConfig] = {
         parent="products",
         parent_field="product_id",
         ignore_no_data_errors=True,
+        # Addon catalog metadata only (no customer content or credentials); safe to capture.
+        capture_http_samples=True,
     ),
     "addon_list_category": PabblyEndpointConfig(
         name="addon_list_category",
@@ -57,6 +74,8 @@ PABBLY_ENDPOINTS: dict[str, PabblyEndpointConfig] = {
         parent="products",
         parent_field="product_id",
         ignore_no_data_errors=True,
+        # Addon-category catalog metadata only (no customer content or credentials); safe to capture.
+        capture_http_samples=True,
     ),
     "coupons": PabblyEndpointConfig(
         name="coupons",
@@ -65,8 +84,6 @@ PABBLY_ENDPOINTS: dict[str, PabblyEndpointConfig] = {
         parent="products",
         parent_field="product_id",
         ignore_no_data_errors=True,
-        # coupon_code values are redeemable discounts; keep raw bodies out of captured HTTP samples.
-        capture_http_samples=False,
     ),
     "licenses": PabblyEndpointConfig(
         name="licenses",
@@ -75,8 +92,6 @@ PABBLY_ENDPOINTS: dict[str, PabblyEndpointConfig] = {
         parent="products",
         parent_field="product_id",
         ignore_no_data_errors=True,
-        # license_codes are redeemable secrets; keep raw bodies out of captured HTTP samples.
-        capture_http_samples=False,
     ),
     "payment_methods": PabblyEndpointConfig(
         name="payment_methods",

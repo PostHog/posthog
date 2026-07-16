@@ -254,17 +254,27 @@ class TestMakeSession:
 class TestHttpSampleCapture:
     @parameterized.expand(
         [
-            # licenses and coupons bodies carry raw redeemable secrets (license_codes, coupon_code),
-            # so their raw responses must stay out of captured HTTP samples; ordinary endpoints keep
-            # capture on for diagnostics.
+            # Capture is opt-in: only endpoints limited to product/plan catalog metadata may write raw
+            # bodies to HTTP samples. Everything carrying customer PII, payment data, redeemable
+            # secrets, or bearer URLs the scrubbers can't recognise must stay out of captured samples.
+            ("products", True),
+            ("multiplans", True),
+            ("addons", True),
+            ("addon_list_category", True),
+            ("customers", False),
+            ("subscriptions", False),
+            ("invoices", False),
+            ("payment_gateways", False),
+            ("payment_methods", False),
+            ("refunds", False),
+            ("transactions", False),
             ("licenses", False),
             ("coupons", False),
-            ("customers", True),
         ]
     )
     @patch(f"{pabbly.__name__}._fetch_page")
     @patch(f"{pabbly.__name__}.make_tracked_session")
-    def test_capture_disabled_only_for_secret_bearing_endpoints(
+    def test_capture_enabled_only_for_catalog_metadata_endpoints(
         self,
         endpoint: str,
         expected_capture: bool,
