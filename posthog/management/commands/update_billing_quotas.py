@@ -9,8 +9,10 @@ class Command(BaseCommand):
     help = "Update billing rate limiting for all organizations"
 
     def add_arguments(self, parser):
-        parser.add_argument("--dry-run", type=bool, help="Print information instead of storing it")
-        parser.add_argument("--print-reports", type=bool, help="Print the reports in full")
+        # store_true, not type=bool: argparse applies bool() to the raw string, so
+        # `--dry-run false` would silently parse as True.
+        parser.add_argument("--dry-run", action="store_true", help="Print information instead of storing it")
+        parser.add_argument("--print-reports", action="store_true", help="Print the reports in full")
 
     def handle(self, *args, **options):
         dry_run = options["dry_run"]
@@ -25,13 +27,15 @@ class Command(BaseCommand):
 
         if dry_run:
             print("Dry run so not stored.")  # noqa T201
-        else:
-            print(f"{len(quota_limited_orgs['events'])} orgs rate limited for events")  # noqa T201
-            print(  # noqa T201
-                f"{len(quota_limiting_suspended_orgs['events'])} orgs rate limiting suspended for events"  # noqa T201
-            )  # noqa T201
-            print(f"{len(quota_limited_orgs['recordings'])} orgs rate limited for recordings")  # noqa T201
-            print(  # noqa T201
-                f"{len(quota_limiting_suspended_orgs['recordings'])} orgs rate limiting suspended for recordings"  # noqa T201
-            )  # noqa T201
+
+        for resource, limited in quota_limited_orgs.items():
+            if limited:
+                print(f"{len(limited)} orgs {'would be ' if dry_run else ''}rate limited for {resource}")  # noqa T201
+        for resource, suspended in quota_limiting_suspended_orgs.items():
+            if suspended:
+                print(  # noqa T201
+                    f"{len(suspended)} orgs {'would have ' if dry_run else ''}rate limiting suspended for {resource}"
+                )
+
+        if not dry_run:
             print("Done!")  # noqa T201
