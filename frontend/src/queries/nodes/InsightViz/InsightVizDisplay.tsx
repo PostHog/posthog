@@ -46,6 +46,7 @@ import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { TrendInsight } from 'scenes/trends/Trends'
 import { WebAnalyticsInsight } from 'scenes/web-analytics/WebAnalyticsInsight'
 
+import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { InsightVizNode, TrendsQuery } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
@@ -539,13 +540,19 @@ export function InsightVizDisplay({
                                 BlockingEmptyState
                             ) : showSideLegend ? (
                                 <>
-                                    <div className="InsightVizDisplay__content__left">{renderActiveView()}</div>
+                                    <div className="InsightVizDisplay__content__left">
+                                        <ErrorBoundary exceptionProps={{ feature: 'insight-viz', activeView, display }}>
+                                            {renderActiveView()}
+                                        </ErrorBoundary>
+                                    </div>
                                     <div className="InsightVizDisplay__content__right empty:hidden">
                                         {display === ChartDisplayType.BoxPlot ? <BoxPlotLegend /> : <InsightLegend />}
                                     </div>
                                 </>
                             ) : (
-                                <>{renderActiveView()}</>
+                                <ErrorBoundary exceptionProps={{ feature: 'insight-viz', activeView, display }}>
+                                    {renderActiveView()}
+                                </ErrorBoundary>
                             )}
                         </div>
                     </>
