@@ -363,3 +363,28 @@ class TestValidateCredentials:
         monkeypatch.setattr(teamcity, "make_tracked_session", MagicMock())
         with pytest.raises(ValueError):
             validate_credentials("https://user:pass@evil.example.com", "token", TEAM_ID)
+
+    def test_http_host_rejected_on_cloud_before_any_request(self, monkeypatch: Any) -> None:
+        # On Cloud the Bearer token would cross the public internet in plaintext over http.
+        monkeypatch.setattr(teamcity, "is_cloud", lambda: True)
+        monkeypatch.setattr(teamcity, "make_tracked_session", MagicMock())
+        with pytest.raises(ValueError, match="https"):
+            validate_credentials("http://teamcity.internal:8111", "token", TEAM_ID)
+
+    def test_http_host_rejected_on_cloud_at_sync_time(self, monkeypatch: Any) -> None:
+        # The same guard must hold at sync time, so an edited stored config can't leak the token.
+        monkeypatch.setattr(teamcity, "is_cloud", lambda: True)
+        monkeypatch.setattr(teamcity, "make_tracked_session", MagicMock())
+        with pytest.raises(ValueError, match="https"):
+            next(
+                iter(
+                    get_rows(
+                        host="http://teamcity.internal:8111",
+                        access_token="token",
+                        endpoint="projects",
+                        team_id=TEAM_ID,
+                        logger=MagicMock(),
+                        resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                    )
+                )
+            )

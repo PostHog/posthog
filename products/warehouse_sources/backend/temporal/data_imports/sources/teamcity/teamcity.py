@@ -8,6 +8,8 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
+from posthog.cloud_utils import is_cloud
+
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
@@ -90,8 +92,16 @@ def _headers(access_token: str) -> dict[str, str]:
 
 
 def _check_host_safe(host: str, team_id: int) -> None:
-    hostname = urlparse(normalize_host(host)).hostname or ""
-    is_safe, error = _is_host_safe(hostname, team_id)
+    """Vet the server URL at both source-create and sync time.
+
+    On Cloud the Bearer token crosses the public internet, so plain http would expose it to
+    on-path capture — require https there (mirrors `custom/source.py:_check_url`). Self-hosted
+    PostHog may sit next to an internal TeamCity server over http, so http stays allowed.
+    """
+    parsed = urlparse(normalize_host(host))
+    if is_cloud() and parsed.scheme != "https":
+        raise ValueError(f"Invalid TeamCity server URL: {host!r} must use https:// on PostHog Cloud")
+    is_safe, error = _is_host_safe(parsed.hostname or "", team_id)
     if not is_safe:
         raise ValueError(f"Invalid TeamCity server URL: {error}")
 
