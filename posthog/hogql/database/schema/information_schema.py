@@ -457,6 +457,11 @@ class _Introspection:
         self._collected: Optional[tuple[list[list[Any]], list[list[Any]], list[_CollectedRelationship]]] = None
         self._data_catalog_enriched_table_rows: Optional[list[list[Any]]] = None
         self._data_catalog_enriched_relationship_rows: Optional[list[list[Any]]] = None
+        # Per-table certification lookup key `(table_type, resource_id)`, parallel to the table rows.
+        # Keyed by the introspected resource's own id (warehouse table id / saved-query id) rather
+        # than its name — names are not unique across live warehouse tables, so name-keying would let
+        # one row's certification clobber another's. None for rows that carry no catalog identity.
+        self._table_certification_keys: list[Optional[tuple[str, str]]] = []
         # Resolved `SELECT * FROM <table>` scope per table, so expression columns can be typed without
         # re-resolving the table once per expression.
         self._table_scope_cache: dict[str, Optional[ast.SelectQueryType]] = {}
@@ -532,6 +537,7 @@ class _Introspection:
         table_rows: list[list[Any]] = []
         column_rows: list[list[Any]] = []
         relationship_rows: list[_CollectedRelationship] = []
+        certification_keys: list[Optional[tuple[str, str]]] = []
 
         names = _visible_table_names(self.database)
         if self.allowed_tables is not None:
@@ -547,6 +553,7 @@ class _Introspection:
             table_type, table_schema = _classify_table(name, table, self.warehouse, self.views)
             row_count = self._row_count(name, table, table_type)
             table_rows.append([name, table_schema, name, table_type, self._table_description(table), row_count])
+            certification_keys.append(_certification_key(table, table_type))
 
             self._collect_fields(
                 name,
@@ -558,6 +565,7 @@ class _Introspection:
                 relationship_rows,
             )
 
+        self._table_certification_keys = certification_keys
         self._collected = (table_rows, column_rows, relationship_rows)
         return self._collected
 
@@ -571,9 +579,13 @@ class _Introspection:
 
         table_rows = self.table_rows()
         certifications = _catalog_certifications(self.context, self.allowed_tables)
-        # Key on (table_type, name): a live warehouse table and a view can share a name, and each
-        # certification belongs to exactly one of them — so row[3] (table_type) disambiguates.
-        self._data_catalog_enriched_table_rows = [[*row, certifications.get((row[3], row[2]))] for row in table_rows]
+        # Match each certification to the introspected row by that resource's own id (warehouse table
+        # id / saved-query id), not its name: warehouse table names are not unique per team, so a
+        # name-keyed lookup could show one table's certification on a same-named sibling.
+        self._data_catalog_enriched_table_rows = [
+            [*row, certifications.get(key) if key is not None else None]
+            for row, key in zip(table_rows, self._table_certification_keys)
+        ]
         return self._data_catalog_enriched_table_rows
 
     def column_rows(self) -> list[list[Any]]:
@@ -920,13 +932,32 @@ def _catalog_metrics(context: "HogQLContext", allowed: Optional[frozenset[str]])
         return []
 
 
+def _certification_key(table: Table, table_type: str) -> Optional[tuple[str, str]]:
+    """Certification lookup key `(table_type, resource_id)` for an introspected table, or None.
+
+    The id is the resource's own identity — the warehouse table id for `data_warehouse` rows, the
+    saved-query id for `view` rows — so a certification is matched to the exact row it belongs to even
+    when two live warehouse tables share a name (`(team, name)` is not unique on `DataWarehouseTable`).
+    Everything else is uncertifiable and returns None.
+    """
+    if table_type == "data_warehouse":
+        table_id = getattr(table, "table_id", None)
+        return ("data_warehouse", str(table_id)) if table_id else None
+    if table_type == "view":
+        saved_query_id = getattr(table, "id", None)
+        return ("view", str(saved_query_id)) if saved_query_id else None
+    return None
+
+
 def _catalog_certifications(context: "HogQLContext", allowed: Optional[frozenset[str]]) -> dict[tuple[str, str], str]:
     """Map each certified/deprecated resource to its certification status (fail-soft).
 
-    Keyed by `(table_type, name)` — a warehouse table cert keys on `("data_warehouse", name)`, a
-    view cert on `("view", name)`. A live table and a view can share a name, and each certification
-    belongs to exactly one of them; keying by name alone would let one clobber the other. Soft-deleted
-    targets are excluded (their marks read as absent).
+    Keyed by `(table_type, resource_id)` — a warehouse table cert keys on `("data_warehouse",
+    str(table_id))`, a view cert on `("view", str(saved_query_id))`. Keying by the resource's own id
+    (not its name) is required because `(team, name)` is not unique on `DataWarehouseTable`: two live
+    tables can share a name yet each carry its own certification, and a name-keyed lookup would let one
+    clobber the other. Soft-deleted targets are excluded (their marks read as absent). `allowed` still
+    filters by name to trim the query to the pushed-down set.
     """
     team_id = context.team_id
     if team_id is None or not _can_read_catalog(context):
@@ -948,10 +979,10 @@ def _catalog_certifications(context: "HogQLContext", allowed: Optional[frozenset
         if allowed is not None:
             table_certs = table_certs.filter(table__name__in=allowed)
             view_certs = view_certs.filter(saved_query__name__in=allowed)
-        for name, status in table_certs.values_list("table__name", "status"):
-            result[("data_warehouse", name)] = status
-        for name, status in view_certs.values_list("saved_query__name", "status"):
-            result[("view", name)] = status
+        for table_id, status in table_certs.values_list("table_id", "status"):
+            result[("data_warehouse", str(table_id))] = status
+        for saved_query_id, status in view_certs.values_list("saved_query_id", "status"):
+            result[("view", str(saved_query_id))] = status
         return result
     except Exception:
         logger.exception("information_schema: failed to load certifications", team_id=team_id)

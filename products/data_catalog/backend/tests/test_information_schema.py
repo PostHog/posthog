@@ -18,7 +18,7 @@ from posthog.constants import AvailableFeature
 from posthog.models.team import Team
 
 from products.data_catalog.backend.logic import relationships
-from products.data_catalog.backend.logic.certifications import certify, propose_certification
+from products.data_catalog.backend.logic.certifications import certify, deprecate, propose_certification
 from products.data_catalog.backend.logic.metrics import upsert_metric
 from products.data_catalog.backend.logic.relationships import accept_proposal, propose_relationship, reject_proposal
 from products.data_catalog.backend.models import RelationshipProposal, TableCertification
@@ -271,6 +271,27 @@ class TestInformationSchemaCertificationsAndRelationships(ClickhouseTestMixin, A
             context=self._context(),
         )
         assert response.results == [(None,)]
+
+    def test_certification_matches_resolved_table_when_names_collide(self) -> None:
+        # (team, name) is not unique on DataWarehouseTable, so two live tables can share a name and each
+        # carry its own mark. The catalog row must show the certification of the table HogQL actually
+        # resolves for that name — keying certifications by name alone would let a same-name sibling's
+        # mark win instead.
+        first = self._create_warehouse_table("revenue")
+        certify(propose_certification(team=self.team, user=self.user, table_id=str(first.id)), self.user)
+        second = self._create_warehouse_table("revenue")
+        deprecate(propose_certification(team=self.team, user=self.user, table_id=str(second.id)), self.user)
+
+        context = self._context()
+        resolved_id = str(context.database.get_table("revenue").table_id)
+        expected = "certified" if resolved_id == str(first.id) else "deprecated"
+
+        response = execute_hogql_query(
+            "SELECT certification FROM system.information_schema.tables WHERE table_name = 'revenue'",
+            team=self.team,
+            context=context,
+        )
+        assert response.results == [(expected,)]
 
     def test_view_certification_does_not_bleed_onto_same_name_table(self) -> None:
         # A warehouse table and a view can share a name; each certification belongs to exactly one of
