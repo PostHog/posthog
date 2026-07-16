@@ -37,14 +37,14 @@ def _resp(status_code: int, *, json_body=None, content: bytes = b"{}", raises_va
 
 class TestIngressClientCall(SimpleTestCase):
     def setUp(self) -> None:
-        self.client = IngressClient(base_url="http://ingress.test")
+        self.ingress_client = IngressClient(base_url="http://ingress.test")
 
     @patch(_INGRESS)
     def test_call_raises_with_body_on_4xx_5xx(self, mock_ingress: MagicMock) -> None:
         # A 503 with a JSON error body → IngressClientError carrying status + body.
         mock_ingress.request.return_value = _resp(503, json_body={"error": "unavailable"}, content=b'{"error":"x"}')
         with self.assertRaises(IngressClientError) as ctx:
-            self.client._call("POST", "/x", headers={})
+            self.ingress_client._call("POST", "/x", headers={})
         self.assertEqual(ctx.exception.status_code, 503)
         self.assertEqual(ctx.exception.body, {"error": "unavailable"})
 
@@ -53,7 +53,7 @@ class TestIngressClientCall(SimpleTestCase):
         # A network-level RequestException must clamp to a clean 502, never leak raw.
         mock_ingress.request.side_effect = requests.RequestException("connection refused")
         with self.assertRaises(IngressClientError) as ctx:
-            self.client._call("POST", "/x", headers={})
+            self.ingress_client._call("POST", "/x", headers={})
         self.assertEqual(ctx.exception.status_code, 502)
 
     @patch(_INGRESS)
@@ -61,7 +61,7 @@ class TestIngressClientCall(SimpleTestCase):
         # A 200 with no body (e.g. send's ack) → {} rather than a JSON parse attempt.
         resp = _resp(200, content=b"")
         mock_ingress.request.return_value = resp
-        self.assertEqual(self.client._call("POST", "/x", headers={}), {})
+        self.assertEqual(self.ingress_client._call("POST", "/x", headers={}), {})
         resp.json.assert_not_called()
 
     @patch(_INGRESS)
@@ -69,14 +69,14 @@ class TestIngressClientCall(SimpleTestCase):
         # A non-JSON error body (e.g. an HTML 502 page) → body=None, not a crash.
         mock_ingress.request.return_value = _resp(500, content=b"<html>oops</html>", raises_value_error=True)
         with self.assertRaises(IngressClientError) as ctx:
-            self.client._call("GET", "/x", headers={})
+            self.ingress_client._call("GET", "/x", headers={})
         self.assertEqual(ctx.exception.status_code, 500)
         self.assertIsNone(ctx.exception.body)
 
     @patch(_INGRESS)
     def test_call_returns_parsed_json_on_2xx(self, mock_ingress: MagicMock) -> None:
         mock_ingress.request.return_value = _resp(200, json_body={"session_id": "s1"}, content=b'{"session_id":"s1"}')
-        self.assertEqual(self.client._call("POST", "/x", headers={}), {"session_id": "s1"})
+        self.assertEqual(self.ingress_client._call("POST", "/x", headers={}), {"session_id": "s1"})
 
 
 class TestIngressClientHeaders(SimpleTestCase):
@@ -105,12 +105,12 @@ class TestIngressClientHeaders(SimpleTestCase):
 
 class TestIngressClientRoutes(SimpleTestCase):
     def setUp(self) -> None:
-        self.client = IngressClient(base_url="http://ingress.test")
+        self.ingress_client = IngressClient(base_url="http://ingress.test")
 
     @patch(_INGRESS)
     def test_run_assembles_method_path_and_omits_external_key_when_none(self, mock_ingress: MagicMock) -> None:
         mock_ingress.request.return_value = _resp(200, json_body={"session_id": "s1"}, content=b"{}")
-        self.client.run("my-agent", message="hi", external_key=None, authorization="Bearer x")
+        self.ingress_client.run("my-agent", message="hi", external_key=None, authorization="Bearer x")
         args, kwargs = mock_ingress.request.call_args
         self.assertEqual(args[0], "POST")
         self.assertEqual(args[1], "http://ingress.test/agents/my-agent/run")
@@ -120,14 +120,14 @@ class TestIngressClientRoutes(SimpleTestCase):
     @patch(_INGRESS)
     def test_run_includes_external_key_when_present(self, mock_ingress: MagicMock) -> None:
         mock_ingress.request.return_value = _resp(200, json_body={}, content=b"{}")
-        self.client.run("my-agent", message="hi", external_key="thread-9", authorization=None)
+        self.ingress_client.run("my-agent", message="hi", external_key="thread-9", authorization=None)
         _, kwargs = mock_ingress.request.call_args
         self.assertEqual(kwargs["json"], {"message": "hi", "external_key": "thread-9"})
 
     @patch(_INGRESS)
     def test_send_assembles_body(self, mock_ingress: MagicMock) -> None:
         mock_ingress.request.return_value = _resp(200, json_body={}, content=b"{}")
-        self.client.send("my-agent", session_id="s1", message="more", authorization="Bearer x")
+        self.ingress_client.send("my-agent", session_id="s1", message="more", authorization="Bearer x")
         args, kwargs = mock_ingress.request.call_args
         self.assertEqual(args[1], "http://ingress.test/agents/my-agent/send")
         self.assertEqual(kwargs["json"], {"session_id": "s1", "message": "more"})
@@ -136,7 +136,7 @@ class TestIngressClientRoutes(SimpleTestCase):
     @patch(_INGRESS)
     def test_session_digest_omits_cursor_and_max_chars_when_none(self, mock_ingress: MagicMock) -> None:
         mock_ingress.request.return_value = _resp(200, json_body={"digest": "x"}, content=b"{}")
-        self.client.session_digest(application_id="app-1", session_id="s1", cursor=None, max_chars=None)
+        self.ingress_client.session_digest(application_id="app-1", session_id="s1", cursor=None, max_chars=None)
         args, kwargs = mock_ingress.request.call_args
         self.assertEqual(args[1], "http://ingress.test/internal/session-digest")
         self.assertEqual(kwargs["json"], {"application_id": "app-1", "session_id": "s1"})
@@ -146,6 +146,6 @@ class TestIngressClientRoutes(SimpleTestCase):
     @patch(_INGRESS)
     def test_session_digest_includes_cursor_and_max_chars_when_set(self, mock_ingress: MagicMock) -> None:
         mock_ingress.request.return_value = _resp(200, json_body={"digest": "x"}, content=b"{}")
-        self.client.session_digest(application_id="app-1", session_id="s1", cursor=2, max_chars=500)
+        self.ingress_client.session_digest(application_id="app-1", session_id="s1", cursor=2, max_chars=500)
         _, kwargs = mock_ingress.request.call_args
         self.assertEqual(kwargs["json"], {"application_id": "app-1", "session_id": "s1", "cursor": 2, "max_chars": 500})
