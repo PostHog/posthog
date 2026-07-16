@@ -53,11 +53,13 @@ export interface productSelectionLogicValues {
 export interface productSelectionLogicActions {
     reportOnboardingProductSelectionPath: (
         path: 'ai' | 'browsing_history' | 'manual' | 'use_case',
-        properties?: {
-            hasBrowsingHistory?: boolean
-            recommendedProducts?: string[]
-            useCase?: string
-        }
+        properties?:
+            | {
+                  hasBrowsingHistory?: boolean
+                  recommendedProducts?: string[]
+                  useCase?: string
+              }
+            | undefined
     ) => {
         path: 'ai' | 'browsing_history' | 'manual' | 'use_case'
         properties:

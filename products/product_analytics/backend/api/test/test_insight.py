@@ -527,6 +527,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 tile_filters_override={},
                 cache_age_seconds=None,
                 analytics_props=ANY,
+                allow_raw_results=False,
             )
 
         with patch(
@@ -548,6 +549,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 tile_filters_override={},
                 cache_age_seconds=int(SHARED_FORCE_BLOCKING_STALENESS_WINDOW.total_seconds()),
                 analytics_props=ANY,
+                allow_raw_results=False,
             )
 
     def test_get_shared_insight_with_force_refresh_returns_200(self) -> None:
@@ -609,6 +611,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 tile_filters_override={},
                 cache_age_seconds=int(SHARED_FORCE_BLOCKING_STALENESS_WINDOW.total_seconds()),
                 analytics_props=ANY,
+                allow_raw_results=False,
             )
 
     def test_get_insight_by_short_id(self) -> None:
