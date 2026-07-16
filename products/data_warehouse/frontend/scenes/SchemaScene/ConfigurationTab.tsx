@@ -999,7 +999,12 @@ function AnchorTimeField({
         <div className="flex flex-col gap-1">
             <div className="flex items-start justify-between gap-4">
                 <div className="flex flex-col">
-                    <span>Anchor time</span>
+                    <span>
+                        Anchor time
+                        {(currentTeam?.timezone === 'UTC' || currentTeam?.timezone === 'GMT') && (
+                            <span className="text-muted"> (UTC)</span>
+                        )}
+                    </span>
                     <span className="text-xs text-muted max-w-md">
                         Pin the sync schedule so runs start at a predictable time each day (useful for coordinating with
                         downstream jobs). Only applies to intervals longer than one hour.
