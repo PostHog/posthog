@@ -39,6 +39,7 @@ from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.event_usage import report_user_action
+from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 
 from ..facade.api import (
@@ -640,6 +641,13 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             return filter_group
         return {"type": "AND", "values": []}
 
+    def _report_usage(self, request: Request, event: str, properties: dict) -> None:
+        # Usage telemetry must never turn a successful read into a 5xx, so swallow and record any failure.
+        try:
+            report_user_action(request.user, event, properties, team=self.team, request=request)
+        except Exception as e:
+            capture_exception(e)
+
     @extend_schema(parameters=[_TracingServiceNamesQuerySerializer])
     @action(detail=False, methods=["GET"], url_path="service-names", required_scopes=["tracing:read"])
     def service_names(self, request: Request, *args, **kwargs) -> Response:
@@ -950,8 +958,8 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             root_spans=root_spans,
         )
 
-        report_user_action(
-            request.user,
+        self._report_usage(
+            request,
             "tracing duration histogram queried",
             {
                 "buckets_count": len(response.results),
@@ -960,8 +968,6 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 "service_names_count": len(query_data.get("serviceNames") or []),
                 "status_codes_count": len(query_data.get("statusCodes") or []),
             },
-            team=self.team,
-            request=request,
         )
 
         return Response({"results": response.results}, status=status.HTTP_200_OK)
@@ -998,8 +1004,8 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             service_names=query_data.get("serviceNames", None),
         )
 
-        report_user_action(
-            request.user,
+        self._report_usage(
+            request,
             "tracing aggregation queried",
             {
                 "results_count": len(response.results),
@@ -1007,8 +1013,6 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 "has_filter_group": bool(query_data.get("filterGroup")),
                 "service_names_count": len(query_data.get("serviceNames") or []),
             },
-            team=self.team,
-            request=request,
         )
 
         return Response(
@@ -1212,8 +1216,8 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         # spans whose children fall on a later page — an accepted bound, same as the prior 2000 cap.
         annotate_self_time(results)
 
-        report_user_action(
-            request.user,
+        self._report_usage(
+            request,
             "tracing trace fetched",
             {
                 "spans_count": len(results),
@@ -1221,8 +1225,6 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 "is_paginated": offset > 0,
                 "has_filter_group": bool(query_data.get("filterGroup")),
             },
-            team=self.team,
-            request=request,
         )
 
         return Response(
