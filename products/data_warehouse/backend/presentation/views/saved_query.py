@@ -1118,7 +1118,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
 
         return response.Response(status=status.HTTP_200_OK)
 
-    @action(methods=["POST"], detail=False)
+    @action(methods=["POST"], detail=False, required_scopes=["warehouse_view:write"])
     def resume_schedules(self, request: request.Request, *args, **kwargs) -> response.Response:
         """
         Resume paused materialization schedules for multiple matviews.
@@ -1135,7 +1135,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
                 unpause_saved_query_schedule(saved_query)
         return response.Response(status=status.HTTP_202_ACCEPTED)
 
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["warehouse_view:read"])
     def ancestors(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Return the ancestors of this saved query.
 
@@ -1165,7 +1165,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
 
         return response.Response({"ancestors": ancestors})
 
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["warehouse_view:read"])
     def descendants(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Return the descendants of this saved query.
 
@@ -1214,7 +1214,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         )
         return activity_page_response(activity_page, limit, page, request)
 
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["warehouse_view:write"])
     def cancel(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Cancel a running saved query workflow."""
         saved_query = self.get_object()
@@ -1280,7 +1280,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
 
         return response.Response(status=status.HTTP_200_OK)
 
-    @action(methods=["GET"], detail=True)
+    @action(methods=["GET"], detail=True, required_scopes=["warehouse_view:read"])
     def dependencies(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Return the count of immediate upstream and downstream dependencies for this saved query."""
         saved_query = self.get_object()

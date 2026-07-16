@@ -920,6 +920,31 @@ class TestSavedQuery(APIBaseTest):
         self.assertIn(["events", saved_query_id_hex_1], paths)
         self.assertIn(["events", saved_query_id_hex_1, saved_query_id_hex_2], paths)
 
+    def test_custom_actions_accessible_with_scoped_personal_api_key(self):
+        # These custom @action endpoints must declare required_scopes so a correctly-scoped personal
+        # API key isn't fail-closed with "does not support personal API key access".
+        saved_query = DataWarehouseSavedQuery.objects.create(team=self.team, name="scoped_view")
+        read_key = self.create_personal_api_key_with_scopes(["warehouse_view:read"])
+        write_key = self.create_personal_api_key_with_scopes(["warehouse_view:write"])
+        base = f"/api/environments/{self.team.id}/warehouse_saved_queries"
+        self.client.logout()
+
+        # Read-only actions are reachable with a :read scope (they're POST but don't mutate).
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {read_key}")
+        for read_action, method in [("ancestors", "post"), ("descendants", "post"), ("dependencies", "get")]:
+            response = getattr(self.client, method)(f"{base}/{saved_query.id}/{read_action}")
+            assert response.status_code == 200, (read_action, response.json())
+
+        # A write action rejects a :read-only key but accepts a :write key. Use a non-matching id so
+        # the scope gate is exercised without reaching the temporal schedule lookup.
+        missing_id = str(uuid.uuid4())
+        denied = self.client.post(f"{base}/resume_schedules", {"view_ids": [missing_id]})
+        assert denied.status_code == 403, denied.json()
+
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {write_key}")
+        allowed = self.client.post(f"{base}/resume_schedules", {"view_ids": [missing_id]})
+        assert allowed.status_code == 202, allowed.json()
+
     def test_ancestors(self):
         query = """\
           select

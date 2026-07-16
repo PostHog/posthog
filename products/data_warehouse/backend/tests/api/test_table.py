@@ -303,6 +303,30 @@ class TestTable(APIBaseTest):
         assert response.status_code == 200
         assert table.columns == columns
 
+    def test_update_schema_accessible_with_personal_api_key_write_scope(self):
+        # update_schema is a custom @action; it must declare required_scopes so a correctly-scoped
+        # personal API key isn't fail-closed with "does not support personal API key access".
+        table = DataWarehouseTable.objects.create(
+            name="test_table",
+            format="Parquet",
+            team=self.team,
+            team_id=self.team.pk,
+            columns={"id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"}},
+        )
+        write_key = self.create_personal_api_key_with_scopes(["warehouse_table:write"])
+        read_key = self.create_personal_api_key_with_scopes(["warehouse_table:read"])
+        self.client.logout()
+
+        url = f"/api/projects/{self.team.pk}/warehouse_tables/{table.id}/update_schema"
+
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {write_key}")
+        allowed = self.client.post(url, {"updates": {}})
+        assert allowed.status_code == 200, allowed.json()
+
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {read_key}")
+        denied = self.client.post(url, {"updates": {}})
+        assert denied.status_code == 403, denied.json()
+
     def test_update_schema_400_with_source(self):
         columns = {"id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"}}
 
