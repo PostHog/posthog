@@ -2,7 +2,7 @@ import dataclasses
 from collections import deque
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
-from typing import Any, Optional
+from typing import Any, NoReturn, Optional
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -14,7 +14,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.appsignal.
     AppsignalEndpointConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.url_utils import scrub_url
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.url_utils import (
+    redact_literal_values,
+    scrub_url,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 APPSIGNAL_BASE_URL = "https://appsignal.com"
@@ -78,6 +81,20 @@ def _to_epoch(value: Any) -> Optional[int]:
     return None
 
 
+def _raise_scrubbed_transport_error(error: requests.RequestException, api_token: str, context: str) -> NoReturn:
+    """Re-raise a transport failure with the API token stripped from the message.
+
+    requests' connection/timeout exceptions embed the full request URL — including the
+    `?token=` credential — in their text. Left intact that lands in job logs and
+    `latest_error`, so anyone able to view a failed import could recover the token.
+    Convert to a retryable error whose message has the credential (and its URL-encoded
+    forms) redacted; unlike `_raise_for_status_scrubbed`, this covers failures raised
+    before any response exists.
+    """
+    scrubbed = redact_literal_values(str(error), [api_token])
+    raise AppsignalRetryableError(f"AppSignal {context} transport error: {scrubbed}") from None
+
+
 def _raise_for_status_scrubbed(response: requests.Response) -> None:
     """`raise_for_status` equivalent that never leaks the `token` query param.
 
@@ -106,11 +123,14 @@ def _fetch_json(
     params: dict[str, Any],
     logger: FilteringBoundLogger,
 ) -> dict[str, Any]:
-    response = session.get(
-        url,
-        params={**params, "token": api_token},
-        timeout=REQUEST_TIMEOUT_SECONDS,
-    )
+    try:
+        response = session.get(
+            url,
+            params={**params, "token": api_token},
+            timeout=REQUEST_TIMEOUT_SECONDS,
+        )
+    except requests.RequestException as error:
+        _raise_scrubbed_transport_error(error, api_token, "API")
 
     if response.status_code == 429 or response.status_code >= 500:
         raise AppsignalRetryableError(f"AppSignal API error (retryable): status={response.status_code}, url={url}")
@@ -135,12 +155,15 @@ def _fetch_graphql(
     variables: dict[str, Any],
     logger: FilteringBoundLogger,
 ) -> dict[str, Any]:
-    response = session.post(
-        APPSIGNAL_GRAPHQL_URL,
-        params={"token": api_token},
-        json={"query": query, "variables": variables},
-        timeout=REQUEST_TIMEOUT_SECONDS,
-    )
+    try:
+        response = session.post(
+            APPSIGNAL_GRAPHQL_URL,
+            params={"token": api_token},
+            json={"query": query, "variables": variables},
+            timeout=REQUEST_TIMEOUT_SECONDS,
+        )
+    except requests.RequestException as error:
+        _raise_scrubbed_transport_error(error, api_token, "GraphQL")
 
     if response.status_code == 429 or response.status_code >= 500:
         raise AppsignalRetryableError(f"AppSignal GraphQL error (retryable): status={response.status_code}")

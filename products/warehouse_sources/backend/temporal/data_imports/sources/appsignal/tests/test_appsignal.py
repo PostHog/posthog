@@ -8,6 +8,9 @@ import requests
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.appsignal.appsignal import (
     AppsignalResumeConfig,
+    AppsignalRetryableError,
+    _fetch_graphql,
+    _fetch_json,
     _to_epoch,
     appsignal_source,
     get_rows,
@@ -200,6 +203,24 @@ class TestWindowedRows:
         assert secret not in message
         assert message.startswith("401 Client Error: Unauthorized for url: https://appsignal.com")
 
+    @mock.patch(f"{MODULE}.make_tracked_session")
+    def test_transport_error_message_does_not_leak_token(self, mock_session):
+        # requests raises ConnectionError before any response exists, with the full request URL —
+        # token included — in its message. That path is not covered by the status-error scrubbing.
+        secret = "super-secret-token-value"
+        mock_session.return_value.get.side_effect = requests.ConnectionError(
+            f"HTTPSConnectionPool(host='appsignal.com', port=443): Max retries exceeded with url: "
+            f"/api/app-id/samples/errors.json?token={secret} (Caused by NewConnectionError())"
+        )
+
+        with (
+            mock.patch.object(_fetch_json.retry, "sleep", lambda _: None),
+            pytest.raises(AppsignalRetryableError) as exc_info,
+        ):
+            list(get_rows(secret, "app-id", "error_samples", mock.MagicMock(), _make_manager()))
+
+        assert secret not in str(exc_info.value)
+
 
 class TestIncidentRows:
     def _graphql_session(self, pages: list[list[dict[str, Any]]], field: str) -> mock.MagicMock:
@@ -252,6 +273,24 @@ class TestIncidentRows:
 
         with pytest.raises(Exception, match="Field 'nope' doesn't exist"):
             list(get_rows("token", "app-id", "exception_incidents", mock.MagicMock(), _make_manager()))
+
+    @mock.patch(f"{MODULE}.make_tracked_session")
+    def test_transport_error_message_does_not_leak_token(self, mock_session):
+        secret = "super-secret-token-value"
+        session = mock.MagicMock()
+        session.post.side_effect = requests.ConnectionError(
+            f"HTTPSConnectionPool(host='appsignal.com', port=443): Max retries exceeded with url: "
+            f"/graphql?token={secret} (Caused by NewConnectionError())"
+        )
+        mock_session.return_value = session
+
+        with (
+            mock.patch.object(_fetch_graphql.retry, "sleep", lambda _: None),
+            pytest.raises(AppsignalRetryableError) as exc_info,
+        ):
+            list(get_rows(secret, "app-id", "exception_incidents", mock.MagicMock(), _make_manager()))
+
+        assert secret not in str(exc_info.value)
 
 
 class TestAppsignalSourceResponse:
