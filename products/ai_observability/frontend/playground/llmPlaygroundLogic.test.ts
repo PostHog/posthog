@@ -9,7 +9,13 @@ import { initKeaTests } from '~/test/init'
 
 import { modelPickerLogic, type ModelOption } from '../modelPickerLogic'
 import { llmPlaygroundModelLogic } from './llmPlaygroundModelLogic'
-import { createPromptConfig, llmPlaygroundPromptsLogic } from './llmPlaygroundPromptsLogic'
+import {
+    buildMessageContentWithFiles,
+    createPromptConfig,
+    llmPlaygroundPromptsLogic,
+    MAX_MESSAGE_FILE_BYTES,
+    messageHasContent,
+} from './llmPlaygroundPromptsLogic'
 import { llmPlaygroundRunLogic } from './llmPlaygroundRunLogic'
 
 const MOCK_MODEL_OPTIONS: ModelOption[] = [
@@ -661,6 +667,165 @@ describe('llmPlaygroundLogic', () => {
             llmPlaygroundPromptsLogic.actions.addResultToConversation(response)
 
             expect(llmPlaygroundPromptsLogic.values.messages).toEqual(original)
+        })
+    })
+
+    describe('Message file attachments', () => {
+        it('should append files to a message and accumulate across calls', () => {
+            llmPlaygroundPromptsLogic.actions.setMessages([{ role: 'user', content: 'Review this' }])
+
+            llmPlaygroundPromptsLogic.actions.addMessageFiles(0, [{ id: 'f1', name: 'a.py', content: 'print(1)' }])
+            llmPlaygroundPromptsLogic.actions.addMessageFiles(0, [{ id: 'f2', name: 'b.md', content: '# notes' }])
+
+            expect(llmPlaygroundPromptsLogic.values.messages[0].files).toEqual([
+                { id: 'f1', name: 'a.py', content: 'print(1)' },
+                { id: 'f2', name: 'b.md', content: '# notes' },
+            ])
+        })
+
+        it('should remove a file by id and clear the files array when empty', () => {
+            llmPlaygroundPromptsLogic.actions.setMessages([
+                {
+                    role: 'user',
+                    content: 'Review this',
+                    files: [
+                        { id: 'f1', name: 'a.py', content: 'print(1)' },
+                        { id: 'f2', name: 'b.md', content: '# notes' },
+                    ],
+                },
+            ])
+
+            llmPlaygroundPromptsLogic.actions.removeMessageFile(0, 'f1')
+            expect(llmPlaygroundPromptsLogic.values.messages[0].files).toEqual([
+                { id: 'f2', name: 'b.md', content: '# notes' },
+            ])
+
+            llmPlaygroundPromptsLogic.actions.removeMessageFile(0, 'f2')
+            expect(llmPlaygroundPromptsLogic.values.messages[0].files).toBeUndefined()
+        })
+
+        it('should ignore file mutations on out-of-range indices', () => {
+            llmPlaygroundPromptsLogic.actions.setMessages([{ role: 'user', content: 'Only message' }])
+
+            llmPlaygroundPromptsLogic.actions.addMessageFiles(5, [{ id: 'f1', name: 'a.py', content: 'x' }])
+            llmPlaygroundPromptsLogic.actions.removeMessageFile(-1, 'f1')
+
+            expect(llmPlaygroundPromptsLogic.values.messages[0].files).toBeUndefined()
+        })
+
+        it('reads selected files and stores their content (attachFilesToMessage)', async () => {
+            llmPlaygroundPromptsLogic.actions.setMessages([{ role: 'user', content: 'Review' }])
+            const file = { name: 'a.py', size: 8, text: async () => 'print(1)' } as unknown as File
+
+            llmPlaygroundPromptsLogic.actions.attachFilesToMessage(0, [file])
+            await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
+
+            const files = llmPlaygroundPromptsLogic.values.messages[0].files
+            expect(files).toHaveLength(1)
+            expect(files?.[0]).toMatchObject({ name: 'a.py', content: 'print(1)' })
+            expect(files?.[0].id).toBeTruthy()
+        })
+
+        it('rejects files over the size cap and does not attach them', async () => {
+            llmPlaygroundPromptsLogic.actions.setMessages([{ role: 'user', content: 'Review' }])
+            const big = {
+                name: 'big.txt',
+                size: MAX_MESSAGE_FILE_BYTES + 1,
+                text: async () => 'x',
+            } as unknown as File
+
+            llmPlaygroundPromptsLogic.actions.attachFilesToMessage(0, [big])
+            await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
+
+            expect(llmPlaygroundPromptsLogic.values.messages[0].files).toBeUndefined()
+        })
+
+        it('drops attached files when a message role changes away from user', () => {
+            llmPlaygroundPromptsLogic.actions.setMessages([
+                { role: 'user', content: 'Review', files: [{ id: 'f1', name: 'a.py', content: 'print(1)' }] },
+            ])
+
+            llmPlaygroundPromptsLogic.actions.updateMessage(0, { role: 'assistant' })
+
+            expect(llmPlaygroundPromptsLogic.values.messages[0].role).toBe('assistant')
+            expect(llmPlaygroundPromptsLogic.values.messages[0].files).toBeUndefined()
+        })
+
+        it('keeps attached files when editing a user message in place', () => {
+            llmPlaygroundPromptsLogic.actions.setMessages([
+                { role: 'user', content: 'Review', files: [{ id: 'f1', name: 'a.py', content: 'print(1)' }] },
+            ])
+
+            llmPlaygroundPromptsLogic.actions.updateMessage(0, { content: 'Updated' })
+
+            expect(llmPlaygroundPromptsLogic.values.messages[0].files).toEqual([
+                { id: 'f1', name: 'a.py', content: 'print(1)' },
+            ])
+        })
+
+        it('should treat a message with only files as runnable', () => {
+            llmPlaygroundPromptsLogic.actions.setMessages([
+                { role: 'user', content: '   ', files: [{ id: 'f1', name: 'a.py', content: 'print(1)' }] },
+            ])
+
+            expect(llmPlaygroundPromptsLogic.values.hasRunnablePrompts).toBe(true)
+        })
+
+        it('should not be runnable with neither content nor files', () => {
+            llmPlaygroundPromptsLogic.actions.setMessages([{ role: 'user', content: '   ' }])
+
+            expect(llmPlaygroundPromptsLogic.values.hasRunnablePrompts).toBe(false)
+        })
+
+        describe('messageHasContent', () => {
+            it('is true for typed content', () => {
+                expect(messageHasContent({ role: 'user', content: 'hi' })).toBe(true)
+            })
+            it('is true for files without typed content', () => {
+                expect(
+                    messageHasContent({ role: 'user', content: ' ', files: [{ id: 'f', name: 'a', content: 'x' }] })
+                ).toBe(true)
+            })
+            it('is false for empty content and no files', () => {
+                expect(messageHasContent({ role: 'user', content: '   ' })).toBe(false)
+                expect(messageHasContent({ role: 'user', content: '', files: [] })).toBe(false)
+            })
+        })
+
+        describe('buildMessageContentWithFiles', () => {
+            it('returns the plain content when no files are attached', () => {
+                expect(buildMessageContentWithFiles({ role: 'user', content: 'just text' })).toBe('just text')
+            })
+            it('prepends file blocks before the typed content', () => {
+                expect(
+                    buildMessageContentWithFiles({
+                        role: 'user',
+                        content: 'Summarize',
+                        files: [{ id: 'f1', name: 'notes.md', content: '# hello' }],
+                    })
+                ).toBe('<file name="notes.md">\n# hello\n</file>\n\nSummarize')
+            })
+            it('joins multiple file blocks and omits empty typed content', () => {
+                expect(
+                    buildMessageContentWithFiles({
+                        role: 'user',
+                        content: '   ',
+                        files: [
+                            { id: 'f1', name: 'a.txt', content: 'A' },
+                            { id: 'f2', name: 'b.txt', content: 'B' },
+                        ],
+                    })
+                ).toBe('<file name="a.txt">\nA\n</file>\n\n<file name="b.txt">\nB\n</file>')
+            })
+            it('sanitizes file names that would break the <file> wrapper', () => {
+                expect(
+                    buildMessageContentWithFiles({
+                        role: 'user',
+                        content: '',
+                        files: [{ id: 'f1', name: 'a"<>\n.txt', content: 'X' }],
+                    })
+                ).toBe('<file name="a.txt">\nX\n</file>')
+            })
         })
     })
 

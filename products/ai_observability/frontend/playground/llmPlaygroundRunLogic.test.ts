@@ -90,6 +90,58 @@ describe('llmPlaygroundRunLogic', () => {
         streamSpy.mockRestore()
     })
 
+    it('injects attached file content into the completion request messages', async () => {
+        const streamSpy = jest.spyOn(api, 'stream').mockImplementation(async (_url, options: any) => {
+            options.onMessage?.({ data: JSON.stringify({ type: 'text', text: 'ok' }) })
+        })
+
+        const logic = llmPlaygroundRunLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        llmPlaygroundPromptsLogic.actions.setModel('gpt-5-mini')
+        llmPlaygroundPromptsLogic.actions.setMessages([
+            { role: 'user', content: 'Summarize', files: [{ id: 'f1', name: 'notes.md', content: '# hello' }] },
+        ])
+        llmPlaygroundRunLogic.actions.submitPrompt()
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(streamSpy).toHaveBeenCalledTimes(1)
+        expect(streamSpy.mock.calls[0][1]?.data).toMatchObject({
+            messages: [{ role: 'user', content: '<file name="notes.md">\n# hello\n</file>\n\nSummarize' }],
+        })
+
+        logic.unmount()
+        streamSpy.mockRestore()
+    })
+
+    it('runs a message that has only attached files and no typed content', async () => {
+        const streamSpy = jest.spyOn(api, 'stream').mockImplementation(async (_url, options: any) => {
+            options.onMessage?.({ data: JSON.stringify({ type: 'text', text: 'ok' }) })
+        })
+
+        const logic = llmPlaygroundRunLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        llmPlaygroundPromptsLogic.actions.setModel('gpt-5-mini')
+        llmPlaygroundPromptsLogic.actions.setMessages([
+            { role: 'user', content: '   ', files: [{ id: 'f1', name: 'data.csv', content: 'a,b\n1,2' }] },
+        ])
+        llmPlaygroundRunLogic.actions.submitPrompt()
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(streamSpy).toHaveBeenCalledTimes(1)
+        expect(streamSpy.mock.calls[0][1]?.data).toMatchObject({
+            messages: [{ role: 'user', content: '<file name="data.csv">\na,b\n1,2\n</file>' }],
+        })
+
+        logic.unmount()
+        streamSpy.mockRestore()
+    })
+
     it('surfaces backend error message and captures exception when stream fails with ApiError', async () => {
         const apiError = new ApiError('fallback message', 400, undefined, {
             error: 'Thinking is not supported for this model',

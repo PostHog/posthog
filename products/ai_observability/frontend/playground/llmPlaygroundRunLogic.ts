@@ -10,7 +10,13 @@ import { uuid } from 'lib/utils/dom'
 import type { ModelOption } from '../modelPickerLogic'
 import { llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { llmPlaygroundModelLogic } from './llmPlaygroundModelLogic'
-import { llmPlaygroundPromptsLogic, type Message, type PromptConfig } from './llmPlaygroundPromptsLogic'
+import {
+    buildMessageContentWithFiles,
+    llmPlaygroundPromptsLogic,
+    messageHasContent,
+    type Message,
+    type PromptConfig,
+} from './llmPlaygroundPromptsLogic'
 import type { llmPlaygroundRunLogicType } from './llmPlaygroundRunLogicType'
 import { resolveProviderKeyForPrompt } from './playgroundModelMatching'
 
@@ -233,7 +239,7 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                 .map((prompt: PromptConfig, index: number) => ({
                     prompt,
                     index,
-                    messagesToSend: prompt.messages.filter((m) => m.content.trim()),
+                    messagesToSend: prompt.messages.filter(messageHasContent),
                 }))
                 .filter((item: { messagesToSend: Message[] }) => item.messagesToSend.length > 0)
 
@@ -247,6 +253,9 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                 prompt_count: runnablePrompts.length,
                 models: runnablePrompts.map(({ prompt }) => prompt.model),
                 has_tools: runnablePrompts.some(({ prompt }) => !!prompt.tools?.length),
+                has_files: runnablePrompts.some(({ messagesToSend }) =>
+                    messagesToSend.some((message) => !!message.files?.length)
+                ),
                 total_message_count: runnablePrompts.reduce(
                     (sum, { messagesToSend }) => sum + messagesToSend.length,
                     0
@@ -322,7 +331,7 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                             system: prompt.systemPrompt,
                             messages: messagesToSend
                                 .filter((m: Message) => m.role === 'user' || m.role === 'assistant')
-                                .map((m: Message) => ({ role: m.role, content: m.content })),
+                                .map((m: Message) => ({ role: m.role, content: buildMessageContentWithFiles(m) })),
                             model: selectedModel.id,
                             provider: selectedModelProvider,
                             thinking: prompt.thinking,

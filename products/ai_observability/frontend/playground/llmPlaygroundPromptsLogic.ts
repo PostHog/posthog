@@ -34,9 +34,48 @@ export function cleanSourceSearchParams(searchParams: Record<string, any>): Reco
 export type MessageRole = 'user' | 'assistant' | 'system'
 export type ReasoningLevel = 'minimal' | 'low' | 'medium' | 'high' | null
 
+/** A text file attached to a message as inline context. */
+export interface MessageFile {
+    id: string
+    name: string
+    content: string
+}
+
+// Per-file cap on attached message context. Files are inlined into the prompt as text, so this
+// keeps a single attachment from blowing past model context windows or the request size limit.
+export const MAX_MESSAGE_FILE_BYTES = 1_000_000
+
 export interface Message {
     role: MessageRole
     content: string
+    files?: MessageFile[]
+}
+
+/** A message contributes to a run if it has typed content or at least one attached file. */
+export function messageHasContent(message: Message): boolean {
+    return message.content.trim().length > 0 || !!message.files?.length
+}
+
+/** Strip characters that would break the `<file name="...">` framing the model sees. */
+function sanitizeFileName(name: string): string {
+    return name.replace(/["<>\r\n]/g, '').trim() || 'file'
+}
+
+/**
+ * Combine a message's typed content with its attached files into a single string for the LLM.
+ * Each file is wrapped in a labeled block and placed before the typed text, so the model reads
+ * the supplied context first and the user's instruction last. Returns the plain content when
+ * there are no files attached.
+ */
+export function buildMessageContentWithFiles(message: Message): string {
+    if (!message.files?.length) {
+        return message.content
+    }
+    const fileBlocks = message.files
+        .map((file) => `<file name="${sanitizeFileName(file.name)}">\n${file.content.replace(/<\/file>/gi, '<\\/file>')}\n</file>`)
+        .join('\n\n')
+    const typed = message.content.trim()
+    return typed ? `${fileBlocks}\n\n${message.content}` : fileBlocks
 }
 
 export interface PromptConfig {
@@ -462,6 +501,9 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         setMessages: (messages: Message[], promptId?: string) => ({ messages, promptId }),
         deleteMessage: (index: number, promptId?: string) => ({ index, promptId }),
         addMessage: (message?: Partial<Message>, promptId?: string) => ({ message, promptId }),
+        attachFilesToMessage: (index: number, files: File[], promptId?: string) => ({ index, files, promptId }),
+        addMessageFiles: (index: number, files: MessageFile[], promptId?: string) => ({ index, files, promptId }),
+        removeMessageFile: (index: number, fileId: string, promptId?: string) => ({ index, fileId, promptId }),
         addResultToConversation: (response: string, promptId?: string) => ({ response, promptId }),
         updateMessage: (index: number, payload: Partial<Message>, promptId?: string) => ({ index, payload, promptId }),
         clearLinkedSource: true,
@@ -571,6 +613,33 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                         const defaultMessage: Message = { role: 'user', content: '' }
                         return { ...prompt, messages: [...prompt.messages, { ...defaultMessage, ...message }] }
                     }),
+                addMessageFiles: (
+                    state: PromptConfig[],
+                    { index, files, promptId }: { index: number; files: MessageFile[]; promptId?: string }
+                ) =>
+                    updatePromptConfigs(state, promptId, (prompt) => {
+                        if (index < 0 || index >= prompt.messages.length || files.length === 0) {
+                            return prompt
+                        }
+                        const newMessages = [...prompt.messages]
+                        const target = newMessages[index]
+                        newMessages[index] = { ...target, files: [...(target.files ?? []), ...files] }
+                        return { ...prompt, messages: newMessages }
+                    }),
+                removeMessageFile: (
+                    state: PromptConfig[],
+                    { index, fileId, promptId }: { index: number; fileId: string; promptId?: string }
+                ) =>
+                    updatePromptConfigs(state, promptId, (prompt) => {
+                        if (index < 0 || index >= prompt.messages.length) {
+                            return prompt
+                        }
+                        const newMessages = [...prompt.messages]
+                        const target = newMessages[index]
+                        const nextFiles = (target.files ?? []).filter((file) => file.id !== fileId)
+                        newMessages[index] = { ...target, files: nextFiles.length > 0 ? nextFiles : undefined }
+                        return { ...prompt, messages: newMessages }
+                    }),
                 addResultToConversation: (
                     state: PromptConfig[],
                     { response, promptId }: { response: string; promptId?: string }
@@ -596,7 +665,10 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                             return prompt
                         }
                         const newMessages = [...prompt.messages]
-                        newMessages[index] = { ...newMessages[index], ...payload }
+                        const merged = { ...newMessages[index], ...payload }
+                        // Only user messages carry attached files; drop them if the role changes away,
+                        // so they can't linger as hidden context the UI no longer exposes.
+                        newMessages[index] = merged.role === 'user' ? merged : { ...merged, files: undefined }
                         return { ...prompt, messages: newMessages }
                     }),
                 clearLinkedSource: (state: PromptConfig[]) =>
@@ -841,7 +913,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         hasRunnablePrompts: [
             (s) => [s.promptConfigs],
             (promptConfigs: PromptConfig[]): boolean =>
-                promptConfigs.some((prompt) => prompt.messages.some((message) => message.content.trim().length > 0)),
+                promptConfigs.some((prompt) => prompt.messages.some(messageHasContent)),
         ],
     }),
 
@@ -882,6 +954,37 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
             posthog.capture('llma playground message removed', {
                 message_count: values.activePromptConfig?.messages.length ?? 0,
             })
+        },
+        attachFilesToMessage: async ({ index, files, promptId }) => {
+            const read = await Promise.all(
+                files.map(async (file): Promise<MessageFile | null> => {
+                    if (file.size > MAX_MESSAGE_FILE_BYTES) {
+                        lemonToast.error(
+                            `"${file.name}" is too large (max ${Math.round(MAX_MESSAGE_FILE_BYTES / 1000)} KB)`
+                        )
+                        return null
+                    }
+                    try {
+                        const content = await file.text()
+                        return { id: uuid(), name: file.name, content }
+                    } catch {
+                        lemonToast.error(`Could not read "${file.name}"`)
+                        return null
+                    }
+                })
+            )
+            const valid = read.filter((file): file is MessageFile => file !== null)
+            if (valid.length > 0) {
+                actions.addMessageFiles(index, valid, promptId)
+            }
+        },
+        addMessageFiles: ({ files }) => {
+            posthog.capture('llma playground message file attached', {
+                file_count: files.length,
+            })
+        },
+        removeMessageFile: () => {
+            posthog.capture('llma playground message file removed')
         },
         setTools: ({ tools }) => {
             posthog.capture('llma playground tools configured', {
