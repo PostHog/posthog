@@ -20,6 +20,13 @@ MAX_METRIC_PATHS = 50
 # worker. Cap the catalog size per sync (generous enough for real accounts).
 MAX_APPLICATIONS = 1000
 
+# The per-dimension caps still multiply — applications × metric paths × time windows — so bound
+# the Cartesian product too. A sync above this many estimated requests is rejected before the
+# fan-out starts, keeping a large-but-legal catalog from holding a worker for the activity's
+# week-long timeout. Generous enough for realistic accounts; the worst pathological combination
+# (max applications × max metric paths × the 7-day metric window) lands well above it.
+MAX_FANOUT_REQUESTS = 100_000
+
 # The Controller's time-windowed endpoints filter server-side on epoch-ms `start-time` /
 # `end-time` (`time-range-type=BETWEEN_TIMES`), so the row's `startTimeInMillis` is the
 # only reliable incremental cursor. There is no `updated-since` filter on any endpoint.

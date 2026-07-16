@@ -165,6 +165,7 @@ You can create an API client in your controller under **Administration → API C
             "AppDynamics OAuth token request failed": "Your AppDynamics API client credentials were rejected. Check your API client name, client secret, and account name, then reconnect.",
             "Too many metric paths configured": None,
             "Too many AppDynamics applications": None,
+            "AppDynamics sync would issue": None,
         }
 
     def _auth_for_config(self, config: AppdynamicsSourceConfig) -> AppdynamicsAuth:

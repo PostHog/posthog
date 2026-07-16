@@ -23,7 +23,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamic
     normalize_host,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamics.settings import APPDYNAMICS_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamics.settings import (
+    APPDYNAMICS_ENDPOINTS,
+    MAX_METRIC_PATHS,
+)
 
 BASE_URL = "https://acme.saas.appdynamics.com"
 MILLIS_PER_DAY = 24 * 60 * 60 * 1000
@@ -333,6 +336,15 @@ class TestGetRows:
         manager = FakeResumeManager()
         with pytest.raises(AppdynamicsError):
             _run_get_rows(lambda path, params: FakeResponse(json_data=many), "business_transactions", manager)
+
+    def test_metric_data_fan_out_budget_is_enforced(self) -> None:
+        # Max applications × max metric paths × the 7-day metric window blows the aggregate
+        # budget even though each individual dimension is within its own cap.
+        apps = [{"id": i} for i in range(appdynamics_module.MAX_APPLICATIONS)]
+        paths = [f"Metric|{i}" for i in range(MAX_METRIC_PATHS)]
+        manager = FakeResumeManager()
+        with pytest.raises(AppdynamicsError):
+            _run_get_rows(lambda path, params: FakeResponse(json_data=apps), "metric_data", manager, metric_paths=paths)
 
     def test_duplicate_application_ids_are_deduplicated(self) -> None:
         def responder(path: str, params: dict[str, Any]) -> FakeResponse:

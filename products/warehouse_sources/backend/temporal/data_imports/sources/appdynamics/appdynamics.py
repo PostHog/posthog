@@ -16,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamic
     APPDYNAMICS_ENDPOINTS,
     APPLICATIONS_PATH,
     MAX_APPLICATIONS,
+    MAX_FANOUT_REQUESTS,
     AppdynamicsEndpointConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -493,6 +494,21 @@ def get_rows(
 
     end_ms = int(datetime.now(UTC).timestamp() * 1000)
     start_ms = _window_start_ms(config, end_ms, should_use_incremental_field, db_incremental_field_last_value)
+
+    # The per-dimension caps still multiply: applications × metric paths × time windows. Bound
+    # the Cartesian product up front so a large-but-legal catalog can't hold a worker for the
+    # activity's whole (week-long) timeout doing hundreds of thousands of sequential requests.
+    num_windows = (
+        sum(1 for _ in _iter_windows(start_ms, end_ms, config.window_chunk_days)) if config.time_windowed else 1
+    )
+    paths_factor = len(metric_paths) if config.is_metric_data else 1
+    estimated_requests = len(application_ids) * paths_factor * num_windows
+    if estimated_requests > MAX_FANOUT_REQUESTS:
+        raise AppdynamicsError(
+            f"This AppDynamics sync would issue about {estimated_requests} requests "
+            f"({len(application_ids)} applications × {paths_factor} metric paths × {num_windows} time windows), "
+            f"above the {MAX_FANOUT_REQUESTS} limit for one sync. Reduce the metric paths or narrow the applications."
+        )
 
     for index, application_id in enumerate(remaining):
         if config.time_windowed:
