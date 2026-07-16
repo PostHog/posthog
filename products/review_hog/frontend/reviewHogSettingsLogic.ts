@@ -55,6 +55,9 @@ const IN_PROGRESS_POLL_INTERVAL_MS = 10_000
 /** The review list's initial depth, the step each "Show more" adds, and what "Show fewer" collapses to. */
 export const REVIEWS_PAGE_SIZE = 5
 
+/** Mirrors MAX_REVIEWS_LIMIT in reviews.py — the API 400s above this, so growth must stop here. */
+export const MAX_REVIEWS_LIMIT = 100
+
 /** The detail's valid findings split by the user's urgency threshold: on the PR vs. kept back. */
 export interface ReviewFindingsSplit {
     published: ReviewFindingApi[]
@@ -300,7 +303,7 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
         reviewsLimit: [
             REVIEWS_PAGE_SIZE as number,
             {
-                showMoreReviews: (state) => state + REVIEWS_PAGE_SIZE,
+                showMoreReviews: (state) => Math.min(state + REVIEWS_PAGE_SIZE, MAX_REVIEWS_LIMIT),
                 showFewerReviews: () => REVIEWS_PAGE_SIZE,
                 // A different scope is a different list — start it compact again.
                 setReviewsScope: () => REVIEWS_PAGE_SIZE,
@@ -368,8 +371,11 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
             (recentReviewsPage): ReviewRecentReviewApi[] | null => recentReviewsPage?.results ?? null,
         ],
         moreReviewsAvailable: [
-            (s) => [s.recentReviewsPage],
-            (recentReviewsPage): boolean => recentReviewsPage?.has_more ?? false,
+            (s) => [s.recentReviewsPage, s.reviewsLimit],
+            (recentReviewsPage, reviewsLimit): boolean =>
+                // At the API's ceiling the button must go away even though more rows exist —
+                // offering it would send a limit the server rejects.
+                (recentReviewsPage?.has_more ?? false) && reviewsLimit < MAX_REVIEWS_LIMIT,
         ],
         // Splits the detail's valid findings by the CURRENT threshold — a close-enough proxy for
         // what the run published (the run's own threshold snapshot isn't stored).

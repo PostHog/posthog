@@ -6,10 +6,14 @@ import { initKeaTests } from '~/test/init'
 
 import { ReviewHogReviewsListScope } from 'products/review_hog/frontend/generated/api.schemas'
 
-import { REVIEWS_PAGE_SIZE, reviewHogSettingsLogic } from './reviewHogSettingsLogic'
+import { MAX_REVIEWS_LIMIT, REVIEWS_PAGE_SIZE, reviewHogSettingsLogic } from './reviewHogSettingsLogic'
 
-// More project-wide reviews than two pages, so "Show more" always has something to reveal.
-const everyoneReviews = Array.from({ length: 12 }, (_, i) => ({ id: `r${i}`, in_progress: false }))
+// More project-wide reviews than the API's maximum limit, so both "Show more" growth and its
+// ceiling are reachable.
+const everyoneReviews = Array.from({ length: MAX_REVIEWS_LIMIT + REVIEWS_PAGE_SIZE }, (_, i) => ({
+    id: `r${i}`,
+    in_progress: false,
+}))
 
 describe('reviewHogSettingsLogic', () => {
     let logic: ReturnType<typeof reviewHogSettingsLogic.build>
@@ -111,5 +115,27 @@ describe('reviewHogSettingsLogic', () => {
         logic.actions.showMoreReviews()
         logic.actions.setReviewsScope(ReviewHogReviewsListScope.Mine)
         await expectLogic(logic).toMatchValues({ reviewsLimit: REVIEWS_PAGE_SIZE })
+    })
+
+    it('stops "Show more" at the API\'s maximum limit', async () => {
+        logic.mount()
+        await expectLogic(logic).toDispatchActions([
+            'loadRecentReviewsSuccess',
+            'applyDefaultReviewsScope',
+            'loadRecentReviewsSuccess',
+        ])
+
+        // Enough clicks to push an unclamped limit past the API's max, where the request would 400
+        // and strand the user on a dead button.
+        for (let i = 0; i < MAX_REVIEWS_LIMIT / REVIEWS_PAGE_SIZE; i++) {
+            logic.actions.showMoreReviews()
+        }
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.reviewsLimit).toBe(MAX_REVIEWS_LIMIT)
+        expect(logic.values.recentReviews).toHaveLength(MAX_REVIEWS_LIMIT)
+        // More rows exist server-side, but the ceiling is reached — the button goes away rather
+        // than offering a request the server rejects.
+        expect(logic.values.moreReviewsAvailable).toBe(false)
     })
 })

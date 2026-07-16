@@ -697,6 +697,8 @@ The 5-row cap became the first page: the list grows by a page per "Show more" cl
   while its listener refetches to reconcile — the refetch also breakpoint-drops any wider in-flight poll response that would resurrect the collapsed rows.
   `reviewsExpanding` drives the "Show more" button's loading state (the loader's own `loading` would flash on every 10s poll);
   `LemonButton.loading` hard-disables, so it's also the double-click guard.
+  Growth clamps at `MAX_REVIEWS_LIMIT` (100, mirroring reviews.py) and `moreReviewsAvailable` goes false at the ceiling even while `has_more` —
+  otherwise the 20th click sends `limit=105`, the API 400s, and the generic failure path strands the page in the settings-failed banner (PR review finding, fixed same day).
   The limit is deliberately **not** mirrored to the URL — ephemeral view state, unlike scope.
 - **UI:** centered tertiary "Show more" / "Show fewer" footer row inside the card (divide-y gives the hairline);
   "Show fewer" only when more than a page is showing, "Show more" only when `has_more`.
