@@ -6,15 +6,15 @@ Use this reference to decide where code belongs before editing it.
 
 | Layer                              | Location                                                     | Owns                                                                                                                                  |
 | ---------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
-| Pure lifecycle and cadence math    | `common/alerting/`                                           | State transitions, policy decisions, notification actions, fixed-minute cadence and sharding                                          |
-| Shared Django alert infrastructure | `products/alerts/backend/`                                   | Destination configuration and persistence, internal-event delivery, email transport, insight alert models/API, and insight evaluation |
+| Pure lifecycle decisions           | `common/alerting/`                                           | State transitions, policy decisions, and notification actions                                                                         |
+| Shared alert infrastructure        | `products/alerts/backend/`                                   | Scheduling math, destination configuration and persistence, internal-event delivery, email transport, insight alert models/API, and insight evaluation |
 | Product adapter                    | `products/<name>/backend/`                                   | Domain evaluation, model snapshots, the single mutator, event payloads, allowed destinations, due queries, history, and orchestration |
 | Shared alert creation UI           | `frontend/src/lib/components/Alerting/AlertWizard/`          | Reusable HogFunction destination, trigger, and configuration flow                                                                     |
 | Product UI                         | `products/<name>/frontend/` or `frontend/src/scenes/<name>/` | Alert settings, product-specific fields, entry points, detail pages, and wizard configuration                                         |
 
 `products/logs` is the reference adopter for the shared lifecycle, fixed-cadence scheduling, HogFunction destinations, delivery rollback, and product-owned Temporal orchestration.
 
-Insight alerts are the reference for email delivery and calendar scheduling. Their model, API, and query evaluation live in `products/alerts/backend/` and `posthog/tasks/alerts/`. The evaluation package is shared across insight query kinds, but it is not a generic evaluator for unrelated products.
+Insight alerts are the reference adopter for shared calendar anchors, schedule restrictions, weekend skipping, and email delivery. Their model, API, query evaluation, and Django scheduling adapters live in `products/alerts/backend/` and `posthog/tasks/alerts/`. The evaluation package is shared across insight query kinds, but it is not a generic evaluator for unrelated products.
 
 ## Lifecycle contract
 
@@ -67,14 +67,17 @@ Email callers use `send_alert_email(...)` through the facade. The caller owns re
 
 ## Scheduling contract
 
-`common/alerting/scheduling.py` supports fixed-minute cadences:
+`products/alerts/backend/scheduling.py` is pure Python and owns reusable scheduling math:
 
 - `compute_shard_offset_seconds(...)` deterministically assigns a UUID-keyed alert to scheduler ticks.
 - `advance_next_check_at(...)` advances from the prior schedule, skips missed intervals, snaps to the midnight-anchored cadence grid, and applies the shard offset.
+- `next_calendar_check_time(...)` computes fixed-cadence or team-local daily, weekly, and monthly anchors while preserving wall-clock behavior across DST changes.
+- `validate_and_normalize_schedule_restriction(...)` and `parse_blocked_windows_tuples(...)` validate product payloads and produce the pure blocked-window contract.
+- `scan_next_unblocked_utc(...)`, `is_utc_datetime_blocked(...)`, and `is_weekend(...)` apply timezone-aware restrictions without importing Django models.
 
 Use the scheduler's real interval when computing shards. Use the same shard function when creating, updating, and advancing an alert.
 
-Due eligibility stays product-specific because model fields, states, snooze behavior, and tenant constraints differ. Calendar behavior such as team-local anchors, schedule restrictions, and weekend skipping remains separate from fixed-grid scheduling.
+Products translate their enums and stored payloads into the shared contract. Due eligibility, schedule persistence, retry behavior, and orchestration stay product-specific because model fields, states, snooze behavior, and tenant constraints differ.
 
 ## Frontend contract
 
