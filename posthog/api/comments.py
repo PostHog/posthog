@@ -1,5 +1,6 @@
 from typing import Any, cast
 
+from django.core import exceptions as django_exceptions
 from django.db import transaction
 from django.db.models import Q, QuerySet
 from django.utils import timezone
@@ -92,6 +93,27 @@ class CommentSerializer(serializers.ModelSerializer):
                     return True
         return False
 
+    def _check_ticket_editor_access(self, item_id: str | None) -> None:
+        """Comments with scope=conversations_ticket are ticket messages (see TicketViewSet.reply) —
+        enforce the same object-level RBAC here, since this generic endpoint is the write path the
+        Support UI actually uses and isn't gated by TicketViewSet's own access control."""
+        if not item_id:
+            return
+
+        from products.conversations.backend.models.ticket import (  # noqa: PLC0415 — keeps the generic comments API decoupled from the conversations product, only imported for ticket-scoped writes
+            Ticket,
+        )
+
+        team = self.context["get_team"]()
+        try:
+            ticket = Ticket.objects.get(team_id=team.id, id=item_id)
+        except (Ticket.DoesNotExist, ValueError, django_exceptions.ValidationError):
+            raise exceptions.ValidationError({"item_id": "Ticket not found"})
+
+        user_access_control = self.context["get_user_access_control"]()
+        if not user_access_control.check_access_level_for_object(ticket, required_level="editor"):
+            raise exceptions.PermissionDenied("You do not have access to this ticket")
+
     def validate(self, data):
         request = self.context["request"]
         instance = cast(Comment, self.instance)
@@ -113,6 +135,8 @@ class CommentSerializer(serializers.ModelSerializer):
 
         if not instance:
             data["created_by"] = request.user
+            if data.get("scope") == "conversations_ticket":
+                self._check_ticket_editor_access(data.get("item_id"))
             if data.get("is_task"):
                 if data.get("source_comment"):
                     raise exceptions.ValidationError({"is_task": "Replies cannot be tasks."})
@@ -227,6 +251,32 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
     def list(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)
 
+    def get_serializer_context(self) -> dict[str, Any]:
+        context = super().get_serializer_context()
+        context["get_user_access_control"] = lambda: self.user_access_control
+        return context
+
+    def _filter_ticket_scoped_queryset(self, queryset: QuerySet, item_id: str | None) -> QuerySet:
+        """conversations_ticket comments are ticket messages — restrict them to tickets the
+        caller has viewer access to, mirroring TicketViewSet's own object-level filtering."""
+        from products.conversations.backend.models.ticket import (  # noqa: PLC0415 — keeps the generic comments API decoupled from the conversations product, only imported for ticket-scoped reads
+            Ticket,
+        )
+
+        if item_id:
+            try:
+                ticket = Ticket.objects.get(team_id=self.team_id, id=item_id)
+            except (Ticket.DoesNotExist, ValueError, django_exceptions.ValidationError):
+                return queryset.none()
+            if not self.user_access_control.check_access_level_for_object(ticket, required_level="viewer"):
+                return queryset.none()
+            return queryset
+
+        visible_ticket_ids = self.user_access_control.filter_queryset_by_access_level(
+            Ticket.objects.filter(team_id=self.team_id)
+        ).values_list("id", flat=True)
+        return queryset.filter(item_id__in=[str(ticket_id) for ticket_id in visible_ticket_ids])
+
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         params = self.request.GET.dict()
 
@@ -236,8 +286,11 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         if self.action != "partial_update" and params.get("deleted", "false") == "false":
             queryset = queryset.filter(deleted=False)
 
-        if params.get("scope"):
-            queryset = queryset.filter(scope=params.get("scope"))
+        scope = params.get("scope")
+        if scope:
+            queryset = queryset.filter(scope=scope)
+            if scope == "conversations_ticket":
+                queryset = self._filter_ticket_scoped_queryset(queryset, params.get("item_id"))
         else:
             # Exclude conversations_ticket comments by default - they use rich content
             # from SupportEditor and should only be viewed in the conversations product

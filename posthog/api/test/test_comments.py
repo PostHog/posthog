@@ -8,9 +8,15 @@ from django.conf import settings
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models import User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.comment import Comment
 from posthog.models.comment.utils import build_comment_item_url, extract_plain_text_from_rich_content
+
+from products.conversations.backend.models import Ticket
+from products.conversations.backend.models.constants import Channel, Status
+
+from ee.models.rbac.access_control import AccessControl
 
 
 class TestComments(APIBaseTest, QueryMatchingTest):
@@ -569,6 +575,92 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         response = self.client.delete(f"/api/projects/{self.team.id}/comments/{existing['id']}")
 
         assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
+
+
+class TestCommentsTicketAccessControl(APIBaseTest):
+    """conversations_ticket comments are ticket messages read/written through this generic
+    endpoint by the Support UI (not TicketViewSet) — object-level ticket RBAC must be
+    enforced here too, or a denied member can read/write a ticket's messages directly."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.available_product_features = [{"key": "access_control", "name": "Access control"}]
+        self.organization.save()
+        self.member = User.objects.create_and_join(self.organization, "ticket-member@posthog.com", "password")
+        self.client.force_login(self.member)
+        self.ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="acl-session",
+            distinct_id="acl-user",
+            status=Status.OPEN,
+        )
+        AccessControl.objects.create(
+            resource="ticket",
+            resource_id=str(self.ticket.id),
+            organization_member=self.member.organization_memberships.get(organization=self.organization),
+            team=self.team,
+            access_level="none",
+        )
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="a private message",
+        )
+
+    def test_denied_member_cannot_list_ticket_messages(self) -> None:
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/comments?scope=conversations_ticket&item_id={self.ticket.id}"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"] == []
+
+    def test_denied_member_cannot_create_ticket_message(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "sneaking in a reply",
+                "scope": "conversations_ticket",
+                "item_id": str(self.ticket.id),
+                "item_context": {"author_type": "support", "is_private": False},
+            },
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert not Comment.objects.filter(item_id=str(self.ticket.id), content="sneaking in a reply").exists()
+
+    def test_viewer_can_list_but_not_create_ticket_message(self) -> None:
+        AccessControl.objects.filter(resource_id=str(self.ticket.id)).update(access_level="viewer")
+
+        list_response = self.client.get(
+            f"/api/projects/{self.team.id}/comments?scope=conversations_ticket&item_id={self.ticket.id}"
+        )
+        assert len(list_response.json()["results"]) == 1
+
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "viewer trying to reply",
+                "scope": "conversations_ticket",
+                "item_id": str(self.ticket.id),
+                "item_context": {"author_type": "support", "is_private": False},
+            },
+        )
+        assert create_response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_editor_can_list_and_create_ticket_message(self) -> None:
+        AccessControl.objects.filter(resource_id=str(self.ticket.id)).update(access_level="editor")
+
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "editor reply",
+                "scope": "conversations_ticket",
+                "item_id": str(self.ticket.id),
+                "item_context": {"author_type": "support", "is_private": False},
+            },
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED
 
 
 class TestDiscussionMentionInternalEvents(APIBaseTest, QueryMatchingTest):
