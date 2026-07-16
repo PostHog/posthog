@@ -25,10 +25,14 @@ class TestSelectSentimentLabel:
 
 class TestBuildGenerationResult:
     def test_stores_classified_text_and_applies_neutral_margin(self):
-        pending = [PendingClassification(trace_id="t", gen_uuid="g", msg_index=17, text="retention graph for these people")]
+        pending = [
+            PendingClassification(trace_id="t", gen_uuid="g", msg_index=17, text="retention graph for these people")
+        ]
         # Coin-flip scores that argmax to negative but should resolve to neutral.
         classification = [
-            SentimentResult(label="neutral", score=0.468, scores={"negative": 0.504, "neutral": 0.468, "positive": 0.028})
+            SentimentResult(
+                label="neutral", score=0.468, scores={"negative": 0.504, "neutral": 0.468, "positive": 0.028}
+            )
         ]
 
         result = build_generation_result("g", pending, classification)
