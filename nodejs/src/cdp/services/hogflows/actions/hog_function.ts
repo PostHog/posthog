@@ -26,7 +26,7 @@ export class HogFunctionHandler implements ActionHandler {
         private hogFlowFunctionsService: HogFlowFunctionsService,
         private recipientPreferencesService: RecipientPreferencesService,
         private emailValidationService: EmailValidationService,
-        private hogFlowActionBillingType: 'fetch' | 'email'
+        private hogFlowActionBillingType: 'fetch' | 'email' | 'push'
     ) {}
 
     async execute({

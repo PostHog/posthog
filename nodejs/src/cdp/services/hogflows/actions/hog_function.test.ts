@@ -363,60 +363,42 @@ describe('HogFunctionHandler', () => {
         ])
     })
 
-    it('should emit a single billable_invocation metric upon function completion', async () => {
-        const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
-            queue: 'hog',
-            queuePriority: 0,
-        })
+    // The billing kind is the whole point of the per-channel handlers: push bills at its own rate
+    // (roughly half of email), so a completed invocation must emit exactly one billable_invocation
+    // carrying the handler's billing type — never fall back to another channel's kind.
+    it.each(['fetch', 'email', 'push'] as const)(
+        'emits a single billable_invocation with %s kind matching the handler billing type',
+        async (billingType) => {
+            const handler = new HogFunctionHandler(
+                mockHogFlowFunctionsService,
+                mockRecipientPreferencesService,
+                mockEmailValidationService,
+                billingType
+            )
 
-        await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
+            const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+                queue: 'hog',
+                queuePriority: 0,
+            })
 
-        const billableMetrics = invocationResult.metrics.filter(
-            (metric) => metric.metric_name === 'billable_invocation' && metric.metric_kind === 'fetch'
-        )
+            await handler.execute({ invocation, action, result: invocationResult })
 
-        expect(billableMetrics).toHaveLength(1)
+            const billableMetrics = invocationResult.metrics.filter(
+                (metric) => metric.metric_name === 'billable_invocation'
+            )
 
-        expect(billableMetrics[0]).toMatchObject({
-            team_id: team.id,
-            app_source_id: invocation.functionId,
-            instance_id: action.id,
-            metric_kind: 'fetch',
-            metric_name: 'billable_invocation',
-            count: 1,
-        })
-    })
+            expect(billableMetrics).toHaveLength(1)
 
-    it('should emit a billable_invocation metric with email kind when billingMetricType is email', async () => {
-        hogFunctionHandler = new HogFunctionHandler(
-            mockHogFlowFunctionsService,
-            mockRecipientPreferencesService,
-            mockEmailValidationService,
-            'email'
-        )
-
-        const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
-            queue: 'hog',
-            queuePriority: 0,
-        })
-
-        await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
-
-        const billableMetrics = invocationResult.metrics.filter(
-            (metric) => metric.metric_name === 'billable_invocation' && metric.metric_kind === 'email'
-        )
-
-        expect(billableMetrics).toHaveLength(1)
-
-        expect(billableMetrics[0]).toMatchObject({
-            team_id: team.id,
-            app_source_id: invocation.functionId,
-            instance_id: action.id,
-            metric_kind: 'email',
-            metric_name: 'billable_invocation',
-            count: 1,
-        })
-    })
+            expect(billableMetrics[0]).toMatchObject({
+                team_id: team.id,
+                app_source_id: invocation.functionId,
+                instance_id: action.id,
+                metric_kind: billingType,
+                metric_name: 'billable_invocation',
+                count: 1,
+            })
+        }
+    )
 
     it('should not emit a billable_invocation metric if function is not finished', async () => {
         // Mock the executeWithAsyncFunctions to return a non-finished result
