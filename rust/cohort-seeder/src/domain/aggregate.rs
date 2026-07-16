@@ -1,5 +1,6 @@
 //! Domain layer: `ChunkAccumulator` — folds scanned events through the shared HogVM evaluator into
-//! per-`(person, condition, day)` tiles. Depends on `plan`, `tile`, `window`, `ids`, and `cohort-core`.
+//! per-`(person, condition, day)` tiles. Depends on `plan`, `window`, `ids`, and `cohort-core`
+//! (including its `seed::SeedTile` wire type).
 
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
@@ -15,8 +16,8 @@ use uuid::Uuid;
 
 use super::ids::{ClaimEpoch, ConditionHash, RunId};
 use super::plan::ActiveConditions;
-use super::tile::SeedTile;
 use super::window::SeedDomain;
+use cohort_core::seed::SeedTile;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RecordOutcome {
@@ -203,7 +204,8 @@ impl ChunkAccumulator {
                     person_id,
                     hash,
                     count,
-                    domain,
+                    domain.day(),
+                    domain.s_chunk(),
                     run_id,
                     claim_epoch,
                 )

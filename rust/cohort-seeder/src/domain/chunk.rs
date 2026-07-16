@@ -13,8 +13,8 @@ use cohort_core::DayIdx;
 use serde::{Deserialize, Serialize};
 
 use super::ids::{ChunkId, ClaimEpoch, RunId, SChunkMs};
-use super::tile::SeedTile;
 use super::window::DomainError;
+use cohort_core::seed::SeedTile;
 
 /// The lease coordinates that fence every chunk mutation: chunk identity + owning run + claim epoch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
