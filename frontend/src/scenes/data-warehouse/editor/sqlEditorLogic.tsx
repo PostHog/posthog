@@ -640,7 +640,13 @@ export interface sqlEditorLogicActions {
             types?: string[][]
         }
     } // dataWarehouseViewsLogic
-    loadDatabase: ({ force }?: { force?: boolean }) => {
+    loadDatabase: (
+        args_0?:
+            | {
+                  force?: boolean
+              }
+            | undefined
+    ) => {
         force?: boolean
     } // databaseTableListLogic
     setConnection: (connectionId: string | null) => {
