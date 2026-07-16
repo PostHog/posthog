@@ -1,6 +1,8 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.utils import timezone
+
 from rest_framework import status
 
 from posthog.models import Team, User
@@ -66,15 +68,35 @@ class TestAchievementsAPI(APIBaseTest):
         self.assertIn("streak", {track["key"] for track in body["definitions"]})
 
     @patch(f"{_VIEWSET}.enqueue_recompute_web_analytics_achievements_debounced")
-    def test_overview_creates_team_rows_and_enqueues_when_stale(self, mock_enqueue) -> None:
+    def test_overview_enqueues_recompute_without_writing_rows_when_team_tracks_missing(self, mock_enqueue) -> None:
+        # The GET is read-only: it enqueues the debounced recompute (which seeds rows off the read path)
+        # instead of doing per-track get_or_create writes on every page load.
+        with patch(f"{_VIEWSET}.streak_arm_for_user", return_value="daily-only"):
+            response = self.client.get(self._url("overview"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["team_progress"], [])
+        self.assertEqual(
+            WebAnalyticsAchievementProgress.objects.for_team(self.team.id).filter(user__isnull=True).count(), 0
+        )
+        mock_enqueue.assert_called_once()
+
+    @patch(f"{_VIEWSET}.enqueue_recompute_web_analytics_achievements_debounced")
+    def test_overview_skips_enqueue_when_team_rows_are_fresh(self, mock_enqueue) -> None:
+        for track_key in ("conversions", "traffic"):
+            WebAnalyticsAchievementProgress(
+                team=self.team,
+                user=None,
+                track_key=track_key,
+                current_stage=1,
+                progress_value=1,
+                state={},
+                last_computed_at=timezone.now(),
+            ).save()
         with patch(f"{_VIEWSET}.streak_arm_for_user", return_value="daily-only"):
             response = self.client.get(self._url("overview"))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["team_progress"]), 2)
-        team_rows = WebAnalyticsAchievementProgress.objects.for_team(self.team.id).filter(user__isnull=True)
-        self.assertEqual({row.track_key for row in team_rows}, {"conversions", "traffic"})
-        self.assertTrue(all(row.last_computed_at is None for row in team_rows))
-        mock_enqueue.assert_called_once()
+        mock_enqueue.assert_not_called()
 
     @patch(f"{_VIEWSET}.enqueue_recompute_web_analytics_achievements_debounced")
     def test_overview_control_user_creates_no_rows(self, mock_enqueue) -> None:

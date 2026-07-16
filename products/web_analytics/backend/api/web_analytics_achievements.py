@@ -23,7 +23,6 @@ from products.web_analytics.backend.achievements.definitions import (
 from products.web_analytics.backend.achievements.evaluators import EvalContext
 from products.web_analytics.backend.achievements.tasks import (
     enqueue_recompute_web_analytics_achievements_debounced,
-    get_or_create_progress,
     is_due,
     recompute_web_analytics_achievements_sync,
     streak_arm_for_user,
@@ -188,16 +187,21 @@ class WebAnalyticsAchievementsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVi
         team_ctx = EvalContext(team=self.team, user=None, today=today, arm=None)
         is_control = arm == STREAK_ARM_CONTROL
 
-        if not is_control:
-            for track in TRACKS.values():
-                if track.scope == AchievementScope.TEAM:
-                    get_or_create_progress(team_ctx, track)
-
         user_rows = list(WebAnalyticsAchievementProgress.objects.filter(team_id=canonical_team_id, user=user))
         team_rows = list(WebAnalyticsAchievementProgress.objects.filter(team_id=canonical_team_id, user__isnull=True))
 
-        if not is_control and any(is_due(team_ctx, row) for row in team_rows):
-            enqueue_recompute_web_analytics_achievements_debounced(canonical_team_id, None, today)
+        # Keep this GET read-only: the debounced recompute creates any missing rows off the read path
+        # rather than doing per-track get_or_create writes on every page load. We recompute when a team
+        # track has no row yet (first load) or an existing row is due for its team-local day.
+        if not is_control:
+            existing_team_track_keys = {row.track_key for row in team_rows}
+            has_missing_team_track = any(
+                str(track.key) not in existing_team_track_keys
+                for track in TRACKS.values()
+                if track.scope == AchievementScope.TEAM
+            )
+            if has_missing_team_track or any(is_due(team_ctx, row) for row in team_rows):
+                enqueue_recompute_web_analytics_achievements_debounced(canonical_team_id, None, today)
 
         payload = {
             "definitions": serialize_definitions(arm),
