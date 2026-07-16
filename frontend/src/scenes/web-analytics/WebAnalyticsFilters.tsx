@@ -1,9 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import posthog from 'posthog-js'
 import { useMemo, useState } from 'react'
 
-import { IconFilter, IconGlobe, IconPhone, IconPlus, IconShare } from '@posthog/icons'
+import { IconFilter, IconGlobe, IconPhone, IconPlus } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, LemonInput, LemonSelect, Popover, Tooltip } from '@posthog/lemon-ui'
 
 import { AuthorizedUrlListType, authorizedUrlListLogic } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
@@ -20,16 +19,14 @@ import {
 import { baseModifier } from 'lib/components/Shortcuts/shortcuts'
 import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconLink, IconMonitor, IconWithCount } from 'lib/lemon-ui/icons/icons'
+import { IconMonitor, IconWithCount } from 'lib/lemon-ui/icons/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInputSelect, LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect'
 import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/country'
 import MaxTool from 'scenes/max/MaxTool'
 import { Scene } from 'scenes/sceneTypes'
-import { shareNudgeLogic } from 'scenes/web-analytics/shareNudgeLogic'
 
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
 import { PropertyFilterType, PropertyMathType } from '~/types'
@@ -43,6 +40,7 @@ import { TableSortingIndicator } from './TableSortingIndicator'
 import { FilterPresetsDropdown } from './WebAnalyticsFilterPresets'
 import { webAnalyticsFilterPresetsLogic } from './webAnalyticsFilterPresetsLogic'
 import { WebAnalyticsFiltersV2MigrationBanner } from './WebAnalyticsFiltersV2MigrationBanner'
+import { WebAnalyticsShareButton } from './WebAnalyticsShareButton'
 import { webAnalyticsLogic } from './webAnalyticsLogic'
 import { WebConversionGoal } from './WebConversionGoal'
 import {
@@ -480,9 +478,8 @@ export const WebAnalyticsCompareFilter = (): JSX.Element | null => {
 
 const ShareButton = (): JSX.Element => {
     const { activePreset } = useValues(webAnalyticsFilterPresetsLogic)
-    const { emphasizeShareButton } = useValues(shareNudgeLogic)
 
-    const handleShare = (): void => {
+    const getShareUrl = (): string => {
         const url = new URL(window.location.href)
 
         if (activePreset) {
@@ -490,23 +487,10 @@ const ShareButton = (): JSX.Element => {
             url.searchParams.set('presetId', activePreset.short_id)
         }
 
-        void copyToClipboard(url.toString(), 'link')
-        posthog.capture('web analytics share link copied', { source: 'filters_button' })
+        return url.toString()
     }
 
-    return (
-        <LemonButton
-            type="secondary"
-            size="small"
-            icon={emphasizeShareButton ? <IconShare /> : <IconLink />}
-            tooltip={emphasizeShareButton ? undefined : 'Share'}
-            tooltipPlacement="top"
-            onClick={handleShare}
-            data-attr="web-analytics-share-button"
-        >
-            {emphasizeShareButton ? 'Share' : undefined}
-        </LemonButton>
-    )
+    return <WebAnalyticsShareButton source="filters_button" getShareUrl={getShareUrl} />
 }
 
 function FiltersPopover(): JSX.Element {
