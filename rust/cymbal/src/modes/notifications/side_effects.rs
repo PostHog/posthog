@@ -58,9 +58,10 @@ pub async fn send_new_fingerprint_event<I: NotificationIssue>(
 }
 
 /// Returns the reason a fingerprint embedding request should be skipped, or
-/// `None` if it should be sent. We don't embed manually-fingerprinted issues
-/// (grouped by the user's own key, so similarity grouping doesn't apply) nor
-/// events from SDKs in `EMBEDDING_DISABLED_LIBS` (they emit too many issues).
+/// `None` if it should be sent. We don't embed issues grouped by a fingerprint
+/// the user controls — manual fingerprints and custom grouping rules — since
+/// embedding-based similarity grouping doesn't apply to them, nor events from
+/// SDKs in `EMBEDDING_DISABLED_LIBS` (they emit too many issues).
 fn skip_fingerprint_embedding_reason(output_props: &OutputErrProps) -> Option<&'static str> {
     if output_props
         .fingerprint_record
@@ -68,6 +69,14 @@ fn skip_fingerprint_embedding_reason(output_props: &OutputErrProps) -> Option<&'
         .any(|part| matches!(part, FingerprintRecordPart::Manual))
     {
         return Some("manual_fingerprint");
+    }
+
+    if output_props
+        .fingerprint_record
+        .iter()
+        .any(|part| matches!(part, FingerprintRecordPart::Custom { .. }))
+    {
+        return Some("custom_grouping_rule");
     }
 
     let lib = output_props.other.get("$lib").and_then(Value::as_str);
@@ -284,6 +293,20 @@ mod tests {
         assert_eq!(
             skip_fingerprint_embedding_reason(&props),
             Some("manual_fingerprint")
+        );
+    }
+
+    #[test]
+    fn skips_embedding_for_custom_grouping_rule() {
+        let props = props_with(
+            vec![FingerprintRecordPart::Custom {
+                rule_id: Uuid::nil(),
+            }],
+            Some("posthog-python"),
+        );
+        assert_eq!(
+            skip_fingerprint_embedding_reason(&props),
+            Some("custom_grouping_rule")
         );
     }
 
