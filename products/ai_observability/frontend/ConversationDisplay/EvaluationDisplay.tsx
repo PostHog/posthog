@@ -15,6 +15,7 @@ export function EvaluationDisplay({ eventProperties }: { eventProperties: EventT
     const model = eventProperties.$ai_model ?? eventProperties.$ai_evaluation_model
     const traceId = eventProperties.$ai_trace_id
     const targetEventId = eventProperties.$ai_target_event_id
+    const targetSpanId = eventProperties.$ai_target_span_id
     const resultRun = {
         status: 'completed' as const,
         ...normalizeEvaluationResultProperties({
@@ -24,6 +25,8 @@ export function EvaluationDisplay({ eventProperties }: { eventProperties: EventT
             rawResultType: eventProperties.$ai_evaluation_result_type,
             rawSentimentLabel: eventProperties.$ai_sentiment_label,
             rawSentimentScore: eventProperties.$ai_sentiment_score,
+            rawScoreLabel: eventProperties.$ai_evaluation_score_label,
+            rawScoreValue: eventProperties.$ai_evaluation_score_value,
         }),
     }
 
@@ -45,6 +48,13 @@ export function EvaluationDisplay({ eventProperties }: { eventProperties: EventT
                     <MetadataTag label="Target event">
                         <Link to={urls.aiObservabilityTrace(traceId, { event: targetEventId })}>
                             {targetEventId.slice(0, 12)}...
+                        </Link>
+                    </MetadataTag>
+                )}
+                {traceId && !targetEventId && targetSpanId && (
+                    <MetadataTag label="Target span">
+                        <Link to={urls.aiObservabilityTrace(traceId, { search: targetSpanId })}>
+                            {targetSpanId.slice(0, 12)}...
                         </Link>
                     </MetadataTag>
                 )}
