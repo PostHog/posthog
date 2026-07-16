@@ -4123,13 +4123,21 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": "CDC is not enabled on this source."},
             )
 
+        cdc_schemas = list(
+            ExternalDataSchema.objects.filter(
+                source=instance,
+                sync_type=ExternalDataSchema.SyncType.CDC,
+                should_sync=True,
+            ).exclude(deleted=True)
+        )
+        if not cdc_schemas:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "No schemas are syncing via change data capture, so there is nothing to resume."},
+            )
+
         # A broken source has lost its slot/publication — resuming would just re-fail on the
         # next tick. Route the user to Repair CDC, which recreates them (and re-syncs).
-        cdc_schemas = ExternalDataSchema.objects.filter(
-            source=instance,
-            sync_type=ExternalDataSchema.SyncType.CDC,
-            should_sync=True,
-        ).exclude(deleted=True)
         if any((schema.sync_type_config or {}).get("cdc_broken") for schema in cdc_schemas):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
@@ -4162,6 +4170,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
 
         try:
+            # Recreate the schedule if it was deleted out-of-band — unpausing a missing schedule is a
+            # silent no-op that would report success while CDC never runs (same ordering as CDC repair's
+            # _resume_schedules). sync builds an unpaused schedule; the explicit unpause covers the
+            # already-existing-but-paused case.
+            sync_cdc_extraction_schedule(instance)
             unpause_cdc_extraction_schedule(str(instance.id))
         except Exception as e:
             capture_exception(e, {"source_id": str(instance.id), "team_id": self.team_id})

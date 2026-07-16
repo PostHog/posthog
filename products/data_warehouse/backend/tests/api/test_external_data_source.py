@@ -10598,18 +10598,29 @@ class TestResumeCDC(APIBaseTest):
         assert response.status_code == 400
         assert "CDC is not enabled" in response.json()["message"]
 
+    def test_resume_cdc_rejects_when_no_cdc_schemas(self) -> None:
+        # CDC enabled but nothing syncs via CDC — resuming would report success while nothing runs.
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        response = self._resume(source)
+        assert response.status_code == 400
+        assert "nothing to resume" in response.json()["message"]
+
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.sync_cdc_extraction_schedule")
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.unpause_cdc_extraction_schedule")
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.get_status",
         return_value={"slot_exists": True, "publication_exists": True, "lag_bytes": 128},
     )
-    def test_resume_cdc_unpauses_when_slot_intact(self, mock_get_status, mock_unpause) -> None:
+    def test_resume_cdc_unpauses_when_slot_intact(self, mock_get_status, mock_unpause, mock_sync) -> None:
         source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
         self._cdc_schema(source)
 
         response = self._resume(source)
         assert response.status_code == 200, response.content
         assert response.json()["success"] is True
+        # Recreate-if-missing then unpause, so a schedule deleted out-of-band can't report false success.
+        mock_sync.assert_called_once()
+        assert mock_sync.call_args.args[0].pk == source.pk
         mock_unpause.assert_called_once_with(str(source.pk))
         assert mock_get_status.call_args.args[0].pk == source.pk
 
