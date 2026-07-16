@@ -156,11 +156,16 @@ export interface sqlVariableEditSceneLogicActions {
 export interface sqlVariableEditSceneLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        isNew: (id: any) => boolean
-        hasChanges: (variableForm: any, variableType: any, variable: any, variableLoading: any) => boolean
+        isNew: (id: string) => boolean
+        hasChanges: (
+            variableForm: Partial<Variable>,
+            variableType: VariableType,
+            variable: Variable | null,
+            variableLoading: boolean
+        ) => boolean
         breadcrumbs: (
-            variable: any,
-            id: any
+            variable: Variable | null,
+            id: string
         ) => (
             | {
                   key: string
