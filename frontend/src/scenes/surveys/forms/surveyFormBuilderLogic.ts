@@ -20,8 +20,15 @@ export interface surveyFormBuilderLogicValues {
 export interface surveyFormBuilderLogicActions {
     reportSurveyCreated: (
         survey: Survey,
-        isDuplicate?: boolean,
-        creationSource?: 'form_builder' | 'full_editor' | 'llm_analytics' | 'quick_create' | 'template' | 'wizard'
+        isDuplicate?: boolean | undefined,
+        creationSource?:
+            | 'form_builder'
+            | 'full_editor'
+            | 'llm_analytics'
+            | 'quick_create'
+            | 'template'
+            | 'wizard'
+            | undefined
     ) => {
         creationSource:
             | 'form_builder'
