@@ -23277,7 +23277,101 @@
                 "Zellify",
                 "RudderStack",
                 "DodoPayments",
-                "Salestrics"
+                "Salestrics",
+                "Doppler",
+                "Usersnap",
+                "Asknicely",
+                "Featurebase",
+                "Frill",
+                "Bettermode",
+                "Dynatrace",
+                "Honeycomb",
+                "SumoLogic",
+                "LogzIO",
+                "Coralogix",
+                "BetterStack",
+                "Raygun",
+                "Honeybadger",
+                "Airbrake",
+                "Appsignal",
+                "Appdynamics",
+                "Instana",
+                "SplunkObservabilityCloud",
+                "Uptimerobot",
+                "Statuscake",
+                "Tailscale",
+                "Flagsmith",
+                "Xmatters",
+                "Squadcast",
+                "Zenduty",
+                "Cronitor",
+                "Jenkins",
+                "Bitbucket",
+                "Gitea",
+                "Teamcity",
+                "TravisCI",
+                "Semaphore",
+                "CircleciInsights",
+                "OctopusDeploy",
+                "Sourcegraph",
+                "Bitrise",
+                "Gerrit",
+                "TerraformCloud",
+                "PulumiCloud",
+                "Spacelift",
+                "Railway",
+                "Argocd",
+                "PrefectCloud",
+                "DagsterCloud",
+                "Env0",
+                "Kubecost",
+                "Snyk",
+                "Semgrep",
+                "Veracode",
+                "Checkmarx",
+                "Gitguardian",
+                "QualysVmdr",
+                "Rapid7Insightvm",
+                "TenableVulnerabilityManagement",
+                "Sentinelone",
+                "Lacework",
+                "OrcaSecurity",
+                "Drata",
+                "Secureframe",
+                "CiscoDuo",
+                "Jumpcloud",
+                "OnePassword",
+                "Stytch",
+                "Sonarqube",
+                "Codecov",
+                "Coveralls",
+                "Codacy",
+                "Deepsource",
+                "Linearb",
+                "Jellyfish",
+                "Swarmia",
+                "Packagist",
+                "Nuget",
+                "CratesIO",
+                "SonatypeNexus",
+                "JfrogArtifactory",
+                "Snowplow",
+                "WeightsAndBiases",
+                "MonteCarlo",
+                "Metaplane",
+                "Datahub",
+                "ClickhouseCloud",
+                "ConfluentCloud",
+                "KongKonnect",
+                "Kandji",
+                "Automox",
+                "Autumn",
+                "GetStream",
+                "Octolens",
+                "Kajabi",
+                "Shopware",
+                "Dubsado",
+                "Campfire"
             ],
             "type": "string"
         },
@@ -23562,6 +23656,7 @@
                 "toolbar",
                 "visual_review",
                 "code_review",
+                "stamphog",
                 "settings",
                 "health",
                 "inbox",
@@ -28312,10 +28407,14 @@
         },
         "MCPToolDailyStatsQuery": {
             "additionalProperties": false,
-            "description": "Per-day activity series for a single MCP tool over the last 30 days.",
+            "description": "Per-bucket activity series for a single MCP tool over the selected window.",
             "properties": {
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
+                },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType",
+                    "description": "Bucket granularity for the series. The frontend passes getDefaultInterval so a sub-day window buckets by hour/minute instead of collapsing to a single day point. Defaults to day."
                 },
                 "kind": {
                     "const": "MCPToolDailyStatsQuery",
@@ -44972,6 +45071,10 @@
                 "caption": {
                     "type": "string"
                 },
+                "hidden": {
+                    "description": "Keep the field in the config tree (so its value parses and survives job_inputs redaction) without rendering it in the source form. Used for legacy fields that a newer field supersedes.",
+                    "type": "boolean"
+                },
                 "integrationField": {
                     "description": "Name of the OAuth integration id field this account selector reads from.",
                     "type": "string"
@@ -44982,6 +45085,10 @@
                 },
                 "label": {
                     "type": "string"
+                },
+                "multiple": {
+                    "description": "Allow selecting multiple values; the field's payload value becomes string[].",
+                    "type": "boolean"
                 },
                 "name": {
                     "type": "string"
@@ -45046,6 +45153,9 @@
         "SourceFieldSelectConfig": {
             "additionalProperties": false,
             "properties": {
+                "caption": {
+                    "type": "string"
+                },
                 "converter": {
                     "$ref": "#/definitions/SourceFieldSelectConfigConverter"
                 },
@@ -48465,6 +48575,7 @@
         },
         "UserProductListReason": {
             "enum": [
+                "default",
                 "onboarding",
                 "product_intent",
                 "used_by_colleagues",

@@ -617,3 +617,28 @@ class TestUnsupportedModelRejection:
         assert response.status_code == 400
         assert response.json()["error"]["code"] == "model_not_supported"
         mock_completion.assert_not_called()
+
+
+class TestAudioTranscriptionsEndpoint:
+    @pytest.mark.parametrize(
+        "path",
+        ["/v1/audio/transcriptions", "/llm_gateway/v1/audio/transcriptions"],
+    )
+    @patch("llm_gateway.api.openai.litellm.atranscription")
+    def test_omitted_model_is_rejected_not_defaulted(
+        self,
+        mock_transcription: MagicMock,
+        authenticated_client: TestClient,
+        path: str,
+    ) -> None:
+        # a server-side default would route a model upstream that the access
+        # checks never saw (they run before form binding)
+        response = authenticated_client.post(
+            path,
+            files={"file": ("a.mp3", b"audio-bytes", "audio/mpeg")},
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 422
+        assert "model" in str(response.json())
+        mock_transcription.assert_not_called()
