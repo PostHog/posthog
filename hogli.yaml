@@ -830,6 +830,15 @@ quality:
         cmd: pnpm run --filter @posthog/mcp format
         description: Format MCP files
 auth:
+    github:login:
+        click: hogli_commands.github_app_auth:github_login
+        description: Mint an 8h GitHub App token for unattended signed publishing
+    github:status:
+        click: hogli_commands.github_app_auth:github_status
+        description: Show which GitHub auth git:publish-signed would use
+    github:logout:
+        click: hogli_commands.github_app_auth:github_logout
+        description: Delete the cached GitHub App token
     metabase:login:
         click: hogli_commands.metabase:metabase_login
         description: Log in to Metabase via SSO and cache the session cookie

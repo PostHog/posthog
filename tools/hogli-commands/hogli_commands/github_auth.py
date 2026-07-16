@@ -11,15 +11,19 @@ import shutil
 import subprocess
 
 
-def github_token() -> str | None:
-    """A github.com token from GH_TOKEN/GITHUB_TOKEN, else `gh auth token`, else None.
-
-    Env vars win so CI and explicit overrides work without gh; otherwise fall back to the
-    caller's gh login. Pinned to github.com so the result is independent of the cwd's repo.
-    """
+def env_token() -> str | None:
+    """A github.com token from GH_TOKEN/GITHUB_TOKEN, else None."""
     for env_var in ("GH_TOKEN", "GITHUB_TOKEN"):
         if token := os.environ.get(env_var):
             return token
+    return None
+
+
+def gh_cli_token() -> str | None:
+    """The gh CLI's stored github.com token, else None.
+
+    Pinned to github.com so the result is independent of the cwd's repo.
+    """
     gh = shutil.which("gh")
     if gh is None:
         return None
@@ -35,6 +39,15 @@ def github_token() -> str | None:
         return None
     token = result.stdout.strip()
     return token if result.returncode == 0 and token else None
+
+
+def github_token() -> str | None:
+    """A github.com token from GH_TOKEN/GITHUB_TOKEN, else `gh auth token`, else None.
+
+    Env vars win so CI and explicit overrides work without gh; otherwise fall back to the
+    caller's gh login.
+    """
+    return env_token() or gh_cli_token()
 
 
 def github_headers(token: str | None) -> dict[str, str]:

@@ -2,10 +2,16 @@
 
 Replays the local-only commits of the current branch through GitHub's GraphQL
 `createCommitOnBranch` mutation. GitHub creates each commit server-side, signs
-it with its own key (Verified badge), and authors it as the owner of the gh
-CLI token. No local signing key, agent, or human approval is needed, so this
+it with its own key (Verified badge), and authors it as the user who owns the
+token. No local signing key, agent, or human approval is needed, so this
 works for unattended agent sessions and satisfies `required_signatures`
 rulesets.
+
+Auth prefers the 8-hour hogli-publisher app token (`hogli github:login`, see
+github_app_auth) over GH_TOKEN/GITHUB_TOKEN and the gh CLI's long-lived OAuth
+token; `--auth` / HOGLI_PUBLISH_AUTH pins one source. The resolved token is
+passed to every gh subprocess via GH_TOKEN, which gh honors over its keyring;
+new subprocesses added here must thread the same env through.
 
 Fidelity contract: every commit in the range is validated individually before
 anything is published, and content the API cannot represent (merge commits,
@@ -22,7 +28,9 @@ API takes headline and body as separate fields).
 
 from __future__ import annotations
 
+import os
 import re
+import sys
 import json
 import uuid
 import base64
@@ -32,7 +40,7 @@ from pathlib import Path
 
 import click
 
-from hogli_commands.github_auth import github_token
+from hogli_commands.github_app_auth import AuthChoice, AuthMode, run_device_login, token_for_mode
 
 # createCommitOnBranch has no documented payload cap, but large payloads time
 # out or hit the REST blob ceiling (~40 MiB); refuse well before that.
@@ -179,17 +187,47 @@ def _default_branch() -> str:
     return match.group(1)
 
 
-def _require_gh_auth() -> None:
-    if github_token() is None:
-        raise PublishError("No GitHub token available. Run `gh auth login` first.")
+_AUTH_HINTS: dict[str, str] = {
+    "auto": "Run `hogli github:login` (8h app token) or `gh auth login`.",
+    "app": "Run `hogli github:login`.",
+    "env": "Set GH_TOKEN or GITHUB_TOKEN.",
+    "gh": "Run `gh auth login`.",
+}
 
 
-def _token_scopes() -> set[str] | None:
+def _resolve_or_login(auth: AuthChoice) -> tuple[str, AuthMode]:
+    """The publish token, offering an inline device login on a TTY.
+
+    Never starts a device flow non-interactively: the 15-minute code would
+    dangle while an unattended agent hangs. A human mints the token up front.
+    """
+    if resolved := token_for_mode(auth):
+        return resolved
+    if (
+        auth in ("auto", "app")
+        and sys.stdin.isatty()
+        and click.confirm("No GitHub token available. Log in with the hogli-publisher app now?")
+    ):
+        run_device_login()
+        if resolved := token_for_mode("app"):
+            return resolved
+    raise PublishError(f"No GitHub token for --auth {auth}. {_AUTH_HINTS[auth]}")
+
+
+def _gh_env(token: str | None) -> dict[str, str]:
+    """Subprocess env for gh: GH_TOKEN outranks gh's keyring, so the resolved
+    token wins even when gh has its own stored login."""
+    if token is None:
+        return dict(os.environ)
+    return {**os.environ, "GH_TOKEN": token}
+
+
+def _token_scopes(env: dict[str, str]) -> set[str] | None:
     """Best-effort classic-OAuth scope introspection; None when undeterminable
     (fine-grained PATs and GitHub App tokens send no X-OAuth-Scopes header)."""
     try:
         headers = subprocess.run(
-            ["gh", "api", "user", "--include", "--silent"], capture_output=True, check=True
+            ["gh", "api", "user", "--include", "--silent"], capture_output=True, check=True, env=env
         ).stdout.decode()
     except (subprocess.CalledProcessError, FileNotFoundError):
         return None
@@ -290,21 +328,21 @@ def _plan_commit(commit: str) -> CommitPlan:
     return CommitPlan(sha=commit, headline=headline, body=body, entries=entries)
 
 
-def _gh_rest(method: str, path: str, fields: dict[str, str]) -> subprocess.CompletedProcess[bytes]:
+def _gh_rest(method: str, path: str, fields: dict[str, str], env: dict[str, str]) -> subprocess.CompletedProcess[bytes]:
     args = ["gh", "api", "-X", method, path]
     for key, value in fields.items():
         args += ["-f", f"{key}={value}"]
-    return subprocess.run(args, capture_output=True)
+    return subprocess.run(args, capture_output=True, env=env)
 
 
-def _create_remote_branch(repo: str, branch: str, sha: str) -> None:
-    result = _gh_rest("POST", f"repos/{repo}/git/refs", {"ref": f"refs/heads/{branch}", "sha": sha})
+def _create_remote_branch(repo: str, branch: str, sha: str, env: dict[str, str]) -> None:
+    result = _gh_rest("POST", f"repos/{repo}/git/refs", {"ref": f"refs/heads/{branch}", "sha": sha}, env)
     if result.returncode != 0:
         raise PublishError(f"Creating remote branch {branch} failed: {result.stderr.decode().strip()}")
 
 
-def _fast_forward_remote_branch(repo: str, branch: str, sha: str) -> None:
-    result = _gh_rest("PATCH", f"repos/{repo}/git/refs/heads/{branch}", {"sha": sha})
+def _fast_forward_remote_branch(repo: str, branch: str, sha: str, env: dict[str, str]) -> None:
+    result = _gh_rest("PATCH", f"repos/{repo}/git/refs/heads/{branch}", {"sha": sha}, env)
     if result.returncode != 0:
         raise PublishError(
             f"Updating origin/{branch} failed (did it move during the publish?): "
@@ -313,12 +351,34 @@ def _fast_forward_remote_branch(repo: str, branch: str, sha: str) -> None:
         )
 
 
-def _delete_remote_branch(repo: str, branch: str) -> None:
-    _gh_rest("DELETE", f"repos/{repo}/git/refs/heads/{branch}")
+def _delete_remote_branch(repo: str, branch: str, env: dict[str, str]) -> None:
+    _gh_rest("DELETE", f"repos/{repo}/git/refs/heads/{branch}", {}, env)
+
+
+def _commit_failure_hint(stderr: str, mode: AuthMode) -> str:
+    lowered = stderr.lower()
+    if "bad credentials" in lowered or "http 401" in lowered:
+        if mode == "app":
+            return ". The app token may have expired mid-publish; run `hogli github:login` and retry."
+        return ""
+    if "workflow" in lowered:
+        if mode == "app":
+            return (
+                ". The hogli-publisher app may lack the Workflows permission or its "
+                "installation may not cover this repository; contact an org admin."
+            )
+        return ". Your token may lack workflow access: `gh auth refresh -s workflow`"
+    return ""
 
 
 def _create_commit_on_branch(
-    repo: str, branch: str, expected_head: str, plan: CommitPlan, changes: dict[str, list[dict[str, str]]]
+    repo: str,
+    branch: str,
+    expected_head: str,
+    plan: CommitPlan,
+    changes: dict[str, list[dict[str, str]]],
+    env: dict[str, str],
+    mode: AuthMode,
 ) -> str:
     commit_message: dict[str, str] = {"headline": plan.headline}
     if plan.body:
@@ -338,15 +398,11 @@ def _create_commit_on_branch(
         ["gh", "api", "graphql", "--input", "-"],
         input=json.dumps(payload).encode(),
         capture_output=True,
+        env=env,
     )
     if result.returncode != 0:
         stderr = result.stderr.decode().strip()
-        hint = (
-            ". Your token may lack workflow access: `gh auth refresh -s workflow`"
-            if "workflow" in stderr.lower()
-            else ""
-        )
-        raise PublishError(f"createCommitOnBranch failed: {stderr}{hint}")
+        raise PublishError(f"createCommitOnBranch failed: {stderr}{_commit_failure_hint(stderr, mode)}")
     oid = json.loads(result.stdout)["data"]["createCommitOnBranch"]["commit"]["oid"]
     assert isinstance(oid, str)
     return oid
@@ -384,14 +440,27 @@ def _sync_local_branch(branch: str, head: str, new_tip: str) -> None:
 
 @click.command(name="git:publish-signed")
 @click.option("--dry-run", is_flag=True, help="Show what would be published without touching the remote.")
-def git_publish_signed(dry_run: bool) -> None:
+@click.option(
+    "--auth",
+    type=click.Choice(["auto", "app", "env", "gh"]),
+    default="auto",
+    show_default=True,
+    envvar="HOGLI_PUBLISH_AUTH",
+    help="Token source: app = 8h hogli-publisher token, env = GH_TOKEN/GITHUB_TOKEN, gh = gh CLI login. "
+    "auto prefers app; set HOGLI_PUBLISH_AUTH=app in agent environments to fail closed.",
+)
+def git_publish_signed(dry_run: bool, auth: AuthChoice) -> None:
     """Publish local commits as GitHub-signed (Verified) commits.
 
     Replays the current branch's unpushed commits through GitHub's API:
     each commit is recreated server-side, signed by GitHub, and authored
-    as your gh token's account. Local checkpoint commits stay unsigned
+    as your token's account. Local checkpoint commits stay unsigned
     and private until you publish. Note: published hashes differ from
     the local ones (the local branch is repointed to the new history).
+
+    For unattended agent sessions, mint an 8h app token first with
+    `hogli github:login`; it is preferred over the gh CLI's long-lived
+    OAuth token.
     """
     git_dir = Path(_git_text(["rev-parse", "--absolute-git-dir"]))
     if op := _operation_in_progress(git_dir):
@@ -429,8 +498,12 @@ def git_publish_signed(dry_run: bool) -> None:
 
     plans = [_plan_commit(c) for c in commits]
 
-    if any(workflow_paths(p.entries) for p in plans):
-        scopes = _token_scopes()
+    resolved = token_for_mode(auth)
+
+    # App tokens carry the app's Workflows permission (no scopes header to
+    # introspect); classic tokens still need the workflow scope preflight.
+    if (resolved is None or resolved[1] != "app") and any(workflow_paths(p.entries) for p in plans):
+        scopes = _token_scopes(_gh_env(resolved[0] if resolved else None))
         if scopes is not None and "workflow" not in scopes:
             raise PublishError(
                 "This range touches .github/workflows/ but your gh token lacks the "
@@ -443,26 +516,33 @@ def git_publish_signed(dry_run: bool) -> None:
             click.echo(f"  {plan.sha[:10]} {plan.headline}")
         return
 
-    _require_gh_auth()
+    token, mode = resolved if resolved else _resolve_or_login(auth)
+    if auth == "auto" and mode == "gh":
+        click.secho(
+            "Using the long-lived gh CLI token; run `hogli github:login` for a short-lived app token.",
+            fg="yellow",
+            err=True,
+        )
+    gh_env = _gh_env(token)
 
     # Replay onto a scratch branch so the real branch moves all-or-nothing.
     scratch = f"hogli/publish-signed-tmp-{uuid.uuid4().hex[:12]}"
-    _create_remote_branch(repo, scratch, base)
+    _create_remote_branch(repo, scratch, base, gh_env)
     try:
         expected = base
         for plan in plans:
             changes = _commit_file_changes(plan.entries)
-            expected = _create_commit_on_branch(repo, scratch, expected, plan, changes)
+            expected = _create_commit_on_branch(repo, scratch, expected, plan, changes, gh_env, mode)
             click.echo(f"  {plan.sha[:10]} -> {expected[:10]} {plan.headline}")
         if tip is None:
-            _create_remote_branch(repo, branch, expected)
+            _create_remote_branch(repo, branch, expected, gh_env)
         else:
-            _fast_forward_remote_branch(repo, branch, expected)
+            _fast_forward_remote_branch(repo, branch, expected, gh_env)
     except Exception:
-        _delete_remote_branch(repo, scratch)
+        _delete_remote_branch(repo, scratch, gh_env)
         click.secho(f"Publish failed. origin/{branch} was not changed.", fg="red")
         raise
-    _delete_remote_branch(repo, scratch)
+    _delete_remote_branch(repo, scratch, gh_env)
 
     _sync_local_branch(branch, head, expected)
     click.secho(f"Published {len(plans)} signed commit(s) to https://github.com/{repo}/tree/{branch}", fg="green")

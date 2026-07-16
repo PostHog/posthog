@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import base64
 import subprocess
 from pathlib import Path
@@ -7,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from click.testing import CliRunner
+from hogli_commands import signed_commits
 from hogli_commands.signed_commits import (
     PublishError,
     RawDiffEntry,
@@ -23,6 +25,11 @@ from hogli_commands.signed_commits import (
 
 def _entry(src_mode: str, dst_mode: str, status: str = "M", path: str = "f.txt") -> RawDiffEntry:
     return RawDiffEntry(src_mode=src_mode, dst_mode=dst_mode, dst_sha="0" * 40, status=status, path=path)
+
+
+@pytest.fixture(autouse=True)
+def publish_auth_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("HOGLI_PUBLISH_AUTH", raising=False)
 
 
 class TestPureHelpers:
@@ -192,3 +199,108 @@ class TestGuardRails:
         assert result.exit_code != 0
         assert "`git ls-remote --symref origin HEAD` failed:" in result.output
         assert result.exc_info is not None and result.exc_info[0] is SystemExit
+
+
+def _init_offline_github_repo(tmp_path: Path, *, workflow_file: bool = False) -> tuple[Path, str]:
+    """A repo whose origin looks like github.com but is never contacted: remote
+    state is faked via pre-created tracking refs plus the subprocess stub below."""
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    _run_git(repo, "remote", "add", "origin", "git@github.com:PostHog/test.git")
+    base = subprocess.run(
+        ["git", "-C", str(repo), "rev-parse", "HEAD"], check=True, capture_output=True, text=True
+    ).stdout.strip()
+    _run_git(repo, "update-ref", "refs/remotes/origin/master", base)
+    _run_git(repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/master")
+    _run_git(repo, "update-ref", "refs/remotes/origin/feature", base)
+    _run_git(repo, "checkout", "-q", "-b", "feature")
+    path = repo / (".github/workflows/ci.yml" if workflow_file else "b.txt")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("two\n")
+    _run_git(repo, "add", "-A")
+    _run_git(repo, "commit", "-q", "-m", "feat: change")
+    head = subprocess.run(
+        ["git", "-C", str(repo), "rev-parse", "HEAD"], check=True, capture_output=True, text=True
+    ).stdout.strip()
+    return repo, head
+
+
+def _stub_gh_and_remote_git(
+    monkeypatch: pytest.MonkeyPatch, head: str, gh_user_headers: str | None = None
+) -> list[tuple[list[str], dict[str, str] | None]]:
+    """Intercept gh (fake API) and network git (ls-remote/fetch); record gh calls with their env."""
+    real_run = subprocess.run
+    gh_calls: list[tuple[list[str], dict[str, str] | None]] = []
+
+    def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        if args[0] == "gh":
+            gh_calls.append((list(args), kwargs.get("env")))  # type: ignore[arg-type]
+            if args[1:3] == ["api", "graphql"]:
+                out = json.dumps({"data": {"createCommitOnBranch": {"commit": {"oid": head}}}}).encode()
+                return subprocess.CompletedProcess(args, 0, stdout=out, stderr=b"")
+            if args[1:3] == ["api", "user"]:
+                if gh_user_headers is None:
+                    return subprocess.CompletedProcess(args, 1, stdout=b"", stderr=b"")
+                return subprocess.CompletedProcess(args, 0, stdout=gh_user_headers.encode(), stderr=b"")
+            return subprocess.CompletedProcess(args, 0, stdout=b"", stderr=b"")
+        if args[0] == "git" and args[1] in ("ls-remote", "fetch"):
+            return subprocess.CompletedProcess(args, 0, stdout=b"", stderr=b"")
+        return real_run(args, **kwargs)  # type: ignore[arg-type,call-overload]
+
+    monkeypatch.setattr(signed_commits.subprocess, "run", fake_run)
+    return gh_calls
+
+
+class TestAuthIntegration:
+    def test_publish_threads_resolved_token_to_every_gh_call(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        repo, head = _init_offline_github_repo(tmp_path)
+        gh_calls = _stub_gh_and_remote_git(monkeypatch, head)
+        monkeypatch.setattr(signed_commits, "token_for_mode", lambda auth: ("app-tok-123", "app"))
+        monkeypatch.chdir(repo)
+
+        result = CliRunner().invoke(git_publish_signed, [])
+
+        assert result.exit_code == 0, result.output
+        assert "Published 1 signed commit(s)" in result.output
+        assert gh_calls, "publish made no gh calls"
+        assert all(env is not None and env["GH_TOKEN"] == "app-tok-123" for _args, env in gh_calls)
+
+    def test_non_interactive_without_token_fails_without_device_flow(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        repo, head = _init_offline_github_repo(tmp_path)
+        _stub_gh_and_remote_git(monkeypatch, head)
+        monkeypatch.setattr(signed_commits, "token_for_mode", lambda auth: None)
+        monkeypatch.setattr(
+            signed_commits, "run_device_login", lambda: pytest.fail("device flow started non-interactively")
+        )
+        monkeypatch.chdir(repo)
+
+        result = CliRunner().invoke(git_publish_signed, [])
+
+        assert result.exit_code != 0
+        assert "hogli github:login" in result.output
+
+    @pytest.mark.parametrize(
+        ("mode", "expect_scope_error"),
+        [("app", False), ("gh", True)],
+        ids=["app_token_skips_scope_preflight", "classic_token_needs_workflow_scope"],
+    )
+    def test_workflow_scope_preflight_by_auth_mode(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: str, expect_scope_error: bool
+    ) -> None:
+        repo, head = _init_offline_github_repo(tmp_path, workflow_file=True)
+        _stub_gh_and_remote_git(monkeypatch, head, gh_user_headers="X-Oauth-Scopes: repo, gist\n")
+        monkeypatch.setattr(signed_commits, "token_for_mode", lambda auth: ("tok", mode))
+        monkeypatch.chdir(repo)
+
+        result = CliRunner().invoke(git_publish_signed, ["--dry-run"])
+
+        if expect_scope_error:
+            assert result.exit_code != 0
+            assert "workflow" in result.output
+        else:
+            assert result.exit_code == 0, result.output
+            assert "Would publish 1 commit(s)" in result.output
