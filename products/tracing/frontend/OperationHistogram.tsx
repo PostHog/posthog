@@ -2,7 +2,7 @@ import { useCallback, useMemo } from 'react'
 
 import { LemonButton, SpinnerOverlay } from '@posthog/lemon-ui'
 
-import { AnyScaleOptions, Sparkline } from 'lib/components/Sparkline'
+import { Sparkline } from 'lib/components/Sparkline'
 
 import {
     formatBucketLabel,
@@ -11,6 +11,7 @@ import {
     type TracingDurationHistogramData,
 } from './durationBuckets'
 import type { DurationRange } from './operationFilters'
+import { categoryDurationXScale } from './TracingSparkline'
 
 interface OperationHistogramProps {
     data: TracingDurationHistogramData
@@ -18,24 +19,6 @@ interface OperationHistogramProps {
     selection: DurationRange | null
     onSelect: (selection: DurationRange) => void
     onClear: () => void
-}
-
-// Duration buckets are categorical (1ms, 2ms, 5ms, ...) — the 1-2-5 series is already
-// log-spaced, so a plain category axis renders it evenly (mirrors TracingSparkline).
-function withCategoryXScale(scale: AnyScaleOptions): AnyScaleOptions {
-    return {
-        ...scale,
-        type: 'category',
-        ticks: {
-            display: true,
-            maxRotation: 0,
-            maxTicksLimit: 8,
-            font: {
-                size: 10,
-                lineHeight: 1,
-            },
-        },
-    } as AnyScaleOptions
 }
 
 export function OperationHistogram({
@@ -97,7 +80,7 @@ export function OperationHistogram({
                         data={data.data}
                         className="w-full h-full"
                         onSelectionChange={onSelectionChange}
-                        withXScale={withCategoryXScale}
+                        withXScale={categoryDurationXScale}
                         renderLabel={(label) => label}
                         tooltipRowCutoff={100}
                         hideZerosInTooltip
