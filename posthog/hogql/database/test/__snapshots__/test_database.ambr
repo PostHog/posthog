@@ -6367,16 +6367,6 @@
                   "table": null,
                   "type": "string"
               },
-              "status": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "status",
-                  "id": null,
-                  "name": "status",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
-              },
               "confidence": {
                   "chain": null,
                   "fields": null,
@@ -15168,16 +15158,6 @@
                   "hogql_value": "via",
                   "id": null,
                   "name": "via",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
-              },
-              "status": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "status",
-                  "id": null,
-                  "name": "status",
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
