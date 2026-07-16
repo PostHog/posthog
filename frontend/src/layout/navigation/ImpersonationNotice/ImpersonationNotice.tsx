@@ -41,15 +41,7 @@ function ChangeUserMenuItemLabel({ member }: { member: OrganizationMemberType })
     )
 }
 
-function CountDown({
-    datetime,
-    callback,
-    className,
-}: {
-    datetime: dayjs.Dayjs
-    callback?: () => void
-    className?: string
-}): JSX.Element {
+function CountDown({ datetime, callback }: { datetime: dayjs.Dayjs; callback?: () => void }): JSX.Element {
     const [now, setNow] = useState(() => dayjs())
     const { isVisible: isPageVisible } = usePageVisibility()
 
@@ -78,7 +70,7 @@ function CountDown({
         }
     }, [pastCountdown, callback])
 
-    return <span className={cn('tabular-nums', className)}>{countdown}</span>
+    return <span className="tabular-nums">{countdown}</span>
 }
 
 function LoginAsContent({
@@ -221,19 +213,20 @@ function ImpersonationNoticeContent(): JSX.Element {
                 .
             </p>
             {user?.is_impersonated_until && (
-                <LemonButton
-                    size="xsmall"
-                    icon={<IconRefresh />}
-                    onClick={() => loadUser()}
-                    loading={userLoading}
-                    tooltip="Refresh"
-                    className="ImpersonationNotice__expiry"
-                >
+                <div className="ImpersonationNotice__expiry">
                     <span>
                         Expires in{' '}
                         <CountDown datetime={dayjs(user.is_impersonated_until)} callback={handleSessionExpired} />
                     </span>
-                </LemonButton>
+                    <LemonButton
+                        type="secondary"
+                        size="xxsmall"
+                        icon={<IconRefresh />}
+                        onClick={() => loadUser()}
+                        loading={userLoading}
+                        tooltip="Refresh"
+                    />
+                </div>
             )}
             <div className="flex gap-2 justify-end">
                 {isReadOnly && (

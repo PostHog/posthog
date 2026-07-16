@@ -177,11 +177,17 @@
         border-radius: var(--radius);
     }
 
-    &__expiry.LemonButton {
-        --lemon-button-color: var(--color-text-tertiary);
-        --lemon-button-font-size: var(--text-xs);
+    &__expiry {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        font-size: var(--text-xs);
+        color: var(--color-text-tertiary);
 
-        align-self: flex-start;
+        // Match the refresh icon to the subtle expiry text.
+        .LemonButton {
+            --lemon-button-color: var(--color-text-tertiary);
+        }
     }
 }
 
