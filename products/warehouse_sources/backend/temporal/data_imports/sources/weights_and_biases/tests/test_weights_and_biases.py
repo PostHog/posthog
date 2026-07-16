@@ -359,6 +359,24 @@ class TestErrors:
         with pytest.raises(ValueError, match="Unknown Weights & Biases endpoint"):
             list(get_rows("key", None, "acme", "nope", mock.MagicMock(), _make_manager()))
 
+    @mock.patch(f"{_MODULE}.MAX_PAGES_PER_CONNECTION", 3)
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_pagination_stops_at_page_cap(self, mock_session):
+        # A hostile host that returns hasNextPage=true with a fresh cursor forever must not loop
+        # indefinitely — the page cap bounds it.
+        counter = {"n": 0}
+
+        def endless_post(*args, **kwargs):
+            counter["n"] += 1
+            return _projects_response([f"proj-{counter['n']}"], has_next=True, end_cursor=f"c{counter['n']}")
+
+        mock_session.return_value.post.side_effect = endless_post
+
+        batches = list(get_rows("key", None, "acme", "projects", mock.MagicMock(), _make_manager()))
+
+        assert mock_session.return_value.post.call_count == 3
+        assert len(batches) == 3
+
     @mock.patch(f"{_MODULE}.MAX_RESPONSE_BYTES", 16)
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_oversized_response_body_is_rejected(self, mock_session):

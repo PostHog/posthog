@@ -25,6 +25,11 @@ MAX_RETRY_ATTEMPTS = 5
 # under this; the cap only exists to stop a hostile or misconfigured host exhausting a shared
 # warehouse worker with an unbounded (or slowly streamed) response.
 MAX_RESPONSE_BYTES = 100 * 1024 * 1024
+# Bound pagination against a hostile or misconfigured host that keeps returning
+# hasNextPage=true with a fresh cursor forever (matching sibling sources). At PAGE_SIZE=50 this
+# is 5M rows per connection — far beyond any real entity — so a legitimate sync never hits it,
+# while a runaway server can't loop indefinitely or grow the enumerated project list without end.
+MAX_PAGES_PER_CONNECTION = 100_000
 
 # Advertised incremental field (row column, camelCase as the API returns it) -> the ascending
 # order key the runs connection accepts. Both filter + order verified against the live API.
@@ -278,6 +283,7 @@ def _iter_connection(
     query: str,
     variables: dict[str, Any],
     connection_path: tuple[str, ...],
+    logger: FilteringBoundLogger,
     after: str | None = None,
 ) -> Iterator[tuple[list[dict[str, Any]], str | None, bool]]:
     """Yield (edges, end_cursor, has_next) pages of a Relay connection.
@@ -285,9 +291,10 @@ def _iter_connection(
     Termination follows pageInfo, not edge count: the API returns empty edges with
     hasNextPage=true for pages whose rows are hidden from the caller (verified live), so
     stopping on an empty page would silently truncate. A non-advancing cursor breaks the
-    loop as a guard against looping on the same page forever.
+    loop as a guard against looping on the same page forever, and MAX_PAGES_PER_CONNECTION
+    caps a host that keeps advancing the cursor indefinitely.
     """
-    while True:
+    for _ in range(MAX_PAGES_PER_CONNECTION):
         data = execute(query, {**variables, "after": after})
         connection: Any = data
         for key in connection_path:
@@ -306,10 +313,16 @@ def _iter_connection(
             return
         after = end_cursor
 
+    logger.warning(
+        f"Weights & Biases: hit the {MAX_PAGES_PER_CONNECTION}-page cap for {connection_path}, stopping pagination"
+    )
 
-def _iter_all_project_names(execute: Callable[[str, dict[str, Any]], dict[str, Any]], entity: str) -> Iterator[str]:
+
+def _iter_all_project_names(
+    execute: Callable[[str, dict[str, Any]], dict[str, Any]], entity: str, logger: FilteringBoundLogger
+) -> Iterator[str]:
     for edges, _end_cursor, _has_next in _iter_connection(
-        execute, _PROJECTS_QUERY, {"entity": entity, "first": PAGE_SIZE}, ("models",)
+        execute, _PROJECTS_QUERY, {"entity": entity, "first": PAGE_SIZE}, ("models",), logger
     ):
         for edge in edges:
             node = edge.get("node")
@@ -322,9 +335,10 @@ def _get_project_rows(
     entity: str,
     after: str | None,
     resumable_source_manager: ResumableSourceManager[WeightsAndBiasesResumeConfig],
+    logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
     for edges, end_cursor, has_next in _iter_connection(
-        execute, _PROJECTS_QUERY, {"entity": entity, "first": PAGE_SIZE}, ("models",), after=after
+        execute, _PROJECTS_QUERY, {"entity": entity, "first": PAGE_SIZE}, ("models",), logger, after=after
     ):
         rows = [edge["node"] for edge in edges if edge.get("node")]
         if rows:
@@ -369,8 +383,11 @@ def _get_fan_out_rows(
     project: str,
     after: str | None,
     resumable_source_manager: ResumableSourceManager[WeightsAndBiasesResumeConfig],
+    logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
-    for edges, end_cursor, has_next in _iter_connection(execute, query, variables, connection_path, after=after):
+    for edges, end_cursor, has_next in _iter_connection(
+        execute, query, variables, connection_path, logger, after=after
+    ):
         rows = [{**edge["node"], "projectName": project} for edge in edges if edge.get("node")]
         if rows:
             yield rows
@@ -382,11 +399,14 @@ def _get_artifact_rows(
     execute: Callable[[str, dict[str, Any]], dict[str, Any]],
     entity: str,
     project: str,
+    logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
     """Walk project -> artifact types -> collections -> versions, one row per artifact version."""
     base = {"entity": entity, "project": project, "first": PAGE_SIZE}
 
-    for type_edges, _c, _h in _iter_connection(execute, _ARTIFACT_TYPES_QUERY, base, ("project", "artifactTypes")):
+    for type_edges, _c, _h in _iter_connection(
+        execute, _ARTIFACT_TYPES_QUERY, base, ("project", "artifactTypes"), logger
+    ):
         for type_edge in type_edges:
             type_name = (type_edge.get("node") or {}).get("name")
             if not type_name:
@@ -397,6 +417,7 @@ def _get_artifact_rows(
                 _ARTIFACT_COLLECTIONS_QUERY,
                 {**base, "type": type_name},
                 ("project", "artifactType", "artifactCollections"),
+                logger,
             ):
                 for collection_edge in collection_edges:
                     collection_name = (collection_edge.get("node") or {}).get("name")
@@ -408,6 +429,7 @@ def _get_artifact_rows(
                         _ARTIFACTS_QUERY,
                         {**base, "type": type_name, "collection": collection_name},
                         ("project", "artifactType", "artifactCollection", "artifacts"),
+                        logger,
                     ):
                         rows = [
                             {
@@ -455,13 +477,13 @@ def get_rows(
 
     if endpoint == "projects":
         after = resume.cursor if resume else None
-        yield from _get_project_rows(execute, entity, after, resumable_source_manager)
+        yield from _get_project_rows(execute, entity, after, resumable_source_manager, logger)
         return
 
     # Fan-out endpoints iterate every project in the entity. Resolve the saved project-name
     # bookmark to the slice still to process; if the bookmarked project no longer exists,
     # start over from the first project (merge dedupes re-pulled rows on the primary key).
-    project_names = list(_iter_all_project_names(execute, entity))
+    project_names = list(_iter_all_project_names(execute, entity, logger))
     remaining = project_names
     resume_cursor: str | None = None
     if resume is not None and resume.project is not None and resume.project in project_names:
@@ -475,7 +497,14 @@ def get_rows(
                 entity, project, should_use_incremental_field, db_incremental_field_last_value, incremental_field
             )
             yield from _get_fan_out_rows(
-                execute, _RUNS_QUERY, variables, ("project", "runs"), project, resume_cursor, resumable_source_manager
+                execute,
+                _RUNS_QUERY,
+                variables,
+                ("project", "runs"),
+                project,
+                resume_cursor,
+                resumable_source_manager,
+                logger,
             )
         elif endpoint == "sweeps":
             yield from _get_fan_out_rows(
@@ -486,6 +515,7 @@ def get_rows(
                 project,
                 resume_cursor,
                 resumable_source_manager,
+                logger,
             )
         elif endpoint == "reports":
             yield from _get_fan_out_rows(
@@ -496,9 +526,10 @@ def get_rows(
                 project,
                 resume_cursor,
                 resumable_source_manager,
+                logger,
             )
         else:  # artifacts
-            yield from _get_artifact_rows(execute, entity, project)
+            yield from _get_artifact_rows(execute, entity, project, logger)
 
         resume_cursor = None  # only the resumed-into project uses the saved cursor
         # Advance the bookmark so a crash between projects resumes at the next one.
