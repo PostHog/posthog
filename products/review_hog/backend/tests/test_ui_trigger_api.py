@@ -6,6 +6,8 @@ from django.test import override_settings
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.egress.github.transport import GitHubRateLimitError
+
 from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError
 
@@ -136,6 +138,28 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
         self.assertEqual(resp.status_code, expected_status, resp.content)
         self.assertEqual(resp.json()["status"], expected_marker)
         self.assertEqual(mock_start.called, starts)
+
+    @parameterized.expand(
+        [
+            ("at_access_check", _ACCESS),
+            ("at_pr_fetch", _META),
+        ]
+    )
+    @patch(_START)
+    def test_github_rate_limit_maps_to_the_shared_429(self, _name, rate_limited_call, mock_start):
+        # Both GitHub calls must map through github_rate_limited_response — an unwrapped call
+        # surfaces a 500 to the person clicking Review, exactly during retry-prone windows.
+        with (
+            override_settings(REVIEWHOG_TEAM_ID=self.team.id),
+            patch(_ACCESS, return_value=object()),
+            patch(rate_limited_call, side_effect=GitHubRateLimitError("rate limited", retry_after=30)),
+        ):
+            resp = self._trigger("https://github.com/PostHog/posthog.com/pull/9")
+
+        self.assertEqual(resp.status_code, status.HTTP_429_TOO_MANY_REQUESTS, resp.content)
+        self.assertEqual(resp.json()["code"], "rate_limited")
+        self.assertEqual(resp["Retry-After"], "30")
+        mock_start.assert_not_called()
 
     @parameterized.expand(
         [

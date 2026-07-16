@@ -15,7 +15,9 @@ from rest_framework.exceptions import NotFound
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.integration import github_rate_limited_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.integration import GitHubIntegration
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.user import User
@@ -591,6 +593,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                 response=ReviewTriggerErrorSerializer,
                 description="The ReviewHog UI trigger is not enabled for this project.",
             ),
+            429: OpenApiResponse(description="GitHub rate-limited the App's token; retry after the Retry-After delay."),
         },
         summary="Start a review of a pull request",
         description="Start a ReviewHog review of any pull request the project's GitHub App installation can "
@@ -626,7 +629,10 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         repository = f"{pr_info['owner']}/{pr_info['repo']}"
         # Checked synchronously (one GitHub API call) so an inaccessible repo errors here, in the UI —
         # asynchronously the fetch activity would fail before the report row exists, showing nothing.
-        github = GitHubIntegration.first_for_team_repository(team_id, repository)
+        try:
+            github = GitHubIntegration.first_for_team_repository(team_id, repository)
+        except GitHubRateLimitError as e:
+            return github_rate_limited_response(e)
         if github is None:
             return Response(
                 {
@@ -641,6 +647,8 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         # keeps the authoritative fork gate.
         try:
             pr_meta = _fetch_pr_metadata(github, str(pr_info["owner"]), str(pr_info["repo"]), pr_number)
+        except GitHubRateLimitError as e:
+            return github_rate_limited_response(e)
         except GitHubAPIError as e:
             if e.status == 404:
                 return Response(
