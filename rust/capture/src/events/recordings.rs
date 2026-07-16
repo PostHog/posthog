@@ -17,7 +17,7 @@ use common_types::{CapturedEvent, HasEventName};
 use limiters::redis::RedisLimiter;
 use metrics::{counter, histogram};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::Value;
 use tokio::time::Instant;
 use tracing::{error, instrument, Span};
 use uuid::Uuid;
@@ -443,6 +443,33 @@ pub async fn serialize_snapshot_data_async(
     })
 }
 
+/// Serialized via structs (not a `json!` map) because field order is a contract: struct fields
+/// serialize in declaration order, and `$snapshot_items` must come last — the ml-mirror
+/// anonymizer reads `$snapshot_host` from the envelope prefix and stops at the items without
+/// traversing them, silently ignoring anything behind (uniform collapse-all).
+#[derive(Serialize)]
+struct SnapshotItemsMessage<'a> {
+    event: &'static str,
+    properties: SnapshotItemsProperties<'a>,
+}
+
+#[derive(Serialize)]
+struct SnapshotItemsProperties<'a> {
+    distinct_id: &'a str,
+    #[serde(rename = "$session_id")]
+    session_id: &'a Value,
+    #[serde(rename = "$window_id")]
+    window_id: &'a Value,
+    #[serde(rename = "$snapshot_source")]
+    snapshot_source: &'a Value,
+    #[serde(rename = "$lib")]
+    lib: &'a str,
+    #[serde(rename = "$snapshot_host", skip_serializing_if = "Option::is_none")]
+    snapshot_host: Option<&'a Value>,
+    #[serde(rename = "$snapshot_items")]
+    snapshot_items: &'a Vec<Value>,
+}
+
 /// Synchronously serialize snapshot data to JSON string
 /// This function is CPU-intensive and should be called from a blocking thread pool
 pub fn serialize_snapshot_data_sync(
@@ -454,21 +481,19 @@ pub fn serialize_snapshot_data_sync(
     snapshot_items: &Vec<Value>,
     snapshot_library: &String,
 ) -> String {
-    let mut data = json!({
-        "event": "$snapshot_items",
-        "properties": {
-            "distinct_id": distinct_id,
-            "$session_id": session_id,
-            "$window_id": window_id,
-            "$snapshot_source": snapshot_source,
-            "$snapshot_items": snapshot_items,
-            "$lib": snapshot_library,
-        }
-    });
-    if let Some(host) = snapshot_host {
-        data["properties"]["$snapshot_host"] = host.clone();
-    }
-    data.to_string()
+    serde_json::to_string(&SnapshotItemsMessage {
+        event: "$snapshot_items",
+        properties: SnapshotItemsProperties {
+            distinct_id,
+            session_id,
+            window_id,
+            snapshot_source,
+            lib: snapshot_library,
+            snapshot_host,
+            snapshot_items,
+        },
+    })
+    .expect("string keys and plain values cannot fail to serialize")
 }
 
 fn snapshot_library_fallback_from(user_agent: Option<&String>) -> Option<String> {
@@ -781,6 +806,23 @@ mod tests {
                 expected.map(|h| json!(h)).as_ref(),
                 "stamp={stamp:?}"
             );
+            if expected.is_some() {
+                // Byte order is a contract: the anonymizer reads the stamp from the envelope
+                // prefix and stops at `$snapshot_items` without traversing it, so a stamp
+                // serialized after the items is silently ignored (collapse-all). Key form (with
+                // colon) — the bare string also occurs as the `event` name value.
+                let raw = &captured[0].event.data;
+                let host_at = raw
+                    .find("\"$snapshot_host\":")
+                    .expect("stamp key in output");
+                let items_at = raw
+                    .find("\"$snapshot_items\":")
+                    .expect("items key in output");
+                assert!(
+                    host_at < items_at,
+                    "$snapshot_host must serialize before $snapshot_items"
+                );
+            }
         }
     }
 
