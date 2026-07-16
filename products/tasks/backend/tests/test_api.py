@@ -1860,6 +1860,7 @@ class TestTaskAPI(BaseTaskAPITest):
         task_run = task.runs.latest("created_at")
         self.assertEqual(task_run.imported_mcp_servers, servers)
         self.assertNotIn("imported_mcp_servers", task_run.state)
+        self.assertNotIn("imported_mcp_servers", json.dumps(response.json()))
 
     # FORCE_URL_VALIDATION exercises the real SSRF guard; otherwise is_url_allowed short-circuits in tests.
     @override_settings(FORCE_URL_VALIDATION=True)

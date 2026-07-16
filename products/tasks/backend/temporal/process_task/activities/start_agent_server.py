@@ -188,20 +188,16 @@ def _include_personal_mcp_for_task(task: Task) -> bool:
     return not task.internal
 
 
-def _imported_mcp_configs_for(ctx: TaskProcessingContext, existing_names: set[str]) -> list[McpServerConfig]:
+def _imported_mcp_configs_for(
+    ctx: TaskProcessingContext, task_run: TaskRun | None, existing_names: set[str]
+) -> list[McpServerConfig]:
     """Client-imported MCP servers persisted on the run at creation time.
 
     codex-acp hard-fails the session when any configured MCP server is
     unreachable and the sandbox does no reachability pruning, so imported
     servers are claude-only for now (an unset adapter defaults to claude).
     """
-    if ctx.runtime_adapter not in (None, RuntimeAdapter.CLAUDE.value):
-        return []
-    try:
-        task_run = TaskRun.objects.only("id", "imported_mcp_servers").get(
-            id=ctx.run_id, task_id=ctx.task_id, team_id=ctx.team_id
-        )
-    except TaskRun.DoesNotExist:
+    if task_run is None or ctx.runtime_adapter not in (None, RuntimeAdapter.CLAUDE.value):
         return []
     return build_imported_mcp_server_configs(task_run.imported_mcp_servers, existing_names)
 
@@ -226,9 +222,12 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes) -> _La
     # Django ASGI short-circuit. Only meaningful once sequenced ingest is enabled. Unset means
     # the agent falls back to POSTHOG_API_URL (Django).
     event_ingest_url: str | None = settings.TASKS_AGENT_PROXY_INGEST_URL if event_stream_ingest_enabled else None
+    # Fetched once; serves both the ingest token and the imported MCP servers below.
+    task_run = TaskRun.objects.filter(id=ctx.run_id, task_id=ctx.task_id, team_id=ctx.team_id).first()
     if event_stream_ingest_enabled:
         try:
-            task_run = TaskRun.objects.get(id=ctx.run_id, task_id=ctx.task_id, team_id=ctx.team_id)
+            if task_run is None:
+                raise TaskRun.DoesNotExist(f"TaskRun {ctx.run_id} not found")
             event_ingest_token = create_sandbox_event_ingest_token(task_run)
         except Exception as e:
             raise SandboxExecutionError(
@@ -255,7 +254,9 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes) -> _La
     if user_mcp_configs:
         mcp_configs = mcp_configs + user_mcp_configs
 
-    imported_mcp_configs = _imported_mcp_configs_for(ctx, existing_names={config.name for config in mcp_configs})
+    imported_mcp_configs = _imported_mcp_configs_for(
+        ctx, task_run, existing_names={config.name for config in mcp_configs}
+    )
     if imported_mcp_configs:
         mcp_configs = mcp_configs + imported_mcp_configs
 
