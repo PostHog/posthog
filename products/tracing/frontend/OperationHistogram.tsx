@@ -65,8 +65,12 @@ export function OperationHistogram({
         const startIndexRaw = bucketsNs.indexOf(snapDurationToBucket(selection.minNs))
         // maxNs is the exclusive upper edge — the highlight ends at the bar before it.
         const endIndexRaw = bucketsNs.indexOf(snapDurationToBucket(selection.maxNs))
-        const startIndex = startIndexRaw === -1 ? 0 : startIndexRaw
-        const endIndex = endIndexRaw === -1 ? bucketsNs.length : endIndexRaw
+        // An off-axis edge clamps toward its near end; a selection entirely off the axis
+        // (e.g. persisted before a date change reshaped the distribution) collapses to
+        // start >= end and renders no highlight.
+        const startIndex = startIndexRaw !== -1 ? startIndexRaw : selection.minNs <= bucketsNs[0] ? 0 : bucketsNs.length
+        const endIndex =
+            endIndexRaw !== -1 ? endIndexRaw : selection.maxNs > bucketsNs[bucketsNs.length - 1] ? bucketsNs.length : 0
         if (startIndex >= endIndex) {
             return null
         }
