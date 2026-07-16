@@ -601,16 +601,6 @@ export const OriginProductEnumApi = {
 } as const
 
 /**
- * * `implementation` - Implementation
- */
-export type SignalReportTaskRelationshipEnumApi =
-    (typeof SignalReportTaskRelationshipEnumApi)[keyof typeof SignalReportTaskRelationshipEnumApi]
-
-export const SignalReportTaskRelationshipEnumApi = {
-    Implementation: 'implementation',
-} as const
-
-/**
  * * `claude` - claude
  * * `codex` - codex
  */
@@ -695,7 +685,11 @@ export interface TaskWriteApi {
      * @nullable
      */
     signal_report?: string | null
-    signal_report_task_relationship?: SignalReportTaskRelationshipEnumApi
+    /**
+     * How the created task relates to the signal report (e.g. 'implementation', 'discussion', 'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted.
+     * @maxLength 200
+     */
+    signal_report_task_relationship?: string
     /** JSON schema used to validate the output of the task. */
     json_schema?: unknown
     /** If true, this task is for internal use and should not be exposed to end users. */
@@ -810,7 +804,11 @@ export interface PatchedTaskWriteApi {
      * @nullable
      */
     signal_report?: string | null
-    signal_report_task_relationship?: SignalReportTaskRelationshipEnumApi
+    /**
+     * How the created task relates to the signal report (e.g. 'implementation', 'discussion', 'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted.
+     * @maxLength 200
+     */
+    signal_report_task_relationship?: string
     /** JSON schema used to validate the output of the task. */
     json_schema?: unknown
     /** If true, this task is for internal use and should not be exposed to end users. */
@@ -2281,6 +2279,24 @@ export interface PaginatedTaskThreadMessageDTOListApi {
 export interface TaskThreadMessageWriteApi {
     /** Message text. */
     content: string
+}
+
+/**
+ * The team's active onboarding wizard cloud run, used to rehydrate
+ * the setup-progress FAB when the run was started server-side (drop flow).
+ */
+export interface WizardCloudRunDTOApi {
+    /** Id of the onboarding wizard task. */
+    task_id: string
+    /** Id of the task's latest run, for reconnecting to its progress stream. */
+    run_id: string
+    /** Latest run status (e.g. queued, in_progress, completed, failed). */
+    status: string
+    /**
+     * When the run was created, for the FAB's elapsed timer.
+     * @nullable
+     */
+    started_at?: string | null
 }
 
 export interface TaskRepositoriesResponseApi {

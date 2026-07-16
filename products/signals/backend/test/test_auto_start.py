@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from django.apps import apps
 
+from asgiref.sync import sync_to_async
 from social_django.models import UserSocialAuth
 
 from posthog.models import Organization, Team, User
@@ -19,6 +20,7 @@ from products.signals.backend.auto_start import (
     _resolve_autostart_assignee,
     _resolve_autostart_fallback_user,
     _resolve_triggering_user,
+    maybe_autostart_implementation_task,
 )
 from products.signals.backend.models import (
     SignalReport,
@@ -26,9 +28,15 @@ from products.signals.backend.models import (
     SignalReportTask,
     SignalScoutRun,
     SignalSourceConfig,
+    SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
-from products.signals.backend.report_generation.research import Priority
+from products.signals.backend.report_generation.research import (
+    ActionabilityAssessment,
+    ActionabilityChoice,
+    Priority,
+    PriorityAssessment,
+)
 from products.signals.backend.task_run_artefacts import TASK_RUN_TYPE_IMPLEMENTATION, signals_task_ids
 from products.signals.backend.test.test_billing import _seed_canonical_scout_skill
 from products.tasks.backend.facade import api as tasks_facade
@@ -368,3 +376,64 @@ def test_create_implementation_task_threads_resolved_runtime(organization, team)
     assert call_kwargs["runtime_adapter"] == "codex"
     assert call_kwargs["model"] == "gpt-5.6-terra"
     assert call_kwargs["reasoning_effort"] == "medium"
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("autostart_enabled", [True, False, None])
+async def test_team_autostart_switch_gates_reviewerless_fallback(autostart_enabled):
+    # The master switch must gate the reviewer-less fallback — the path email-login teams (no linked
+    # GitHub) hit. An actionable, prioritized report with no resolvable reviewer auto-starts under the
+    # team's signals enabler unless the switch is an explicit False (null leaves autostart on); committed
+    # rows are required because the fallback resolves its runner via a thread_sensitive=False executor.
+    Task = apps.get_model("tasks", "Task")
+    TaskRun = apps.get_model("tasks", "TaskRun")
+
+    def _setup() -> tuple[Team, SignalReport]:
+        organization = Organization.objects.create(name="switch-org")
+        team = Team.objects.create(organization=organization, name="switch-team")
+        enabler = User.objects.create(email="enabler@example.com")
+        OrganizationMembership.objects.create(user=enabler, organization=organization)
+        SignalSourceConfig.objects.create(
+            team=team, source_product="error_tracking", source_type="issue_created", created_by=enabler
+        )
+        # A team-extension signal already created the config row on Team.create; flip the switch.
+        SignalTeamConfig.objects.update_or_create(team=team, defaults={"autostart_enabled": autostart_enabled})
+        report = SignalReport.objects.create(
+            team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
+        )
+        return team, report
+
+    team, report = await sync_to_async(_setup)()
+
+    def _fake_create_and_run_task(**kwargs):
+        task = Task.objects.create(
+            team_id=team.id,
+            title=kwargs["title"],
+            description=kwargs["description"],
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+        run = TaskRun.objects.create(task=task, team_id=team.id)
+        return SimpleNamespace(task_id=task.id, team_id=team.id, latest_run=SimpleNamespace(id=run.id))
+
+    pinned = AgentRuntime(runtime_adapter="codex", model="gpt-5.6-terra", reasoning_effort="medium")
+    with (
+        patch.object(tasks_facade, "create_and_run_task", side_effect=_fake_create_and_run_task) as mock_create,
+        patch("products.signals.backend.auto_start.resolve_agent_runtime", return_value=pinned),
+    ):
+        await maybe_autostart_implementation_task(
+            team_id=team.id,
+            report_id=str(report.id),
+            repository="owner/repo",
+            title="t",
+            summary="s",
+            actionability=ActionabilityAssessment(
+                explanation="Clear fix in the affected module.",
+                actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
+                already_addressed=False,
+            ),
+            reviewers_content=[],
+            priority=PriorityAssessment(explanation="Affects many sessions.", priority=Priority.P2),
+        )
+
+    assert (mock_create.call_count == 1) is (autostart_enabled is not False)

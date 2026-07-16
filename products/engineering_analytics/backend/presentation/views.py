@@ -35,6 +35,7 @@ from products.engineering_analytics.backend.facade.contracts import (
 )
 from products.engineering_analytics.backend.presentation.serializers import (
     BranchPRMatchSerializer,
+    BrokenTestsResultSerializer,
     CICardSummarySerializer,
     CIFailureLogsSerializer,
     CurrentBranchHealthSerializer,
@@ -192,6 +193,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         "author_workflow_costs",
         "workflow_jobs",
         "flaky_tests",
+        "broken_tests",
         "repo_overview",
         "repo_run_activity",
         "current_branch_health",
@@ -928,6 +930,37 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         except ValueError as exc:
             return _bad_request(exc, fallback="Invalid date, threshold, limit, or source_id")
         return Response(FlakyTestListSerializer(instance=result).data)
+
+    @extend_schema(
+        operation_id="engineering_analytics_broken_tests",
+        parameters=[_SOURCE_ID],
+        responses={
+            200: BrokenTestsResultSerializer,
+            400: OpenApiResponse(description="Invalid source_id."),
+        },
+        description=(
+            "The broken-tests triage panel: live CI failures over the last 2 days grouped into distinct "
+            "failures (by test id + normalized error signature) and classified by how each is behaving right "
+            "now — breaking trunk, a new failure spreading across branches, probably-resolved, flaky, or one "
+            "PR's own problem — ranked with the most urgent first. Also returns breaking_master_jobs, the "
+            "default-branch jobs whose latest run is red. Reach for this to answer 'what CI failures should I "
+            "care about right now'; expand a row's latest_run_id via run_failure_logs for the failing lines. "
+            "Fingerprinting is pytest-only for now (jest/playwright/cargo failures aren't grouped yet), and "
+            "the breaking/resolved distinction needs the job-level source synced — without it those failures "
+            "fall through to flaky/pr_only rather than being misreported."
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def broken_tests(self, request: Request, **kwargs) -> Response:
+        try:
+            result = api.get_broken_tests(
+                team=self.team,
+                source_id=request.query_params.get("source_id") or None,
+                user_access_control=self.user_access_control,
+            )
+        except ValueError as exc:
+            return _bad_request(exc, fallback="Invalid source_id")
+        return Response(BrokenTestsResultSerializer(instance=result).data)
 
     @extend_schema(
         operation_id="engineering_analytics_repo_overview",

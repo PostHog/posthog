@@ -305,6 +305,7 @@ export interface SignalReportRefundResponseApi {
  * * `logs` - logs
  * * `health_checks` - health_checks
  * * `replay_vision` - replay_vision
+ * * `analytics` - analytics
  */
 export type SignalSourceProductApi = (typeof SignalSourceProductApi)[keyof typeof SignalSourceProductApi]
 
@@ -323,6 +324,7 @@ export const SignalSourceProductApi = {
     Logs: 'logs',
     HealthChecks: 'health_checks',
     ReplayVision: 'replay_vision',
+    Analytics: 'analytics',
 } as const
 
 /**
@@ -341,6 +343,7 @@ export const SignalSourceProductApi = {
  * * `alert_state_change` - alert_state_change
  * * `health_issue` - health_issue
  * * `scanner_finding` - scanner_finding
+ * * `anomaly_investigation` - anomaly_investigation
  */
 export type SignalSourceTypeApi = (typeof SignalSourceTypeApi)[keyof typeof SignalSourceTypeApi]
 
@@ -360,6 +363,7 @@ export const SignalSourceTypeApi = {
     AlertStateChange: 'alert_state_change',
     HealthIssue: 'health_issue',
     ScannerFinding: 'scanner_finding',
+    AnomalyInvestigation: 'anomaly_investigation',
 } as const
 
 export type ProblemTypeEnumApi = (typeof ProblemTypeEnumApi)[keyof typeof ProblemTypeEnumApi]
@@ -590,6 +594,33 @@ export interface ReplayVisionScannerFindingSignalExtraApi {
     recording_active_seconds?: number | null
 }
 
+/**
+ * * `true_positive` - true_positive
+ * * `false_positive` - false_positive
+ * * `inconclusive` - inconclusive
+ */
+export type InvestigationVerdictEnumApi = (typeof InvestigationVerdictEnumApi)[keyof typeof InvestigationVerdictEnumApi]
+
+export const InvestigationVerdictEnumApi = {
+    TruePositive: 'true_positive',
+    FalsePositive: 'false_positive',
+    Inconclusive: 'inconclusive',
+} as const
+
+export interface AnalyticsAnomalyInvestigationSignalExtraApi {
+    alert_id: string
+    alert_name: string
+    alert_check_id: string
+    insight_id: string
+    detector_type: string
+    verdict: InvestigationVerdictEnumApi
+    url: string
+    insight_name?: string | null
+    insight_short_id?: string | null
+    triggered_dates?: string[] | null
+    notebook_short_id?: string | null
+}
+
 export type HealthCheckSignalExtraSeverityEnumApi =
     (typeof HealthCheckSignalExtraSeverityEnumApi)[keyof typeof HealthCheckSignalExtraSeverityEnumApi]
 
@@ -628,6 +659,7 @@ export type SignalExtraApi =
     | SignalsScoutSignalExtraApi
     | LogsAlertStateChangeSignalExtraApi
     | ReplayVisionScannerFindingSignalExtraApi
+    | AnalyticsAnomalyInvestigationSignalExtraApi
     | HealthCheckSignalExtraApi
 
 export interface SpecificityMetadataApi {
@@ -681,7 +713,8 @@ export interface SignalNodeApi {
      * * `signals_scout` - signals_scout
      * * `logs` - logs
      * * `health_checks` - health_checks
-     * * `replay_vision` - replay_vision */
+     * * `replay_vision` - replay_vision
+     * * `analytics` - analytics */
     source_product: SignalSourceProductApi
     /** Signal type within the source product.
      *
@@ -699,7 +732,8 @@ export interface SignalNodeApi {
      * * `cross_source_issue` - cross_source_issue
      * * `alert_state_change` - alert_state_change
      * * `health_issue` - health_issue
-     * * `scanner_finding` - scanner_finding */
+     * * `scanner_finding` - scanner_finding
+     * * `anomaly_investigation` - anomaly_investigation */
     source_type: SignalSourceTypeApi
     /** Emitter-scoped id of the underlying object (issue, ticket, ...). */
     source_id: string
@@ -1087,7 +1121,7 @@ export interface PatchedSignalScoutConfigApi {
  *
  * The run executes asynchronously on the Temporal worker, so there is no `SignalScoutRun`
  * row yet at response time — the bridge row is created once the run's first turn starts.
- * Poll the scout's runs (`signals-scout-runs-list`) to see the resulting run and its findings.
+ * Poll the scout's runs (`scout-runs-list`) to see the resulting run and its findings.
  */
 export interface SignalScoutManualRunApi {
     /** The `signals-scout-*` skill that was dispatched. */
@@ -1902,11 +1936,11 @@ export interface SignalScoutRunDetailApi {
  */
 export interface SuggestedReviewerApi {
     /**
-     * GitHub login (case-insensitive, stored lowercased) — e.g. `octocat`, no `@`, no display name. Resolve one via `signals-scout-members-list` (each member row carries a resolved `github_login`) or git history when you only have a name.
+     * GitHub login (case-insensitive, stored lowercased) — e.g. `octocat`, no `@`, no display name. Resolve one via `scout-members-list` (each member row carries a resolved `github_login`) or git history when you only have a name.
      * @maxLength 200
      */
     github_login?: string
-    /** PostHog user UUID (e.g. from `signals-scout-members-list`, or an entity's `created_by`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here. */
+    /** PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here. */
     user_uuid?: string
 }
 
@@ -1969,7 +2003,7 @@ export const AutonomyPriorityEnumApi = {
 
 /**
  * One finding a scout run emitted to the inbox — the persisted, queryable record of
- * *what* the run surfaced, returned by `signals-scout-runs-emissions-list`. The emitted text
+ * *what* the run surfaced, returned by `scout-runs-emissions-list`. The emitted text
  * lives in `description`; `source_id` is the join key (`run:<run_id>:finding:<finding_id>`)
  * back into the underlying signal store.
  */
@@ -2361,6 +2395,7 @@ export interface ForgetResponseApi {
  * * `health_checks` - Health checks
  * * `endpoints` - Endpoints
  * * `replay_vision` - Replay Vision
+ * * `analytics` - Product analytics
  */
 export type SignalSourceConfigSourceProductEnumApi =
     (typeof SignalSourceConfigSourceProductEnumApi)[keyof typeof SignalSourceConfigSourceProductEnumApi]
@@ -2380,6 +2415,7 @@ export const SignalSourceConfigSourceProductEnumApi = {
     HealthChecks: 'health_checks',
     Endpoints: 'endpoints',
     ReplayVision: 'replay_vision',
+    Analytics: 'analytics',
 } as const
 
 /**
@@ -2397,6 +2433,7 @@ export const SignalSourceConfigSourceProductEnumApi = {
  * * `endpoint_execution_failed` - Endpoint execution failed
  * * `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded
  * * `scanner_finding` - Scanner finding
+ * * `anomaly_investigation` - Anomaly investigation
  */
 export type SignalSourceConfigSourceTypeEnumApi =
     (typeof SignalSourceConfigSourceTypeEnumApi)[keyof typeof SignalSourceConfigSourceTypeEnumApi]
@@ -2416,6 +2453,7 @@ export const SignalSourceConfigSourceTypeEnumApi = {
     EndpointExecutionFailed: 'endpoint_execution_failed',
     EndpointBreakdownLimitExceeded: 'endpoint_breakdown_limit_exceeded',
     ScannerFinding: 'scanner_finding',
+    AnomalyInvestigation: 'anomaly_investigation',
 } as const
 
 export interface SignalSourceConfigApi {
@@ -2500,6 +2538,10 @@ export type SignalsReportsListParams = {
      * Filter reports by whether a shipped implementation pull request exists. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with limit=1 to count PR reports cheaply.
      */
     has_implementation_pr?: boolean
+    /**
+     * When true, the list includes reports in every status with no default exclusions applied — currently that adds suppressed (dismissed) reports, which are otherwise hidden. Use it to see the full inbox state (e.g. deduplicating before creating a report) and read each row's status (plus dismissal_reason/dismissal_note on dismissed rows) before acting. Deleted reports are terminal and never returned. Defaults to false, which keeps the existing default exclusions. Ignored when an explicit 'status' filter is set — that filter alone decides which statuses are returned.
+     */
+    include_all_statuses?: boolean
     /**
      * Number of results to return per page.
      */

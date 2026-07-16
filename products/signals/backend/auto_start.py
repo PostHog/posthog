@@ -448,6 +448,14 @@ async def maybe_autostart_implementation_task(
     assert priority is not None  # narrowed by the `priority is None` skip_reason guard above
 
     team_config = await SignalTeamConfig.objects.filter(team_id=team_id).afirst()
+    if team_config and team_config.autostart_enabled is False:
+        # Master switch: an explicit opt-out means no path (reviewer, user-triggered, or reviewer-less
+        # fallback) may auto-start. Null (never set) leaves autostart on, so only False disables here.
+        # Reports still generate and notify.
+        logger.info(
+            "signals auto-start skipped", report_id=report_id, team_id=team_id, reason="autostart disabled for team"
+        )
+        return
     team_default_priority = Priority(team_config.default_autostart_priority) if team_config else Priority.P4
 
     # A user-triggered auto-start runs as the triggering user; otherwise resolve a trusted
