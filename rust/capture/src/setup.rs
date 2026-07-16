@@ -366,6 +366,7 @@ pub async fn build_components(
     assert!(
         config.ai_events_topic_mode == AiSinkMode::Primary
             || config
+                .kafka
                 .ai_events_topic
                 .as_deref()
                 .is_some_and(|t| !t.is_empty()),
@@ -374,7 +375,7 @@ pub async fn build_components(
     );
     info!(
         ai_routing = ?ai_routing,
-        ai_events_topic = ?config.ai_events_topic,
+        ai_events_topic = ?config.kafka.ai_events_topic,
         "AI events topic routing policy"
     );
 
@@ -418,7 +419,6 @@ pub async fn build_components(
         config.capture_v1_scatter_gather_min_batch,
         config.ai_gateway_signing_secret.clone(),
         ai_routing,
-        config.ai_events_topic.clone(),
     );
 
     info!(
@@ -485,7 +485,7 @@ fn create_v1_sink_router(
         .context("v1 sink config validation failed")?;
 
     for cfg in sinks_cfg.configs.values_mut() {
-        cfg.kafka.topic_ai = config.ai_events_topic.clone();
+        cfg.kafka.topic_ai = config.kafka.ai_events_topic.clone();
     }
 
     let mut sink_map: HashMap<crate::v1::sinks::SinkName, Box<dyn crate::v1::sinks::sink::Sink>> =

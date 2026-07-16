@@ -166,6 +166,11 @@ pub enum DataType {
     HeatmapMain,
     ExceptionErrorTracking,
     SnapshotMain,
+    /// Dedicated `$ai_*` lane, mirroring v1's `Destination::AiEvents`. Only
+    /// produced when the deployment's `AiRouting` policy diverts the batch
+    /// token; the kafka sink maps it to `AI_EVENTS_TOPIC`. Like heatmaps and
+    /// exceptions, AI events never overflow and never reroute historical.
+    AiEvents,
 }
 
 impl DataType {
@@ -174,15 +179,26 @@ impl DataType {
     /// `apply_restrictions` so the analytics → exception → heatmap →
     /// ingestion-warning split stays in one place.
     ///
+    /// `route_ai_events` reflects the per-batch `AiRouting` decision,
+    /// mirroring v1's `destination_for_event_name`: when set, `$ai_*` events
+    /// divert to `AiEvents`, winning over historical (in v1 the historical
+    /// reroute only applies to the analytics-main destination). When unset
+    /// the mapping is a strict no-op relative to the pre-AI-lane behavior.
+    ///
     /// `SnapshotMain` is not produced here — replay events arrive on a
     /// separate endpoint and never flow through analytics processing.
-    pub fn from_event_name(event_name: &str, historical_migration: bool) -> Self {
-        match (event_name, historical_migration) {
-            ("$$client_ingestion_warning", _) => Self::ClientIngestionWarning,
-            ("$exception", _) => Self::ExceptionErrorTracking,
-            ("$$heatmap", _) => Self::HeatmapMain,
-            (_, true) => Self::AnalyticsHistorical,
-            (_, false) => Self::AnalyticsMain,
+    pub fn from_event_name(
+        event_name: &str,
+        historical_migration: bool,
+        route_ai_events: bool,
+    ) -> Self {
+        match event_name {
+            "$$client_ingestion_warning" => Self::ClientIngestionWarning,
+            "$exception" => Self::ExceptionErrorTracking,
+            "$$heatmap" => Self::HeatmapMain,
+            _ if route_ai_events && event_name.starts_with("$ai_") => Self::AiEvents,
+            _ if historical_migration => Self::AnalyticsHistorical,
+            _ => Self::AnalyticsMain,
         }
     }
 
@@ -190,9 +206,16 @@ impl DataType {
     /// and snapshots have their own dedicated topics and consumers; they
     /// don't share Redis-backed restriction config with any other pipeline,
     /// so they're not subject to `EventRestrictionService` lookups.
+    ///
+    /// `AiEvents` stays on the analytics pipeline: v1 derives the restriction
+    /// pipeline from the event name (`$ai_*` → analytics) regardless of the
+    /// AI destination, so diverted AI events remain subject to
+    /// analytics-scoped restrictions in both pipelines.
     pub fn pipeline(self) -> Option<Pipeline> {
         match self {
-            Self::AnalyticsMain | Self::AnalyticsHistorical => Some(Pipeline::Analytics),
+            Self::AnalyticsMain | Self::AnalyticsHistorical | Self::AiEvents => {
+                Some(Pipeline::Analytics)
+            }
             Self::ExceptionErrorTracking => Some(Pipeline::ErrorTracking),
             Self::ClientIngestionWarning | Self::HeatmapMain | Self::SnapshotMain => None,
         }
@@ -273,7 +296,54 @@ mod tests {
     use serde::Deserialize;
     use serde_json::json;
 
-    use super::{CaptureError, Compression, RawRequest};
+    use super::{CaptureError, Compression, DataType, RawRequest};
+
+    /// Mirrors v1's `destination_for_event_name` mapping tests: the
+    /// dedicated-name lanes always win, `$ai_*` diverts only when the route
+    /// flag is set (beating historical), and everything else falls through to
+    /// main/historical per the batch flag.
+    #[rstest::rstest]
+    // Dedicated-name lanes are unaffected by both flags.
+    #[case("$exception", false, false, DataType::ExceptionErrorTracking)]
+    #[case("$exception", true, true, DataType::ExceptionErrorTracking)]
+    #[case("$$heatmap", false, false, DataType::HeatmapMain)]
+    #[case("$$heatmap", true, true, DataType::HeatmapMain)]
+    #[case(
+        "$$client_ingestion_warning",
+        false,
+        false,
+        DataType::ClientIngestionWarning
+    )]
+    #[case(
+        "$$client_ingestion_warning",
+        true,
+        true,
+        DataType::ClientIngestionWarning
+    )]
+    // Non-AI events keep the main/historical split.
+    #[case("$pageview", false, false, DataType::AnalyticsMain)]
+    #[case("$pageview", false, true, DataType::AnalyticsMain)]
+    #[case("custom_event", false, true, DataType::AnalyticsMain)]
+    #[case("$pageview", true, false, DataType::AnalyticsHistorical)]
+    #[case("$pageview", true, true, DataType::AnalyticsHistorical)]
+    // $ai_* diverts only when AI routing is enabled, and wins over historical.
+    #[case("$ai_generation", false, true, DataType::AiEvents)]
+    #[case("$ai_span", false, true, DataType::AiEvents)]
+    #[case("$ai_trace", false, true, DataType::AiEvents)]
+    #[case("$ai_generation", true, true, DataType::AiEvents)]
+    #[case("$ai_generation", false, false, DataType::AnalyticsMain)]
+    #[case("$ai_generation", true, false, DataType::AnalyticsHistorical)]
+    fn from_event_name_mapping(
+        #[case] event_name: &str,
+        #[case] historical_migration: bool,
+        #[case] route_ai_events: bool,
+        #[case] expected: DataType,
+    ) {
+        assert_eq!(
+            DataType::from_event_name(event_name, historical_migration, route_ai_events),
+            expected
+        );
+    }
 
     #[test]
     fn decode_compression_param() {

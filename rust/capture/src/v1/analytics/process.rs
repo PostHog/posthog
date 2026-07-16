@@ -570,8 +570,11 @@ async fn apply_restrictions(
         // Derive the pipeline from the event name so each event is matched
         // against the correct restriction slice (Analytics vs ErrorTracking).
         // `pipeline() == None` for heatmaps / ingestion warnings / snapshots
-        // → they pass through unrestricted, exactly as v0 does.
-        let Some(pipeline) = DataType::from_event_name(&event.event.event, false).pipeline() else {
+        // → they pass through unrestricted, exactly as v0 does. Both flags
+        // are irrelevant to the pipeline split: historical and AI events all
+        // resolve to the analytics pipeline either way.
+        let Some(pipeline) = DataType::from_event_name(&event.event.event, false, false).pipeline()
+        else {
             continue;
         };
 

@@ -188,7 +188,6 @@ fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOption
         8,                // capture_v1_scatter_gather_min_batch
         None,             // ai_gateway_signing_secret
         AiRouting::Primary, // ai_routing
-        None,             // ai_events_topic
     );
 
     TestClient::new(app)

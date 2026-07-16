@@ -860,9 +860,6 @@ impl TestStateBuilder {
             capture_v1_scatter_gather_min_batch: 8,
             ai_gateway_signing_secret: self.ai_gateway_signing_secret,
             ai_routing: self.ai_routing,
-            // The v1 pipeline resolves the AI topic from the sink config's
-            // topic_ai, not from this field; see test_kafka_config.
-            ai_events_topic: None,
         };
 
         TestState {

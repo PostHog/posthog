@@ -265,9 +265,10 @@ mod tests {
     #[test]
     fn non_analytics_main_events_are_skipped() {
         // SnapshotMain has its own (replay) overflow path; HeatmapMain,
-        // ExceptionErrorTracking, ClientIngestionWarning, AnalyticsHistorical
-        // never overflow. Even with a limiter that would otherwise force-route
-        // their key, the helper must leave them untouched.
+        // ExceptionErrorTracking, ClientIngestionWarning, AnalyticsHistorical,
+        // and AiEvents never overflow. Even with a limiter that would
+        // otherwise force-route their key, the helper must leave them
+        // untouched.
         let limiter = build_limiter(10, 10, Some("phc_t:u".to_string()), false);
         let mut events = vec![
             build_event(DataType::SnapshotMain, "phc_t", "u", false),
@@ -275,6 +276,7 @@ mod tests {
             build_event(DataType::ExceptionErrorTracking, "phc_t", "u", false),
             build_event(DataType::ClientIngestionWarning, "phc_t", "u", false),
             build_event(DataType::AnalyticsHistorical, "phc_t", "u", false),
+            build_event(DataType::AiEvents, "phc_t", "u", false),
         ];
 
         stamp_overflow_reason(&mut events, Some(&limiter));

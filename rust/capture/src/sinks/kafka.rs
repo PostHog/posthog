@@ -30,7 +30,7 @@ use rdkafka::ClientConfig;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::task::JoinSet;
-use tracing::log::{debug, error, info};
+use tracing::log::{debug, error, info, warn};
 use tracing::{info_span, instrument, Instrument};
 
 use super::producer::RdKafkaProducer;
@@ -181,6 +181,10 @@ pub struct KafkaTopicConfig {
     pub dlq_topic: String,
     pub error_tracking_topic: String,
     pub traces_topic: String,
+    /// Dedicated topic for `DataType::AiEvents` (`AI_EVENTS_TOPIC`). Optional
+    /// because the AI lane is opt-in: startup validation guarantees it is set
+    /// whenever the routing policy can produce `AiEvents` records.
+    pub ai_events_topic: Option<String>,
 }
 
 impl From<&KafkaConfig> for KafkaTopicConfig {
@@ -195,6 +199,7 @@ impl From<&KafkaConfig> for KafkaTopicConfig {
             dlq_topic: config.kafka_dlq_topic.clone(),
             error_tracking_topic: config.kafka_error_tracking_topic.clone(),
             traces_topic: config.kafka_traces_topic.clone(),
+            ai_events_topic: config.ai_events_topic.clone(),
         }
     }
 }
@@ -535,6 +540,23 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
                 DataType::ExceptionErrorTracking => {
                     (&self.topics.error_tracking_topic, Some(event_key.as_str()))
                 }
+                DataType::AiEvents => {
+                    // AI events never overflow and never reroute historical;
+                    // like the exception/heatmap lanes the record keeps its
+                    // event key. An unset topic should be impossible here
+                    // (startup validation requires AI_EVENTS_TOPIC whenever
+                    // the routing policy can produce AiEvents), so fall back
+                    // to the main topic rather than failing the batch.
+                    match self.topics.ai_events_topic.as_deref() {
+                        Some(topic) if !topic.is_empty() => (topic, Some(event_key.as_str())),
+                        _ => {
+                            warn!(
+                                "AI_EVENTS_TOPIC not configured for an AiEvents record; falling back to main topic"
+                            );
+                            (&self.topics.main_topic, Some(event_key.as_str()))
+                        }
+                    }
+                }
                 DataType::SnapshotMain => {
                     let session_id = session_id
                         .as_deref()
@@ -793,6 +815,7 @@ pub(crate) fn test_topics() -> KafkaTopicConfig {
         dlq_topic: "events_plugin_ingestion_dlq".to_string(),
         error_tracking_topic: "error_tracking_events".to_string(),
         traces_topic: "tracing_ingestion".to_string(),
+        ai_events_topic: Some("ai_events".to_string()),
     }
 }
 
@@ -844,6 +867,7 @@ mod tests {
             kafka_heatmaps_topic: "events_plugin_ingestion".to_string(),
             kafka_replay_overflow_topic: "session_recording_snapshot_item_overflow".to_string(),
             kafka_dlq_topic: "events_plugin_ingestion_dlq".to_string(),
+            ai_events_topic: None,
             kafka_traces_topic: "traces_ingestion".to_string(),
             kafka_metrics_topic: "metrics_ingestion".to_string(),
             kafka_tls: false,
@@ -1197,6 +1221,7 @@ mod tests {
         const CLIENT_INGESTION_WARNING_TOPIC: &str = "client_ingestion_warning";
         const REPLAY_OVERFLOW_TOPIC: &str = "replay_overflow";
         const ERROR_TRACKING_TOPIC: &str = "error_tracking_events";
+        const AI_EVENTS_TOPIC: &str = "ai_events";
 
         struct EventInput {
             data_type: DataType,
@@ -1938,6 +1963,185 @@ mod tests {
                 },
             )
             .await;
+        }
+
+        // ==================== AiEvents ====================
+        // The dedicated $ai_* lane behaves like exceptions/heatmaps: routed to
+        // its own topic, keyed on the event key, never overflowed.
+
+        #[tokio::test]
+        async fn ai_events_normal() {
+            assert_routing(
+                EventInput {
+                    data_type: DataType::AiEvents,
+                    force_overflow: false,
+                    skip_person_processing: false,
+                    redirect_to_dlq: false,
+                    redirect_to_topic: None,
+                    overflow_reason: None,
+                },
+                ExpectedRouting {
+                    topic: AI_EVENTS_TOPIC,
+                    has_key: true,
+                    force_disable_person_processing: None,
+                },
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn ai_events_ignores_force_overflow() {
+            // Like historical and the other dedicated lanes, AI events never
+            // overflow; force_overflow is deliberately ignored.
+            assert_routing(
+                EventInput {
+                    data_type: DataType::AiEvents,
+                    force_overflow: true,
+                    skip_person_processing: false,
+                    redirect_to_dlq: false,
+                    redirect_to_topic: None,
+                    overflow_reason: None,
+                },
+                ExpectedRouting {
+                    topic: AI_EVENTS_TOPIC,
+                    has_key: true,
+                    force_disable_person_processing: None,
+                },
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn ai_events_skip_person_keeps_key() {
+            // skip_person_processing sets the header but must not null the
+            // key: v1's sink only nulls keys for Main/Overflow destinations.
+            assert_routing(
+                EventInput {
+                    data_type: DataType::AiEvents,
+                    force_overflow: false,
+                    skip_person_processing: true,
+                    redirect_to_dlq: false,
+                    redirect_to_topic: None,
+                    overflow_reason: None,
+                },
+                ExpectedRouting {
+                    topic: AI_EVENTS_TOPIC,
+                    has_key: true,
+                    force_disable_person_processing: Some(true),
+                },
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn ai_events_redirect_to_dlq() {
+            assert_routing(
+                EventInput {
+                    data_type: DataType::AiEvents,
+                    force_overflow: false,
+                    skip_person_processing: false,
+                    redirect_to_dlq: true,
+                    redirect_to_topic: None,
+                    overflow_reason: None,
+                },
+                ExpectedRouting {
+                    topic: DLQ_TOPIC,
+                    has_key: true,
+                    force_disable_person_processing: None,
+                },
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn ai_events_redirect_to_topic_wins() {
+            // A restriction-driven redirect beats the AI lane, matching v1
+            // where Destination::Custom overwrites Destination::AiEvents.
+            assert_routing(
+                EventInput {
+                    data_type: DataType::AiEvents,
+                    force_overflow: false,
+                    skip_person_processing: false,
+                    redirect_to_dlq: false,
+                    redirect_to_topic: Some("custom_topic".to_string()),
+                    overflow_reason: None,
+                },
+                ExpectedRouting {
+                    topic: "custom_topic",
+                    has_key: true,
+                    force_disable_person_processing: None,
+                },
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn ai_events_record_matches_other_lanes_byte_for_byte() {
+            // The AI lane must only change the topic: for the same event, the
+            // record key is the event key (token:distinct_id) and the headers
+            // are identical to what another dedicated lane produces.
+            let producer = MockKafkaProducer::new();
+            let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
+
+            let base = create_test_event(&EventInput::default());
+            let mut ai_event = base.clone();
+            ai_event.metadata.data_type = DataType::AiEvents;
+            let mut exception_event = base;
+            exception_event.metadata.data_type = DataType::ExceptionErrorTracking;
+
+            sink.send(ai_event).await.unwrap();
+            sink.send(exception_event).await.unwrap();
+
+            let records = producer.get_records();
+            assert_eq!(records.len(), 2);
+            assert_eq!(records[0].topic, AI_EVENTS_TOPIC);
+            assert_eq!(records[1].topic, ERROR_TRACKING_TOPIC);
+            assert_eq!(records[0].key.as_deref(), Some("test_token:test_user"));
+            assert_eq!(records[0].key, records[1].key);
+            assert_eq!(records[0].payload, records[1].payload);
+            assert_eq!(
+                format!("{:?}", records[0].headers),
+                format!("{:?}", records[1].headers)
+            );
+        }
+
+        #[tokio::test]
+        async fn ai_events_missing_topic_falls_back_to_main() {
+            // Should be impossible in production (startup validation), but a
+            // misconfigured sink must degrade to the main topic, not error.
+            let producer = MockKafkaProducer::new();
+            let mut topics = test_topics();
+            topics.ai_events_topic = None;
+            let sink = KafkaSinkBase::with_producer(producer.clone(), topics);
+
+            let input = EventInput {
+                data_type: DataType::AiEvents,
+                ..Default::default()
+            };
+            sink.send(create_test_event(&input)).await.unwrap();
+
+            let records = producer.get_records();
+            assert_eq!(records.len(), 1);
+            assert_eq!(records[0].topic, MAIN_TOPIC);
+            assert_eq!(records[0].key.as_deref(), Some("test_token:test_user"));
+        }
+
+        #[tokio::test]
+        async fn ai_events_empty_topic_falls_back_to_main() {
+            let producer = MockKafkaProducer::new();
+            let mut topics = test_topics();
+            topics.ai_events_topic = Some(String::new());
+            let sink = KafkaSinkBase::with_producer(producer.clone(), topics);
+
+            let input = EventInput {
+                data_type: DataType::AiEvents,
+                ..Default::default()
+            };
+            sink.send(create_test_event(&input)).await.unwrap();
+
+            let records = producer.get_records();
+            assert_eq!(records.len(), 1);
+            assert_eq!(records[0].topic, MAIN_TOPIC);
         }
 
         // ==================== RedirectToTopic ====================

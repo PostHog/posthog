@@ -307,19 +307,12 @@ pub struct Config {
     pub ai_secondary_kafka_client_id: String,
 
     // --- Dedicated $ai_* topic routing on analytics deployments ---
-    /// Dedicated Kafka topic for `$ai_*` events. Unlike the `ai_secondary_*`
-    /// family above (which picks a secondary CLUSTER on `CaptureMode::Ai`
-    /// deployments), this picks a TOPIC on the same sink: per
-    /// `ai_events_topic_mode`, both the v0 pipeline (via `redirect_to_topic`)
-    /// and the v1 pipeline (via `Destination::AiEvents`) divert `$ai_*` events
-    /// here instead of the analytics main topic.
-    pub ai_events_topic: Option<String>,
-
-    /// Routing mode for `$ai_*` events into `ai_events_topic`: `primary`
-    /// (default) diverts nothing, `secondary` diverts all `$ai_*` events, and
+    /// Routing mode for `$ai_*` events into the dedicated AI topic
+    /// (`kafka.ai_events_topic`, i.e. `AI_EVENTS_TOPIC`): `primary` (default)
+    /// diverts nothing, `secondary` diverts all `$ai_*` events, and
     /// `secondary_allowlist` diverts only tokens listed in
-    /// `ai_events_topic_allowlist_tokens`. `ai_events_topic` is required
-    /// whenever the mode is not `primary`.
+    /// `ai_events_topic_allowlist_tokens`. The topic is required whenever the
+    /// mode is not `primary`.
     #[envconfig(default = "primary")]
     pub ai_events_topic_mode: AiSinkMode,
 
@@ -403,6 +396,14 @@ pub struct KafkaConfig {
     pub kafka_replay_overflow_topic: String,
     #[envconfig(default = "events_plugin_ingestion_dlq")]
     pub kafka_dlq_topic: String,
+    /// Dedicated Kafka topic for `$ai_*` events (env: `AI_EVENTS_TOPIC`).
+    /// Unlike the `ai_secondary_*` family on `Config` (which picks a secondary
+    /// CLUSTER on `CaptureMode::Ai` deployments), this picks a TOPIC on the
+    /// same sink: per `Config::ai_events_topic_mode`, both the v0 pipeline
+    /// (via `DataType::AiEvents`) and the v1 pipeline (via
+    /// `Destination::AiEvents`) divert `$ai_*` events here instead of the
+    /// analytics main topic. Setup also injects it into every v1 sink config.
+    pub ai_events_topic: Option<String>,
     #[envconfig(default = "false")]
     pub kafka_tls: bool,
     #[envconfig(default = "")]
@@ -495,7 +496,7 @@ mod tests {
     fn ai_events_topic_defaults() {
         let config: Config =
             envconfig::Envconfig::init_from_hashmap(&required_config_env()).unwrap();
-        assert_eq!(config.ai_events_topic, None);
+        assert_eq!(config.kafka.ai_events_topic, None);
         assert_eq!(config.ai_events_topic_mode, AiSinkMode::Primary);
         assert_eq!(config.ai_events_topic_allowlist_tokens, None);
     }
@@ -510,7 +511,7 @@ mod tests {
             "tok_a,tok_b".into(),
         );
         let config: Config = envconfig::Envconfig::init_from_hashmap(&env).unwrap();
-        assert_eq!(config.ai_events_topic.as_deref(), Some("ai_events"));
+        assert_eq!(config.kafka.ai_events_topic.as_deref(), Some("ai_events"));
         assert_eq!(config.ai_events_topic_mode, AiSinkMode::SecondaryAllowlist);
         assert_eq!(
             config.ai_events_topic_allowlist_tokens.as_deref(),

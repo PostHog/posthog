@@ -82,17 +82,14 @@ pub struct State {
     /// V1 sink router for the new capture analytics pipeline.
     /// When present, the v1 analytics handler publishes events through this.
     pub v1_sink_router: Option<Arc<crate::v1::sinks::Router>>,
-    /// Routing policy for diverting `$ai_*` events to the dedicated
-    /// `ai_events_topic`, derived from `AI_EVENTS_TOPIC_MODE` and
+    /// Routing policy for diverting `$ai_*` events to the dedicated AI topic
+    /// (`AI_EVENTS_TOPIC`), derived from `AI_EVENTS_TOPIC_MODE` and
     /// `AI_EVENTS_TOPIC_ALLOWLIST_TOKENS`. `Primary` keeps everything on the
     /// analytics main topic; the other modes divert per batch token, in both
-    /// the v0 pipeline (via `redirect_to_topic`) and the v1 pipeline (via
-    /// `Destination::AiEvents`).
+    /// the v0 pipeline (via `DataType::AiEvents`, mapped to the topic in the
+    /// kafka sink) and the v1 pipeline (via `Destination::AiEvents`, mapped
+    /// via the `topic_ai` injected into each sink config at setup).
     pub ai_routing: AiRouting,
-    /// Dedicated topic for `$ai_*` events (`AI_EVENTS_TOPIC`). Consulted by
-    /// the v0 pipeline when `ai_routing` diverts; the v1 pipeline gets the
-    /// same value injected into each sink config's `topic_ai` at setup.
-    pub ai_events_topic: Option<String>,
     pub capture_v1_scatter_gather_min_batch: usize,
     pub ai_gateway_signing_secret: Option<String>,
 }
@@ -165,7 +162,6 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     capture_v1_scatter_gather_min_batch: usize,
     ai_gateway_signing_secret: Option<String>,
     ai_routing: AiRouting,
-    ai_events_topic: Option<String>,
 ) -> Router {
     let state = State {
         sink,
@@ -194,7 +190,6 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         capture_v1_scatter_gather_min_batch,
         ai_gateway_signing_secret,
         ai_routing,
-        ai_events_topic,
     };
 
     // Very permissive CORS policy, as old SDK versions
