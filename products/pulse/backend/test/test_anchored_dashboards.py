@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 from django.utils import timezone
 
 from posthog.models.scoping import team_scope
+from posthog.rbac.user_access_control import UserAccessControl
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -21,6 +22,9 @@ _MOVEMENT_RESULT = [{"label": "x", "data": [100.0] * 7 + [70.0] * 7}]
 
 
 class TestAnchoredDashboardsGather(BaseTest):
+    def _access(self) -> UserAccessControl:
+        return UserAccessControl(user=self.user, team=self.team)
+
     def _insight(self, name: str = "Pageviews") -> Insight:
         return Insight.objects.create(team=self.team, name=name, query=_TRENDS_QUERY)
 
@@ -36,7 +40,7 @@ class TestAnchoredDashboardsGather(BaseTest):
             config = BriefConfig.objects.create(team=self.team, name="Focus", anchors={"dashboards": [dashboard.id]})
         mock_calculate.return_value = MagicMock(result=_MOVEMENT_RESULT)
 
-        items = self._source().gather(self.team, config, lookback_days=7)
+        items = self._source().gather(self.team, config, 7, self._access())
 
         assert [item.fingerprint_hint for item in items] == [f"{insight.short_id}:0"]
         assert items[0].source == "anchored_dashboards"
@@ -48,7 +52,7 @@ class TestAnchoredDashboardsGather(BaseTest):
         DashboardTile.objects.create(dashboard=dashboard, insight=insight)
         mock_calculate.return_value = MagicMock(result=_MOVEMENT_RESULT)
 
-        items = self._source().gather(self.team, None, lookback_days=7)
+        items = self._source().gather(self.team, None, 7, self._access())
 
         assert [item.fingerprint_hint for item in items] == [f"{insight.short_id}:0"]
 
@@ -60,7 +64,7 @@ class TestAnchoredDashboardsGather(BaseTest):
         with team_scope(self.team.pk, canonical=True):
             config = BriefConfig.objects.create(team=self.team, name="Focus", anchors={"insights": [insight.short_id]})
 
-        items = self._source().gather(self.team, config, lookback_days=7)
+        items = self._source().gather(self.team, config, 7, self._access())
 
         assert items == []
         mock_calculate.assert_not_called()
@@ -82,8 +86,9 @@ class TestAnchoredDashboardsGather(BaseTest):
             )
         mock_calculate.return_value = MagicMock(result=_MOVEMENT_RESULT)
 
-        from_insights = AnchoredInsightsSource(strategy).gather(self.team, insight_config, lookback_days=7)
-        from_dashboards = AnchoredDashboardsSource(strategy).gather(self.team, dashboard_config, lookback_days=7)
+        user_access_control = self._access()
+        from_insights = AnchoredInsightsSource(strategy).gather(self.team, insight_config, 7, user_access_control)
+        from_dashboards = AnchoredDashboardsSource(strategy).gather(self.team, dashboard_config, 7, user_access_control)
 
         assert len(from_insights) == len(from_dashboards) == 1
         assert from_insights[0].metrics == from_dashboards[0].metrics

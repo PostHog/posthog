@@ -11,6 +11,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import BaseThrottle
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -18,9 +19,13 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
 from posthog.models import User
 from posthog.permissions import PostHogFeatureFlagPermission
+from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
+from posthog.rbac.user_access_control import UserAccessControl
 from posthog.slo.types import SloArea, SloConfig, SloOperation
 from posthog.temporal.common.client import sync_connect
 
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.product_analytics.backend.models.insight import Insight
 from products.pulse.backend.config import WORKFLOW_EXECUTION_TIMEOUT
 from products.pulse.backend.models import BriefConfig, ProductBrief
 from products.pulse.backend.temporal.inputs import GENERATE_BRIEF_WORKFLOW_NAME, GenerateBriefWorkflowInputs
@@ -28,6 +33,28 @@ from products.pulse.backend.temporal.inputs import GENERATE_BRIEF_WORKFLOW_NAME,
 PULSE_FEATURE_FLAG = "pulse"
 
 logger = structlog.get_logger(__name__)
+
+
+def _validate_anchor_access(*, anchors: dict, team_id: int, user_access_control: UserAccessControl) -> None:
+    dashboard_ids = set(anchors.get("dashboards") or [])
+    if dashboard_ids:
+        accessible_dashboard_ids = set(
+            user_access_control.filter_queryset_by_access_level(
+                Dashboard.objects.filter(team_id=team_id, deleted=False, id__in=dashboard_ids)
+            ).values_list("id", flat=True)
+        )
+        if accessible_dashboard_ids != dashboard_ids:
+            raise ValidationError("One or more anchored dashboards are unavailable.")
+
+    insight_short_ids = set(anchors.get("insights") or [])
+    if insight_short_ids:
+        accessible_insight_short_ids = set(
+            user_access_control.filter_queryset_by_access_level(
+                Insight.objects.filter(team_id=team_id, deleted=False, short_id__in=insight_short_ids)
+            ).values_list("short_id", flat=True)
+        )
+        if accessible_insight_short_ids != insight_short_ids:
+            raise ValidationError("One or more anchored insights are unavailable.")
 
 
 class BriefAnchorsSerializer(serializers.Serializer):
@@ -121,6 +148,15 @@ class BriefConfigSerializer(serializers.ModelSerializer):
             },
         }
 
+    def validate_anchors(self, anchors: dict) -> dict:
+        team = self.context["get_team"]()
+        _validate_anchor_access(
+            anchors=anchors,
+            team_id=team.id,
+            user_access_control=UserAccessControl(user=self.context["request"].user, team=team),
+        )
+        return anchors
+
 
 class PeriodSerializer(serializers.Serializer):
     period_type = serializers.ChoiceField(
@@ -212,7 +248,7 @@ class GenerateBriefRequestSerializer(serializers.Serializer):
 
 
 class BriefConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    scope_object = "INTERNAL"
+    scope_object = "project"
     serializer_class = BriefConfigSerializer
     posthog_feature_flag = PULSE_FEATURE_FLAG
     permission_classes = [PostHogFeatureFlagPermission]
@@ -221,7 +257,12 @@ class BriefConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = BriefConfig.objects.unscoped()
 
     def safely_get_queryset(self, queryset: QuerySet[BriefConfig]) -> QuerySet[BriefConfig]:
-        configs = BriefConfig.objects.for_team(self.team_id).select_related("created_by").order_by("-created_at")
+        configs = (
+            BriefConfig.objects.for_team(self.team_id)
+            .filter(created_by=cast(User, self.request.user))
+            .select_related("created_by")
+            .order_by("-created_at")
+        )
         # Lists hide soft-deleted configs; detail routes keep them reachable so a
         # PATCH {"deleted": false} can restore one.
         if self.action == "list":
@@ -249,7 +290,8 @@ class BriefConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
 
 class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
-    scope_object = "INTERNAL"
+    scope_object = "project"
+    scope_object_write_actions = ["generate"]
     serializer_class = ProductBriefSerializer
     posthog_feature_flag = PULSE_FEATURE_FLAG
     permission_classes = [PostHogFeatureFlagPermission]
@@ -257,8 +299,16 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
 
     def safely_get_queryset(self, queryset: QuerySet[ProductBrief]) -> QuerySet[ProductBrief]:
         return (
-            ProductBrief.objects.for_team(self.team_id).select_related("created_by", "config").order_by("-created_at")
+            ProductBrief.objects.for_team(self.team_id)
+            .filter(created_by=cast(User, self.request.user))
+            .select_related("created_by", "config")
+            .order_by("-created_at")
         )
+
+    def get_throttles(self) -> list[BaseThrottle]:
+        if self.action == "generate":
+            return [AIBurstRateThrottle(), AISustainedRateThrottle()]
+        return super().get_throttles()
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
         if self.action == "list":
@@ -290,13 +340,20 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
         else:
             period = {"type": "last_n_days", "days": 7}
 
+        user = cast(User, request.user)
         config = None
         if config_id is not None:
-            config = BriefConfig.objects.for_team(self.team_id).filter(id=config_id, deleted=False).first()
+            config = (
+                BriefConfig.objects.for_team(self.team_id).filter(id=config_id, created_by=user, deleted=False).first()
+            )
             if config is None:
                 raise ValidationError("Brief config not found.")
+            _validate_anchor_access(
+                anchors=config.anchors,
+                team_id=self.team_id,
+                user_access_control=self.user_access_control,
+            )
 
-        user = cast(User, request.user)
         brief = ProductBrief.objects.for_team(self.team_id).create(
             team_id=self.team_id,
             config=config,
@@ -329,9 +386,7 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
                             },
                         ),
                     ),
-                    # Keyed on team+config (not brief id) so a second generate while one is
-                    # running for the same focus hits WorkflowAlreadyStartedError.
-                    id=f"pulse-brief-{self.team_id}-{config.id if config else 'default'}",
+                    id=f"pulse-brief-{self.team_id}",
                     task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
                     execution_timeout=WORKFLOW_EXECUTION_TIMEOUT,
                 )

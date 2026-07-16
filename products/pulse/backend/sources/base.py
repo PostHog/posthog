@@ -3,6 +3,7 @@ from enum import StrEnum
 from typing import Any, Protocol
 
 from posthog.models.team import Team
+from posthog.rbac.user_access_control import UserAccessControl
 
 from products.pulse.backend.models import BriefConfig, ResourceLink, ResourceType
 
@@ -111,4 +112,6 @@ def build_evidence_index(items: list[SourceItem]) -> dict[str, EvidenceRef]:
 class BriefSource(Protocol):
     name: str
 
-    def gather(self, team: Team, config: BriefConfig | None, lookback_days: int) -> list[SourceItem]: ...
+    def gather(
+        self, team: Team, config: BriefConfig | None, lookback_days: int, user_access_control: UserAccessControl
+    ) -> list[SourceItem]: ...

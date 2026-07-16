@@ -561,9 +561,6 @@ SPECTACULAR_SETTINGS = {
         "ExportedRecordingStatusEnum": "products.replay.backend.models.exported_recording.ExportedRecording.Status",
         "VisionActionRunStatusEnum": "products.replay_vision.backend.models.vision_action.VisionActionRunStatus",
         "AutonomyPriorityEnum": "products.signals.backend.models.AutonomyPriority",
-        # `trigger` is used by two different choice sets (experiment metric recalculations
-        # and pulse product briefs). Pinning `TriggerEnum` to the experiments set keeps the
-        # generated name it had before pulse existed; pulse gets its own explicit name.
         "TriggerEnum": "products.experiments.backend.models.experiment.ExperimentMetricsRecalculation.Trigger",
         "ProductBriefTriggerEnum": "products.pulse.backend.models.ProductBrief.Trigger",
         "ProductBriefStatusEnum": "products.pulse.backend.models.ProductBrief.Status",

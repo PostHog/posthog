@@ -8,6 +8,7 @@ from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
+from posthog.rbac.user_access_control import UserAccessControl
 
 from products.product_analytics.backend.models.insight import Insight
 from products.pulse.backend.config import BriefSettings
@@ -27,7 +28,7 @@ class Movement:
 def score_movement(*, baseline: list[float], current: list[float], settings: BriefSettings) -> Movement:
     baseline_total = float(sum(baseline))
     current_total = float(sum(current))
-    if not baseline or baseline_total < settings.min_baseline_value * len(baseline):
+    if not baseline or baseline_total <= settings.min_baseline_value * len(baseline):
         return Movement(significant=False, pct_change=0.0, baseline_total=baseline_total, current_total=current_total)
     pct_change = ((current_total - baseline_total) / baseline_total) * 100.0
     return Movement(
@@ -47,12 +48,21 @@ class MovementScoringStrategy:
     """
 
     def gather_items(
-        self, insights: QuerySet[Insight], team: Team, lookback_days: int, settings: BriefSettings, *, source_name: str
+        self,
+        insights: QuerySet[Insight],
+        team: Team,
+        lookback_days: int,
+        settings: BriefSettings,
+        user_access_control: UserAccessControl,
+        *,
+        source_name: str,
     ) -> list[SourceItem]:
         items: list[SourceItem] = []
         for insight in insights[: settings.max_anchor_insights]:
             try:
-                items.extend(self._items_for_insight(insight, team, lookback_days, settings, source_name))
+                items.extend(
+                    self._items_for_insight(insight, team, lookback_days, settings, user_access_control, source_name)
+                )
             except Exception as exc:
                 # One broken insight must not kill the brief; the future resource-health
                 # source is what reports on failing insights.
@@ -61,13 +71,19 @@ class MovementScoringStrategy:
         return items
 
     def _items_for_insight(
-        self, insight: Insight, team: Team, lookback_days: int, settings: BriefSettings, source_name: str
+        self,
+        insight: Insight,
+        team: Team,
+        lookback_days: int,
+        settings: BriefSettings,
+        user_access_control: UserAccessControl,
+        source_name: str,
     ) -> list[SourceItem]:
         calculation = calculate_for_query_based_insight(
             insight,
             team=team,
             execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-            user=None,
+            user=user_access_control.user,
         )
         if not calculation.result:
             return []

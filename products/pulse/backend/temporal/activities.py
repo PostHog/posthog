@@ -6,13 +6,13 @@ import temporalio.activity
 from temporalio.exceptions import ApplicationError
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models.team import Team
+from posthog.rbac.user_access_control import UserAccessControl
 from posthog.sync import database_sync_to_async
 
 from products.pulse.backend.config import MAX_ITEMS
 from products.pulse.backend.generation.persist import persist_brief_output
 from products.pulse.backend.generation.synthesize import synthesize_brief
-from products.pulse.backend.models import BriefConfig, ProductBrief
+from products.pulse.backend.models import ProductBrief
 from products.pulse.backend.sources.base import SourceItem
 from products.pulse.backend.sources.registry import get_sources
 from products.pulse.backend.temporal.inputs import (
@@ -59,16 +59,6 @@ def resolve_period(spec: dict, now: dt.datetime, last_run: dt.datetime | None) -
     )
 
 
-def _get_team(team_id: int) -> Team:
-    return Team.objects.select_related("organization").get(id=team_id)
-
-
-def _get_config(team: Team, brief_config_id: str | None) -> BriefConfig | None:
-    if not brief_config_id:
-        return None
-    return BriefConfig.objects.for_team(team.pk).filter(id=brief_config_id).first()
-
-
 def _last_ready_run(team_id: int, brief_config_id: str | None) -> dt.datetime | None:
     # Most recent READY brief for this config (or the zero-config default when no config).
     return (
@@ -94,18 +84,22 @@ def _mark_brief_failed(team_id: int, brief_id: str, error: str) -> None:
 
 @temporalio.activity.defn
 async def gather_brief_inputs_activity(inputs: GenerateBriefWorkflowInputs) -> list[dict]:
-    team = await database_sync_to_async(_get_team, thread_sensitive=False)(inputs.team_id)
+    brief = await database_sync_to_async(_get_brief, thread_sensitive=False)(inputs.team_id, inputs.brief_id)
+    team = brief.team
     if not team.organization.is_ai_data_processing_approved:
         raise ApplicationError("AI data processing not approved for this organization", non_retryable=True)
-    config = await database_sync_to_async(_get_config, thread_sensitive=False)(team, inputs.brief_config_id)
+    if brief.created_by is None:
+        raise ApplicationError("brief has no creating user for analytics access", non_retryable=True)
+    config = brief.config
     last_run = await database_sync_to_async(_last_ready_run, thread_sensitive=False)(
-        inputs.team_id, inputs.brief_config_id
+        inputs.team_id, str(config.id) if config else None
     )
     resolved = resolve_period(inputs.period, dt.datetime.now(dt.UTC), last_run)
+    user_access_control = UserAccessControl(user=brief.created_by, team=team)
     items: list[SourceItem] = []
     for source in get_sources():
         gathered = await database_sync_to_async(source.gather, thread_sensitive=False)(
-            team, config, resolved.lookback_days
+            team, config, resolved.lookback_days, user_access_control
         )
         items.extend(gathered)
     # Keep the activity payload small — well under Temporal's ~2 MiB cap.

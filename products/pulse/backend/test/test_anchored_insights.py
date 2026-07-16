@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from posthog.models.scoping import team_scope
+from posthog.rbac.user_access_control import UserAccessControl
 
 from products.product_analytics.backend.models.insight import Insight
 from products.pulse.backend.config import DEFAULT_BRIEF_SETTINGS, BriefSettings
@@ -49,6 +50,12 @@ class TestScoreMovement:
         movement = score_movement(baseline=[], current=[], settings=DEFAULT_BRIEF_SETTINGS)
         assert movement.significant is False
 
+    def test_zero_baseline_with_zero_floor_not_significant(self) -> None:
+        settings = BriefSettings.from_config(BriefConfig(settings={"min_baseline_value": 0.0}))
+        movement = score_movement(baseline=[0.0], current=[1.0], settings=settings)
+        assert movement.significant is False
+        assert movement.pct_change == 0.0
+
     def test_settings_override_changes_significance(self) -> None:
         # A 10% move is below the default 20% threshold but above a lowered one — the knob decides.
         baseline, current = [100.0] * 7, [90.0] * 7
@@ -58,6 +65,9 @@ class TestScoreMovement:
 
 
 class TestAnchoredInsightsGather(BaseTest):
+    def _access(self) -> UserAccessControl:
+        return UserAccessControl(user=self.user, team=self.team)
+
     def _insight(self, name: str = "Pageviews") -> Insight:
         return Insight.objects.create(team=self.team, name=name, query=_TRENDS_QUERY)
 
@@ -76,14 +86,27 @@ class TestAnchoredInsightsGather(BaseTest):
         config = self._config([insight])
         mock_calculate.return_value = MagicMock(result=[{"label": "$pageview", "data": [100.0] * 7 + [70.0] * 7}])
 
-        items = self._source().gather(self.team, config, lookback_days=7)
+        items = self._source().gather(self.team, config, 7, self._access())
 
         assert len(items) == 1
         assert items[0].source == "anchored_insights"
         assert items[0].fingerprint_hint == f"{insight.short_id}:0"
         assert items[0].metrics["pct_change"] == -30.0
+        assert mock_calculate.call_args.kwargs["user"] == self.user
         # Evidence carries a navigable deep link into the app.
         assert items[0].evidence[0].url == f"/project/{self.team.id}/insights/{insight.short_id}"
+
+    @patch("products.pulse.backend.sources.strategy.calculate_for_query_based_insight")
+    def test_gather_filters_inaccessible_insights(self, mock_calculate: MagicMock) -> None:
+        insight = self._insight()
+        config = self._config([insight])
+        user_access_control = MagicMock(spec=UserAccessControl)
+        user_access_control.filter_queryset_by_access_level.side_effect = lambda queryset: queryset.none()
+
+        items = self._source().gather(self.team, config, 7, user_access_control)
+
+        assert items == []
+        mock_calculate.assert_not_called()
 
     @parameterized.expand(
         [
@@ -104,7 +127,7 @@ class TestAnchoredInsightsGather(BaseTest):
         config = self._config([self._insight()])
         mock_calculate.return_value = MagicMock(result=result)
 
-        items = self._source().gather(self.team, config, lookback_days=7)
+        items = self._source().gather(self.team, config, 7, self._access())
 
         assert len(items) == expected_count
         if expected_pct is not None:
@@ -123,7 +146,7 @@ class TestAnchoredInsightsGather(BaseTest):
 
         mock_calculate.side_effect = _calculate
 
-        items = self._source().gather(self.team, config, lookback_days=7)
+        items = self._source().gather(self.team, config, 7, self._access())
 
         assert [item.fingerprint_hint for item in items] == [f"{working.short_id}:0"]
 
@@ -134,7 +157,7 @@ class TestAnchoredInsightsGather(BaseTest):
         with team_scope(self.team.pk, canonical=True):
             config = BriefConfig.objects.create(team=self.team, name="Focus", anchors={"dashboards": [1]})
 
-        items = self._source().gather(self.team, config, lookback_days=7)
+        items = self._source().gather(self.team, config, 7, self._access())
 
         assert items == []
         mock_calculate.assert_not_called()

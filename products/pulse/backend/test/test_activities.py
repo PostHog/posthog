@@ -33,7 +33,11 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
 class _StubSource:
     name = "stub"
 
-    def gather(self, team, config, lookback_days) -> list[SourceItem]:
+    def __init__(self) -> None:
+        self.user = None
+
+    def gather(self, team, config, lookback_days, user_access_control) -> list[SourceItem]:
+        self.user = user_access_control.user
         return [
             SourceItem(
                 source="stub",
@@ -94,25 +98,29 @@ def _confident_out() -> BriefOut:
     )
 
 
-async def test_gather_activity_returns_serialized_items(team) -> None:
+async def test_gather_activity_returns_serialized_items(team, user) -> None:
     await _set_ai_consent(team, True)
+    brief = await _create_brief(team, user)
     env = ActivityEnvironment()
-    with patch("products.pulse.backend.temporal.activities.get_sources", return_value=[_StubSource()]):
+    source = _StubSource()
+    with patch("products.pulse.backend.temporal.activities.get_sources", return_value=[source]):
         items = await env.run(
             gather_brief_inputs_activity,
-            GenerateBriefWorkflowInputs(team_id=team.pk, brief_id="unused", brief_config_id=None),
+            GenerateBriefWorkflowInputs(team_id=team.pk, brief_id=str(brief.id), brief_config_id=None),
         )
     assert len(items) == 1
     assert items[0]["fingerprint_hint"] == "abc:0"
+    assert source.user == user
 
 
-async def test_gather_activity_refuses_without_ai_consent(team) -> None:
+async def test_gather_activity_refuses_without_ai_consent(team, user) -> None:
     await _set_ai_consent(team, False)
+    brief = await _create_brief(team, user)
     env = ActivityEnvironment()
     with pytest.raises(ApplicationError) as exc_info:
         await env.run(
             gather_brief_inputs_activity,
-            GenerateBriefWorkflowInputs(team_id=team.pk, brief_id="unused", brief_config_id=None),
+            GenerateBriefWorkflowInputs(team_id=team.pk, brief_id=str(brief.id), brief_config_id=None),
         )
     assert exc_info.value.non_retryable is True
 

@@ -8,11 +8,18 @@ from django.conf import settings
 from rest_framework import status
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.models.team import Team
+from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.slo.types import SloOperation
 
+from products.product_analytics.backend.models.insight import Insight
+from products.pulse.backend.api.brief import ProductBriefViewSet
 from products.pulse.backend.models import BriefConfig, ProductBrief
+
+from ee.models.rbac.access_control import AccessControl
 
 
 def _temporal_client() -> MagicMock:
@@ -63,6 +70,15 @@ class TestPulseAPI(APIBaseTest):
         assert workflow_input.slo is not None
         assert workflow_input.slo.operation == SloOperation.PULSE_BRIEF_GENERATION
         assert workflow_input.slo.resource_id == str(brief.id)
+        assert client.start_workflow.call_args.kwargs["id"] == f"pulse-brief-{self.team.id}"
+
+    def test_generate_uses_ai_throttles(self, _mock_connect: MagicMock, _mock_flag: MagicMock) -> None:
+        view = ProductBriefViewSet()
+        view.action = "generate"
+        assert [type(throttle) for throttle in view.get_throttles()] == [
+            AIBurstRateThrottle,
+            AISustainedRateThrottle,
+        ]
 
     @patch("products.pulse.backend.api.brief.report_user_action")
     def test_generate_while_running_returns_409_without_orphan_brief(
@@ -112,10 +128,56 @@ class TestPulseAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert str(other_brief.id) not in [row["id"] for row in response.json()["results"]]
 
+    def test_configs_and_briefs_are_creator_scoped(self, _mock_connect: MagicMock, _mock_flag: MagicMock) -> None:
+        other_user = self._create_user("other@posthog.com")
+        with team_scope(self.team.pk, canonical=True):
+            other_config = BriefConfig.objects.create(team=self.team, created_by=other_user, name="private")
+            other_brief = ProductBrief.objects.create(
+                team=self.team,
+                created_by=other_user,
+                config=other_config,
+                trigger=ProductBrief.Trigger.ON_DEMAND,
+            )
+
+        configs = self.client.get(f"/api/projects/{self.team.id}/pulse/brief_configs/").json()["results"]
+        briefs = self.client.get(f"/api/projects/{self.team.id}/pulse/briefs/").json()["results"]
+
+        assert str(other_config.id) not in [row["id"] for row in configs]
+        assert str(other_brief.id) not in [row["id"] for row in briefs]
+
+    def test_project_member_cannot_mutate_or_generate(self, mock_connect: MagicMock, _mock_flag: MagicMock) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            access_level="member",
+        )
+
+        list_response = self.client.get(f"/api/projects/{self.team.id}/pulse/brief_configs/")
+        create_response = self.client.post(f"/api/projects/{self.team.id}/pulse/brief_configs/", {"name": "blocked"})
+        generate_response = self.client.post(f"/api/projects/{self.team.id}/pulse/briefs/generate/")
+
+        assert list_response.status_code == status.HTTP_200_OK
+        assert create_response.status_code == status.HTTP_403_FORBIDDEN
+        assert generate_response.status_code == status.HTTP_403_FORBIDDEN
+        mock_connect.assert_not_called()
+
     def test_config_crud_roundtrip(self, _mock_connect: MagicMock, _mock_flag: MagicMock) -> None:
+        insight = Insight.objects.create(team=self.team, name="Pageviews")
         create_response = self.client.post(
             f"/api/projects/{self.team.id}/pulse/brief_configs/",
-            {"name": "Feature flags focus", "focus_prompt": "flags team", "anchors": {"insights": ["abc123"]}},
+            {
+                "name": "Feature flags focus",
+                "focus_prompt": "flags team",
+                "anchors": {"insights": [insight.short_id]},
+            },
         )
         assert create_response.status_code == status.HTTP_201_CREATED, create_response.json()
         config_id = create_response.json()["id"]
@@ -159,6 +221,32 @@ class TestPulseAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Brief config not found." in str(response.json())
+        mock_connect.assert_not_called()
+
+    def test_config_rejects_unavailable_anchor(self, _mock_connect: MagicMock, _mock_flag: MagicMock) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/pulse/brief_configs/",
+            {"name": "Restricted", "anchors": {"insights": ["missing"]}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "anchored insights are unavailable" in str(response.json())
+
+    def test_generate_revalidates_config_anchors(self, mock_connect: MagicMock, _mock_flag: MagicMock) -> None:
+        with team_scope(self.team.pk, canonical=True):
+            config = BriefConfig.objects.create(
+                team=self.team,
+                created_by=self.user,
+                name="Stale access",
+                anchors={"insights": ["missing"]},
+            )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/pulse/briefs/generate/", {"config_id": str(config.id)}
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "anchored insights are unavailable" in str(response.json())
         mock_connect.assert_not_called()
 
     def test_config_focus_prompt_length_capped(self, _mock_connect: MagicMock, _mock_flag: MagicMock) -> None:
