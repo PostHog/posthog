@@ -18,7 +18,7 @@ from posthog.models import User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import get_was_impersonated
 from posthog.models.comment import Comment
-from posthog.models.comment.comment import activity_log_scope_for
+from posthog.models.comment.comment import TICKET_COMMENT_SCOPES, activity_log_scope_for
 from posthog.models.comment.utils import produce_discussion_mention_events, send_mention_notifications
 from posthog.tasks.email import send_discussions_mentioned
 
@@ -219,13 +219,6 @@ class CommentListQueryParamsSerializer(serializers.Serializer):
     )
 
 
-# Comment scopes that carry support-ticket data: customer-facing ticket messages
-# (conversations_ticket) and internal ticket discussions (Ticket). Reading or writing these
-# through the generic comments API requires ticket access, not just comment access — an API
-# key scoped to comment:read must not be able to read ticket contents.
-TICKET_COMMENT_SCOPES = frozenset({"Ticket", "conversations_ticket"})
-
-
 @extend_schema(extensions={"x-product": "platform_features"})
 class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     queryset = Comment.objects.all()
@@ -237,15 +230,17 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
         """Ticket-scoped comments require ticket API scope access instead of comment access.
 
-        Candidate scopes are collected from every place a scope can enter the request — the
-        stored scope of the pk target (authoritative for detail actions, so a mismatched scope
-        in the body can't sidestep it), the body scope (what create writes and update can
-        rewrite), and the query-param scope (what list filters by). If any candidate is
-        ticket-carrying the request needs ticket access, and any non-ticket candidate keeps the
-        default comment requirement alongside it (the returned scopes are ANDed).
+        Candidate scopes are the union of every scope that determines what the request can
+        read or write: the query-param scope (the queryset always filters by it, including for
+        detail lookups and /thread), the stored scope of the pk target (authoritative — a
+        mismatched body scope can't sidestep it), and the body scope on writes only (what
+        create writes and update can rewrite; a body on a GET selects nothing). If any
+        candidate is ticket-carrying the request needs ticket access, and any non-ticket
+        candidate keeps the default comment requirement alongside it (the scopes are ANDed).
         """
-        body = request.data if isinstance(request.data, dict) else {}
         candidate_scopes: set[Any] = set()
+        if query_scope := request.GET.get("scope"):
+            candidate_scopes.add(query_scope)
         if pk := self.kwargs.get("pk"):
             try:
                 candidate_scopes.add(
@@ -253,10 +248,10 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
                 )
             except (ValueError, ValidationError):
                 return None
-        if body.get("scope"):
-            candidate_scopes.add(body.get("scope"))
-        if not candidate_scopes:
-            candidate_scopes.add(request.GET.get("scope"))
+        if request.method not in ("GET", "HEAD", "OPTIONS") and isinstance(request.data, dict):
+            if body_scope := request.data.get("scope"):
+                candidate_scopes.add(body_scope)
+        candidate_scopes.discard(None)
         if not candidate_scopes & TICKET_COMMENT_SCOPES:
             return None
         access = "read" if self.action in self.scope_object_read_actions else "write"

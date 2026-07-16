@@ -664,6 +664,39 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
+    def test_get_body_cannot_mask_ticket_query_scope(self) -> None:
+        # A JSON body on a GET selects nothing — the query scope drives the queryset and must
+        # drive the requirement.
+        response = self.client.generic(
+            "GET",
+            f"/api/projects/{self.team.id}/comments?scope=Ticket",
+            data='{"scope": "Notebook"}',
+            content_type="application/json",
+            headers=self._scoped_key_headers(["comment:read"]),
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_thread_query_scope_requires_ticket_access(self) -> None:
+        # The stored parent scope must not mask a ticket query scope that still filters the replies.
+        parent = Comment.objects.create(
+            team=self.team, scope="Notebook", item_id="n1", content="root", created_by=self.user
+        )
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/comments/{parent.id}/thread?scope=Ticket",
+            headers=self._scoped_key_headers(["comment:read"]),
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_ticket_comment_content_redacted_in_activity_log(self) -> None:
+        # Activity logs are readable with activity_log:read only — ticket bodies must not leak there.
+        Comment.objects.create(
+            team=self.team, scope="Ticket", item_id="t1", content="internal discussion", created_by=self.user
+        )
+        entry = ActivityLog.objects.filter(team_id=self.team.id, scope="Ticket", activity="commented").first()
+        assert entry is not None
+        assert entry.detail["changes"][0]["after"] == "[redacted]"
+        assert "internal discussion" not in str(entry.detail)
+
 
 class TestDiscussionMentionInternalEvents(APIBaseTest, QueryMatchingTest):
     @mock.patch("posthog.models.comment.utils.produce_internal_event")
