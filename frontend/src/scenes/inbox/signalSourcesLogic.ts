@@ -73,6 +73,14 @@ export const WAREHOUSE_SOURCE_SETUP = {
 /** Warehouse-backed signal sources, keyed by roster source id. */
 export type WarehouseBackedSource = keyof typeof WAREHOUSE_SOURCE_SETUP
 
+/** GitHub names multi-repo rows `owner/repo.issues` and every repo feeds the source, so enable them all. */
+export function schemasToEnableFor(source: ExternalDataSource, tableName: string): ExternalDataSourceSchema[] {
+    return (source.schemas ?? []).filter(
+        (schema: ExternalDataSourceSchema) =>
+            !schema.should_sync && (schema.name === tableName || schema.name.endsWith(`.${tableName}`))
+    )
+}
+
 function getWarehouseSourceConfig(
     sourceConfigs: SignalSourceConfig[] | null,
     source: WarehouseBackedSource
@@ -379,8 +387,8 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
     }),
 
     listeners(({ actions, values }) => {
-        // If the required table for a signal source is not yet syncing on the existing DW source,
-        // enable it so the signals workflow has data to process.
+        // If the required tables for a signal source are not yet syncing on the existing DW source,
+        // enable them so the signals workflow has data to process.
         async function ensureRequiredTableSyncing(dwSourceType: string, tableName: string): Promise<void> {
             const source = values.dataWarehouseSources?.results?.find(
                 (s: ExternalDataSource) => s.source_type === dwSourceType
@@ -388,10 +396,11 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             if (!source) {
                 return
             }
-            const schema = source.schemas?.find((s: ExternalDataSourceSchema) => s.name === tableName)
-            if (schema && !schema.should_sync) {
-                await api.externalDataSchemas.update(schema.id, { should_sync: true })
-            }
+            await Promise.all(
+                schemasToEnableFor(source, tableName).map((schema: ExternalDataSourceSchema) =>
+                    api.externalDataSchemas.update(schema.id, { should_sync: true })
+                )
+            )
         }
 
         return {
