@@ -235,23 +235,35 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
     scope_object_read_actions = ["list", "retrieve", "thread", "count"]
 
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
-        """Ticket-scoped comments require ticket API scope access instead of comment access."""
-        requested_scope = request.GET.get("scope")
-        if not requested_scope and isinstance(request.data, dict):
-            requested_scope = request.data.get("scope")
-        if not requested_scope and (pk := self.kwargs.get("pk")):
-            # Detail actions carry no scope param — resolve it from the target comment so an
-            # API key scoped to comment:* can't reach ticket contents by id.
+        """Ticket-scoped comments require ticket API scope access instead of comment access.
+
+        Candidate scopes are collected from every place a scope can enter the request — the
+        stored scope of the pk target (authoritative for detail actions, so a mismatched scope
+        in the body can't sidestep it), the body scope (what create writes and update can
+        rewrite), and the query-param scope (what list filters by). If any candidate is
+        ticket-carrying the request needs ticket access, and any non-ticket candidate keeps the
+        default comment requirement alongside it (the returned scopes are ANDed).
+        """
+        body = request.data if isinstance(request.data, dict) else {}
+        candidate_scopes: set[Any] = set()
+        if pk := self.kwargs.get("pk"):
             try:
-                requested_scope = (
+                candidate_scopes.add(
                     Comment.objects.filter(team_id=self.team_id, pk=pk).values_list("scope", flat=True).first()
                 )
             except (ValueError, ValidationError):
                 return None
-        if requested_scope not in TICKET_COMMENT_SCOPES:
+        if body.get("scope"):
+            candidate_scopes.add(body.get("scope"))
+        if not candidate_scopes:
+            candidate_scopes.add(request.GET.get("scope"))
+        if not candidate_scopes & TICKET_COMMENT_SCOPES:
             return None
         access = "read" if self.action in self.scope_object_read_actions else "write"
-        return [f"ticket:{access}"]
+        required: list[str] = [f"ticket:{access}"]
+        if candidate_scopes - TICKET_COMMENT_SCOPES:
+            required.append(f"comment:{access}")
+        return required
 
     @extend_schema(parameters=[CommentListQueryParamsSerializer])
     def list(self, request, *args, **kwargs):

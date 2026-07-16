@@ -633,6 +633,37 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
+    def test_query_scope_cannot_override_ticket_body_scope_on_create(self) -> None:
+        # ?scope= filters lists; the created object's scope comes from the body — the body decides.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/comments?scope=Notebook",
+            {"content": "internal note", "scope": "Ticket", "item_id": "some-ticket-id"},
+            headers=self._scoped_key_headers(["comment:write"]),
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_body_scope_cannot_override_stored_ticket_scope_on_detail(self) -> None:
+        comment = Comment.objects.create(
+            team=self.team, scope="Ticket", item_id="t1", content="discussion", created_by=self.user
+        )
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/comments/{comment.id}",
+            {"scope": "Notebook", "content": "rewritten"},
+            headers=self._scoped_key_headers(["comment:write"]),
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_ticket_scope_key_cannot_write_non_ticket_comment_via_body_scope(self) -> None:
+        comment = Comment.objects.create(
+            team=self.team, scope="Notebook", item_id="n1", content="note", created_by=self.user
+        )
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/comments/{comment.id}",
+            {"scope": "Ticket", "content": "rewritten"},
+            headers=self._scoped_key_headers(["ticket:write"]),
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
 
 class TestDiscussionMentionInternalEvents(APIBaseTest, QueryMatchingTest):
     @mock.patch("posthog.models.comment.utils.produce_internal_event")
