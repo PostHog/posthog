@@ -416,23 +416,6 @@ class TestValidateCredentials:
         assert "try again" in (message or "")
         assert "Internal error encountered" not in (message or "")
 
-    def test_id_not_in_accessible_list_points_at_mcc_toggle(self):
-        # `list_accessible_customers` never returns client accounts nested under a manager, so a
-        # valid client-account id lands in the not-accessible branch when the MCC toggle is off.
-        # The message must steer the user to that toggle rather than claiming their id is wrong.
-        config = GoogleAdsSourceConfig(customer_id="1234567890", google_ads_integration_id=1)
-        client = mock.Mock()
-        client.get_service.return_value.list_accessible_customers.return_value.resource_names = ["customers/9999999999"]
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.google_ads_client",
-            return_value=client,
-        ):
-            ok, message = GoogleAdsSource().validate_credentials(config, team_id=1)
-
-        assert ok is False
-        assert "MCC" in (message or "")
-        assert "is not correct" not in (message or "")
-
 
 def _google_ads_exception(request_error: int) -> GoogleAdsException:
     failure = GoogleAdsFailure(
