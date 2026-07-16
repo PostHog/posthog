@@ -129,6 +129,7 @@ def _make_paginate_dependent_resource(
     db_incremental_field_last_value: Optional[Any],
     resume_hook: Optional[Callable[[Optional[dict[str, Any]]], None]] = None,
     initial_state: Optional[dict[str, Any]] = None,
+    data_selector_required: bool = False,
 ) -> Callable[..., Iterator[list[Any]]]:
     """Build the generator for a dependent (child) resource.
 
@@ -197,6 +198,7 @@ def _make_paginate_dependent_resource(
                 hooks=hooks,
                 resume_hook=child_resume_hook if resume_hook is not None else None,
                 initial_paginator_state=child_initial,
+                data_selector_required=data_selector_required,
             ):
                 if parent_record:
                     for child_record in child_page:
@@ -303,6 +305,7 @@ def create_resources(
                 initial_paginator_state: Optional[dict[str, Any]] = (
                     None if has_dependent_resource else initial_paginator_state
                 ),
+                data_selector_required: bool = bool(endpoint_config.get("data_selector_required")),
             ) -> Iterator[list[Any]]:
                 if incremental_object:
                     params = _set_incremental_params(
@@ -323,6 +326,7 @@ def create_resources(
                     hooks=hooks,
                     resume_hook=resume_hook,
                     initial_paginator_state=initial_paginator_state,
+                    data_selector_required=data_selector_required,
                 ):
                     yield list(convert_types(page, columns_config))
 
@@ -358,6 +362,7 @@ def create_resources(
                 db_incremental_field_last_value=db_incremental_field_last_value,
                 resume_hook=resume_hook,
                 initial_state=initial_paginator_state,
+                data_selector_required=bool(endpoint_config.get("data_selector_required")),
             )
 
             resources[resource_name] = Resource(

@@ -232,7 +232,17 @@ class _FakeResumableClient:
         self.pages_by_path = pages_by_path
 
     def paginate(
-        self, *, method, path, params, paginator, data_selector, hooks, resume_hook=None, initial_paginator_state=None
+        self,
+        *,
+        method,
+        path,
+        params,
+        paginator,
+        data_selector,
+        hooks,
+        resume_hook=None,
+        initial_paginator_state=None,
+        data_selector_required=False,
     ):
         pages = self.pages_by_path[path]
         start = initial_paginator_state["page"] if initial_paginator_state else 0

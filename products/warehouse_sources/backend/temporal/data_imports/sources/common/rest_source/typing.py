@@ -221,6 +221,10 @@ class Endpoint(TypedDict, total=False):
     json: Optional[dict[str, Any]]
     paginator: Optional[PaginatorConfig]
     data_selector: Optional[TJsonPath]
+    # When True, a response whose ``data_selector`` matches nothing (the key is absent) raises
+    # instead of yielding an empty page — fail-loud on an unexpected/changed API response shape,
+    # rather than silently syncing 0 rows. A present-but-empty list is still a valid 0-row page.
+    data_selector_required: Optional[bool]
     response_actions: Optional[list[ResponseAction]]
     incremental: Optional[IncrementalConfig]
 
