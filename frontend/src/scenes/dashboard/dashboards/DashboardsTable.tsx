@@ -90,7 +90,8 @@ export function DashboardsTable({
 
     const columns: LemonTableColumns<DashboardType> = [
         {
-            width: 0,
+            // Fixed-layout table: icon-only columns need an explicit width, otherwise they'd be squeezed to a sliver.
+            width: 40,
             dataIndex: 'pinned',
             render: function Render(pinned, { id }) {
                 return (
@@ -119,9 +120,9 @@ export function DashboardsTable({
                     AccessControlLevel.Editor
                 )
                 return (
-                    // A max-width gives `truncate` (white-space: nowrap) something to ellipsize against; without one
-                    // the name grows the auto-layout cell and scrolls the whole table instead of truncating.
-                    <div className="max-w-[40rem]">
+                    // Fixed-layout table sizes this cell from the container, so the name truncates within its column
+                    // (full name on hover) instead of growing the cell and scrolling the whole table.
+                    <div className="min-w-0">
                         <LemonTableLink
                             to={urls.dashboard(id)}
                             truncateTitle
@@ -203,7 +204,8 @@ export function DashboardsTable({
         hideActions
             ? {}
             : {
-                  width: 0,
+                  // Fixed-layout table: give the actions menu a fixed width so it isn't squeezed to a sliver.
+                  width: 48,
                   render: function RenderActions(_, dashboard: DashboardType) {
                       const { id, name, user_access_level } = dashboard
                       const moveEntry = fsEntryFor(id)
@@ -319,6 +321,7 @@ export function DashboardsTable({
                 dataSource={dashboards as DashboardType[]}
                 rowKey="id"
                 rowClassName={(record) => (record._highlight ? 'highlighted' : null)}
+                tableLayout="fixed"
                 columns={columns}
                 loading={dashboardsLoading}
                 defaultSorting={effectiveTableSorting}
