@@ -1381,11 +1381,13 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
             )
             return
 
-        # Build lookup map from merged results
+        # Build lookup map from merged results. Skip flag keys containing NUL bytes:
+        # Postgres can't store them, so they can never match a real FeatureFlag.key,
+        # and passing one into the key__in query below raises psycopg.DataError.
         flag_updates: dict[tuple[int, str], datetime] = {}
-        for key, (ts, _count) in merged_results.items():
-            if ts is not None:
-                flag_updates[key] = ts
+        for (team_id, flag_key), (ts, _count) in merged_results.items():
+            if ts is not None and "\x00" not in flag_key:
+                flag_updates[(team_id, flag_key)] = ts
 
         if not flag_updates:
             redis_client.set(FEATURE_FLAG_LAST_CALLED_SYNC_KEY, current_sync_timestamp.isoformat())
