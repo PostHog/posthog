@@ -598,6 +598,8 @@ Icon-only trigger — only the chevron toggles, so the label can be its own butt
 
 `PopoverContent` forwards `collisionAvoidance` to the positioner. Pass `fallbackAxisSide: 'none'` to keep a tall panel on its requested axis (e.g. below the trigger, flipping above only if it won't fit) instead of jumping beside the trigger when vertical space is tight: `collisionAvoidance={{ side: 'flip', align: 'shift', fallbackAxisSide: 'none' }}`.
 
+For a controlled popover anchored to something other than a `PopoverTrigger` (e.g. a search input that must keep its own focus and keyboard handling), pass `anchor` — an element ref or element — to `PopoverContent` and drop the trigger. Control open/close with `open`/`onOpenChange`, and use `initialFocus={false}` so opening doesn't pull focus off the anchor. `onOpenChange` receives `(open, details)`; filter `details.reason` (e.g. ignore `'outside-press'` when the press lands on the anchor) to stop clicks on the anchor from closing it.
+
 ### Tooltip
 
 ```tsx

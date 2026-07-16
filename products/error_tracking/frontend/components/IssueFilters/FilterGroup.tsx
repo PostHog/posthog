@@ -1,8 +1,9 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
-import { LemonDropdown, LemonSegmentedButton } from '@posthog/lemon-ui'
+import { LemonSegmentedButton } from '@posthog/lemon-ui'
+import { Popover, PopoverContent } from '@posthog/quill'
 
 import { InfiniteSelectResults } from 'lib/components/TaxonomicFilter/InfiniteSelectResults'
 import { TaxonomicFilterSearchInput } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
@@ -57,7 +58,8 @@ const UniversalSearch = ({
     const { addGroupFilter } = useActions(universalFiltersLogic)
 
     const searchInputRef = useRef<HTMLInputElement | null>(null)
-    const floatingRef = useRef<HTMLDivElement | null>(null)
+    const anchorRef = useRef<HTMLDivElement | null>(null)
+    const popupRef = useRef<HTMLDivElement | null>(null)
 
     const onClose = (): void => {
         searchInputRef.current?.blur()
@@ -81,25 +83,59 @@ const UniversalSearch = ({
 
     const onChange = useDebouncedCallback((value: string) => setSearchQuery(value), 250)
 
+    // Manual outside-click handling. base-ui Popover's automatic outside-press
+    // dismiss is unreliable when the anchor isn't a real PopoverTrigger, so we
+    // cancel its firings (except Escape) in onOpenChange and close here instead.
+    // The content is portaled, so we walk the click target's ancestors looking
+    // for the popover content — and any nested quill portal (Select, menus) — to
+    // decide whether the click landed inside.
+    useEffect(() => {
+        if (!visible) {
+            return undefined
+        }
+        const handler = (event: PointerEvent): void => {
+            const target = event.target as Element | null
+            if (!target) {
+                return
+            }
+            if (
+                target.closest?.('[data-slot="popover-content"]') ||
+                target.closest?.('[data-quill-portal]') ||
+                anchorRef.current?.contains(target)
+            ) {
+                return
+            }
+            onClose()
+        }
+        // Defer one task so we don't catch the same click that just opened us.
+        const timer = window.setTimeout(() => document.addEventListener('pointerdown', handler, true), 0)
+        return () => {
+            window.clearTimeout(timer)
+            document.removeEventListener('pointerdown', handler, true)
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [visible])
+
     return (
         <BindLogic logic={taxonomicFilterLogic} props={taxonomicFilterLogicProps}>
             <div className="flex w-full min-w-0 items-center gap-1">
                 <FilterOperatorToggle />
-                <div className="min-w-0 flex-1">
-                    <LemonDropdown
-                        overlay={
-                            <div className="w-[400px] md:w-[600px]">
-                                <InfiniteSelectResults
-                                    focusInput={() => searchInputRef.current?.focus()}
-                                    taxonomicFilterLogicProps={taxonomicFilterLogicProps}
-                                    popupAnchorElement={floatingRef.current}
-                                />
-                            </div>
-                        }
-                        visible={visible}
-                        closeOnClickInside={false}
-                        floatingRef={floatingRef}
-                        onClickOutside={() => onClose()}
+                <div ref={anchorRef} className="min-w-0 flex-1">
+                    <Popover
+                        open={visible}
+                        onOpenChange={(open, details) => {
+                            if (open) {
+                                setVisible(true)
+                                return
+                            }
+                            // Escape closes; other dismiss reasons are handled by the
+                            // pointerdown listener above, so cancel base-ui's own dismiss.
+                            if (details?.reason === 'escape-key') {
+                                onClose()
+                                return
+                            }
+                            details?.cancel()
+                        }}
                     >
                         <TaxonomicFilterSearchInput
                             prefix={<UniversalFilterGroup taxonomicGroupTypes={taxonomicGroupTypes} />}
@@ -112,7 +148,22 @@ const UniversalSearch = ({
                             fullWidth
                             placeholder="Add a filter or search..."
                         />
-                    </LemonDropdown>
+                        <PopoverContent
+                            anchor={anchorRef}
+                            align="start"
+                            initialFocus={false}
+                            finalFocus={false}
+                            className="w-auto p-0"
+                        >
+                            <div ref={popupRef} className="w-[400px] md:w-[600px]">
+                                <InfiniteSelectResults
+                                    focusInput={() => searchInputRef.current?.focus()}
+                                    taxonomicFilterLogicProps={taxonomicFilterLogicProps}
+                                    popupAnchorElement={popupRef.current}
+                                />
+                            </div>
+                        </PopoverContent>
+                    </Popover>
                 </div>
             </div>
         </BindLogic>

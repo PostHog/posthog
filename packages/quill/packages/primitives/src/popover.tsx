@@ -19,10 +19,14 @@ function PopoverContent({
     side = 'bottom',
     sideOffset = 4,
     collisionAvoidance,
+    anchor,
     container,
     ...props
 }: PopoverPrimitive.Popup.Props &
-    Pick<PopoverPrimitive.Positioner.Props, 'align' | 'alignOffset' | 'side' | 'sideOffset' | 'collisionAvoidance'> &
+    Pick<
+        PopoverPrimitive.Positioner.Props,
+        'align' | 'alignOffset' | 'side' | 'sideOffset' | 'collisionAvoidance' | 'anchor'
+    > &
     Pick<PopoverPrimitive.Portal.Props, 'container'>): React.ReactElement {
     /*
      * `container` opt-in lets consumers mount the popover inside a
@@ -43,6 +47,7 @@ function PopoverContent({
                 side={side}
                 sideOffset={sideOffset}
                 collisionAvoidance={collisionAvoidance}
+                anchor={anchor}
                 className="isolate"
             >
                 <PopoverPrimitive.Popup
