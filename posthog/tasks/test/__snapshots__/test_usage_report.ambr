@@ -1079,7 +1079,7 @@
   '''
   
   SELECT distinct_id as team,
-         sum(JSONExtractInt(properties, 'count')) as sum
+         sum(toInt64OrZero(replaceRegexpAll(JSONExtractRaw(properties, 'count'), '^"|"$', ''))) as sum
   FROM events
   WHERE team_id = 99999
     AND event='local evaluation usage'
