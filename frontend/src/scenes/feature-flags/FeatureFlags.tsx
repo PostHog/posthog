@@ -194,8 +194,50 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                             }}
                             fullWidth
                         >
-                            Copy feature flag key
+                            Copy key
                         </LemonButton>
+
+                        {featureFlag.id && (
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.FeatureFlag}
+                                minAccessLevel={AccessControlLevel.Editor}
+                                userAccessLevel={featureFlag.user_access_level}
+                            >
+                                <LemonButton
+                                    fullWidth
+                                    disabledReason={
+                                        !featureFlag.can_edit
+                                            ? "You don't have permission to edit this feature flag."
+                                            : null
+                                    }
+                                    to={combineUrl(urls.featureFlag(featureFlag.id), { edit: true }).url}
+                                >
+                                    Edit
+                                </LemonButton>
+                            </AccessControlAction>
+                        )}
+
+                        <LemonButton
+                            to={urls.featureFlagNew({ sourceId: featureFlag.id })}
+                            data-attr="feature-flag-duplicate"
+                            fullWidth
+                        >
+                            Duplicate
+                        </LemonButton>
+
+                        <LemonButton to={tryInInsightsUrl(featureFlag)} data-attr="usage" fullWidth targetBlank>
+                            Try out in Insights
+                        </LemonButton>
+
+                        <LemonButton
+                            onClick={() => setIsQuickSurveyModalOpen(true)}
+                            data-attr="create-survey"
+                            fullWidth
+                        >
+                            Create survey
+                        </LemonButton>
+
+                        <LemonDivider />
 
                         <AccessControlAction
                             resourceType={AccessControlResourceType.FeatureFlag}
@@ -257,51 +299,9 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                                           : undefined
                                 }
                             >
-                                {featureFlag.active ? 'Disable' : 'Enable'} feature flag
+                                {featureFlag.active ? 'Disable' : 'Enable'}
                             </LemonButton>
                         </AccessControlAction>
-
-                        {featureFlag.id && (
-                            <AccessControlAction
-                                resourceType={AccessControlResourceType.FeatureFlag}
-                                minAccessLevel={AccessControlLevel.Editor}
-                                userAccessLevel={featureFlag.user_access_level}
-                            >
-                                <LemonButton
-                                    fullWidth
-                                    disabledReason={
-                                        !featureFlag.can_edit
-                                            ? "You don't have permission to edit this feature flag."
-                                            : null
-                                    }
-                                    to={combineUrl(urls.featureFlag(featureFlag.id), { edit: true }).url}
-                                >
-                                    Edit
-                                </LemonButton>
-                            </AccessControlAction>
-                        )}
-
-                        <LemonButton
-                            to={urls.featureFlagNew({ sourceId: featureFlag.id })}
-                            data-attr="feature-flag-duplicate"
-                            fullWidth
-                        >
-                            Duplicate
-                        </LemonButton>
-
-                        <LemonButton to={tryInInsightsUrl(featureFlag)} data-attr="usage" fullWidth targetBlank>
-                            Try out in Insights
-                        </LemonButton>
-
-                        <LemonButton
-                            onClick={() => setIsQuickSurveyModalOpen(true)}
-                            data-attr="create-survey"
-                            fullWidth
-                        >
-                            Create survey
-                        </LemonButton>
-
-                        <LemonDivider />
 
                         {featureFlag.id && (
                             <AccessControlAction
@@ -330,7 +330,7 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                                     loading={isUpdating}
                                     disabledReason={isUpdating ? 'Updating…' : undefined}
                                 >
-                                    {featureFlag.archived ? 'Unarchive' : 'Archive'} feature flag
+                                    {featureFlag.archived ? 'Unarchive' : 'Archive'}
                                 </LemonButton>
                             </AccessControlAction>
                         )}
@@ -361,7 +361,7 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                                     }
                                     fullWidth
                                 >
-                                    Delete feature flag
+                                    Delete
                                 </LemonButton>
                             </AccessControlAction>
                         )}
