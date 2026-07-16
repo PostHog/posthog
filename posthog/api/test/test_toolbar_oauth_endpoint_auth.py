@@ -21,12 +21,18 @@ from posthog.constants import AvailableFeature
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal
 
+try:
+    from ee.models.rbac.access_control import AccessControl
+except ImportError:
+    pass
 
-def _make_oauth_app(organization, user):
+
+def _make_oauth_app(organization, user, name="Toolbar Test App"):
     return OAuthApplication.objects.create(
-        name="Toolbar Test App",
+        name=name,
         client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
         authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
         redirect_uris="https://example.com/callback",
@@ -358,6 +364,79 @@ class TestToolbarOAuthScopesConfig(APIBaseTest):
 
     def test_no_wildcard_scope(self):
         assert "*" not in settings.TOOLBAR_OAUTH_SCOPES, "Toolbar should use specific scopes, not wildcard"
+
+
+class TestToolbarAccessTokenRevocation(APIBaseTest):
+    """
+    A toolbar OAuth access token is only checked against the `toolbar` access level when
+    it's minted. Without a re-check on every request, a token minted before access was
+    revoked would keep authenticating until its natural expiry.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        self.toolbar_app = _make_oauth_app(self.organization, self.user, name=settings.TOOLBAR_OAUTH_APPLICATION_NAME)
+        self.token = _make_token(
+            self.user,
+            self.toolbar_app,
+            "pha_toolbar_revocation",
+            scope=" ".join(settings.TOOLBAR_OAUTH_SCOPES),
+        )
+        self.token.scoped_teams = [self.team.id]
+        self.token.save()
+
+    def _deny_toolbar_access(self):
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="toolbar",
+            resource_id=None,
+            access_level="none",
+            organization_member=membership,
+        )
+
+    def _get(self):
+        self.client.logout()
+        return self.client.get(
+            f"/api/projects/{self.team.id}/actions/",
+            HTTP_AUTHORIZATION=f"Bearer {self.token.token}",
+        )
+
+    def test_token_authenticates_before_revocation(self):
+        assert self._get().status_code not in (401, 403)
+
+    def test_token_rejected_after_toolbar_access_revoked(self):
+        self._deny_toolbar_access()
+        assert self._get().status_code == 403
+
+    def test_token_rejected_when_scoped_to_no_team(self):
+        self.token.scoped_teams = []
+        self.token.save()
+        assert self._get().status_code == 403
+
+    def test_token_rejected_when_scoped_to_multiple_teams(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        self.token.scoped_teams = [self.team.id, other_team.id]
+        self.token.save()
+        assert self._get().status_code == 403
+
+    def test_non_toolbar_app_token_unaffected_by_toolbar_access_revocation(self):
+        """The revocation re-check is gated on the token's OAuth application being the
+        toolbar app - it must not affect tokens minted by any other OAuth client."""
+        self._deny_toolbar_access()
+        other_app = _make_oauth_app(self.organization, self.user, name="Some other app")
+        other_token = _make_token(self.user, other_app, "pha_other_app", scope="action:read")
+
+        self.client.logout()
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/actions/",
+            HTTP_AUTHORIZATION=f"Bearer {other_token.token}",
+        )
+        assert response.status_code not in (401, 403)
 
 
 class TestOAuthCorsPreflightMiddleware(APIBaseTest):
