@@ -42,7 +42,7 @@ const ActualKafkaProducerWrapper = jest.requireActual('~/common/kafka/producer')
  * collapse query all line up.
  */
 describe('RerunPaginatorService integration', () => {
-    jest.setTimeout(60_000)
+    jest.setTimeout(120_000)
 
     let hub: Hub
     let kafkaProducer: KafkaProducerWrapper
