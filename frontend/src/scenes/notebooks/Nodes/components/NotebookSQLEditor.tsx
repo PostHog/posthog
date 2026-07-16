@@ -1,9 +1,11 @@
 import { deepEqual as equal } from 'fast-equals'
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react'
 
 import { wasNotebookNodeJustInserted } from 'lib/components/MarkdownNotebook/freshlyInserted'
+import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { OutputTab, outputPaneLogic } from 'scenes/data-warehouse/editor/outputPaneLogic'
+import { queryDatabaseLogic } from 'scenes/data-warehouse/editor/sidebar/queryDatabaseLogic'
 import { SQLEditor, SQLEditorPanel } from 'scenes/data-warehouse/editor/SQLEditor'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
@@ -12,7 +14,10 @@ import { DataVisualizationNode, HogQLQuery, NodeKind, ProductKey, QuerySchema } 
 import { convertDataTableNodeToDataVisualizationNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
+import { notebookKernelInfoLogic } from '../../Notebook/notebookKernelInfoLogic'
 import { NotebookNodeAttributeProperties, NotebookNodeAttributes, NotebookNodeProps } from '../../types'
+import { notebookNodeLogic } from '../notebookNodeLogic'
+import { buildDataframeTreeSection } from './notebookDataframeTree'
 
 export const EMBEDDED_SQL_EDITOR_DEFAULT_HEIGHT = 333
 export const EMBEDDED_SQL_EDITOR_EDIT_DEFAULT_HEIGHT = 150
@@ -21,6 +26,21 @@ export const EMBEDDED_SQL_EDITOR_EDIT_MIN_HEIGHT = 150
 
 export const getNotebookSqlEditorTabId = (nodeId: string | null | undefined, suffix: string | null = null): string =>
     `notebook-sql-${suffix ? `${suffix}-` : ''}${nodeId ?? 'new'}`
+
+/**
+ * The "Dataframes" section this node contributes to the shared database tree (Journey 7).
+ *
+ * Reads from logics the notebook already mounts — notebookKernelInfoLogic is connected by
+ * notebookLogic and polls kernel/status, so this adds no requests. queryDatabaseLogic is read
+ * only for its search term, so the section filters along with the rest of the tree.
+ */
+function useNotebookDataframeTreeSections(): TreeDataItem[] {
+    const nodeLogic = useMountedLogic(notebookNodeLogic)
+    const { notebookLogic } = useValues(nodeLogic)
+    const { localFrames } = useValues(notebookKernelInfoLogic({ shortId: notebookLogic.props.shortId }))
+    const { searchTerm } = useValues(queryDatabaseLogic)
+    return useMemo(() => buildDataframeTreeSection(localFrames, searchTerm ?? ''), [localFrames, searchTerm])
+}
 
 const withNotebookHogQLTags = (query: DataVisualizationNode): DataVisualizationNode => ({
     ...query,
@@ -416,6 +436,7 @@ export function NotebookCodeSQLEditorSettings<T extends { code: string }>({
         [attributes.nodeId, tabIdSuffix]
     )
     useNotebookCodeSQLEditorSync({ attributes, updateAttributes, tabId })
+    const extraTreeSections = useNotebookDataframeTreeSections()
     const editorLogic = sqlEditorLogic({ tabId, mode: SQLEditorMode.Embedded })
     const { queryInput } = useValues(editorLogic)
     // Prefer what the user sees in the editor; fall back to the attribute before the first sync.
@@ -441,6 +462,7 @@ export function NotebookCodeSQLEditorSettings<T extends { code: string }>({
                 mode={SQLEditorMode.Embedded}
                 panel={SQLEditorPanel.Query}
                 defaultShowDatabaseTree={false}
+                extraTreeSections={extraTreeSections}
                 autoFocusQueryPane={autoFocusQueryPane}
                 // Read the editor's current text imperatively at run time. The Cmd+Enter keybinding
                 // fires a stale closure (and Monaco's keybinding value can come through empty), so a

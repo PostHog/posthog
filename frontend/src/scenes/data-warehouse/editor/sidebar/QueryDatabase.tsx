@@ -2,7 +2,7 @@ import { DragEndEvent, DragOverEvent, DragStartEvent } from '@dnd-kit/core'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 
 import {
     IconBrackets,
@@ -75,8 +75,16 @@ export function getSidebarAddJoinSourceTableName(
 
 export const QueryDatabase = ({
     virtualizationScrollContainerRef,
+    extraTreeSections,
 }: {
     virtualizationScrollContainerRef?: React.RefObject<HTMLDivElement | null>
+    /**
+     * Extra top-level sections to render above the database tree, owned by the embedding surface
+     * (notebooks lists the dataframes its kernel holds). Rendered as-is: whatever builds them owns
+     * their icons, children, and search filtering. Default empty, so surfaces that pass nothing are
+     * unaffected.
+     */
+    extraTreeSections?: TreeDataItem[]
 }): JSX.Element => {
     const {
         searchTerm,
@@ -308,10 +316,15 @@ export const QueryDatabase = ({
         setTreeRef(treeRef)
     }, [treeRef, setTreeRef])
 
+    const treeData = useMemo(
+        () => (extraTreeSections?.length ? [...extraTreeSections, ...displayedTreeData] : displayedTreeData),
+        [extraTreeSections, displayedTreeData]
+    )
+
     return (
         <LemonTree
             ref={treeRef}
-            data={displayedTreeData}
+            data={treeData}
             enableDragAndDrop={!searchTerm}
             isItemDraggable={(item) => !searchTerm && item.record?.type === 'view' && item.record?.isSavedQuery}
             isItemDroppable={(item) =>

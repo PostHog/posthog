@@ -17,9 +17,22 @@ import api from 'lib/api'
 
 import { PythonKernelExecuteResponse } from '../Nodes/pythonExecution'
 
+/** A DuckDB object a SQL node can currently SELECT from, as reported by the kernel's last run. */
+export type NotebookKernelFrame = {
+    name: string
+    /** 'frame': a dataframe a node produced. 'table'/'view': created by SQL DDL in a DuckDB node. */
+    kind: 'frame' | 'table' | 'view'
+    /** [column name, DuckDB type] pairs. */
+    columns: [string, string][]
+    /** Null when counting would need a table scan (a DDL view). */
+    row_count: number | null
+}
+
 export type NotebookKernelInfo = {
     backend: 'docker' | 'modal' | null
     status: string
+    /** Empty unless a live kernel has run something — the backend gates this on the kernel being up. */
+    frames?: NotebookKernelFrame[]
     last_used_at?: string | null
     last_error?: string | null
     runtime_id?: string | null
@@ -90,6 +103,7 @@ export interface notebookKernelInfoLogicValues {
     isStarting: boolean
     kernelInfo: NotebookKernelInfo | null
     kernelInfoLoading: boolean
+    localFrames: NotebookKernelFrame[]
     memoryIndex: number
     selectedCpu: number
     selectedMemory: number
@@ -207,6 +221,7 @@ export interface notebookKernelInfoLogicMeta {
         isBusyStatus: (isStarting: boolean, actionInFlight: KernelActionInFlight) => boolean
         hasActionInFlight: (actionInFlight: KernelActionInFlight) => boolean
         isModalKernel: (kernelInfo: NotebookKernelInfo | null) => boolean
+        localFrames: (kernelInfo: NotebookKernelInfo | null) => NotebookKernelFrame[]
         selectedCpu: (cpuIndex: number) => number
         selectedMemory: (memoryIndex: number) => number
         currentCpu: (kernelInfo: NotebookKernelInfo | null, selectedCpu: number) => number
@@ -419,6 +434,7 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
             (s) => [s.kernelInfo],
             (kernelInfo: NotebookKernelInfo | null) => kernelInfo?.backend === 'modal',
         ],
+        localFrames: [(s) => [s.kernelInfo], (kernelInfo: NotebookKernelInfo | null) => kernelInfo?.frames ?? []],
         selectedCpu: [(s) => [s.cpuIndex], (cpuIndex: number) => cpuCoreOptions[cpuIndex]],
         selectedMemory: [(s) => [s.memoryIndex], (memoryIndex: number) => memoryGbOptions[memoryIndex]],
         currentCpu: [
