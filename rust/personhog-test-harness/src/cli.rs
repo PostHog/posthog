@@ -230,6 +230,11 @@ pub struct GateArgs {
     #[arg(long, default_value_t = 100_000)]
     pub cache_capacity: usize,
 
+    /// Recovery consumer pool size for spawned leaders
+    /// (RECOVERY_POOL_SIZE) — bounds concurrent changelog recoveries.
+    #[arg(long, default_value_t = 16)]
+    pub recovery_pool_size: usize,
+
     /// etcd lease TTL for spawned leaders, in seconds. The production
     /// default is 30; lower it (5s works) so a TTL-expiry kill
     /// (--kill-fast false) doesn't need a 30s+ outage window mid-run.

@@ -141,6 +141,7 @@ pub async fn run(args: GateArgs) -> Result<()> {
                     writer_flush_interval_ms: 1000,
                     pg_target_table: args.pg_target_table.clone(),
                     cache_memory_capacity: args.cache_capacity,
+                    recovery_pool_size: args.recovery_pool_size,
                     leader_lease_ttl: args.leader_lease_ttl,
                 })
                 .await?,

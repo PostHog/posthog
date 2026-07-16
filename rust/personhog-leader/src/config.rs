@@ -145,11 +145,13 @@ pub struct Config {
 
     /// Number of pooled changelog-recovery consumers, bounding concurrent
     /// recoveries the way a DB connection pool bounds queries. Each is a
-    /// full Kafka client (its own connections and background threads), so
-    /// the pool stays small; raise it if the
-    /// `personhog_leader_recovery_pool_wait_ms` histogram shows recoveries
-    /// queuing behind it.
-    #[envconfig(default = "4")]
+    /// full Kafka client (its own connections and background threads), but
+    /// even 16 is fewer than the per-partition consumers this pool
+    /// replaced. Under a benchmarked writer outage a pool of 4 queued
+    /// recoveries for ~10ms on average and tripled write p99; 16 zeroed
+    /// the queueing. The `personhog_leader_recovery_pool_wait_ms`
+    /// histogram shows when this is undersized.
+    #[envconfig(default = "16")]
     pub recovery_pool_size: usize,
 
     /// Soft bound on dirty index entries (~100 bytes each). The index
