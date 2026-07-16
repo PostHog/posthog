@@ -921,6 +921,7 @@ export function ScannerQualityTab({ scannerId }: { scannerId: string }): JSX.Ele
                     observationId={obs.id}
                     initialLabel={obs.label}
                     onChange={(label) => labelChanged(obs.id, label)}
+                    scannerUserAccessLevel={scanner?.user_access_level}
                 />
             ),
         },
@@ -933,6 +934,7 @@ export function ScannerQualityTab({ scannerId }: { scannerId: string }): JSX.Ele
                     observationId={obs.id}
                     initialLabel={obs.label}
                     onChange={(label) => labelChanged(obs.id, label)}
+                    scannerUserAccessLevel={scanner?.user_access_level}
                 />
             ),
         },

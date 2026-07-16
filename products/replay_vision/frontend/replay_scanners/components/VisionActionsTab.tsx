@@ -78,15 +78,27 @@ function deliverySummary(action: VisionActionApi): string {
         .join(', ')
 }
 
-export function VisionActionsTab({ scannerId }: { scannerId: string }): JSX.Element {
+export function VisionActionsTab({
+    scannerId,
+    scannerUserAccessLevel,
+}: {
+    scannerId: string
+    scannerUserAccessLevel?: AccessControlLevel | null
+}): JSX.Element {
     return (
         <BindLogic logic={visionActionsLogic} props={{ scannerId }}>
-            <VisionActionsTable scannerId={scannerId} />
+            <VisionActionsTable scannerId={scannerId} scannerUserAccessLevel={scannerUserAccessLevel} />
         </BindLogic>
     )
 }
 
-function VisionActionsTable({ scannerId }: { scannerId: string }): JSX.Element {
+function VisionActionsTable({
+    scannerId,
+    scannerUserAccessLevel,
+}: {
+    scannerId: string
+    scannerUserAccessLevel?: AccessControlLevel | null
+}): JSX.Element {
     const { visionActions, visionActionsLoading, togglingIds } = useValues(visionActionsLogic)
     const { toggleActionEnabled, deleteAction } = useActions(visionActionsLogic)
 
@@ -99,7 +111,7 @@ function VisionActionsTable({ scannerId }: { scannerId: string }): JSX.Element {
                 customHog={HedgehogXRay}
                 description="Get scheduled group summaries of this scanner's observations — synthesized by AI on the cadence you choose — or alerts that notify you when new matches appear or a threshold is reached. Both can deliver to Slack."
                 actionElementOverride={
-                    <EditorGate>
+                    <EditorGate userAccessLevel={scannerUserAccessLevel ?? undefined}>
                         <LemonButton
                             type="primary"
                             icon={<IconPlus />}
@@ -227,7 +239,7 @@ function VisionActionsTable({ scannerId }: { scannerId: string }): JSX.Element {
     return (
         <div className="flex flex-col gap-2">
             <div className="flex justify-end">
-                <EditorGate>
+                <EditorGate userAccessLevel={scannerUserAccessLevel ?? undefined}>
                     <LemonButton
                         type="primary"
                         icon={<IconPlus />}

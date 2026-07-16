@@ -500,8 +500,28 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         ):
             raise PermissionDenied("Configuring a Replay Vision action requires session_recording read access.")
 
+    def get_object(self) -> VisionAction:
+        action = super().get_object()
+        # Per-scanner object-level grants are stored against `replay_scanner` + the scanner's id, not
+        # `vision_action` + the action's id — the default get_object() check above (against `action`
+        # itself) can only ever see the resource-level default, never a scanner-specific override. Check
+        # the scanner directly too, mirroring the `retry`/`label` pattern in observations.py, so a
+        # scanner-specific grant or restriction actually applies to its actions.
+        self.check_object_permissions(self.request, action.scanner)
+        return action
+
     def safely_get_queryset(self, queryset: QuerySet[VisionAction]) -> QuerySet[VisionAction]:
         queryset = queryset.filter(team_id=self.team_id).select_related("scanner", "created_by")
+        if self.action == "list":
+            # `vision_action` never carries its own object-level access-control rows (see the class
+            # docstring), so the generic queryset filtering in TeamAndOrgViewSetMixin is a no-op for this
+            # model. Filter to the caller's accessible scanners explicitly instead, mirroring the
+            # `creators`/`stats` pattern in scanners.py, so a scanner-level restriction actually hides
+            # that scanner's actions from the list.
+            accessible_scanners = self.user_access_control.filter_queryset_by_access_level(
+                ReplayScanner.objects.filter(team_id=self.team_id)
+            )
+            queryset = queryset.filter(scanner_id__in=accessible_scanners.values_list("id", flat=True))
         # The per-scanner "Actions" tab scopes the list to one scanner.
         scanner_id = self.request.query_params.get("scanner")
         if scanner_id:
@@ -515,6 +535,9 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return queryset.order_by("name", "id")
 
     def perform_create(self, serializer: BaseSerializer) -> None:
+        # The resource-level check in `has_permission` only reflects the project-wide default; object-check
+        # the target scanner too so a scanner-specific restriction blocks new actions on it as well.
+        self.check_object_permissions(self.request, serializer.validated_data["scanner"])
         # Atomic so a destination-provisioning failure rolls back the action row rather than leaving an
         # action that looks created but never delivers.
         with transaction.atomic():
@@ -725,12 +748,15 @@ class VisionActionRunViewSet(
             action_id = uuid.UUID(self.kwargs["parent_lookup_vision_action_id"])
         except (KeyError, ValueError):
             raise NotFound()
-        action = VisionAction.objects.for_team(self.team_id).filter(id=action_id).first()
+        action = VisionAction.objects.for_team(self.team_id).select_related("scanner").filter(id=action_id).first()
         if action is None:
             raise NotFound()
         # Runs expose recording-derived summaries, so reading them inherits the action's RBAC and also
-        # requires session_recording read (mirrors the observations endpoint).
-        self.check_object_permissions(self.request, action)
+        # requires session_recording read (mirrors the observations endpoint). Per-scanner object-level
+        # grants are stored against `replay_scanner` + the scanner's id, not `vision_action` + the action's
+        # id, so check the scanner directly — checking `action` itself would only ever see the
+        # resource-level default.
+        self.check_object_permissions(self.request, action.scanner)
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
             raise PermissionDenied("Reading vision action runs requires session_recording read access.")
         return action

@@ -15,27 +15,35 @@ export interface ObservationLabelProps {
     observationId: string
     initialLabel?: ReplayObservationLabelApi | null
     onChange?: (label: ReplayObservationLabelApi | null) => void
+    /** The observation's scanner's effective access level, for object-level overrides. Falls back to the
+     * resource default when the caller doesn't have the scanner loaded. */
+    scannerUserAccessLevel?: AccessControlLevel | null
 }
 
 const FEEDBACK_PLACEHOLDER = 'Optional: what did it get right or wrong, and why? Used to improve the prompt.'
 
-function useEditAccess(): string | null {
+function useEditAccess(scannerUserAccessLevel?: AccessControlLevel | null): string | null {
     // Editing the shared rating mutates team-wide data, so it needs editor access to the scanner — same
     // `replay_scanner` requirement as the "Edit scanner" gate and the backend label/prompt-suggestion writes.
-    return getAccessControlDisabledReason(AccessControlResourceType.ReplayScanner, AccessControlLevel.Editor)
+    return getAccessControlDisabledReason(
+        AccessControlResourceType.ReplayScanner,
+        AccessControlLevel.Editor,
+        scannerUserAccessLevel ?? undefined
+    )
 }
 
 function FeedbackEditor({
     observationId,
     initialLabel,
     onChange,
+    scannerUserAccessLevel,
     compact,
     onBlur,
 }: ObservationLabelProps & { compact: boolean; onBlur?: () => void }): JSX.Element {
     const logic = observationLabelLogic({ observationId, initialLabel, onChange })
     const { label, saving, feedbackDraft } = useValues(logic)
     const { setFeedbackDraft } = useActions(logic)
-    const canEdit = !useEditAccess()
+    const canEdit = !useEditAccess(scannerUserAccessLevel)
     const feedbackSynced = feedbackDraft === (label?.feedback ?? '')
 
     return (
@@ -70,11 +78,12 @@ export function ObservationLabelFeedback({
     observationId,
     initialLabel,
     onChange,
+    scannerUserAccessLevel,
 }: ObservationLabelProps): JSX.Element {
     const logic = observationLabelLogic({ observationId, initialLabel, onChange })
     const { label, feedbackDraft } = useValues(logic)
     const [editing, setEditing] = useState(false)
-    const canEdit = !useEditAccess()
+    const canEdit = !useEditAccess(scannerUserAccessLevel)
 
     if (!label) {
         return (
@@ -105,6 +114,7 @@ export function ObservationLabelFeedback({
             observationId={observationId}
             initialLabel={initialLabel}
             onChange={onChange}
+            scannerUserAccessLevel={scannerUserAccessLevel}
             compact
             onBlur={() => setEditing(false)}
         />
@@ -121,6 +131,7 @@ export function ObservationLabelControl({
     observationId,
     initialLabel,
     onChange,
+    scannerUserAccessLevel,
     compact = false,
 }: ObservationLabelProps & { compact?: boolean }): JSX.Element {
     const logic = observationLabelLogic({ observationId, initialLabel, onChange })
@@ -129,7 +140,7 @@ export function ObservationLabelControl({
 
     const thumbsUp = label?.is_correct === true
     const thumbsDown = label?.is_correct === false
-    const editDisabledReason = useEditAccess()
+    const editDisabledReason = useEditAccess(scannerUserAccessLevel)
 
     // Clicking the active thumb again removes the rating.
     const buttons = (
@@ -172,6 +183,7 @@ export function ObservationLabelControl({
                     observationId={observationId}
                     initialLabel={initialLabel}
                     onChange={onChange}
+                    scannerUserAccessLevel={scannerUserAccessLevel}
                     compact={false}
                 />
             )}

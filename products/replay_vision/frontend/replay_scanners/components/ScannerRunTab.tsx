@@ -23,7 +23,7 @@ import { IN_PROGRESS_STATUSES, scannerRunTabLogic } from '../scannerRunTabLogic'
 
 /** Manual entry: scan one session by pasting its recording ID. */
 function ScanBySessionId({ scannerId }: { scannerId: string }): JSX.Element {
-    const { triggeringOnDemandObservation, onDemandObservationSuccessCount } = useValues(
+    const { scanner, triggeringOnDemandObservation, onDemandObservationSuccessCount } = useValues(
         replayScannerLogic({ id: scannerId })
     )
     const { triggerOnDemandObservation } = useActions(replayScannerLogic({ id: scannerId }))
@@ -66,6 +66,7 @@ function ScanBySessionId({ scannerId }: { scannerId: string }): JSX.Element {
                 <AccessControlAction
                     resourceType={AccessControlResourceType.ReplayScanner}
                     minAccessLevel={AccessControlLevel.Editor}
+                    userAccessLevel={scanner?.user_access_level ?? undefined}
                 >
                     <LemonButton
                         type="primary"
