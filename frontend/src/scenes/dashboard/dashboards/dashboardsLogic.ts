@@ -294,7 +294,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                 s.user,
             ],
             (
-                allDashboards: unknown[],
+                allDashboards: DashboardBasicType[],
                 rawDashboards: Record<
                     string,
                     DashboardBasicType | import('~/types').DashboardType<import('~/types').QueryBasedInsightModel>

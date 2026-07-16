@@ -26,6 +26,7 @@ import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { ProductKey } from '../../queries/schema/schema-general'
 import { calculateFreeTier, createGaugeItems, isAddonVisible, isProductVariantPrimary } from './billing-utils'
 import { getBillingLimitConfig } from './billingLimitConfig'
+import type { BillingLimitConfig } from './billingLimitConfig'
 import { billingLogic } from './billingLogic'
 import type { BillingAlertConfig, SwitchPlanPayload, UnsubscribeError } from './billingLogic'
 import { DATA_PIPELINES_CUTOFF_DATE } from './constants'
@@ -97,6 +98,7 @@ export interface billingProductLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     billingGaugeItems: BillingGaugeItemType[]
     billingLimitAsUsage: number
+    billingLimitConfig: BillingLimitConfig
     billingLimitInput: Record<string, any>
     billingLimitInputAllErrors: Record<string, any>
     billingLimitInputChanged: boolean
@@ -147,6 +149,7 @@ export interface billingProductLogicValues {
     }> | null
     projectedAmountExcludingAddons: string
     proratedAmount: number
+    removingBillingLimitNextPeriod: boolean
     showBillingLimitInputErrors: boolean
     showTierBreakdown: boolean
     surveyID: string
@@ -295,6 +298,9 @@ export interface billingProductLogicActions {
     setIsEditingBillingLimit: (isEditingBillingLimit: boolean) => {
         isEditingBillingLimit: boolean
     }
+    setRemovingBillingLimitNextPeriod: (removingBillingLimitNextPeriod: boolean) => {
+        removingBillingLimitNextPeriod: boolean
+    }
     setShowTierBreakdown: (showTierBreakdown: boolean) => {
         showTierBreakdown: boolean
     }
@@ -405,6 +411,12 @@ export interface billingProductLogicMeta {
             billing: BillingType | null,
             product: BillingProductV2AddonType | BillingProductV2Type
         ) => number | null
+        billingLimitConfig: (
+            billing: BillingType | null,
+            product: BillingProductV2AddonType | BillingProductV2Type,
+            customLimitUsd: number | null,
+            billingLimitNextPeriod: number | null
+        ) => BillingLimitConfig
         billingGaugeItems: (
             product: BillingProductV2AddonType | BillingProductV2Type,
             billing: BillingType | null,
@@ -830,7 +842,12 @@ export const billingProductLogic = kea<billingProductLogicType>([
         ],
         billingLimitConfig: [
             (s, p) => [s.billing, p.product, s.customLimitUsd, s.billingLimitNextPeriod],
-            (billing, product, customLimitUsd, billingLimitNextPeriod) => {
+            (
+                billing: BillingType | null,
+                product: BillingProductV2AddonType | BillingProductV2Type,
+                customLimitUsd: number | null,
+                billingLimitNextPeriod: number | null
+            ) => {
                 return getBillingLimitConfig({
                     billing,
                     product,

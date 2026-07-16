@@ -13,7 +13,7 @@ import type {
     OrderGroupsByEnumApi,
 } from 'products/logs/frontend/generated/api.schemas'
 
-import type { DateRange, LogSeverityLevel, LogsQuery } from '../../../../../frontend/src/queries/schema/schema-general'
+import type { DateRange, LogSeverityLevel } from '../../../../../frontend/src/queries/schema/schema-general'
 import type { UniversalFiltersGroup } from '../../../../../frontend/src/types'
 import type { LogsViewerGroupBy } from '../LogsViewer/config/logsViewerConfigLogic'
 import type { LogsViewerFilters } from '../LogsViewer/config/types'

@@ -30,6 +30,8 @@ import {
     InsightBulkRestoreResponseApi,
 } from 'products/product_analytics/frontend/generated/api.schemas'
 
+import type { DeleteDashboardForm } from '../dashboard/deleteDashboardLogic'
+import type { DuplicateDashboardForm } from '../dashboard/duplicateDashboardLogic'
 import { teamLogic } from '../teamLogic'
 import type { savedInsightsLogicType } from './savedInsightsLogicType'
 
@@ -396,12 +398,20 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 actions.addInsight(insight)
             }
         },
-        [deleteDashboardLogic.actionTypes.submitDeleteDashboardSuccess]: ({ deleteDashboard }) => {
+        [deleteDashboardLogic.actionTypes.submitDeleteDashboardSuccess]: ({
+            deleteDashboard,
+        }: {
+            deleteDashboard: DeleteDashboardForm
+        }) => {
             if (deleteDashboard.deleteInsights) {
                 actions.loadInsights()
             }
         },
-        [duplicateDashboardLogic.actionTypes.submitDuplicateDashboardSuccess]: ({ duplicateDashboard }) => {
+        [duplicateDashboardLogic.actionTypes.submitDuplicateDashboardSuccess]: ({
+            duplicateDashboard,
+        }: {
+            duplicateDashboard: DuplicateDashboardForm
+        }) => {
             if (duplicateDashboard.duplicateTiles) {
                 actions.loadInsights()
             }

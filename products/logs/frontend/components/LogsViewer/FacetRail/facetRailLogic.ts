@@ -4,7 +4,6 @@ import { LogSeverityLevel } from '~/queries/schema/schema-general'
 
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 
-import type { LogsQuery } from '../../../../../../frontend/src/queries/schema/schema-general'
 import type { UniversalFiltersGroup } from '../../../../../../frontend/src/types'
 import { FacetSource, toggleResourceAttributeFilter } from './facets'
 
