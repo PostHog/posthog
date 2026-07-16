@@ -123,9 +123,13 @@ def create_review_run(
     head_sha: str,
     delivery_id: str | None = None,
 ) -> contracts.ReviewRunDTO:
+    # Resolve the PR through the team scope rather than trusting the raw FK id: a caller passing
+    # another team's pull_request_id would otherwise create a run whose reads follow the FK across
+    # the tenant boundary (get_review_run would surface the other team's repo and PR details).
+    pull_request = PullRequest.objects.for_team(team_id).get(id=pull_request_id)
     obj = ReviewRun.objects.for_team(team_id).create(
         team_id=team_id,
-        pull_request_id=pull_request_id,
+        pull_request=pull_request,
         head_sha=head_sha,
         delivery_id=delivery_id,
     )

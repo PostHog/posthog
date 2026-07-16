@@ -622,6 +622,14 @@ def mark_review_failed(input: MarkReviewFailedInput) -> None:
     if run.status in TERMINAL_STATUSES:
         activity.logger.warning(f"Run {run.id} already {run.status}; keeping it, error was: {first_error_line}")
         return
+    # A prior post_verdict attempt may have approved on GitHub and then exhausted retries before the
+    # terminal save — the id is persisted, the verdict is not, and without a future delivery nothing
+    # would ever retract the approval on a FAILED run. Dismiss BEFORE marking FAILED: if the
+    # dismissal itself fails, this activity retries into a still-non-terminal run and tries again,
+    # whereas the reverse order would hit the terminal guard above and orphan the approval forever.
+    if run.verdict != ReviewVerdict.APPROVED and run.posted_review_id and run.approval_dismissed_at is None:
+        client = StamphogGitHubClient(run.pull_request.repo_config.installation_id)
+        _dismiss_orphaned_approval(client, run, input.team_id)
     # Persist only the first line, truncated: run.error is returned by the serializer to anyone with
     # stamphog:read, and raw exception text can embed repository file content (a yaml.YAMLError over
     # .stamphog/policy.yml echoes the offending source lines on its continuation lines). Full detail is

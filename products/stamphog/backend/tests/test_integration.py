@@ -638,6 +638,35 @@ def test_bot_eyes_on_a_later_reactions_page_still_counts_as_in_flight(team, stam
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_mark_review_failed_dismisses_an_orphaned_approval(team, stamphog_chain: StamphogChain) -> None:
+    # post_verdict can approve on GitHub, persist the id, and then exhaust retries before the
+    # terminal save — the workflow's failure path is the last chance to retract that approval:
+    # without a future delivery, nothing else ever sweeps a FAILED run's orphan.
+    repo_config = _repo_config(team.id)
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=119, author_login="devex-dev"
+    )
+    run = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id,
+        pull_request=pull_request,
+        head_sha="sha119a",
+        status=ReviewRunStatus.REVIEWING,
+        posted_review_id=888,
+    )
+
+    with patch("products.stamphog.backend.temporal.activities.ph_scoped_capture") as mock_capture_cm:
+        mock_capture_cm.return_value.__enter__.return_value = MagicMock()
+        mock_capture_cm.return_value.__exit__.return_value = False
+        _run_activity(mark_review_failed, MarkReviewFailedInput(str(run.id), team.id, "terminal save kept failing"))
+
+    dismissals = [w for w in stamphog_chain.recorder.github_writes if w["kind"] == "dismiss_review"]
+    assert [d["review_id"] for d in dismissals] == [888]
+    run.refresh_from_db()
+    assert run.status == ReviewRunStatus.FAILED
+    assert run.approval_dismissed_at is not None
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_mark_review_failed_never_rewrites_a_terminal_run(team) -> None:
     # post_verdict saves COMPLETED (approval already posted to GitHub) before its trailing digest
     # stamp; a failure in that tail must not rewrite the delivered outcome to FAILED.
