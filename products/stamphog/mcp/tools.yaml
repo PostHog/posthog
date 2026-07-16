@@ -112,22 +112,13 @@ tools:
             or by `merged` (true/false) to separate open work from merged history. Each entry includes the repository,
             author, head branch, merge state, and diff size (additions/deletions/changed_files) once merged.
         feature_flag: stamphog
+    # Disabled: the serializer keeps installation_id read-only (binding happens only through the
+    # verified sync flow), so this create can only produce an unbound placeholder that webhooks
+    # can't resolve and that adoption later force-disables. Onboarding goes through the GitHub App
+    # install + sync_installation; agents manage existing rows with the update tool.
     stamphog-repo-configs-create:
         operation: stamphog_repo_configs_create
-        enabled: true
-        scopes:
-            - stamphog:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        title: Enable stamphog for a repo
-        description: >
-            Onboard a repo for stamphog review: bind a (provider, installation_id, repository) triple to this project.
-            Fails if another team already claimed that installation + repository combination. Set `enabled: true` to
-            start reviewing pull requests immediately, or `digest_enabled: true` to include the repo's merged PRs in the
-            daily Slack digest without turning on review.
-        feature_flag: stamphog
+        enabled: false
     stamphog-repo-configs-delete:
         operation: stamphog_repo_configs_destroy
         enabled: true

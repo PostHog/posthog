@@ -450,7 +450,14 @@ def _record_merged_pull_request(payload: dict[str, Any], delivery_id: str) -> No
         approved = (
             ReviewRun.objects.for_team(team_id)
             .using(router.db_for_write(ReviewRun))
-            .filter(pull_request=pr_obj, verdict=ReviewVerdict.APPROVED, head_sha=pr_head_sha)
+            .filter(
+                pull_request=pr_obj,
+                verdict=ReviewVerdict.APPROVED,
+                head_sha=pr_head_sha,
+                # A dismissed approval is no longer stamphog's verdict — a same-head re-review may
+                # have voided it and then refused, and the digest must not brand that merge approved.
+                approval_dismissed_at__isnull=True,
+            )
             .exists()
         )
     # Review-disabled repos can't have approved runs by construction, so digest-only mode
@@ -567,8 +574,11 @@ def _disable_installation_repos(team_id: int, installation_id: str, repos: list[
     names = [name for repo in repos if (name := (repo or {}).get("full_name"))]
     if not names:
         return
+    # Writer pin: this lookup gates the disable + supersede side effects; a lagged reader missing a
+    # just-restamped row would leave the removed repo's config live and its runs posting.
     config_ids = list(
         StamphogRepoConfig.objects.for_team(team_id)
+        .using(router.db_for_write(StamphogRepoConfig))
         .filter(provider="github", installation_id=installation_id, repository__in=names)
         .values_list("id", flat=True)
     )
@@ -644,6 +654,7 @@ def process_installation_event(payload: dict[str, Any], delivery_id: str) -> Non
             for team_id in team_ids:
                 uninstalled_ids = list(
                     StamphogRepoConfig.objects.for_team(team_id)
+                    .using(router.db_for_write(StamphogRepoConfig))
                     .filter(provider="github", installation_id=installation_id)
                     .values_list("id", flat=True)
                 )

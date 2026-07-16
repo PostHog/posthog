@@ -7942,21 +7942,6 @@
         },
         "feature_flag": "stamphog"
     },
-    "stamphog-repo-configs-create": {
-        "description": "Onboard a repo for stamphog review: bind a (provider, installation_id, repository) triple to this project. Fails if another team already claimed that installation + repository combination. Set `enabled: true` to start reviewing pull requests immediately, or `digest_enabled: true` to include the repo's merged PRs in the daily Slack digest without turning on review.",
-        "category": "Stamphog",
-        "feature": "stamphog",
-        "summary": "Enable stamphog for a repo",
-        "title": "Enable stamphog for a repo",
-        "required_scopes": ["stamphog:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "feature_flag": "stamphog"
-    },
     "stamphog-repo-configs-delete": {
         "description": "Delete a repo config by id. This removes stamphog's review and digest configuration for the repo entirely — prefer `stamphog-repo-configs-update` with `enabled: false` if you only want to pause review temporarily.",
         "category": "Stamphog",

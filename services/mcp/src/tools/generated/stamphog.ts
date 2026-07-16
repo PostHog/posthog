@@ -9,7 +9,6 @@ import {
     StamphogDigestRunsListQueryParams,
     StamphogPullRequestsListQueryParams,
     StamphogPullRequestsRetrieveParams,
-    StamphogRepoConfigsCreateBody,
     StamphogRepoConfigsDestroyParams,
     StamphogRepoConfigsListQueryParams,
     StamphogRepoConfigsRetrieveParams,
@@ -153,41 +152,6 @@ const stamphogPullRequestsList = (): ToolBase<
     },
 })
 
-const StamphogRepoConfigsCreateSchema = StamphogRepoConfigsCreateBody
-
-const stamphogRepoConfigsCreate = (): ToolBase<typeof StamphogRepoConfigsCreateSchema, Schemas.StamphogRepoConfig> => ({
-    name: 'stamphog-repo-configs-create',
-    schema: StamphogRepoConfigsCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof StamphogRepoConfigsCreateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.provider !== undefined) {
-            body['provider'] = params.provider
-        }
-        if (params.repository !== undefined) {
-            body['repository'] = params.repository
-        }
-        if (params.enabled !== undefined) {
-            body['enabled'] = params.enabled
-        }
-        if (params.digest_enabled !== undefined) {
-            body['digest_enabled'] = params.digest_enabled
-        }
-        if (params.review_mode !== undefined) {
-            body['review_mode'] = params.review_mode
-        }
-        if (params.trigger_label !== undefined) {
-            body['trigger_label'] = params.trigger_label
-        }
-        const result = await context.api.request<Schemas.StamphogRepoConfig>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/stamphog/repo_configs/`,
-            body,
-        })
-        return result
-    },
-})
-
 const StamphogRepoConfigsDeleteSchema = StamphogRepoConfigsDestroyParams.omit({ project_id: true })
 
 const stamphogRepoConfigsDelete = (): ToolBase<typeof StamphogRepoConfigsDeleteSchema, unknown> => ({
@@ -291,7 +255,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'stamphog-digest-runs-list': stamphogDigestRunsList,
     'stamphog-pull-requests-get': stamphogPullRequestsGet,
     'stamphog-pull-requests-list': stamphogPullRequestsList,
-    'stamphog-repo-configs-create': stamphogRepoConfigsCreate,
     'stamphog-repo-configs-delete': stamphogRepoConfigsDelete,
     'stamphog-repo-configs-get': stamphogRepoConfigsGet,
     'stamphog-repo-configs-list': stamphogRepoConfigsList,
