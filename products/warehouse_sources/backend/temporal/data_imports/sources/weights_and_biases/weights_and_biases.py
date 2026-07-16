@@ -3,6 +3,7 @@ import dataclasses
 from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
+from urllib.parse import urlsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -17,6 +18,11 @@ WANDB_DEFAULT_HOST = "https://api.wandb.ai"
 PAGE_SIZE = 50
 REQUEST_TIMEOUT_SECONDS = 60
 MAX_RETRY_ATTEMPTS = 5
+# The API key travels as HTTP Basic auth, and the host is customer-controlled, so cap the body
+# we read from it. A page of 50 runs carries config/summaryMetrics JSON blobs but stays well
+# under this; the cap only exists to stop a hostile or misconfigured host exhausting a shared
+# warehouse worker with an unbounded (or slowly streamed) response.
+MAX_RESPONSE_BYTES = 100 * 1024 * 1024
 
 # Advertised incremental field (row column, camelCase as the API returns it) -> the ascending
 # order key the runs connection accepts. Both filter + order verified against the live API.
@@ -32,6 +38,10 @@ class WeightsAndBiasesRetryableError(Exception):
 
 
 class WeightsAndBiasesGraphQLError(Exception):
+    pass
+
+
+class WeightsAndBiasesConfigError(Exception):
     pass
 
 
@@ -164,8 +174,24 @@ def _get_session(api_key: str) -> requests.Session:
 def _graphql_url(host: str | None) -> str:
     # Dedicated Cloud / self-managed deployments serve the same GraphQL API on an
     # account-specific base URL (e.g. https://acme.wandb.io).
-    base = (host or "").strip().rstrip("/") or WANDB_DEFAULT_HOST
+    base = (host or "").strip().rstrip("/")
+    if not base:
+        return f"{WANDB_DEFAULT_HOST}/graphql"
+    # Tolerate a bare host (users routinely paste "acme.wandb.io"); only prepend https when no
+    # scheme is present. An explicit http:// is rejected — the key is sent as HTTP Basic auth,
+    # so a plaintext scheme would expose it to anyone observing the network path.
+    if "://" not in base:
+        base = f"https://{base}"
+    if urlsplit(base).scheme != "https":
+        raise WeightsAndBiasesConfigError(
+            "The Weights & Biases host must use https (for example https://acme.wandb.io)."
+        )
     return f"{base}/graphql"
+
+
+def validate_host(host: str | None) -> None:
+    """Raise WeightsAndBiasesConfigError if a custom host isn't an https URL."""
+    _graphql_url(host)
 
 
 def _format_timestamp(value: Any) -> str:
@@ -185,16 +211,29 @@ def _execute(
     variables: dict[str, Any],
     logger: FilteringBoundLogger,
 ) -> dict[str, Any]:
-    response = session.post(url, json={"query": query, "variables": variables}, timeout=REQUEST_TIMEOUT_SECONDS)
+    # stream=True so the body isn't buffered before we read it under a cap below.
+    response = session.post(
+        url, json={"query": query, "variables": variables}, timeout=REQUEST_TIMEOUT_SECONDS, stream=True
+    )
 
     if response.status_code == 429 or response.status_code >= 500:
+        response.close()
         raise WeightsAndBiasesRetryableError(f"Weights & Biases API error (retryable): status={response.status_code}")
 
+    # The host is customer-controlled, so read the body under a cap rather than materialising an
+    # unbounded response into a shared worker. Read one byte past the cap to detect an oversized
+    # body without buffering the whole thing; the request timeout bounds a slowly-streamed one.
+    raw = response.raw.read(MAX_RESPONSE_BYTES + 1, decode_content=True)
+    if len(raw) > MAX_RESPONSE_BYTES:
+        raise WeightsAndBiasesGraphQLError("Weights & Biases API returned an oversized response body")
+
     if not response.ok:
-        logger.error(f"Weights & Biases API error: status={response.status_code}, body={response.text}")
+        logger.error(
+            f"Weights & Biases API error: status={response.status_code}, body={raw[:2000].decode('utf-8', 'replace')}"
+        )
         response.raise_for_status()
 
-    body = response.json()
+    body = json.loads(raw)
     errors = body.get("errors")
     if errors:
         message = "; ".join(str(error.get("message", error)) for error in errors)

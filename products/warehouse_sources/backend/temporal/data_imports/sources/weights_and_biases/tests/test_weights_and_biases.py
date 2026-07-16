@@ -11,12 +11,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.weights_an
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.weights_and_biases.weights_and_biases import (
     PAGE_SIZE,
+    WeightsAndBiasesConfigError,
     WeightsAndBiasesGraphQLError,
     WeightsAndBiasesResumeConfig,
     _format_timestamp,
     _graphql_url,
     get_rows,
     validate_credentials,
+    validate_host,
     weights_and_biases_source,
 )
 
@@ -42,10 +44,15 @@ def _connection_response(
     }
     for key in reversed(connection_path):
         data = {key: data}
+    return _ok_response({"data": data})
+
+
+def _ok_response(payload: dict[str, Any]) -> mock.MagicMock:
+    # _execute reads the body via response.raw.read(...) under a size cap, not response.json().
     resp = mock.MagicMock()
     resp.status_code = 200
     resp.ok = True
-    resp.json.return_value = {"data": data}
+    resp.raw.read.return_value = json.dumps(payload).encode()
     return resp
 
 
@@ -70,10 +77,20 @@ class TestGraphQLUrl:
             ("  ", "https://api.wandb.ai/graphql"),
             ("https://acme.wandb.io", "https://acme.wandb.io/graphql"),
             ("https://acme.wandb.io/", "https://acme.wandb.io/graphql"),
+            # A bare host is assumed https rather than rejected — users routinely paste one.
+            ("acme.wandb.io", "https://acme.wandb.io/graphql"),
         ],
     )
     def test_host_normalization(self, host, expected):
         assert _graphql_url(host) == expected
+
+    @pytest.mark.parametrize("host", ["http://acme.wandb.io", "http://api.wandb.ai", "ftp://acme.wandb.io"])
+    def test_non_https_host_is_rejected(self, host):
+        # The API key is sent as HTTP Basic auth, so a plaintext scheme would leak it on the wire.
+        with pytest.raises(WeightsAndBiasesConfigError, match="https"):
+            _graphql_url(host)
+        with pytest.raises(WeightsAndBiasesConfigError, match="https"):
+            validate_host(host)
 
 
 class TestFormatTimestamp:
@@ -100,11 +117,7 @@ class TestValidateCredentials:
     )
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_viewer_presence_decides_validity(self, mock_session, viewer, expected):
-        resp = mock.MagicMock()
-        resp.status_code = 200
-        resp.ok = True
-        resp.json.return_value = {"data": {"viewer": viewer}}
-        mock_session.return_value.post.return_value = resp
+        mock_session.return_value.post.return_value = _ok_response({"data": {"viewer": viewer}})
 
         assert validate_credentials("key", None) is expected
 
@@ -115,11 +128,7 @@ class TestValidateCredentials:
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_session_uses_basic_auth_with_api_username(self, mock_session):
-        resp = mock.MagicMock()
-        resp.status_code = 200
-        resp.ok = True
-        resp.json.return_value = {"data": {"viewer": {"id": "abc"}}}
-        mock_session.return_value.post.return_value = resp
+        mock_session.return_value.post.return_value = _ok_response({"data": {"viewer": {"id": "abc"}}})
 
         validate_credentials("secret-key", "https://acme.wandb.io")
 
@@ -313,10 +322,7 @@ class TestArtifactsEndpoint:
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_artifact_type_deleted_mid_sync_is_skipped(self, mock_session):
-        null_type_resp = mock.MagicMock()
-        null_type_resp.status_code = 200
-        null_type_resp.ok = True
-        null_type_resp.json.return_value = {"data": {"project": {"artifactType": None}}}
+        null_type_resp = _ok_response({"data": {"project": {"artifactType": None}}})
         mock_session.return_value.post.side_effect = [
             _projects_response(["proj-a"]),
             _connection_response(("project", "artifactTypes"), [{"node": {"name": "model"}}]),
@@ -331,11 +337,7 @@ class TestArtifactsEndpoint:
 class TestErrors:
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_graphql_error_raises(self, mock_session):
-        resp = mock.MagicMock()
-        resp.status_code = 200
-        resp.ok = True
-        resp.json.return_value = {"errors": [{"message": "permission denied"}]}
-        mock_session.return_value.post.return_value = resp
+        mock_session.return_value.post.return_value = _ok_response({"errors": [{"message": "permission denied"}]})
 
         with pytest.raises(WeightsAndBiasesGraphQLError, match="permission denied"):
             list(get_rows("key", None, "acme", "projects", mock.MagicMock(), _make_manager()))
@@ -343,6 +345,19 @@ class TestErrors:
     def test_unknown_endpoint_raises(self):
         with pytest.raises(ValueError, match="Unknown Weights & Biases endpoint"):
             list(get_rows("key", None, "acme", "nope", mock.MagicMock(), _make_manager()))
+
+    @mock.patch(f"{_MODULE}.MAX_RESPONSE_BYTES", 16)
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_oversized_response_body_is_rejected(self, mock_session):
+        # The host is customer-controlled; an unbounded body must not be buffered into a worker.
+        oversized = mock.MagicMock()
+        oversized.status_code = 200
+        oversized.ok = True
+        oversized.raw.read.return_value = b"x" * 17
+        mock_session.return_value.post.return_value = oversized
+
+        with pytest.raises(WeightsAndBiasesGraphQLError, match="oversized"):
+            list(get_rows("key", None, "acme", "projects", mock.MagicMock(), _make_manager()))
 
 
 class TestSourceResponse:

@@ -49,7 +49,7 @@ class TestWeightsAndBiasesSource:
 
     def test_host_field_is_optional(self):
         config = self.source.get_source_config
-        host_field = next(f for f in config.fields if f.name == "host")
+        host_field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "host")
         assert host_field.required is False
 
     @pytest.mark.parametrize(

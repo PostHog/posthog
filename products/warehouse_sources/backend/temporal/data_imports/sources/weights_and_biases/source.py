@@ -29,8 +29,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.weights_an
     WANDB_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.weights_and_biases.weights_and_biases import (
+    WeightsAndBiasesConfigError,
     WeightsAndBiasesResumeConfig,
     validate_credentials as validate_wandb_credentials,
+    validate_host as validate_wandb_host,
     weights_and_biases_source,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -134,6 +136,11 @@ If you use W&B Dedicated Cloud or a self-managed server, set the host to your de
     def validate_credentials(
         self, config: WeightsAndBiasesSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
+        try:
+            validate_wandb_host(config.host)
+        except WeightsAndBiasesConfigError as err:
+            return False, str(err)
+
         if validate_wandb_credentials(config.api_key, config.host):
             return True, None
 
