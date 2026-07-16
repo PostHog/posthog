@@ -40253,7 +40253,7 @@ export namespace Schemas {
     }
 
     /**
-     * Serializer mixin that handles tags for objects.
+     * Mixin for serializers to add user access control fields
      */
     export interface Ticket {
       readonly id: string;
@@ -40333,6 +40333,11 @@ export namespace Schemas {
       readonly organization_id: string | null;
       readonly person: TicketPerson | null;
       tags?: unknown[];
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
     }
 
     export interface PaginatedTicketList {
@@ -47876,7 +47881,7 @@ export namespace Schemas {
     }
 
     /**
-     * Serializer mixin that handles tags for objects.
+     * Mixin for serializers to add user access control fields
      */
     export interface PatchedTicket {
       readonly id?: string;
@@ -47956,6 +47961,11 @@ export namespace Schemas {
       readonly organization_id?: string | null;
       readonly person?: TicketPerson | null;
       tags?: unknown[];
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level?: string | null;
     }
 
     /**

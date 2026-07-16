@@ -183,7 +183,7 @@ export const ConversationsTicketsCreateBody = /* @__PURE__ */ zod
         snoozed_until: zod.iso.datetime({ offset: true }).nullish(),
         tags: zod.array(zod.unknown()).optional(),
     })
-    .describe('Serializer mixin that handles tags for objects.')
+    .describe('Mixin for serializers to add user access control fields')
 
 /**
  * Handle ticket updates including assignee changes.
@@ -219,7 +219,7 @@ export const ConversationsTicketsUpdateBody = /* @__PURE__ */ zod
         snoozed_until: zod.iso.datetime({ offset: true }).nullish(),
         tags: zod.array(zod.unknown()).optional(),
     })
-    .describe('Serializer mixin that handles tags for objects.')
+    .describe('Mixin for serializers to add user access control fields')
 
 export const ConversationsTicketsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -252,7 +252,7 @@ export const ConversationsTicketsPartialUpdateBody = /* @__PURE__ */ zod
         snoozed_until: zod.iso.datetime({ offset: true }).nullish(),
         tags: zod.array(zod.unknown()).optional(),
     })
-    .describe('Serializer mixin that handles tags for objects.')
+    .describe('Mixin for serializers to add user access control fields')
 
 /**
  * Record reviewer feedback on an AI reply, captured to the internal analytics project.

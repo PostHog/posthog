@@ -156,7 +156,7 @@ export const ConversationsTicketsPartialUpdateBody = /* @__PURE__ */ zod
         snoozed_until: zod.iso.datetime({ offset: true }).nullish(),
         tags: zod.array(zod.unknown()).optional(),
     })
-    .describe('Serializer mixin that handles tags for objects.')
+    .describe('Mixin for serializers to add user access control fields')
 
 /**
  * Return the message thread for a ticket, ordered chronologically (paginated).
