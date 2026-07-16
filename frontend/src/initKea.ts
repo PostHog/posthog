@@ -8,7 +8,7 @@ import { waitForPlugin } from 'kea-waitfor'
 import { windowValuesPlugin } from 'kea-window-values'
 import posthog from 'posthog-js'
 
-import { isAccessDeniedError } from 'lib/api-error'
+import { isAccessDeniedError, isNetworkError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import {
     addProjectIdIfMissing,
@@ -173,7 +173,10 @@ export function initKea({
                 if (!errorsSilenced) {
                     console.error({ error, reducerKey, actionKey })
                 }
-                if (!TRANSIENT_GATEWAY_STATUSES.includes(error?.status)) {
+                // Transport-level fetch failures (no HTTP status — offline, DNS, aborted
+                // navigation, ad blocker) are client network conditions, not app defects, so we
+                // skip error tracking to avoid noise. They still console.error above.
+                if (!TRANSIENT_GATEWAY_STATUSES.includes(error?.status) && !isNetworkError(error)) {
                     posthog.captureException(error)
                 }
             },
