@@ -5,7 +5,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 import pyarrow as pa
-from clickhouse_connect.driver.exceptions import ClickHouseError
+from clickhouse_connect.driver.exceptions import ClickHouseError, OperationalError
 
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -661,6 +661,8 @@ class TestClickHouseSourceNonRetryableErrors:
             # Transient gateway errors must stay retryable — only 404 is permanent.
             "HTTPDriver for https://example.ngrok-free.dev:443 returned response code 502",
             "HTTPDriver for https://example.ngrok-free.dev:443 returned response code 503",
+            # 429 Too Many Requests is a rate-limit ("retry later"), not a permanent error.
+            "HTTPDriver for https://example.ngrok-free.dev:443 returned response code 429",
         ],
     )
     def test_transient_errors_are_retryable(self, source, error_msg):
@@ -734,6 +736,16 @@ class TestGetClientTransientRetry:
             with pytest.raises(ClickHouseConnectionError):
                 self._connect()
         assert mock_get_client.call_count == _MAX_CONNECT_ATTEMPTS
+
+    def test_retries_rate_limit_then_succeeds(self):
+        client = MagicMock()
+        rate_limited = OperationalError("HTTPDriver for https://host:8443 returned response code 429")
+        with (
+            patch.object(ch_module.time, "sleep"),
+            patch.object(ch_module, "get_client", side_effect=[rate_limited, client]) as mock_get_client,
+        ):
+            assert self._connect() is client
+        assert mock_get_client.call_count == 2
 
     def test_does_not_retry_deterministic_failure(self):
         cert_error = ClickHouseError("certificate verify failed")
