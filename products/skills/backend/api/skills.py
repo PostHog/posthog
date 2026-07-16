@@ -244,8 +244,13 @@ class LLMSkillViewSet(
             )
         return None
 
-    def _serialize_skill(self, skill: LLMSkill) -> dict[str, Any]:
-        return cast(dict[str, Any], LLMSkillSerializer(skill, context=self.get_serializer_context()).data)
+    def _serialize_skill(
+        self, skill: LLMSkill, *, body_offset: int | None = None, body_length: int | None = None
+    ) -> dict[str, Any]:
+        context = self.get_serializer_context()
+        if body_offset is not None or body_length is not None:
+            context = {**context, "body_offset": body_offset, "body_length": body_length}
+        return cast(dict[str, Any], LLMSkillSerializer(skill, context=context).data)
 
     def _serialize_version_summaries(self, skills: list[LLMSkill]) -> list[dict[str, Any]]:
         return cast(list[dict[str, Any]], LLMSkillVersionSummarySerializer(skills, many=True).data)
@@ -332,7 +337,13 @@ class LLMSkillViewSet(
         if skill is None:
             return self._skill_not_found_response(skill_name)
 
-        return Response(self._serialize_skill(skill))
+        return Response(
+            self._serialize_skill(
+                skill,
+                body_offset=cast(int | None, version_params.get("body_offset")),
+                body_length=cast(int | None, version_params.get("body_length")),
+            )
+        )
 
     def _redirect_to_name(self, request: Request, skill_name: str) -> Response | None:
         skill_by_id = get_active_skill_queryset(self.team).filter(id=skill_name).first()
