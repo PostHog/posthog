@@ -43,8 +43,14 @@ function deferred(): Deferred {
     return { promise, resolve }
 }
 
-/** Flush pending microtasks and macrotasks so in-flight pipeline work settles. */
-async function tick(rounds: number = 10): Promise<void> {
+/**
+ * Let in-flight promise chains run until they park on a gate or a fake timer,
+ * without firing any fake timers. Each round crosses a real setImmediate
+ * (excluded from faking below), which drains the entire microtask queue —
+ * bare Promise.resolve() rounds only advance chains one continuation at a
+ * time, which is not enough to reach a park point before asserting.
+ */
+async function settle(rounds: number = 10): Promise<void> {
     for (let i = 0; i < rounds; i++) {
         await new Promise((resolve) => setImmediate(resolve))
     }
@@ -152,6 +158,11 @@ describe('CommonIngestionPipelineBuilder', () => {
     }
 
     beforeEach(() => {
+        // Fake every duration-bearing API so nothing in the suite depends on
+        // wall-clock time; keep setImmediate real — settle() relies on it to
+        // fully drain the event loop before mid-flight assertions.
+        jest.useFakeTimers({ doNotFake: ['setImmediate'] })
+
         mockKafkaProducer = {
             produce: jest.fn().mockResolvedValue(undefined),
             queueMessages: jest.fn().mockResolvedValue(undefined),
@@ -185,6 +196,10 @@ describe('CommonIngestionPipelineBuilder', () => {
             }),
             promiseScheduler,
         }
+    })
+
+    afterEach(() => {
+        jest.useRealTimers()
     })
 
     it('parses events, resolves the team, and returns results in feed order', async () => {
@@ -224,7 +239,7 @@ describe('CommonIngestionPipelineBuilder', () => {
             .build()
 
         const run = runPipeline(pipeline, [createMessage('user-0'), createMessage('user-1')])
-        await tick()
+        await settle()
 
         // user-0 is held inside the block's first step; a sequential block must
         // not let user-1 start, so nothing may have been logged yet.
@@ -255,7 +270,7 @@ describe('CommonIngestionPipelineBuilder', () => {
             .build()
 
         const run = runPipeline(pipeline, [createMessage('user-0'), createMessage('user-1'), createMessage('user-2')])
-        await tick()
+        await settle()
 
         // The last element is held inside the block; the chunk step is a
         // barrier, so neither C nor anything after it may have run yet.
@@ -294,7 +309,7 @@ describe('CommonIngestionPipelineBuilder', () => {
             .build()
 
         const run = runPipeline(pipeline, [createMessage('user-0'), createMessage('user-1')])
-        await tick()
+        await settle()
 
         // user-0 is held inside the team block's first step; user-1 must not
         // overtake it and the chunk step must not fire.
@@ -454,7 +469,7 @@ describe('CommonIngestionPipelineBuilder', () => {
         const scheduleSpy = jest.spyOn(promiseScheduler, 'schedule')
         let effectCompleted = false
         const effect = (async () => {
-            await new Promise<void>((resolve) => setImmediate(resolve))
+            await new Promise<void>((resolve) => setTimeout(resolve, 50))
             effectCompleted = true
         })()
 
@@ -467,15 +482,21 @@ describe('CommonIngestionPipelineBuilder', () => {
             })
             .build()
 
-        const batch = [createMessage('user-0')].map((message) => createOkContext({ message }, { message }))
-        await pipeline.feed(batch)
-        let result = await pipeline.next()
-        while (result !== null) {
-            expect(result.sideEffects ?? []).toEqual([])
-            result = await pipeline.next()
-        }
+        let drained = false
+        const run = runPipeline(pipeline, [createMessage('user-0')]).then((batches) => {
+            drained = true
+            return batches
+        })
+        await settle()
 
-        // Awaited inline: completed before the pipeline drained, nothing scheduled.
+        // The side effect is parked on a fake timer; awaiting inline means
+        // the pipeline cannot finish draining until the timer fires.
+        expect(drained).toBe(false)
+        expect(effectCompleted).toBe(false)
+
+        await jest.runAllTimersAsync()
+        await run
+
         expect(effectCompleted).toBe(true)
         expect(scheduleSpy).not.toHaveBeenCalled()
     })
@@ -659,11 +680,19 @@ describe('CommonIngestionPipelineBuilder', () => {
                     }
                     return Promise.resolve(values.map((value) => ok(value)))
                 },
-                { retry: { tries: 2, sleepMs: 1, name: 'flaky_chunk' } }
+                { retry: { tries: 2, sleepMs: 100, name: 'flaky_chunk' } }
             )
             .build()
 
-        const batches = await runPipeline(pipeline, [createMessage('user-0')])
+        const run = runPipeline(pipeline, [createMessage('user-0')])
+        await settle()
+
+        // The first attempt failed and the retry is parked on the fake
+        // backoff timer — the second attempt must not run before it fires.
+        expect(attempts).toBe(1)
+
+        await jest.runAllTimersAsync()
+        const batches = await run
 
         expect(attempts).toBe(2)
         expect(okValues(batches)).toHaveLength(1)
