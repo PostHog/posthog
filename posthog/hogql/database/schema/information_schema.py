@@ -189,6 +189,7 @@ def _visible_table_names(database: "Database") -> list[str]:
 
 # Per-column statistics surfaced into information_schema.columns: (null_fraction, min_value, max_value).
 _ColumnStats = tuple[Optional[float], Optional[str], Optional[str]]
+_CertificationKey = tuple[str, str]
 _RelationshipProvenanceKey = tuple[str, str, str, str, str]
 
 
@@ -197,24 +198,28 @@ class _CollectedRelationship(NamedTuple):
     provenance_key: Optional[_RelationshipProvenanceKey]
 
 
-def _warehouse_metadata(
-    team_id: Optional[int],
-) -> tuple[dict[str, Optional[int]], dict[str, Optional[int]], dict[tuple[str, str], _ColumnStats]]:
+class _WarehouseMetadata(NamedTuple):
+    row_counts: dict[str, Optional[int]]
+    view_row_counts: dict[str, Optional[int]]
+    materialized_view_ids: dict[str, str]
+    column_stats: dict[tuple[str, str], _ColumnStats]
+
+
+def _warehouse_metadata(team_id: Optional[int]) -> _WarehouseMetadata:
     """Lazily load warehouse row counts and column statistics for the team.
 
-    Returns `(row_counts, view_row_counts, column_stats)`. `row_counts` is keyed by warehouse table
-    name, `view_row_counts` by saved-query (view) name. `column_stats` is keyed by
-    `(table_id, column_name)` and carries `(null_fraction, min_value, max_value)` from the Delta-log
-    profiling. Descriptions are resolved separately via `TableDescriptions`. Only runs when an
-    information_schema table is actually queried, so it never touches the hot `create_hogql_database`
-    path. Mirrors how `serialize_database` sources counts so the catalog and the SQL-editor schema
-    agree.
+    Returns `(row_counts, view_row_counts, materialized_view_ids, column_stats)`. The view IDs retain
+    saved-query identity when a materialized view resolves to its backing warehouse table. Only runs
+    when an information_schema table is actually queried, so it never touches the hot
+    `create_hogql_database` path. Mirrors how `serialize_database` sources counts so the catalog and
+    the SQL-editor schema agree.
     """
     row_counts: dict[str, Optional[int]] = {}
     view_row_counts: dict[str, Optional[int]] = {}
+    materialized_view_ids: dict[str, str] = {}
     column_stats: dict[tuple[str, str], _ColumnStats] = {}
     if team_id is None:
-        return row_counts, view_row_counts, column_stats
+        return _WarehouseMetadata(row_counts, view_row_counts, materialized_view_ids, column_stats)
 
     # Inline imports: keeps the products dependency off the hogql import path (avoids an import
     # cycle, since products import hogql) and off every non-information_schema query.
@@ -242,12 +247,13 @@ def _warehouse_metadata(
             ):
                 row_counts[table_name] = row_count
             # Views carry their row count on the materialized backing table (`saved_query.table`).
-            for view_name, row_count in (
+            for view_id, view_name, row_count in (
                 DataWarehouseSavedQuery.objects.exclude(deleted=True)
                 .filter(team_id=team_id, table__isnull=False)
-                .values_list("name", "table__row_count")
+                .values_list("id", "name", "table__row_count")
             ):
                 view_row_counts[view_name] = row_count
+                materialized_view_ids[view_name] = str(view_id)
             # Per-column profiling stats (keyed by table UUID + column). Only the columns that have been
             # profiled appear; everything else stays absent (NULL in the catalog).
             for (
@@ -264,9 +270,9 @@ def _warehouse_metadata(
         # Schema discovery must never fail a query because the warehouse metadata could not be read,
         # but log so a transient DB error can be told apart from a real bug in the fetch loop.
         logger.exception("information_schema: failed to load warehouse metadata", team_id=team_id)
-        return {}, {}, {}
+        return _WarehouseMetadata({}, {}, {}, {})
 
-    return row_counts, view_row_counts, column_stats
+    return _WarehouseMetadata(row_counts, view_row_counts, materialized_view_ids, column_stats)
 
 
 def _unwrap(expr: ast.Expr) -> ast.Expr:
@@ -452,7 +458,11 @@ class _Introspection:
         self.allowed_tables = allowed_tables
         self.warehouse = set(database.get_warehouse_table_names())
         self.views = set(database.get_view_names())
-        self.row_counts, self.view_row_counts, self.column_stats = _warehouse_metadata(context.team_id)
+        warehouse_metadata = _warehouse_metadata(context.team_id)
+        self.row_counts = warehouse_metadata.row_counts
+        self.view_row_counts = warehouse_metadata.view_row_counts
+        self.materialized_view_ids = warehouse_metadata.materialized_view_ids
+        self.column_stats = warehouse_metadata.column_stats
         self.table_descriptions = TableDescriptions.load(context.team_id)
         self._collected: Optional[tuple[list[list[Any]], list[list[Any]], list[_CollectedRelationship]]] = None
         self._data_catalog_enriched_table_rows: Optional[list[list[Any]]] = None
@@ -461,7 +471,7 @@ class _Introspection:
         # Keyed by the introspected resource's own id (warehouse table id / saved-query id) rather
         # than its name — names are not unique across live warehouse tables, so name-keying would let
         # one row's certification clobber another's. None for rows that carry no catalog identity.
-        self._table_certification_keys: list[Optional[tuple[str, str]]] = []
+        self._table_certification_keys: list[Optional[_CertificationKey]] = []
         # Resolved `SELECT * FROM <table>` scope per table, so expression columns can be typed without
         # re-resolving the table once per expression.
         self._table_scope_cache: dict[str, Optional[ast.SelectQueryType]] = {}
@@ -537,7 +547,7 @@ class _Introspection:
         table_rows: list[list[Any]] = []
         column_rows: list[list[Any]] = []
         relationship_rows: list[_CollectedRelationship] = []
-        certification_keys: list[Optional[tuple[str, str]]] = []
+        certification_keys: list[Optional[_CertificationKey]] = []
 
         names = _visible_table_names(self.database)
         if self.allowed_tables is not None:
@@ -553,7 +563,7 @@ class _Introspection:
             table_type, table_schema = _classify_table(name, table, self.warehouse, self.views)
             row_count = self._row_count(name, table, table_type)
             table_rows.append([name, table_schema, name, table_type, self._table_description(table), row_count])
-            certification_keys.append(_certification_key(table, table_type))
+            certification_keys.append(_certification_key(name, table, table_type, self.materialized_view_ids))
 
             self._collect_fields(
                 name,
@@ -932,7 +942,9 @@ def _catalog_metrics(context: "HogQLContext", allowed: Optional[frozenset[str]])
         return []
 
 
-def _certification_key(table: Table, table_type: str) -> Optional[tuple[str, str]]:
+def _certification_key(
+    table_name: str, table: Table, table_type: str, materialized_view_ids: dict[str, str]
+) -> Optional[_CertificationKey]:
     """Certification lookup key `(table_type, resource_id)` for an introspected table, or None.
 
     The id is the resource's own identity — the warehouse table id for `data_warehouse` rows, the
@@ -944,7 +956,7 @@ def _certification_key(table: Table, table_type: str) -> Optional[tuple[str, str
         table_id = getattr(table, "table_id", None)
         return ("data_warehouse", str(table_id)) if table_id else None
     if table_type == "view":
-        saved_query_id = getattr(table, "id", None)
+        saved_query_id = getattr(table, "id", None) or materialized_view_ids.get(table_name)
         return ("view", str(saved_query_id)) if saved_query_id else None
     return None
 

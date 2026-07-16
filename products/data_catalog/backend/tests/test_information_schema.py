@@ -294,6 +294,26 @@ class TestInformationSchemaCertificationsAndRelationships(ClickhouseTestMixin, A
         )
         assert response.results == [(expected,)]
 
+    def test_materialized_view_keeps_its_certification(self) -> None:
+        backing_table = self._create_warehouse_table("materialized_revenue_backing")
+        view = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="materialized_revenue",
+            query={"kind": "HogQLQuery", "query": "select 1"},
+            columns=_COLUMNS,
+            table=backing_table,
+            is_materialized=True,
+        )
+        certify(propose_certification(team=self.team, user=self.user, saved_query_id=str(view.id)), self.user)
+
+        response = execute_hogql_query(
+            "SELECT table_type, certification FROM system.information_schema.tables "
+            "WHERE table_name = 'materialized_revenue'",
+            team=self.team,
+            context=self._context(),
+        )
+        assert response.results == [("view", "certified")]
+
     def test_view_certification_does_not_bleed_onto_same_name_table(self) -> None:
         # A warehouse table and a view can share a name; each certification belongs to exactly one of
         # them. The warehouse table wins the catalog name collision, so its row must not inherit the
