@@ -15,8 +15,7 @@ import { dashboardsModel, nameCompareFunction } from '~/models/dashboardsModel'
 import { DashboardBasicType, DashboardType, InsightLogicProps } from '~/types'
 
 import type { Node } from '../../../queries/schema/schema-general'
-import type { UserType } from '../../../types'
-import type { QueryBasedInsightModel } from '../../../types'
+import type { QueryBasedInsightModel, UserType } from '../../../types'
 
 // Helping kea-typegen navigate the exported default class for Fuse
 export interface Fuse extends FuseClass<any> {}
@@ -56,8 +55,8 @@ export interface addToDashboardModalLogicActions {
         insight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>> | null
     } // eventUsageLogic
     updateInsight: (
-        insightUpdate: Partial<QueryBasedInsightModel<Node<Record<string, any>>>>,
-        callback?: (() => void) | undefined
+        insightUpdate: Partial<QueryBasedInsightModel>,
+        callback?: () => void
     ) => {
         callback: (() => void) | undefined
         insightUpdate: Partial<QueryBasedInsightModel<Node<Record<string, any>>>>
@@ -71,12 +70,10 @@ export interface addToDashboardModalLogicActions {
     } // insightLogic
     updateInsightSuccess: (
         insight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>>,
-        payload?:
-            | {
-                  callback: (() => void) | undefined
-                  insightUpdate: Partial<QueryBasedInsightModel<Node<Record<string, any>>>>
-              }
-            | undefined
+        payload?: {
+            callback: (() => void) | undefined
+            insightUpdate: Partial<QueryBasedInsightModel<Node<Record<string, any>>>>
+        }
     ) => {
         insight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>>
         payload?: {
@@ -139,6 +136,14 @@ export interface addToDashboardModalLogicMeta {
             user: UserType | null
         ) => DashboardBasicType[]
     }
+    __keaTypeGenInternalReducerActions: {
+        'add dashboard success (models.dashboardsModel)': (dashboard: DashboardType<QueryBasedInsightModel>) => {
+            payload: {
+                dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>>
+            }
+            type: 'add dashboard success (models.dashboardsModel)'
+        }
+    }
 }
 
 export type addToDashboardModalLogicType = MakeLogicType<
@@ -193,7 +198,16 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>([
     selectors({
         dashboardsFuse: [
             () => [dashboardsModel.selectors.nameSortedDashboards],
-            (nameSortedDashboards: unknown[]): Fuse => {
+            (
+                nameSortedDashboards: (
+                    | DashboardBasicType
+                    | DashboardType<
+                          import('~/types').QueryBasedInsightModel<
+                              import('../../../queries/schema').Node<Record<string, any>>
+                          >
+                      >
+                )[]
+            ): Fuse => {
                 return createFuse(nameSortedDashboards || [], {
                     keys: ['name', 'description', 'tags'],
                 })
@@ -201,7 +215,18 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>([
         ],
         filteredDashboards: [
             (s) => [s.searchQuery, s.dashboardsFuse, dashboardsModel.selectors.nameSortedDashboards],
-            (searchQuery: string, dashboardsFuse: Fuse, nameSortedDashboards: unknown[]): DashboardBasicType[] =>
+            (
+                searchQuery: string,
+                dashboardsFuse: Fuse,
+                nameSortedDashboards: (
+                    | DashboardBasicType
+                    | DashboardType<
+                          import('~/types').QueryBasedInsightModel<
+                              import('../../../queries/schema').Node<Record<string, any>>
+                          >
+                      >
+                )[]
+            ): DashboardBasicType[] =>
                 searchQuery.length
                     ? dashboardsFuse.search(searchQuery).map((r: FuseResult<DashboardType>) => r.item)
                     : nameSortedDashboards,
@@ -210,7 +235,11 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>([
             (s) => [s.filteredDashboards, s.insight],
             (
                 filteredDashboards: DashboardBasicType[],
-                insight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>>
+                insight: Partial<
+                    import('~/types').QueryBasedInsightModel<
+                        import('../../../queries/schema').Node<Record<string, any>>
+                    >
+                >
             ): DashboardBasicType[] =>
                 filteredDashboards.filter((d) => insight.dashboard_tiles?.map((dt) => dt.dashboard_id)?.includes(d.id)),
         ],

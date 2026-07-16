@@ -57,11 +57,16 @@ export const posthogStatusLogic = kea<posthogStatusLogicType>([
         ],
     }),
     selectors({
-        postHogStatus: [(s) => [s.status], (status: NormalizedStatus): PostHogStatusType => status],
+        postHogStatus: [
+            (s) => [s.status],
+            (status: import('./incidentStatus').NormalizedStatus): PostHogStatusType => status,
+        ],
         isFakeStatus: [
             (s) => [s.superpowersEnabled, s.fakeStatusOverride],
-            (superpowersEnabled: boolean | undefined, fakeStatusOverride: FakeStatusOverride): boolean =>
-                !!superpowersEnabled && fakeStatusOverride !== 'none',
+            (
+                superpowersEnabled: boolean | undefined,
+                fakeStatusOverride: import('lib/components/Superpowers/superpowersLogic').FakeStatusOverride
+            ): boolean => !!superpowersEnabled && fakeStatusOverride !== 'none',
         ],
         postHogStatusTooltip: [
             (s) => [s.statusDescription, s.isFakeStatus, s.postHogStatus],

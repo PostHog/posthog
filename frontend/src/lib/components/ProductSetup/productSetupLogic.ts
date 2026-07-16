@@ -243,7 +243,7 @@ export const productSetupLogic = kea<productSetupLogicType>([
         savedOnboardingTasks: [
             (s) => [s.currentTeam, s.optimisticTaskStatuses],
             (
-                currentTeam: TeamPublicType | TeamType | null,
+                currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType,
                 optimisticTaskStatuses: Record<string, ActivationTaskStatus | null>
             ): Record<string, ActivationTaskStatus | null> => ({
                 ...currentTeam?.onboarding_tasks,
@@ -253,7 +253,7 @@ export const productSetupLogic = kea<productSetupLogicType>([
         tasksWithState: [
             (s) => [s.allTasks, s.savedOnboardingTasks, s.hasReverseProxy],
             (
-                allTasks: SetupTask[],
+                allTasks: import('lib/components/ProductSetup').SetupTask[],
                 savedOnboardingTasks: Record<string, ActivationTaskStatus | null>,
                 hasReverseProxy: boolean | null
             ): SetupTaskWithState[] => {
@@ -324,7 +324,11 @@ export const productSetupLogic = kea<productSetupLogicType>([
         isSetupComplete: [(s) => [s.remainingCount], (remaining: number) => remaining === 0],
         shouldShowSetup: [
             (s) => [s.isSetupComplete, s.productConfig, s.isCurrentOrganizationNew],
-            (isComplete: boolean, config: ProductSetupConfig | null, isNewOrg: boolean) => {
+            (
+                isComplete: boolean,
+                config: null | import('lib/components/ProductSetup').ProductSetupConfig,
+                isNewOrg: boolean
+            ) => {
                 // Don't show if no valid config
                 if (!config || !config.title) {
                     return false

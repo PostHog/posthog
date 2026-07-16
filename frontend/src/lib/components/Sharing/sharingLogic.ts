@@ -462,13 +462,13 @@ export const sharingLogic = kea<sharingLogicType>([
 
         shareLink: [
             (s) => [s.siteUrl, s.sharingConfiguration, s.params],
-            (siteUrl: string | undefined, sharingConfiguration: SharingConfigurationType | null, params: {}) =>
+            (siteUrl: string | undefined, sharingConfiguration: SharingConfigurationType | null, params) =>
                 sharingConfiguration ? siteUrl + urls.shared(sharingConfiguration.access_token, params) : '',
         ],
 
         embedLink: [
             (s) => [s.siteUrl, s.sharingConfiguration, s.params],
-            (siteUrl: string | undefined, sharingConfiguration: SharingConfigurationType | null, params: {}) =>
+            (siteUrl: string | undefined, sharingConfiguration: SharingConfigurationType | null, params) =>
                 sharingConfiguration ? siteUrl + urls.embedded(sharingConfiguration.access_token, params) : '',
         ],
 
@@ -489,12 +489,12 @@ export const sharingLogic = kea<sharingLogicType>([
         embedCode: [
             (s) => [s.iframeProperties],
             (iframeProperties: {
-                allowFullScreen: boolean
+                allowFullScreen: true
                 frameBorder: number
                 height: string
-                key: any
+                key: number
                 sandbox: string
-                src: any
+                src: string
                 width: string
             }) =>
                 `<iframe ${Object.entries(iframeProperties)

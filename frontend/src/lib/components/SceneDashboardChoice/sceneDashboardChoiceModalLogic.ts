@@ -11,8 +11,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { DashboardBasicType } from '~/types'
 
 import type { Node } from '../../../queries/schema/schema-general'
-import type { TeamPublicType, TeamType, UserType } from '../../../types'
-import type { DashboardType, QueryBasedInsightModel } from '../../../types'
+import type { DashboardType, QueryBasedInsightModel, TeamPublicType, TeamType, UserType } from '../../../types'
 
 export type DashboardCompatibleScenes = Scene.ProjectHomepage | Scene.Person | Scene.Group
 
@@ -32,7 +31,7 @@ export interface sceneDashboardChoiceModalLogicValues {
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     user: UserType | null // userLogic
     currentDashboardId: number | null
-    dashboards: unknown[]
+    dashboards: (DashboardBasicType | DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>>)[]
     isOpen: boolean
     searchTerm: string | null
 }
@@ -68,7 +67,7 @@ export interface sceneDashboardChoiceModalLogicMeta {
                 | DashboardBasicType
                 | DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>>
             )[]
-        ) => unknown[]
+        ) => (DashboardBasicType | DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>>)[]
     }
 }
 
@@ -101,7 +100,10 @@ export const sceneDashboardChoiceModalLogic = kea<sceneDashboardChoiceModalLogic
     selectors(({ props }) => ({
         currentDashboardId: [
             (s) => [s.currentTeam, s.user],
-            (currentTeam: TeamPublicType | TeamType | null, user: UserType | null) => {
+            (
+                currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType,
+                user: null | import('~/types').UserType
+            ) => {
                 let currentDashboard: number | DashboardBasicType | null =
                     user?.scene_personalisation?.find((choice) => choice.scene === props.scene)?.dashboard ?? null
 
@@ -114,7 +116,17 @@ export const sceneDashboardChoiceModalLogic = kea<sceneDashboardChoiceModalLogic
         ],
         dashboards: [
             (s) => [s.searchTerm, s.nameSortedDashboards],
-            (searchTerm: string | null, dashboards: unknown[]) => {
+            (
+                searchTerm: string | null,
+                dashboards: (
+                    | DashboardBasicType
+                    | import('~/types').DashboardType<
+                          import('~/types').QueryBasedInsightModel<
+                              import('../../../queries/schema').Node<Record<string, any>>
+                          >
+                      >
+                )[]
+            ) => {
                 dashboards = dashboards
                     .filter((d) => !d.deleted)
                     .sort((a, b) => (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled'))

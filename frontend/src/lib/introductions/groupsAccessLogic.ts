@@ -68,8 +68,8 @@ export const groupsAccessLogic = kea<groupsAccessLogicType>([
             (s) => [s.groupsEnabled, s.currentTeam, s.preflight],
             (
                 groupsEnabled: boolean,
-                currentTeam: TeamPublicType | TeamType | null,
-                preflight: PreflightStatus | null
+                currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType,
+                preflight: null | import('~/types').PreflightStatus
             ): GroupsAccessStatus => {
                 const hasGroups = currentTeam?.has_group_types
                 if (preflight?.instance_preferences?.disable_paid_fs) {

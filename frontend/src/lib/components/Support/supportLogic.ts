@@ -508,7 +508,7 @@ export interface supportLogicValues {
 export interface supportLogicActions {
     openSidePanel: (
         tab: SidePanelTab,
-        options?: string | undefined
+        options?: string
     ) => {
         options: string | undefined
         tab: SidePanelTab
@@ -716,7 +716,8 @@ export const supportLogic = kea<supportLogicType>([
         ],
         conversationsFlagEnabled: [
             (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_SIDE_PANEL],
+            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): boolean =>
+                !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_SIDE_PANEL],
         ],
     }),
     listeners(({ actions, props, values }) => ({

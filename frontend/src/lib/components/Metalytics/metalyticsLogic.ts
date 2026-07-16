@@ -163,7 +163,7 @@ export const metalyticsLogic = kea<metalyticsLogicType>([
 
         recentUserMembers: [
             (s) => [s.recentUsers, s.members],
-            (recentUsers: string[], members: OrganizationMemberType[] | null) => {
+            (recentUsers: string[], members: import('../../../types').OrganizationMemberType[] | null) => {
                 if (!members || !recentUsers) {
                     return []
                 }

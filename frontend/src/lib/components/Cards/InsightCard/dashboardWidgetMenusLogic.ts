@@ -95,7 +95,14 @@ export const dashboardWidgetMenusLogic = kea<dashboardWidgetMenusLogicType>([
         copyToDestinations: [
             (s, p) => [s.nameSortedDashboards, s.dashboardIdsWithThisWidget, p.dashboardId],
             (
-                nameSortedDashboards: unknown[],
+                nameSortedDashboards: (
+                    | DashboardBasicType
+                    | import('~/types').DashboardType<
+                          import('~/types').QueryBasedInsightModel<
+                              import('../../../../queries/schema').Node<Record<string, any>>
+                          >
+                      >
+                )[],
                 dashboardIdsWithThisWidget: Set<number>,
                 dashboardId: number | null | undefined
             ): DashboardWidgetPlacementDestination[] => {

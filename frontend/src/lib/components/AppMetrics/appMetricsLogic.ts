@@ -442,7 +442,10 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
 
         getDateRangeAbsolute: [
             (s) => [s.params, s.currentTeam],
-            (params: Partial<AppMetricsCommonParams>, currentTeam: TeamPublicType | TeamType | null) =>
+            (
+                params: Partial<AppMetricsCommonParams>,
+                currentTeam: null | import('../../../types').TeamPublicType | import('../../../types').TeamType
+            ) =>
                 (): { dateFrom: Dayjs; dateTo: Dayjs; diffMs: number } => {
                     const dateFrom = convertDateFieldToDayJs(params.dateFrom ?? '-7d', currentTeam?.timezone ?? 'UTC')
                     const dateTo = params.dateTo

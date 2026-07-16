@@ -93,8 +93,10 @@ export const navPanelProductPushAdLogic = kea<navPanelProductPushAdLogicType>([
         // Never advertise a product this user can't open (mirrors the sidebar's flag filtering)
         flagGated: [
             (s) => [s.productInfo, s.featureFlags],
-            (productInfo: FileSystemImport | undefined, featureFlags: FeatureFlagsSet): boolean =>
-                !!productInfo?.flag && !(featureFlags as Record<string, boolean>)[productInfo.flag],
+            (
+                productInfo: FileSystemImport | undefined,
+                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet
+            ): boolean => !!productInfo?.flag && !(featureFlags as Record<string, boolean>)[productInfo.flag],
         ],
         shouldRender: [
             (s) => [s.hidden, s.productInfo, s.flagGated],

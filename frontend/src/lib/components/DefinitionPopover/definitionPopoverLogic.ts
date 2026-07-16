@@ -386,8 +386,8 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                 isProperty,
                 type,
                 getPropertyDefinition: (
-                    s: TaxonomicFilterValue,
-                    type: PropertyDefinitionType,
+                    s: import('lib/components/TaxonomicFilter/types').TaxonomicFilterValue,
+                    type: import('~/types').PropertyDefinitionType,
                     groupTypeIndex?: number
                 ) => PropertyDefinition | null
             ): Partial<TaxonomicDefinitionTypes> => {

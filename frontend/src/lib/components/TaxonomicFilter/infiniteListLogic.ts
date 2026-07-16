@@ -68,7 +68,7 @@ import { CohortType, EventDefinition, GroupTypeIndex, PropertyType } from '~/typ
 
 import { teamLogic } from '../../../scenes/teamLogic'
 import { getItemGroup } from './InfiniteList'
-import type { TopMatchItem } from './taxonomicFilterLogic'
+import type { SelectItemMeta, TopMatchItem } from './taxonomicFilterLogic'
 
 function pinnedItemMatchesSearch(
     item: TaxonomicDefinitionTypes,
@@ -261,7 +261,7 @@ export interface infiniteListLogicValues {
     contextFilteredRecentItems: TaxonomicDefinitionTypes[]
     dedupedTopMatches: (SkeletonItem | TaxonomicDefinitionTypes)[]
     excludedProperties: string[] | undefined
-    expandedCount: any
+    expandedCount: number
     fuse: ListFuse
     group: TaxonomicFilterGroup | undefined
     hasAppliedInitialPin: boolean
@@ -311,7 +311,7 @@ export interface infiniteListLogicValues {
     remoteItems: ListStorage
     remoteItemsLoading: boolean
     remoteResultsAreFresh: boolean
-    results: any[] | QuickFilterItem[]
+    results: QuickFilterItem[] | (SkeletonItem | TaxonomicDefinitionTypes)[]
     rowCount: number
     scopedRemoteEndpoint: string | null
     selectedItem: TaxonomicDefinitionTypes | undefined
@@ -335,8 +335,8 @@ export interface infiniteListLogicValues {
     suggestedRecentMatches: TaxonomicDefinitionTypes[]
     topMatchesForQuery: TaxonomicDefinitionTypes[]
     totalExtraCount: number
-    totalListCount: any
-    totalResultCount: any
+    totalListCount: number
+    totalResultCount: number
     trimmedSearchQuery: string
 }
 
@@ -353,11 +353,11 @@ export interface infiniteListLogicActions {
         group: TaxonomicFilterGroup,
         value: TaxonomicFilterValue,
         item: any,
-        meta?: import('lib/components/TaxonomicFilter/taxonomicFilterLogic').SelectItemMeta | undefined
+        meta?: SelectItemMeta | undefined
     ) => {
         group: TaxonomicFilterGroup
         item: any
-        meta: import('lib/components/TaxonomicFilter/taxonomicFilterLogic').SelectItemMeta | undefined
+        meta: SelectItemMeta | undefined
         value: TaxonomicFilterValue
     } // taxonomicFilterLogic
     setActiveTab: (activeTab: TaxonomicFilterGroupType) => {
@@ -533,7 +533,7 @@ export interface infiniteListLogicMeta {
             scopedRemoteEndpoint: string | null,
             remoteItems: ListStorage
         ) => boolean
-        isExpandableButtonSelected: (isExpandable: boolean, index: number, totalListCount: any) => boolean
+        isExpandableButtonSelected: (isExpandable: boolean, index: number, totalListCount: number) => boolean
         hasRemoteDataSource: (remoteEndpoint: string | null) => boolean
         remoteResultsAreFresh: (
             hasRemoteDataSource: boolean,
@@ -546,7 +546,7 @@ export interface infiniteListLogicMeta {
             listGroupType: TaxonomicFilterGroupType,
             searchQuery: string,
             isLoading: boolean,
-            results: any[] | QuickFilterItem[]
+            results: QuickFilterItem[] | (SkeletonItem | TaxonomicDefinitionTypes)[]
         ) => boolean
         suggestedFiltersSettling: (
             isSuggestedFilters: boolean,
@@ -555,7 +555,7 @@ export interface infiniteListLogicMeta {
             searchQuery: string
         ) => boolean
         showEmptyState: (
-            totalListCount: any,
+            totalListCount: number,
             isLoading: boolean,
             suggestedFiltersSettling: boolean,
             searchQuery: string,
@@ -567,7 +567,7 @@ export interface infiniteListLogicMeta {
         showLoadingState: (
             isLoading: boolean,
             suggestedFiltersSettling: boolean,
-            results: any[] | QuickFilterItem[],
+            results: QuickFilterItem[] | (SkeletonItem | TaxonomicDefinitionTypes)[],
             searchQuery: string,
             hasRemoteDataSource: boolean,
             remoteResultsAreFresh: boolean
@@ -692,9 +692,9 @@ export interface infiniteListLogicMeta {
                       searchQuery: string | undefined
                       syntheticSelectedCount: number
                   }
-        ) => any
+        ) => number
         totalExtraCount: (isExpandable: boolean, hasRenderFunction: boolean) => number
-        totalListCount: (totalResultCount: any, totalExtraCount: number) => any
+        totalListCount: (totalResultCount: number, totalExtraCount: number) => number
         expandedCount: (
             items:
                 | {
@@ -715,7 +715,7 @@ export interface infiniteListLogicMeta {
                       searchQuery: string | undefined
                       syntheticSelectedCount: number
                   }
-        ) => any
+        ) => number
         results: (
             items:
                 | {
@@ -736,21 +736,21 @@ export interface infiniteListLogicMeta {
                       searchQuery: string | undefined
                       syntheticSelectedCount: number
                   }
-        ) => any[] | QuickFilterItem[]
+        ) => QuickFilterItem[] | (SkeletonItem | TaxonomicDefinitionTypes)[]
         showSuggestedFiltersEmptyState: (
             isSuggestedFilters: boolean,
             trimmedSearchQuery: string,
-            results: any[] | QuickFilterItem[]
+            results: QuickFilterItem[] | (SkeletonItem | TaxonomicDefinitionTypes)[]
         ) => boolean
         rowCount: (
             showNonCapturedEventOption: boolean,
-            results: any[] | QuickFilterItem[],
+            results: QuickFilterItem[] | (SkeletonItem | TaxonomicDefinitionTypes)[],
             isLoading: boolean,
-            totalListCount: any,
+            totalListCount: number,
             showSuggestedFiltersEmptyState: boolean
         ) => number
         initialPinnedRowIndex: (
-            results: any[] | QuickFilterItem[],
+            results: QuickFilterItem[] | (SkeletonItem | TaxonomicDefinitionTypes)[],
             taxonomicGroups: TaxonomicFilterGroup[],
             group: TaxonomicFilterGroup | undefined,
             listGroupType: TaxonomicFilterGroupType,
@@ -1203,7 +1203,8 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         ],
         isExpandableButtonSelected: [
             (s) => [s.isExpandable, s.index, s.totalListCount],
-            (isExpandable: boolean, index: number, totalListCount) => isExpandable && index === totalListCount - 1,
+            (isExpandable: boolean, index: number, totalListCount: number) =>
+                isExpandable && index === totalListCount - 1,
         ],
         hasRemoteDataSource: [(s) => [s.remoteEndpoint], (remoteEndpoint: string | null) => !!remoteEndpoint],
         remoteResultsAreFresh: [
@@ -1546,7 +1547,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 s.taxonomicGroups,
             ],
             (
-                topMatchItemsWithSkeletons: (SkeletonItem | TopMatchItem)[],
+                topMatchItemsWithSkeletons: (
+                    | SkeletonItem
+                    | import('lib/components/TaxonomicFilter/taxonomicFilterLogic').TopMatchItem
+                )[],
                 listGroupType: TaxonomicFilterGroupType,
                 searchQuery: string,
                 contextFilteredRecentItems: TaxonomicDefinitionTypes[],
@@ -1880,21 +1884,21 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             (
                 items:
                     | {
-                          count: any
-                          expandedCount: any
-                          first: any
-                          queryChanged: any
-                          results: any[]
-                          searchQuery: any
+                          count: number
+                          expandedCount: number | undefined
+                          first: boolean | undefined
+                          queryChanged: boolean | undefined
+                          results: (SkeletonItem | TaxonomicDefinitionTypes)[]
+                          searchQuery: string | undefined
                           syntheticSelectedCount: number
                       }
                     | {
                           count: number
                           expandedCount?: undefined
-                          first: any
-                          queryChanged: any
+                          first: boolean | undefined
+                          queryChanged: boolean | undefined
                           results: QuickFilterItem[]
-                          searchQuery: any
+                          searchQuery: string | undefined
                           syntheticSelectedCount: number
                       }
             ) => items.count || 0,
@@ -1905,28 +1909,28 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         ],
         totalListCount: [
             (s) => [s.totalResultCount, s.totalExtraCount],
-            (totalResultCount, totalExtraCount: number) => totalResultCount + totalExtraCount,
+            (totalResultCount: number, totalExtraCount: number) => totalResultCount + totalExtraCount,
         ],
         expandedCount: [
             (s) => [s.items],
             (
                 items:
                     | {
-                          count: any
-                          expandedCount: any
-                          first: any
-                          queryChanged: any
-                          results: any[]
-                          searchQuery: any
+                          count: number
+                          expandedCount: number | undefined
+                          first: boolean | undefined
+                          queryChanged: boolean | undefined
+                          results: (SkeletonItem | TaxonomicDefinitionTypes)[]
+                          searchQuery: string | undefined
                           syntheticSelectedCount: number
                       }
                     | {
                           count: number
                           expandedCount?: undefined
-                          first: any
-                          queryChanged: any
+                          first: boolean | undefined
+                          queryChanged: boolean | undefined
                           results: QuickFilterItem[]
-                          searchQuery: any
+                          searchQuery: string | undefined
                           syntheticSelectedCount: number
                       }
             ) => items.expandedCount || 0,
@@ -1936,29 +1940,32 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             (
                 items:
                     | {
-                          count: any
-                          expandedCount: any
-                          first: any
-                          queryChanged: any
-                          results: any[]
-                          searchQuery: any
+                          count: number
+                          expandedCount: number | undefined
+                          first: boolean | undefined
+                          queryChanged: boolean | undefined
+                          results: (SkeletonItem | TaxonomicDefinitionTypes)[]
+                          searchQuery: string | undefined
                           syntheticSelectedCount: number
                       }
                     | {
                           count: number
                           expandedCount?: undefined
-                          first: any
-                          queryChanged: any
+                          first: boolean | undefined
+                          queryChanged: boolean | undefined
                           results: QuickFilterItem[]
-                          searchQuery: any
+                          searchQuery: string | undefined
                           syntheticSelectedCount: number
                       }
             ) => items.results,
         ],
         showSuggestedFiltersEmptyState: [
             (s) => [s.isSuggestedFilters, s.trimmedSearchQuery, s.results],
-            (isSuggestedFilters: boolean, trimmedSearchQuery: string, results: any[] | QuickFilterItem[]): boolean =>
-                isSuggestedFilters && !trimmedSearchQuery && results.length > 0,
+            (
+                isSuggestedFilters: boolean,
+                trimmedSearchQuery: string,
+                results: QuickFilterItem[] | (SkeletonItem | TaxonomicDefinitionTypes)[]
+            ): boolean => isSuggestedFilters && !trimmedSearchQuery && results.length > 0,
         ],
         rowCount: [
             (s) => [
@@ -1970,9 +1977,9 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             ],
             (
                 showNonCapturedEventOption: boolean,
-                results: any[] | QuickFilterItem[],
+                results: QuickFilterItem[] | (SkeletonItem | TaxonomicDefinitionTypes)[],
                 isLoading: boolean,
-                totalListCount,
+                totalListCount: number,
                 showSuggestedFiltersEmptyState: boolean
             ): number =>
                 showNonCapturedEventOption
@@ -1983,7 +1990,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         initialPinnedRowIndex: [
             (s) => [s.results, s.taxonomicGroups, s.group, s.listGroupType, s.groupType, s.value, s.isActiveTab],
             (
-                results: any[] | QuickFilterItem[],
+                results: QuickFilterItem[] | (SkeletonItem | TaxonomicDefinitionTypes)[],
                 taxonomicGroups: TaxonomicFilterGroup[],
                 group: TaxonomicFilterGroup | undefined,
                 listGroupType: TaxonomicFilterGroupType,
@@ -2007,21 +2014,21 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 index: number,
                 items:
                     | {
-                          count: any
-                          expandedCount: any
-                          first: any
-                          queryChanged: any
-                          results: any[]
-                          searchQuery: any
+                          count: number
+                          expandedCount: number | undefined
+                          first: boolean | undefined
+                          queryChanged: boolean | undefined
+                          results: (SkeletonItem | TaxonomicDefinitionTypes)[]
+                          searchQuery: string | undefined
                           syntheticSelectedCount: number
                       }
                     | {
                           count: number
                           expandedCount?: undefined
-                          first: any
-                          queryChanged: any
+                          first: boolean | undefined
+                          queryChanged: boolean | undefined
                           results: QuickFilterItem[]
-                          searchQuery: any
+                          searchQuery: string | undefined
                           syntheticSelectedCount: number
                       }
             ): TaxonomicDefinitionTypes | undefined => {

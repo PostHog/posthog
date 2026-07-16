@@ -36,7 +36,7 @@ export const pendingInvitesLogic = kea<pendingInvitesLogicType>([
     selectors({
         pendingInvites: [
             (s) => [s.user],
-            (user: UserType | null): PendingInviteForCurrentUser[] => user?.pending_invites ?? [],
+            (user: null | import('~/types').UserType): PendingInviteForCurrentUser[] => user?.pending_invites ?? [],
         ],
     }),
 ])

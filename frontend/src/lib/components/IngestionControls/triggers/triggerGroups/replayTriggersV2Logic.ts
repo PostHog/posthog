@@ -282,7 +282,9 @@ export const replayTriggersV2Logic = kea<replayTriggersV2LogicType>([
         ],
         hasLegacyTriggers: [
             (s) => [s.currentTeam],
-            (team: TeamPublicType | TeamType | null): boolean => {
+            (
+                team: null | import('../../../../../types').TeamPublicType | import('../../../../../types').TeamType
+            ): boolean => {
                 if (!team) {
                     return false
                 }
@@ -304,7 +306,9 @@ export const replayTriggersV2Logic = kea<replayTriggersV2LogicType>([
         ],
         previewLegacyGroups: [
             (s) => [s.currentTeam],
-            (team: TeamPublicType | TeamType | null): SessionRecordingTriggerGroup[] => {
+            (
+                team: null | import('../../../../../types').TeamPublicType | import('../../../../../types').TeamType
+            ): SessionRecordingTriggerGroup[] => {
                 if (!team) {
                     return []
                 }

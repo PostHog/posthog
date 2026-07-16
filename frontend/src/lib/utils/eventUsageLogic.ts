@@ -75,8 +75,7 @@ import {
 } from '~/types'
 
 import type { ExperimentMetricUnion } from '../../queries/schema/schema-general'
-import type { FunnelCorrelationResultsType } from '../../types'
-import type { Realm, UserType } from '../../types'
+import type { FunnelCorrelationResultsType, Realm, UserType } from '../../types'
 
 export enum DashboardEventSource {
     LongPress = 'long_press',

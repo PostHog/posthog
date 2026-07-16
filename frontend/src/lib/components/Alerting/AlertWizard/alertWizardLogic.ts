@@ -531,7 +531,7 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
             (s) => [s.selectedTemplate, s.activeSubTemplate],
             (
                 selectedTemplate: HogFunctionTemplateType | null,
-                activeSubTemplate: HogFunctionSubTemplateType | null
+                activeSubTemplate: null | import('~/types').HogFunctionSubTemplateType
             ) => {
                 if (!selectedTemplate) {
                     return []
@@ -548,19 +548,7 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
 
         configuration: [
             (s) => [s.selectedTemplate, s.inputValues],
-            (
-                selectedTemplate: HogFunctionTemplateType | null,
-                inputValues: Record<
-                    string,
-                    {
-                        bytecode?: any
-                        order?: number | undefined
-                        secret?: boolean | undefined
-                        templating?: 'hog' | 'liquid' | undefined
-                        value: any
-                    }
-                >
-            ) => ({
+            (selectedTemplate: HogFunctionTemplateType | null, inputValues: Record<string, CyclotronJobInputType>) => ({
                 inputs_schema: selectedTemplate?.inputs_schema ?? [],
                 inputs: inputValues,
             }),

@@ -6,8 +6,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
-import type { BillingType, UserType } from '../../../types'
-import type { BillingFeatureType, BillingPlanType } from '../../../types'
+import type { BillingFeatureType, BillingPlanType, BillingType, UserType } from '../../../types'
 
 export interface PayGateMiniLogicProps {
     feature: AvailableFeature
@@ -149,7 +148,7 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
     selectors(({ values, props }) => ({
         productWithFeature: [
             (s) => [s.billing],
-            (billing: BillingType | null) => {
+            (billing: null | import('~/types').BillingType) => {
                 // TODO(@zach): revisit this logic after subscribe to all products is released
                 // There are some features where we want to check the product first
                 const checkProductFirst = [AvailableFeature.ORGANIZATIONS_PROJECTS]
@@ -181,7 +180,7 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
         isAddonProduct: [
             (s) => [s.billing, s.productWithFeature],
             (
-                billing: BillingType | null,
+                billing: null | import('~/types').BillingType,
                 productWithFeature: BillingProductV2AddonType | BillingProductV2Type | undefined
             ) =>
                 billing?.products?.some((product) =>
@@ -195,7 +194,7 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
         ],
         featureAvailableOnOrg: [
             (s) => [s.user, (_, props) => props.feature],
-            (_user: UserType | null, feature) => {
+            (_user: null | import('~/types').UserType, feature) => {
                 return values.availableFeature(feature)
             },
         ],
@@ -216,7 +215,7 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
         ],
         featureInfoOnNextPlan: [
             (s) => [s.nextPlanWithFeature],
-            (nextPlanWithFeature: BillingPlanType | null | undefined) =>
+            (nextPlanWithFeature: null | import('~/types').BillingPlanType | undefined) =>
                 nextPlanWithFeature?.features.find((f) => f.key === props.feature),
         ],
         gateVariant: [
@@ -230,7 +229,7 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
             (
                 billingLoading: boolean,
                 hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean,
-                minimumPlanWithFeature: BillingPlanType | undefined,
+                minimumPlanWithFeature: import('~/types').BillingPlanType | undefined,
                 feature,
                 currentUsage
             ) => {
@@ -254,7 +253,7 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
             (
                 gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
                 productWithFeature: BillingProductV2AddonType | BillingProductV2Type | undefined,
-                featureInfo: BillingFeatureType | undefined
+                featureInfo: import('~/types').BillingFeatureType | undefined
             ) => {
                 // product activation is already handled in the startPaymentEntryFlow,
                 // ctaLink is used only when isPaymentEntryFlow is false
@@ -291,7 +290,7 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
             (
                 gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
                 isAddonProduct: boolean | undefined,
-                billing: BillingType | null
+                billing: null | import('~/types').BillingType
             ): boolean => {
                 // Show payment entry flow only for free customers trying to upgrade to a paid plan
                 // to use core features (not addons)

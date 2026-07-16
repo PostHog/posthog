@@ -66,7 +66,7 @@ export interface timeSensitiveAuthenticationLogicActions {
     setTimeSensitiveAuthenticationRequired: (required: boolean | [onSuccess: () => void, onFailure: () => void]) => {
         required: boolean | [onSuccess: () => void, onFailure: () => void]
     } // apiStatusLogic
-    loadUser: (resetOnFailure?: boolean | undefined) => {
+    loadUser: (resetOnFailure?: boolean) => {
         resetOnFailure: boolean | undefined
     } // userLogic
     beginPasskey2FA: () => {
@@ -347,7 +347,7 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
 
         sensitiveSessionExpiresAt: [
             (s) => [s.user],
-            (user: UserType | null): Dayjs => {
+            (user: null | import('../../../types').UserType): Dayjs => {
                 return dayjs(user?.sensitive_session_expires_at)
             },
         ],

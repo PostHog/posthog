@@ -710,8 +710,8 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
                 p.userIntent ?? (() => undefined),
             ],
             (
-                currentTeam: TeamPublicType | TeamType | null,
-                user: UserType | null,
+                currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType,
+                user: null | import('~/types').UserType,
                 actionId: number | null,
                 experimentId: ExperimentIdType | null,
                 productTourId: string | null,

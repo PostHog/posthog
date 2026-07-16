@@ -25,7 +25,7 @@ import {
     buildEventTypeFilterShortcuts,
 } from 'lib/components/TaxonomicFilter/eventTypeShortcuts'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
-import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
+import type { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogic'
 import {
     hasRecentContext,
     recentTaxonomicFiltersLogic,
@@ -378,11 +378,11 @@ export interface taxonomicFilterLogicValues {
     }
     includeStaleEvents: boolean
     infiniteListCounts: {
-        [k: string]: any
+        [k: string]: number
     }
     infiniteListLogics: Record<string, BuiltLogic<infiniteListLogicType>>
     infiniteListResultCounts: {
-        [k: string]: any
+        [k: string]: number
     }
     loadingGroupTypes: TaxonomicFilterGroupType[]
     maxContextOptions: any
@@ -595,11 +595,11 @@ export interface taxonomicFilterLogicMeta {
         anyGroupLoading: (arg: boolean) => boolean
         anyGroupStale: (arg: boolean) => boolean
         loadingGroupTypes: (arg: string) => TaxonomicFilterGroupType[]
-        infiniteListCounts: (arg: { [k: string]: any }) => {
-            [k: string]: any
+        infiniteListCounts: (arg: { [k: string]: number }) => {
+            [k: string]: number
         }
-        infiniteListResultCounts: (arg: { [k: string]: any }) => {
-            [k: string]: any
+        infiniteListResultCounts: (arg: { [k: string]: number }) => {
+            [k: string]: number
         }
         value: (arg: any) => any
         groupType: (arg: any) => any
@@ -875,8 +875,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         propertyFilters: [
             (s) => [s.excludedProperties, s.propertyAllowList],
             (
-                excludedProperties: TaxonomicFilterGroupValueMap,
-                propertyAllowList: TaxonomicFilterGroupValueMap | undefined
+                excludedProperties: import('lib/components/TaxonomicFilter/types').TaxonomicFilterGroupValueMap,
+                propertyAllowList:
+                    | import('lib/components/TaxonomicFilter/types').TaxonomicFilterGroupValueMap
+                    | undefined
             ) => ({ excludedProperties, propertyAllowList }),
             { resultEqualityCheck: objectsEqual },
         ],
@@ -947,8 +949,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 metadataSource: AnyDataNode,
                 suggestedFiltersLabel: string | undefined,
                 propertyFilters: {
-                    excludedProperties: any
-                    propertyAllowList: any
+                    excludedProperties: import('lib/components/TaxonomicFilter/types').TaxonomicFilterGroupValueMap
+                    propertyAllowList:
+                        | import('lib/components/TaxonomicFilter/types').TaxonomicFilterGroupValueMap
+                        | undefined
                 },
                 {
                     event: eventMetadataPropertyDefinitions,
@@ -1937,7 +1941,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 groupTypes: TaxonomicFilterGroupType[],
                 taxonomicGroups: TaxonomicFilterGroup[],
                 eventNames,
-                featureFlags: FeatureFlagsSet
+                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet
             ): TaxonomicFilterGroupType[] => {
                 const availableGroupTypes = new Set(taxonomicGroups.map((group) => group.type))
                 const resolvedGroupTypes: TaxonomicFilterGroupType[] =
@@ -2044,9 +2048,12 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         groupAnalyticsTaxonomicGroupNames: [
             (s) => [s.groupTypes, s.currentTeamId, s.aggregationLabel],
             (
-                groupTypes: Map<GroupTypeIndex, GroupType>,
+                groupTypes: Map<import('~/types').GroupTypeIndex, import('~/types').GroupType>,
                 teamId: number | null,
-                aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+                aggregationLabel: (
+                    groupTypeIndex: number | null | undefined,
+                    deferToUserWording?: boolean
+                ) => import('~/models/groupsModel').Noun
             ): TaxonomicFilterGroup[] =>
                 Array.from(groupTypes.values()).map((type) => ({
                     name: `${capitalizeFirstLetter(aggregationLabel(type.group_type_index).plural)}`,
@@ -2064,9 +2071,12 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         groupAnalyticsTaxonomicGroups: [
             (s) => [s.groupTypes, s.currentProjectId, s.aggregationLabel],
             (
-                groupTypes: Map<GroupTypeIndex, GroupType>,
+                groupTypes: Map<import('~/types').GroupTypeIndex, import('~/types').GroupType>,
                 projectId: number | null,
-                aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+                aggregationLabel: (
+                    groupTypeIndex: number | null | undefined,
+                    deferToUserWording?: boolean
+                ) => import('~/models/groupsModel').Noun
             ): TaxonomicFilterGroup[] =>
                 Array.from(groupTypes.values()).map((type) => ({
                     name: `${capitalizeFirstLetter(aggregationLabel(type.group_type_index).singular)} properties`,
@@ -2168,7 +2178,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         ])
                     ),
             ],
-            (infiniteListCounts: { [k: string]: any }) => infiniteListCounts,
+            (infiniteListCounts: { [k: string]: number }) => infiniteListCounts,
             { resultEqualityCheck: objectsEqual },
         ],
         // Like `infiniteListCounts` but counts only genuine search results (`totalResultCount`),
@@ -2185,7 +2195,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         ])
                     ),
             ],
-            (infiniteListResultCounts: { [k: string]: any }) => infiniteListResultCounts,
+            (infiniteListResultCounts: { [k: string]: number }) => infiniteListResultCounts,
             { resultEqualityCheck: objectsEqual },
         ],
         value: [() => [(_, props) => props.value], (value) => value],

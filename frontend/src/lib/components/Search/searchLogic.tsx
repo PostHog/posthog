@@ -655,9 +655,9 @@ export const searchLogic = kea<searchLogicType>([
         toolsItems: [
             (s) => [s.featureFlags, s.isDev, s.user, s.sceneLogViewsByRef],
             (
-                featureFlags: FeatureFlagsSet,
+                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
                 isDev: boolean | undefined,
-                user: UserType | null,
+                user: null | import('~/types').UserType,
                 sceneLogViewsByRef: Record<string, string>
             ): SearchItem[] => {
                 const allProducts = getTreeItemsProducts()
@@ -727,9 +727,9 @@ export const searchLogic = kea<searchLogicType>([
         dataManagementItems: [
             (s) => [s.featureFlags, s.isDev, s.user, s.sceneLogViewsByRef],
             (
-                featureFlags: FeatureFlagsSet,
+                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
                 isDev: boolean | undefined,
-                user: UserType | null,
+                user: null | import('~/types').UserType,
                 sceneLogViewsByRef: Record<string, string>
             ): SearchItem[] => {
                 const allMetadata = getTreeItemsMetadata()
@@ -783,7 +783,11 @@ export const searchLogic = kea<searchLogicType>([
         ],
         newItems: [
             (s) => [s.featureFlags, s.isDev, s.user],
-            (featureFlags: FeatureFlagsSet, isDev: boolean | undefined, user: UserType | null): SearchItem[] => {
+            (
+                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
+                isDev: boolean | undefined,
+                user: null | import('~/types').UserType
+            ): SearchItem[] => {
                 const allNewItems = getTreeItemsNew()
                 const filteredItems = allNewItems.filter((item) => {
                     if (!isDev && !user?.is_staff && item.category === 'Unreleased') {
@@ -832,7 +836,10 @@ export const searchLogic = kea<searchLogicType>([
         ],
         peopleItems: [
             (s) => [s.treeGroupItems, s.sceneLogViewsByRef],
-            (treeGroupItems: FileSystemImport[], sceneLogViewsByRef: Record<string, string>): SearchItem[] => {
+            (
+                treeGroupItems: import('~/queries/schema/schema-general').FileSystemImport[],
+                sceneLogViewsByRef: Record<string, string>
+            ): SearchItem[] => {
                 const combined = [...getDefaultTreePersons(), ...treeGroupItems]
                 return combined.map((item) => ({
                     id: `people-${item.path}`,
@@ -856,7 +863,10 @@ export const searchLogic = kea<searchLogicType>([
             (s) => [s.groupSearchResults, s.aggregationLabel],
             (
                 groupSearchResults: Partial<Record<GroupTypeIndex, GroupQueryResult[]>>,
-                aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+                aggregationLabel: (
+                    groupTypeIndex: number | null | undefined,
+                    deferToUserWording?: boolean
+                ) => import('~/models/groupsModel').Noun
             ): SearchItem[] => {
                 const items: SearchItem[] = []
                 for (const [groupTypeIndexString, groups] of Object.entries(groupSearchResults)) {
@@ -1006,8 +1016,8 @@ export const searchLogic = kea<searchLogicType>([
         settingsItems: [
             (s) => [s.featureFlags, s.organizationIntegrations, s.settingsSections],
             (
-                featureFlags: FeatureFlagsSet,
-                organizationIntegrations: IntegrationType[] | null,
+                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
+                organizationIntegrations: import('~/types').IntegrationType[] | null,
                 settingsSections: SettingsSectionSummary[]
             ): SearchItem[] => {
                 const checkFlag = (flagKey: Pick<Setting, 'flag'>['flag']): boolean =>

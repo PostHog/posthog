@@ -100,7 +100,10 @@ export const superpowersLogic = kea<superpowersLogicType>([
     selectors({
         superpowersEnabled: [
             (s) => [s.user, s.preflight],
-            (user: UserType | null, preflight: PreflightStatus | null) => {
+            (
+                user: null | import('../../../types').UserType,
+                preflight: null | import('../../../types').PreflightStatus
+            ) => {
                 return user?.is_staff || preflight?.is_debug || preflight?.instance_preferences?.debug_queries
             },
         ],

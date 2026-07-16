@@ -12,7 +12,7 @@ import {
     taxonomicFilterTypeToPropertyFilterType,
 } from 'lib/components/PropertyFilters/utils'
 
-import type { propertyDefinitionsModelType } from '~/models/propertyDefinitionsModel'
+import { propertyDefinitionsModelType } from '~/models/propertyDefinitionsModelType'
 import { BreakdownFilter } from '~/queries/schema/schema-general'
 
 import {

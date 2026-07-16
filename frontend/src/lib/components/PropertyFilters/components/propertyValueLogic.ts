@@ -39,11 +39,15 @@ export const propertyValueLogic = kea<propertyValueLogicType>([
     key((props) => `${props.type}/${props.propertyKey}`),
     connect(() => ({ values: [propertyDefinitionsModel, ['options']] })),
     selectors(({ props }) => ({
-        propertyOption: [(s) => [s.options], (options: Record<string, Option>) => options[props.propertyKey]],
+        propertyOption: [
+            (s) => [s.options],
+            (options: Record<string, import('~/models/propertyDefinitionsModel').Option>) => options[props.propertyKey],
+        ],
         /** Whether a background cache refresh is currently in progress for this property. */
         isRefreshing: [
             (s) => [s.propertyOption],
-            (propertyOption: Option): boolean => propertyOption?.refreshing ?? false,
+            (propertyOption: import('~/models/propertyDefinitionsModel').Option): boolean =>
+                propertyOption?.refreshing ?? false,
         ],
     })),
 ])

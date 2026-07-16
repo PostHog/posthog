@@ -95,7 +95,7 @@ export interface iframedToolbarBrowserLogicActions {
     } // authorizedUrlListLogic
     updateCurrentTeamSuccess: (
         currentTeam: TeamPublicType | TeamType,
-        payload?: Partial<TeamType> | undefined
+        payload?: Partial<TeamType>
     ) => {
         currentTeam: TeamPublicType | TeamType
         payload?: Partial<TeamType>
@@ -320,7 +320,7 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
 
         viewportRange: [
             (s) => [s.heatmapFilters, s.iframeWidth],
-            (heatmapFilters: HeatmapFilters, iframeWidth: number | null) => {
+            (heatmapFilters: import('lib/components/heatmaps/types').HeatmapFilters, iframeWidth: number | null) => {
                 return iframeWidth ? calculateViewportRange(heatmapFilters, iframeWidth) : { min: 0, max: 1800 }
             },
         ],

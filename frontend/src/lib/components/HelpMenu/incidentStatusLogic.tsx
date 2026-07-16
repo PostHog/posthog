@@ -318,7 +318,8 @@ export const incidentStatusLogic = kea<incidentStatusLogicType>([
         statusPageUrl: [() => [], (): string => getStatusPageUrl()],
         relevantGroupName: [
             (s) => [s.preflight],
-            (preflight: PreflightStatus | null): string | null => getRelevantGroupName(preflight?.region),
+            (preflight: null | import('~/types').PreflightStatus): string | null =>
+                getRelevantGroupName(preflight?.region),
         ],
         rawStatus: [
             (s) => [s.summary, s.relevantGroupName],
@@ -333,7 +334,7 @@ export const incidentStatusLogic = kea<incidentStatusLogicType>([
             (s) => [s.rawStatus, s.fakeStatusOverride, s.superpowersEnabled],
             (
                 rawStatus: NormalizedStatus,
-                fakeStatusOverride: FakeStatusOverride,
+                fakeStatusOverride: import('lib/components/Superpowers/superpowersLogic').FakeStatusOverride,
                 superpowersEnabled: boolean | undefined
             ): NormalizedStatus => {
                 if (superpowersEnabled && fakeStatusOverride !== 'none') {

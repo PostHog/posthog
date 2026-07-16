@@ -124,7 +124,7 @@ export const dataThemeLogic = kea<dataThemeLogicType>([
         defaultTheme: [
             (s) => [s.currentTeam, s.themes, s.posthogTheme],
             (
-                currentTeam: TeamPublicType | TeamType | null,
+                currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType,
                 themes: DataColorThemeModel[] | null,
                 posthogTheme: DataColorThemeModel | null | undefined
             ): DataColorThemeModel | null => {

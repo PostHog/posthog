@@ -9,6 +9,7 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { PropertyFilterType, PropertyOperator, QuickFilter, QuickFilterOption } from '~/types'
 
 import type { Option } from '../../../models/propertyDefinitionsModel'
+import type { PropertyDefinitionType } from '../../../types'
 import { quickFiltersLogic } from './quickFiltersLogic'
 import { ModalView, QuickFiltersModalLogicProps, quickFiltersModalLogic } from './quickFiltersModalLogic'
 
@@ -77,7 +78,7 @@ export interface quickFilterFormLogicActions {
         }[]
         propertyKey: string
         refresh?: string
-        type: import('~/types').PropertyDefinitionType
+        type: PropertyDefinitionType
     }) => {
         endpoint: string | undefined
         eventNames?: string[] | undefined
@@ -90,7 +91,7 @@ export interface quickFilterFormLogicActions {
             | undefined
         propertyKey: string
         refresh?: string | undefined
-        type: import('~/types').PropertyDefinitionType
+        type: PropertyDefinitionType
     } // propertyDefinitionsModel
     closeModal: () => {
         value: true
@@ -271,7 +272,10 @@ export const quickFilterFormLogic: LogicWrapper<quickFilterFormLogicType> = kea<
         options: [(s) => [s.quickFilter], (quickFilter: QuickFilterFormValues) => quickFilter.options],
         suggestions: [
             (s) => [s.propertyName, s.propertyOptions],
-            (propertyName: string, propertyOptions: Record<string, Option>): any[] => {
+            (
+                propertyName: string,
+                propertyOptions: Record<string, import('~/models/propertyDefinitionsModel').Option>
+            ): any[] => {
                 return propertyName ? propertyOptions[propertyName]?.values || [] : []
             },
         ],
