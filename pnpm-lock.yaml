@@ -61,8 +61,8 @@ catalogs:
       specifier: ^16.0.0
       version: 16.0.0
     kea:
-      specifier: ^4.0.0-pre.5
-      version: 4.0.0-pre.5
+      specifier: ^4.0.0-pre.6
+      version: 4.0.0-pre.6
     kea-forms:
       specifier: ^3.2.0
       version: 3.2.0
@@ -94,8 +94,8 @@ catalogs:
       specifier: ^0.57.0
       version: 0.57.0
     posthog-js:
-      specifier: ^1.402.2
-      version: 1.402.2
+      specifier: ^1.402.3
+      version: 1.402.3
     storybook:
       specifier: ^10.4.3
       version: 10.4.6
@@ -409,7 +409,7 @@ importers:
         version: 3.1.0
       posthog-js:
         specifier: 'catalog:'
-        version: 1.402.2
+        version: 1.402.3
     devDependencies:
       '@swc/core':
         specifier: ^1.11.29
@@ -440,7 +440,7 @@ importers:
         version: 1.5.15
       posthog-js:
         specifier: 'catalog:'
-        version: 1.402.2
+        version: 1.402.3
     devDependencies:
       '@swc/core':
         specifier: ^1.11.29
@@ -507,7 +507,7 @@ importers:
         version: 5.3.0
       jest-image-snapshot:
         specifier: ^6.4.0
-        version: 6.4.0(jest@29.7.0(@types/node@25.8.0)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3)))
+        version: 6.4.0(jest@30.0.5(@types/node@25.8.0)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3)))
       mockdate:
         specifier: ^3.0.5
         version: 3.0.5
@@ -808,7 +808,7 @@ importers:
         version: link:../packages/quill/packages/components
       '@posthog/react':
         specifier: 'catalog:'
-        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.402.2)(react@18.3.1)
+        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.402.3)(react@18.3.1)
       '@posthog/replay-shared':
         specifier: workspace:*
         version: link:../common/replay-shared
@@ -1048,31 +1048,31 @@ importers:
         version: 4.1.0
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.5(react@18.3.1)
+        version: 4.0.0-pre.6(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-localstorage:
         specifier: 'catalog:'
-        version: 3.1.0(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.1.0(kea@4.0.0-pre.6(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-subscriptions:
         specifier: 'catalog:'
-        version: 3.0.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.0.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(react@18.3.1))
       kea-waitfor:
         specifier: 'catalog:'
-        version: 0.2.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 0.2.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-window-values:
         specifier: 'catalog:'
-        version: 3.0.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.0.1(kea@4.0.0-pre.6(react@18.3.1))
       liquidjs:
         specifier: ^10.27.0
         version: 10.27.0
@@ -1132,7 +1132,7 @@ importers:
         version: 2.11.0
       posthog-js:
         specifier: 'catalog:'
-        version: 1.402.2
+        version: 1.402.3
       query-selector-shadow-dom:
         specifier: ^1.0.0
         version: 1.0.0
@@ -1375,8 +1375,8 @@ importers:
         specifier: ^16.0.0
         version: 16.0.0
       kea-typegen:
-        specifier: 3.8.2
-        version: 3.8.2(typescript@6.0.3)
+        specifier: 3.8.3
+        version: 3.8.3(typescript@6.0.3)
       less:
         specifier: ^3.12.2
         version: 3.13.1
@@ -1922,7 +1922,7 @@ importers:
         version: 3.6.0
       jest-image-snapshot:
         specifier: ^6.4.0
-        version: 6.4.0(jest@30.0.5(@types/node@25.8.0)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3)))
+        version: 6.4.0(jest@29.7.0(@types/node@25.8.0)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3)))
       storybook:
         specifier: 'catalog:'
         version: 10.4.6(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -2250,26 +2250,26 @@ importers:
         version: 6.6.2
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.5(react@18.3.1)
+        version: 4.0.0-pre.6(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-subscriptions:
         specifier: 'catalog:'
-        version: 3.0.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.0.1(kea@4.0.0-pre.6(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
     devDependencies:
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(react@18.3.1))
 
   products/agent_platform: {}
 
@@ -2617,26 +2617,26 @@ importers:
         version: 2.1.1
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.5(react@18.3.1)
+        version: 4.0.0-pre.6(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.402.2
+        version: 1.402.3
       react:
         specifier: 18.3.1
         version: 18.3.1
     devDependencies:
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(react@18.3.1))
 
   products/ai_observability:
     dependencies:
@@ -2672,19 +2672,19 @@ importers:
         version: 30.0.5(esbuild-register@3.6.0(esbuild@0.28.1))
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.5(react@18.3.1)
+        version: 4.0.0-pre.6(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-subscriptions:
         specifier: 'catalog:'
-        version: 3.0.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.0.1(kea@4.0.0-pre.6(react@18.3.1))
       papaparse:
         specifier: '*'
         version: 5.4.1
@@ -2693,7 +2693,7 @@ importers:
         version: 0.1.7
       posthog-js:
         specifier: 'catalog:'
-        version: 1.402.2
+        version: 1.402.3
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2718,7 +2718,7 @@ importers:
         version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(react@18.3.1))
 
   products/alerts:
     dependencies:
@@ -2730,7 +2730,7 @@ importers:
         version: 0.38.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/lemon-ui':
         specifier: '*'
-        version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.5(react@18.3.1)))(kea@4.0.0-pre.5(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.6(react@18.3.1)))(kea@4.0.0-pre.6(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@types/react':
         specifier: 18.3.27
         version: 18.3.27
@@ -2742,22 +2742,22 @@ importers:
         version: 6.0.1
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.5(react@18.3.1)
+        version: 4.0.0-pre.6(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-subscriptions:
         specifier: 'catalog:'
-        version: 3.0.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.0.1(kea@4.0.0-pre.6(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.402.2
+        version: 1.402.3
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2773,7 +2773,7 @@ importers:
         version: 10.4.6(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.4.6(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@6.0.3)
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(react@18.3.1))
 
   products/analytics_platform: {}
 
@@ -2790,25 +2790,25 @@ importers:
         version: 0.38.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/lemon-ui':
         specifier: '*'
-        version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.5(react@18.3.1)))(kea@4.0.0-pre.5(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.6(react@18.3.1)))(kea@4.0.0-pre.6(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@types/react':
         specifier: 18.3.27
         version: 18.3.27
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.5(react@18.3.1)
+        version: 4.0.0-pre.6(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.402.2
+        version: 1.402.3
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2831,13 +2831,13 @@ importers:
         version: 6.6.2
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.5(react@18.3.1)
+        version: 4.0.0-pre.6(react@18.3.1)
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2853,7 +2853,7 @@ importers:
         version: 0.38.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/lemon-ui':
         specifier: '*'
-        version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.5(react@18.3.1)))(kea@4.0.0-pre.5(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.6(react@18.3.1)))(kea@4.0.0-pre.6(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@tiptap/core':
         specifier: 3.20.6
         version: 3.20.6(@tiptap/pm@3.20.6)
@@ -2898,22 +2898,22 @@ importers:
         version: 1.2.1
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.5(react@18.3.1)
+        version: 4.0.0-pre.6(react@18.3.1)
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-subscriptions:
         specifier: 'catalog:'
-        version: 3.0.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.0.1(kea@4.0.0-pre.6(react@18.3.1))
       lowlight:
         specifier: '*'
         version: 3.3.0
       posthog-js:
         specifier: 'catalog:'
-        version: 1.402.2
+        version: 1.402.3
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2938,7 +2938,7 @@ importers:
         version: 29.7.0(@types/node@25.8.0)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3))
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(react@18.3.1))
 
   products/core_events: {}
 
@@ -2988,22 +2988,22 @@ importers:
         version: 6.6.2
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.5(react@18.3.1)
+        version: 4.0.0-pre.6(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.402.2
+        version: 1.402.3
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3033,16 +3033,16 @@ importers:
         version: 6.6.2
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.5(react@18.3.1)
+        version: 4.0.0-pre.6(react@18.3.1)
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.402.2
+        version: 1.402.3
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3067,7 +3067,7 @@ importers:
         version: 29.7.0(@types/node@25.8.0)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3))
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(react@18.3.1))
 
   products/data_catalog: {}
 
@@ -3087,16 +3087,16 @@ importers:
         version: 1.2.1
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.5(react@18.3.1)
+        version: 4.0.0-pre.6(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3120,7 +3120,7 @@ importers:
         version: 0.38.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/lemon-ui':
         specifier: '*'
-        version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.5(react@18.3.1)))(kea@4.0.0-pre.5(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.6(react@18.3.1)))(kea@4.0.0-pre.6(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@storybook/react':
         specifier: 'catalog:'
         version: 10.4.6(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.4.6(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@6.0.3)
@@ -3129,22 +3129,22 @@ importers:
         version: 18.3.27
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.5(react@18.3.1)
+        version: 4.0.0-pre.6(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.402.2
+        version: 1.402.3
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3167,19 +3167,19 @@ importers:
         version: 1.2.1
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.5(react@18.3.1)
+        version: 4.0.0-pre.6(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-subscriptions:
         specifier: 'catalog:'
-        version: 3.0.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.0.1(kea@4.0.0-pre.6(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3203,16 +3203,16 @@ importers:
         version: 6.6.2
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.5(react@18.3.1)
+        version: 4.0.0-pre.6(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3237,20 +3237,20 @@ importers:
         version: 18.3.27
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.5(react@18.3.1)
+        version: 4.0.0-pre.6(react@18.3.1)
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
     devDependencies:
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(react@18.3.1))
 
   products/error_tracking:
     dependencies:
@@ -3269,6 +3269,9 @@ importers:
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.38.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@posthog/quill-charts':
+        specifier: workspace:*
+        version: link:../../packages/quill/packages/charts
       '@storybook/react':
         specifier: 'catalog:'
         version: 10.4.6(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.4.6(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@6.0.3)
@@ -3307,22 +3310,22 @@ importers:
         version: 6.6.2
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.5(react@18.3.1)
+        version: 4.0.0-pre.6(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-subscriptions:
         specifier: 'catalog:'
-        version: 3.0.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.0.1(kea@4.0.0-pre.6(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.402.2
+        version: 1.402.3
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3341,7 +3344,7 @@ importers:
     devDependencies:
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(react@18.3.1))
 
   products/event_definitions: {}
 
@@ -3361,13 +3364,13 @@ importers:
         version: 6.6.2
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.5(react@18.3.1)
+        version: 4.0.0-pre.6(react@18.3.1)
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3394,16 +3397,16 @@ importers:
         version: 6.6.2
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.5(react@18.3.1)
+        version: 4.0.0-pre.6(react@18.3.1)
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.402.2
+        version: 1.402.3
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3413,7 +3416,7 @@ importers:
         version: 10.4.6(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.4.6(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@6.0.3)
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(react@18.3.1))
 
   products/field_notes: {}
 
@@ -3433,13 +3436,13 @@ importers:
         version: 6.6.2
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.5(react@18.3.1)
+        version: 4.0.0-pre.6(react@18.3.1)
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3460,13 +3463,13 @@ importers:
         version: 6.6.2
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.5(react@18.3.1)
+        version: 4.0.0-pre.6(react@18.3.1)
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3490,10 +3493,10 @@ importers:
         version: 30.0.5(esbuild-register@3.6.0(esbuild@0.28.1))
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.5(react@18.3.1)
+        version: 4.0.0-pre.6(react@18.3.1)
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3508,7 +3511,7 @@ importers:
         version: 0.38.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/lemon-ui':
         specifier: '*'
-        version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.5(react@18.3.1)))(kea@4.0.0-pre.5(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.6(react@18.3.1)))(kea@4.0.0-pre.6(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@storybook/react':
         specifier: 'catalog:'
         version: 10.4.6(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.4.6(@testing-library/dom@9.3.4)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@6.0.3)
@@ -3523,19 +3526,19 @@ importers:
         version: 18.3.27
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.5(react@18.3.1)
+        version: 4.0.0-pre.6(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.402.2
+        version: 1.402.3
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3556,16 +3559,16 @@ importers:
         version: 1.2.1
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.5(react@18.3.1)
+        version: 4.0.0-pre.6(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       qrcode.react:
         specifier: ^4.2.0
         version: 4.2.0(react@18.3.1)
@@ -3580,7 +3583,7 @@ importers:
         version: 0.38.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/lemon-ui':
         specifier: '*'
-        version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.5(react@18.3.1)))(kea@4.0.0-pre.5(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.6(react@18.3.1)))(kea@4.0.0-pre.6(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@types/react':
         specifier: 18.3.27
         version: 18.3.27
@@ -3595,10 +3598,10 @@ importers:
         version: 7.3.0
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.5(react@18.3.1)
+        version: 4.0.0-pre.6(react@18.3.1)
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3608,7 +3611,7 @@ importers:
     devDependencies:
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(react@18.3.1))
 
   products/llm_analytics: {}
 
@@ -3670,25 +3673,25 @@ importers:
         version: 29.7.0(@types/node@25.8.0)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3))
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.5(react@18.3.1)
+        version: 4.0.0-pre.6(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-subscriptions:
         specifier: 'catalog:'
-        version: 3.0.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.0.1(kea@4.0.0-pre.6(react@18.3.1))
       papaparse:
         specifier: '*'
         version: 5.4.1
       posthog-js:
         specifier: 'catalog:'
-        version: 1.402.2
+        version: 1.402.3
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3713,7 +3716,7 @@ importers:
         version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(react@18.3.1))
 
   products/managed_migrations:
     dependencies:
@@ -3722,22 +3725,22 @@ importers:
         version: 0.38.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/lemon-ui':
         specifier: '*'
-        version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.5(react@18.3.1)))(kea@4.0.0-pre.5(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.6(react@18.3.1)))(kea@4.0.0-pre.6(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@types/react':
         specifier: 18.3.27
         version: 18.3.27
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.5(react@18.3.1)
+        version: 4.0.0-pre.6(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3769,20 +3772,20 @@ importers:
         version: 18.3.27
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.5(react@18.3.1)
+        version: 4.0.0-pre.6(react@18.3.1)
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
     devDependencies:
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(react@18.3.1))
 
   products/mcp_store:
     dependencies:
@@ -3794,16 +3797,16 @@ importers:
         version: 18.3.27
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.5(react@18.3.1)
+        version: 4.0.0-pre.6(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3832,16 +3835,16 @@ importers:
         version: 2.1.1
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.5(react@18.3.1)
+        version: 4.0.0-pre.6(react@18.3.1)
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.402.2
+        version: 1.402.3
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3851,7 +3854,7 @@ importers:
     devDependencies:
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(react@18.3.1))
 
   products/notebooks:
     dependencies:
@@ -3869,13 +3872,13 @@ importers:
         version: 6.6.2
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.5(react@18.3.1)
+        version: 4.0.0-pre.6(react@18.3.1)
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3884,7 +3887,7 @@ importers:
     dependencies:
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.5(react@18.3.1)
+        version: 4.0.0-pre.6(react@18.3.1)
 
   products/persons:
     dependencies:
@@ -3902,13 +3905,13 @@ importers:
         version: 6.6.2
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.5(react@18.3.1)
+        version: 4.0.0-pre.6(react@18.3.1)
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3943,19 +3946,19 @@ importers:
         version: 3.0.6
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.5(react@18.3.1)
+        version: 4.0.0-pre.6(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-subscriptions:
         specifier: 'catalog:'
-        version: 3.0.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.0.1(kea@4.0.0-pre.6(react@18.3.1))
       marked:
         specifier: '*'
         version: 17.0.4
@@ -3964,7 +3967,7 @@ importers:
         version: 0.55.1
       posthog-js:
         specifier: 'catalog:'
-        version: 1.402.2
+        version: 1.402.3
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3983,7 +3986,7 @@ importers:
         version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(react@18.3.1))
       msw:
         specifier: '*'
         version: 2.14.6(@types/node@25.8.0)(typescript@6.0.3)
@@ -4007,16 +4010,16 @@ importers:
         version: 6.6.2
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.5(react@18.3.1)
+        version: 4.0.0-pre.6(react@18.3.1)
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.402.2
+        version: 1.402.3
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4048,13 +4051,13 @@ importers:
         version: 6.6.2
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.5(react@18.3.1)
+        version: 4.0.0-pre.6(react@18.3.1)
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4069,7 +4072,7 @@ importers:
         version: 0.38.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/lemon-ui':
         specifier: '*'
-        version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.5(react@18.3.1)))(kea@4.0.0-pre.5(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.6(react@18.3.1)))(kea@4.0.0-pre.6(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/quill-charts':
         specifier: workspace:*
         version: link:../../packages/quill/packages/charts
@@ -4084,16 +4087,16 @@ importers:
         version: 2.1.1
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.5(react@18.3.1)
+        version: 4.0.0-pre.6(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       lodash.uniqby:
         specifier: ^4.7.0
         version: 4.7.0
@@ -4109,7 +4112,7 @@ importers:
         version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(react@18.3.1))
 
   products/revenue_analytics:
     dependencies:
@@ -4130,16 +4133,16 @@ importers:
         version: 1.2.1
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.5(react@18.3.1)
+        version: 4.0.0-pre.6(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4154,20 +4157,20 @@ importers:
         version: 18.3.27
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.5(react@18.3.1)
+        version: 4.0.0-pre.6(react@18.3.1)
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
     devDependencies:
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(react@18.3.1))
 
   products/session_replay:
     dependencies:
@@ -4176,7 +4179,7 @@ importers:
         version: 18.3.27
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.5(react@18.3.1)
+        version: 4.0.0-pre.6(react@18.3.1)
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4191,13 +4194,13 @@ importers:
         version: 18.3.27
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.5(react@18.3.1)
+        version: 4.0.0-pre.6(react@18.3.1)
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4217,16 +4220,16 @@ importers:
         version: 2.1.1
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.5(react@18.3.1)
+        version: 4.0.0-pre.6(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4239,7 +4242,7 @@ importers:
         version: 10.4.6(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.4.6(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@6.0.3)
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(react@18.3.1))
 
   products/slack_app: {}
 
@@ -4273,19 +4276,19 @@ importers:
         version: 18.3.7(@types/react@18.3.27)
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.5(react@18.3.1)
+        version: 4.0.0-pre.6(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.402.2
+        version: 1.402.3
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4298,7 +4301,7 @@ importers:
     devDependencies:
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(react@18.3.1))
 
   products/surveys:
     dependencies:
@@ -4316,13 +4319,13 @@ importers:
         version: 6.6.2
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.5(react@18.3.1)
+        version: 4.0.0-pre.6(react@18.3.1)
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4350,13 +4353,13 @@ importers:
         version: 1.2.1
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.5(react@18.3.1)
+        version: 4.0.0-pre.6(react@18.3.1)
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4366,7 +4369,7 @@ importers:
     devDependencies:
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(react@18.3.1))
 
   products/toolbar: {}
 
@@ -4392,19 +4395,19 @@ importers:
         version: 6.0.1
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.5(react@18.3.1)
+        version: 4.0.0-pre.6(react@18.3.1)
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-subscriptions:
         specifier: 'catalog:'
-        version: 3.0.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.0.1(kea@4.0.0-pre.6(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.402.2
+        version: 1.402.3
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4414,7 +4417,7 @@ importers:
     devDependencies:
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(react@18.3.1))
 
   products/user_interviews:
     dependencies:
@@ -4438,16 +4441,16 @@ importers:
         version: 30.0.5(esbuild-register@3.6.0(esbuild@0.28.1))
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.5(react@18.3.1)
+        version: 4.0.0-pre.6(react@18.3.1)
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.402.2
+        version: 1.402.3
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4465,7 +4468,7 @@ importers:
         version: 0.38.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/react':
         specifier: '*'
-        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.402.2)(react@18.3.1)
+        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.402.3)(react@18.3.1)
       '@storybook/react':
         specifier: 'catalog:'
         version: 10.4.6(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.4.6(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@6.0.3)
@@ -4474,23 +4477,23 @@ importers:
         version: 18.3.27
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.5(react@18.3.1)
+        version: 4.0.0-pre.6(react@18.3.1)
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.402.2
+        version: 1.402.3
       react:
         specifier: 18.3.1
         version: 18.3.1
     devDependencies:
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(react@18.3.1))
 
   products/warehouse_sources: {}
 
@@ -4512,13 +4515,13 @@ importers:
         version: 6.6.2
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.5(react@18.3.1)
+        version: 4.0.0-pre.6(react@18.3.1)
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4530,17 +4533,17 @@ importers:
         version: 18.3.27
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.5(react@18.3.1)
+        version: 4.0.0-pre.6(react@18.3.1)
       posthog-js:
         specifier: 'catalog:'
-        version: 1.402.2
+        version: 1.402.3
       react:
         specifier: 18.3.1
         version: 18.3.1
     devDependencies:
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(react@18.3.1))
 
   products/workflows:
     dependencies:
@@ -4570,22 +4573,22 @@ importers:
         version: 6.6.2
       kea:
         specifier: 'catalog:'
-        version: 4.0.0-pre.5(react@18.3.1)
+        version: 4.0.0-pre.6(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.2.0(kea@4.0.0-pre.6(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.1.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       kea-subscriptions:
         specifier: 'catalog:'
-        version: 3.0.1(kea@4.0.0-pre.5(react@18.3.1))
+        version: 3.0.1(kea@4.0.0-pre.6(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.402.2
+        version: 1.402.3
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -4607,7 +4610,7 @@ importers:
         version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       kea-test-utils:
         specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
+        version: 0.2.4(kea@4.0.0-pre.6(react@18.3.1))
 
   rust/common/hogvm/node: {}
 
@@ -10062,8 +10065,8 @@ packages:
   '@posthog/core@1.38.0':
     resolution: {integrity: sha512-QLrJh0hMVpEJXHNyiJR9YhvIO5tzLDedw4UHdvB+ub4fXHMtHCA8H44qgl11HWR3ajpjxtJ8hs3HyOGVF3Zc1w==}
 
-  '@posthog/core@1.42.0':
-    resolution: {integrity: sha512-ojUHAt3/y28OsAbJ5S+dTYDiVCmNtagWsZEBZJ8vcXeugRSGrGfv3dDsyr5BJoBBMhv0MNCSm0wMlUzI2vYTGQ==}
+  '@posthog/core@1.42.1':
+    resolution: {integrity: sha512-cZojBmvf92gZAn0MGf/J2S+3t2sZqb9E2/6mjY4jJsImwz7PuYqdNj870Wx2iwwlf++wfhRuH4K4bpDy9GIoCA==}
 
   '@posthog/core@1.7.1':
     resolution: {integrity: sha512-kjK0eFMIpKo9GXIbts8VtAknsoZ18oZorANdtuTj1CbgS28t4ZVq//HAWhnxEuXRTrtkd+SUJ6Ux3j2Af8NCuA==}
@@ -17694,8 +17697,8 @@ packages:
     peerDependencies:
       kea: '>= 3'
 
-  kea-typegen@3.8.2:
-    resolution: {integrity: sha512-EiRWMT2c61p+uJlerEgKcZs7bLrUTku03sVceSAZXb0lZr/8vqios3UcnnP3H3Xag/vtb8RFsPoxgme8O4Xycg==}
+  kea-typegen@3.8.3:
+    resolution: {integrity: sha512-LA+D1Ig7ZYo6eENpbzzvEHw8Dd0kJL9Nv2GNGVDJ41IuA5vp3rvMCwfjM8gX7RT/oTXE8kjiyHahITbFK4c90Q==}
     hasBin: true
     peerDependencies:
       typescript: 6.0.3
@@ -17710,8 +17713,8 @@ packages:
     peerDependencies:
       kea: '>= 3'
 
-  kea@4.0.0-pre.5:
-    resolution: {integrity: sha512-GMF6Bdfe7qt3xk7u3mFhhjrwt41neTlmG8JDXJxGyCojHRU8AuEtZ7Ac+x81JoqvCusHHvDVhvrdF/zYT0cn7Q==}
+  kea@4.0.0-pre.6:
+    resolution: {integrity: sha512-ADk9cT93zSHY+HF6YOKXOtPVC3LlndYpwYOFzoBqBOEpuXdbQYfdDTUkzfVq6YjyaKFdlOorQGB2QJz/Q4BCBg==}
     peerDependencies:
       react: 18.3.1
 
@@ -19786,8 +19789,8 @@ packages:
   posthog-js-lite@4.2.2:
     resolution: {integrity: sha512-fFCoGtMICWwoW0tsEdyFS7OFFgwe7bTTha/SKEtUdyJ56UyJ8wi6VghxyPkO2GVWpco5Za/edT1z1ovGYPCyLQ==}
 
-  posthog-js@1.402.2:
-    resolution: {integrity: sha512-meFeMCFuSf2iatxsuCamUCCI078GcPDBIQgFu+MVqyy4A0bmFiuNJykxMSVsvpWjIkMtgZEmB5knv0MpGZG/SQ==}
+  posthog-js@1.402.3:
+    resolution: {integrity: sha512-MCn4O9wJc1BGBbb820MlmYifDb6EhFBFhfR1K9294gfgFRcxin+NSlypswVBdt1ZO4XD/P7EPmwApyVX/EYlUw==}
 
   posthog-node@5.25.0:
     resolution: {integrity: sha512-DFE5lZAoD6hk7RATuT8qVQ7KFgFP5YlFTJciMbU2qq6NX0A8eJxiJcmEsMnB3g30jJJ9suiwGIq4I8ESwf9bZg==}
@@ -20676,9 +20679,6 @@ packages:
 
   requires-port@1.0.0:
     resolution: {integrity: sha512-KigOCHcocU3XODJxsu8i/j8T9tzT4adHiecwORRQ0ZZFcp7ahwXuRU1m+yuO90C5ZUyGeGfocHDI14M3L3yDAQ==}
-
-  reselect@5.1.1:
-    resolution: {integrity: sha512-K/BG6eIky/SBpzfHZv/dd+9JBFiS4SWV7FIujVyJRux6e45+73RaUHXLmIR1f7WOMaQ0U1km6qwklRQxpJJY0w==}
 
   reselect@5.2.0:
     resolution: {integrity: sha512-AgZ3UOZm3YndfrJ4OYjgrT7bmCm/1iqkjvEfH/oYjzh6PD2qw4QuT3jjnXIrpdt4MTpMXclMT3lXbmRY+XRakw==}
@@ -29933,7 +29933,7 @@ snapshots:
     dependencies:
       '@posthog/types': 1.392.1
 
-  '@posthog/core@1.42.0':
+  '@posthog/core@1.42.1':
     dependencies:
       '@posthog/types': 1.395.0
 
@@ -29961,11 +29961,11 @@ snapshots:
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
 
-  '@posthog/lemon-ui@0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.5(react@18.3.1)))(kea@4.0.0-pre.5(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
+  '@posthog/lemon-ui@0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.6(react@18.3.1)))(kea@4.0.0-pre.6(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:
       antd: 5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      kea: 4.0.0-pre.5(react@18.3.1)
-      kea-router: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+      kea: 4.0.0-pre.6(react@18.3.1)
+      kea-router: 3.4.1(kea@4.0.0-pre.6(react@18.3.1))
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
 
@@ -29975,9 +29975,9 @@ snapshots:
       '@posthog/core': 1.38.0
       posthog-node: 5.25.0
 
-  '@posthog/react@1.9.0(@types/react@18.3.27)(posthog-js@1.402.2)(react@18.3.1)':
+  '@posthog/react@1.9.0(@types/react@18.3.27)(posthog-js@1.402.3)(react@18.3.1)':
     dependencies:
-      posthog-js: 1.402.2
+      posthog-js: 1.402.3
       react: 18.3.1
     optionalDependencies:
       '@types/react': 18.3.27
@@ -39743,33 +39743,33 @@ snapshots:
 
   kdbush@4.0.2: {}
 
-  kea-forms@3.2.0(kea@4.0.0-pre.5(react@18.3.1)):
+  kea-forms@3.2.0(kea@4.0.0-pre.6(react@18.3.1)):
     dependencies:
-      kea: 4.0.0-pre.5(react@18.3.1)
+      kea: 4.0.0-pre.6(react@18.3.1)
 
-  kea-loaders@3.1.1(kea@4.0.0-pre.5(react@18.3.1)):
+  kea-loaders@3.1.1(kea@4.0.0-pre.6(react@18.3.1)):
     dependencies:
-      kea: 4.0.0-pre.5(react@18.3.1)
+      kea: 4.0.0-pre.6(react@18.3.1)
 
-  kea-localstorage@3.1.0(kea@4.0.0-pre.5(react@18.3.1)):
+  kea-localstorage@3.1.0(kea@4.0.0-pre.6(react@18.3.1)):
     dependencies:
-      kea: 4.0.0-pre.5(react@18.3.1)
+      kea: 4.0.0-pre.6(react@18.3.1)
 
-  kea-router@3.4.1(kea@4.0.0-pre.5(react@18.3.1)):
+  kea-router@3.4.1(kea@4.0.0-pre.6(react@18.3.1)):
     dependencies:
-      kea: 4.0.0-pre.5(react@18.3.1)
+      kea: 4.0.0-pre.6(react@18.3.1)
       url-pattern: 1.0.3
 
-  kea-subscriptions@3.0.1(kea@4.0.0-pre.5(react@18.3.1)):
+  kea-subscriptions@3.0.1(kea@4.0.0-pre.6(react@18.3.1)):
     dependencies:
-      kea: 4.0.0-pre.5(react@18.3.1)
+      kea: 4.0.0-pre.6(react@18.3.1)
 
-  kea-test-utils@0.2.4(kea@4.0.0-pre.5(react@18.3.1)):
+  kea-test-utils@0.2.4(kea@4.0.0-pre.6(react@18.3.1)):
     dependencies:
-      kea: 4.0.0-pre.5(react@18.3.1)
-      kea-waitfor: 0.2.1(kea@4.0.0-pre.5(react@18.3.1))
+      kea: 4.0.0-pre.6(react@18.3.1)
+      kea-waitfor: 0.2.1(kea@4.0.0-pre.6(react@18.3.1))
 
-  kea-typegen@3.8.2(typescript@6.0.3):
+  kea-typegen@3.8.3(typescript@6.0.3):
     dependencies:
       '@babel/core': 7.29.0
       '@babel/preset-env': 7.23.5(@babel/core@7.29.0)
@@ -39782,19 +39782,19 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  kea-waitfor@0.2.1(kea@4.0.0-pre.5(react@18.3.1)):
+  kea-waitfor@0.2.1(kea@4.0.0-pre.6(react@18.3.1)):
     dependencies:
-      kea: 4.0.0-pre.5(react@18.3.1)
+      kea: 4.0.0-pre.6(react@18.3.1)
 
-  kea-window-values@3.0.1(kea@4.0.0-pre.5(react@18.3.1)):
+  kea-window-values@3.0.1(kea@4.0.0-pre.6(react@18.3.1)):
     dependencies:
-      kea: 4.0.0-pre.5(react@18.3.1)
+      kea: 4.0.0-pre.6(react@18.3.1)
 
-  kea@4.0.0-pre.5(react@18.3.1):
+  kea@4.0.0-pre.6(react@18.3.1):
     dependencies:
       react: 18.3.1
       redux: 5.0.1
-      reselect: 5.1.1
+      reselect: 5.2.0
       use-sync-external-store: 1.6.0(react@18.3.1)
 
   keyv@4.5.4:
@@ -42355,9 +42355,9 @@ snapshots:
     dependencies:
       '@posthog/core': 1.7.1
 
-  posthog-js@1.402.2:
+  posthog-js@1.402.3:
     dependencies:
-      '@posthog/core': 1.42.0
+      '@posthog/core': 1.42.1
       '@posthog/types': 1.395.0
       core-js: 3.49.0
       dompurify: 3.4.0
@@ -43549,8 +43549,6 @@ snapshots:
   require-main-filename@2.0.0: {}
 
   requires-port@1.0.0: {}
-
-  reselect@5.1.1: {}
 
   reselect@5.2.0: {}
 
