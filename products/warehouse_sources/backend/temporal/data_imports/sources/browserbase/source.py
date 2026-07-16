@@ -27,7 +27,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BrowserbaseSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -94,20 +97,12 @@ You can find your project API key in your [Browserbase dashboard](https://www.br
     ) -> list[SourceSchema]:
         # Every Browserbase list endpoint is full refresh: there is no server-side timestamp filter,
         # so nothing can be synced incrementally (see settings.py).
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-                should_sync_default=BROWSERBASE_ENDPOINTS[endpoint].should_sync_default,
-            )
-            for endpoint in ENDPOINTS
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            should_sync_default={name: config.should_sync_default for name, config in BROWSERBASE_ENDPOINTS.items()},
+        )
 
     def validate_credentials(
         self, config: BrowserbaseSourceConfig, team_id: int, schema_name: Optional[str] = None
@@ -121,5 +116,6 @@ You can find your project API key in your [Browserbase dashboard](https://www.br
         return browserbase_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
         )

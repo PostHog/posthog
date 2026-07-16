@@ -1,173 +1,209 @@
+import json
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest import mock
 
 import requests
 from parameterized import parameterized
 from tenacity import wait_none
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.browserbase import browserbase
 from products.warehouse_sources.backend.temporal.data_imports.sources.browserbase.browserbase import (
     BROWSERBASE_BASE_URL,
-    BrowserbaseRetryableError,
-    _fetch,
     browserbase_source,
-    get_rows,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.browserbase.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    RESTClient,
+    RESTClientRetryableError,
+)
+
+# Both the sync transport and the credential probe build their session via the
+# browserbase module's make_tracked_session (passed into the client config).
+SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.browserbase.browserbase.make_tracked_session"
+)
 
 
-def _response(status_code: int, json_body: Any = None) -> MagicMock:
-    response = MagicMock()
-    response.status_code = status_code
-    response.ok = 200 <= status_code < 300
-    response.text = "" if json_body is None else str(json_body)
-    response.json.return_value = json_body
-
-    def _raise() -> None:
-        if not response.ok:
-            raise requests.HTTPError(f"{status_code} Client Error", response=response)
-
-    response.raise_for_status.side_effect = _raise
-    return response
+def _response(status_code: int, json_body: Any = None) -> requests.Response:
+    resp = requests.Response()
+    resp.status_code = status_code
+    resp.url = f"{BROWSERBASE_BASE_URL}/sessions"
+    resp._content = json.dumps(json_body if json_body is not None else []).encode()
+    return resp
 
 
-class TestFetch:
-    def setup_method(self) -> None:
-        # Drop the exponential backoff so retryable-status tests don't actually sleep.
-        _fetch.retry.wait = wait_none()  # type: ignore[attr-defined]
+def _wire(session: mock.MagicMock, responses: list[requests.Response]) -> list[requests.PreparedRequest]:
+    """Wire a mock session and capture each request AS PREPARED (auth applied, URL resolved)."""
+    session.headers = {}
+    prepared_requests: list[requests.PreparedRequest] = []
 
-    def test_returns_parsed_json_on_success(self) -> None:
-        session = MagicMock()
-        session.get.return_value = _response(200, [{"id": "sess_1"}])
+    def _prepare(request: requests.Request) -> requests.PreparedRequest:
+        prepared = request.prepare()
+        prepared_requests.append(prepared)
+        return prepared
 
-        result = _fetch(session, f"{BROWSERBASE_BASE_URL}/sessions", {}, MagicMock())
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return prepared_requests
 
-        assert result == [{"id": "sess_1"}]
-        assert session.get.call_count == 1
 
-    @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
-    def test_retryable_status_raises_retryable_error(self, _name: str, status_code: int) -> None:
-        session = MagicMock()
-        session.get.return_value = _response(status_code, {"error": "nope"})
-
-        with pytest.raises(BrowserbaseRetryableError):
-            _fetch(session, f"{BROWSERBASE_BASE_URL}/sessions", {}, MagicMock())
-
-        # 5 attempts before giving up (stop_after_attempt(5)).
-        assert session.get.call_count == 5
-
-    def test_recovers_after_transient_error(self) -> None:
-        session = MagicMock()
-        session.get.side_effect = [_response(500, {}), _response(200, [{"id": "sess_1"}])]
-
-        result = _fetch(session, f"{BROWSERBASE_BASE_URL}/sessions", {}, MagicMock())
-
-        assert result == [{"id": "sess_1"}]
-        assert session.get.call_count == 2
-
-    @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
-    def test_client_error_raises_immediately(self, _name: str, status_code: int) -> None:
-        session = MagicMock()
-        session.get.return_value = _response(status_code, {"error": "nope"})
-
-        with pytest.raises(requests.HTTPError):
-            _fetch(session, f"{BROWSERBASE_BASE_URL}/sessions", {}, MagicMock())
-
-        # Client errors are not retried - they can never succeed on retry.
-        assert session.get.call_count == 1
+def _rows(source_response) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
 
 
 class TestGetRows:
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.browserbase.browserbase._fetch")
-    def test_yields_list_of_rows(self, mock_fetch: MagicMock) -> None:
-        rows = [{"id": "sess_1"}, {"id": "sess_2"}]
-        mock_fetch.return_value = rows
+    def setup_method(self) -> None:
+        # Drop the exponential backoff so retryable-status tests don't actually sleep.
+        RESTClient._send_request.retry.wait = wait_none()  # type: ignore[attr-defined]
 
-        result = list(get_rows("bb_key", "sessions", MagicMock()))
+    @mock.patch(SESSION_PATCH)
+    def test_single_request_yields_all_rows(self, MockSession) -> None:
+        session = MockSession.return_value
+        rows_body = [{"id": "sess_1"}, {"id": "sess_2"}]
+        prepared = _wire(session, [_response(200, rows_body)])
 
-        assert result == [rows]
+        rows = _rows(browserbase_source("bb_key", "sessions", team_id=1, job_id="j"))
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.browserbase.browserbase._fetch")
-    def test_empty_list_yields_nothing(self, mock_fetch: MagicMock) -> None:
-        mock_fetch.return_value = []
+        assert rows == rows_body
+        # No pagination params exist - the whole collection comes back in one request.
+        assert session.send.call_count == 1
+        assert prepared[0].url == f"{BROWSERBASE_BASE_URL}/sessions"
 
-        assert list(get_rows("bb_key", "sessions", MagicMock())) == []
+    @mock.patch(SESSION_PATCH)
+    def test_empty_list_yields_no_rows(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response(200, [])])
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.browserbase.browserbase._fetch")
-    def test_non_list_response_raises(self, mock_fetch: MagicMock) -> None:
-        # Browserbase list endpoints return arrays; a dict means an unexpected/error shape. Raise so the
-        # sync fails loudly instead of finishing "successfully" with zero rows.
-        mock_fetch.return_value = {"statusCode": 500}
+        assert _rows(browserbase_source("bb_key", "sessions", team_id=1, job_id="j")) == []
 
-        with pytest.raises(ValueError):
-            list(get_rows("bb_key", "sessions", MagicMock()))
+    @mock.patch(SESSION_PATCH)
+    def test_non_list_response_raises(self, MockSession) -> None:
+        # Browserbase list endpoints return arrays; a dict means an unexpected/error shape. Raise so
+        # the sync fails loudly instead of finishing "successfully" with zero rows.
+        session = MockSession.return_value
+        _wire(session, [_response(200, {"statusCode": 500})])
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.browserbase.browserbase._fetch")
-    def test_requests_the_endpoint_path(self, mock_fetch: MagicMock) -> None:
-        mock_fetch.return_value = [{"id": "proj_1"}]
+        with pytest.raises(ValueError, match="Required a list response body"):
+            _rows(browserbase_source("bb_key", "sessions", team_id=1, job_id="j"))
 
-        list(get_rows("bb_key", "projects", MagicMock()))
+    @mock.patch(SESSION_PATCH)
+    def test_requests_the_endpoint_path(self, MockSession) -> None:
+        session = MockSession.return_value
+        prepared = _wire(session, [_response(200, [{"id": "proj_1"}])])
 
-        called_url = mock_fetch.call_args.args[1]
-        assert called_url == f"{BROWSERBASE_BASE_URL}/projects"
+        _rows(browserbase_source("bb_key", "projects", team_id=1, job_id="j"))
+
+        assert prepared[0].url == f"{BROWSERBASE_BASE_URL}/projects"
+
+    @mock.patch(SESSION_PATCH)
+    def test_api_key_sent_via_header_auth(self, MockSession) -> None:
+        session = MockSession.return_value
+        prepared = _wire(session, [_response(200, [{"id": "sess_1"}])])
+
+        _rows(browserbase_source("bb_test_key", "sessions", team_id=1, job_id="j"))
+
+        assert prepared[0].headers["X-BB-API-Key"] == "bb_test_key"
+        assert session.headers.get("Accept") == "application/json"
+
+    @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
+    @mock.patch(SESSION_PATCH)
+    def test_retryable_status_raises_after_retries(self, _name: str, status_code: int, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response(status_code, {"error": "nope"})] * 5)
+
+        with pytest.raises(RESTClientRetryableError):
+            _rows(browserbase_source("bb_key", "sessions", team_id=1, job_id="j"))
+
+        # 5 attempts before giving up.
+        assert session.send.call_count == 5
+
+    @mock.patch(SESSION_PATCH)
+    def test_recovers_after_transient_error(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response(500, {}), _response(200, [{"id": "sess_1"}])])
+
+        rows = _rows(browserbase_source("bb_key", "sessions", team_id=1, job_id="j"))
+
+        assert rows == [{"id": "sess_1"}]
+        assert session.send.call_count == 2
+
+    @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
+    @mock.patch(SESSION_PATCH)
+    def test_client_error_raises_immediately(self, _name: str, status_code: int, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response(status_code, {"error": "nope"})] * 5)
+
+        with pytest.raises(requests.HTTPError):
+            _rows(browserbase_source("bb_key", "sessions", team_id=1, job_id="j"))
+
+        # Client errors are not retried - they can never succeed on retry.
+        assert session.send.call_count == 1
 
 
 class TestKeyRedaction:
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.browserbase.browserbase._fetch")
-    @patch.object(browserbase, "make_tracked_session")
-    def test_get_rows_redacts_key(self, mock_session_factory: MagicMock, mock_fetch: MagicMock) -> None:
+    @mock.patch(SESSION_PATCH)
+    def test_source_session_redacts_key(self, MockSession) -> None:
         # The API key must be masked in tracked HTTP logs/samples, not left recoverable from a bucket.
-        mock_fetch.return_value = []
-        mock_session_factory.return_value = MagicMock()
+        session = MockSession.return_value
+        _wire(session, [_response(200, [])])
 
-        list(get_rows("bb_secret", "sessions", MagicMock()))
+        _rows(browserbase_source("bb_secret", "sessions", team_id=1, job_id="j"))
 
-        assert mock_session_factory.call_args.kwargs["redact_values"] == ("bb_secret",)
+        assert MockSession.call_args.kwargs["redact_values"] == ("bb_secret",)
         # Response bodies carry arbitrary customer userMetadata the scrubbers can't recognise.
-        assert mock_session_factory.call_args.kwargs["capture"] is False
+        assert MockSession.call_args.kwargs["capture"] is False
 
-    @patch.object(browserbase, "make_tracked_session")
-    def test_validate_credentials_redacts_key(self, mock_session_factory: MagicMock) -> None:
-        session = MagicMock()
-        session.get.return_value = _response(200)
-        mock_session_factory.return_value = session
+    @mock.patch(SESSION_PATCH)
+    def test_validate_credentials_redacts_key(self, MockSession) -> None:
+        session = mock.MagicMock()
+        session.get.return_value = mock.MagicMock(status_code=200)
+        MockSession.return_value = session
 
         validate_credentials("bb_secret")
 
-        assert mock_session_factory.call_args.kwargs["redact_values"] == ("bb_secret",)
-        assert mock_session_factory.call_args.kwargs["capture"] is False
+        assert MockSession.call_args.kwargs["redact_values"] == ("bb_secret",)
+        assert MockSession.call_args.kwargs["capture"] is False
 
 
 class TestValidateCredentials:
     @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
-    @patch.object(browserbase, "make_tracked_session")
-    def test_maps_status_to_bool(
-        self, _name: str, status_code: int, expected: bool, mock_session_factory: MagicMock
-    ) -> None:
-        session = MagicMock()
-        session.get.return_value = _response(status_code)
-        mock_session_factory.return_value = session
+    @mock.patch(SESSION_PATCH)
+    def test_maps_status_to_bool(self, _name: str, status_code: int, expected: bool, MockSession) -> None:
+        session = mock.MagicMock()
+        session.get.return_value = mock.MagicMock(status_code=status_code)
+        MockSession.return_value = session
 
         assert validate_credentials("bb_key") is expected
 
-    @patch.object(browserbase, "make_tracked_session")
-    def test_network_error_propagates(self, mock_session_factory: MagicMock) -> None:
-        # A transport failure is transient - it must surface, not be reported as an invalid key.
-        session = MagicMock()
-        session.get.side_effect = requests.ConnectionError("boom")
-        mock_session_factory.return_value = session
+    @mock.patch(SESSION_PATCH)
+    def test_probes_projects_with_key_header(self, MockSession) -> None:
+        session = mock.MagicMock()
+        session.get.return_value = mock.MagicMock(status_code=200)
+        MockSession.return_value = session
 
-        with pytest.raises(requests.ConnectionError):
-            validate_credentials("bb_key")
+        validate_credentials("bb_key")
+
+        assert session.get.call_args.args[0] == f"{BROWSERBASE_BASE_URL}/projects"
+        assert session.get.call_args.kwargs["headers"]["X-BB-API-Key"] == "bb_key"
+
+    @mock.patch(SESSION_PATCH)
+    def test_network_error_maps_to_not_validated(self, MockSession) -> None:
+        # The probe must never raise out of validate_credentials - an unreachable API means
+        # "not validated", not a crashed source-create request.
+        session = mock.MagicMock()
+        session.get.side_effect = requests.ConnectionError("boom")
+        MockSession.return_value = session
+
+        assert validate_credentials("bb_key") is False
 
 
 class TestBrowserbaseSource:
     @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
-    def test_source_response_shape(self, endpoint: str) -> None:
-        response = browserbase_source("bb_key", endpoint, MagicMock())
+    @mock.patch(SESSION_PATCH)
+    def test_source_response_shape(self, endpoint: str, MockSession) -> None:
+        response = browserbase_source("bb_key", endpoint, team_id=1, job_id="j")
 
         assert response.name == endpoint
         assert response.primary_keys == ["id"]

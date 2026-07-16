@@ -1,8 +1,10 @@
+import json
 from collections.abc import Iterable
 from typing import Any, cast
 
 from unittest.mock import MagicMock, patch
 
+import requests
 from parameterized import parameterized
 
 from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
@@ -101,15 +103,25 @@ class TestBrowserbasePipelineHandoff:
     @patch.object(browserbase, "make_tracked_session")
     def test_source_for_pipeline_plumbs_endpoint_and_key(self, mock_session_factory: MagicMock) -> None:
         session = MagicMock()
-        response = MagicMock()
+        session.headers = {}
+        prepared_requests: list[requests.PreparedRequest] = []
+
+        def _prepare(request: requests.Request) -> requests.PreparedRequest:
+            prepared = request.prepare()
+            prepared_requests.append(prepared)
+            return prepared
+
+        response = requests.Response()
         response.status_code = 200
-        response.ok = True
-        response.json.return_value = [{"id": "sess_1", "createdAt": "2026-01-01T00:00:00Z"}]
-        session.get.return_value = response
+        response._content = json.dumps([{"id": "sess_1", "createdAt": "2026-01-01T00:00:00Z"}]).encode()
+        session.prepare_request.side_effect = _prepare
+        session.send.return_value = response
         mock_session_factory.return_value = session
 
         inputs = MagicMock()
         inputs.schema_name = "sessions"
+        inputs.team_id = 1
+        inputs.job_id = "job_1"
 
         source_response = BrowserbaseSource().source_for_pipeline(_config(), inputs)
 
@@ -119,4 +131,4 @@ class TestBrowserbasePipelineHandoff:
         # The items thunk should actually pull rows using the configured key/endpoint.
         rows = list(cast(Iterable[Any], source_response.items()))
         assert rows == [[{"id": "sess_1", "createdAt": "2026-01-01T00:00:00Z"}]]
-        assert session.get.call_args.kwargs["headers"]["X-BB-API-Key"] == "bb_test_key"
+        assert prepared_requests[0].headers["X-BB-API-Key"] == "bb_test_key"
