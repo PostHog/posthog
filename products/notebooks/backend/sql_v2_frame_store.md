@@ -267,7 +267,8 @@ Why phase 1 streams from the worker instead of starting here:
 - **Security path.** Phase 1 keeps the whole HogQL runner path (team scoping, property access controls applied
   at print time) untouched — new code only handles the result. The CH-side write must print the guarded SQL
   and splice it into a raw `INSERT ... SELECT` executed outside the runner; batch exports does this safely,
-  but over its own known tables, not arbitrary user HogQL. That seam deserves its own review, not a ride-along.
+  but over its own known tables, not arbitrary user HogQL. That seam deserves its own review, not a
+  ride-along — the phase-2 security notes below break down what it entails.
 - **Credentials.** Workers already hold object-storage credentials; the CH-side write needs the cluster's IAM
   role extended to the notebooks prefix (see open questions) and local CH → SeaweedFS config.
 - **Load placement.** Worker streaming actually puts _less_ work on ClickHouse — CH only executes and streams
@@ -276,6 +277,49 @@ Why phase 1 streams from the worker instead of starting here:
 - **What A buys.** Worker economics at scale (a slot held seconds instead of the stream duration) and no
   double transfer for very large frames. With per-team concurrency ~1 and frames in the tens-to-hundreds of
   MB, neither matters yet — escalate on query-log evidence, and phase 2 may never be needed.
+
+_Phase-2 security notes (splice analysis, 2026-07) — read before building the CH-side write:_
+
+The statement is `INSERT INTO FUNCTION s3('<url>/<key>', '<creds?>', 'ArrowStream') PARTITION BY rand() % N
+<printed SELECT ... SETTINGS ...>` — three trust zones: the prefix (our code, our metadata), the printed
+SELECT (user HogQL via the guarded printer), and the parameters (server-side `param_*` binding). Two facts
+cap the risk: the printed SELECT is already the trusted-executable artifact (executed verbatim today, and
+already spliced once into `DESCRIBE TABLE (...)`), and ClickHouse refuses multi-statement execution over both
+HTTP and native protocols — realistic injection is clause-level corruption of the prefix, not stacked
+statements. Issue classes, by zone:
+
+- **The new injection surface is our own s3() arguments, not the user's query.** Today the object key is an
+  inert boto3 API argument; in phase 2 it sits inside a SQL string literal in the most privileged statement
+  we run. Key segments are safe today (int team id, hex digest, `[A-Za-z0-9_-]+`-validated short id), but
+  that makes charset validation load-bearing forever — someone relaxing the short-id charset later turns a
+  cosmetic change into SQL injection. Manual escaping is subtler than it looks: the batch-exports builder
+  (`get_s3_function_call`) quote-doubles credentials but not the URL/folder, and quote-doubling alone
+  mishandles a value ending in `\` — both fine there only because the inputs have known charsets.
+- **Assembly-context grammar bugs.** The printer must run without `output_format` (a trailing
+  `FORMAT ArrowStream` is invalid inside `INSERT ... SELECT`; the object format comes from the s3() arg);
+  the printer's trailing `SETTINGS` must merge with INSERT-level settings (`s3_truncate_on_insert`) since two
+  SETTINGS clauses are a syntax error; WITH-leading and UNION-set shapes interact with `PARTITION BY`
+  placement, and the tempting `SELECT * FROM (<printed>)` wrap breaks the settings clause (invalid in a
+  subquery), forcing settings-hoisting string surgery. Most failures are fail-safe syntax errors — but every
+  workaround is string surgery on printer output, which is where the risk concentrates.
+- **The parameter channel must survive.** `param_hogql_val_N` server-side binding works for INSERT SELECT
+  unchanged; an implementation that inlines values client-side reintroduces classic injection for every
+  user literal.
+- **Privilege amplification is the deepest issue and is not about splicing.** An INSERT is a write statement
+  even into a table function, so `readonly = 2` is off the table: the notebooks user needs `readonly = 0`
+  plus the S3 source (or named-collection usage) grant. From then on any unrelated bug — a future printer
+  escaping flaw — escalates from "read within team scope" to "write query results wherever the grant
+  reaches". The splice can be perfect and this amplification stands; it is a property of the user.
+
+The playbook, if/when built: keep the URL out of the statement via a named collection pinned to bucket +
+`notebooks/frames/` prefix (only a charset-validated **and** escaped `filename` override in SQL — validation
+as policy, escaping as defense in depth; also keeps credentials out of `system.query_log` and error text);
+build the INSERT wrapper as a printer-level construct rather than post-hoc string surgery, with a shape-matrix
+test (plain / WITH / UNION / settings-suffix) asserting the output parses as exactly one INSERT; preserve
+server-side param binding; scope the CH role's write access to the notebooks prefix, write-only. Verdict: the
+splice is a contained engineering problem with a known playbook and its own security review; the standing
+write capability on a user that executes user-authored query logic is the part that is permanent — mitigable
+by scoping, never eliminable — and must be consciously accepted.
 
 **Phase 3 — reuse and convergence.**
 Serve repeat materializations of an unchanged upstream query straight from the existing object
