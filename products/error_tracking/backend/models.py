@@ -695,9 +695,9 @@ def delete_symbol_set_contents(upload_path: str) -> None:
         )
 
 
-def delete_symbol_set_contents_many(upload_paths: list[str], *, pacing_seconds: float = 0.0) -> list[str]:
+def delete_symbol_set_contents_many(upload_paths: list[str]) -> list[str]:
     if settings.OBJECT_STORAGE_ENABLED:
-        return object_storage.delete_objects(file_names=upload_paths, pacing_seconds=pacing_seconds)
+        return object_storage.delete_objects(file_names=upload_paths)
     else:
         raise ValidationError(
             code="object_storage_required",
