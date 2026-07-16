@@ -53,7 +53,7 @@ from rest_framework import (
     viewsets,
 )
 from rest_framework.decorators import action
-from rest_framework.exceptions import APIException, NotFound, ValidationError
+from rest_framework.exceptions import APIException, AuthenticationFailed, NotFound, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
@@ -147,6 +147,17 @@ def _ingress() -> IngressClient:
     """Indirection so tests can monkey-patch. The client is stateless, so (unlike
     `_janitor()`'s singleton) this news up a fresh instance per call."""
     return IngressClient()
+
+
+def _require_ingress_bearer(request: Request) -> str:
+    authorization = request.headers.get("Authorization")
+    if isinstance(request.successful_authenticator, SessionAuthentication) or not authorization:
+        raise AuthenticationFailed(
+            "Authenticate with a personal API key in the Authorization header to invoke or send messages to an agent."
+        )
+    if re.fullmatch(r"Bearer\s+\S+", authorization) is None:
+        raise AuthenticationFailed("The Authorization header must contain a bearer token.")
+    return authorization
 
 
 # Mirrors `RESOURCE_ID_REGEX` in
@@ -1021,12 +1032,13 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         payload = AgentInvokeRequestSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
+        authorization = _require_ingress_bearer(request)
         try:
             result = _ingress().run(
                 application.slug,
                 message=payload.validated_data["message"],
                 external_key=payload.validated_data.get("external_key"),
-                authorization=request.headers.get("Authorization"),
+                authorization=authorization,
             )
         except IngressClientError as e:
             raise _map_ingress_error(
@@ -1073,13 +1085,14 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         payload = AgentSendRequestSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         session_id = str(payload.validated_data["session_id"])
+        authorization = _require_ingress_bearer(request)
         self._assert_session_in_application(session_id, application)
         try:
             _ingress().send(
                 application.slug,
                 session_id=session_id,
                 message=payload.validated_data["message"],
-                authorization=request.headers.get("Authorization"),
+                authorization=authorization,
             )
         except IngressClientError as e:
             raise _map_ingress_error(e) from e

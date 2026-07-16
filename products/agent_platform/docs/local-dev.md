@@ -253,6 +253,8 @@ These wrap the ingress runtime via thin Django viewset actions — invoke/send
 forward the caller's PAT (so the session principal is the real caller), listen
 reads a digest over an internal ingress RPC — and regenerate through the same
 `hogli build:openapi` pipeline as the rest of the surface.
+Invoke and send require a bearer PAT; session-cookie authentication is rejected
+instead of silently creating or continuing an anonymous ingress session.
 
 For **non-live / draft** revisions, use `agent-applications-preview-proxy`
 instead. Lower-level manual alternatives remain for debugging:

@@ -20,6 +20,8 @@ from __future__ import annotations
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
 from posthog.models import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
@@ -53,6 +55,14 @@ class TestAgentRuntimeBridge(APIBaseTest):
             description="",
         )
         self.base = f"/api/projects/{self.team.id}/agent_applications/{self.application.id}"
+        self.personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="runtime-test",
+            user=self.user,
+            secure_value=hash_key_value(self.personal_api_key),
+            scopes=["agents:read", "agents:write"],
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.personal_api_key}")
 
     def _make_live_revision(self) -> AgentRevision:
         rev = AgentRevision.all_teams.create(
@@ -98,16 +108,41 @@ class TestAgentRuntimeBridge(APIBaseTest):
         # real caller. Authenticate with a real scoped PAT and assert it lands.
         self._make_live_revision()
         mock_ingress.return_value.run.return_value = {"session_id": _SESSION_ID}
-        raw = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
-            label="runtime-test", user=self.user, secure_value=hash_key_value(raw), scopes=["agents:write"]
-        )
         res = self.client.post(
-            f"{self.base}/invoke/", {"message": "hi"}, format="json", HTTP_AUTHORIZATION=f"Bearer {raw}"
+            f"{self.base}/invoke/",
+            {"message": "hi"},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {self.personal_api_key}",
         )
         self.assertEqual(res.status_code, 200, res.content)
         _, kwargs = mock_ingress.return_value.run.call_args
-        self.assertEqual(kwargs["authorization"], f"Bearer {raw}")
+        self.assertEqual(kwargs["authorization"], f"Bearer {self.personal_api_key}")
+
+    @parameterized.expand(
+        [
+            ("invoke", {"message": "hi"}),
+            ("send", {"session_id": _SESSION_ID, "message": "hi"}),
+        ]
+    )
+    @patch("products.agent_platform.backend.presentation.views._ingress")
+    @patch("products.agent_platform.backend.presentation.views._janitor")
+    def test_session_auth_cannot_call_ingress_without_bearer(
+        self,
+        action: str,
+        payload: dict[str, str],
+        mock_janitor: MagicMock,
+        mock_ingress: MagicMock,
+    ) -> None:
+        if action == "invoke":
+            self._make_live_revision()
+        self.client.credentials()
+
+        res = self.client.post(f"{self.base}/{action}/", payload, format="json")
+
+        self.assertEqual(res.status_code, 401, res.content)
+        self.assertIn("personal api key", res.content.decode().lower())
+        mock_janitor.assert_not_called()
+        mock_ingress.assert_not_called()
 
     @patch("products.agent_platform.backend.presentation.views._ingress")
     def test_invoke_no_chat_trigger_maps_to_clean_400(self, mock_ingress: MagicMock) -> None:
