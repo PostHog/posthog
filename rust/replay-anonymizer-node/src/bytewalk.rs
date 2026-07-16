@@ -24,7 +24,7 @@ use crate::dom::{
 use crate::event::{SOURCE_INPUT, SOURCE_MUTATION, TYPE_FULL_SNAPSHOT, TYPE_INCREMENTAL};
 use crate::scan::{self, Span};
 use crate::text::{redact_emails, scrub_text};
-use crate::url::{scrub_url, scrub_url_opts};
+use crate::url::scrub_url;
 
 // rrweb NodeType (mirrors dom.rs).
 const NODE_DOCUMENT: u8 = 0;
@@ -840,7 +840,7 @@ impl<'c, 'a> Walker<'c, 'a> {
                     return w.scrub_string_value(vstart, out, |w, s| css::rewrite(w.ctx, s));
                 }
                 if is_url_attr(name) {
-                    return w.scrub_string_value(vstart, out, |w, s| scrub_url(w.ctx, s));
+                    return w.scrub_string_value(vstart, out, |_w, s| scrub_url(s));
                 }
                 if is_user_text_attr(name) {
                     return w.scrub_string_value(vstart, out, |w, s| scrub_text(w.ctx.allow, s));
@@ -875,7 +875,7 @@ impl<'c, 'a> Walker<'c, 'a> {
     }
 
     /// One media source attribute (mirrors `assets::apply_blur` for a single key): data images are
-    /// blurred; remote URLs become the placeholder with the host-scrubbed original stashed.
+    /// blurred; remote URLs become the placeholder with the original URL stashed.
     fn blur_media_src(
         &mut self,
         name: &str,
@@ -897,8 +897,7 @@ impl<'c, 'a> Walker<'c, 'a> {
                 .unwrap_or_else(|| PLACEHOLDER_SRC.to_string());
             scan::write_json_string(&blurred, out);
         } else {
-            let scrubbed =
-                scrub_url_opts(self.ctx, &existing, true).unwrap_or_else(|| existing.into_owned());
+            let scrubbed = scrub_url(&existing).unwrap_or_else(|| existing.into_owned());
             scan::write_json_string(PLACEHOLDER_SRC, out);
             stashes.push((format!("data-anon-original-{name}"), scrubbed));
         }

@@ -17,7 +17,7 @@ use crate::json::{
     reject_if_too_deep, string_value,
 };
 use crate::text::scrub_text;
-use crate::url::scrub_url_opts;
+use crate::url::scrub_url;
 use crate::value::{scrub_console_plugin, scrub_generic_field, scrub_network_plugin};
 
 // RRWebEventType
@@ -145,14 +145,14 @@ pub fn route_data(
             }
         }
         Some(TYPE_META) => {
-            // Meta `href` is the page URL — strip the authority and rewrite the host to example.com.
+            // Meta `href` is the page URL; only userinfo is stripped.
             let Some(data) = as_object_mut(data) else {
                 return Ok(false);
             };
             let Some(href) = data.get("href").and_then(as_str) else {
                 return Ok(false);
             };
-            match scrub_url_opts(ctx, href, true) {
+            match scrub_url(href) {
                 Some(v) => {
                     data.insert(key("href"), string_value(v));
                     Ok(true)

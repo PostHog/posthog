@@ -13,7 +13,7 @@ fn looks_like_url(s: &str) -> bool {
 
 fn scrub_string_leaf(ctx: &Ctx<'_>, s: &str) -> Option<String> {
     if looks_like_url(s) {
-        scrub_url(ctx, s)
+        scrub_url(s)
     } else {
         scrub_text(ctx.allow, s)
     }
@@ -79,7 +79,7 @@ fn scrub_field_with(
 }
 
 /// rrweb/network@1 payload: `{ requests: CapturedNetworkRequest[] }`. Per request: `name` is a
-/// Resource Timing URL (URL-scrub); request/response bodies and every header value are free text.
+/// Resource Timing URL; request/response bodies and every header value are free text.
 pub fn scrub_network_plugin(ctx: &Ctx<'_>, owner: &mut Object<'_>, field: &str) -> bool {
     if !owner.get(field).map(is_object).unwrap_or(false) {
         return scrub_generic_field(ctx, owner, field);
@@ -95,7 +95,7 @@ pub fn scrub_network_plugin(ctx: &Ctx<'_>, owner: &mut Object<'_>, field: &str) 
         let Some(robj) = as_object_mut(req) else {
             continue;
         };
-        changed |= scrub_field_with(robj, "name", |s| scrub_url(ctx, s));
+        changed |= scrub_field_with(robj, "name", |s| scrub_url(s));
         for f in ["requestBody", "responseBody"] {
             changed |= scrub_field_with(robj, f, |s| scrub_text(ctx.allow, s));
         }

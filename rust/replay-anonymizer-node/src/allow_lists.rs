@@ -1,4 +1,5 @@
-//! Case-insensitive allow lists of text words and URL path segments kept verbatim by the scrubbers.
+//! Case-insensitive allow lists of text words kept verbatim by the scrubber. The `url` list is
+//! unused since URLs stopped being redacted; it stays so the init contract doesn't change.
 //! Mirrors `anonymize/allow-lists.ts`.
 
 // The lookups run once per word token of every text node; ahash beats SipHash on short strings and

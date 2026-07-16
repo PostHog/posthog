@@ -5,7 +5,7 @@ const native = require('../index.node')
 export interface AllowListsInput {
     /** Words kept verbatim by the text scrubber (ASCII-case-insensitive). */
     text: string[]
-    /** URL path segments/params kept verbatim by the URL scrubber. */
+    /** Unused since URLs stopped being redacted; kept so existing init callers don't break. */
     url: string[]
 }
 
@@ -75,12 +75,7 @@ export function initAnonymizer(allow: AllowListsInput): void {
  */
 export function anonymizeKafkaPayload(
     payload: Buffer,
-    contentEncoding?: string | null,
-    firstPartyHosts?: string[] | null
+    contentEncoding?: string | null
 ): Promise<AnonymizeKafkaPayloadResult> {
-    return native.anonymizeKafkaPayload(
-        payload,
-        contentEncoding ?? undefined,
-        firstPartyHosts && firstPartyHosts.length > 0 ? JSON.stringify(firstPartyHosts) : undefined
-    )
+    return native.anonymizeKafkaPayload(payload, contentEncoding ?? undefined)
 }

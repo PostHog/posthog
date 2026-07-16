@@ -110,36 +110,6 @@ describeAddon('native rust addon matches the shared fixtures', () => {
         }
     })
 
-    it('collapses first-party hosts passed per call', async () => {
-        const event = {
-            type: 2,
-            data: {
-                node: {
-                    type: 0,
-                    childNodes: [
-                        {
-                            type: 2,
-                            tagName: 'a',
-                            attributes: { href: 'https://app.customer-site.test/settings' },
-                            childNodes: [],
-                        },
-                    ],
-                },
-                initialOffset: { top: 0, left: 0 },
-            },
-        }
-        rustAddon!.initAnonymizer({ text: [], url: [] })
-        const result = await rustAddon!.anonymizeKafkaPayload(payloadOf('w', [event]), undefined, [
-            'customer-site.test',
-        ])
-        expect(result.failed).toBe(false)
-        const line = parseLines(result.lines!)[0] as [
-            string,
-            { data: { node: { childNodes: { attributes: Record<string, string> }[] } } },
-        ]
-        expect(line[1].data.node.childNodes[0].attributes.href).toBe('https://example.com/[redacted]')
-    })
-
     // fixtures are plain text, convert to gzip bytes for this test
     describe('cv-compressed events through the production entry', () => {
         // latin-1: each compressed byte is a U+00XX codepoint, matching the SDK wire format.
@@ -201,7 +171,7 @@ describeAddon('native rust addon matches the shared fixtures', () => {
             const decoded = unzstdLatin1(line[1].data.attributes) as { attributes: Record<string, string> }[]
             expect(decoded[0].attributes.rr_src).toMatch(/^data:image\/svg\+xml/)
             expect(decoded[0].attributes['data-anon-original-rr_src']).toBe(
-                'https://example.com/[redacted]/[redacted]/'
+                'https://widget.example-vendor.co/v2/app/?refreshToken=FakeRefreshTok3nValue000'
             )
         })
 

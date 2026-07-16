@@ -100,7 +100,6 @@ describe('ml-mirror-pipeline', () => {
         teamId: 1,
         consoleLogIngestionEnabled: false,
         aiTrainingOptedIn,
-        firstPartyHosts: [],
     })
 
     beforeEach(() => {
@@ -262,7 +261,7 @@ describe('ml-mirror-pipeline', () => {
         expect(recordMock).not.toHaveBeenCalled()
     })
 
-    itAddon('scrubs a FullSnapshot (text, url, free-text data-*) end-to-end before recording', async () => {
+    itAddon('scrubs a FullSnapshot (text, free-text data-*) end-to-end and preserves urls', async () => {
         mockTeamService = {
             getTeamByToken: jest.fn().mockResolvedValue(team(true)),
             getRetentionPeriodByTeamId: jest.fn().mockResolvedValue(30),
@@ -278,8 +277,7 @@ describe('ml-mirror-pipeline', () => {
         expect(recordMock).toHaveBeenCalledTimes(1)
         const node = recordedEvents()[0][1].data.node.childNodes[0]
         expect(node.childNodes[0].textContent).toBe('Hello **********') // DOM text
-        expect(node.attributes.href).toContain('https://example.com/') // authority kept...
-        expect(node.attributes.href).not.toContain('abc') // ...path segments redacted
+        expect(node.attributes.href).toBe('https://example.com/u/abc/edit') // urls pass through
         expect(node.attributes['data-note']).not.toContain('Smithson') // free-text data-* scrubbed
     })
 })

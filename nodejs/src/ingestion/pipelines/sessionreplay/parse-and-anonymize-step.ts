@@ -64,11 +64,7 @@ export function createParseAndAnonymizeMessageStep<
         const t0 = performance.now()
         let result
         try {
-            result = await getRustAnonymizer().anonymizeKafkaPayload(
-                message.value,
-                contentEncoding,
-                input.team.firstPartyHosts
-            )
+            result = await getRustAnonymizer().anonymizeKafkaPayload(message.value, contentEncoding)
         } catch (error) {
             // A rejected promise (native panic, addon load failure) must fail closed.
             logger.warn('🙈', 'anonymize_event_failed', { error: String(error) })

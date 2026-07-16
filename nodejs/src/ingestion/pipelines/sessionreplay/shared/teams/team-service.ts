@@ -1,7 +1,6 @@
 import { BackgroundRefresher } from '~/common/utils/background-refresher'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { logger } from '~/common/utils/logger'
-import { firstPartyHostPatterns } from '~/ingestion/pipelines/sessionreplay/ml-mirror/first-party-hosts'
 import { RetentionPeriod, isValidRetentionPeriod } from '~/ingestion/pipelines/sessionreplay/shared/constants'
 import { Team, TeamId } from '~/types'
 
@@ -68,7 +67,6 @@ export async function fetchTeamTokensWithRecordings(client: PostgresRouter): Pro
             capture_console_log_opt_in: boolean
             session_recording_retention_period: string
             is_ai_training_opted_in: boolean
-            recording_domains: string[] | null
         } & Pick<Team, 'id' | 'api_token'>
     >(
         PostgresUse.COMMON_READ,
@@ -78,7 +76,6 @@ export async function fetchTeamTokensWithRecordings(client: PostgresRouter): Pro
                 t.api_token,
                 t.capture_console_log_opt_in,
                 t.session_recording_retention_period,
-                t.recording_domains,
                 COALESCE(o.is_ai_training_opted_in, false) AS is_ai_training_opted_in
             FROM posthog_team t
             LEFT JOIN posthog_organization o ON o.id = t.organization_id
@@ -94,7 +91,6 @@ export async function fetchTeamTokensWithRecordings(client: PostgresRouter): Pro
                 teamId: row.id,
                 consoleLogIngestionEnabled: row.capture_console_log_opt_in,
                 aiTrainingOptedIn: row.is_ai_training_opted_in,
-                firstPartyHosts: firstPartyHostPatterns(row.recording_domains),
             }
             return acc
         },

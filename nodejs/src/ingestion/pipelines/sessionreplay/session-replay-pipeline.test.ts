@@ -122,7 +122,6 @@ describe('session-replay-pipeline', () => {
         teamId: 1,
         consoleLogIngestionEnabled: false,
         aiTrainingOptedIn: true,
-        firstPartyHosts: [],
     }
 
     const now = DateTime.now()
