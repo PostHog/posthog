@@ -114,8 +114,8 @@ export interface navigation3000LogicActions {
         sceneId: string,
         sceneKey: string | undefined,
         params: SceneParams,
-        scrollToTop?: boolean,
-        exportedScene?: SceneExport
+        scrollToTop?: boolean | undefined,
+        exportedScene?: SceneExport<SceneProps> | undefined
     ) => {
         exportedScene: SceneExport<SceneProps> | undefined
         params: SceneParams
