@@ -1,7 +1,7 @@
 import dataclasses
 from collections.abc import Iterator
 from typing import Any, Optional
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.travis_ci.settings import TRAVIS_CI_ENDPOINTS
 
 TRAVIS_CI_BASE_URL = "https://api.travis-ci.com"
+TRAVIS_CI_HOST = urlsplit(TRAVIS_CI_BASE_URL).netloc
 # Verified against the live API for builds/branches; the documented default is 25.
 PAGE_SIZE = 100
 REQUEST_TIMEOUT_SECONDS = 60
@@ -24,6 +25,25 @@ MAX_PAGES_PER_REPO = 1000  # 100k builds/branches per repository
 
 class TravisCIRetryableError(Exception):
     pass
+
+
+def _resolve_page_url(page_path: str) -> str:
+    """Join a Travis pagination cursor onto the API base, pinned to the Travis host.
+
+    ``@pagination.next.@href`` is a server-supplied (and persisted-as-resume-state) value, so
+    it is untrusted. A hostile cursor such as ``@attacker.example/next`` concatenates into
+    ``https://api.travis-ci.com@attacker.example/next`` — ``attacker.example`` becomes the host
+    and receives the ``Authorization: token <api_token>`` header. We require a single leading
+    ``/`` (rejecting scheme-relative ``//host`` and userinfo/scheme smuggling) and re-parse the
+    joined URL to confirm the scheme and host are unchanged before it is ever requested.
+    """
+    if not page_path.startswith("/") or page_path.startswith("//"):
+        raise ValueError(f"Travis CI: refusing non-relative pagination cursor: {page_path!r}")
+    url = f"{TRAVIS_CI_BASE_URL}{page_path}"
+    parts = urlsplit(url)
+    if parts.scheme != "https" or parts.netloc != TRAVIS_CI_HOST:
+        raise ValueError(f"Travis CI: pagination cursor resolves to unexpected host: {page_path!r}")
+    return url
 
 
 @dataclasses.dataclass
@@ -73,7 +93,7 @@ def validate_credentials(api_token: str) -> tuple[bool, str | None]:
     and the API answers 403 "access denied" for both missing and invalid tokens (verified
     against the live API; it does not use 401), so any 403 here means the token is bad.
     """
-    session = make_tracked_session(redact_values=(api_token,))
+    session = make_tracked_session(redact_values=(api_token,), allow_redirects=False)
     try:
         response = session.get(
             f"{TRAVIS_CI_BASE_URL}/user", headers=_get_headers(api_token), timeout=REQUEST_TIMEOUT_SECONDS
@@ -144,7 +164,7 @@ def _iter_collection(
     pages_fetched = 0
 
     while True:
-        data = _fetch_page(session, f"{TRAVIS_CI_BASE_URL}{page_path}", headers, logger)
+        data = _fetch_page(session, _resolve_page_url(page_path), headers, logger)
         items = data.get(collection_key) or []
         next_path = _next_path(data)
         pages_fetched += 1
@@ -220,7 +240,7 @@ def get_rows(
 
     config = TRAVIS_CI_ENDPOINTS[endpoint]
     headers = _get_headers(api_token)
-    session = make_tracked_session(redact_values=(api_token,))
+    session = make_tracked_session(redact_values=(api_token,), allow_redirects=False)
     watermark = _coerce_watermark(db_incremental_field_last_value) if should_use_incremental_field else None
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None

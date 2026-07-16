@@ -1,5 +1,6 @@
 from typing import Any
 
+import pytest
 from unittest import mock
 from unittest.mock import MagicMock
 
@@ -10,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.travis_ci 
 from products.warehouse_sources.backend.temporal.data_imports.sources.travis_ci.travis_ci import (
     TRAVIS_CI_BASE_URL,
     TravisCIResumeConfig,
+    _resolve_page_url,
     get_rows,
     travis_ci_source,
     validate_credentials,
@@ -251,6 +253,65 @@ class TestBranches:
         }
         rows, _fetched = _collect(_FakeResumableManager(), pages, endpoint="branches")
         assert rows == [{"name": "main", "default_branch": True, "repository_id": 1}]
+
+
+class TestPaginationCursorValidation:
+    @parameterized.expand(
+        [
+            ("relative_path", "/repos?limit=100&offset=100", f"{TRAVIS_CI_BASE_URL}/repos?limit=100&offset=100"),
+            ("bare_path", "/user", f"{TRAVIS_CI_BASE_URL}/user"),
+        ]
+    )
+    def test_accepts_relative_cursor(self, _name: str, cursor: str, expected: str) -> None:
+        assert _resolve_page_url(cursor) == expected
+
+    @parameterized.expand(
+        [
+            # A userinfo-smuggling cursor: concatenation makes the API host the userinfo and the
+            # attacker host the real host, exfiltrating the Authorization header.
+            ("userinfo_smuggle", "@attacker.example/next"),
+            ("scheme_relative", "//attacker.example/next"),
+            ("absolute_url", "https://attacker.example/next"),
+            ("leading_space", " /repos"),
+            ("no_leading_slash", "repos?limit=100"),
+        ]
+    )
+    def test_rejects_host_changing_cursor(self, _name: str, cursor: str) -> None:
+
+        with pytest.raises(ValueError):
+            _resolve_page_url(cursor)
+
+
+class TestHostileCursorFailsSync:
+    def test_hostile_next_cursor_from_upstream_raises(self) -> None:
+
+        pages = {
+            REPOS_URL: _page("repositories", [{"id": 1}], next_path="@attacker.example/next"),
+        }
+        with pytest.raises(ValueError):
+            _collect(_FakeResumableManager(), pages, endpoint="repositories")
+
+    def test_hostile_resume_cursor_raises(self) -> None:
+
+        manager = _FakeResumableManager(TravisCIResumeConfig(next_path="@attacker.example/next"))
+        with pytest.raises(ValueError):
+            _collect(manager, {}, endpoint="repositories")
+
+
+class TestRedirectsDisabled:
+    def test_sessions_disable_redirects(self) -> None:
+        # allow_redirects=False keeps a poisoned cursor or hostile response from bouncing the
+        # credentialed request (and its token) to another host — defense in depth alongside
+        # cursor validation.
+        made: list[dict[str, Any]] = []
+
+        def fake_make(*_args: Any, **kwargs: Any) -> MagicMock:
+            made.append(kwargs)
+            return MagicMock()
+
+        with mock.patch.object(travis_ci, "make_tracked_session", fake_make):
+            validate_credentials("tok")
+        assert made and all(call.get("allow_redirects") is False for call in made)
 
 
 class _FakeResponse:
