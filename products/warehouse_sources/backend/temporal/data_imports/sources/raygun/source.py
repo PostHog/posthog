@@ -47,6 +47,9 @@ Grant the token these read scopes for the tables you want to sync:
 @SourceRegistry.register
 class RaygunSource(ResumableSource[RaygunSourceConfig, RaygunResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v3",)
+    default_version = "v3"
+    api_docs_url = "https://raygun.com/documentation/product-guides/raygun-api/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
