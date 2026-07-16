@@ -1459,6 +1459,8 @@ describe('dashboardLogic', () => {
             logic = dashboardLogic({ id: 12 })
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
+
+            dashboardsModel.actions.updateDashboardSuccess({ ...dashboards[12], name: 'Edited dashboard' })
             logic.unmount()
 
             const hydrateDashboardSpy = jest.spyOn(logic.actions, 'loadDashboardMetadataSuccess')
@@ -1466,6 +1468,7 @@ describe('dashboardLogic', () => {
             logic.mount()
 
             expect(hydrateDashboardSpy).toHaveBeenCalledTimes(1)
+            expect(logic.values.dashboard?.name).toBe('Edited dashboard')
             expect(logic.values.dashboard?.tiles).toHaveLength(8)
             expect(getResponseSpy).toHaveBeenCalledTimes(1)
 

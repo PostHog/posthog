@@ -2176,6 +2176,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
         [dashboardsModel.actionTypes.updateDashboardSuccess]: ({ dashboard }) => {
             // Text/button (via updateDashboard) and widget (client-merged) tiles arrive through here.
             if (dashboard?.id === props.id) {
+                if (typeof values.currentTeamId === 'number') {
+                    cachedDashboardTeams.set(dashboard, values.currentTeamId)
+                }
                 actions.applyPendingInsertion()
             }
         },
