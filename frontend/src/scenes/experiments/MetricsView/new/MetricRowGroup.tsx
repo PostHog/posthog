@@ -119,16 +119,16 @@ function BreakdownChipsRow({
                                 Which funnel step the breakdown value is read from for each user:
                                 <ul className="list-disc pl-4">
                                     <li>
-                                        <strong>First touchpoint</strong> — value at the user's first step
+                                        <strong>First touchpoint</strong>: value at the user's first step
                                     </li>
                                     <li>
-                                        <strong>Last touchpoint</strong> — value at the user's last step
+                                        <strong>Last touchpoint</strong>: value at the user's last step
                                     </li>
                                     <li>
-                                        <strong>All steps</strong> — value must be the same across all steps
+                                        <strong>All steps</strong>: value must be the same across all steps
                                     </li>
                                     <li>
-                                        <strong>Specific step</strong> — value at a step you choose
+                                        <strong>Specific step</strong>: value at a step you choose
                                     </li>
                                 </ul>
                             </>
