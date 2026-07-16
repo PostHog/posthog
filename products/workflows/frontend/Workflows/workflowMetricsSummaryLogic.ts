@@ -11,6 +11,7 @@ import {
     type AppMetricsTotalsResponse,
 } from 'lib/components/AppMetrics/appMetricsLogic'
 import { dayjs } from 'lib/dayjs'
+import { buildHogInvocationsSearchParams } from 'scenes/hog-functions/invocations/hogInvocationsLogic'
 import { urls } from 'scenes/urls'
 
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
@@ -201,38 +202,40 @@ export const WORKFLOW_PUSH_METRICS: Record<
     },
 }
 
-// Email metrics whose SES events also write per-invocation log entries (see the SES webhook
-// handler). Clicking the tile drills into the Invocations tab filtered to those log entries.
-// The `search` term matches the start of the log message the handler emits (e.g. "Permanent
-// bounce to …"), so it surfaces every invocation that logged that failure in the timeframe.
-export const EMAIL_METRIC_LOG_FILTERS: Partial<Record<EmailMetric, { search: string; levels: LogEntryLevel[] }>> = {
+// How each drillable email metric maps onto the Invocations tab. Each SES event also writes a
+// per-invocation log entry (see the SES webhook handler); the drill-down filters the tab to runs
+// that logged that entry by matching the message text at the right level. The `search` term matches
+// the start of the handler's message (e.g. "Permanent bounce to …"). email_failed is left out: its
+// two SES events emit differently-worded messages ("Rendering failure …" vs "Message rejected by
+// SES …") with no shared substring to match on.
+export const EMAIL_METRIC_INVOCATION_FILTERS: Partial<
+    Record<EmailMetric, { search: string; levels: LogEntryLevel[] }>
+> = {
     email_bounced: { search: 'bounce', levels: ['WARN', 'ERROR'] },
     // MX-validation skips log "Skipping send: …" at INFO (see HogFunctionHandler in the plugin server).
     email_bounce_prevented: { search: 'Skipping send', levels: ['INFO'] },
     email_blocked: { search: 'Complaint', levels: ['WARN', 'ERROR'] },
-    // email_failed (RenderingFailure + Reject) is intentionally omitted: its two SES events emit
-    // differently-worded messages ("Rendering failure …" vs "Message rejected by SES …") with no
-    // shared substring, and filtering by ERROR level alone would also catch permanent bounces.
-    // A reliable drill-down would need the log writer to emit a stable machine token to match on.
 }
 
-// Build the router search params that point the Invocations (logs) tab at the invocations whose
-// log entries match the given email metric over the metrics view's current timeframe.
-export function buildEmailMetricLogSearchParams(
+// Build the router search params that point the Invocations tab at the runs behind the given email
+// metric over the metrics view's current timeframe.
+export function buildEmailMetricInvocationSearchParams(
     metricKey: EmailMetric,
     dateFrom: string,
     dateTo: string
-): Record<string, string | string[]> | null {
-    const filter = EMAIL_METRIC_LOG_FILTERS[metricKey]
+): Record<string, string> | null {
+    const filter = EMAIL_METRIC_INVOCATION_FILTERS[metricKey]
     if (!filter) {
         return null
     }
-    return {
-        search: filter.search,
-        levels: filter.levels,
+    return buildHogInvocationsSearchParams({
         date_from: dateFrom,
         date_to: dateTo,
-    }
+        // Drives the unified Invocations search box: the message term goes in `search`, and
+        // `log_levels` narrows the message match to the levels that distinguish this outcome.
+        search: filter.search,
+        log_levels: filter.levels,
+    })
 }
 
 const SUMMARY_METRIC_KEYS = (Object.keys(WORKFLOW_SUMMARY_METRICS) as WorkflowSummaryMetric[]).filter(

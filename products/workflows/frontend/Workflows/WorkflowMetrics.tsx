@@ -23,7 +23,7 @@ import { HogFlowBatchJob } from './hogflows/types'
 import { PushMetricsSummary } from './PushMetricsSummary'
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
 import { WorkflowMetricsSummary } from './WorkflowMetricsSummary'
-import { type EmailMetric, buildEmailMetricLogSearchParams } from './workflowMetricsSummaryLogic'
+import { type EmailMetric, buildEmailMetricInvocationSearchParams } from './workflowMetricsSummaryLogic'
 
 const HedgehogGreek = pngHoggie(greekPng)
 
@@ -106,12 +106,19 @@ function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
         [workflow.actions, hogFunctionTemplatesById]
     )
 
-    // Drill an email metric into the logs tab filtered to its log entries over the current window.
+    // Drill an email metric into the invocations behind it over the current window.
     const onEmailMetricClick = (metricKey: EmailMetric): void => {
+        if (!props.id) {
+            return
+        }
         const { dateFrom, dateTo } = getDateRangeAbsolute()
-        const searchParams = buildEmailMetricLogSearchParams(metricKey, dateFrom.toISOString(), dateTo.toISOString())
-        if (searchParams && props.id) {
-            router.actions.push(urls.workflow(props.id, 'logs'), searchParams)
+        const searchParams = buildEmailMetricInvocationSearchParams(
+            metricKey,
+            dateFrom.toISOString(),
+            dateTo.toISOString()
+        )
+        if (searchParams) {
+            router.actions.push(urls.workflow(props.id, 'invocations'), searchParams)
         }
     }
 
