@@ -3840,8 +3840,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // Refresh right now after enabling if we haven't refreshed recently
                 if (
                     !values.itemsLoading &&
-                    values.lastDashboardRefresh &&
-                    values.lastDashboardRefresh.isBefore(now().subtract(values.autoRefresh.interval, 'seconds'))
+                    values.effectiveLastRefresh &&
+                    values.effectiveLastRefresh.isBefore(now().subtract(values.autoRefresh.interval, 'seconds'))
                 ) {
                     actions.refreshDashboardItems({
                         action: RefreshDashboardItemsAction.Refresh,

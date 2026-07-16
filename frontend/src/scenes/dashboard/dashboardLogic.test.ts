@@ -1377,6 +1377,18 @@ describe('dashboardLogic', () => {
 
         describe('page visibility', () => {
             it('uses cached results for automatic refreshes', async () => {
+                const currentTime = now()
+                logic.actions.loadDashboardMetadataSuccess({
+                    ...logic.values.dashboard!,
+                    last_refresh: currentTime.subtract(2, 'hours').toISOString(),
+                })
+                for (const tile of logic.values.insightTiles) {
+                    dashboardsModel.actions.updateDashboardInsight({
+                        ...tile.insight!,
+                        last_refresh: currentTime.toISOString(),
+                    })
+                }
+
                 let intervalCallback: TimerHandler | undefined
                 const setIntervalSpy = jest.spyOn(window, 'setInterval').mockImplementation((callback) => {
                     intervalCallback = callback
@@ -1386,7 +1398,9 @@ describe('dashboardLogic', () => {
                 try {
                     await expectLogic(logic, () => {
                         logic.actions.setAutoRefresh(true, 1800)
-                    }).toDispatchActions(['setAutoRefresh', 'resetInterval'])
+                    })
+                        .toDispatchActions(['setAutoRefresh', 'resetInterval'])
+                        .toNotHaveDispatchedActions(['refreshDashboardItems'])
 
                     expect(intervalCallback).toBeInstanceOf(Function)
 

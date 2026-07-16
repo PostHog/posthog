@@ -637,7 +637,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         loading={!!refreshState?.loading}
                                         lastFetchedAt={refreshState?.fetchedAt}
                                         onRefresh={() =>
-                                            refreshDashboardWidgets({ tileIds: [tile.id], forceRefresh: true })
+                                            refreshDashboardWidgets({ tileIds: [tile.id], refresh: 'force_blocking' })
                                         }
                                         onRefreshWidgetData={scheduleRefreshDashboardWidgets}
                                         onApplyWidgetIssueMetadataChange={(tileId, issueId, delta, context) => {
