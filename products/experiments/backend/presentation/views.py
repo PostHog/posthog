@@ -1209,7 +1209,11 @@ class EnterpriseExperimentsViewSet(
         experiments = self.user_access_control.filter_queryset_by_access_level(
             Experiment.objects.filter(team_id=self.team.pk)
         )
-        items = get_session_experiment_context(team=self.team, session_id=session_id, experiments=experiments)
+        # user threads through to the HogQL queries: exposure criteria can filter on arbitrary
+        # properties, which must respect the viewer's property-level access control.
+        items = get_session_experiment_context(
+            team=self.team, session_id=session_id, experiments=experiments, user=cast(User, request.user)
+        )
         if items is None:
             raise NotFound("Recording not found")
 

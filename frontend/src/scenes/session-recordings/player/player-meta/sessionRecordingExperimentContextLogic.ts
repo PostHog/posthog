@@ -74,26 +74,25 @@ export const sessionRecordingExperimentContextLogic = kea<sessionRecordingExperi
             (s) => [s.experimentContext],
             (experimentContext): ExperimentSessionContextItemApi[] => experimentContext?.results ?? [],
         ],
-        // Experiments whose flag was evaluated during this recording — these have a moment on the timeline to jump to.
+        // Experiments with an exposure event during this recording — these have a moment on the timeline to jump to.
         seenItems: [
             (s) => [s.experimentItems],
             (experimentItems: ExperimentSessionContextItemApi[]): ExperimentSessionContextItemApi[] =>
                 experimentItems
-                    .filter((item) => item.first_flag_evaluation_timestamp != null)
+                    .filter((item) => item.first_exposure_timestamp != null)
                     .sort(
                         (a, b) =>
                             experimentSignalRank(a) - experimentSignalRank(b) ||
-                            (a.first_flag_evaluation_timestamp ?? '').localeCompare(
-                                b.first_flag_evaluation_timestamp ?? ''
-                            )
+                            (a.first_exposure_timestamp ?? '').localeCompare(b.first_exposure_timestamp ?? '')
                     ),
         ],
-        // Experiments the person is enrolled in but with no flag evaluation in this session (carried over from an earlier one).
+        // Experiments the person is enrolled in but with no exposure event in this session — the variant
+        // is only known from stamped flag properties.
         enrolledItems: [
             (s) => [s.experimentItems],
             (experimentItems: ExperimentSessionContextItemApi[]): ExperimentSessionContextItemApi[] =>
                 experimentItems
-                    .filter((item) => item.first_flag_evaluation_timestamp == null)
+                    .filter((item) => item.first_exposure_timestamp == null)
                     .sort(
                         (a, b) =>
                             experimentSignalRank(a) - experimentSignalRank(b) ||
@@ -109,8 +108,8 @@ export const sessionRecordingExperimentContextLogic = kea<sessionRecordingExperi
             (s) => [s.experimentItems],
             (experimentItems: ExperimentSessionContextItemApi[]): boolean => experimentItems.length > 0,
         ],
-        // Scoped to seenItems: this warns the chip that summarizes only in-recording experiments, so a
-        // carried-over enrollment that saw multiple variants must not trigger the warning.
+        // Scoped to seenItems: this warns the chip that summarizes only in-recording experiments, so an
+        // enrollment without an in-session exposure that saw multiple variants must not trigger the warning.
         hasMultipleVariantWarning: [
             (s) => [s.seenItems],
             (seenItems: ExperimentSessionContextItemApi[]): boolean => seenItems.some((item) => item.multiple_variants),

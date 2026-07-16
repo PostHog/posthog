@@ -1394,8 +1394,9 @@ class ExperimentSessionContextItemSerializer(serializers.Serializer):
     flag_key = serializers.CharField(help_text="Key of the experiment's feature flag.")
     variant = serializers.CharField(
         help_text=(
-            "Variant the session saw. Taken from the earliest $feature_flag_called event in the session when one "
-            "exists, otherwise from the $feature/<key> property stamped on the session's events."
+            "Variant the session saw. Taken from the earliest exposure event in the session when one exists "
+            "(per the experiment's exposure criteria), otherwise from the $feature/<key> property stamped on "
+            "the session's events."
         )
     )
     variants_seen = serializers.ListField(
@@ -1409,13 +1410,14 @@ class ExperimentSessionContextItemSerializer(serializers.Serializer):
     multiple_variants = serializers.BooleanField(
         help_text="True when the session saw more than one variant of this flag."
     )
-    first_flag_evaluation_timestamp = serializers.DateTimeField(
+    first_exposure_timestamp = serializers.DateTimeField(
         allow_null=True,
         help_text=(
-            "Timestamp of the first $feature_flag_called event for this flag in the session — the moment the flag "
-            "was evaluated to the variant. Null when the variant is only known from stamped $feature/<key> "
-            "properties (e.g. the assignment carried over from an earlier session). For experiments with custom "
-            "exposure criteria this is not the experiment's exposure moment."
+            "Timestamp of the first event in the session matching the experiment's exposure criteria — "
+            "$feature_flag_called by default, or the configured custom event/action. Null when no exposure event "
+            "occurred in the session and the variant is only known from stamped $feature/<key> properties. "
+            "Session-scoped: the experiment analysis counts exposure per person across the whole run window, "
+            "so the person's counted first exposure may lie in an earlier session."
         ),
     )
     experiment_start_date = serializers.DateTimeField(allow_null=True, help_text="When the experiment was launched.")

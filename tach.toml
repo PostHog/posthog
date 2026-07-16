@@ -348,6 +348,7 @@ depends_on = [
     "products.cohorts",
     "ee",
     "posthog",
+    "products.access_control",
     "products.actions",
     "products.approvals",
     "products.ai_observability",

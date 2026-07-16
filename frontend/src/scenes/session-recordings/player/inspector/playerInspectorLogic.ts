@@ -191,7 +191,7 @@ export type InspectorListItemExperimentVariant = InspectorListItemBase & {
     type: 'experiment-variant'
     data: {
         // Synthesized client-side from the experiments session_context endpoint response
-        // (first_flag_evaluation_timestamp) — there is no backend event for this item, so it is
+        // (first_exposure_timestamp) — there is no backend event for this item, so it is
         // not part of the loaded event stream. `id` keeps the same keying contract as
         // event/comment items in the seekbar.
         id: string
@@ -852,13 +852,13 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             (experimentItems, windowIdForTimestamp, windowNumberForID, start): InspectorListItemExperimentVariant[] => {
                 const items: InspectorListItemExperimentVariant[] = []
                 for (const item of experimentItems || []) {
-                    // Without a $feature_flag_called event there is no in-session moment to mark —
-                    // the assignment carried over from an earlier session.
-                    if (!item.first_flag_evaluation_timestamp) {
+                    // Without an exposure event in this session there is no in-session moment
+                    // to mark — the variant is only known from stamped flag properties.
+                    if (!item.first_exposure_timestamp) {
                         continue
                     }
                     const { timestamp, timeInRecording } = timeRelativeToStart(
-                        { timestamp: item.first_flag_evaluation_timestamp },
+                        { timestamp: item.first_exposure_timestamp },
                         start
                     )
                     items.push({
