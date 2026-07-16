@@ -17,11 +17,14 @@ export function MetricBreakdownAttribution({
 
     // Encode the "Specific step" selection as `step/<index>` so a single LemonSelect can
     // represent both the attribution type and (for step attribution) the step index.
+    // Unordered funnels expose step attribution as "Any step" (bare `step`, index ignored).
     const currentValue: BreakdownAttributionType | `${BreakdownAttributionType.Step}/${number}` =
         !breakdownAttributionType
             ? BreakdownAttributionType.FirstTouch
             : breakdownAttributionType === BreakdownAttributionType.Step
-              ? `${breakdownAttributionType}/${breakdownAttributionValue || 0}`
+              ? funnel_order_type === StepOrderValue.UNORDERED
+                  ? BreakdownAttributionType.Step
+                  : `${breakdownAttributionType}/${breakdownAttributionValue || 0}`
               : breakdownAttributionType
 
     return (
@@ -45,7 +48,9 @@ export function MetricBreakdownAttribution({
                         .map((_, stepIndex) => ({
                             value: `${BreakdownAttributionType.Step}/${stepIndex}`,
                             label: `Step ${stepIndex + 1}`,
-                            hidden: stepIndex >= stepCount,
+                            // Keep a stored out-of-range step visible (e.g. after the funnel was
+                            // shortened) so the stale selection can be seen and corrected.
+                            hidden: stepIndex >= stepCount && stepIndex !== breakdownAttributionValue,
                         })),
                     hidden: funnel_order_type === StepOrderValue.UNORDERED,
                 },
@@ -55,9 +60,11 @@ export function MetricBreakdownAttribution({
                     return
                 }
                 const [attributionType, attributionValue] = value.split('/')
+                // Step attribution always stores an index ("Any step" stores 0, matching
+                // insights' AttributionFilter); the backend rejects step attribution without one.
                 onChange(
                     attributionType as BreakdownAttributionType,
-                    attributionValue ? parseInt(attributionValue) : undefined
+                    attributionType === BreakdownAttributionType.Step ? parseInt(attributionValue) || 0 : undefined
                 )
             }}
             dropdownMaxContentWidth
