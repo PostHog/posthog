@@ -147,7 +147,9 @@ def _flatten_result_sets(data: Any, requested_window: tuple[str, str]) -> list[d
         for key, item in result_set.items():
             if not isinstance(item, dict):
                 continue
-            window = item.get("window") if isinstance(item.get("window"), dict) else {}
+            window = item.get("window")
+            if not isinstance(window, dict):
+                window = {}
             rows.append(
                 {
                     **item,
