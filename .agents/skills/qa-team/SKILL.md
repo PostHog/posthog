@@ -28,15 +28,19 @@ analysis will be performed. This ensures findings are fully independent.
 Determine the base branch. If the user provided `$ARGUMENTS`, use that as the base branch.
 Otherwise, default to `master`.
 
-Run these commands to collect context:
+Create a run directory **outside the repository** (session scratchpad or `mktemp -d` — never
+inside the repo), then collect context into it:
 
 ```bash
-git diff <base>...HEAD --name-only
-git diff <base>...HEAD
-git log <base>...HEAD --oneline
+RUN_DIR="$(mktemp -d "${TMPDIR:-/tmp}/qa-team-XXXXXX")"
+mkdir -p "$RUN_DIR/personas" "$RUN_DIR/claimed"
+git diff <base>...HEAD --name-only > "$RUN_DIR/files.txt"
+git log <base>...HEAD --oneline > "$RUN_DIR/commits.txt"
+git diff <base>...HEAD > "$RUN_DIR/diff.patch"
 ```
 
-Store the full diff, changed file list, and commit messages. These will be passed to each agent.
+Review agents read the diff from these files by absolute path — do NOT paste the diff into
+agent prompts (see the launch protocol in Step 3 for why).
 
 If there are no changes, inform the user and stop.
 
@@ -65,15 +69,28 @@ compatibility) until at least 4 specialists are active.
 **Always launch both generalist agents** (`generalist-a` and `generalist-b`) regardless of
 file classification. They review all changes.
 
-### Step 3: Launch parallel review agents
+### Step 3: Launch the review agents (cache-aware protocol)
 
-Launch all relevant agents **simultaneously** using the Agent tool.
+**Why this protocol exists:** every agent request carries a large fixed prefix (system
+prompt, tools, project context, and the user prompt) that is prompt-cached **only when the
+prompt is byte-identical across agents**. Prompt caching is strict-prefix based: one
+divergent character anywhere in the prompt forces the entire prefix — tens of thousands of
+tokens — to be re-ingested at full price by every agent. Three rules follow:
 
-**CRITICAL:** Launch ALL agents in a single message with multiple Agent tool calls so they
-run in true parallel. Do NOT launch them sequentially.
+1. **Every agent gets the same prompt, byte for byte.** Build the prompt string once and
+   reuse it exactly. Do not customize, reorder, or re-type any part of it per agent.
+2. **Per-agent divergence (the persona) arrives via a tool result, not the prompt.** Each
+   agent's first action is to run a claim script that atomically assigns it a persona.
+   Tool results come after the shared prefix, so they don't break the cache. Never deliver
+   the persona as a follow-up message to a completed agent — resuming a finished agent
+   rebuilds its request from scratch and misses the cache entirely.
+3. **Stagger the launch.** Run the first agent alone until it claims its persona (the
+   claim is the signal that its first request finished and the shared prefix is cached),
+   then launch all remaining agents in parallel. A simultaneous cold launch makes every
+   agent write the prefix instead of reading it.
 
 **CRITICAL — Agent independence:** Each agent must operate in total isolation. Do NOT
-include any of the following in any agent's prompt:
+include any of the following in the shared prompt or in any persona file:
 
 - Names, codenames, or descriptions of other agents
 - The number of agents being launched
@@ -82,48 +99,125 @@ include any of the following in any agent's prompt:
 - Any reference to a "team" of reviewers
 
 Each agent believes it is the sole reviewer. This ensures fully independent findings.
+(The persona queue on disk necessarily contains the other personas; the shared prompt
+forbids agents from inspecting the run directory, which preserves independence in
+practice.)
 
-#### Specialist agent prompt template
+#### 3a. Write the persona files
 
-For each specialist agent (security, database, reliability, performance, frontend,
-compatibility, data-integrity, copy), build the prompt from these parts:
+Write one file per selected agent to `$RUN_DIR/personas/`, named with a numeric prefix so
+claim order is deterministic (`01-security.md`, `02-database.md`, ..., `09-generalist-a.md`,
+`10-generalist-b.md`). The number of persona files must equal the number of agents you
+will launch.
 
-1. **Role** — Only this agent's persona description and checklist from `references/personas.md`
-2. **Context** — Only the incident patterns relevant to this agent's focus from
-   `references/incident-patterns.md`. Omit for the copy agent.
-3. **Diff material** — Changed files, commit messages, and the full diff
+For each **specialist** (security, database, reliability, performance, frontend,
+compatibility, data-integrity, copy), the file contains:
 
 ```text
-You are a code reviewer specializing in {FOCUS_AREA}.
+Your assigned review focus: {FOCUS_AREA}
 
 ## Your expertise
 {PERSONA_DESCRIPTION_AND_CHECKLIST from references/personas.md — this agent's section only}
 
 ## Known failure patterns
 {RELEVANT_PATTERNS from references/incident-patterns.md — only patterns matching
-this agent's focus area. Omit this entire section for the copy agent.}
+this agent's focus area. Omit this entire section for the copy persona.}
+```
 
-## Code changes to review
+Always include both **generalist** personas. Generalist A (fresh-eyes senior engineer):
 
-### Changed files
-{FILE_LIST}
+```text
+Your assigned review focus: general correctness and safety
 
-### Commit messages
-{COMMIT_LOG}
+You are a senior software engineer reviewing this code change for the first time.
+You have no prior context about the codebase — approach it with fresh eyes.
 
-### Full diff
-{FULL_DIFF}
+Focus on things that would concern you if you saw this code in a pull request:
+- Does the code do what the commit messages claim?
+- Are there obvious bugs, logic errors, or edge cases?
+- Is error handling adequate? What happens when things fail?
+- Are there race conditions or concurrency issues?
+- Is the code readable and maintainable?
+- Are there any "that looks wrong" moments?
 
-## Instructions
+Do NOT focus on style, formatting, or minor nits. Focus on correctness and safety.
+This focus has no formal checklist — omit the Checklist Coverage section from your review.
+```
 
-1. Read the full diff carefully. For each changed file, also read the surrounding code
+Generalist B (adversarial tester):
+
+```text
+Your assigned review focus: breakability
+
+You are a QA engineer who tries to break things. Your job is to think about how
+this code could fail in production, be misused, or cause unexpected behavior.
+
+Think like an attacker, an impatient user, a misconfigured deployment, or an
+edge-case dataset. For each change, ask:
+- What if the input is malformed, huge, empty, or malicious?
+- What if the external service is slow, down, or returns garbage?
+- What if two requests hit this code at the same time?
+- What if this runs against a database with millions of rows?
+- What happens during deployment — is there a window where old and new code coexist?
+- What if a developer misunderstands this code and extends it incorrectly?
+
+Do NOT focus on style or readability. Focus on breakability.
+This focus has no formal checklist — omit the Checklist Coverage section from your review.
+```
+
+#### 3b. Write the claim script
+
+```bash
+cat > "$RUN_DIR/claim.sh" <<'EOF'
+#!/bin/bash
+dir="$(cd "$(dirname "$0")" && pwd)"
+for f in "$dir"/personas/*.md; do
+  [ -e "$f" ] || continue
+  name="$(basename "$f")"
+  if mv "$f" "$dir/claimed/$name" 2>/dev/null; then
+    cat "$dir/claimed/$name"
+    exit 0
+  fi
+done
+echo "ERROR: no persona available" >&2
+exit 1
+EOF
+chmod +x "$RUN_DIR/claim.sh"
+```
+
+`mv` is atomic, so concurrent agents each claim a distinct persona.
+
+#### 3c. Build the ONE shared prompt
+
+Substitute the absolute `$RUN_DIR` path once, then reuse the resulting string verbatim for
+every agent:
+
+```text
+You are a code reviewer. Your specific review focus is pre-assigned. Follow these steps
+exactly:
+
+1. FIRST action — run this exact command with the Bash tool to receive your review focus:
+
+   bash {RUN_DIR}/claim.sh
+
+   It prints your assigned focus, expertise, checklist, and known failure patterns.
+   Conduct your entire review through that lens. Do not read, list, or otherwise inspect
+   anything inside {RUN_DIR} other than running this command and reading the three files
+   listed below.
+
+2. Read the code changes to review:
+   - {RUN_DIR}/files.txt — changed files
+   - {RUN_DIR}/commits.txt — commit messages
+   - {RUN_DIR}/diff.patch — the full diff
+
+3. Read the full diff carefully. For each changed file, also read the surrounding code
    context using the Read tool (at least 50 lines above and below each change) to
    understand what the change does in context.
 
-2. Apply your review checklist systematically. For each item, determine if the change
-   introduces a risk.
+4. Apply your assigned review checklist systematically. For each item, determine if the
+   change introduces a risk.
 
-3. Produce your review in this EXACT format:
+5. Produce your review in this EXACT format:
 
 **Risk Level:** CRITICAL / HIGH / MEDIUM / LOW / NONE
 
@@ -138,120 +232,22 @@ If no findings: "No issues found in my focus area."
 
 **Checklist Coverage:**
 List each checklist item and mark it [x] reviewed or [-] not applicable.
+(Omit this section if your assigned focus says it has no formal checklist.)
 
 **Summary:**
 One paragraph summarizing your overall assessment.
 ```
 
-#### Generalist agent prompt template
+#### 3d. Launch order
 
-Always launch both generalist agents (`generalist-a` and `generalist-b`). Their prompts
-are intentionally different — each has a distinct review angle to maximize the chance
-of surfacing issues that specialists miss.
-
-**Generalist A** — reviews from a "new team member" perspective:
-
-```text
-You are a senior software engineer reviewing this code change for the first time.
-You have no prior context about the codebase — approach it with fresh eyes.
-
-Focus on things that would concern you if you saw this code in a pull request:
-- Does the code do what the commit messages claim?
-- Are there obvious bugs, logic errors, or edge cases?
-- Is error handling adequate? What happens when things fail?
-- Are there race conditions or concurrency issues?
-- Is the code readable and maintainable?
-- Are there any "that looks wrong" moments?
-
-Do NOT focus on style, formatting, or minor nits. Focus on correctness and safety.
-
-## Code changes to review
-
-### Changed files
-{FILE_LIST}
-
-### Commit messages
-{COMMIT_LOG}
-
-### Full diff
-{FULL_DIFF}
-
-## Instructions
-
-1. Read the full diff carefully. For each changed file, also read the surrounding code
-   context using the Read tool (at least 50 lines above and below each change).
-
-2. Think about what could go wrong. Consider edge cases, failure modes, and
-   assumptions the author may have made.
-
-3. Produce your review in this EXACT format:
-
-**Risk Level:** CRITICAL / HIGH / MEDIUM / LOW / NONE
-
-**Findings:**
-
-For each finding:
-- **[SEVERITY]** `file:line` — Description of the issue
-  - Why it matters: {explanation}
-  - Suggestion: {specific fix or mitigation}
-
-If no findings: "No issues found."
-
-**Summary:**
-One paragraph summarizing your overall assessment.
-```
-
-**Generalist B** — reviews from an "adversarial tester" perspective:
-
-```text
-You are a QA engineer who tries to break things. Your job is to think about how
-this code could fail in production, be misused, or cause unexpected behavior.
-
-Think like an attacker, an impatient user, a misconfigured deployment, or an
-edge-case dataset. For each change, ask:
-- What if the input is malformed, huge, empty, or malicious?
-- What if the external service is slow, down, or returns garbage?
-- What if two requests hit this code at the same time?
-- What if this runs against a database with millions of rows?
-- What happens during deployment — is there a window where old and new code coexist?
-- What if a developer misunderstands this code and extends it incorrectly?
-
-Do NOT focus on style or readability. Focus on breakability.
-
-## Code changes to review
-
-### Changed files
-{FILE_LIST}
-
-### Commit messages
-{COMMIT_LOG}
-
-### Full diff
-{FULL_DIFF}
-
-## Instructions
-
-1. Read the full diff carefully. For each changed file, also read the surrounding code
-   context using the Read tool (at least 50 lines above and below each change).
-
-2. Try to find ways to break it. Think adversarially.
-
-3. Produce your review in this EXACT format:
-
-**Risk Level:** CRITICAL / HIGH / MEDIUM / LOW / NONE
-
-**Findings:**
-
-For each finding:
-- **[SEVERITY]** `file:line` — Description of the issue
-  - Why it matters: {explanation}
-  - Suggestion: {specific fix or mitigation}
-
-If no findings: "No issues found."
-
-**Summary:**
-One paragraph summarizing your overall assessment.
-```
+1. Launch the **first agent** with the shared prompt (background is fine).
+2. Wait until it has claimed its persona — poll for a file to appear in
+   `$RUN_DIR/claimed/` (e.g. `timeout 90 bash -c 'until [ -n "$(ls -A '"$RUN_DIR"'/claimed)" ]; do sleep 1; done'`).
+   If the poll times out, launch the rest anyway — a cache miss costs money, not
+   correctness.
+3. Launch **all remaining agents in a single message** with multiple Agent tool calls so
+   they run in parallel — each with the byte-identical shared prompt.
+4. Collect every agent's report as it completes.
 
 ### Step 4: Synthesize the report
 
@@ -375,7 +371,7 @@ in the `Agents` column and carry higher confidence.
 
 ### Persona Definitions
 
-- **`references/personas.md`** -- Full persona descriptions, context, and review checklists for specialist agents (not used for generalists — they have their own prompts)
+- **`references/personas.md`** -- Full persona descriptions, context, and review checklists for specialist agents (not used for generalists — their persona files are defined inline in Step 3a)
 
 ### Incident Patterns
 
