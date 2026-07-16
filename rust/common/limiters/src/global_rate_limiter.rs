@@ -4,6 +4,7 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use arc_swap::ArcSwap;
 use dashmap::DashSet;
 
 use async_trait::async_trait;
@@ -12,6 +13,17 @@ use common_redis::Client;
 use moka::sync::Cache;
 use tokio::sync::mpsc;
 use tracing::{error, warn};
+
+/// Resolver for custom-key thresholds. Given a lookup key and a snapshot of the
+/// current custom-key map, returns the threshold to apply (or `None` if the key
+/// is not subject to a custom limit).
+///
+/// The default resolver (when `custom_key_resolver` is `None`) is an exact map
+/// lookup. Callers can inject a closure to implement richer policies (e.g. a
+/// hierarchical `token:distinct_id` -> `token` fallback) without leaking their
+/// key structure into this crate. The closure receives the authoritative map by
+/// reference so it always resolves against the latest swapped-in thresholds.
+pub type CustomKeyResolver = Arc<dyn Fn(&str, &HashMap<String, u64>) -> Option<u64> + Send + Sync>;
 
 const GLOBAL_RATE_LIMITER_EVAL_COUNTER: &str = "global_rate_limiter_eval_counts_total";
 const GLOBAL_RATE_LIMITER_CACHE_COUNTER: &str = "global_rate_limiter_cache_counts_total";
@@ -129,6 +141,13 @@ pub trait GlobalRateLimiter: Send + Sync {
     /// Returns true if the key is registered in the custom_keys map
     fn is_custom_key(&self, key: &str) -> bool;
 
+    /// Atomically replace the entire custom-key threshold map.
+    ///
+    /// Implemented as a whole-map CAS swap so hot-path readers never block and
+    /// never observe a partially-updated map. Used to push dynamically-refreshed
+    /// thresholds into a running limiter.
+    fn replace_custom_keys(&self, custom_keys: HashMap<String, u64>);
+
     /// Close the update channel and flush remaining update records to global cache
     fn shutdown(&mut self);
 }
@@ -163,7 +182,17 @@ pub struct GlobalRateLimiterConfig {
     /// Capacity of the mpsc channel for async global cache updates
     pub channel_capacity: usize,
     /// Per-key custom limits. Overrides the default limit for specific *more granular* keys.
-    pub custom_keys: HashMap<String, u64>,
+    ///
+    /// Wrapped in `Arc<ArcSwap<_>>` so the map can be atomically replaced at
+    /// runtime (via `replace_custom_keys`) without locking hot-path readers.
+    /// Every clone of the config shares the same underlying `ArcSwap`, so a swap
+    /// through any clone (e.g. the copy held by the background task) is visible
+    /// everywhere.
+    pub custom_keys: Arc<ArcSwap<HashMap<String, u64>>>,
+    /// Optional policy for resolving a lookup key to a custom threshold. When
+    /// `None`, resolution is an exact lookup in `custom_keys`. When set, the
+    /// closure is consulted with the key and a snapshot of the current map.
+    pub custom_key_resolver: Option<CustomKeyResolver>,
     /// Tag value applied to all metrics emitted by this limiter instance.
     /// Allows distinguishing multiple limiter instances in the same process.
     pub metrics_scope: String,
@@ -178,6 +207,20 @@ impl GlobalRateLimiterConfig {
     /// Leak rate for a custom key threshold
     pub fn leak_rate_for(&self, threshold: u64) -> f64 {
         threshold as f64 / self.window_interval.as_secs_f64()
+    }
+
+    /// Resolve a lookup key to its custom threshold, if any.
+    ///
+    /// Snapshots the current custom-key map once (lock-free) and applies the
+    /// configured resolver, falling back to an exact lookup when no resolver is
+    /// injected. Returns `None` when the key is not subject to a custom limit.
+    pub fn resolve_custom(&self, key: &str) -> Option<u64> {
+        let guard = self.custom_keys.load();
+        let map: &HashMap<String, u64> = &guard;
+        match &self.custom_key_resolver {
+            Some(resolver) => resolver(key, map),
+            None => map.get(key).copied(),
+        }
     }
 }
 
@@ -197,7 +240,8 @@ impl Default for GlobalRateLimiterConfig {
             global_write_timeout: Duration::from_millis(100),
             local_cache_max_entries: 300_000,
             channel_capacity: 1_000_000,
-            custom_keys: HashMap::new(),
+            custom_keys: Arc::new(ArcSwap::from_pointee(HashMap::new())),
+            custom_key_resolver: None,
             metrics_scope: "default".to_string(),
         }
     }
@@ -375,7 +419,11 @@ impl GlobalRateLimiter for GlobalRateLimiterImpl {
     }
 
     fn is_custom_key(&self, key: &str) -> bool {
-        self.config.custom_keys.contains_key(key)
+        self.config.resolve_custom(key).is_some()
+    }
+
+    fn replace_custom_keys(&self, custom_keys: HashMap<String, u64>) {
+        self.config.custom_keys.store(Arc::new(custom_keys));
     }
 
     fn shutdown(&mut self) {
@@ -453,8 +501,8 @@ impl GlobalRateLimiterImpl {
         timestamp: Option<DateTime<Utc>>,
     ) -> EvalResult {
         let threshold = match mode {
-            CheckMode::Custom => match self.config.custom_keys.get(key) {
-                Some(&custom_limit) => custom_limit,
+            CheckMode::Custom => match self.config.resolve_custom(key) {
+                Some(custom_limit) => custom_limit,
                 None => return EvalResult::NotApplicable,
             },
             CheckMode::Global => self.config.global_threshold,
@@ -906,9 +954,7 @@ impl GlobalRateLimiterImpl {
             let estimated = weighted_count(prev_count, current_count, now, config.window_interval);
 
             let threshold = config
-                .custom_keys
-                .get(key)
-                .copied()
+                .resolve_custom(key)
                 .unwrap_or(config.global_threshold);
 
             let pressure = estimated / threshold as f64;
@@ -1018,11 +1064,19 @@ mod tests {
             local_cache_idle_timeout: Duration::from_millis(500),
             local_cache_max_entries: 100,
             channel_capacity: 100,
-            custom_keys: HashMap::new(),
+            custom_keys: Arc::new(ArcSwap::from_pointee(HashMap::new())),
+            custom_key_resolver: None,
             global_read_timeout: Duration::from_millis(5),
             global_write_timeout: Duration::from_millis(10),
             metrics_scope: "test".to_string(),
         }
+    }
+
+    /// Seed a config's custom-key map (whole-map swap), mirroring how the
+    /// dynamic refresh path replaces thresholds at runtime.
+    fn set_custom_keys(config: &GlobalRateLimiterConfig, pairs: &[(&str, u64)]) {
+        let map: HashMap<String, u64> = pairs.iter().map(|(k, v)| (k.to_string(), *v)).collect();
+        config.custom_keys.store(Arc::new(map));
     }
 
     // --- Epoch calculation tests (parameterized) ---
@@ -1187,7 +1241,8 @@ mod tests {
         assert_eq!(config.global_write_timeout, Duration::from_millis(100));
         assert_eq!(config.local_cache_max_entries, 300_000);
         assert_eq!(config.channel_capacity, 1_000_000);
-        assert!(config.custom_keys.is_empty());
+        assert!(config.custom_keys.load().is_empty());
+        assert!(config.custom_key_resolver.is_none());
         assert_eq!(config.metrics_scope, "default");
     }
 
@@ -1394,8 +1449,8 @@ mod tests {
     #[tokio::test]
     async fn test_custom_mode_unknown_key_returns_not_applicable() {
         let client = Arc::new(MockRedisClient::new());
-        let mut config = test_config();
-        config.custom_keys.insert("known_key".to_string(), 5);
+        let config = test_config();
+        set_custom_keys(&config, &[("known_key", 5)]);
         let limiter = GlobalRateLimiterImpl::new(config, vec![client]).unwrap();
 
         let result = limiter.check_custom_limit("unknown_key", 100, None).await;
@@ -1408,8 +1463,8 @@ mod tests {
     #[tokio::test]
     async fn test_custom_mode_uses_custom_limit() {
         let client = Arc::new(MockRedisClient::new());
-        let mut config = test_config();
-        config.custom_keys.insert("custom_key".to_string(), 5);
+        let config = test_config();
+        set_custom_keys(&config, &[("custom_key", 5)]);
         let limiter = GlobalRateLimiterImpl::new(config, vec![client]).unwrap();
 
         limiter.cache.insert(
@@ -1433,8 +1488,8 @@ mod tests {
     #[tokio::test]
     async fn test_custom_mode_under_custom_limit() {
         let client = Arc::new(MockRedisClient::new());
-        let mut config = test_config();
-        config.custom_keys.insert("custom_key".to_string(), 10);
+        let config = test_config();
+        set_custom_keys(&config, &[("custom_key", 10)]);
         let limiter = GlobalRateLimiterImpl::new(config, vec![client]).unwrap();
 
         limiter.cache.insert(
@@ -1457,8 +1512,8 @@ mod tests {
     #[tokio::test]
     async fn test_is_custom_key() {
         let client = Arc::new(MockRedisClient::new()) as Arc<dyn Client + Send + Sync>;
-        let mut config = test_config();
-        config.custom_keys.insert("registered".to_string(), 42);
+        let config = test_config();
+        set_custom_keys(&config, &[("registered", 42)]);
         let limiter = GlobalRateLimiterImpl::new(config, vec![client]).unwrap();
 
         assert!(limiter.is_custom_key("registered"));
@@ -1478,9 +1533,8 @@ mod tests {
     #[tokio::test]
     async fn test_custom_key_behavior() {
         let client = Arc::new(MockRedisClient::new());
-        let mut config = test_config();
-        config.custom_keys.insert("custom_a".to_string(), 5);
-        config.custom_keys.insert("custom_b".to_string(), 10);
+        let config = test_config();
+        set_custom_keys(&config, &[("custom_a", 5), ("custom_b", 10)]);
         let limiter = GlobalRateLimiterImpl::new(config, vec![client]).unwrap();
 
         limiter.cache.insert(
@@ -1705,8 +1759,8 @@ mod tests {
 
     #[test]
     fn test_process_read_results_custom_key_pressure() {
-        let mut config = test_config();
-        config.custom_keys.insert("custom_entity".to_string(), 100);
+        let config = test_config();
+        set_custom_keys(&config, &[("custom_entity", 100)]);
         let cache = Cache::builder()
             .max_capacity(100)
             .time_to_live(Duration::from_secs(60))
@@ -1845,5 +1899,104 @@ mod tests {
         assert_eq!(parse_redis_count(&None), 0);
         assert_eq!(parse_redis_count(&Some(b"not_a_number".to_vec())), 0);
         assert_eq!(parse_redis_count(&Some(vec![])), 0);
+    }
+
+    // --- Dynamic custom-key map tests (ArcSwap + resolver) ---
+
+    #[test]
+    fn test_resolve_custom_default_exact_match() {
+        let config = test_config();
+        set_custom_keys(&config, &[("tok:did", 5), ("tok2", 9)]);
+
+        assert_eq!(config.resolve_custom("tok:did"), Some(5));
+        assert_eq!(config.resolve_custom("tok2"), Some(9));
+        assert_eq!(config.resolve_custom("missing"), None);
+        // Default resolver is exact: a token prefix must not match a token:did entry.
+        assert_eq!(config.resolve_custom("tok"), None);
+    }
+
+    #[test]
+    fn test_resolve_custom_injected_resolver_hierarchical() {
+        let mut config = test_config();
+        // Hierarchical policy: exact key first, then the token prefix before ':'.
+        config.custom_key_resolver = Some(Arc::new(|key: &str, map: &HashMap<String, u64>| {
+            if let Some(v) = map.get(key) {
+                return Some(*v);
+            }
+            key.split_once(':')
+                .and_then(|(tok, _)| map.get(tok).copied())
+        }));
+        set_custom_keys(&config, &[("tok", 7), ("tok:vip", 100)]);
+
+        assert_eq!(config.resolve_custom("tok:vip"), Some(100)); // exact wins
+        assert_eq!(config.resolve_custom("tok:other"), Some(7)); // falls back to token
+        assert_eq!(config.resolve_custom("tok"), Some(7)); // token itself
+        assert_eq!(config.resolve_custom("nope:x"), None); // no match at any level
+    }
+
+    #[tokio::test]
+    async fn test_replace_custom_keys_visible_after_swap() {
+        let client = Arc::new(MockRedisClient::new());
+        let config = test_config();
+        let limiter = GlobalRateLimiterImpl::new(config, vec![client]).unwrap();
+
+        assert!(!limiter.is_custom_key("dyn_key"));
+        let result = limiter.check_custom_limit("dyn_key", 1, None).await;
+        assert!(matches!(result, EvalResult::NotApplicable));
+
+        limiter.replace_custom_keys(HashMap::from([("dyn_key".to_string(), 42u64)]));
+
+        assert!(limiter.is_custom_key("dyn_key"));
+        // Now subject to a custom limit: a fresh key is Allowed (cache miss), not NotApplicable.
+        let result = limiter.check_custom_limit("dyn_key", 1, None).await;
+        assert!(
+            matches!(result, EvalResult::Allowed),
+            "swapped-in custom key should be evaluated, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn test_replace_custom_keys_shared_across_config_clones() {
+        // The background task holds a *clone* of the config; a swap through the
+        // clone must be visible to the original (shared ArcSwap).
+        let config = test_config();
+        let bg_clone = config.clone();
+
+        assert_eq!(config.resolve_custom("k"), None);
+        bg_clone
+            .custom_keys
+            .store(Arc::new(HashMap::from([("k".to_string(), 3u64)])));
+        assert_eq!(config.resolve_custom("k"), Some(3));
+    }
+
+    #[test]
+    fn test_replace_custom_keys_concurrent_read_is_consistent() {
+        // Readers never observe a torn map: each load sees either the fully-old
+        // or fully-new map, never a missing/partial value.
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let config = Arc::new(test_config());
+        set_custom_keys(&config, &[("k", 1)]);
+
+        let stop = Arc::new(AtomicBool::new(false));
+        let reader = {
+            let config = config.clone();
+            let stop = stop.clone();
+            std::thread::spawn(move || {
+                while !stop.load(Ordering::Relaxed) {
+                    let v = config.resolve_custom("k");
+                    assert!(matches!(v, Some(1) | Some(100)), "torn read: {v:?}");
+                }
+            })
+        };
+
+        for i in 0..10_000 {
+            let v = if i % 2 == 0 { 1u64 } else { 100u64 };
+            config
+                .custom_keys
+                .store(Arc::new(HashMap::from([("k".to_string(), v)])));
+        }
+        stop.store(true, Ordering::Relaxed);
+        reader.join().unwrap();
     }
 }

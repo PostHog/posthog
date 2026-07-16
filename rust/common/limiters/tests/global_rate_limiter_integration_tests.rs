@@ -48,7 +48,8 @@ fn test_config(test_name: &str) -> GlobalRateLimiterConfig {
         local_cache_idle_timeout: Duration::from_secs(30),
         local_cache_max_entries: 1000,
         channel_capacity: 10_000,
-        custom_keys: HashMap::new(),
+        custom_keys: std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(HashMap::new())),
+        custom_key_resolver: None,
         global_read_timeout: Duration::from_millis(500),
         global_write_timeout: Duration::from_millis(500),
         metrics_scope: "integration_test".to_string(),
@@ -363,7 +364,9 @@ async fn test_custom_key_high_threshold_sync_and_limit() {
     let key = format!("high_limit_{}", Utc::now().timestamp());
     let mut config = test_config("custom_high");
     config.global_threshold = 1000;
-    config.custom_keys.insert(key.clone(), 100_000);
+    config
+        .custom_keys
+        .store(std::sync::Arc::new(HashMap::from([(key.clone(), 100_000)])));
 
     let now = Utc::now();
     let epoch = epoch_from_timestamp(now, config.window_interval);
