@@ -128,6 +128,52 @@ describe('RerunPaginatorService integration', () => {
         }, 30_000)
     }
 
+    // Produce a raw lifecycle row with a chosen (here: undecodable) invocation_globals,
+    // bypassing the seeding service so we can exercise the paginator's per-row
+    // rehydration-failure path — a poison-pill record whose stored globals can't be
+    // decoded must be skipped, not abort the whole recovery batch.
+    const seedRawRow = async (invocationId: string, invocationGlobals: string): Promise<void> => {
+        await kafkaProducer.queueMessages({
+            topic: KAFKA_HOG_INVOCATION_RESULTS,
+            messages: [
+                {
+                    key: invocationId,
+                    value: JSON.stringify({
+                        team_id: team.id,
+                        function_kind: 'hog_function',
+                        function_id: hogFunction.id,
+                        invocation_id: invocationId,
+                        parent_run_id: '',
+                        status: 'failed',
+                        attempts: 0,
+                        is_retry: 0,
+                        scheduled_at: DateTime.utc().toFormat("yyyy-MM-dd HH:mm:ss.SSS'000'"),
+                        started_at: null,
+                        finished_at: null,
+                        duration_ms: null,
+                        error_kind: 'janitor_poison_pill',
+                        error_message: 'poison pill',
+                        event_uuid: '',
+                        distinct_id: '',
+                        person_id: '',
+                        invocation_globals: invocationGlobals,
+                        version: String(BigInt(Date.now()) * 1000n),
+                        is_deleted: 0,
+                    }),
+                },
+            ],
+        })
+        await kafkaProducer.flush()
+        seededCount += 1
+        await waitForExpect(async () => {
+            const got = await clickhouse.query<{ c: number }>(
+                `SELECT count() AS c FROM hog_invocation_results
+                 WHERE team_id = ${team.id} AND invocation_id = '${invocationId}'`
+            )
+            expect(Number(got[0]?.c ?? 0)).toBeGreaterThanOrEqual(1)
+        }, 30_000)
+    }
+
     beforeAll(async () => {
         MockKafkaProducerWrapper.create = jest.fn((...args: any[]) => ActualKafkaProducerWrapper.create(...args))
         await resetKafka()
@@ -311,6 +357,34 @@ describe('RerunPaginatorService integration', () => {
             const enqueued = hogQueue.queueInvocations.mock.calls[0][0] as CyclotronJobInvocationHogFunction[]
             expect(enqueued).toHaveLength(1)
             expect(enqueued[0].state.globals).not.toHaveProperty('inputs')
+        })
+
+        it('skips a record that fails to rehydrate and still re-enqueues the rest of the batch', async () => {
+            await seedRows([{ invocation_id: 'inv-good', status: 'failed', error: new Error('5xx') }])
+            await seedRawRow('inv-bad', 'not-a-decodable-globals-blob')
+
+            const state = buildState({
+                request: {
+                    filter: {
+                        window_start: '2026-01-01T00:00:00Z',
+                        window_end: '2027-01-01T00:00:00Z',
+                        invocation_ids: ['inv-good', 'inv-bad'],
+                    },
+                },
+            })
+
+            const { state: next } = await paginator.processPage(team.id, state, {
+                jobId: 'test-rerun-job',
+                createdAt: DateTime.now(),
+            })
+
+            // The undecodable record is skipped, not fatal — the good one still re-enqueues.
+            const enqueued = hogQueue.queueInvocations.mock.calls.flatMap(
+                (c) => c[0] as CyclotronJobInvocationHogFunction[]
+            )
+            expect(enqueued.map((i) => i.id)).toEqual(['inv-good'])
+            expect(next.progress.queued).toBe(1)
+            expect(next.progress.skipped).toBeGreaterThanOrEqual(1)
         })
     })
 

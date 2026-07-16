@@ -175,6 +175,10 @@ def _find_marker_comment(
         installation_id=installation_id,
         endpoint="/repos/{owner}/{repo}/issues/{issue_number}/comments",
     ):
+        # Adopt only app-bot comments: anyone can paste the marker on a public repo, and the
+        # returned id gets PATCHed — matching a stranger's comment would overwrite it.
+        if (comment.get("user") or {}).get("type") != "Bot":
+            continue
         if marker in (comment.get("body") or ""):
             return comment.get("id")
     return None

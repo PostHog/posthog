@@ -515,7 +515,7 @@ class EvaluationReportRunSerializer(serializers.ModelSerializer):
             "period_start": {"help_text": "Start of the evaluation window covered by this report."},
             "period_end": {"help_text": "End of the evaluation window covered by this report."},
             "delivery_status": {
-                "help_text": "Delivery result: 'pending', 'delivered', 'partial_failure', or 'failed'."
+                "help_text": "Delivery result: 'pending', 'generated', 'delivered', 'partial_failure', or 'failed'."
             },
             "created_at": {"help_text": "When this report run was created."},
         }
