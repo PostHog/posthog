@@ -100,7 +100,9 @@ class TestRefreshSandboxMcp:
     @patch(
         "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_sandbox_ph_mcp_configs"
     )
-    @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token")
+    @patch(
+        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_oauth_access_token_for_run"
+    )
     def test_refresh_keeps_imported_mcp_servers(
         self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh
     ):

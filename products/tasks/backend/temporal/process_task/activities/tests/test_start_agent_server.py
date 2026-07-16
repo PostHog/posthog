@@ -252,6 +252,9 @@ async def test_start_agent_server_passes_initial_permission_mode(mocker) -> None
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.get_sandbox_ph_mcp_configs",
         return_value=[],
     )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.TaskRun.objects.filter"
+    ).return_value.first.return_value = mocker.Mock(imported_mcp_servers=None)
 
     await start_agent_server(
         StartAgentServerInput(
