@@ -23,7 +23,7 @@ Do **not**:
 
 Do not set catalog `availability` when the widget handles setup internally — the guard would use the wrong (simpler) check and double-gate.
 
-Error tracking uses inline setup gating in `ErrorTrackingWidget.tsx` — checks `exceptionIngestionLogic` (events received **or** autocapture enabled), not just `autocapture_exceptions_opt_in`.
+Error tracking uses inline setup gating in `ErrorTrackingWidget.tsx` — checks `exceptionIngestionLogic` (events received **or** autocapture enabled), not just `autocapture_exceptions_opt_in`. So `error_tracking_list` deliberately **omits** catalog `availability`: exception autocapture is **not** required to use the widget (manually captured exceptions work, and some platforms like iOS have no autocapture). Do not add catalog `availability` back to it — that would double-gate on the autocapture flag alone and hide the widget from projects capturing exceptions manually.
 
 ## Catalog `availability` shape
 
@@ -31,7 +31,7 @@ File: `products/dashboards/frontend/widget_types/catalog.ts`
 
 ```typescript
 availability?: {
-    requirement: WidgetAvailabilityRequirementId  // e.g. 'exception_autocapture'
+    requirement: WidgetAvailabilityRequirementId  // e.g. 'session_replay_enabled'
     unavailableTitle: string
     unavailableReason: string
     setupActionLabel: string
@@ -89,7 +89,7 @@ When catalog `availability` is omitted, handle setup gating inside the widget `C
 | ------------------------------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
 | Widget                          | `widgets/error_tracking/ErrorTrackingWidget.tsx`                             | Setup gate + body + empty/loading states                                     |
 | Product prompt (reference only) | `products/error_tracking/frontend/components/SetupPrompt/SetupPrompt.tsx`    | Standalone product surface — **do not import or extend for dashboard tiles** |
-| Generic prompt (catalog guard)  | `components/WidgetAvailabilitySetupPrompt/WidgetAvailabilitySetupPrompt.tsx` | Catalog-driven enable-exception-autocapture UI                               |
+| Generic prompt (catalog guard)  | `components/WidgetAvailabilitySetupPrompt/WidgetAvailabilitySetupPrompt.tsx` | Generic catalog-guard prompt (e.g. session replay). Error tracking does **not** use it — it gates inline (row above) |
 | Widget tile layout wrapper      | `components/WidgetCardProductIntroduction/WidgetCardProductIntroduction.tsx` | Container-query responsive layout for setup prompts inside `WidgetCardBody`  |
 
 Loading state renders **outside** the setup wrapper so skeletons show while fetching.
