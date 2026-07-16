@@ -1264,7 +1264,7 @@ class ClickHousePropertyResolver(CloningVisitor):
 
         if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
             return self._optimize_property_group_eq(node)
-        if node.op == ast.CompareOperationOp.In:
+        if node.op in (ast.CompareOperationOp.In, ast.CompareOperationOp.NotIn):
             return self._optimize_property_group_in(node)
         return None
 
@@ -1311,17 +1311,36 @@ class ClickHousePropertyResolver(CloningVisitor):
         if prop is None:
             return None
 
-        if isinstance(node.right, ast.Constant):
-            value = node.right.value
+        # Build the positive `IN` form, then negate it for `NOT IN`. Both keep the left operand a non-nullable `map[key]`
+        # read guarded by has(), never the `if(has(map, key), map[key], NULL)` map-lookup. That matters: the map-lookup
+        # form is Nullable(String), which makes ClickHouse rewrite the comparison to `notNullIn` under transform_null_in
+        # and coerce the value against the prepared set's element type — when the set resolves to an Array, that coercion
+        # tries to parse the String value as an array literal and dies with CANNOT_READ_ARRAY_FROM_TEXT. Under
+        # transform_null_in an absent key (SQL NULL) is "not in the set", which `not(and(has, ...))` reproduces exactly.
+        positive = self._optimize_group_in_positive(node.right, prop)
+        if positive is None:
+            return None
+        if node.op == ast.CompareOperationOp.NotIn:
+            return _call("not", [positive])
+        return positive
+
+    def _optimize_group_in_positive(self, right: ast.Expr, prop: _OptimizableProperty) -> ast.Expr | None:
+        if isinstance(right, ast.Constant):
+            value = right.value
             if value is None:
                 return None  # IN (NULL) is true if the key is absent OR the value is null — can't shortcut
             if value == "":
                 return _call("and", [prop.group_has(), _call("equals", [prop.group_value(), _const("")])])
-            if isinstance(node.right.type, ast.StringType):
+            if isinstance(right.type, ast.StringType):
                 return _call("equals", [prop.group_value(), _const(value)])
             return None
-        if isinstance(node.right, (ast.Tuple, ast.Array)):
-            return self._optimize_group_in_with_values(node.right.exprs, prop)
+        if isinstance(right, (ast.Tuple, ast.Array)):
+            return self._optimize_group_in_with_values(right.exprs, prop)
+        if isinstance(right, (ast.SelectQuery, ast.SelectSetQuery)):
+            # Subquery set: compare the bare String map value guarded by has(). Resolve the subquery first so its own
+            # property reads get the same treatment as the rest of the tree.
+            in_expr = _call("in", [prop.group_value(), self.visit(right)])
+            return _call("and", [prop.group_has(), in_expr])
         return None
 
     def _optimize_group_in_with_values(self, values: list[ast.Expr], prop: _OptimizableProperty) -> ast.Expr | None:

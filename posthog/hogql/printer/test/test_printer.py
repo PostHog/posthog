@@ -1584,6 +1584,33 @@ class TestPrinter(BaseTest):
             == prepare_and_print_ast(parsed, build_context(PropertyGroupsMode.ENABLED), dialect="clickhouse")[0]
         )
 
+    def test_property_group_not_in_subquery_avoids_nullable_map_lookup(self):
+        # A property-group key on the left of `NOT IN (subquery)` must not print as the raw `if(has(map, k), map[k],
+        # NULL)` map lookup: that Nullable(String) operand makes ClickHouse rewrite the comparison to `notNullIn` under
+        # transform_null_in and coerce the value against the set's element type, dying with CANNOT_READ_ARRAY_FROM_TEXT
+        # when the set resolves to an Array. Instead it should read the bare String value guarded by has().
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            modifiers=HogQLQueryModifiers(
+                materializationMode=MaterializationMode.AUTO,
+                propertyGroupsMode=PropertyGroupsMode.OPTIMIZED,
+            ),
+        )
+        parsed = parse_select(
+            "SELECT uuid FROM events WHERE properties.companyId NOT IN (SELECT distinct_id FROM events)"
+        )
+        printed, _ = prepare_and_print_ast(parsed, context, dialect="clickhouse")
+
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            # Property groups aren't used for events on the native JSON schema, so this path doesn't apply.
+            assert "properties_group_custom" not in printed
+        else:
+            assert "not(and(has(events.properties_group_custom" in printed
+            assert "in(events.properties_group_custom[" in printed
+            # The fragile Nullable map-lookup form (`notIn(if(has(...), map[k], NULL), ...)`) must be gone.
+            assert "notIn(if(has(" not in printed
+
     def _print_shadowed_alias_query(self) -> str:
         # Two aliases share the name `a`: the outer one is a property read, the inner one is `event`. The inner
         # `WHERE a = 'v'` must compare the inner alias — never the outer query's property.
