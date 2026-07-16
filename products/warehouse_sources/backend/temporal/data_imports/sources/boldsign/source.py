@@ -91,7 +91,7 @@ Pick the region your BoldSign account lives in — accounts are hosted on either
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            # 401/403 surface as a requests HTTPError when `_fetch_page` calls `raise_for_status()`.
+            # 401/403 surface as a requests HTTPError when the REST client calls `raise_for_status()`.
             # Retrying can never satisfy a credential problem, so stop the sync. Match the stable
             # status text and base host, not the per-request path/query.
             "401 Client Error: Unauthorized for url: https://api.boldsign.com": "Your BoldSign API key is invalid or has been revoked. Create a new key in your BoldSign account settings, then reconnect.",
@@ -144,6 +144,7 @@ Pick the region your BoldSign account lives in — accounts are hosted on either
             region=config.region,
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )
