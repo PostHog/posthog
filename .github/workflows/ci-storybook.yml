@@ -545,6 +545,29 @@ jobs:
                   previous-step-outcome: ${{ steps.test-runner.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
 
+            # Temporary master-only lane to measure first-attempt failures before lowering retries.
+            - name: Measure Storybook without retries
+              id: no-retry-test-runner
+              if: always() && github.event_name == 'push' && matrix.browser == 'chromium'
+              continue-on-error: true
+              shell: bash
+              env:
+                  HOME: /root
+                  STORYBOOK_RETRY_TIMES: '0'
+                  STORYBOOK_SKIP_TAGS: 'test-skip,test-skip-chromium'
+              run: |
+                  rm -f common/storybook/junit.xml
+                  pnpm --filter=@posthog/storybook test:visual:ci:update --browsers chromium --shard ${{ matrix.shard }}/${{ matrix.shard_count }}
+
+            - name: Upload no-retry test results
+              if: always() && github.event_name == 'push' && matrix.browser == 'chromium'
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: junit-results-storybook-no-retry-chromium-${{ matrix.shard }}
+                  path: common/storybook/junit.xml
+                  if-no-files-found: ignore
+                  retention-days: 1
+
             - name: Fail on Storybook test failure
               if: ${{ !cancelled() && steps.test-runner.outcome == 'failure' && steps.quarantine_gate.outcome != 'success' }}
               shell: bash
@@ -1041,6 +1064,14 @@ jobs:
                   junit-paths: junit-artifacts/junit-results-storybook-chromium-*/*.xml
                   org-slug: posthog-inc
                   variant: chromium
+                  token: ${{ secrets.TRUNK_API_TOKEN }}
+            - name: Upload no-retry chromium results to Trunk
+              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              with:
+                  junit-paths: junit-artifacts/junit-results-storybook-no-retry-chromium-*/*.xml
+                  org-slug: posthog-inc
+                  variant: chromium-no-retry
+                  cli-version: '0.13.7'
                   token: ${{ secrets.TRUNK_API_TOKEN }}
             - name: Upload webkit results to Trunk
               uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2

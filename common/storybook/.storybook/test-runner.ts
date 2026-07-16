@@ -99,6 +99,13 @@ declare module 'storybook/internal/types' {
     }
 }
 
+const RETRY_TIMES = Number.parseInt(process.env.STORYBOOK_RETRY_TIMES ?? '2', 10)
+
+if (!Number.isInteger(RETRY_TIMES) || RETRY_TIMES < 0) {
+    throw new Error(
+        `STORYBOOK_RETRY_TIMES must be a non-negative integer, received: ${process.env.STORYBOOK_RETRY_TIMES}`
+    )
+}
 const LOADER_SELECTORS = [
     '.Spinner',
     '.quill-spinner', // Quill's <Spinner /> — rotates while present, so it must settle before we snapshot
@@ -119,6 +126,8 @@ const JEST_TIMEOUT_MS = 60000 // Multi-viewport snapshots can take substantially
 const PLAYWRIGHT_TIMEOUT_MS = 10000 // Must be shorter than JEST_TIMEOUT_MS
 const VIEWPORT_SETTLE_TIMEOUT_MS = 5000
 
+const ATTEMPT_COUNT_PER_ID: Record<string, number> = {}
+
 // Sharing/embed stories render a preview iframe pointing at the shared/embedded URL, which Storybook
 // can't serve, so it 404s to a browser error page whose rendering is browser-version-dependent (and so
 // produces noisy, non-deterministic snapshots). Stub those navigations with a fixed page.
@@ -130,6 +139,9 @@ const EMBED_STUB_HTML =
 export default {
     setup() {
         expect.extend({ toMatchImageSnapshot })
+        if (RETRY_TIMES > 0) {
+            jest.retryTimes(RETRY_TIMES, { logErrorsBeforeRetry: true })
+        }
         jest.setTimeout(JEST_TIMEOUT_MS)
     },
 
@@ -147,13 +159,30 @@ export default {
     },
 
     async postVisit(page, context) {
+        ATTEMPT_COUNT_PER_ID[context.id] = (ATTEMPT_COUNT_PER_ID[context.id] || 0) + 1
         const storyContext = await getStoryContext(page, context)
-        const { viewportWidths } = storyContext.parameters?.testOptions ?? {}
+        const { viewport, viewportWidths } = storyContext.parameters?.testOptions ?? {}
+        const effectiveViewport = viewportWidths?.length
+            ? VIEWPORT_WIDTHS[viewportWidths[0]]
+            : viewport || DEFAULT_VIEWPORT
+
+        await page.evaluate(
+            // eslint-disable-next-line no-console
+            ([retry, id]) => console.log(`[${id}] Attempt ${retry}`),
+            [ATTEMPT_COUNT_PER_ID[context.id], context.id]
+        )
+
+        if (ATTEMPT_COUNT_PER_ID[context.id] > 1) {
+            // When retrying, resize the viewport and then resize again to default,
+            // just in case the retry is due to a useResizeObserver fail
+            await resizeViewportAndWait(page, { width: 1920, height: 1080 })
+            await resizeViewportAndWait(page, effectiveViewport)
+        }
 
         const browserContext = page.context()
         const { snapshotBrowsers = ['chromium'] } = storyContext.parameters?.testOptions ?? {}
 
-        // Keep timeouts scaled in postVisit for multi-viewport stories.
+        // Keep timeouts scaled in postVisit too, as retries can run through this path multiple times.
         applyStoryTimeouts(page, viewportWidths)
         const currentBrowser = browserContext.browser()!.browserType().name() as SupportedBrowserName
         if (snapshotBrowsers.includes(currentBrowser)) {
