@@ -12,6 +12,29 @@ import type { reverseProxyCheckerLogicType } from './reverseProxyCheckerLogicTyp
 
 const CHECK_INTERVAL_MS = 1000 * 60 * 10 // 10 minutes
 
+// Transient network failures — user offline, navigation abort, ad blocker, or a
+// cancelled request — surface as fetch/abort errors with no HTTP status. They are
+// not actionable (this check is advisory and its result is discarded), so we skip
+// capturing them the way `selfReadOnlyModeLogic`'s `before_send` filter drops
+// `ReadOnlyModeError`. Genuine backend/query errors carry a status code, so they
+// still get captured. Exported for unit testing.
+export function isTransientNetworkError(error: unknown): boolean {
+    if (!error || typeof error !== 'object') {
+        return false
+    }
+    const err = error as { name?: string; message?: unknown }
+    if (err.name === 'AbortError') {
+        return true
+    }
+    const message = typeof err.message === 'string' ? err.message : ''
+    return (
+        message.includes('Failed to fetch') ||
+        message.includes('Load failed') ||
+        message.includes('NetworkError when attempting to fetch') ||
+        message.includes('Network request failed')
+    )
+}
+
 export const reverseProxyCheckerLogic = kea<reverseProxyCheckerLogicType>([
     path(['components', 'ReverseProxyChecker', 'reverseProxyCheckerLogic']),
     loaders(({ values, cache }) => ({
@@ -48,14 +71,20 @@ export const reverseProxyCheckerLogic = kea<reverseProxyCheckerLogicType>([
                         // Swallow errors so kea-loaders does not surface a user-visible toast
                         // on every scene that mounts ProductSetupButton.
                         //
+                        // Transient network failures are not actionable, so drop them before
+                        // capturing to avoid polluting error tracking. Genuine backend/query
+                        // errors are still captured so we don't go blind on real failures.
+                        //
                         // Capturing the original `error` directly (rather than wrapping it
                         // in `new Error('...', { cause })`) keeps the error type at the top
                         // of `$exception_list`, so the central `before_send` filter in
                         // `selfReadOnlyModeLogic` can drop `ReadOnlyModeError` without
                         // assuming posthog-js serialises the cause chain.
-                        posthog.captureException(error, {
-                            posthog_source: 'reverseProxyCheckerLogic.loadHasReverseProxy',
-                        })
+                        if (!isTransientNetworkError(error)) {
+                            posthog.captureException(error, {
+                                posthog_source: 'reverseProxyCheckerLogic.loadHasReverseProxy',
+                            })
+                        }
                         return values.hasReverseProxy
                     }
                 },
