@@ -268,7 +268,7 @@ export interface webAnalyticsLogicActions {
     cancelAllLoading: () => {} // dataNodeCollectionLogic
     updateUser: (
         user: Partial<UserType>,
-        successCallback?: () => void
+        successCallback?: (() => void) | undefined
     ) => {
         successCallback: (() => void) | undefined
         user: Partial<UserType>
@@ -537,7 +537,7 @@ export interface webAnalyticsLogicMeta {
         activeHoursTab: (_activeHoursTab: string | null) => string
         isPathCleaningEnabled: (
             _isPathCleaningEnabled: boolean,
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
         ) => boolean
         currentFiltersConfig: (
             rawWebAnalyticsFilters: WebAnalyticsPropertyFilters,
