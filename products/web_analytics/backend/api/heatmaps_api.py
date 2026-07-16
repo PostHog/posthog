@@ -12,6 +12,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_field
 from prometheus_client import Counter
 from rest_framework import request, response, serializers, status, viewsets
+from rest_framework.exceptions import PermissionDenied
 
 from posthog.schema import DateRange, HogQLFilters, HogQLQueryResponse, ProductKey
 
@@ -1239,6 +1240,20 @@ class SavedHeatmapViewSet(
         obj = self.get_object()
         old_url = obj.url
         old_block_consent_modals = obj.block_consent_modals
+
+        url_fields_changed = any(
+            field in request.data and request.data[field] != getattr(obj, field) for field in ("url", "data_url")
+        )
+        if url_fields_changed and not self.user_access_control.check_access_level_for_resource(
+            "heatmap", required_level="editor"
+        ):
+            # An object-level grant authorizes edits to *this* heatmap only. Letting that grant also
+            # cover retargeting its url/data_url would let the grantee move which page's aggregate
+            # data HeatmapAggregateQueryScopingPermission's object-grant fallback authorizes — escaping
+            # the grant's intended scope. Require resource-level access to move the URL a grant is
+            # anchored to.
+            raise PermissionDenied("You do not have permission to change the URL of this heatmap.")
+
         serializer = SavedHeatmapRequestSerializer(obj, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         updated = serializer.save()

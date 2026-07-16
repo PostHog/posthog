@@ -194,6 +194,27 @@ class TestHeatmapAccessControl(ClickhouseTestMixin, APIBaseTest):
             self.client.get(self._detail_url(other_heatmap.short_id)).status_code, status.HTTP_403_FORBIDDEN
         )
 
+    def test_object_level_editor_cannot_retarget_heatmap_url(self):
+        # Regression: HeatmapAggregateQueryScopingPermission's object-grant fallback authorizes
+        # aggregate queries by matching the request's url_exact against a SavedHeatmap the caller
+        # has object-level access to. If an object-only editor could repoint that heatmap's
+        # url/data_url, they could retarget which page's aggregate data the grant covers — an
+        # object grant on one heatmap must not become a way to read data for an arbitrary URL.
+        self._create_project_default(access_level="none")
+        self._create_access_control(self.viewer_user, resource_id=str(self.heatmap.id), access_level="editor")
+        self.client.force_login(self.viewer_user)
+
+        retarget_response = self.client.patch(
+            self._detail_url(), data={"url": "https://attacker-controlled.example.com"}, format="json"
+        )
+        self.assertEqual(retarget_response.status_code, status.HTTP_403_FORBIDDEN, retarget_response.json())
+        self.heatmap.refresh_from_db()
+        self.assertEqual(self.heatmap.url, "https://example.com")
+
+        # Non-URL fields on the same object-level grant are unaffected.
+        rename_response = self.client.patch(self._detail_url(), data={"name": "still allowed"}, format="json")
+        self.assertEqual(rename_response.status_code, status.HTTP_200_OK, rename_response.json())
+
     def test_response_includes_user_access_level(self):
         self._create_access_control(self.editor_user, access_level="editor")
         self.client.force_login(self.editor_user)
