@@ -191,8 +191,12 @@ class TestQueryRunner(BaseTest):
     @override_settings(EE_AVAILABLE=True, API_QUERIES_ENABLED=True)
     @mock.patch("ee.billing.quota_limiting.list_limited_team_attributes")
     def test_api_query_quota_only_blocks_query_service_calculations(
-        self, _name, is_query_service, should_block, mock_list_limited_team_attributes
-    ):
+        self,
+        _name: str,
+        is_query_service: bool,
+        should_block: bool,
+        mock_list_limited_team_attributes: mock.MagicMock,
+    ) -> None:
         TestQueryRunner = self.setup_test_query_runner_class()
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
         runner.is_query_service = is_query_service

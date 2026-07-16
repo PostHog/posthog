@@ -66,7 +66,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(detail, CONCURRENCY_LIMIT_USER_MESSAGE)
         self.assertNotIn("app:query:per-org", detail)
 
-    def test_query_quota_limit_returns_payment_required(self):
+    def test_query_quota_limit_returns_payment_required(self) -> None:
         with patch("posthog.api.query.process_query_model", side_effect=QuotaLimitExceeded):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/query/",
