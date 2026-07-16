@@ -110,21 +110,26 @@ function main() {
             ? `The diff is too large to inline. Read it from ${runDir}/diff.patch with the Read tool (in chunks if needed) before reviewing.`
             : diff.trim()
 
-    // Function replacements: immune to `$&`-style substitution patterns that may
-    // legitimately appear in diff content.
-    const prompt = PROMPT_TEMPLATE.replaceAll('__RUN_DIR__', () => runDir)
-        .replaceAll('__FILE_LIST__', () => fileList)
-        .replaceAll('__COMMIT_LOG__', () => commitLog)
-        .replaceAll('__FULL_DIFF__', () => fullDiff)
+    // Single-pass fill: every placeholder is substituted in one scan of the
+    // original template, so placeholder-shaped text inside substituted content
+    // (a diff that mentions __REST_COUNT__, a commit subject naming
+    // __FULL_DIFF__) is never itself rewritten. The function replacement also
+    // keeps `$&`-style patterns in diff content literal.
+    const fill = (template, vars) =>
+        template.replace(/__([A-Z_]+?)__/g, (match, key) => (key in vars ? vars[key] : match))
+
+    const prompt = fill(PROMPT_TEMPLATE, {
+        RUN_DIR: runDir,
+        FILE_LIST: fileList,
+        COMMIT_LOG: commitLog,
+        FULL_DIFF: fullDiff,
+    })
     const promptJson = JSON.stringify(prompt)
 
-    fs.writeFileSync(path.join(runDir, 'launch_first.js'), FIRST_TEMPLATE.replaceAll('__PROMPT_JSON__', () => promptJson))
+    fs.writeFileSync(path.join(runDir, 'launch_first.js'), fill(FIRST_TEMPLATE, { PROMPT_JSON: promptJson }))
     fs.writeFileSync(
         path.join(runDir, 'launch_rest.js'),
-        REST_TEMPLATE.replaceAll('__PROMPT_JSON__', () => promptJson).replaceAll(
-            '__REST_COUNT__',
-            () => String(reviewerCount - 1)
-        )
+        fill(REST_TEMPLATE, { PROMPT_JSON: promptJson, REST_COUNT: String(reviewerCount - 1) })
     )
     console.info(`built ${runDir}/launch_first.js and ${runDir}/launch_rest.js for ${reviewerCount} reviewers`)
 }
