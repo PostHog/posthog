@@ -104,6 +104,21 @@ export const NodeTypeEnumApi = {
     Endpoint: 'endpoint',
 } as const
 
+export interface NodeSuspensionEntryApi {
+    /** When the node was suspended. */
+    at: string
+    /** Error from the failing run that triggered the suspension. */
+    reason: string
+    /** ID of the data modeling job whose failure triggered the suspension. */
+    job_id: string
+}
+
+/**
+ * Suspension state keyed by materialization engine, set after repeated consecutive failures; null when the node is not suspended.
+ * @nullable
+ */
+export type NodeApiSuspended = { [key: string]: NodeSuspensionEntryApi } | null
+
 export interface NodeApi {
     readonly id: string
     /** @maxLength 2048 */
@@ -128,6 +143,11 @@ export interface NodeApi {
     readonly user_tag: string | null
     /** @nullable */
     readonly sync_interval: string | null
+    /**
+     * Suspension state keyed by materialization engine, set after repeated consecutive failures; null when the node is not suspended.
+     * @nullable
+     */
+    readonly suspended: NodeApiSuspended
 }
 
 export interface PaginatedNodeListApi {
@@ -138,6 +158,12 @@ export interface PaginatedNodeListApi {
     previous?: string | null
     results: NodeApi[]
 }
+
+/**
+ * Suspension state keyed by materialization engine, set after repeated consecutive failures; null when the node is not suspended.
+ * @nullable
+ */
+export type PatchedNodeApiSuspended = { [key: string]: NodeSuspensionEntryApi } | null
 
 export interface PatchedNodeApi {
     readonly id?: string
@@ -163,6 +189,11 @@ export interface PatchedNodeApi {
     readonly user_tag?: string | null
     /** @nullable */
     readonly sync_interval?: string | null
+    /**
+     * Suspension state keyed by materialization engine, set after repeated consecutive failures; null when the node is not suspended.
+     * @nullable
+     */
+    readonly suspended?: PatchedNodeApiSuspended
 }
 
 export type DataModelingDagsListParams = {
