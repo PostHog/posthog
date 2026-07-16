@@ -272,11 +272,11 @@ def _persist_recovered(
     window_label = "24 hours" if window_days == 1 else f"{window_days} days"
     # Recovery means the metric sits strictly on the other side of the (inclusive) breach bound.
     cleared_bound = "above" if alert_config.get("direction") == AlertDirection.BELOW else "below"
-    scanner_name = _scanner_display_name(action)
 
     markdown = (
-        f"**Recovered: {scanner_name}** — {metric_label} over the last {window_label} is back at "
-        f"{_format_number(metric_value)}, {cleared_bound} the threshold of {_format_number(threshold)}."
+        f"**Recovered: {_alert_display_name(action)}**{_scanner_clause(action)} — {metric_label} over the last "
+        f"{window_label} is back at {_format_number(metric_value)}, {cleared_bound} the threshold of "
+        f"{_format_number(threshold)}."
     )
     started_at = _breach_started_at(team.id, action.id, run.pk)
     if started_at is not None:
@@ -303,21 +303,30 @@ def _run_url(team_id: int, action_id: str, run_id: str) -> str:
     return f"{settings.SITE_URL}/project/{team_id}/replay-vision/actions/{action_id}/runs/{run_id}"
 
 
-def _scanner_display_name(action: Any) -> str:
-    # Scanner name is free text; strip markdown/mrkdwn control chars so it can't garble the bold
-    # header, plus link syntax chars so it can't break out of the header link's label.
-    raw_name = action.scanner.name if action.scanner_id else ""
-    return re.sub(r"\s+", " ", re.sub(r"[*_`#\[\]()]", "", raw_name)).strip() or "your scanner"
+def _display_name(raw_name: str, fallback: str) -> str:
+    # Names are free text; strip markdown/mrkdwn control chars so they can't garble the bold
+    # header, plus link syntax chars so they can't break out of the header link's label.
+    return re.sub(r"\s+", " ", re.sub(r"[*_`#\[\]()]", "", raw_name)).strip() or fallback
+
+
+def _alert_display_name(action: Any) -> str:
+    return _display_name(action.name or "", "your alert")
+
+
+def _scanner_clause(action: Any) -> str:
+    """The " for scanner <name>" header suffix — empty when the action has no primary scanner, so
+    the header degrades to just the alert name."""
+    if not action.scanner_id:
+        return ""
+    return f" for scanner {_display_name(action.scanner.name, 'your scanner')}"
 
 
 def _linkify_header(markdown: str, action: Any, run_url: str, label: str = "Alert") -> str:
-    """Wrap the header's scanner name in a link to this alert's run page — the alert's own message
+    """Wrap the header's alert name in a link to this alert's run page — the alert's own message
     plus every matching observation (and breadcrumbs back to the scanner). A name the strip pass
     rewrote (e.g. it contained a bare URL, now a code span) won't match the expected header — leave
     it unlinked rather than guess."""
-    if not action.scanner_id:
-        return markdown
-    name = _scanner_display_name(action)
+    name = _alert_display_name(action)
     prefix = f"**{label}: {name}**"
     if not markdown.startswith(prefix):
         return markdown
@@ -337,12 +346,12 @@ def _alert_markdown(
     carry `[obs N]` citation markers — N is the observation's 1-based position in `rows`
     (= `observation_ids` order) — which the Slack pass and the in-app view resolve into links to each
     observation."""
-    scanner_name = _scanner_display_name(action)
+    header = f"**Alert: {_alert_display_name(action)}**{_scanner_clause(action)}"
 
     noun = "observation" if matched_count == 1 else "observations"
     if alert_config.get("frequency", AlertFrequency.ON_BREACH) == AlertFrequency.EVERY_MATCH:
         lines = [
-            f"**Alert: {scanner_name}** — {matched_count} new matching {noun} since the last check.",
+            f"{header} — {matched_count} new matching {noun} since the last check.",
         ]
     else:
         metric = alert_config.get("metric", AlertMetric.COUNT)
@@ -352,7 +361,7 @@ def _alert_markdown(
         window_label = "24 hours" if window_days == 1 else f"{window_days} days"
         bound = "at or below" if alert_config.get("direction") == AlertDirection.BELOW else "at or above"
         lines = [
-            f"**Alert: {scanner_name}** — {metric_label} over the last {window_label} was "
+            f"{header} — {metric_label} over the last {window_label} was "
             f"{_format_number(metric_value)}, {bound} the threshold of {_format_number(threshold)}.",
             "",
             f"{matched_count} {noun} matched in this window.",

@@ -757,6 +757,56 @@ describe('ingress HTTP server (path mode)', () => {
         expect(res.body.snippets.mcp_json.mcpServers['dom-agent'].url).toBe('https://dom-agent.agents.test/mcp')
     })
 
+    it('domain mode serves /run at root and via the path alias for internal hosts', async () => {
+        const { revisions, app } = mk({ routingMode: 'domain', domainSuffix: '.agents.test' })
+        await seedApp(revisions, 'alias-agent')
+        // Public edge shape: slug in Host, route at root.
+        const domainRes = await request(app).post('/run').set('Host', 'alias-agent.agents.test').send({ message: 'hi' })
+        expect(domainRes.status).toBe(200)
+        expect(domainRes.body.session_id).not.toBeUndefined()
+        // In-cluster shape: Django (preview-proxy, IngressClient) addresses the
+        // ingress Service directly, so Host is the Service DNS name and the slug
+        // rides in the path. Before the alias mount this 404ed in domain mode.
+        const pathRes = await request(app)
+            .post('/agents/alias-agent/run')
+            .set('Host', 'agent-ingress.svc.cluster.local:3030')
+            .send({ message: 'hi' })
+        expect(pathRes.status).toBe(200)
+        expect(pathRes.body.session_id).not.toBeUndefined()
+    })
+
+    it('domain mode resolves a non-live revision through the path alias (preview-proxy URL shape)', async () => {
+        const { revisions, queue, app } = mk({ routingMode: 'domain', domainSuffix: '.agents.test' })
+        const { app: agentApp, rev: liveRev } = await seedApp(revisions, 'alias-draft')
+        const draft = await revisions.createRevision({
+            application_id: agentApp.id,
+            parent_revision_id: liveRev.id,
+            created_by_id: null,
+            bundle_uri: 's3://x/',
+            spec: liveRev.spec,
+        })
+        const res = await request(app)
+            .post(`/agents/alias-draft-${draft.id.replace(/-/g, '')}/run`)
+            .set('Host', 'agent-ingress.svc.cluster.local:3030')
+            .send({ message: 'hi' })
+        expect(res.status).toBe(200)
+        const session = await queue.get(res.body.session_id)
+        expect(session!.revision_id).toBe(draft.id)
+    })
+
+    it('domain mode rejects path-form URLs on public *.domainSuffix hosts', async () => {
+        const { revisions, app } = mk({ routingMode: 'domain', domainSuffix: '.agents.test' })
+        await seedApp(revisions, 'fenced-agent')
+        // The alias exists for in-cluster callers only; the public edge keeps
+        // exactly one URL shape per agent (slug in Host, routes at root).
+        const res = await request(app)
+            .post('/agents/fenced-agent/run')
+            .set('Host', 'fenced-agent.agents.test')
+            .send({ message: 'hi' })
+        expect(res.status).toBe(404)
+        expect(res.body.error).toBe('use_host_routing')
+    })
+
     it('GET /mcp/connect-info renders Bearer placeholder for a PAT-gated agent', async () => {
         const { revisions, app } = mk()
         const store = revisions
