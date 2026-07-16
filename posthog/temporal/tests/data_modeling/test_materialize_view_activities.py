@@ -169,10 +169,9 @@ class TestFailMaterializationActivity:
         await database_sync_to_async(anode.refresh_from_db)()
         assert is_node_suspended(anode, DataModelingJobEngine.CLICKHOUSE) is True
 
-    async def test_timeout_does_not_pause_schedule_with_fewer_than_5_previous_jobs(
+    async def test_resource_limit_does_not_pause_schedule_before_5_consecutive_failures(
         self, activity_environment, ateam, anode, asaved_query, adag
     ):
-        # Create only 3 previous failed timeout jobs - not enough to pause
         previous_jobs = []
         for i in range(3):
             job = await database_sync_to_async(DataModelingJob.objects.create)(
@@ -184,7 +183,6 @@ class TestFailMaterializationActivity:
             )
             previous_jobs.append(job)
 
-        # Create current job
         current_job = await database_sync_to_async(DataModelingJob.objects.create)(
             team=ateam,
             saved_query=asaved_query,
@@ -205,17 +203,15 @@ class TestFailMaterializationActivity:
             await activity_environment.run(fail_materialization_activity, inputs)
             mock_pause.assert_not_called()
 
-        # Cleanup
         await database_sync_to_async(current_job.delete)()
         for job in previous_jobs:
             await database_sync_to_async(job.delete)()
 
-    async def test_timeout_does_not_pause_schedule_when_previous_jobs_not_all_failures(
+    async def test_resource_limit_does_not_pause_schedule_when_previous_jobs_not_all_failures(
         self, activity_environment, ateam, anode, asaved_query, adag
     ):
-        # Create 5 previous jobs but one succeeded
         previous_jobs = []
-        for i in range(5):
+        for i in range(4):
             status = DataModelingJob.Status.COMPLETED if i == 2 else DataModelingJob.Status.FAILED
             error = None if i == 2 else "Timeout exceeded"
             job = await database_sync_to_async(DataModelingJob.objects.create)(
@@ -251,13 +247,12 @@ class TestFailMaterializationActivity:
         for job in previous_jobs:
             await database_sync_to_async(job.delete)()
 
-    async def test_timeout_does_not_pause_schedule_when_previous_failures_not_all_timeouts(
+    async def test_resource_limit_does_not_pause_schedule_when_previous_failures_include_other_errors(
         self, activity_environment, ateam, anode, asaved_query, adag
     ):
-        # Create 5 previous failed jobs but with different errors
         previous_jobs = []
-        for i in range(5):
-            error = "Memory limit exceeded" if i == 3 else "Timeout exceeded"
+        for i in range(4):
+            error = "Invalid query" if i == 3 else "Timeout exceeded"
             job = await database_sync_to_async(DataModelingJob.objects.create)(
                 team=ateam,
                 saved_query=asaved_query,
@@ -291,17 +286,26 @@ class TestFailMaterializationActivity:
         for job in previous_jobs:
             await database_sync_to_async(job.delete)()
 
-    async def test_timeout_pauses_schedule_after_5_consecutive_timeout_failures(
-        self, activity_environment, ateam, anode, asaved_query, adag
+    @pytest.mark.parametrize(
+        "current_error",
+        [
+            "Timeout exceeded in query",
+            "Code: 307. DB::Exception: TOO_MANY_BYTES",
+            "Memory limit exceeded while executing query",
+        ],
+    )
+    async def test_resource_limit_pauses_schedule_and_notifies_owner_after_5_consecutive_failures(
+        self, activity_environment, ateam, auser, anode, asaved_query, adag, current_error
     ):
-        # Create 5 previous timeout failed jobs
+        from posthog.temporal.data_modeling.activities.utils import is_node_suspended
+
         previous_jobs = []
-        for i in range(5):
+        for i in range(4):
             job = await database_sync_to_async(DataModelingJob.objects.create)(
                 team=ateam,
                 saved_query=asaved_query,
                 status=DataModelingJob.Status.FAILED,
-                error="Timeout exceeded",
+                error="Code: 307. DB::Exception: TOO_MANY_BYTES",
                 workflow_id=f"prev-workflow-{i}",
             )
             previous_jobs.append(job)
@@ -318,13 +322,22 @@ class TestFailMaterializationActivity:
             node_id=str(anode.id),
             dag_id=str(adag.id),
             job_id=str(current_job.id),
-            error="Timeout exceeded in query",
+            error=current_error,
         )
-        with unittest.mock.patch(
-            "posthog.temporal.data_modeling.activities.fail_materialization.pause_saved_query_schedule"
-        ) as mock_pause:
+        with (
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.fail_materialization.pause_saved_query_schedule"
+            ) as mock_pause,
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.fail_materialization.create_notification"
+            ) as mock_create_notification,
+        ):
             await activity_environment.run(fail_materialization_activity, inputs)
             mock_pause.assert_called_once_with(asaved_query)
+            notification = mock_create_notification.call_args.args[0]
+            assert notification.target_id == str(auser.id)
+            assert notification.title == "Model refresh schedule paused"
+            assert current_error in notification.body
 
         await database_sync_to_async(current_job.refresh_from_db)()
         assert current_job.error is not None
@@ -333,14 +346,19 @@ class TestFailMaterializationActivity:
         await database_sync_to_async(asaved_query.refresh_from_db)()
         assert asaved_query.sync_frequency_interval is None
 
+        await database_sync_to_async(anode.refresh_from_db)()
+        assert is_node_suspended(anode, DataModelingJobEngine.CLICKHOUSE) is True
+
         await database_sync_to_async(current_job.delete)()
         for job in previous_jobs:
             await database_sync_to_async(job.delete)()
 
 
-class TestShouldPauseScheduleForTimeout:
-    async def test_returns_false_when_fewer_than_5_previous_jobs(self, ateam, asaved_query):
-        from posthog.temporal.data_modeling.activities.fail_materialization import should_pause_schedule_for_timeout
+class TestShouldPauseScheduleForResourceLimit:
+    async def test_returns_false_when_fewer_than_5_failures(self, ateam, asaved_query):
+        from posthog.temporal.data_modeling.activities.fail_materialization import (
+            should_pause_schedule_for_resource_limit,
+        )
 
         previous_jobs = []
         for i in range(3):
@@ -360,21 +378,23 @@ class TestShouldPauseScheduleForTimeout:
             workflow_id="current-workflow",
         )
 
-        should_pause, count = await database_sync_to_async(should_pause_schedule_for_timeout)(
-            asaved_query.id, current_job.id
+        should_pause, count = await database_sync_to_async(should_pause_schedule_for_resource_limit)(
+            asaved_query.id, current_job.id, "Timeout exceeded"
         )
         assert should_pause is False
-        assert count == 3
+        assert count == 4
 
         await database_sync_to_async(current_job.delete)()
         for job in previous_jobs:
             await database_sync_to_async(job.delete)()
 
-    async def test_returns_true_when_5_consecutive_timeout_failures(self, ateam, asaved_query):
-        from posthog.temporal.data_modeling.activities.fail_materialization import should_pause_schedule_for_timeout
+    async def test_returns_true_when_5_consecutive_resource_limit_failures(self, ateam, asaved_query):
+        from posthog.temporal.data_modeling.activities.fail_materialization import (
+            should_pause_schedule_for_resource_limit,
+        )
 
         previous_jobs = []
-        for i in range(5):
+        for i in range(4):
             job = await database_sync_to_async(DataModelingJob.objects.create)(
                 team=ateam,
                 saved_query=asaved_query,
@@ -391,8 +411,8 @@ class TestShouldPauseScheduleForTimeout:
             workflow_id="current-workflow",
         )
 
-        should_pause, count = await database_sync_to_async(should_pause_schedule_for_timeout)(
-            asaved_query.id, current_job.id
+        should_pause, count = await database_sync_to_async(should_pause_schedule_for_resource_limit)(
+            asaved_query.id, current_job.id, "Code: 307. DB::Exception: TOO_MANY_BYTES"
         )
         assert should_pause is True
         assert count == 5
@@ -402,11 +422,13 @@ class TestShouldPauseScheduleForTimeout:
             await database_sync_to_async(job.delete)()
 
     async def test_streak_ignores_jobs_from_other_engines(self, ateam, asaved_query):
-        from posthog.temporal.data_modeling.activities.fail_materialization import should_pause_schedule_for_timeout
+        from posthog.temporal.data_modeling.activities.fail_materialization import (
+            should_pause_schedule_for_resource_limit,
+        )
 
         jobs = [
             await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error="Timeout exceeded")
-            for _ in range(5)
+            for _ in range(4)
         ]
         # a more recent duckgres failure must not break the clickhouse timeout streak
         jobs.append(
@@ -417,8 +439,8 @@ class TestShouldPauseScheduleForTimeout:
         current_job = await _make_job(ateam, asaved_query, DataModelingJob.Status.RUNNING)
         jobs.append(current_job)
 
-        should_pause, count = await database_sync_to_async(should_pause_schedule_for_timeout)(
-            asaved_query.id, current_job.id
+        should_pause, count = await database_sync_to_async(should_pause_schedule_for_resource_limit)(
+            asaved_query.id, current_job.id, "Timeout exceeded"
         )
         assert should_pause is True
         assert count == 5
