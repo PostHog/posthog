@@ -33,6 +33,9 @@ import type {
     ProjectProfileApi,
     PullRequestChecksResponseApi,
     PullRequestCommentsResponseApi,
+    PullRequestMergeReadinessResponseApi,
+    PullRequestMergeRequestApi,
+    PullRequestMergeResponseApi,
     PullRequestReviewCommentCreateApi,
     PullRequestReviewCommentCreateResponseApi,
     PullRequestReviewCommentReactionCreateApi,
@@ -260,6 +263,45 @@ export const signalsReportPrComments = async (
     options?: RequestInit
 ): Promise<PullRequestCommentsResponseApi> => {
     return apiMutator<PullRequestCommentsResponseApi>(getSignalsReportPrCommentsUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsReportPrMergeUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/pr_merge/`
+}
+
+/**
+ * @summary Merge a report's implementation PR, or arm/cancel auto-merge
+ */
+export const signalsReportPrMerge = async (
+    projectId: string,
+    id: string,
+    pullRequestMergeRequestApi: PullRequestMergeRequestApi,
+    options?: RequestInit
+): Promise<PullRequestMergeResponseApi> => {
+    return apiMutator<PullRequestMergeResponseApi>(getSignalsReportPrMergeUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(pullRequestMergeRequestApi),
+    })
+}
+
+export const getSignalsReportPrMergeReadinessUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/pr_merge_readiness/`
+}
+
+/**
+ * @summary Get merge readiness for a report's implementation PR
+ */
+export const signalsReportPrMergeReadiness = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<PullRequestMergeReadinessResponseApi> => {
+    return apiMutator<PullRequestMergeReadinessResponseApi>(getSignalsReportPrMergeReadinessUrl(projectId, id), {
         ...options,
         method: 'GET',
     })

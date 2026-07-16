@@ -9,7 +9,7 @@ import {
     IconWarning,
     IconX,
 } from '@posthog/icons'
-import { LemonSkeleton, Link } from '@posthog/lemon-ui'
+import { LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import type { PullRequestCheckApi } from 'products/signals/frontend/generated/api.schemas'
 
@@ -184,6 +184,11 @@ export function PrChecksSection({ report }: { report: SignalReport }): JSX.Eleme
                                 >
                                     {check.name}
                                 </span>
+                                {check.is_required && (
+                                    <LemonTag type="highlight" size="small" className="shrink-0">
+                                        Required
+                                    </LemonTag>
+                                )}
                                 <span className="shrink-0 text-xs text-tertiary transition-colors group-hover:text-secondary">
                                     {meta.label}
                                 </span>
