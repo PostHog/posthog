@@ -182,6 +182,18 @@ class TestResolveOrganization:
             resolve_organization(session, organization_id, MagicMock())
 
 
+class TestMakeSession:
+    def test_disables_sample_capture_and_redacts_key(self) -> None:
+        # `/orgs` and `/users` responses carry org `access_key` secrets the name-based sample
+        # scrubbers don't recognise, so the session must opt out of HTTP sample capture and mask
+        # the bearer token in logged URLs.
+        with patch.object(automox, "make_tracked_session") as mock_session:
+            automox._make_session("secret-key")
+        kwargs = mock_session.call_args.kwargs
+        assert kwargs["capture"] is False
+        assert kwargs["redact_values"] == ("secret-key",)
+
+
 class TestValidateCredentials:
     def _patch_session(self, response: requests.Response) -> Any:
         session = MagicMock()
@@ -346,12 +358,29 @@ class TestGetRows:
         assert len(package_urls) == 1
         assert urlparse(package_urls[0]).path == "/api/orgs/123/packages"
 
-    def test_organizations_endpoint_skips_org_resolution(self, monkeypatch: Any) -> None:
+    def test_organizations_endpoint_restricts_to_configured_org(self, monkeypatch: Any) -> None:
+        # `/orgs` lists every organization the API key can access, but the table must expose only
+        # the org this source is configured for — otherwise a teammate could read metadata for
+        # organizations the source owner never selected.
         manager = _FakeResumableManager()
-        rows, urls = self._collect("organizations", manager, monkeypatch, [[{"id": 123}]], organization_id=None)
-        assert rows == [{"id": 123}]
-        # No separate resolution request — the only /orgs call is the paginated listing itself.
-        assert len(urls) == 1
+        org_rows = [
+            {"id": 123, "uuid": "uuid-123", "name": "Org A"},
+            {"id": 456, "uuid": "uuid-456", "name": "Org B"},
+        ]
+        rows, _ = self._collect("organizations", manager, monkeypatch, [org_rows], organization_id="456")
+        assert rows == [{"id": 456, "uuid": "uuid-456", "name": "Org B"}]
+
+    def test_credential_fields_are_stripped_from_rows(self, monkeypatch: Any) -> None:
+        # Automox embeds an org enrollment `access_key` at the top level and again under nested
+        # `orgs[]` entries; neither may reach the warehouse, at any depth.
+        manager = _FakeResumableManager()
+        user_row = {
+            "id": 7,
+            "access_key": "org-enrollment-secret",
+            "orgs": [{"id": 123, "access_key": "nested-secret", "name": "Org A"}],
+        }
+        rows, _ = self._collect("users", manager, monkeypatch, [[user_row]])
+        assert rows == [{"id": 7, "orgs": [{"id": 123, "name": "Org A"}]}]
 
     def test_missing_org_uuid_raises_for_policy_runs(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager()

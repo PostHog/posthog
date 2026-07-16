@@ -46,6 +46,10 @@ class AutomoxEndpointConfig:
     # Extra query params sent on every request (e.g. an explicit sort).
     extra_params: dict[str, str] = field(default_factory=dict)
     sort_mode: SortMode = "asc"
+    # When True, keep only the single configured organization's row. `/orgs` lists every
+    # organization the API key can access, so without this the table would expose metadata for
+    # organizations the source owner never selected.
+    restrict_to_org: bool = False
 
 
 AUTOMOX_ENDPOINTS: dict[str, AutomoxEndpointConfig] = {
@@ -71,10 +75,12 @@ AUTOMOX_ENDPOINTS: dict[str, AutomoxEndpointConfig] = {
         incremental_lookback=timedelta(days=1),
         sort_mode="desc",
     ),
-    # Organizations the API key can access. Tiny table, full refresh.
+    # Organizations the API key can access. Tiny table, full refresh. `/orgs` returns every
+    # accessible organization, so restrict the table to the one this source is configured for.
     "organizations": AutomoxEndpointConfig(
         path="/orgs",
         partition_key="create_time",
+        restrict_to_org=True,
     ),
     # All software packages across all devices in the organization, including patch status and
     # severity. The docs don't state whether the package record `id` is unique beyond its device,

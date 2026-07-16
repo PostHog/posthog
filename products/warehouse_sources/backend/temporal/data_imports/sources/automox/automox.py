@@ -21,6 +21,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 AUTOMOX_BASE_URL = "https://console.automox.com/api"
 REQUEST_TIMEOUT_SECONDS = 60
 
+# Credential-bearing field names stripped from every row before it lands in the warehouse. Automox
+# organization records embed an `access_key` (the agent-enrollment secret for that org), and user
+# records embed it again under each `orgs[]` entry — a teammate with warehouse query access could
+# otherwise read the key and enroll an attacker-controlled device. Stripping by name at any depth
+# covers both the top-level and nested shapes.
+CREDENTIAL_FIELD_NAMES = frozenset({"access_key"})
+
 # Stable prefixes for the auth-failure messages matched by `get_non_retryable_errors` — retrying
 # can never fix a bad key or a misconfigured organization, so syncs stop instead of looping.
 ORG_NOT_FOUND_ERROR = "Automox organization not found"
@@ -49,10 +56,23 @@ class AutomoxResumeConfig:
 def _make_session(api_key: str) -> requests.Session:
     # `redact_values` masks the bearer token in logged URLs and captured HTTP samples so a failed
     # or sampled request can never persist the raw Automox credential in PostHog's HTTP telemetry.
+    # `capture=False` keeps requests metered and logged but excludes their bodies from HTTP sample
+    # capture: `/orgs` and `/users` responses embed org `access_key` enrollment secrets that the
+    # name-based sample scrubbers don't recognise, and capture happens before row sanitization.
     return make_tracked_session(
         headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
         redact_values=(api_key,),
+        capture=False,
     )
+
+
+def _strip_credentials(value: Any) -> Any:
+    """Recursively drop credential-bearing keys (see ``CREDENTIAL_FIELD_NAMES``) from a row."""
+    if isinstance(value, dict):
+        return {k: _strip_credentials(v) for k, v in value.items() if k not in CREDENTIAL_FIELD_NAMES}
+    if isinstance(value, list):
+        return [_strip_credentials(item) for item in value]
+    return value
 
 
 def _build_url(path: str, params: dict[str, Any]) -> str:
@@ -201,7 +221,7 @@ def get_rows(
 
     org_id: int | None = None
     org_uuid: str | None = None
-    if config.needs_org_id_param or config.org_uuid_param or "{org_id}" in config.path:
+    if config.needs_org_id_param or config.org_uuid_param or config.restrict_to_org or "{org_id}" in config.path:
         org_id, org_uuid = resolve_organization(session, organization_id, logger)
         if config.org_uuid_param and not org_uuid:
             raise AutomoxOrganizationError(
@@ -239,10 +259,19 @@ def get_rows(
         if not rows:
             break
 
-        yield rows
+        # Terminate on the raw page length: filtering below can shrink the page without meaning
+        # the resource is exhausted.
+        reached_end = len(rows) < config.page_size
+
+        if config.restrict_to_org:
+            rows = [row for row in rows if org_id is not None and str(row.get("id")) == str(org_id)]
+
+        rows = [_strip_credentials(row) for row in rows]
+        if rows:
+            yield rows
 
         # A short page means we've reached the end of the resource.
-        if len(rows) < config.page_size:
+        if reached_end:
             break
 
         page += 1
