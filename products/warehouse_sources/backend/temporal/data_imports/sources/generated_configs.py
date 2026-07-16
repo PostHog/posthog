@@ -3929,7 +3929,9 @@ class SnowflakeSourceConfig(config.Config):
 
 @config.config
 class SnowplowSourceConfig(config.Config):
-    pass
+    organization_id: str
+    api_key_id: str
+    api_key: str
 
 
 @config.config
