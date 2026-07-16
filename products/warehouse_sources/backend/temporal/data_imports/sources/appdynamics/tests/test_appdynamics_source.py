@@ -8,7 +8,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamic
     AppdynamicsAuth,
     AppdynamicsResumeConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamics.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamics.settings import (
+    ENDPOINTS,
+    MAX_METRIC_PATHS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamics.source import AppdynamicsSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
@@ -134,6 +137,17 @@ class TestAppdynamicsSource:
             "Overall Application Performance|*",
             "Business Transaction Performance|*|*",
         ]
+
+    def test_metric_paths_over_limit_rejected(self) -> None:
+        config = _api_client_config(metric_paths="\n".join(f"Metric|{i}" for i in range(MAX_METRIC_PATHS + 1)))
+
+        with pytest.raises(ValueError):
+            self.source._metric_paths_for_config(config)
+
+        # the same cap rejects the config at source create/edit time
+        valid, error = self.source.validate_credentials(config, self.team_id)
+        assert valid is False
+        assert error is not None and "Too many metric paths" in error
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.appdynamics.source.validate_appdynamics_credentials"

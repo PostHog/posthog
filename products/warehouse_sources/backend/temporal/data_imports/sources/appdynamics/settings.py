@@ -8,6 +8,12 @@ APPLICATIONS_PATH = "/controller/rest/applications"
 # (calls per minute, average response time, error rate, ...) broken out per tier.
 DEFAULT_METRIC_PATHS = ["Overall Application Performance|*"]
 
+# The metric_data stream sends one request per (application, metric path, time window), so an
+# unbounded path list would let a single source config fan out into tens of thousands of
+# requests per sync and monopolize shared import workers. Wildcards make broad coverage
+# possible well within this cap.
+MAX_METRIC_PATHS = 50
+
 # The Controller's time-windowed endpoints filter server-side on epoch-ms `start-time` /
 # `end-time` (`time-range-type=BETWEEN_TIMES`), so the row's `startTimeInMillis` is the
 # only reliable incremental cursor. There is no `updated-since` filter on any endpoint.

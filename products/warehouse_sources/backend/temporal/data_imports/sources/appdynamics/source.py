@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamic
     DEFAULT_METRIC_PATHS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    MAX_METRIC_PATHS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -162,6 +163,7 @@ You can create an API client in your controller under **Administration → API C
             "401 Client Error": "Your AppDynamics credentials are invalid or expired. Please update your credentials and reconnect.",
             "403 Client Error": "Your AppDynamics user or API client is missing read access to application data. Grant the required roles and try again.",
             "AppDynamics OAuth token request failed": "Your AppDynamics API client credentials were rejected. Check your API client name, client secret, and account name, then reconnect.",
+            "Too many metric paths configured": None,
         }
 
     def _auth_for_config(self, config: AppdynamicsSourceConfig) -> AppdynamicsAuth:
@@ -184,6 +186,11 @@ You can create an API client in your controller under **Administration → API C
 
     def _metric_paths_for_config(self, config: AppdynamicsSourceConfig) -> list[str]:
         paths: list[str] = [line.strip() for line in (config.metric_paths or "").splitlines() if line.strip()]
+        if len(paths) > MAX_METRIC_PATHS:
+            raise ValueError(
+                f"Too many metric paths configured ({len(paths)}); the maximum is {MAX_METRIC_PATHS}. "
+                "Use wildcard paths to cover more metrics with fewer entries."
+            )
         return paths or list(DEFAULT_METRIC_PATHS)
 
     def get_schemas(
@@ -214,6 +221,7 @@ You can create an API client in your controller under **Administration → API C
     ) -> tuple[bool, str | None]:
         try:
             auth = self._auth_for_config(config)
+            self._metric_paths_for_config(config)
         except ValueError as exc:
             return False, str(exc)
 
