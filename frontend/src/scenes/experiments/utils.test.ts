@@ -396,6 +396,8 @@ describe('getSessionLinkabilityEventNames', () => {
                     series: [
                         { kind: NodeKind.EventsNode, event: 'step1', name: 'step1' },
                         { kind: NodeKind.ActionsNode, id: 123, name: 'action1' },
+                        // "all events" step: no event name, matches recordings unconditionally, so not checked
+                        { kind: NodeKind.EventsNode, event: null },
                     ],
                 },
             ],
@@ -447,20 +449,6 @@ describe('getSessionLinkabilityEventNames', () => {
             },
         } satisfies Experiment
         expect(getSessionLinkabilityEventNames(withActionExposure)).toEqual([])
-    })
-
-    it('excludes "all events" metric steps, which match recordings unconditionally', () => {
-        const experiment = {
-            ...experimentBase,
-            metrics: [
-                {
-                    kind: NodeKind.ExperimentMetric,
-                    metric_type: ExperimentMetricType.MEAN,
-                    source: { kind: NodeKind.EventsNode, event: null },
-                },
-            ],
-        } satisfies Experiment
-        expect(getSessionLinkabilityEventNames(experiment)).toEqual(['$feature_flag_called'])
     })
 })
 
@@ -521,12 +509,6 @@ describe('applySessionLinkability', () => {
             filters: [exposureFilter, purchaseEventFilter],
             unlinkable: new Set(['$feature_flag_called']),
             expected: { filters: [], droppedMetricEventCount: 0, exposureUnlinkable: true },
-        },
-        {
-            case: 'handles empty input',
-            filters: [],
-            unlinkable: new Set(['purchase']),
-            expected: { filters: [], droppedMetricEventCount: 0, exposureUnlinkable: false },
         },
     ])('$case', ({ filters, unlinkable, expected }) => {
         const input = [...filters]

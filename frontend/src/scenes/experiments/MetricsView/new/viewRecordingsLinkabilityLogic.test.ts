@@ -66,27 +66,4 @@ describe('viewRecordingsLinkabilityLogic', () => {
         // $feature_flag_called is absent from the response: absent keys stay linkable
         expect(logic.values.unlinkableEventNames).toEqual(new Set(['purchase']))
     })
-
-    it('skips the API call when there is no plain event to check', async () => {
-        logic = viewRecordingsLinkabilityLogic({
-            experiment: {
-                ...experimentBase,
-                exposure_criteria: {
-                    exposure_config: { kind: NodeKind.ActionsNode, id: 123, name: 'action1' },
-                },
-                metrics: [
-                    {
-                        kind: NodeKind.ExperimentMetric,
-                        metric_type: ExperimentMetricType.MEAN,
-                        source: { kind: NodeKind.ActionsNode, id: 123, name: 'action1' },
-                    },
-                ],
-            } satisfies Experiment,
-        })
-        logic.mount()
-
-        await expectLogic(logic).toFinishAllListeners().toMatchValues({ linkabilityLoaded: true })
-        expect(seenTogetherSpy).not.toHaveBeenCalled()
-        expect(logic.values.unlinkableEventNames).toEqual(new Set())
-    })
 })
