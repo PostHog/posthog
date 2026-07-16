@@ -155,6 +155,8 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     maximum_attempts=3,
                 ),
             )
+            if duckgres_job_id is None:
+                return self._node_deleted_result(inputs)
             # fire-and-forget: start duckgres shadow materialization in parallel
             duckgres_shadow_handle = temporalio.workflow.start_activity(
                 materialize_view_duckgres_activity,
@@ -187,6 +189,8 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     maximum_attempts=3,
                 ),
             )
+            if job_id is None:
+                return self._node_deleted_result(inputs)
             try:
                 materialize_result = await temporalio.workflow.execute_activity(
                     materialize_view_activity,
@@ -349,6 +353,25 @@ class MaterializeViewWorkflow(PostHogWorkflow):
             node_id=inputs.node_id,
             rows_materialized=result.row_count if result else 0,
             duration_seconds=result.duration_seconds if result else 0,
+        )
+
+    def _node_deleted_result(self, inputs: MaterializeViewWorkflowInputs) -> MaterializeViewWorkflowResult:
+        """Graceful no-op result when the node was deleted before materialization could start.
+
+        The node (or its DAG) was removed between the DAG snapshot and this child running — both FKs
+        cascade — so there is nothing to materialize. Returning a zero result lets the parent record
+        the node as a benign no-op instead of a failure, and avoids paging error tracking.
+        """
+        temporalio.workflow.logger.info(
+            "Node no longer exists, skipping materialization",
+            extra=inputs.properties_to_log,
+        )
+        get_node_finished_metric("skipped").add(1)
+        return MaterializeViewWorkflowResult(
+            job_id="",
+            node_id=inputs.node_id,
+            rows_materialized=0,
+            duration_seconds=0,
         )
 
     async def _maybe_enrich_view_semantics(

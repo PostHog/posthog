@@ -152,7 +152,7 @@ def get_node_finished_metric(status: str) -> MetricCounter:
         .with_additional_attributes({"status": status})
         .create_counter(
             "data_modeling_node_finished",
-            "Number of node materializations finished. Status is completed, failed, or cancelled.",
+            "Number of node materializations finished. Status is completed, failed, cancelled, or skipped.",
         )
     )
 

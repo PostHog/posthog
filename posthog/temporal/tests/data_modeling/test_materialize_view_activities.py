@@ -1,3 +1,4 @@
+import uuid
 from collections.abc import Collection, Iterable
 from typing import Any, cast
 
@@ -115,6 +116,24 @@ class TestCreateDataModelingJobActivity:
         assert job.workflow_id == "test-workflow-id"
         assert job.workflow_run_id == "test-run-id"
         assert job.created_by_id == auser.id
+
+    async def test_returns_none_when_node_deleted(self, activity_environment, ateam, adag):
+        # A node deleted between the DAG snapshot and this activity running is a benign race:
+        # the activity must return None (no job created) so the workflow skips gracefully instead
+        # of raising Node.DoesNotExist and burning retries.
+        inputs = CreateDataModelingJobInputs(
+            team_id=ateam.pk,
+            node_id=str(uuid.uuid4()),
+            dag_id=str(adag.id),
+        )
+        with unittest.mock.patch("temporalio.activity.info") as mock_info:
+            mock_info.return_value.workflow_id = "test-workflow-id"
+            mock_info.return_value.workflow_run_id = "test-run-id"
+
+            job_id = await activity_environment.run(create_data_modeling_job_activity, inputs)
+
+        assert job_id is None
+        assert await database_sync_to_async(DataModelingJob.objects.filter(team_id=ateam.pk).count)() == 0
 
 
 class TestFailMaterializationActivity:
