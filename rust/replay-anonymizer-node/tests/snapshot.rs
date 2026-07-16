@@ -717,12 +717,9 @@ fn mutation_media_attr_past_the_prescan_budget_declines_to_the_parse() {
 
 #[test]
 fn snapshot_host_gates_and_seeds_first_party_classification() {
-    // `$snapshot_host` sits after `$snapshot_items` (prod key order is not guaranteed, and the
-    // fused walk consumes events before finishing the envelope — the hosts must come from the
-    // pre-scan, not the walk). One message exercises the whole host-policy matrix: stamped-host
-    // self-links collapse, Meta `href` collapses unconditionally AND enriches the patterns (a
-    // wrong stamp must not turn the recorded page's self-links into kept "external" hosts),
-    // external hosts survive, and CDN tenant labels mask.
+    // One message exercises the whole host-policy matrix: stamped-host self-links collapse,
+    // Meta `href` collapses unconditionally, external hosts survive (including a host the Meta
+    // names — the stamp alone decides first-party), and CDN tenant labels mask.
     let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
     let events = serde_json::to_string(&json!([
         { "type": 4, "timestamp": TS0, "data": { "href": "https://portal.acme-other.test/dash", "width": 1, "height": 1 } },
@@ -736,7 +733,7 @@ fn snapshot_host_gates_and_seeds_first_party_classification() {
     ]))
     .unwrap();
     let inner = format!(
-        r#"{{"event":"$snapshot_items","properties":{{"$session_id":"s-1","$window_id":"w-1","$snapshot_items":{events},"$snapshot_host":"app.acme-site.test"}}}}"#
+        r#"{{"event":"$snapshot_items","properties":{{"$session_id":"s-1","$window_id":"w-1","$snapshot_host":"app.acme-site.test","$snapshot_items":{events}}}}}"#
     );
     let payload = serde_json::to_string(&json!({ "distinct_id": "d-1", "data": inner })).unwrap();
     let mut bytes = payload.into_bytes();
@@ -762,8 +759,8 @@ fn snapshot_host_gates_and_seeds_first_party_classification() {
     );
     assert_eq!(
         href(1),
-        "https://example.com/[redacted]",
-        "Meta-href-domain self-link must collapse (meta host joins the patterns)"
+        "https://app.acme-other.test/[redacted]",
+        "a host outside the stamp's domain is external even when the Meta href names it"
     );
     assert_eq!(
         href(2),
@@ -774,6 +771,36 @@ fn snapshot_host_gates_and_seeds_first_party_classification() {
         href(3),
         "https://[redacted].cloudfront.net/[redacted]",
         "external cdn tenant label must mask"
+    );
+}
+
+#[test]
+fn a_stamp_after_the_items_is_ignored_and_counted() {
+    // The fused walk scrubs events inline when it reaches `$snapshot_items`, so a stamp behind
+    // the array cannot apply; it must degrade to uniform collapse-all with the distinct outcome
+    // that would surface a capture ordering regression.
+    let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
+    let events = serde_json::to_string(&json!([{
+        "type": 2, "timestamp": TS0,
+        "data": { "node": { "type": 0, "childNodes": [
+            { "type": 2, "tagName": "a", "attributes": { "href": "https://partner-vendor.test/docs" }, "childNodes": [] }
+        ]}, "initialOffset": { "top": 0, "left": 0 } }
+    }]))
+    .unwrap();
+    let inner = format!(
+        r#"{{"event":"$snapshot_items","properties":{{"$session_id":"s-1","$snapshot_items":{events},"$snapshot_host":"app.acme-site.test"}}}}"#
+    );
+    let payload = serde_json::to_string(&json!({ "distinct_id": "d-1", "data": inner })).unwrap();
+    let mut bytes = payload.into_bytes();
+    let msg =
+        anonymize_kafka_payload_opts(&allow, &mut bytes, AnonymizeOpts::default(), Vec::new())
+            .expect("a late stamp must not fail the message");
+    assert_eq!(msg.host_scan, HostScanOutcome::StampLate);
+    let lines = parse_lines(&msg.lines);
+    assert_eq!(
+        lines[0][1]["data"]["node"]["childNodes"][0]["attributes"]["href"],
+        "https://example.com/[redacted]",
+        "a late stamp must leave the whole message collapse-all"
     );
 }
 
@@ -805,7 +832,7 @@ fn without_a_usable_snapshot_host_every_source_of_patterns_is_ignored() {
             .map(|h| format!(r#","$snapshot_host":{h}"#))
             .unwrap_or_default();
         let inner = format!(
-            r#"{{"event":"$snapshot_items","properties":{{"$session_id":"s-1","$snapshot_items":{events}{host_prop}}}}}"#
+            r#"{{"event":"$snapshot_items","properties":{{"$session_id":"s-1"{host_prop},"$snapshot_items":{events}}}}}"#
         );
         let payload =
             serde_json::to_string(&json!({ "distinct_id": "d-1", "data": inner })).unwrap();

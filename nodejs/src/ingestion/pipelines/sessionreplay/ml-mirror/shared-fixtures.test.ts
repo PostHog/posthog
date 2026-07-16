@@ -58,10 +58,12 @@ describeAddon('native rust addon matches the shared fixtures', () => {
         const inner = JSON.stringify({
             event: '$snapshot_items',
             properties: {
-                $snapshot_items: items,
                 $session_id: 's-1',
                 $window_id: windowId,
+                // Before $snapshot_items, matching capture's serialization order — a later stamp
+                // is deliberately ignored (the walk has already scrubbed the events).
                 ...(snapshotHost ? { $snapshot_host: snapshotHost } : {}),
+                $snapshot_items: items,
             },
         })
         return Buffer.from(JSON.stringify({ distinct_id: 'd-1', data: inner }))

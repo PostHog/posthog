@@ -423,10 +423,9 @@ pub fn anonymize_snapshot_data_opts(
 /// Producer contract: the value must be `location.hostname` after the SDK's URL masking has run
 /// (a `host[:port]` form is tolerated), or the property must be omitted entirely — never a
 /// placeholder. As defense the reduction rejects single-label values other than `localhost`/IPs,
-/// so a masking placeholder (`masked`, `redacted`) cannot activate classification. Residual gap:
-/// when SDK URL masking rewrites the hostname, the stamp and Meta `href`s carry the masked host
-/// while absolute self-references in the DOM (canonical/`og:url` tags) still carry the real one,
-/// which then classifies as external — the enrichment below cannot cover that correlated case.
+/// so a masking placeholder (`masked`, `redacted`) cannot activate classification. Capture must
+/// serialize the property before `$snapshot_items` (a capture test pins this); a later stamp is
+/// ignored and the message collapses every host.
 pub const SNAPSHOT_HOST_PROPERTY: &str = "$snapshot_host";
 
 // `"` + SNAPSHOT_HOST_PROPERTY + `"`; a test pins the equality (no const string concat).
@@ -451,6 +450,9 @@ pub enum HostScanOutcome {
     StampUnusable,
     /// The stamp probe hit but the structural pre-scan declined (anomalous envelope).
     ScanBail,
+    /// A `$snapshot_host` byte sequence exists but not before `$snapshot_items` — an envelope
+    /// ordering regression upstream (or the needle inside recorded content).
+    StampLate,
 }
 
 impl HostScanOutcome {
@@ -460,6 +462,7 @@ impl HostScanOutcome {
             HostScanOutcome::StampedOk => "stamped_ok",
             HostScanOutcome::StampUnusable => "stamp_unusable",
             HostScanOutcome::ScanBail => "scan_bail",
+            HostScanOutcome::StampLate => "stamp_late",
         }
     }
 }
@@ -468,53 +471,46 @@ impl HostScanOutcome {
 /// `$snapshot_host` gates everything: absent or unusable means no patterns — every host collapses.
 /// When present, its registrable domain seeds the set, enriched with the team's configured URL
 /// entries (raw recording domains + app URLs, reduced here so one public-suffix implementation
-/// governs the whole feature) and the host of the message's first Meta `href` — in-payload ground
-/// truth that keeps a wrong stamp from turning the recorded page's own self-links into "external"
-/// hosts that pass through.
+/// governs the whole feature).
 pub fn message_first_party_hosts(
     inner: &[u8],
     configured_url_entries: Vec<String>,
 ) -> (Vec<String>, HostScanOutcome) {
-    if memchr::memmem::find(inner, SNAPSHOT_HOST_NEEDLE).is_none() {
-        return (Vec::new(), HostScanOutcome::NoStamp);
-    }
-    let Some(scanned) = scan_page_hosts(inner) else {
-        return (Vec::new(), HostScanOutcome::ScanBail);
-    };
-    let Some(stamp) = scanned.stamp else {
-        // The needle only matched inside recorded content, not as an envelope property.
-        return (Vec::new(), HostScanOutcome::NoStamp);
+    let stamp = match scan_stamp_before_items(inner) {
+        StampScan::Anomaly => return (Vec::new(), HostScanOutcome::ScanBail),
+        StampScan::NotBeforeItems => {
+            // Distinguish a genuinely unstamped message from an ordering regression (or, rarely,
+            // the needle appearing inside recorded content) — the counter is how a capture change
+            // that reorders the envelope gets noticed. Only stamp-less messages pay this pass.
+            let outcome = if memchr::memmem::find(inner, SNAPSHOT_HOST_NEEDLE).is_some() {
+                HostScanOutcome::StampLate
+            } else {
+                HostScanOutcome::NoStamp
+            };
+            return (Vec::new(), outcome);
+        }
+        StampScan::Stamp(s) => s,
     };
     let Some(stamp_pattern) = stamp_host_pattern(&stamp) else {
         return (Vec::new(), HostScanOutcome::StampUnusable);
     };
     let mut patterns: Vec<String> = Vec::new();
-    let add = |p: String, patterns: &mut Vec<String>| {
-        if !patterns.contains(&p) {
-            patterns.push(p);
-        }
-    };
     for entry in &configured_url_entries {
         // The root-domain cap counts the deduplicated patterns, not entries, so many subdomain
-        // entries of one root cannot exhaust it. Truncation is safe: the stamp and meta patterns
-        // append after the cap, so the recorded page itself always collapses; overflow domains
-        // get the external-host treatment.
+        // entries of one root cannot exhaust it. Truncation is safe: the stamp pattern appends
+        // after the cap, so the recorded page itself always collapses; overflow domains get the
+        // external-host treatment.
         if patterns.len() >= MAX_CONFIGURED_FIRST_PARTY_PATTERNS {
             break;
         }
         if let Some(p) = url_entry_host_pattern(entry) {
-            add(p, &mut patterns);
+            if !patterns.contains(&p) {
+                patterns.push(p);
+            }
         }
     }
-    add(stamp_pattern, &mut patterns);
-    if let Some(p) = scanned
-        .meta_href
-        .as_deref()
-        .and_then(host_of_url)
-        .as_deref()
-        .and_then(host_pattern)
-    {
-        add(p, &mut patterns);
+    if !patterns.contains(&stamp_pattern) {
+        patterns.push(stamp_pattern);
     }
     (patterns, HostScanOutcome::StampedOk)
 }
@@ -540,27 +536,26 @@ fn url_entry_host_pattern(entry: &str) -> Option<String> {
     host_pattern(host_port)
 }
 
-struct ScannedPageHosts {
-    stamp: Option<String>,
-    /// `data.href` of the message's first Meta (type 4) event, raw. One is enough: multiple Metas
-    /// in one flush buffer are rare and cross-registrable-domain ones rarer, a missed second host
-    /// only over-collapses that page's self-links, and an unbounded collection would let a crafted
-    /// message grow the pattern set (scanned per scrubbed URL) without limit.
-    meta_href: Option<String>,
+enum StampScan {
+    Stamp(String),
+    /// No `$snapshot_host` key before `$snapshot_items` (or before the properties object ended).
+    NotBeforeItems,
+    /// Structural anomaly (including any escaped key): fail closed, collapse every host.
+    Anomaly,
 }
 
-/// Best-effort read of `properties.$snapshot_host` and the first Meta-event `href` from the
-/// intact buffer, before the walk consumes it (the fused walk streams events out of
-/// `$snapshot_items` inline, so the scrub context must be complete before it starts). The caller
-/// gates it on a substring probe: payloads without the property — every pre-stamp SDK — pay one
-/// memmem pass and nothing else. Any structural anomaly — including any escaped key, so the scan
-/// can never partially apply where the walk's parse fallback would see different keys — yields
-/// `None`, which empties the pattern set and therefore fails closed (collapse), never open.
-fn scan_page_hosts(inner: &[u8]) -> Option<ScannedPageHosts> {
-    let mut found = ScannedPageHosts {
-        stamp: None,
-        meta_href: None,
-    };
+/// Read `properties.$snapshot_host` from the envelope prefix, stopping at `$snapshot_items`
+/// without traversing it — the ordering contract (pinned by a capture test) keeps the stamp
+/// before the multi-MB items array, so this touches a few hundred bytes per message. The scan
+/// runs before the fused walk consumes the buffer (the walk emits scrubbed events inline the
+/// moment it reaches the items, so the pattern set must be complete first); a stamp after the
+/// items is deliberately ignored — every event was scrubbed with empty patterns by then, so
+/// honoring it is impossible and ignoring it is uniform collapse-all, fail-closed.
+fn scan_stamp_before_items(inner: &[u8]) -> StampScan {
+    scan_stamp_impl(inner).unwrap_or(StampScan::Anomaly)
+}
+
+fn scan_stamp_impl(inner: &[u8]) -> Option<StampScan> {
     let mut pos = scan::skip_ws(inner, 0);
     if inner.get(pos) != Some(&b'{') {
         return None;
@@ -570,7 +565,7 @@ fn scan_page_hosts(inner: &[u8]) -> Option<ScannedPageHosts> {
     loop {
         pos = scan::skip_ws(inner, pos);
         if inner.get(pos) == Some(&b'}') {
-            return Some(found);
+            return Some(StampScan::NotBeforeItems);
         }
         if !first {
             if inner.get(pos) != Some(&b',') {
@@ -601,10 +596,10 @@ fn scan_page_hosts(inner: &[u8]) -> Option<ScannedPageHosts> {
         }
         let mut ppos = vstart + 1;
         let mut pfirst = true;
-        pos = loop {
+        loop {
             ppos = scan::skip_ws(inner, ppos);
             if inner.get(ppos) == Some(&b'}') {
-                break ppos + 1;
+                return Some(StampScan::NotBeforeItems);
             }
             if !pfirst {
                 if inner.get(ppos) != Some(&b',') {
@@ -622,158 +617,25 @@ fn scan_page_hosts(inner: &[u8]) -> Option<ScannedPageHosts> {
                 return None;
             }
             let is_host = pkey == SNAPSHOT_HOST_PROPERTY.as_bytes();
-            let is_items = pkey == b"$snapshot_items";
+            if pkey == b"$snapshot_items" {
+                return Some(StampScan::NotBeforeItems);
+            }
             ppos = scan::skip_ws(inner, pkey_end);
             if inner.get(ppos) != Some(&b':') {
                 return None;
             }
             let pvstart = scan::skip_ws(inner, ppos + 1);
-            if is_items && inner.get(pvstart) == Some(&b'[') {
-                ppos = scan_first_meta_href(inner, pvstart, &mut found.meta_href)?;
-                continue;
-            }
             let vspan = scan::locate_value(inner, pvstart).ok()?;
             if is_host {
                 if !scan::is_string(inner, vspan) {
                     return None;
                 }
-                // First occurrence wins; a duplicate key can only change which host gets
-                // classified first-party, so parse-exact semantics are not needed.
-                if found.stamp.is_none() {
-                    found.stamp = Some(scan::unescape(inner, vspan).ok()?.into_owned());
-                }
+                let stamp = scan::unescape(inner, vspan).ok()?.into_owned();
+                return Some(StampScan::Stamp(stamp));
             }
             ppos = vspan.1;
-        };
-    }
-}
-
-/// Walk a `$snapshot_items` array taking `data.href` from the first Meta (type 4) event; returns
-/// the position just past the array's `]`. Later items are span-skipped without shallow scanning.
-fn scan_first_meta_href(inner: &[u8], start: usize, href: &mut Option<String>) -> Option<usize> {
-    let mut ipos = start + 1;
-    let mut ifirst = true;
-    loop {
-        ipos = scan::skip_ws(inner, ipos);
-        if inner.get(ipos) == Some(&b']') {
-            return Some(ipos + 1);
-        }
-        if !ifirst {
-            if inner.get(ipos) != Some(&b',') {
-                return None;
-            }
-            ipos = scan::skip_ws(inner, ipos + 1);
-        }
-        ifirst = false;
-        if href.is_some() || inner.get(ipos) != Some(&b'{') {
-            ipos = scan::locate_value(inner, ipos).ok()?.1;
-            continue;
-        }
-        let (type_span, data_span, end) = scan_event_shape(inner, ipos)?;
-        if let (Some(t), Some(d)) = (type_span, data_span) {
-            if &inner[t.0..t.1] == b"4" && inner.get(scan::skip_ws(inner, d.0)) == Some(&b'{') {
-                *href = scan_object_string_field(inner, d.0, b"href");
-            }
-        }
-        ipos = end;
-    }
-}
-
-/// Shallow scan of one event object for its `type` and `data` value spans (either key order).
-fn scan_event_shape(inner: &[u8], start: usize) -> Option<(Option<Span>, Option<Span>, usize)> {
-    let mut type_span = None;
-    let mut data_span = None;
-    let mut pos = start + 1;
-    let mut first = true;
-    loop {
-        pos = scan::skip_ws(inner, pos);
-        if inner.get(pos) == Some(&b'}') {
-            return Some((type_span, data_span, pos + 1));
-        }
-        if !first {
-            if inner.get(pos) != Some(&b',') {
-                return None;
-            }
-            pos = scan::skip_ws(inner, pos + 1);
-        }
-        first = false;
-        if inner.get(pos) != Some(&b'"') {
-            return None;
-        }
-        let key_end = scan::skip_string(inner, pos).ok()?;
-        let key = &inner[pos + 1..key_end - 1];
-        if key.contains(&b'\\') {
-            return None;
-        }
-        pos = scan::skip_ws(inner, key_end);
-        if inner.get(pos) != Some(&b':') {
-            return None;
-        }
-        let vstart = scan::skip_ws(inner, pos + 1);
-        let vspan = scan::locate_value(inner, vstart).ok()?;
-        match key {
-            b"type" => type_span = Some(vspan),
-            b"data" => data_span = Some(vspan),
-            _ => {}
-        }
-        pos = vspan.1;
-    }
-}
-
-/// Shallow scan of an object for a string field, unescaped. First occurrence wins.
-fn scan_object_string_field(inner: &[u8], start: usize, field: &[u8]) -> Option<String> {
-    let mut pos = scan::skip_ws(inner, start) + 1;
-    let mut first = true;
-    loop {
-        pos = scan::skip_ws(inner, pos);
-        if inner.get(pos) == Some(&b'}') {
-            return None;
-        }
-        if !first {
-            if inner.get(pos) != Some(&b',') {
-                return None;
-            }
-            pos = scan::skip_ws(inner, pos + 1);
-        }
-        first = false;
-        if inner.get(pos) != Some(&b'"') {
-            return None;
-        }
-        let key_end = scan::skip_string(inner, pos).ok()?;
-        let key = &inner[pos + 1..key_end - 1];
-        if key.contains(&b'\\') {
-            return None;
-        }
-        pos = scan::skip_ws(inner, key_end);
-        if inner.get(pos) != Some(&b':') {
-            return None;
-        }
-        let vstart = scan::skip_ws(inner, pos + 1);
-        let vspan = scan::locate_value(inner, vstart).ok()?;
-        if key == field {
-            if !scan::is_string(inner, vspan) {
-                return None;
-            }
-            return scan::unescape(inner, vspan).ok().map(|c| c.into_owned());
-        }
-        pos = vspan.1;
-    }
-}
-
-/// The `host[:port]`-less hostname of an absolute URL, lowercased; `None` for anything else.
-fn host_of_url(url: &str) -> Option<String> {
-    let rest = url.split_once("://").map(|(_, r)| r)?;
-    let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
-    let authority = &rest[..end];
-    let host_port = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
-    let mut host = host_port.to_ascii_lowercase();
-    if let Some(ci) = host.rfind(':') {
-        let after = &host[ci + 1..];
-        if !after.is_empty() && after.bytes().all(|b| b.is_ascii_digit()) {
-            host.truncate(ci);
         }
     }
-    (!host.is_empty()).then_some(host)
 }
 
 /// Reduce a page hostname (`host[:port]` tolerated) to a first-party pattern, mirroring the TS
@@ -1855,7 +1717,7 @@ mod tests {
     fn configured_pattern_cap_counts_root_domains_not_entries() {
         // Subdomain entries reduce and dedupe into their root before counting toward the cap;
         // counting entries instead would let one root's subdomains push real domains out.
-        let inner = br#"{"event":"$snapshot_items","properties":{"$session_id":"s","$snapshot_items":[],"$snapshot_host":"app.stamped.test"}}"#;
+        let inner = br#"{"event":"$snapshot_items","properties":{"$session_id":"s","$snapshot_host":"app.stamped.test","$snapshot_items":[]}}"#;
         let mut entries: Vec<String> = (0..150)
             .map(|i| format!("https://tenant-{i}.one-root.example"))
             .collect();
