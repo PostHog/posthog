@@ -798,6 +798,31 @@ class TestBulkUpdateStatus(APIBaseTest):
         other_ticket.refresh_from_db()
         self.assertEqual(other_ticket.status, Status.NEW)
 
+    def test_skips_tickets_denied_at_object_level(self, mock_on_commit):
+        # Bulk status update must respect object-level access control the same way single-ticket
+        # updates do via get_object() -- a ticket explicitly denied to the caller must not be
+        # mutated just because its UUID was included in the request.
+        self.organization.available_product_features = [{"key": "access_control", "name": "Access control"}]
+        self.organization.save()
+        AccessControl.objects.create(
+            resource="ticket",
+            resource_id=str(self.tickets[0].id),
+            organization_member=self.user.organization_memberships.get(organization=self.organization),
+            team=self.team,
+            access_level="none",
+        )
+        ids = [str(t.id) for t in self.tickets]
+        response = self.client.post(
+            self._bulk_url(),
+            {"ids": ids, "status": "open"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["updated"], 2)
+        self.assertNotIn(str(self.tickets[0].id), response.json()["ids"])
+        self.tickets[0].refresh_from_db()
+        self.assertEqual(self.tickets[0].status, Status.NEW)
+
     def test_creates_activity_log_entries(self, mock_on_commit):
         ids = [str(t.id) for t in self.tickets[:2]]
         self.client.post(

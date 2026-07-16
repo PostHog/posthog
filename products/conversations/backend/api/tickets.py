@@ -977,7 +977,10 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         """Update the status of multiple tickets in a single request.
 
         Only tickets belonging to the current team are affected; other-team UUIDs
-        are silently ignored.  Tickets already in the requested status are skipped.
+        are silently ignored. Tickets the caller lacks editor-level access to (denied
+        or view-only via object-level access control) are silently skipped too, the
+        same way single-ticket updates enforce object-level access via get_object().
+        Tickets already in the requested status are skipped.
         """
         serializer = BulkUpdateStatusRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -987,6 +990,12 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         changed: list[tuple[Ticket, str]] = []
         with transaction.atomic():
             tickets = list(self.get_queryset().filter(id__in=ticket_ids).select_for_update(of=("self",)))
+            self.user_access_control.preload_object_access_controls(tickets)
+            tickets = [
+                ticket
+                for ticket in tickets
+                if self.user_access_control.check_access_level_for_object(ticket, required_level="editor")
+            ]
             for ticket in tickets:
                 old_status = ticket.status
                 if old_status == new_status:
