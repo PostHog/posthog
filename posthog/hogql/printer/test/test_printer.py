@@ -3078,12 +3078,14 @@ class TestPrinter(BaseTest):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=db)
         query = parse_select("SELECT col1 FROM parquet_table")
         printed, _ = prepare_and_print_ast(query, context, "clickhouse")
-        # PREWHERE is disabled only inside the subquery wrapping the read, so the
-        # surrounding query keeps PREWHERE. The read renders as s3() for Parquet/
-        # DeltaS3Wrapper and deltaLake() for Delta, so assert on the wrap, not the function.
+        # PREWHERE and Parquet filter pushdown are disabled only inside the subquery
+        # wrapping the read, so the surrounding query keeps them. The read renders as s3()
+        # for Parquet/DeltaS3Wrapper and deltaLake() for Delta, so assert on the wrap, not
+        # the function.
         assert "(SELECT * FROM " in printed
-        assert "SETTINGS optimize_move_to_prewhere = 0)" in printed
+        assert "SETTINGS optimize_move_to_prewhere = 0, input_format_parquet_filter_push_down = 0)" in printed
         assert printed.count("optimize_move_to_prewhere") == 1
+        assert printed.count("input_format_parquet_filter_push_down") == 1
 
     def test_pretty_print(self):
         printed = self._pretty("SELECT 1, event FROM events")

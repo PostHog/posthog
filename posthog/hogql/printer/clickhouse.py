@@ -908,12 +908,16 @@ class ClickHousePrinter(BasePrinter):
         sql = table_type.table.to_printed_clickhouse(self.context)
         table = table_type.table
 
-        # The v3 Parquet reader crashes (NOT_FOUND_COLUMN_IN_BLOCK) when the analyzer moves a
-        # computed predicate into the object-storage scan's PREWHERE. Wrap the read in a subquery
-        # that disables PREWHERE locally, so the surrounding query (incl. MergeTree joins) keeps it.
-        # See ClickHouse issue 80443.
+        # The v3 Parquet reader crashes on two separate filter-pushdown paths into the
+        # object-storage scan, so wrap the read in a subquery that disables both locally
+        # while the surrounding query (incl. MergeTree joins) keeps them:
+        #   - optimize_move_to_prewhere = 0 stops a computed predicate being moved into the
+        #     scan's PREWHERE (NOT_FOUND_COLUMN_IN_BLOCK, ClickHouse issue 80443).
+        #   - input_format_parquet_filter_push_down = 0 stops an IN-set predicate being pushed
+        #     into the Parquet reader with mismatched set arity ("Invalid number of key columns
+        #     for set. Expected 1 got 1 and 2"); the filter is then evaluated outside the read.
         if isinstance(table, S3Table) and table.format in ("Parquet", "Delta", "DeltaS3Wrapper"):
-            return f"(SELECT * FROM {sql} SETTINGS optimize_move_to_prewhere = 0)"
+            return f"(SELECT * FROM {sql} SETTINGS optimize_move_to_prewhere = 0, input_format_parquet_filter_push_down = 0)"
 
         # Edge case. If we are joining an s3 table, we must wrap it in a subquery for the join to work
         if isinstance(table_type.table, S3Table) and (
