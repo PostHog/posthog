@@ -48,6 +48,7 @@ from posthog.api.oauth.cimd import (
     is_cimd_client_id,
 )
 from posthog.api.oauth.mcp_resource_scopes import build_oauth_mcp_consent_context
+from posthog.db_errors import is_transient_db_error
 from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated_session
 from posthog.middleware import is_read_only_impersonation
 from posthog.models import OAuthAccessToken, OAuthApplication, Organization, Team, User
@@ -101,23 +102,6 @@ def get_region_info() -> dict | None:
         region = cloud.lower()
         return {"posthog_region": region, "posthog_base_url": settings.SITE_URL}
     return None
-
-
-# Substrings identifying transient database failures that OAuth clients should retry.
-# PgBouncer (port 6543) kills queries waiting too long for a backend connection with
-# `query_wait_timeout`, and surfaces dropped/reset backend connections as connection
-# failures. Both are retryable rather than permanent, so map them to a 503 instead of
-# letting them escape as an unhandled 500.
-_TRANSIENT_DB_ERROR_MARKERS = (
-    "query_wait_timeout",
-    "server closed the connection unexpectedly",
-    "connection failed",
-)
-
-
-def _is_transient_db_error(error: Exception) -> bool:
-    message = str(error)
-    return any(marker in message for marker in _TRANSIENT_DB_ERROR_MARKERS)
 
 
 def _temporarily_unavailable_response(retry_after_seconds: int = 1) -> JsonResponse:
@@ -1298,7 +1282,7 @@ class OAuthTokenView(TokenView):
             # Transient database failures (PgBouncer `query_wait_timeout`, dropped/reset
             # backend connections during client authentication) otherwise bubble up as an
             # unhandled 500 — translate them into a retryable response.
-            if not _is_transient_db_error(e):
+            if not is_transient_db_error(e):
                 raise
             logger.warning(
                 "oauth_token_db_pool_pressure",

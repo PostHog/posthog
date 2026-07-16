@@ -13,7 +13,7 @@ from typing import Any, Optional, TypedDict, cast
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import URLValidator
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, OperationalError, transaction
 from django.db.models import (
     CharField,
     Count,
@@ -58,6 +58,7 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSet
 from posthog.api.utils import action
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.constants import GENERATED_DASHBOARD_PREFIX
+from posthog.db_errors import is_transient_db_error
 from posthog.event_usage import EventSource, get_event_source, report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers import create_dashboard_from_template
@@ -2185,7 +2186,26 @@ class DashboardsViewSet(
 
     @tracer.start_as_current_span("DashboardViewSet.list")
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        response = super().list(request, *args, **kwargs)
+        try:
+            response = super().list(request, *args, **kwargs)
+        except OperationalError as e:
+            # The list queryset is heavy (folder Exists subquery, trigram search, tagged-items
+            # prefetch, access filtering), so under connection-pool pressure PgBouncer can kill
+            # its COUNT or prefetch queries with `query_wait_timeout`. That is transient — return
+            # a retryable 503 instead of letting it escape as an unhandled 500.
+            if not is_transient_db_error(e):
+                raise
+            logger.warning("dashboard_list_db_pool_pressure", team_id=self.team_id, error=str(e))
+            retry = Response(
+                {
+                    "type": "server_error",
+                    "code": "temporarily_unavailable",
+                    "detail": "The server is temporarily unable to handle the request. Please retry.",
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+            retry["Retry-After"] = "1"
+            return retry
         # Record search-result cardinality so we can tune MIN_*_TRIGRAM_SIMILARITY from prod
         # telemetry — flag empty results (loosen) and high counts (tighten).
         if request.query_params.get("search"):

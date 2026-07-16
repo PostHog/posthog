@@ -7,6 +7,7 @@ from unittest import mock
 from unittest.mock import ANY, MagicMock, patch
 
 from django.core.cache import cache
+from django.db import OperationalError
 from django.test import override_settings
 from django.utils.timezone import now
 
@@ -100,6 +101,34 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             [dashboard["name"] for dashboard in response_data["results"]],
             dashboard_names,
         )
+
+    @parameterized.expand(
+        [
+            ("query_wait_timeout", "query_wait_timeout"),
+            ("connection_failed", "connection failed"),
+        ]
+    )
+    def test_list_maps_transient_db_errors_to_retryable_503(self, _name: str, error_message: str) -> None:
+        # A killed pooler query (PgBouncer `query_wait_timeout`) or dropped connection during the
+        # heavy list flow must surface as a retryable 503 rather than an unhandled 500.
+        with patch(
+            "products.dashboards.backend.api.dashboard.DashboardsViewSet.filter_queryset",
+            side_effect=OperationalError(error_message),
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/dashboards/")
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(response.headers["Retry-After"], "1")
+        self.assertEqual(response.json()["code"], "temporarily_unavailable")
+
+    def test_list_does_not_mask_non_transient_db_errors(self) -> None:
+        # A genuine query error is not pool pressure — it must still propagate, not become a 503.
+        with patch(
+            "products.dashboards.backend.api.dashboard.DashboardsViewSet.filter_queryset",
+            side_effect=OperationalError("syntax error at or near"),
+        ):
+            with self.assertRaises(OperationalError):
+                self.client.get(f"/api/projects/{self.team.id}/dashboards/")
 
     @patch("products.dashboards.backend.api.dashboard.report_user_action")
     def test_non_web_retrieve_fires_dashboard_read_event(self, mock_report_user_action: mock.Mock) -> None:
