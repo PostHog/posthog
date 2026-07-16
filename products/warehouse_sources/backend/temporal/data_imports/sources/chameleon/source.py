@@ -28,7 +28,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ChameleonSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -92,30 +95,18 @@ You can generate an account-specific API secret in your [Chameleon account setti
         names: list[str] | None = None,
         force_refresh: bool = False,
     ) -> list[SourceSchema]:
-        def _description(endpoint: str) -> str | None:
-            if endpoint == "responses":
-                return "Microsurvey responses, fanned out across every Microsurvey. Full refresh only"
-            return None
-
-        def _build_schema(endpoint: str) -> SourceSchema:
-            endpoint_config = CHAMELEON_ENDPOINTS[endpoint]
-            # Chameleon's only server-side time filter (`after`) keys on creation time, so it can't catch
-            # updates to existing records. We ship every endpoint as full refresh until incremental
-            # semantics are verified against a live account.
-            return SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=[],
-                should_sync_default=endpoint_config.should_sync_default,
-                description=_description(endpoint),
-            )
-
-        schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        # Chameleon's only server-side time filter (`after`) keys on creation time, so it can't catch
+        # updates to existing records. We ship every endpoint as full refresh (no incremental fields)
+        # until incremental semantics are verified against a live account.
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            {},
+            names,
+            descriptions={"responses": "Microsurvey responses, fanned out across every Microsurvey. Full refresh only"},
+            should_sync_default={
+                endpoint: config.should_sync_default for endpoint, config in CHAMELEON_ENDPOINTS.items()
+            },
+        )
 
     def validate_credentials(
         self, config: ChameleonSourceConfig, team_id: int, schema_name: Optional[str] = None
@@ -134,6 +125,7 @@ You can generate an account-specific API secret in your [Chameleon account setti
         return chameleon_source(
             account_secret=config.account_secret,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )
