@@ -15,7 +15,7 @@ semantic layers — fetched lazily only when these tables are queried.
 
 import json
 import hashlib
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, NamedTuple, Optional
 
 import structlog
 
@@ -190,6 +190,11 @@ def _visible_table_names(database: "Database") -> list[str]:
 # Per-column statistics surfaced into information_schema.columns: (null_fraction, min_value, max_value).
 _ColumnStats = tuple[Optional[float], Optional[str], Optional[str]]
 _RelationshipProvenanceKey = tuple[str, str, str, str, str]
+
+
+class _CollectedRelationship(NamedTuple):
+    values: list[Any]
+    provenance_key: Optional[_RelationshipProvenanceKey]
 
 
 def _warehouse_metadata(
@@ -449,8 +454,7 @@ class _Introspection:
         self.views = set(database.get_view_names())
         self.row_counts, self.view_row_counts, self.column_stats = _warehouse_metadata(context.team_id)
         self.table_descriptions = TableDescriptions.load(context.team_id)
-        self._collected: Optional[tuple[list[list[Any]], list[list[Any]], list[list[Any]]]] = None
-        self._relationship_provenance_keys: list[Optional[_RelationshipProvenanceKey]] = []
+        self._collected: Optional[tuple[list[list[Any]], list[list[Any]], list[_CollectedRelationship]]] = None
         # Resolved `SELECT * FROM <table>` scope per table, so expression columns can be typed without
         # re-resolving the table once per expression.
         self._table_scope_cache: dict[str, Optional[ast.SelectQueryType]] = {}
@@ -519,13 +523,13 @@ class _Introspection:
                 return self.column_stats.get((str(table_id), column_name), (None, None, None))
         return (None, None, None)
 
-    def collect(self) -> tuple[list[list[Any]], list[list[Any]], list[list[Any]]]:
+    def collect(self) -> tuple[list[list[Any]], list[list[Any]], list[_CollectedRelationship]]:
         if self._collected is not None:
             return self._collected
 
         table_rows: list[list[Any]] = []
         column_rows: list[list[Any]] = []
-        relationship_rows: list[list[Any]] = []
+        relationship_rows: list[_CollectedRelationship] = []
 
         names = _visible_table_names(self.database)
         if self.allowed_tables is not None:
@@ -550,7 +554,6 @@ class _Introspection:
                 table.fields,
                 column_rows,
                 relationship_rows,
-                self._relationship_provenance_keys,
             )
 
         self._collected = (table_rows, column_rows, relationship_rows)
@@ -558,6 +561,10 @@ class _Introspection:
 
     def table_rows(self) -> list[list[Any]]:
         table_rows, _, _ = self.collect()
+        return table_rows
+
+    def data_catalog_enriched_table_rows(self) -> list[list[Any]]:
+        table_rows = self.table_rows()
         certifications = _catalog_certifications(self.context, self.allowed_tables)
         # Key on (table_type, name): a live warehouse table and a view can share a name, and each
         # certification belongs to exactly one of them — so row[3] (table_type) disambiguates.
@@ -569,13 +576,19 @@ class _Introspection:
 
     def relationship_rows(self) -> list[list[Any]]:
         _, _, relationship_rows = self.collect()
+        return [relationship.values for relationship in relationship_rows]
+
+    def data_catalog_enriched_relationship_rows(self) -> list[list[Any]]:
+        _, _, relationships = self.collect()
         accepted_relationships = _catalog_accepted_relationships(self.context, self.allowed_tables)
         enriched_rows: list[list[Any]] = []
-        for row, provenance_key in zip(relationship_rows, self._relationship_provenance_keys, strict=True):
+        for relationship in relationships:
             confidence, reasoning = (
-                accepted_relationships.get(provenance_key, (None, None)) if provenance_key is not None else (None, None)
+                accepted_relationships.get(relationship.provenance_key, (None, None))
+                if relationship.provenance_key is not None
+                else (None, None)
             )
-            enriched_rows.append([*row, confidence, reasoning])
+            enriched_rows.append([*relationship.values, confidence, reasoning])
         return enriched_rows
 
     def _collect_fields(
@@ -586,8 +599,7 @@ class _Introspection:
         table: Table,
         fields: dict[str, FieldOrTable],
         column_rows: list[list[Any]],
-        relationship_rows: list[list[Any]],
-        relationship_provenance_keys: list[Optional[_RelationshipProvenanceKey]],
+        relationship_rows: list[_CollectedRelationship],
         *,
         prefix: str = "",
         ordinal_start: int = 1,
@@ -622,28 +634,32 @@ class _Introspection:
             elif isinstance(field, LazyJoin):
                 target = field.join_table if isinstance(field.join_table, str) else (field.join_table.name or "")
                 relationship_rows.append(
-                    [
-                        table_name,
-                        ".".join(str(x) for x in field.from_field),
-                        target,
-                        ".".join(str(x) for x in field.to_field) if field.to_field else None,
-                        "lazy_join",
-                        field.resolver,
-                    ]
+                    _CollectedRelationship(
+                        values=[
+                            table_name,
+                            ".".join(str(x) for x in field.from_field),
+                            target,
+                            ".".join(str(x) for x in field.to_field) if field.to_field else None,
+                            "lazy_join",
+                            field.resolver,
+                        ],
+                        provenance_key=_relationship_provenance_key(table_name, field_name, field),
+                    )
                 )
-                relationship_provenance_keys.append(_relationship_provenance_key(table_name, field_name, field))
             elif isinstance(field, FieldTraverser):
                 relationship_rows.append(
-                    [
-                        table_name,
-                        qualified,
-                        table_name,
-                        ".".join(str(x) for x in field.chain),
-                        "field_traverser",
-                        None,
-                    ]
+                    _CollectedRelationship(
+                        values=[
+                            table_name,
+                            qualified,
+                            table_name,
+                            ".".join(str(x) for x in field.chain),
+                            "field_traverser",
+                            None,
+                        ],
+                        provenance_key=None,
+                    )
                 )
-                relationship_provenance_keys.append(None)
             elif isinstance(field, VirtualTable):
                 # Surface nested virtual-table columns as `parent.child` columns.
                 column_rows.append(
@@ -671,7 +687,6 @@ class _Introspection:
                     field.fields,
                     column_rows,
                     relationship_rows,
-                    relationship_provenance_keys,
                     prefix=f"{qualified}.",
                     ordinal_start=ordinal,
                 )
@@ -716,7 +731,7 @@ def _introspection(
 
 # --- the virtual tables ----------------------------------------------------------------------- #
 
-_TABLES_BASE_COLUMNS: list[tuple[str, str]] = [
+_TABLES_COLUMNS: list[tuple[str, str]] = [
     ("table_catalog", _STRING),
     ("table_schema", _STRING),
     ("table_name", _STRING),
@@ -724,8 +739,8 @@ _TABLES_BASE_COLUMNS: list[tuple[str, str]] = [
     ("description", _NULLABLE_STRING),
     ("row_count", _NULLABLE_INTEGER),
 ]
-_TABLES_COLUMNS: list[tuple[str, str]] = [
-    *_TABLES_BASE_COLUMNS,
+_DATA_CATALOG_ENRICHED_TABLES_COLUMNS: list[tuple[str, str]] = [
+    *_TABLES_COLUMNS,
     ("certification", _NULLABLE_STRING),
 ]
 
@@ -744,7 +759,7 @@ _COLUMNS_COLUMNS: list[tuple[str, str]] = [
     ("max_value", _NULLABLE_STRING),
 ]
 
-_RELATIONSHIPS_BASE_COLUMNS: list[tuple[str, str]] = [
+_RELATIONSHIPS_COLUMNS: list[tuple[str, str]] = [
     ("source_table", _STRING),
     ("source_column", _STRING),
     ("target_table", _STRING),
@@ -752,11 +767,20 @@ _RELATIONSHIPS_BASE_COLUMNS: list[tuple[str, str]] = [
     ("relationship_kind", _STRING),
     ("via", _NULLABLE_STRING),
 ]
-_RELATIONSHIPS_COLUMNS: list[tuple[str, str]] = [
-    *_RELATIONSHIPS_BASE_COLUMNS,
+_DATA_CATALOG_ENRICHED_RELATIONSHIPS_COLUMNS: list[tuple[str, str]] = [
+    *_RELATIONSHIPS_COLUMNS,
     ("confidence", _NULLABLE_FLOAT),
     ("reasoning", _NULLABLE_STRING),
 ]
+
+_RELATIONSHIPS_DESCRIPTION = (
+    "Joinable relationships between tables (lazy joins and field traversers); one row per relationship. "
+    "Use it to discover how to join from one table to another in HogQL."
+)
+_DATA_CATALOG_ENRICHED_RELATIONSHIPS_DESCRIPTION = (
+    "Active, joinable relationships between tables (lazy joins and field traversers); one row per "
+    "relationship. Accepted catalog proposals appear as real lazy joins with their reviewed context."
+)
 
 _DATA_TYPES: list[tuple[str, str]] = [
     ("String", "Text / string values."),
@@ -1024,14 +1048,14 @@ class InformationSchemaTablesTable(LazyTable):
     def lazy_select(self, table_to_add: LazyTableToAdd, context: "HogQLContext", node: Any) -> ast.SelectQuery:
         allowed = _pushdown_table_filter(node, "table_name")
         introspection = _introspection(context, allowed)
-        catalog_metadata_enabled = "certification" in self.fields
+        data_catalog_enabled = "certification" in self.fields
         if introspection is None:
             table_rows = []
-        elif catalog_metadata_enabled:
-            table_rows = introspection.table_rows()
+        elif data_catalog_enabled:
+            table_rows = introspection.data_catalog_enriched_table_rows()
         else:
-            table_rows, _, _ = introspection.collect()
-        columns = _TABLES_COLUMNS if catalog_metadata_enabled else _TABLES_BASE_COLUMNS
+            table_rows = introspection.table_rows()
+        columns = _DATA_CATALOG_ENRICHED_TABLES_COLUMNS if data_catalog_enabled else _TABLES_COLUMNS
         return _rows_select(context, "tables", columns, table_rows, allowed)
 
     def to_printed_clickhouse(self, context: "HogQLContext") -> str:
@@ -1122,10 +1146,7 @@ class InformationSchemaColumnsTable(LazyTable):
 
 
 class InformationSchemaRelationshipsTable(LazyTable):
-    description: str = (
-        "Active, joinable relationships between tables (lazy joins and field traversers); one row per "
-        "relationship. Accepted catalog proposals appear as real lazy joins with their reviewed context."
-    )
+    description: str = _DATA_CATALOG_ENRICHED_RELATIONSHIPS_DESCRIPTION
     fields: dict[str, FieldOrTable] = {
         "source_table": _string_field(
             "source_table", nullable=False, description="Table the relationship is defined on."
@@ -1158,14 +1179,14 @@ class InformationSchemaRelationshipsTable(LazyTable):
     def lazy_select(self, table_to_add: LazyTableToAdd, context: "HogQLContext", node: Any) -> ast.SelectQuery:
         allowed = _pushdown_table_filter(node, "source_table")
         introspection = _introspection(context, allowed)
-        catalog_metadata_enabled = "confidence" in self.fields
+        data_catalog_enabled = "confidence" in self.fields
         if introspection is None:
             relationship_rows = []
-        elif catalog_metadata_enabled:
-            relationship_rows = introspection.relationship_rows()
+        elif data_catalog_enabled:
+            relationship_rows = introspection.data_catalog_enriched_relationship_rows()
         else:
-            _, _, relationship_rows = introspection.collect()
-        columns = _RELATIONSHIPS_COLUMNS if catalog_metadata_enabled else _RELATIONSHIPS_BASE_COLUMNS
+            relationship_rows = introspection.relationship_rows()
+        columns = _DATA_CATALOG_ENRICHED_RELATIONSHIPS_COLUMNS if data_catalog_enabled else _RELATIONSHIPS_COLUMNS
         return _rows_select(context, "relationships", columns, relationship_rows, allowed)
 
     def to_printed_clickhouse(self, context: "HogQLContext") -> str:
@@ -1286,7 +1307,4 @@ def disable_data_catalog(info_schema: TableNode) -> None:
     if relationships is not None and isinstance(relationships.table, InformationSchemaRelationshipsTable):
         relationships.table.fields.pop("confidence", None)
         relationships.table.fields.pop("reasoning", None)
-        relationships.table.description = (
-            "Joinable relationships between tables (lazy joins and field traversers); one row per relationship. "
-            "Use it to discover how to join from one table to another in HogQL."
-        )
+        relationships.table.description = _RELATIONSHIPS_DESCRIPTION
