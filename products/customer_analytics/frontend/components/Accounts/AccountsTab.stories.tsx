@@ -9,6 +9,8 @@ import { urls } from 'scenes/urls'
 import { mswDecorator } from '~/mocks/browser'
 import type { MockResolverInfo } from '~/mocks/utils'
 
+import { AccountsTabContent } from './AccountsTabContent'
+
 const QUERY_ENDPOINT = '/api/environments/:team_id/query/:kind/'
 const ACCOUNT_RETRIEVE_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/'
 const ACCOUNT_NOTEBOOKS_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/notebooks/'
@@ -136,6 +138,10 @@ async function expandAndOpenTab(canvasElement: HTMLElement, tab: 'Usage' | 'Spen
     await userEvent.click(await canvas.findByRole('tab', { name: tab }))
 }
 
+async function expandFirstRow(canvasElement: HTMLElement): Promise<void> {
+    await userEvent.click(await within(canvasElement).findByTitle('Show more'))
+}
+
 // The snapshot fires well after `play` (page-ready waits, forced reflows, a dispatched resize),
 // and the meta-level waitForSelector is satisfied by a collapsed table. Gating the snapshot on the
 // expanded-row content turns a lost expansion into a retry instead of a flaky collapsed capture.
@@ -156,7 +162,7 @@ function mockAccountsQuery(rows: AccountRow[]): (info: MockResolverInfo) => Prom
 }
 
 const meta: Meta = {
-    component: App,
+    component: AccountsTabContent,
     title: 'Scenes-App/Customer Analytics/Accounts',
     parameters: {
         layout: 'fullscreen',
@@ -186,7 +192,7 @@ export default meta
 type Story = StoryObj<{}>
 
 export const Default: Story = {
-    render: () => <App />,
+    render: () => <AccountsTabContent />,
     decorators: [
         mswDecorator({
             post: {
@@ -197,7 +203,7 @@ export const Default: Story = {
 }
 
 export const Empty: Story = {
-    render: () => <App />,
+    render: () => <AccountsTabContent />,
     decorators: [
         mswDecorator({
             post: {
@@ -227,7 +233,7 @@ export const FeatureGateOff: Story = {
 }
 
 export const RowExpandedEmpty: Story = {
-    render: () => <App />,
+    render: () => <AccountsTabContent />,
     parameters: { testOptions: EXPANDED_ROW_TEST_OPTIONS },
     decorators: [
         ...EXPANDED_ROW_DECORATORS_BASE,
@@ -242,17 +248,12 @@ export const RowExpandedEmpty: Story = {
         }),
     ],
     play: async ({ canvasElement }) => {
-        // Only click to expand — sidebar content verification is redundant for snapshot
-        // purposes since mock data is deterministic. The waitForSelector in testOptions
-        // gates the snapshot on [data-attr="account-expansion"] with a 60s budget,
-        // avoiding the tight findByText timeouts that flake under CI load.
-        const canvas = within(canvasElement)
-        await userEvent.click(await canvas.findByTitle('Show more'))
+        await expandFirstRow(canvasElement)
     },
 }
 
 export const RowExpandedWithNote: Story = {
-    render: () => <App />,
+    render: () => <AccountsTabContent />,
     parameters: { testOptions: EXPANDED_ROW_TEST_OPTIONS },
     decorators: [
         ...EXPANDED_ROW_DECORATORS_BASE,
@@ -299,13 +300,12 @@ export const RowExpandedWithNote: Story = {
         }),
     ],
     play: async ({ canvasElement }) => {
-        const canvas = within(canvasElement)
-        await userEvent.click(await canvas.findByTitle('Show more'))
+        await expandFirstRow(canvasElement)
     },
 }
 
 export const RowExpandedLinksDisabled: Story = {
-    render: () => <App />,
+    render: () => <AccountsTabContent />,
     parameters: { testOptions: EXPANDED_ROW_TEST_OPTIONS },
     decorators: [
         ...EXPANDED_ROW_DECORATORS_BASE,
@@ -320,13 +320,12 @@ export const RowExpandedLinksDisabled: Story = {
         }),
     ],
     play: async ({ canvasElement }) => {
-        const canvas = within(canvasElement)
-        await userEvent.click(await canvas.findByTitle('Show more'))
+        await expandFirstRow(canvasElement)
     },
 }
 
 export const RowExpandedUsageNotFound: Story = {
-    render: () => <App />,
+    render: () => <AccountsTabContent />,
     parameters: {
         testOptions: {
             ...EXPANDED_ROW_TEST_OPTIONS,
