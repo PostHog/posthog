@@ -546,6 +546,99 @@ class FlakyTestList:
 
 
 @dataclass(frozen=True)
+class TeamCIHealthItem:
+    """One owning team's rollup of the CI test surfaces it owns, with equal-length
+    previous-window twins so a caller can render honest deltas.
+
+    Ownership rides on the spans themselves (the CI emitter stamps ``test.owner_team``
+    from the repo's ownership map at emission time); spans with no stamp aggregate
+    under the literal team ``'unowned'``. See ``FLAKY_TEST_SIGNAL_CAVEAT`` for why
+    every figure is an absolute count, never a rate.
+    """
+
+    # Owning team slug (CODEOWNERS handle minus '@PostHog/'), or 'unowned' for unstamped spans.
+    owner_team: str
+    # Owned tests meeting the flaky-leaderboard bar in the window (rerun passes OR distinct failed PRs).
+    flaky_test_count: int
+    flaky_test_count_prior: int
+    # Signal spans on owned tests with outcome 'failed' or 'error' in the window.
+    failed_count: int
+    failed_count_prior: int
+    # Spans on owned tests that failed first, then passed on an automatic retry.
+    rerun_passed_count: int
+    rerun_passed_count_prior: int
+    # Spans on owned tests that failed while quarantined (xfail): already masked, still flaky.
+    xfailed_count: int
+    xfailed_count_prior: int
+    # Most recent signal span across the team's owned tests, either window.
+    last_seen_at: datetime
+
+
+@dataclass(frozen=True)
+class TeamCIHealthList:
+    """The per-team CI health roster over a window (same {items, truncated, limit} shape as
+    ``FlakyTestList``). Teams compare as organizational owners of code surfaces; this list
+    never aggregates by author.
+    """
+
+    items: list[TeamCIHealthItem]
+    truncated: bool
+    limit: int
+
+
+@dataclass(frozen=True)
+class TeamTestSignal:
+    """One owned test's flaky signal across the current window and its equal-length prior
+    window, the pair behind a before-vs-after slope reading. Signal = failed + error +
+    pass-on-retry spans (xfail excluded: already-quarantined noise).
+    """
+
+    nodeid: str
+    selector: str
+    signal_count: int
+    signal_count_prior: int
+    last_seen_at: datetime
+
+
+@dataclass(frozen=True)
+class TeamCIActivity:
+    """One team's detail assembly: the per-test current-vs-prior signal pairs over the
+    window and its equal-length prior twin, capped at the test limit.
+    """
+
+    owner_team: str
+    tests: list[TeamTestSignal]
+    truncated_tests: bool
+
+
+@dataclass(frozen=True)
+class TeamMergeTrendPoint:
+    """One day of the team's merged-PR timing: the median and average open→merge over the
+    PRs the team's members merged that day. Both are None on a day the team merged nothing;
+    ``merged_count`` says how many merges back them.
+    """
+
+    day: datetime
+    median_seconds: float | None
+    average_seconds: float | None
+    merged_count: int
+
+
+@dataclass(frozen=True)
+class TeamMergeTrend:
+    """A team's time-to-merge trend over the window. Attribution is PR author login →
+    GitHub org team membership (the ``team_members`` snapshot); only team-level medians
+    are surfaced, never per-member figures or cross-team rankings (SPEC §2/§7).
+    """
+
+    owner_team: str
+    # False when the source has no team_members snapshot synced: the chart has no honest
+    # team attribution, as opposed to "synced but this team merged nothing".
+    has_membership_data: bool
+    points: list[TeamMergeTrendPoint]
+
+
+@dataclass(frozen=True)
 class CIStatusRollup:
     """A PR's CI, collapsed from the latest workflow run per workflow on its head
     SHA. Counts can lag until the ``workflow_run`` webhook settles a run that
