@@ -78,7 +78,7 @@ describe('httpTransportClaim', () => {
 
     it('jwt claims are issuer-scoped — a colliding sub under another issuer is a different subject — and never attach the JWT as a bearer', () => {
         const claim = httpTransportClaim(JWT_PRINCIPAL, 'a.b.c', revisionWith(OAUTH2_AUTHORITATIVE))
-        expect(claim).toMatchObject({ transport: 'jwt', subjectId: 'S:external-7' })
+        expect(claim).toMatchObject({ transport: 'jwt', subjectId: JSON.stringify(['S', 'external-7']) })
         expect(claim?.bearer).toBeUndefined()
         const otherIssuer = httpTransportClaim(
             { ...JWT_PRINCIPAL, issuer_secret_ref: 'S2' },

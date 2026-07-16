@@ -133,9 +133,10 @@ identity. Secondary providers' credentials (below) hang off the **canonical**
 > credentials key off the canonical identity on HTTP too.
 > Principals with no per-user subject (anonymous, shared-secret, internal) are
 > refused outright (403) — a coexisting `public`/machine auth mode cannot void the gate.
-> JWT subjects are issuer-scoped (`<issuer_secret_ref>:<sub>`): two configured
-> `jwt` modes are separate trust domains, so colliding `sub`s never resolve each
-> other's binding or canonical identity.
+> JWT subjects are issuer-scoped via an injective encoding of
+> `(issuer_secret_ref, sub)` (`jwtPrincipalSubject`): two configured `jwt` modes
+> are separate trust domains, so colliding `sub`s never resolve each other's
+> binding or canonical identity.
 > A per-request PostHog bearer satisfies a `kind: posthog` authoritative provider inline
 > (`verifyBearer` exists only when the provider has a `userinfo_url`).
 

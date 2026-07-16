@@ -113,9 +113,13 @@ export function buildIdentityRegistry(
  * caller from issuer B resolve issuer A's AgentUser (its transport binding,
  * canonical identity, and linked credentials). Single shared format so the
  * admission claim and the per-asker credential lookup land on the SAME row.
+ *
+ * JSON-array encoding because it is injective — both fields accept arbitrary
+ * non-empty strings, so a delimiter would be ambiguous: ('A:B', 'C') and
+ * ('A', 'B:C') must NOT map to the same subject.
  */
 export function jwtPrincipalSubject(principal: { issuer_secret_ref: string; sub: string }): string {
-    return `${principal.issuer_secret_ref}:${principal.sub}`
+    return JSON.stringify([principal.issuer_secret_ref, principal.sub])
 }
 
 export async function agentUserIdForPrincipal(

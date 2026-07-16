@@ -28,7 +28,7 @@ import {
     posthogVerifier,
     type TeamOrgLookup,
 } from '@posthog/agent-ingress'
-import { canonicalKind, HttpClient, PgTransportBindingStore } from '@posthog/agent-shared'
+import { canonicalKind, HttpClient, jwtPrincipalSubject, PgTransportBindingStore } from '@posthog/agent-shared'
 
 import { buildCluster, Cluster, fauxText } from '../harness'
 import { DogServer, startDogServer } from '../harness/dog-oauth-server'
@@ -392,8 +392,8 @@ maybeDescribe('edge admission e2e (chat/HTTP, authoritative provider, mocked inf
         const transportUser = await c.identities.find({
             application_id: session!.application_id,
             principal_kind: 'jwt',
-            // Issuer-scoped subject (see `jwtPrincipalSubject`).
-            principal_id: `${JWT_SECRET_REF}:alice`,
+            // Issuer-scoped subject — same helper the ingress keys the row with.
+            principal_id: jwtPrincipalSubject({ issuer_secret_ref: JWT_SECRET_REF, sub: 'alice' }),
         })
         await new PgTransportBindingStore(c.pool).unbind(session!.application_id, transportUser!.id)
         const send = await request(c.ingress)
