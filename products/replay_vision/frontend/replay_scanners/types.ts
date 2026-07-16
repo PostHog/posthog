@@ -1,6 +1,7 @@
 import { LemonTagType } from '@posthog/lemon-ui'
 
 import { RecordingsQuery } from '~/queries/schema/schema-general'
+import { AccessControlLevel } from '~/types'
 
 import { ScannerModelEnumApi } from '../generated/api.schemas'
 import type {
@@ -258,11 +259,15 @@ export const SAMPLING_MODE_OPTIONS: { value: SamplingMode; label: string; descri
 export type ScannerCreatedBy = Omit<UserBasicApi, 'hedgehog_config'>
 
 // Derived from the generated schema so serializer changes fail typecheck; write-optional fields carry defaults.
-export type BaseReplayScanner = Omit<ReplayScannerApi, 'scanner_type' | 'scanner_config' | 'query' | 'created_by'> &
+export type BaseReplayScanner = Omit<
+    ReplayScannerApi,
+    'scanner_type' | 'scanner_config' | 'query' | 'created_by' | 'user_access_level'
+> &
     Required<Pick<ReplayScannerApi, 'sampling_rate' | 'enabled' | 'emits_signals' | 'provider'>> & {
         query: RecordingsQuery | null
         created_by: ScannerCreatedBy | null
         sampling_mode: SamplingMode
+        user_access_level: AccessControlLevel | null
     }
 
 export interface MonitorScanner extends BaseReplayScanner {

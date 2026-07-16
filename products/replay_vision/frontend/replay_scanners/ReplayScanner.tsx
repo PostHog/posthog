@@ -87,7 +87,7 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                         <AccessControlAction
                             resourceType={AccessControlResourceType.ReplayScanner}
                             minAccessLevel={AccessControlLevel.Editor}
-                            userAccessLevel={scanner.user_access_level}
+                            userAccessLevel={scanner.user_access_level ?? undefined}
                         >
                             <LemonButton
                                 type="primary"

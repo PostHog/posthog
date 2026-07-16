@@ -92,7 +92,7 @@ export function ReplayScannersScene(): JSX.Element {
                     <AccessControlAction
                         resourceType={AccessControlResourceType.ReplayScanner}
                         minAccessLevel={AccessControlLevel.Editor}
-                        userAccessLevel={scanner.user_access_level}
+                        userAccessLevel={scanner.user_access_level ?? undefined}
                     >
                         <LemonSwitch
                             checked={scanner.enabled}
@@ -146,7 +146,7 @@ export function ReplayScannersScene(): JSX.Element {
                     <AccessControlAction
                         resourceType={AccessControlResourceType.ReplayScanner}
                         minAccessLevel={AccessControlLevel.Editor}
-                        userAccessLevel={scanner.user_access_level}
+                        userAccessLevel={scanner.user_access_level ?? undefined}
                     >
                         <LemonButton
                             size="small"
@@ -161,7 +161,7 @@ export function ReplayScannersScene(): JSX.Element {
                     <AccessControlAction
                         resourceType={AccessControlResourceType.ReplayScanner}
                         minAccessLevel={AccessControlLevel.Editor}
-                        userAccessLevel={scanner.user_access_level}
+                        userAccessLevel={scanner.user_access_level ?? undefined}
                     >
                         <LemonButton
                             size="small"

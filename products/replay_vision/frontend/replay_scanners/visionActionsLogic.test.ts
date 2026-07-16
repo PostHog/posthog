@@ -20,6 +20,7 @@ const action = (id: string, enabled = true): VisionActionApi => ({
     created_at: '2026-01-01T00:00:00Z',
     created_by: null,
     updated_at: '2026-01-01T00:00:00Z',
+    user_access_level: 'editor',
 })
 
 describe('visionActionsLogic', () => {
