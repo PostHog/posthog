@@ -36,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MailerSendSource(ResumableSource[MailerSendSourceConfig, MailerSendResumeConfig]):
+    api_docs_url = "https://developers.mailersend.com/api/v1/"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.MAILERSEND
