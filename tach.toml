@@ -238,6 +238,7 @@ depends_on = [
     "products.feature_flags",
     "products.logs",
     "products.mcp_analytics",
+    "products.notifications",
     "products.product_analytics",
     "products.surveys",
 ]
