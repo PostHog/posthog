@@ -529,6 +529,8 @@ class TestDrainExternalSignals:
             lambda patch_id: (
                 persist_patch_enabled
                 if patch_id == task_management_workflow_module._PATCH_ID_PERSIST_REPLACEMENT_BUDGET
+                else False
+                if patch_id == task_management_workflow_module._PATCH_ID_DURABLE_REPLACEMENT_BUDGET_PERSISTENCE
                 else True
             ),
         )
@@ -542,7 +544,7 @@ class TestDrainExternalSignals:
             PendingExternalFollowup(message="park me", artifact_ids=[], source="user")
         ]
 
-    async def test_replacement_budget_keeps_running_when_queue_cannot_be_persisted(
+    async def test_replacement_budget_retries_only_persistence_when_storage_is_unavailable(
         self, monkeypatch, silent_workflow_logger
     ):
         workflow = TaskManagementWorkflow()
@@ -554,25 +556,87 @@ class TestDrainExternalSignals:
             PendingExternalFollowup(message="keep trying", artifact_ids=[], source="user")
         )
 
-        persist_mock = AsyncMock(return_value=False)
+        retry_policies = []
+
+        async def fail_persistence(_activity, _input, **kwargs):
+            retry_policies.append(kwargs["retry_policy"])
+            raise RuntimeError("storage unavailable")
+
         sleep_mock = AsyncMock()
-
-        async def mark_replacement_alive() -> None:
-            workflow._sandbox_alive = True
-
-        bootstrap_mock = AsyncMock(side_effect=mark_replacement_alive)
+        bootstrap_mock = AsyncMock()
         signal_mock = AsyncMock(return_value=True)
-        monkeypatch.setattr(workflow, "_persist_pending_followups", persist_mock)
+        monkeypatch.setattr(task_management_workflow_module.workflow, "execute_activity", fail_persistence)
         monkeypatch.setattr(task_management_workflow_module.workflow, "sleep", sleep_mock)
         monkeypatch.setattr(workflow, "_ensure_sandbox_workflow_started", bootstrap_mock)
         monkeypatch.setattr(workflow, "_signal_child_followup", signal_mock)
 
-        await workflow._drain_external_signals()
+        with pytest.raises(RuntimeError, match="storage unavailable"):
+            await workflow._drain_external_signals()
 
-        persist_mock.assert_awaited()
-        sleep_mock.assert_awaited_once()
-        bootstrap_mock.assert_awaited_once()
-        signal_mock.assert_awaited_once()
+        assert len(retry_policies) == 1
+        assert retry_policies[0].maximum_attempts == 0
+        sleep_mock.assert_not_awaited()
+        bootstrap_mock.assert_not_awaited()
+        signal_mock.assert_not_awaited()
+
+    async def test_replacement_budget_persists_followups_arriving_during_terminal_snapshot(
+        self, monkeypatch, silent_workflow_logger
+    ):
+        workflow = TaskManagementWorkflow()
+        workflow._run_id = "run-id"
+        workflow._sandbox_workflow_id = "sandbox-wf"
+        workflow._sandbox_alive = False
+        workflow._consecutive_sandbox_replacement_failures = MAX_CONSECUTIVE_SANDBOX_REPLACEMENT_FAILURES
+        workflow._pending_external_followups.append(
+            PendingExternalFollowup(message="first", artifact_ids=[], source="user", sequence=1)
+        )
+
+        persisted_payloads: list[list[dict]] = []
+
+        async def capture_persistence(_activity, input_arg, **_kwargs):
+            persisted_payloads.append(input_arg.followups)
+            if len(persisted_payloads) == 1:
+                workflow._pending_external_followups.append(
+                    PendingExternalFollowup(
+                        message="arrived during persist", artifact_ids=[], source="user", sequence=2
+                    )
+                )
+
+        bootstrap_mock = AsyncMock()
+        monkeypatch.setattr(task_management_workflow_module.workflow, "execute_activity", capture_persistence)
+        monkeypatch.setattr(workflow, "_ensure_sandbox_workflow_started", bootstrap_mock)
+
+        with pytest.raises(RuntimeError, match="before acknowledging a follow-up"):
+            await workflow._drain_external_signals()
+
+        assert persisted_payloads == [
+            [
+                {
+                    "message": "first",
+                    "artifact_ids": [],
+                    "source": "user",
+                    "steer": False,
+                    "sequence": 1,
+                }
+            ],
+            [
+                {
+                    "message": "first",
+                    "artifact_ids": [],
+                    "source": "user",
+                    "steer": False,
+                    "sequence": 1,
+                },
+                {
+                    "message": "arrived during persist",
+                    "artifact_ids": [],
+                    "source": "user",
+                    "steer": False,
+                    "sequence": 2,
+                },
+            ],
+        ]
+        bootstrap_mock.assert_not_awaited()
 
     async def test_closed_child_clears_all_steers_and_rebootstraps_in_order(
         self, monkeypatch, fixed_now, silent_workflow_logger

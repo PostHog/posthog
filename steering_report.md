@@ -11,7 +11,7 @@ The implementation is split across:
 - PostHog backend branch: `posthog-code/cloud-run-steering`
 - PostHog Code branch: `posthog-code/cloud-run-steering-agent`
 
-The latest fixes patch-gate closed-child recovery for existing Temporal histories, clear all stale steer intent at sandbox boundaries, bound repeated replacement attempts, and reconcile resumed transcripts by ordered prompt occurrence instead of global prompt identity.
+The latest fixes durably park every admitted follow-up at replacement-budget exhaustion, stop provisioning replacement sandboxes while persistence is unavailable, and reconcile promptless resumed tails within the current leaf using the actual overlap position.
 
 ## What the feature does
 
@@ -368,11 +368,13 @@ The combined regression covers:
 
 ### Replacement exhaustion persists the complete pending queue
 
-New task-management histories persist the current in-memory follow-up queue before failing at the five-attempt sandbox replacement boundary.
+New task-management histories repeatedly persist the current in-memory follow-up queue before failing at the five-attempt sandbox replacement boundary.
 
-This includes messages that arrived after the last successful queue snapshot. The workflow raises only after persistence succeeds. If persistence fails, it keeps the queue in memory, waits with the existing deterministic backoff, and continues replacement recovery instead of claiming the messages are safely parked.
+After each successful persistence activity, the workflow compares the written payload with the current queue. If another signal arrived during the activity, it writes the expanded queue again. The workflow raises only when the completed write still matches the in-memory queue, so a follow-up admitted during the terminal snapshot cannot be lost.
 
-The behavior is selected with a Temporal patch so existing histories retain their recorded command sequence. Regressions cover both replay paths and the persistence-failure recovery path.
+Persistence uses Temporal activity retries with no attempt limit. A storage outage therefore retries only the durable write. It does not sleep in the workflow or provision another sandbox, which prevents unlimited replacement creation and workflow timer history growth after the recovery budget is exhausted.
+
+The behavior is selected with a Temporal patch so existing histories retain their recorded command sequence. Regressions cover the replay-gated legacy path, persistence failure without replacement work, and a signal arriving during the first terminal snapshot.
 
 ### Accepted acknowledgements reset the replacement failure budget first
 
@@ -384,11 +386,21 @@ This ordering change is independently replay-gated. The regression verifies that
 
 ### Promptless live tails cannot align with an ancestor turn
 
-Promptless live events are reconciled only against the immediate remaining hydrated suffix turn. They never search backward across earlier prompt or run occurrences for an identical completion or response payload.
+Promptless live events first compare with the newest hydrated turn. If that turn does not overlap, reconciliation can search backward only within the current leaf run and only using a strong `session/update` overlap anchor. It never crosses a task-run boundary to match an ancestor response or completion.
 
-Repeated prompt occurrences are pre-indexed by prompt identity and task run. Event keys are cached once per turn. Prompt-bearing lookup is logarithmic in the number of matching occurrences, while promptless reconciliation inspects only one scoped candidate.
+This removes a stale response/completion tail from an earlier leaf turn instead of appending it after a newer prompt-only turn. A completion-only current tail without an overlap remains present and cannot be consumed by an ancestor.
 
-The regression covers hydrated ancestor prompt and completion followed by the current prompt, with a live promptless completion identical to the ancestor. The current completion remains present and the current prompt can terminalize normally.
+### Post-tool assistant responses keep their turn position
+
+When a promptless live tail overlaps a hydrated tool boundary, reconciliation derives the live assistant-message position offset from the matched hydrated and live event indexes.
+
+A new response after the tool therefore receives the next message position. It cannot be mistaken for the already persisted pre-tool response and discarded while its completion remains.
+
+### Hydration matching uses compact verified keys
+
+Hydration turns store numeric structural hashes instead of complete serialized message copies. Hash candidates are verified with exact structural equality before matching, so collision safety is preserved while large transcript messages are not retained a second time as strings.
+
+Repeated prompt occurrences remain pre-indexed by prompt identity and task run. Candidate lookup is logarithmic in the number of matching prompts, and exact event matching uses the compact hash indexes.
 
 ## Automated validation
 
@@ -396,9 +408,10 @@ Latest validation:
 
 - Backend `process_task` workflow suite: 48 passed.
 - Backend `execute_sandbox` workflow suite: 62 passed.
-- Backend `task_management` workflow suite: 74 passed.
+- Backend `task_management` workflow suite: 75 passed.
 - Backend `task_management` activity suite: 16 passed.
 - Focused PostHog Code session host suite: 143 passed.
+- PostHog Code `@posthog/core` suite: 2,227 passed across 207 files.
 - PostHog Code UI suite: 1,524 passed across 172 files.
 - PostHog Code `@posthog/core` and `@posthog/ui` typechecks passed.
 - Ruff, Python compilation, Biome, and diff checks passed for the changed files.
@@ -419,6 +432,26 @@ The running local backend and PostHog Code desktop app were tested after a full 
 Earlier validation across the branch also covered the full UI and agent packages, OpenAPI generation, Python compilation, shared and agent typechecks, and the focused Temporal, activity, client, adapter, and app-server suites.
 
 ## Live cloud-run verification
+
+### Durable persistence and promptless post-tool reconciliation verification
+
+- Task: `72e75e0f-fee4-4802-94cc-f52b619a3136`
+- Initial run: `378a29a4-6c2c-4912-9217-1d77bdf87fd2`
+- Resumed run: `c9b13cc6-5041-453e-a1ab-8f6e7a1d87f7`
+
+The current backend, Temporal worker, configured tunnels, LLM gateway, and PostHog Code Electron app were tested after a full main-process restart.
+
+Verified:
+
+- The fresh run returned `FRESH716TAILFIX` exactly once in the response and once in the echoed prompt.
+- A normal follow-up started a 30-second terminal command. While it was active, the visible cloud control was switched from Queue to Steer.
+- The accepted `STEER716TAILFIX` instruction returned exactly once after the real tool boundary. The superseded `OLD716TAILFIX` instruction remained only as its original prompt, proving the post-tool assistant response was neither discarded nor duplicated.
+- The initial run was completed before the resume prompt was sent. Database state confirmed the second run linked to the first through `state.resume_from_run_id`.
+- The resumed run returned `RESUME716TAILFIX` exactly once.
+- A full Electron restart and task reopen retained the complete transcript, one restored-sandbox boundary, no pending prompt, and no error.
+- A new live prompt after cold hydration returned `POSTCOLD716TAILFIX` exactly once, proving the resumed leaf watcher continued from the correct cursor.
+- Both runs reached `completed` and retained distinct snapshot IDs.
+- The backend and LLM gateway tunnels remained healthy throughout. No tunnel restart was required.
 
 ### Replacement budget and promptless leaf completion verification
 

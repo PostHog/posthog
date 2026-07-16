@@ -76,6 +76,7 @@ _PATCH_ID_CLEAR_STEER_ON_SANDBOX_BOUNDARY = "tasks-task-management-clear-steer-o
 _PATCH_ID_BOUNDED_SANDBOX_REPLACEMENT_RECOVERY = "tasks-task-management-bounded-sandbox-replacement-recovery"
 _PATCH_ID_PERSIST_REPLACEMENT_BUDGET = "tasks-task-management-persist-replacement-budget"
 _PATCH_ID_ACCEPTED_ACK_RESETS_REPLACEMENT_BUDGET = "tasks-task-management-accepted-ack-resets-replacement-budget"
+_PATCH_ID_DURABLE_REPLACEMENT_BUDGET_PERSISTENCE = "tasks-task-management-durable-replacement-budget-persistence"
 _CHILD_SIGNAL_TERMINAL_ERROR_TYPES = {
     "ExternalWorkflowExecutionNotFound",
     "NamespaceNotFound",
@@ -693,6 +694,11 @@ class TaskManagementWorkflow(PostHogWorkflow):
             return
         failures = self._consecutive_sandbox_replacement_failures
         if failures >= MAX_CONSECUTIVE_SANDBOX_REPLACEMENT_FAILURES:
+            if _patch_enabled(_PATCH_ID_DURABLE_REPLACEMENT_BUDGET_PERSISTENCE):
+                await self._persist_pending_followups_until_stable()
+                raise RuntimeError(
+                    f"Sandbox replacement failed {failures} consecutive times before acknowledging a follow-up"
+                )
             if not _patch_enabled(_PATCH_ID_PERSIST_REPLACEMENT_BUDGET):
                 raise RuntimeError(
                     f"Sandbox replacement failed {failures} consecutive times before acknowledging a follow-up"
@@ -904,6 +910,29 @@ class TaskManagementWorkflow(PostHogWorkflow):
                 error=str(e),
             )
             return False
+
+    async def _persist_pending_followups_until_stable(self) -> None:
+        """Durably park the complete queue before exhausting recovery.
+
+        Signals can append follow-ups while the persistence activity is
+        running. Keep writing snapshots until the completed write still
+        matches the in-memory queue. Unlimited activity retries keep storage
+        recovery server-side without provisioning more sandboxes or adding a
+        workflow timer for every failed attempt.
+        """
+        if self._run_id is None:
+            raise RuntimeError("Cannot persist pending follow-ups without a run id")
+        while True:
+            payload = [asdict(followup) for followup in self._pending_external_followups]
+            await workflow.execute_activity(
+                persist_pending_followups,
+                PersistPendingFollowupsInput(run_id=self._run_id, followups=payload),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=0),
+            )
+            self._last_persisted_followups = payload
+            if payload == [asdict(followup) for followup in self._pending_external_followups]:
+                return
 
     # ------------------------------------------------------------------
     # Sandbox workflow management
