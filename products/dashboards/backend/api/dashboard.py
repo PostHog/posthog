@@ -69,7 +69,7 @@ from posthog.helpers.trigram_search import (
     apply_trigram_search,
     drop_similar_when_exact_exists,
 )
-from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.hogql_queries.query_runner import execution_mode_from_refresh
 from posthog.models.file_system.constants import DEFAULT_SURFACE, surface_q
 from posthog.models.file_system.file_system import FileSystem, create_or_update_file, delete_file, join_path, split_path
 from posthog.models.quick_filter import QuickFilter
@@ -876,24 +876,25 @@ class RunInsightsResponseSerializer(serializers.Serializer):
     )
 
 
-RUN_INSIGHTS_REFRESH_EXECUTION_MODES: dict[str, ExecutionMode] = {
-    "false": ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
-    "true": ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-    "force_cache": ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
-    "async": ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
-    "async_except_on_cache_miss": ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
-    "blocking": ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-    "force_blocking": ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-}
+RUN_INSIGHTS_REFRESH_MODES = (
+    "false",
+    "true",
+    "force_cache",
+    "async",
+    "async_except_on_cache_miss",
+    "blocking",
+    "force_blocking",
+)
 
 
 class RunInsightsQuerySerializer(serializers.Serializer):
     refresh = serializers.ChoiceField(
-        choices=list(RUN_INSIGHTS_REFRESH_EXECUTION_MODES),
-        default="async",
+        choices=RUN_INSIGHTS_REFRESH_MODES,
+        default="force_cache",
         help_text=(
-            "Cache behavior. By default, recent cached results are returned and missing or stale results are "
-            "calculated asynchronously. 'false' and 'force_cache' serve only cached results. "
+            "Cache behavior. By default, only cached results are served. 'false' and 'force_cache' serve only "
+            "cached results. 'async' returns recent cached results and calculates missing or stale results "
+            "asynchronously. "
             "'async_except_on_cache_miss' refreshes stale results asynchronously but calculates cache misses "
             "synchronously. 'blocking' uses cache if fresh, otherwise recalculates. 'true' and 'force_blocking' "
             "always recalculate synchronously."
@@ -2827,8 +2828,7 @@ class DashboardsViewSet(
         query_serializer.is_valid(raise_exception=True)
         output_format = query_serializer.validated_data["output_format"]
 
-        refresh = query_serializer.validated_data["refresh"]
-        execution_mode = RUN_INSIGHTS_REFRESH_EXECUTION_MODES[refresh]
+        execution_mode = execution_mode_from_refresh(query_serializer.validated_data["refresh"])
 
         access_method = dashboard_access_method(request)
         record_dashboard_access(access_method)
@@ -2836,7 +2836,7 @@ class DashboardsViewSet(
         context = self.get_serializer_context()
         context["dashboard"] = dashboard
         context["dashboard_access_method"] = access_method
-        context["default_execution_mode"] = execution_mode
+        context["execution_mode"] = execution_mode
         # _format_insight_for_llm consumes results as Python data, so raw cached
         # result bytes (orjson.Fragment) must not be used here.
         context["require_parsed_results"] = True

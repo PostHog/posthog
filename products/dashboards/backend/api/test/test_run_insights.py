@@ -62,7 +62,7 @@ class TestDashboardRunInsights(APIBaseTest):
             (
                 "default",
                 None,
-                ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+                ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
             ),
             ("false", "false", ExecutionMode.CACHE_ONLY_NEVER_CALCULATE),
             ("force_cache", "force_cache", ExecutionMode.CACHE_ONLY_NEVER_CALCULATE),

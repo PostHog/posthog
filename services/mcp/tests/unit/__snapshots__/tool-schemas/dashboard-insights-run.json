@@ -27,8 +27,8 @@
             "type": "string"
         },
         "refresh": {
-            "default": "async",
-            "description": "Cache behavior. By default, recent cached results are returned and missing or stale results are calculated asynchronously. 'false' and 'force_cache' serve only cached results. 'async_except_on_cache_miss' refreshes stale results asynchronously but calculates cache misses synchronously. 'blocking' uses cache if fresh, otherwise recalculates. 'true' and 'force_blocking' always recalculate synchronously.\n\n* `false` - false\n* `true` - true\n* `force_cache` - force_cache\n* `async` - async\n* `async_except_on_cache_miss` - async_except_on_cache_miss\n* `blocking` - blocking\n* `force_blocking` - force_blocking",
+            "default": "force_cache",
+            "description": "Cache behavior. By default, only cached results are served. 'false' and 'force_cache' serve only cached results. 'async' returns recent cached results and calculates missing or stale results asynchronously. 'async_except_on_cache_miss' refreshes stale results asynchronously but calculates cache misses synchronously. 'blocking' uses cache if fresh, otherwise recalculates. 'true' and 'force_blocking' always recalculate synchronously.\n\n* `false` - false\n* `true` - true\n* `force_cache` - force_cache\n* `async` - async\n* `async_except_on_cache_miss` - async_except_on_cache_miss\n* `blocking` - blocking\n* `force_blocking` - force_blocking",
             "enum": [
                 "false",
                 "true",

@@ -9410,7 +9410,7 @@ export type DashboardsRunInsightsRetrieveParams = {
      */
     output_format?: DashboardsRunInsightsRetrieveOutputFormat
     /**
-     * Cache behavior. By default, recent cached results are returned and missing or stale results are calculated asynchronously. 'false' and 'force_cache' serve only cached results. 'async_except_on_cache_miss' refreshes stale results asynchronously but calculates cache misses synchronously. 'blocking' uses cache if fresh, otherwise recalculates. 'true' and 'force_blocking' always recalculate synchronously.
+     * Cache behavior. By default, only cached results are served. 'false' and 'force_cache' serve only cached results. 'async' returns recent cached results and calculates missing or stale results asynchronously. 'async_except_on_cache_miss' refreshes stale results asynchronously but calculates cache misses synchronously. 'blocking' uses cache if fresh, otherwise recalculates. 'true' and 'force_blocking' always recalculate synchronously.
      *
      * * `false` - false
      * * `true` - true

@@ -1035,7 +1035,7 @@ export const DashboardsRunInsightsRetrieveParams = /* @__PURE__ */ zod.object({
 })
 
 export const dashboardsRunInsightsRetrieveQueryOutputFormatDefault = `optimized`
-export const dashboardsRunInsightsRetrieveQueryRefreshDefault = `async`
+export const dashboardsRunInsightsRetrieveQueryRefreshDefault = `force_cache`
 
 export const DashboardsRunInsightsRetrieveQueryParams = /* @__PURE__ */ zod.object({
     filters_override: zod
@@ -1055,7 +1055,7 @@ export const DashboardsRunInsightsRetrieveQueryParams = /* @__PURE__ */ zod.obje
         .enum(['false', 'true', 'force_cache', 'async', 'async_except_on_cache_miss', 'blocking', 'force_blocking'])
         .default(dashboardsRunInsightsRetrieveQueryRefreshDefault)
         .describe(
-            "Cache behavior. By default, recent cached results are returned and missing or stale results are calculated asynchronously. 'false' and 'force_cache' serve only cached results. 'async_except_on_cache_miss' refreshes stale results asynchronously but calculates cache misses synchronously. 'blocking' uses cache if fresh, otherwise recalculates. 'true' and 'force_blocking' always recalculate synchronously.\n\n* `false` - false\n* `true` - true\n* `force_cache` - force_cache\n* `async` - async\n* `async_except_on_cache_miss` - async_except_on_cache_miss\n* `blocking` - blocking\n* `force_blocking` - force_blocking"
+            "Cache behavior. By default, only cached results are served. 'false' and 'force_cache' serve only cached results. 'async' returns recent cached results and calculates missing or stale results asynchronously. 'async_except_on_cache_miss' refreshes stale results asynchronously but calculates cache misses synchronously. 'blocking' uses cache if fresh, otherwise recalculates. 'true' and 'force_blocking' always recalculate synchronously.\n\n* `false` - false\n* `true` - true\n* `force_cache` - force_cache\n* `async` - async\n* `async_except_on_cache_miss` - async_except_on_cache_miss\n* `blocking` - blocking\n* `force_blocking` - force_blocking"
         ),
     variables_override: zod
         .string()
