@@ -78,6 +78,10 @@ export function httpTransportClaim(
                 (p) => p.id === revision.spec.authoritative_provider
             )
             const bearerIsProviderCredential = authoritative?.kind === 'posthog'
+            // `subjectId` (the PostHog user UUID) must equal the subject the
+            // provider's userinfo proves for this bearer — the transport row
+            // keys on the former, the canonical row on the latter, and
+            // admission assumes they name the same person for `kind: posthog`.
             return {
                 transport: 'posthog',
                 subjectId: principal.user_id,

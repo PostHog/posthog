@@ -312,6 +312,26 @@ describe('verifyBearer (per-request identity proof)', () => {
         expect(await provider.verifyBearer!('revoked-token')).toBeNull()
     })
 
+    // Only the provider's judgement on the token (401/403) may read as invalid.
+    // Anything that prevented a judgement must throw — a brownout swallowed
+    // into null would demand re-auth from every holder of a valid bearer.
+    it.each<[string, HttpFetcher]>([
+        ['userinfo answers 5xx', { fetch: async () => new Response('oops', { status: 503 }) }],
+        [
+            'userinfo is unreachable',
+            {
+                fetch: async () => {
+                    throw new Error('ECONNREFUSED')
+                },
+            },
+        ],
+    ])('%s → verifyBearer throws unavailable, never reads as an invalid token', async (_label, http) => {
+        const provider = posthogProvider(http, stores())
+        await expect(provider.verifyBearer!('live-token')).rejects.toMatchObject({
+            name: 'IdentityProviderUnavailableError',
+        })
+    })
+
     it('is absent without a userinfo endpoint — a defined stub would force re-auth over the durable binding', async () => {
         const { links, credentials } = stores()
         const provider = new Oauth2AuthProvider({

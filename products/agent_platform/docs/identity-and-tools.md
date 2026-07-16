@@ -109,7 +109,10 @@ Resolution order (fail-closed — never enqueue on doubt):
 2. **Per-request bearer** the provider can `verifyBearer` (HTTP) → verified on
    every request, then upsert canonical + credential + binding. A
    present-but-invalid bearer goes straight to re-auth; a stored binding never
-   rescues a stale token (freshness wins).
+   rescues a stale token (freshness wins). Only the provider's judgement on the
+   token (userinfo 401/403) reads as invalid — userinfo being unreachable or
+   erroring is a provider failure: fail closed and retryable (chat answers 503),
+   never re-auth.
 3. **Durable binding** (Slack/Discord, where the proof is the prior link, not a
    token on this request) → admit, but only while the binding's provider still
    matches and its authoritative credential is still active; a

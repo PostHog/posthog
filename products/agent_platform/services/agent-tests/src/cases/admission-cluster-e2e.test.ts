@@ -447,6 +447,48 @@ maybeDescribe('edge admission e2e (chat/HTTP, authoritative provider, mocked inf
         expect(bindings).toHaveLength(1)
     })
 
+    it('chat (posthog): a userinfo brownout answers 503 retryable — never auth_required, nothing enqueued', async () => {
+        if (!ok) {
+            return
+        }
+        // Edge auth (the in-memory introspector) accepts the bearer; only the
+        // admission-side userinfo call browns out. Reverting the availability
+        // discrimination flips this case to 401 auth_required — a fake mass
+        // re-auth for a perfectly valid token.
+        const real = new HttpClient()
+        const brownoutHttp: { fetch: HttpClient['fetch'] } = {
+            fetch: (input, init) => {
+                const url = typeof input === 'string' ? input : input.toString()
+                if (url.includes('/oauth/userinfo')) {
+                    return Promise.resolve(new Response('upstream sad', { status: 503 }))
+                }
+                return real.fetch(input, init)
+            },
+        }
+        c = await buildCluster({
+            http: brownoutHttp,
+            authProvider: { verifiers: [posthogVerifier(posthogIntrospector, teamOrg)] },
+        })
+        await c.deployAgent({
+            slug: 'phbrownout',
+            spec: {
+                triggers: [{ type: 'chat', config: {} }],
+                auth: { modes: [{ type: 'posthog' }] },
+                authoritative_provider: 'posthog',
+                identity_providers: [{ kind: 'posthog', id: 'posthog', client_id: 'provisioned-client' }],
+            },
+        })
+        c.setScript([fauxText('must not run')])
+        const res = await request(c.ingress)
+            .post('/agents/phbrownout/run')
+            .set('Authorization', `Bearer ${PH_BEARER}`)
+            .send({ message: 'hi' })
+        expect(res.status).toBe(503)
+        expect(res.body.reason).toBe('authoritative_provider_unavailable')
+        expect(res.body.auth_required).toBeUndefined()
+        expect(res.body.session_id).toBeUndefined()
+    })
+
     it('chat (anonymous): a claim-less principal is refused outright — a public auth mode cannot void the gate', async () => {
         if (!ok) {
             return

@@ -85,7 +85,10 @@ async function admitChatPrincipal(ctx: AuthedRouteCtx<unknown>): Promise<Session
     }
     if (result.kind === 'error') {
         log.warn({ slug: resolved.application.slug, reason: result.reason }, 'chat_admission_error')
-        res.status(500).json({ error: 'admission_failed' })
+        // Provider unavailability (userinfo down/timeout) is retryable — the
+        // caller's token may be perfectly valid — so answer 503, not 500.
+        const status = result.reason === 'authoritative_provider_unavailable' ? 503 : 500
+        res.status(status).json({ error: 'admission_failed', reason: result.reason })
         return null
     }
     if (result.kind === 'admitted' && (ctx.principal.kind === 'posthog' || ctx.principal.kind === 'jwt')) {
