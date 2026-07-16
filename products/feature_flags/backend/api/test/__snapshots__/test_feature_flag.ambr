@@ -771,6 +771,7 @@
          "posthog_cohort"."is_static",
          "posthog_cohort"."kind",
          "posthog_cohort"."cohort_type",
+         "posthog_cohort"."condition_type",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
   INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
@@ -1143,6 +1144,7 @@
          "posthog_cohort"."is_static",
          "posthog_cohort"."kind",
          "posthog_cohort"."cohort_type",
+         "posthog_cohort"."condition_type",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
   WHERE "posthog_cohort"."id" = 99999

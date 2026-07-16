@@ -4,7 +4,6 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
 import { NotebookListItemType, NotebookNodeResource, NotebookNodeType } from '../types'
-
 export const NOTEBOOK_DROPDOWN_LIMIT = 50
 
 export interface NotebookSelectButtonLogicProps {

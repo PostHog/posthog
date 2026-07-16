@@ -6,6 +6,7 @@ from parameterized import parameterized
 
 from posthog.schema import (
     DashboardFilter,
+    DataWarehouseNode,
     EventsNode,
     FunnelsQuery,
     IntervalType,
@@ -18,6 +19,10 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from posthog.hogql_queries.apply_dashboard_filters import (
+    apply_dashboard_filters_to_dict,
+    resolve_effective_dashboard_filters,
+)
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.insights.lifecycle.lifecycle_query_runner import LifecycleQueryRunner
 from posthog.hogql_queries.insights.retention.retention_query_runner import RetentionQueryRunner
@@ -129,3 +134,28 @@ class TestDashboardFiltersTestAccountsOverride(BaseTest):
         runner.apply_dashboard_filters(DashboardFilter())
 
         assert runner.query.filterTestAccounts is True
+
+
+class TestDashboardPropertyOverrides(BaseTest):
+    def test_warehouse_insight_property_is_kept_when_dashboard_properties_are_ignored(self) -> None:
+        insight_property = {"key": "region", "value": "US", "operator": "exact", "type": "data_warehouse"}
+        dashboard_property = {"key": "region", "value": "EU", "operator": "exact", "type": "data_warehouse"}
+        query = TrendsQuery(
+            series=[
+                DataWarehouseNode(
+                    id="warehouse_table",
+                    id_field="id",
+                    distinct_id_field="distinct_id",
+                    table_name="warehouse_table",
+                    timestamp_field="timestamp",
+                    properties=[insight_property],
+                )
+            ]
+        ).model_dump()
+
+        query, effective_filters = resolve_effective_dashboard_filters(
+            query, {"properties": [dashboard_property]}, None
+        )
+        result = apply_dashboard_filters_to_dict(query, effective_filters, self.team)
+
+        assert [prop["value"] for prop in result["series"][0]["properties"]] == ["US"]

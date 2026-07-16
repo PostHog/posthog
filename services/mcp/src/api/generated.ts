@@ -2030,6 +2030,26 @@ export namespace Schemas {
       value?: string | string[] | null;
     }
 
+    export type ActivityEventsPropertyFilterType = typeof ActivityEventsPropertyFilterType[keyof typeof ActivityEventsPropertyFilterType];
+
+
+    export const ActivityEventsPropertyFilterType = {
+      Event: 'event',
+      Person: 'person',
+    } as const;
+
+    export interface ActivityEventsPropertyFilter {
+      /**
+         * @minLength 1
+         * @maxLength 400
+         */
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type: ActivityEventsPropertyFilterType;
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
     export type ActivityEventsListWidgetConfigWidgetFilters = {[key: string]: WidgetFilterEntry} | null;
 
     export interface ActivityEventsListWidgetConfig {
@@ -2044,6 +2064,8 @@ export namespace Schemas {
       limit?: number;
       /** Limit the feed to a single event name. Omit or null for all events. */
       eventName?: string | null;
+      /** Event and person property filters, matching Activity > Explore events. */
+      properties?: ActivityEventsPropertyFilter[] | null;
     }
 
     export interface ActivityEventsListWidgetAddRequestOpenApi {
@@ -5494,6 +5516,7 @@ export namespace Schemas {
       Postgresql: 'postgresql',
       AwsS3: 'aws-s3',
       S3Compatible: 's3-compatible',
+      Snowflake: 'snowflake',
     } as const;
 
     export interface ErrorTrackingExternalReferenceIntegration {
@@ -7720,6 +7743,27 @@ export namespace Schemas {
       Number37: 37,
     } as const;
 
+    export interface DashboardFilter {
+      breakdown_filter?: BreakdownFilter | null;
+      date_from?: string | null;
+      date_to?: string | null;
+      explicitDate?: boolean | null;
+      /** Tri-state test-account override. Null/absent = inherit; true = force on; false = force off. */
+      filterTestAccounts?: boolean | null;
+      /** Time granularity forced onto every insight that supports one. Absent/null = inherit. */
+      interval?: IntervalType | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+    }
+
+    export interface InsightFilterOverrideContext {
+      /** Dashboard filters that remain active after applying tile precedence. */
+      dashboard?: DashboardFilter | null;
+      /** Tile filters applied above the dashboard filters. */
+      tile?: DashboardFilter | null;
+      /** Dashboard filters replaced by the tile filters. */
+      overridden_dashboard?: DashboardFilter | null;
+    }
+
     export type SearchMatchTypeEnum = typeof SearchMatchTypeEnum[keyof typeof SearchMatchTypeEnum];
 
 
@@ -7833,6 +7877,8 @@ export namespace Schemas {
       readonly resolved_date_range: InsightResolvedDateRange;
       _create_in_folder?: string;
       readonly alerts: readonly unknown[];
+      /** Resolved dashboard and tile filter layers used to explain filter precedence in the UI. */
+      readonly filter_override_context: InsightFilterOverrideContext | null;
       /** @nullable */
       readonly last_viewed_at: string | null;
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
@@ -9525,6 +9571,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `above` - At or above
+     * * `below` - At or below
+     */
+    export type VisionAlertDirectionEnum = typeof VisionAlertDirectionEnum[keyof typeof VisionAlertDirectionEnum];
+
+
+    export const VisionAlertDirectionEnum = {
+      Above: 'above',
+      Below: 'below',
+    } as const;
+
+    /**
      * * `1` - 1 day
      * * `3` - 3 days
      * * `7` - 7 days
@@ -9558,8 +9616,13 @@ export namespace Schemas {
        * * `count` - Count of matching observations
        * * `avg_score` - Average score */
       metric?: VisionAlertMetricEnum;
-      /** The alert fires when the metric is at or above this value. Required for on_breach; ignored for every_match. */
+      /** The alert fires when the metric is at or above ('above') or at or below ('below') this value, per 'direction'. Required for on_breach; ignored for every_match. */
       threshold?: number;
+      /** Which side of the threshold breaches: 'above' fires when the metric is at or above it, 'below' when at or below (e.g. an average score dropping under a floor). Both inclusive. Defaults to 'above'; ignored for every_match.
+       *
+       * * `above` - At or above
+       * * `below` - At or below */
+      direction?: VisionAlertDirectionEnum;
       /** Rolling lookback window for on_breach conditions, ending at each check. Defaults to 1 day. every_match ignores it (each check covers what's new since the previous one).
        *
        * * `1` - 1 day
@@ -9650,6 +9713,20 @@ export namespace Schemas {
       Generation: 'generation',
       Evaluation: 'evaluation',
     } as const;
+
+    export interface AnalyticsAnomalyInvestigationSignalExtra {
+      alert_id: string;
+      alert_name: string;
+      alert_check_id: string;
+      insight_id: string;
+      detector_type: string;
+      verdict: InvestigationVerdictEnum;
+      url: string;
+      insight_name?: string | null;
+      insight_short_id?: string | null;
+      triggered_dates?: string[] | null;
+      notebook_short_id?: string | null;
+    }
 
     /**
      * * `USR` - user
@@ -13401,6 +13478,45 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `http` - http
+     * * `sse` - sse
+     */
+    export type ImportedMcpServerTypeEnum = typeof ImportedMcpServerTypeEnum[keyof typeof ImportedMcpServerTypeEnum];
+
+
+    export const ImportedMcpServerTypeEnum = {
+      Http: 'http',
+      Sse: 'sse',
+    } as const;
+
+    export interface ImportedMcpServerHeader {
+      /** @maxLength 256 */
+      name: string;
+      /** @maxLength 4096 */
+      value: string;
+    }
+
+    /**
+     * One client-imported MCP server, in the agent server's --mcpServers entry shape.
+     */
+    export interface ImportedMcpServer {
+      type: ImportedMcpServerTypeEnum;
+      /** @maxLength 64 */
+      name: string;
+      /** @maxLength 2048 */
+      url: string;
+      headers?: ImportedMcpServerHeader[];
+    }
+
+    /**
+     * One desktop-only MCP server relayed into the run — a name only, never configuration.
+     */
+    export interface RelayedMcpServer {
+      /** @maxLength 64 */
+      name: string;
+    }
+
+    /**
      * * `interactive` - interactive
      * * `background` - background
      */
@@ -13476,6 +13592,16 @@ export namespace Schemas {
      * Request body for creating a new task run
      */
     export interface ClaudeTaskRunCreateSchema {
+      /**
+         * Local url-based MCP servers from the creating client (PostHog Code) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.
+         * @nullable
+         */
+      imported_mcp_servers?: ImportedMcpServer[] | null;
+      /**
+         * Names of desktop-only MCP servers the creating client (PostHog Code) relays into the cloud sandbox over the durable event/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.
+         * @nullable
+         */
+      relayed_mcp_servers?: RelayedMcpServer[] | null;
       /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
        *
        * * `interactive` - interactive
@@ -13837,6 +13963,16 @@ export namespace Schemas {
      * Request body for creating a new task run
      */
     export interface CodexTaskRunCreateSchema {
+      /**
+         * Local url-based MCP servers from the creating client (PostHog Code) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.
+         * @nullable
+         */
+      imported_mcp_servers?: ImportedMcpServer[] | null;
+      /**
+         * Names of desktop-only MCP servers the creating client (PostHog Code) relays into the cloud sandbox over the durable event/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.
+         * @nullable
+         */
+      relayed_mcp_servers?: RelayedMcpServer[] | null;
       /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
        *
        * * `interactive` - interactive
@@ -13982,6 +14118,17 @@ export namespace Schemas {
       Analytical: 'analytical',
     } as const;
 
+    export interface CohortConditionTypeFlags {
+      /** The filters include a person property or person_metadata condition. */
+      person_properties: boolean;
+      /** The filters include a behavioral condition that is not lifecycle-style (e.g. performed_event, performed_event_multiple, performed_event_sequence, or their negations). */
+      behavioral: boolean;
+      /** The filters include a lifecycle-style behavioral condition (first-seen/regularly/stopped/restarted performing an event). */
+      lifecycle: boolean;
+      /** The filters include a nested reference to another cohort. */
+      cohorts: boolean;
+    }
+
     export interface Cohort {
       readonly id: number;
       /**
@@ -14021,6 +14168,8 @@ export namespace Schemas {
        * * `realtime` - realtime
        * * `analytical` - analytical */
       cohort_type?: CohortTypeEnum | BlankEnum | null;
+      /** Flags describing which kinds of conditions the cohort's filters contain. Null when the cohort has no filters to classify. */
+      readonly condition_type: CohortConditionTypeFlags | null;
       readonly experiment_set: readonly number[];
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
       readonly search_match_type: SearchMatchTypeEnum | null;
@@ -14640,6 +14789,34 @@ export namespace Schemas {
       name?: string;
     }
 
+    export interface CopyFlagsDependencyRequirementsRequest {
+      /** Key of the feature flag to check */
+      feature_flag_key: string;
+      /** Source project ID to copy the flag from */
+      from_project: number;
+      /**
+         * List of target project IDs to check dependency copy eligibility for
+         * @minItems 1
+         * @maxItems 50
+         */
+      target_project_ids: number[];
+    }
+
+    export interface CopyFlagsDependencyRequirementsResponse {
+      /** Whether dependencies can be automatically copied */
+      can_copy_dependencies: boolean;
+      /** Total number of transitive source dependency flags */
+      dependency_count: number;
+      /** Dependency flag keys that would be copied because they are missing from a target project */
+      copied_dependency_keys: string[];
+      /** Dependency flag keys that already have an active same-key flag in every target project */
+      reused_dependency_keys: string[];
+      /** Reasons dependency copying is unavailable or needs user attention */
+      warnings: string[];
+      /** Primary human-readable eligibility result */
+      reason: string;
+    }
+
     export interface CopyFlagsRequest {
       /** Key of the feature flag to copy */
       feature_flag_key: string;
@@ -14647,6 +14824,7 @@ export namespace Schemas {
       from_project: number;
       /**
          * List of target project IDs to copy the flag to
+         * @minItems 1
          * @maxItems 50
          */
       target_project_ids: number[];
@@ -14654,6 +14832,8 @@ export namespace Schemas {
       copy_schedule?: boolean;
       /** Whether to force the copied flag to be disabled in target projects, ignoring the source flag's enabled status */
       disable_copied_flag?: boolean;
+      /** Whether to also copy missing feature flags that this flag depends on */
+      copy_dependencies?: boolean;
     }
 
     export interface CopyFlagsSuccessItem {
@@ -14671,8 +14851,12 @@ export namespace Schemas {
       updated_existing: boolean;
       /** Warnings for flag dependencies that were dropped because no matching active flag exists in the target project */
       flag_dependency_warnings?: string[];
-      /** Warning emitted when the flag was copied but its scheduled changes failed to copy */
+      /** Warning emitted when schedules failed to copy or existing target schedules may affect the copied flag */
       schedule_copy_warning?: string;
+      /** Dependency flag keys that were copied before this flag */
+      copied_dependency_keys?: string[];
+      /** Warnings emitted while copying dependency flags */
+      dependency_copy_warnings?: string[];
     }
 
     export interface CopyFlagsResult {
@@ -15731,18 +15915,6 @@ export namespace Schemas {
       readonly added_at: string;
       readonly updated_at: string;
       user_uuid: string;
-    }
-
-    export interface DashboardFilter {
-      breakdown_filter?: BreakdownFilter | null;
-      date_from?: string | null;
-      date_to?: string | null;
-      explicitDate?: boolean | null;
-      /** Tri-state test-account override. Null/absent = inherit; true = force on; false = force off. */
-      filterTestAccounts?: boolean | null;
-      /** Time granularity forced onto every insight that supports one. Absent/null = inherit. */
-      interval?: IntervalType | null;
-      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
     }
 
     /**
@@ -17663,6 +17835,102 @@ export namespace Schemas {
      * * `Kickscale` - Kickscale
      * * `Zellify` - Zellify
      * * `RudderStack` - RudderStack
+     * * `DodoPayments` - DodoPayments
+     * * `Salestrics` - Salestrics
+     * * `Doppler` - Doppler
+     * * `Usersnap` - Usersnap
+     * * `Asknicely` - Asknicely
+     * * `Featurebase` - Featurebase
+     * * `Frill` - Frill
+     * * `Bettermode` - Bettermode
+     * * `Dynatrace` - Dynatrace
+     * * `Honeycomb` - Honeycomb
+     * * `SumoLogic` - SumoLogic
+     * * `LogzIO` - LogzIO
+     * * `Coralogix` - Coralogix
+     * * `BetterStack` - BetterStack
+     * * `Raygun` - Raygun
+     * * `Honeybadger` - Honeybadger
+     * * `Airbrake` - Airbrake
+     * * `Appsignal` - Appsignal
+     * * `Appdynamics` - Appdynamics
+     * * `Instana` - Instana
+     * * `SplunkObservabilityCloud` - SplunkObservabilityCloud
+     * * `Uptimerobot` - Uptimerobot
+     * * `Statuscake` - Statuscake
+     * * `Tailscale` - Tailscale
+     * * `Flagsmith` - Flagsmith
+     * * `Xmatters` - Xmatters
+     * * `Squadcast` - Squadcast
+     * * `Zenduty` - Zenduty
+     * * `Cronitor` - Cronitor
+     * * `Jenkins` - Jenkins
+     * * `Bitbucket` - Bitbucket
+     * * `Gitea` - Gitea
+     * * `Teamcity` - Teamcity
+     * * `TravisCI` - TravisCI
+     * * `Semaphore` - Semaphore
+     * * `CircleciInsights` - CircleciInsights
+     * * `OctopusDeploy` - OctopusDeploy
+     * * `Sourcegraph` - Sourcegraph
+     * * `Bitrise` - Bitrise
+     * * `Gerrit` - Gerrit
+     * * `TerraformCloud` - TerraformCloud
+     * * `PulumiCloud` - PulumiCloud
+     * * `Spacelift` - Spacelift
+     * * `Railway` - Railway
+     * * `Argocd` - Argocd
+     * * `PrefectCloud` - PrefectCloud
+     * * `DagsterCloud` - DagsterCloud
+     * * `Env0` - Env0
+     * * `Kubecost` - Kubecost
+     * * `Snyk` - Snyk
+     * * `Semgrep` - Semgrep
+     * * `Veracode` - Veracode
+     * * `Checkmarx` - Checkmarx
+     * * `Gitguardian` - Gitguardian
+     * * `QualysVmdr` - QualysVmdr
+     * * `Rapid7Insightvm` - Rapid7Insightvm
+     * * `TenableVulnerabilityManagement` - TenableVulnerabilityManagement
+     * * `Sentinelone` - Sentinelone
+     * * `Lacework` - Lacework
+     * * `OrcaSecurity` - OrcaSecurity
+     * * `Drata` - Drata
+     * * `Secureframe` - Secureframe
+     * * `CiscoDuo` - CiscoDuo
+     * * `Jumpcloud` - Jumpcloud
+     * * `OnePassword` - OnePassword
+     * * `Stytch` - Stytch
+     * * `Sonarqube` - Sonarqube
+     * * `Codecov` - Codecov
+     * * `Coveralls` - Coveralls
+     * * `Codacy` - Codacy
+     * * `Deepsource` - Deepsource
+     * * `Linearb` - Linearb
+     * * `Jellyfish` - Jellyfish
+     * * `Swarmia` - Swarmia
+     * * `Packagist` - Packagist
+     * * `Nuget` - Nuget
+     * * `CratesIO` - CratesIO
+     * * `SonatypeNexus` - SonatypeNexus
+     * * `JfrogArtifactory` - JfrogArtifactory
+     * * `Snowplow` - Snowplow
+     * * `WeightsAndBiases` - WeightsAndBiases
+     * * `MonteCarlo` - MonteCarlo
+     * * `Metaplane` - Metaplane
+     * * `Datahub` - Datahub
+     * * `ClickhouseCloud` - ClickhouseCloud
+     * * `ConfluentCloud` - ConfluentCloud
+     * * `KongKonnect` - KongKonnect
+     * * `Kandji` - Kandji
+     * * `Automox` - Automox
+     * * `Autumn` - Autumn
+     * * `GetStream` - GetStream
+     * * `Octolens` - Octolens
+     * * `Kajabi` - Kajabi
+     * * `Shopware` - Shopware
+     * * `Dubsado` - Dubsado
+     * * `Campfire` - Campfire
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -18429,6 +18697,102 @@ export namespace Schemas {
       Kickscale: 'Kickscale',
       Zellify: 'Zellify',
       RudderStack: 'RudderStack',
+      DodoPayments: 'DodoPayments',
+      Salestrics: 'Salestrics',
+      Doppler: 'Doppler',
+      Usersnap: 'Usersnap',
+      Asknicely: 'Asknicely',
+      Featurebase: 'Featurebase',
+      Frill: 'Frill',
+      Bettermode: 'Bettermode',
+      Dynatrace: 'Dynatrace',
+      Honeycomb: 'Honeycomb',
+      SumoLogic: 'SumoLogic',
+      LogzIO: 'LogzIO',
+      Coralogix: 'Coralogix',
+      BetterStack: 'BetterStack',
+      Raygun: 'Raygun',
+      Honeybadger: 'Honeybadger',
+      Airbrake: 'Airbrake',
+      Appsignal: 'Appsignal',
+      Appdynamics: 'Appdynamics',
+      Instana: 'Instana',
+      SplunkObservabilityCloud: 'SplunkObservabilityCloud',
+      Uptimerobot: 'Uptimerobot',
+      Statuscake: 'Statuscake',
+      Tailscale: 'Tailscale',
+      Flagsmith: 'Flagsmith',
+      Xmatters: 'Xmatters',
+      Squadcast: 'Squadcast',
+      Zenduty: 'Zenduty',
+      Cronitor: 'Cronitor',
+      Jenkins: 'Jenkins',
+      Bitbucket: 'Bitbucket',
+      Gitea: 'Gitea',
+      Teamcity: 'Teamcity',
+      TravisCI: 'TravisCI',
+      Semaphore: 'Semaphore',
+      CircleciInsights: 'CircleciInsights',
+      OctopusDeploy: 'OctopusDeploy',
+      Sourcegraph: 'Sourcegraph',
+      Bitrise: 'Bitrise',
+      Gerrit: 'Gerrit',
+      TerraformCloud: 'TerraformCloud',
+      PulumiCloud: 'PulumiCloud',
+      Spacelift: 'Spacelift',
+      Railway: 'Railway',
+      Argocd: 'Argocd',
+      PrefectCloud: 'PrefectCloud',
+      DagsterCloud: 'DagsterCloud',
+      Env0: 'Env0',
+      Kubecost: 'Kubecost',
+      Snyk: 'Snyk',
+      Semgrep: 'Semgrep',
+      Veracode: 'Veracode',
+      Checkmarx: 'Checkmarx',
+      Gitguardian: 'Gitguardian',
+      QualysVmdr: 'QualysVmdr',
+      Rapid7Insightvm: 'Rapid7Insightvm',
+      TenableVulnerabilityManagement: 'TenableVulnerabilityManagement',
+      Sentinelone: 'Sentinelone',
+      Lacework: 'Lacework',
+      OrcaSecurity: 'OrcaSecurity',
+      Drata: 'Drata',
+      Secureframe: 'Secureframe',
+      CiscoDuo: 'CiscoDuo',
+      Jumpcloud: 'Jumpcloud',
+      OnePassword: 'OnePassword',
+      Stytch: 'Stytch',
+      Sonarqube: 'Sonarqube',
+      Codecov: 'Codecov',
+      Coveralls: 'Coveralls',
+      Codacy: 'Codacy',
+      Deepsource: 'Deepsource',
+      Linearb: 'Linearb',
+      Jellyfish: 'Jellyfish',
+      Swarmia: 'Swarmia',
+      Packagist: 'Packagist',
+      Nuget: 'Nuget',
+      CratesIO: 'CratesIO',
+      SonatypeNexus: 'SonatypeNexus',
+      JfrogArtifactory: 'JfrogArtifactory',
+      Snowplow: 'Snowplow',
+      WeightsAndBiases: 'WeightsAndBiases',
+      MonteCarlo: 'MonteCarlo',
+      Metaplane: 'Metaplane',
+      Datahub: 'Datahub',
+      ClickhouseCloud: 'ClickhouseCloud',
+      ConfluentCloud: 'ConfluentCloud',
+      KongKonnect: 'KongKonnect',
+      Kandji: 'Kandji',
+      Automox: 'Automox',
+      Autumn: 'Autumn',
+      GetStream: 'GetStream',
+      Octolens: 'Octolens',
+      Kajabi: 'Kajabi',
+      Shopware: 'Shopware',
+      Dubsado: 'Dubsado',
+      Campfire: 'Campfire',
     } as const;
 
     /**
@@ -19208,7 +19572,103 @@ export namespace Schemas {
        * * `GoogleChat` - GoogleChat
        * * `Kickscale` - Kickscale
        * * `Zellify` - Zellify
-       * * `RudderStack` - RudderStack */
+       * * `RudderStack` - RudderStack
+       * * `DodoPayments` - DodoPayments
+       * * `Salestrics` - Salestrics
+       * * `Doppler` - Doppler
+       * * `Usersnap` - Usersnap
+       * * `Asknicely` - Asknicely
+       * * `Featurebase` - Featurebase
+       * * `Frill` - Frill
+       * * `Bettermode` - Bettermode
+       * * `Dynatrace` - Dynatrace
+       * * `Honeycomb` - Honeycomb
+       * * `SumoLogic` - SumoLogic
+       * * `LogzIO` - LogzIO
+       * * `Coralogix` - Coralogix
+       * * `BetterStack` - BetterStack
+       * * `Raygun` - Raygun
+       * * `Honeybadger` - Honeybadger
+       * * `Airbrake` - Airbrake
+       * * `Appsignal` - Appsignal
+       * * `Appdynamics` - Appdynamics
+       * * `Instana` - Instana
+       * * `SplunkObservabilityCloud` - SplunkObservabilityCloud
+       * * `Uptimerobot` - Uptimerobot
+       * * `Statuscake` - Statuscake
+       * * `Tailscale` - Tailscale
+       * * `Flagsmith` - Flagsmith
+       * * `Xmatters` - Xmatters
+       * * `Squadcast` - Squadcast
+       * * `Zenduty` - Zenduty
+       * * `Cronitor` - Cronitor
+       * * `Jenkins` - Jenkins
+       * * `Bitbucket` - Bitbucket
+       * * `Gitea` - Gitea
+       * * `Teamcity` - Teamcity
+       * * `TravisCI` - TravisCI
+       * * `Semaphore` - Semaphore
+       * * `CircleciInsights` - CircleciInsights
+       * * `OctopusDeploy` - OctopusDeploy
+       * * `Sourcegraph` - Sourcegraph
+       * * `Bitrise` - Bitrise
+       * * `Gerrit` - Gerrit
+       * * `TerraformCloud` - TerraformCloud
+       * * `PulumiCloud` - PulumiCloud
+       * * `Spacelift` - Spacelift
+       * * `Railway` - Railway
+       * * `Argocd` - Argocd
+       * * `PrefectCloud` - PrefectCloud
+       * * `DagsterCloud` - DagsterCloud
+       * * `Env0` - Env0
+       * * `Kubecost` - Kubecost
+       * * `Snyk` - Snyk
+       * * `Semgrep` - Semgrep
+       * * `Veracode` - Veracode
+       * * `Checkmarx` - Checkmarx
+       * * `Gitguardian` - Gitguardian
+       * * `QualysVmdr` - QualysVmdr
+       * * `Rapid7Insightvm` - Rapid7Insightvm
+       * * `TenableVulnerabilityManagement` - TenableVulnerabilityManagement
+       * * `Sentinelone` - Sentinelone
+       * * `Lacework` - Lacework
+       * * `OrcaSecurity` - OrcaSecurity
+       * * `Drata` - Drata
+       * * `Secureframe` - Secureframe
+       * * `CiscoDuo` - CiscoDuo
+       * * `Jumpcloud` - Jumpcloud
+       * * `OnePassword` - OnePassword
+       * * `Stytch` - Stytch
+       * * `Sonarqube` - Sonarqube
+       * * `Codecov` - Codecov
+       * * `Coveralls` - Coveralls
+       * * `Codacy` - Codacy
+       * * `Deepsource` - Deepsource
+       * * `Linearb` - Linearb
+       * * `Jellyfish` - Jellyfish
+       * * `Swarmia` - Swarmia
+       * * `Packagist` - Packagist
+       * * `Nuget` - Nuget
+       * * `CratesIO` - CratesIO
+       * * `SonatypeNexus` - SonatypeNexus
+       * * `JfrogArtifactory` - JfrogArtifactory
+       * * `Snowplow` - Snowplow
+       * * `WeightsAndBiases` - WeightsAndBiases
+       * * `MonteCarlo` - MonteCarlo
+       * * `Metaplane` - Metaplane
+       * * `Datahub` - Datahub
+       * * `ClickhouseCloud` - ClickhouseCloud
+       * * `ConfluentCloud` - ConfluentCloud
+       * * `KongKonnect` - KongKonnect
+       * * `Kandji` - Kandji
+       * * `Automox` - Automox
+       * * `Autumn` - Autumn
+       * * `GetStream` - GetStream
+       * * `Octolens` - Octolens
+       * * `Kajabi` - Kajabi
+       * * `Shopware` - Shopware
+       * * `Dubsado` - Dubsado
+       * * `Campfire` - Campfire */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -19340,6 +19800,7 @@ export namespace Schemas {
 
     /**
      * * `pending` - Pending
+     * * `generated` - Generated
      * * `delivered` - Delivered
      * * `partial_failure` - Partial Failure
      * * `failed` - Failed
@@ -19349,6 +19810,7 @@ export namespace Schemas {
 
     export const DeliveryStatusEnum = {
       Pending: 'pending',
+      Generated: 'generated',
       Delivered: 'delivered',
       PartialFailure: 'partial_failure',
       Failed: 'failed',
@@ -22891,9 +23353,10 @@ export namespace Schemas {
       readonly period_start: string;
       /** End of the evaluation window covered by this report. */
       readonly period_end: string;
-      /** Delivery result: 'pending', 'delivered', 'partial_failure', or 'failed'.
+      /** Delivery result: 'pending', 'generated', 'delivered', 'partial_failure', or 'failed'.
        *
        * * `pending` - Pending
+       * * `generated` - Generated
        * * `delivered` - Delivered
        * * `partial_failure` - Partial Failure
        * * `failed` - Failed */
@@ -23969,6 +24432,8 @@ export namespace Schemas {
       readonly status: ExperimentStatusEnum;
       /** Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support them, such as duplicate and copy-to-project. */
       readonly is_legacy: boolean;
+      /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
+      readonly can_freeze_exposure: boolean;
       /**
          * The effective access level the user has for this object
          * @nullable
@@ -24614,6 +25079,8 @@ export namespace Schemas {
       readonly status: ExperimentStatusEnum;
       /** Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support them, such as duplicate and copy-to-project. */
       readonly is_legacy: boolean;
+      /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
+      readonly can_freeze_exposure: boolean;
       /**
          * The effective access level the user has for this object
          * @nullable
@@ -24761,6 +25228,9 @@ export namespace Schemas {
       readonly supports_row_filters?: boolean;
       /** @nullable */
       readonly user_access_level?: string | null;
+      /** @nullable */
+      readonly api_version?: string | null;
+      readonly supported_api_versions?: string[];
     } | null;
 
     /**
@@ -24834,6 +25304,18 @@ export namespace Schemas {
       '7day': '7day',
       '30day': '30day',
     } as const;
+
+    export interface ExternalDataSourceApiVersionDeprecation {
+      /** The deprecated vendor API version this source is pinned to. */
+      version: string;
+      /**
+         * Date the vendor stops serving this version; null if not announced.
+         * @nullable
+         */
+      sunset_at: string | null;
+      /** The source's current default vendor API version — the migration target. */
+      default_version: string;
+    }
 
     export interface ExternalDataSchema {
       readonly id: string;
@@ -24933,6 +25415,14 @@ export namespace Schemas {
          * @nullable
          */
       readonly source: ExternalDataSchemaSource;
+      /**
+         * Vendor API version override for this schema. `null` (default) syncs on the source's pinned version. Must be one of the source type's supported versions. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas.
+         * @maxLength 128
+         * @nullable
+         */
+      api_version?: string | null;
+      /** Set when this schema's version override is deprecated by the vendor; null when there is no override or it is not deprecated. The source-level field covers the source pin. */
+      readonly api_version_deprecation: ExternalDataSourceApiVersionDeprecation | null;
     }
 
     export type ExternalDataSourceBulkUpdateSchemaRowFiltersItem = {
@@ -25769,7 +26259,103 @@ export namespace Schemas {
        * * `GoogleChat` - GoogleChat
        * * `Kickscale` - Kickscale
        * * `Zellify` - Zellify
-       * * `RudderStack` - RudderStack */
+       * * `RudderStack` - RudderStack
+       * * `DodoPayments` - DodoPayments
+       * * `Salestrics` - Salestrics
+       * * `Doppler` - Doppler
+       * * `Usersnap` - Usersnap
+       * * `Asknicely` - Asknicely
+       * * `Featurebase` - Featurebase
+       * * `Frill` - Frill
+       * * `Bettermode` - Bettermode
+       * * `Dynatrace` - Dynatrace
+       * * `Honeycomb` - Honeycomb
+       * * `SumoLogic` - SumoLogic
+       * * `LogzIO` - LogzIO
+       * * `Coralogix` - Coralogix
+       * * `BetterStack` - BetterStack
+       * * `Raygun` - Raygun
+       * * `Honeybadger` - Honeybadger
+       * * `Airbrake` - Airbrake
+       * * `Appsignal` - Appsignal
+       * * `Appdynamics` - Appdynamics
+       * * `Instana` - Instana
+       * * `SplunkObservabilityCloud` - SplunkObservabilityCloud
+       * * `Uptimerobot` - Uptimerobot
+       * * `Statuscake` - Statuscake
+       * * `Tailscale` - Tailscale
+       * * `Flagsmith` - Flagsmith
+       * * `Xmatters` - Xmatters
+       * * `Squadcast` - Squadcast
+       * * `Zenduty` - Zenduty
+       * * `Cronitor` - Cronitor
+       * * `Jenkins` - Jenkins
+       * * `Bitbucket` - Bitbucket
+       * * `Gitea` - Gitea
+       * * `Teamcity` - Teamcity
+       * * `TravisCI` - TravisCI
+       * * `Semaphore` - Semaphore
+       * * `CircleciInsights` - CircleciInsights
+       * * `OctopusDeploy` - OctopusDeploy
+       * * `Sourcegraph` - Sourcegraph
+       * * `Bitrise` - Bitrise
+       * * `Gerrit` - Gerrit
+       * * `TerraformCloud` - TerraformCloud
+       * * `PulumiCloud` - PulumiCloud
+       * * `Spacelift` - Spacelift
+       * * `Railway` - Railway
+       * * `Argocd` - Argocd
+       * * `PrefectCloud` - PrefectCloud
+       * * `DagsterCloud` - DagsterCloud
+       * * `Env0` - Env0
+       * * `Kubecost` - Kubecost
+       * * `Snyk` - Snyk
+       * * `Semgrep` - Semgrep
+       * * `Veracode` - Veracode
+       * * `Checkmarx` - Checkmarx
+       * * `Gitguardian` - Gitguardian
+       * * `QualysVmdr` - QualysVmdr
+       * * `Rapid7Insightvm` - Rapid7Insightvm
+       * * `TenableVulnerabilityManagement` - TenableVulnerabilityManagement
+       * * `Sentinelone` - Sentinelone
+       * * `Lacework` - Lacework
+       * * `OrcaSecurity` - OrcaSecurity
+       * * `Drata` - Drata
+       * * `Secureframe` - Secureframe
+       * * `CiscoDuo` - CiscoDuo
+       * * `Jumpcloud` - Jumpcloud
+       * * `OnePassword` - OnePassword
+       * * `Stytch` - Stytch
+       * * `Sonarqube` - Sonarqube
+       * * `Codecov` - Codecov
+       * * `Coveralls` - Coveralls
+       * * `Codacy` - Codacy
+       * * `Deepsource` - Deepsource
+       * * `Linearb` - Linearb
+       * * `Jellyfish` - Jellyfish
+       * * `Swarmia` - Swarmia
+       * * `Packagist` - Packagist
+       * * `Nuget` - Nuget
+       * * `CratesIO` - CratesIO
+       * * `SonatypeNexus` - SonatypeNexus
+       * * `JfrogArtifactory` - JfrogArtifactory
+       * * `Snowplow` - Snowplow
+       * * `WeightsAndBiases` - WeightsAndBiases
+       * * `MonteCarlo` - MonteCarlo
+       * * `Metaplane` - Metaplane
+       * * `Datahub` - Datahub
+       * * `ClickhouseCloud` - ClickhouseCloud
+       * * `ConfluentCloud` - ConfluentCloud
+       * * `KongKonnect` - KongKonnect
+       * * `Kandji` - Kandji
+       * * `Automox` - Automox
+       * * `Autumn` - Autumn
+       * * `GetStream` - GetStream
+       * * `Octolens` - Octolens
+       * * `Kajabi` - Kajabi
+       * * `Shopware` - Shopware
+       * * `Dubsado` - Dubsado
+       * * `Campfire` - Campfire */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -26562,7 +27148,103 @@ export namespace Schemas {
        * * `GoogleChat` - GoogleChat
        * * `Kickscale` - Kickscale
        * * `Zellify` - Zellify
-       * * `RudderStack` - RudderStack */
+       * * `RudderStack` - RudderStack
+       * * `DodoPayments` - DodoPayments
+       * * `Salestrics` - Salestrics
+       * * `Doppler` - Doppler
+       * * `Usersnap` - Usersnap
+       * * `Asknicely` - Asknicely
+       * * `Featurebase` - Featurebase
+       * * `Frill` - Frill
+       * * `Bettermode` - Bettermode
+       * * `Dynatrace` - Dynatrace
+       * * `Honeycomb` - Honeycomb
+       * * `SumoLogic` - SumoLogic
+       * * `LogzIO` - LogzIO
+       * * `Coralogix` - Coralogix
+       * * `BetterStack` - BetterStack
+       * * `Raygun` - Raygun
+       * * `Honeybadger` - Honeybadger
+       * * `Airbrake` - Airbrake
+       * * `Appsignal` - Appsignal
+       * * `Appdynamics` - Appdynamics
+       * * `Instana` - Instana
+       * * `SplunkObservabilityCloud` - SplunkObservabilityCloud
+       * * `Uptimerobot` - Uptimerobot
+       * * `Statuscake` - Statuscake
+       * * `Tailscale` - Tailscale
+       * * `Flagsmith` - Flagsmith
+       * * `Xmatters` - Xmatters
+       * * `Squadcast` - Squadcast
+       * * `Zenduty` - Zenduty
+       * * `Cronitor` - Cronitor
+       * * `Jenkins` - Jenkins
+       * * `Bitbucket` - Bitbucket
+       * * `Gitea` - Gitea
+       * * `Teamcity` - Teamcity
+       * * `TravisCI` - TravisCI
+       * * `Semaphore` - Semaphore
+       * * `CircleciInsights` - CircleciInsights
+       * * `OctopusDeploy` - OctopusDeploy
+       * * `Sourcegraph` - Sourcegraph
+       * * `Bitrise` - Bitrise
+       * * `Gerrit` - Gerrit
+       * * `TerraformCloud` - TerraformCloud
+       * * `PulumiCloud` - PulumiCloud
+       * * `Spacelift` - Spacelift
+       * * `Railway` - Railway
+       * * `Argocd` - Argocd
+       * * `PrefectCloud` - PrefectCloud
+       * * `DagsterCloud` - DagsterCloud
+       * * `Env0` - Env0
+       * * `Kubecost` - Kubecost
+       * * `Snyk` - Snyk
+       * * `Semgrep` - Semgrep
+       * * `Veracode` - Veracode
+       * * `Checkmarx` - Checkmarx
+       * * `Gitguardian` - Gitguardian
+       * * `QualysVmdr` - QualysVmdr
+       * * `Rapid7Insightvm` - Rapid7Insightvm
+       * * `TenableVulnerabilityManagement` - TenableVulnerabilityManagement
+       * * `Sentinelone` - Sentinelone
+       * * `Lacework` - Lacework
+       * * `OrcaSecurity` - OrcaSecurity
+       * * `Drata` - Drata
+       * * `Secureframe` - Secureframe
+       * * `CiscoDuo` - CiscoDuo
+       * * `Jumpcloud` - Jumpcloud
+       * * `OnePassword` - OnePassword
+       * * `Stytch` - Stytch
+       * * `Sonarqube` - Sonarqube
+       * * `Codecov` - Codecov
+       * * `Coveralls` - Coveralls
+       * * `Codacy` - Codacy
+       * * `Deepsource` - Deepsource
+       * * `Linearb` - Linearb
+       * * `Jellyfish` - Jellyfish
+       * * `Swarmia` - Swarmia
+       * * `Packagist` - Packagist
+       * * `Nuget` - Nuget
+       * * `CratesIO` - CratesIO
+       * * `SonatypeNexus` - SonatypeNexus
+       * * `JfrogArtifactory` - JfrogArtifactory
+       * * `Snowplow` - Snowplow
+       * * `WeightsAndBiases` - WeightsAndBiases
+       * * `MonteCarlo` - MonteCarlo
+       * * `Metaplane` - Metaplane
+       * * `Datahub` - Datahub
+       * * `ClickhouseCloud` - ClickhouseCloud
+       * * `ConfluentCloud` - ConfluentCloud
+       * * `KongKonnect` - KongKonnect
+       * * `Kandji` - Kandji
+       * * `Automox` - Automox
+       * * `Autumn` - Autumn
+       * * `GetStream` - GetStream
+       * * `Octolens` - Octolens
+       * * `Kajabi` - Kajabi
+       * * `Shopware` - Shopware
+       * * `Dubsado` - Dubsado
+       * * `Campfire` - Campfire */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -26701,6 +27383,13 @@ export namespace Schemas {
       readonly supports_webhooks: boolean;
       /** Whether this source supports per-column sync selection via `enabled_columns`. */
       readonly supports_column_selection: boolean;
+      /**
+         * Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe date version). Null resolves to the source type's default version at sync time.
+         * @nullable
+         */
+      readonly api_version: string | null;
+      /** Set when the vendor has deprecated the API version this source is pinned to; null otherwise. Drives the in-product deprecation warning. */
+      readonly api_version_deprecation: ExternalDataSourceApiVersionDeprecation | null;
     }
 
     export type ExternalQueryErrorCode = typeof ExternalQueryErrorCode[keyof typeof ExternalQueryErrorCode];
@@ -28617,6 +29306,13 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
+      /** Staged content changes awaiting publish — a full snapshot of the workflow's actions, edges and settings. Null when there's nothing staged. Test it with a use_draft test run, then promote it with the publish endpoint or throw it away with discard_draft. */
+      readonly draft: unknown;
+      /**
+         * When the draft was last written; null when there's no staged draft. Pass this to publish (and as base_updated_at on further draft edits) so a concurrent editor's changes aren't clobbered — a mismatch returns 409.
+         * @nullable
+         */
+      readonly draft_updated_at: string | null;
     }
 
     /**
@@ -28717,6 +29413,8 @@ export namespace Schemas {
       mock_async_functions?: boolean;
       /** Start execution from this action ID instead of the trigger. Each test run executes a single node and returns the next action id. */
       current_action_id?: string;
+      /** Test the workflow's staged draft instead of its live config. Requires an open draft; can't be combined with an explicit configuration override. */
+      use_draft?: boolean;
     }
 
     /**
@@ -28747,6 +29445,30 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
+    }
+
+    export interface HogFlowPublishRequest {
+      /** False (default) previews the publish: returns how many runs are in flight without changing anything. True applies the staged draft to the live workflow. */
+      confirm?: boolean;
+      /** The draft_updated_at you loaded — required when confirm=true. A mismatch returns 409, so you never publish a draft someone else has changed since you read it. */
+      draft_updated_at?: string;
+    }
+
+    export interface HogFlowPublishResponse {
+      /** Whether the draft was applied to the live workflow. */
+      published: boolean;
+      /**
+         * Runs currently in flight (parked on waits/delays or executing) that will follow the new config once published. Null when the count is unavailable.
+         * @nullable
+         */
+      in_flight_runs: number | null;
+      /**
+         * Echo of the staged draft's timestamp — pass it back with confirm=true to publish exactly this draft.
+         * @nullable
+         */
+      draft_updated_at: string | null;
+      /** The workflow after publishing (only set when published=true). */
+      workflow?: HogFlow | null;
     }
 
     /**
@@ -32457,6 +33179,44 @@ export namespace Schemas {
     }
 
     /**
+     * * `web` - web
+     * * `posthog-ios` - posthog-ios
+     * * `posthog-android` - posthog-android
+     * * `posthog-java` - posthog-java
+     * * `posthog-server` - posthog-server
+     * * `posthog-node` - posthog-node
+     * * `posthog-python` - posthog-python
+     * * `posthog-php` - posthog-php
+     * * `posthog-ruby` - posthog-ruby
+     * * `posthog-go` - posthog-go
+     * * `posthog-flutter` - posthog-flutter
+     * * `posthog-react-native` - posthog-react-native
+     * * `posthog-kmp` - posthog-kmp
+     * * `posthog-dotnet` - posthog-dotnet
+     * * `posthog-elixir` - posthog-elixir
+     */
+    export type LibEnum = typeof LibEnum[keyof typeof LibEnum];
+
+
+    export const LibEnum = {
+      Web: 'web',
+      PosthogIos: 'posthog-ios',
+      PosthogAndroid: 'posthog-android',
+      PosthogJava: 'posthog-java',
+      PosthogServer: 'posthog-server',
+      PosthogNode: 'posthog-node',
+      PosthogPython: 'posthog-python',
+      PosthogPhp: 'posthog-php',
+      PosthogRuby: 'posthog-ruby',
+      PosthogGo: 'posthog-go',
+      PosthogFlutter: 'posthog-flutter',
+      PosthogReactNative: 'posthog-react-native',
+      PosthogKmp: 'posthog-kmp',
+      PosthogDotnet: 'posthog-dotnet',
+      PosthogElixir: 'posthog-elixir',
+    } as const;
+
+    /**
      * * `active` - ACTIVE
      * * `expiring_soon` - EXPIRING_SOON
      * * `in_grace` - IN_GRACE
@@ -32760,7 +33520,7 @@ export namespace Schemas {
     }
 
     export interface LogsAlertCreateDestination {
-      /** Destination type — slack, webhook, or teams.
+      /** Notification destination type.
        *
        * * `slack` - slack
        * * `webhook` - webhook
@@ -32772,7 +33532,7 @@ export namespace Schemas {
       slack_channel_id?: string;
       /** Human-readable channel name for display. */
       slack_channel_name?: string;
-      /** HTTPS endpoint to POST to. Required when type=webhook, or the Teams webhook URL when type=teams. */
+      /** HTTPS endpoint to post to. Required for webhook and teams. */
       webhook_url?: string;
     }
 
@@ -32780,6 +33540,7 @@ export namespace Schemas {
       /**
          * HogFunction IDs to delete as one atomic destination group.
          * @minItems 1
+         * @maxItems 4
          */
       hog_function_ids: string[];
     }
@@ -33678,6 +34439,7 @@ export namespace Schemas {
      * * `up_to_date` - up_to_date
      * * `needs_attention` - needs_attention
      * * `unknown` - unknown
+     * * `sync_paused` - sync_paused
      */
     export type ManagedWarehouseReadinessStateEnum = typeof ManagedWarehouseReadinessStateEnum[keyof typeof ManagedWarehouseReadinessStateEnum];
 
@@ -33690,6 +34452,7 @@ export namespace Schemas {
       UpToDate: 'up_to_date',
       NeedsAttention: 'needs_attention',
       Unknown: 'unknown',
+      SyncPaused: 'sync_paused',
     } as const;
 
     export interface ManagedWarehouseDatasetStatus {
@@ -33706,7 +34469,8 @@ export namespace Schemas {
        * * `catching_up` - catching_up
        * * `up_to_date` - up_to_date
        * * `needs_attention` - needs_attention
-       * * `unknown` - unknown */
+       * * `unknown` - unknown
+       * * `sync_paused` - sync_paused */
       readiness_state: ManagedWarehouseReadinessStateEnum;
       /** Human-readable explanation of the current readiness state. */
       detail: string;
@@ -33744,7 +34508,8 @@ export namespace Schemas {
        * * `catching_up` - catching_up
        * * `up_to_date` - up_to_date
        * * `needs_attention` - needs_attention
-       * * `unknown` - unknown */
+       * * `unknown` - unknown
+       * * `sync_paused` - sync_paused */
       readiness_state: ManagedWarehouseReadinessStateEnum;
       /** Human-readable explanation of this source's readiness state. */
       detail: string;
@@ -33773,7 +34538,8 @@ export namespace Schemas {
        * * `catching_up` - catching_up
        * * `up_to_date` - up_to_date
        * * `needs_attention` - needs_attention
-       * * `unknown` - unknown */
+       * * `unknown` - unknown
+       * * `sync_paused` - sync_paused */
       readiness_state: ManagedWarehouseReadinessStateEnum;
       /** Human-readable explanation of imported source readiness. */
       detail: string;
@@ -33790,7 +34556,8 @@ export namespace Schemas {
        * * `catching_up` - catching_up
        * * `up_to_date` - up_to_date
        * * `needs_attention` - needs_attention
-       * * `unknown` - unknown */
+       * * `unknown` - unknown
+       * * `sync_paused` - sync_paused */
       overall_readiness_state: ManagedWarehouseReadinessStateEnum;
       /** Events backfill readiness. */
       events: ManagedWarehouseDatasetStatus;
@@ -33821,7 +34588,8 @@ export namespace Schemas {
        * * `catching_up` - catching_up
        * * `up_to_date` - up_to_date
        * * `needs_attention` - needs_attention
-       * * `unknown` - unknown */
+       * * `unknown` - unknown
+       * * `sync_paused` - sync_paused */
       readiness_state: ManagedWarehouseReadinessStateEnum;
       /** Human-readable explanation of the table's readiness state. */
       detail: string;
@@ -34161,6 +34929,7 @@ export namespace Schemas {
      * * `close` - close
      * * `permission_response` - permission_response
      * * `set_config_option` - set_config_option
+     * * `mcp_response` - mcp_response
      */
     export type MethodEnum = typeof MethodEnum[keyof typeof MethodEnum];
 
@@ -34171,6 +34940,7 @@ export namespace Schemas {
       Close: 'close',
       PermissionResponse: 'permission_response',
       SetConfigOption: 'set_config_option',
+      McpResponse: 'mcp_response',
     } as const;
 
     /**
@@ -36188,15 +36958,6 @@ export namespace Schemas {
       results: ExternalDataSchema[];
     }
 
-    export interface PaginatedExternalDataSourceConnectionOptionList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: ExternalDataSourceConnectionOption[];
-    }
-
     export interface PaginatedExternalDataSourceSerializersList {
       count: number;
       /** @nullable */
@@ -38087,6 +38848,7 @@ export namespace Schemas {
      * * `health_checks` - Health checks
      * * `endpoints` - Endpoints
      * * `replay_vision` - Replay Vision
+     * * `analytics` - Product analytics
      */
     export type SignalSourceConfigSourceProductEnum = typeof SignalSourceConfigSourceProductEnum[keyof typeof SignalSourceConfigSourceProductEnum];
 
@@ -38106,6 +38868,7 @@ export namespace Schemas {
       HealthChecks: 'health_checks',
       Endpoints: 'endpoints',
       ReplayVision: 'replay_vision',
+      Analytics: 'analytics',
     } as const;
 
     /**
@@ -38123,6 +38886,7 @@ export namespace Schemas {
      * * `endpoint_execution_failed` - Endpoint execution failed
      * * `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded
      * * `scanner_finding` - Scanner finding
+     * * `anomaly_investigation` - Anomaly investigation
      */
     export type SignalSourceConfigSourceTypeEnum = typeof SignalSourceConfigSourceTypeEnum[keyof typeof SignalSourceConfigSourceTypeEnum];
 
@@ -38142,6 +38906,7 @@ export namespace Schemas {
       EndpointExecutionFailed: 'endpoint_execution_failed',
       EndpointBreakdownLimitExceeded: 'endpoint_breakdown_limit_exceeded',
       ScannerFinding: 'scanner_finding',
+      AnomalyInvestigation: 'anomaly_investigation',
     } as const;
 
     export interface SignalSourceConfig {
@@ -40038,6 +40803,7 @@ export namespace Schemas {
     }
 
     /**
+     * * `default` - Default
      * * `onboarding` - Onboarding
      * * `product_intent` - Product Intent
      * * `used_by_colleagues` - Used by Colleagues
@@ -40051,6 +40817,7 @@ export namespace Schemas {
 
 
     export const UserProductListReasonEnum = {
+      Default: 'default',
       Onboarding: 'onboarding',
       ProductIntent: 'product_intent',
       UsedByColleagues: 'used_by_colleagues',
@@ -41067,6 +41834,8 @@ export namespace Schemas {
        * * `realtime` - realtime
        * * `analytical` - analytical */
       cohort_type?: CohortTypeEnum | BlankEnum | null;
+      /** Flags describing which kinds of conditions the cohort's filters contain. Null when the cohort has no filters to classify. */
+      readonly condition_type?: CohortConditionTypeFlags | null;
       readonly experiment_set?: readonly number[];
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
       readonly search_match_type?: SearchMatchTypeEnum | null;
@@ -42473,6 +43242,8 @@ export namespace Schemas {
       readonly status?: ExperimentStatusEnum;
       /** Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support them, such as duplicate and copy-to-project. */
       readonly is_legacy?: boolean;
+      /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
+      readonly can_freeze_exposure?: boolean;
       /**
          * The effective access level the user has for this object
          * @nullable
@@ -42510,6 +43281,9 @@ export namespace Schemas {
       readonly supports_row_filters?: boolean;
       /** @nullable */
       readonly user_access_level?: string | null;
+      /** @nullable */
+      readonly api_version?: string | null;
+      readonly supported_api_versions?: string[];
     } | null;
 
     export interface PatchedExternalDataSchema {
@@ -42610,6 +43384,14 @@ export namespace Schemas {
          * @nullable
          */
       readonly source?: PatchedExternalDataSchemaSource;
+      /**
+         * Vendor API version override for this schema. `null` (default) syncs on the source's pinned version. Must be one of the source type's supported versions. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas.
+         * @maxLength 128
+         * @nullable
+         */
+      api_version?: string | null;
+      /** Set when this schema's version override is deprecated by the vendor; null when there is no override or it is not deprecated. The source-level field covers the source pin. */
+      readonly api_version_deprecation?: ExternalDataSourceApiVersionDeprecation | null;
     }
 
     export interface PatchedExternalDataSourceBulkUpdateSchemas {
@@ -42675,6 +43457,13 @@ export namespace Schemas {
       readonly supports_webhooks?: boolean;
       /** Whether this source supports per-column sync selection via `enabled_columns`. */
       readonly supports_column_selection?: boolean;
+      /**
+         * Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe date version). Null resolves to the source type's default version at sync time.
+         * @nullable
+         */
+      readonly api_version?: string | null;
+      /** Set when the vendor has deprecated the API version this source is pinned to; null otherwise. Drives the in-product deprecation warning. */
+      readonly api_version_deprecation?: ExternalDataSourceApiVersionDeprecation | null;
     }
 
     export interface PatchedFeatureFlagPartialUpdateRequestSchema {
@@ -43033,6 +43822,13 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level?: string | null;
+      /** Staged content changes awaiting publish — a full snapshot of the workflow's actions, edges and settings. Null when there's nothing staged. Test it with a use_draft test run, then promote it with the publish endpoint or throw it away with discard_draft. */
+      readonly draft?: unknown;
+      /**
+         * When the draft was last written; null when there's no staged draft. Pass this to publish (and as base_updated_at on further draft edits) so a concurrent editor's changes aren't clobbered — a mismatch returns 409.
+         * @nullable
+         */
+      readonly draft_updated_at?: string | null;
     }
 
     export interface PatchedHogFlowGraphUpdate {
@@ -43362,6 +44158,8 @@ export namespace Schemas {
       readonly resolved_date_range?: PatchedInsightResolvedDateRange;
       _create_in_folder?: string;
       readonly alerts?: readonly unknown[];
+      /** Resolved dashboard and tile filter layers used to explain filter precedence in the UI. */
+      readonly filter_override_context?: InsightFilterOverrideContext | null;
       /** @nullable */
       readonly last_viewed_at?: string | null;
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
@@ -52386,16 +53184,28 @@ export namespace Schemas {
     export interface QuotaResourceLimit {
       /** True when the team is currently over its quota for this resource and limits are in effect. */
       limited: boolean;
+      /**
+         * Units of this resource the organization has used so far this billing period, in the resource's native unit (credits for credit buckets). Null when billing hasn't synced usage for the resource.
+         * @nullable
+         */
+      usage: number | null;
+      /**
+         * The organization's limit for this resource in the same unit. Null when unlimited or unknown.
+         * @nullable
+         */
+      limit: number | null;
     }
 
     /**
-     * Per-resource limit state keyed by `QuotaResource` value. Currently only `ai_credits` is reported; additional resources may be added.
+     * Per-resource limit state for every `QuotaResource` value, e.g. `ai_credits`, `posthog_code_credits`.
      */
     export type QuotaLimitsResponseLimited = {[key: string]: QuotaResourceLimit};
 
     export interface QuotaLimitsResponse {
-      /** Per-resource limit state keyed by `QuotaResource` value. Currently only `ai_credits` is reported; additional resources may be added. */
+      /** Per-resource limit state for every `QuotaResource` value, e.g. `ai_credits`, `posthog_code_credits`. */
       limited: QuotaLimitsResponseLimited;
+      /** Whether the team's organization pays for PostHog Code usage: billing grants the `posthog_code_usage` product feature only on the Code usage product's paid plan, synced into the organization's available features. Consumers gate paid-tier Code behavior on this; an org unknown to billing reads as not paying. */
+      code_usage_billing_active: boolean;
     }
 
     export interface RawUnmatchedSample {
@@ -52650,6 +53460,7 @@ export namespace Schemas {
      * * `logs` - logs
      * * `health_checks` - health_checks
      * * `replay_vision` - replay_vision
+     * * `analytics` - analytics
      */
     export type SignalSourceProduct = typeof SignalSourceProduct[keyof typeof SignalSourceProduct];
 
@@ -52669,6 +53480,7 @@ export namespace Schemas {
       Logs: 'logs',
       HealthChecks: 'health_checks',
       ReplayVision: 'replay_vision',
+      Analytics: 'analytics',
     } as const;
 
     /**
@@ -52687,6 +53499,7 @@ export namespace Schemas {
      * * `alert_state_change` - alert_state_change
      * * `health_issue` - health_issue
      * * `scanner_finding` - scanner_finding
+     * * `anomaly_investigation` - anomaly_investigation
      */
     export type SignalSourceType = typeof SignalSourceType[keyof typeof SignalSourceType];
 
@@ -52707,6 +53520,7 @@ export namespace Schemas {
       AlertStateChange: 'alert_state_change',
       HealthIssue: 'health_issue',
       ScannerFinding: 'scanner_finding',
+      AnomalyInvestigation: 'anomaly_investigation',
     } as const;
 
     export interface SessionProblemEventEntry {
@@ -52769,7 +53583,7 @@ export namespace Schemas {
       mcp_trace_id?: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | HealthCheckSignalExtra;
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -52793,7 +53607,8 @@ export namespace Schemas {
        * * `signals_scout` - signals_scout
        * * `logs` - logs
        * * `health_checks` - health_checks
-       * * `replay_vision` - replay_vision */
+       * * `replay_vision` - replay_vision
+       * * `analytics` - analytics */
       source_product: SignalSourceProduct;
       /** Signal type within the source product.
        *
@@ -52811,7 +53626,8 @@ export namespace Schemas {
        * * `cross_source_issue` - cross_source_issue
        * * `alert_state_change` - alert_state_change
        * * `health_issue` - health_issue
-       * * `scanner_finding` - scanner_finding */
+       * * `scanner_finding` - scanner_finding
+       * * `anomaly_investigation` - anomaly_investigation */
       source_type: SignalSourceType;
       /** Emitter-scoped id of the underlying object (issue, ticket, ...). */
       source_id: string;
@@ -54091,8 +54907,24 @@ export namespace Schemas {
     }
 
     export interface SdkAssessment {
-      /** SDK identifier, e.g. 'web', 'posthog-python', 'posthog-node', 'posthog-ios'. */
-      lib: string;
+      /** SDK identifier, e.g. 'web', 'posthog-python', 'posthog-node', 'posthog-ios'.
+       *
+       * * `web` - web
+       * * `posthog-ios` - posthog-ios
+       * * `posthog-android` - posthog-android
+       * * `posthog-java` - posthog-java
+       * * `posthog-server` - posthog-server
+       * * `posthog-node` - posthog-node
+       * * `posthog-python` - posthog-python
+       * * `posthog-php` - posthog-php
+       * * `posthog-ruby` - posthog-ruby
+       * * `posthog-go` - posthog-go
+       * * `posthog-flutter` - posthog-flutter
+       * * `posthog-react-native` - posthog-react-native
+       * * `posthog-kmp` - posthog-kmp
+       * * `posthog-dotnet` - posthog-dotnet
+       * * `posthog-elixir` - posthog-elixir */
+      lib: LibEnum;
       /** Human-readable SDK name matching the SDK Health UI (e.g. 'Python', 'Node.js', 'Web', 'iOS'). */
       readable_name: string;
       /** Most recent published version of this SDK. */
@@ -54103,6 +54935,8 @@ export namespace Schemas {
       is_outdated: boolean;
       /** True if the primary in-use version is flagged as old by age alone. */
       is_old: boolean;
+      /** True when this SDK must be replaced by a supported successor rather than upgraded in place. */
+      migration_required: boolean;
       /** UI severity badge — 'none' when healthy, 'warning' when outdated, 'danger' when the majority of team SDKs are outdated.
        *
        * * `none` - none
@@ -55856,7 +56690,103 @@ export namespace Schemas {
        * * `GoogleChat` - GoogleChat
        * * `Kickscale` - Kickscale
        * * `Zellify` - Zellify
-       * * `RudderStack` - RudderStack */
+       * * `RudderStack` - RudderStack
+       * * `DodoPayments` - DodoPayments
+       * * `Salestrics` - Salestrics
+       * * `Doppler` - Doppler
+       * * `Usersnap` - Usersnap
+       * * `Asknicely` - Asknicely
+       * * `Featurebase` - Featurebase
+       * * `Frill` - Frill
+       * * `Bettermode` - Bettermode
+       * * `Dynatrace` - Dynatrace
+       * * `Honeycomb` - Honeycomb
+       * * `SumoLogic` - SumoLogic
+       * * `LogzIO` - LogzIO
+       * * `Coralogix` - Coralogix
+       * * `BetterStack` - BetterStack
+       * * `Raygun` - Raygun
+       * * `Honeybadger` - Honeybadger
+       * * `Airbrake` - Airbrake
+       * * `Appsignal` - Appsignal
+       * * `Appdynamics` - Appdynamics
+       * * `Instana` - Instana
+       * * `SplunkObservabilityCloud` - SplunkObservabilityCloud
+       * * `Uptimerobot` - Uptimerobot
+       * * `Statuscake` - Statuscake
+       * * `Tailscale` - Tailscale
+       * * `Flagsmith` - Flagsmith
+       * * `Xmatters` - Xmatters
+       * * `Squadcast` - Squadcast
+       * * `Zenduty` - Zenduty
+       * * `Cronitor` - Cronitor
+       * * `Jenkins` - Jenkins
+       * * `Bitbucket` - Bitbucket
+       * * `Gitea` - Gitea
+       * * `Teamcity` - Teamcity
+       * * `TravisCI` - TravisCI
+       * * `Semaphore` - Semaphore
+       * * `CircleciInsights` - CircleciInsights
+       * * `OctopusDeploy` - OctopusDeploy
+       * * `Sourcegraph` - Sourcegraph
+       * * `Bitrise` - Bitrise
+       * * `Gerrit` - Gerrit
+       * * `TerraformCloud` - TerraformCloud
+       * * `PulumiCloud` - PulumiCloud
+       * * `Spacelift` - Spacelift
+       * * `Railway` - Railway
+       * * `Argocd` - Argocd
+       * * `PrefectCloud` - PrefectCloud
+       * * `DagsterCloud` - DagsterCloud
+       * * `Env0` - Env0
+       * * `Kubecost` - Kubecost
+       * * `Snyk` - Snyk
+       * * `Semgrep` - Semgrep
+       * * `Veracode` - Veracode
+       * * `Checkmarx` - Checkmarx
+       * * `Gitguardian` - Gitguardian
+       * * `QualysVmdr` - QualysVmdr
+       * * `Rapid7Insightvm` - Rapid7Insightvm
+       * * `TenableVulnerabilityManagement` - TenableVulnerabilityManagement
+       * * `Sentinelone` - Sentinelone
+       * * `Lacework` - Lacework
+       * * `OrcaSecurity` - OrcaSecurity
+       * * `Drata` - Drata
+       * * `Secureframe` - Secureframe
+       * * `CiscoDuo` - CiscoDuo
+       * * `Jumpcloud` - Jumpcloud
+       * * `OnePassword` - OnePassword
+       * * `Stytch` - Stytch
+       * * `Sonarqube` - Sonarqube
+       * * `Codecov` - Codecov
+       * * `Coveralls` - Coveralls
+       * * `Codacy` - Codacy
+       * * `Deepsource` - Deepsource
+       * * `Linearb` - Linearb
+       * * `Jellyfish` - Jellyfish
+       * * `Swarmia` - Swarmia
+       * * `Packagist` - Packagist
+       * * `Nuget` - Nuget
+       * * `CratesIO` - CratesIO
+       * * `SonatypeNexus` - SonatypeNexus
+       * * `JfrogArtifactory` - JfrogArtifactory
+       * * `Snowplow` - Snowplow
+       * * `WeightsAndBiases` - WeightsAndBiases
+       * * `MonteCarlo` - MonteCarlo
+       * * `Metaplane` - Metaplane
+       * * `Datahub` - Datahub
+       * * `ClickhouseCloud` - ClickhouseCloud
+       * * `ConfluentCloud` - ConfluentCloud
+       * * `KongKonnect` - KongKonnect
+       * * `Kandji` - Kandji
+       * * `Automox` - Automox
+       * * `Autumn` - Autumn
+       * * `GetStream` - GetStream
+       * * `Octolens` - Octolens
+       * * `Kajabi` - Kajabi
+       * * `Shopware` - Shopware
+       * * `Dubsado` - Dubsado
+       * * `Campfire` - Campfire */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -56662,7 +57592,103 @@ export namespace Schemas {
        * * `GoogleChat` - GoogleChat
        * * `Kickscale` - Kickscale
        * * `Zellify` - Zellify
-       * * `RudderStack` - RudderStack */
+       * * `RudderStack` - RudderStack
+       * * `DodoPayments` - DodoPayments
+       * * `Salestrics` - Salestrics
+       * * `Doppler` - Doppler
+       * * `Usersnap` - Usersnap
+       * * `Asknicely` - Asknicely
+       * * `Featurebase` - Featurebase
+       * * `Frill` - Frill
+       * * `Bettermode` - Bettermode
+       * * `Dynatrace` - Dynatrace
+       * * `Honeycomb` - Honeycomb
+       * * `SumoLogic` - SumoLogic
+       * * `LogzIO` - LogzIO
+       * * `Coralogix` - Coralogix
+       * * `BetterStack` - BetterStack
+       * * `Raygun` - Raygun
+       * * `Honeybadger` - Honeybadger
+       * * `Airbrake` - Airbrake
+       * * `Appsignal` - Appsignal
+       * * `Appdynamics` - Appdynamics
+       * * `Instana` - Instana
+       * * `SplunkObservabilityCloud` - SplunkObservabilityCloud
+       * * `Uptimerobot` - Uptimerobot
+       * * `Statuscake` - Statuscake
+       * * `Tailscale` - Tailscale
+       * * `Flagsmith` - Flagsmith
+       * * `Xmatters` - Xmatters
+       * * `Squadcast` - Squadcast
+       * * `Zenduty` - Zenduty
+       * * `Cronitor` - Cronitor
+       * * `Jenkins` - Jenkins
+       * * `Bitbucket` - Bitbucket
+       * * `Gitea` - Gitea
+       * * `Teamcity` - Teamcity
+       * * `TravisCI` - TravisCI
+       * * `Semaphore` - Semaphore
+       * * `CircleciInsights` - CircleciInsights
+       * * `OctopusDeploy` - OctopusDeploy
+       * * `Sourcegraph` - Sourcegraph
+       * * `Bitrise` - Bitrise
+       * * `Gerrit` - Gerrit
+       * * `TerraformCloud` - TerraformCloud
+       * * `PulumiCloud` - PulumiCloud
+       * * `Spacelift` - Spacelift
+       * * `Railway` - Railway
+       * * `Argocd` - Argocd
+       * * `PrefectCloud` - PrefectCloud
+       * * `DagsterCloud` - DagsterCloud
+       * * `Env0` - Env0
+       * * `Kubecost` - Kubecost
+       * * `Snyk` - Snyk
+       * * `Semgrep` - Semgrep
+       * * `Veracode` - Veracode
+       * * `Checkmarx` - Checkmarx
+       * * `Gitguardian` - Gitguardian
+       * * `QualysVmdr` - QualysVmdr
+       * * `Rapid7Insightvm` - Rapid7Insightvm
+       * * `TenableVulnerabilityManagement` - TenableVulnerabilityManagement
+       * * `Sentinelone` - Sentinelone
+       * * `Lacework` - Lacework
+       * * `OrcaSecurity` - OrcaSecurity
+       * * `Drata` - Drata
+       * * `Secureframe` - Secureframe
+       * * `CiscoDuo` - CiscoDuo
+       * * `Jumpcloud` - Jumpcloud
+       * * `OnePassword` - OnePassword
+       * * `Stytch` - Stytch
+       * * `Sonarqube` - Sonarqube
+       * * `Codecov` - Codecov
+       * * `Coveralls` - Coveralls
+       * * `Codacy` - Codacy
+       * * `Deepsource` - Deepsource
+       * * `Linearb` - Linearb
+       * * `Jellyfish` - Jellyfish
+       * * `Swarmia` - Swarmia
+       * * `Packagist` - Packagist
+       * * `Nuget` - Nuget
+       * * `CratesIO` - CratesIO
+       * * `SonatypeNexus` - SonatypeNexus
+       * * `JfrogArtifactory` - JfrogArtifactory
+       * * `Snowplow` - Snowplow
+       * * `WeightsAndBiases` - WeightsAndBiases
+       * * `MonteCarlo` - MonteCarlo
+       * * `Metaplane` - Metaplane
+       * * `Datahub` - Datahub
+       * * `ClickhouseCloud` - ClickhouseCloud
+       * * `ConfluentCloud` - ConfluentCloud
+       * * `KongKonnect` - KongKonnect
+       * * `Kandji` - Kandji
+       * * `Automox` - Automox
+       * * `Autumn` - Autumn
+       * * `GetStream` - GetStream
+       * * `Octolens` - Octolens
+       * * `Kajabi` - Kajabi
+       * * `Shopware` - Shopware
+       * * `Dubsado` - Dubsado
+       * * `Campfire` - Campfire */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -57460,7 +58486,103 @@ export namespace Schemas {
        * * `GoogleChat` - GoogleChat
        * * `Kickscale` - Kickscale
        * * `Zellify` - Zellify
-       * * `RudderStack` - RudderStack */
+       * * `RudderStack` - RudderStack
+       * * `DodoPayments` - DodoPayments
+       * * `Salestrics` - Salestrics
+       * * `Doppler` - Doppler
+       * * `Usersnap` - Usersnap
+       * * `Asknicely` - Asknicely
+       * * `Featurebase` - Featurebase
+       * * `Frill` - Frill
+       * * `Bettermode` - Bettermode
+       * * `Dynatrace` - Dynatrace
+       * * `Honeycomb` - Honeycomb
+       * * `SumoLogic` - SumoLogic
+       * * `LogzIO` - LogzIO
+       * * `Coralogix` - Coralogix
+       * * `BetterStack` - BetterStack
+       * * `Raygun` - Raygun
+       * * `Honeybadger` - Honeybadger
+       * * `Airbrake` - Airbrake
+       * * `Appsignal` - Appsignal
+       * * `Appdynamics` - Appdynamics
+       * * `Instana` - Instana
+       * * `SplunkObservabilityCloud` - SplunkObservabilityCloud
+       * * `Uptimerobot` - Uptimerobot
+       * * `Statuscake` - Statuscake
+       * * `Tailscale` - Tailscale
+       * * `Flagsmith` - Flagsmith
+       * * `Xmatters` - Xmatters
+       * * `Squadcast` - Squadcast
+       * * `Zenduty` - Zenduty
+       * * `Cronitor` - Cronitor
+       * * `Jenkins` - Jenkins
+       * * `Bitbucket` - Bitbucket
+       * * `Gitea` - Gitea
+       * * `Teamcity` - Teamcity
+       * * `TravisCI` - TravisCI
+       * * `Semaphore` - Semaphore
+       * * `CircleciInsights` - CircleciInsights
+       * * `OctopusDeploy` - OctopusDeploy
+       * * `Sourcegraph` - Sourcegraph
+       * * `Bitrise` - Bitrise
+       * * `Gerrit` - Gerrit
+       * * `TerraformCloud` - TerraformCloud
+       * * `PulumiCloud` - PulumiCloud
+       * * `Spacelift` - Spacelift
+       * * `Railway` - Railway
+       * * `Argocd` - Argocd
+       * * `PrefectCloud` - PrefectCloud
+       * * `DagsterCloud` - DagsterCloud
+       * * `Env0` - Env0
+       * * `Kubecost` - Kubecost
+       * * `Snyk` - Snyk
+       * * `Semgrep` - Semgrep
+       * * `Veracode` - Veracode
+       * * `Checkmarx` - Checkmarx
+       * * `Gitguardian` - Gitguardian
+       * * `QualysVmdr` - QualysVmdr
+       * * `Rapid7Insightvm` - Rapid7Insightvm
+       * * `TenableVulnerabilityManagement` - TenableVulnerabilityManagement
+       * * `Sentinelone` - Sentinelone
+       * * `Lacework` - Lacework
+       * * `OrcaSecurity` - OrcaSecurity
+       * * `Drata` - Drata
+       * * `Secureframe` - Secureframe
+       * * `CiscoDuo` - CiscoDuo
+       * * `Jumpcloud` - Jumpcloud
+       * * `OnePassword` - OnePassword
+       * * `Stytch` - Stytch
+       * * `Sonarqube` - Sonarqube
+       * * `Codecov` - Codecov
+       * * `Coveralls` - Coveralls
+       * * `Codacy` - Codacy
+       * * `Deepsource` - Deepsource
+       * * `Linearb` - Linearb
+       * * `Jellyfish` - Jellyfish
+       * * `Swarmia` - Swarmia
+       * * `Packagist` - Packagist
+       * * `Nuget` - Nuget
+       * * `CratesIO` - CratesIO
+       * * `SonatypeNexus` - SonatypeNexus
+       * * `JfrogArtifactory` - JfrogArtifactory
+       * * `Snowplow` - Snowplow
+       * * `WeightsAndBiases` - WeightsAndBiases
+       * * `MonteCarlo` - MonteCarlo
+       * * `Metaplane` - Metaplane
+       * * `Datahub` - Datahub
+       * * `ClickhouseCloud` - ClickhouseCloud
+       * * `ConfluentCloud` - ConfluentCloud
+       * * `KongKonnect` - KongKonnect
+       * * `Kandji` - Kandji
+       * * `Automox` - Automox
+       * * `Autumn` - Autumn
+       * * `GetStream` - GetStream
+       * * `Octolens` - Octolens
+       * * `Kajabi` - Kajabi
+       * * `Shopware` - Shopware
+       * * `Dubsado` - Dubsado
+       * * `Campfire` - Campfire */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -58878,6 +60000,16 @@ export namespace Schemas {
      * Request body for creating a task run without starting execution yet.
      */
     export interface TaskRunBootstrapCreateRequest {
+      /**
+         * Local url-based MCP servers from the creating client (PostHog Code) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.
+         * @nullable
+         */
+      imported_mcp_servers?: ImportedMcpServer[] | null;
+      /**
+         * Names of desktop-only MCP servers the creating client (PostHog Code) relays into the cloud sandbox over the durable event/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.
+         * @nullable
+         */
+      relayed_mcp_servers?: RelayedMcpServer[] | null;
       /** Execution environment for the new run. Use 'cloud' for remote sandbox runs and 'local' for desktop sessions.
        *
        * * `local` - local
@@ -58982,7 +60114,8 @@ export namespace Schemas {
        * * `cancel` - cancel
        * * `close` - close
        * * `permission_response` - permission_response
-       * * `set_config_option` - set_config_option */
+       * * `set_config_option` - set_config_option
+       * * `mcp_response` - mcp_response */
       method: MethodEnum;
       /** Parameters for the command */
       params?: TaskRunCommandRequestParams;
@@ -60703,6 +61836,24 @@ export namespace Schemas {
     export interface WidgetCatalogResponse {
       /** Registered dashboard widget types available when dashboard-widgets is enabled. */
       results: WidgetCatalogEntry[];
+    }
+
+    /**
+     * The team's active onboarding wizard cloud run, used to rehydrate
+     * the setup-progress FAB when the run was started server-side (drop flow).
+     */
+    export interface WizardCloudRunDTO {
+      /** Id of the onboarding wizard task. */
+      task_id: string;
+      /** Id of the task's latest run, for reconnecting to its progress stream. */
+      run_id: string;
+      /** Latest run status (e.g. queued, in_progress, completed, failed). */
+      status: string;
+      /**
+         * When the run was created, for the FAB's elapsed timer.
+         * @nullable
+         */
+      started_at?: string | null;
     }
 
     export interface WorkflowHealthBucket {
@@ -63981,21 +65132,6 @@ export namespace Schemas {
      * The source type to generate a connect link for (e.g. 'Stripe', 'Postgres', 'Hubspot').
      */
     source_type: string;
-    };
-
-    export type EnvironmentsExternalDataSourcesConnectionsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * A search term.
-     */
-    search?: string;
     };
 
     export type EnvironmentsExternalDataSourcesOauthAccountsRetrieveParams = {
@@ -71132,21 +72268,6 @@ export namespace Schemas {
     source_type: string;
     };
 
-    export type ExternalDataSourcesConnectionsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * A search term.
-     */
-    search?: string;
-    };
-
     export type ExternalDataSourcesOauthAccountsRetrieveParams = {
     /**
      * The OAuth integration id whose accounts should be listed.
@@ -71301,6 +72422,10 @@ export namespace Schemas {
      * @minLength 1
      */
     distinct_id: string;
+    /**
+     * Optional list of flag keys to scope the response to. When omitted, evaluation reasons are returned for every flag in the project, which can be a very large payload on projects with many flags. Pass the specific flag(s) you are debugging to keep the response small. Accepts either repeated query params (flag_keys=a&flag_keys=b) or a JSON array string (flag_keys=["a","b"]).
+     */
+    flag_keys?: string[];
     /**
      * Groups for feature flag evaluation (JSON object string)
      */
@@ -74545,6 +75670,25 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type ReviewHogReviewsListParams = {
+    /**
+     * Whose reviews to list: `mine` for reviews of the requesting user's pull requests (the default), `everyone` for every review on this project.
+     *
+     * * `mine` - mine
+     * * `everyone` - everyone
+     * @minLength 1
+     */
+    scope?: ReviewHogReviewsListScope;
+    };
+
+    export type ReviewHogReviewsListScope = typeof ReviewHogReviewsListScope[keyof typeof ReviewHogReviewsListScope];
+
+
+    export const ReviewHogReviewsListScope = {
+      Mine: 'mine',
+      Everyone: 'everyone',
+    } as const;
 
     export type SandboxCustomImagesListParams = {
     /**
