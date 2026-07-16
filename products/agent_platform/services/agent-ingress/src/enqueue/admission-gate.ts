@@ -47,8 +47,12 @@ export interface AdmissionDepsBundle {
  * admission can bind a canonical identity to. Machine principals
  * (shared_secret, posthog_internal, service) and the public opt-in anonymous
  * principal have no human behind the transport to resolve — returning null
- * makes the caller skip admission; their trust model is the auth mode the
- * author configured.
+ * makes the chat trigger FAIL CLOSED (403, nothing enqueued): an authoritative
+ * provider means "verified human identity required", and a coexisting
+ * public/shared-secret/internal auth mode must not silently void that gate.
+ * (Minting a claim instead would be worse — a claim keyed on a shared
+ * principal would let one secret holder bind an identity every other holder
+ * is then admitted as.)
  *
  * `transport` deliberately equals the principal kind (`posthog` / `jwt`), so
  * the transport AgentUser admission creates is the SAME row

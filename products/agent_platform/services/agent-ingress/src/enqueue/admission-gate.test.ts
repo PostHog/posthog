@@ -9,7 +9,8 @@
  *     users who already linked.
  *   - Machine/anonymous principals yield no claim at all: a claim keyed on a
  *     shared principal (e.g. `shared_secret`) would let one secret holder bind
- *     an identity every other holder is then admitted as.
+ *     an identity every other holder is then admitted as. The chat trigger
+ *     fails closed (403) on a null claim — see `admitChatPrincipal`.
  */
 
 import { describe, expect, it } from 'vitest'

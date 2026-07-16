@@ -436,4 +436,40 @@ maybeDescribe('edge admission e2e (chat/HTTP, authoritative provider, mocked inf
         const bindings = await new PgTransportBindingStore(c.pool).listForCanonical(session!.application_id, cano!.id)
         expect(bindings).toHaveLength(1)
     })
+
+    it('chat (anonymous): a claim-less principal is refused outright — a public auth mode cannot void the gate', async () => {
+        if (!ok) {
+            return
+        }
+        // Harness default auth provider serves the `public` mode, so an
+        // unauthenticated /run authenticates as `anonymous` — the exact
+        // combination that would bypass admission if the gate failed open.
+        c = await buildCluster()
+        await c.deployAgent({
+            slug: 'gatedpublic',
+            spec: {
+                triggers: [{ type: 'chat', config: {} }],
+                auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
+                authoritative_provider: 'dogs',
+                // No IdP round-trip happens — the refusal is pre-claim — so
+                // dummy endpoints are enough to satisfy the spec schema.
+                identity_providers: [
+                    {
+                        kind: 'oauth2',
+                        id: 'dogs',
+                        authorize_url: 'https://idp.test/authorize',
+                        token_url: 'https://idp.test/token',
+                        userinfo_url: 'https://idp.test/userinfo',
+                        client_id: 'dogs-client',
+                    },
+                ],
+            },
+        })
+        c.setScript([fauxText('must never run')])
+        const res = await request(c.ingress).post('/agents/gatedpublic/run').send({ message: 'hi' })
+        expect(res.status).toBe(403)
+        expect(res.body.error).toBe('admission_unsupported_principal')
+        expect(res.body.session_id).toBeUndefined()
+        await c.drain() // nothing queued; a no-op
+    })
 })

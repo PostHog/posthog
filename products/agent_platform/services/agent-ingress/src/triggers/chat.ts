@@ -41,7 +41,8 @@ import { defineRoute, type AuthedRouteCtx, type TriggerModule } from './types'
  * Edge admission for the HTTP/chat transport (mirrors the Slack trigger): if
  * the agent declares an authoritative provider, the claim must resolve a
  * verified identity BEFORE any session work. Unauthenticated → respond
- * `401 { auth_required, provider, authorize_url }`; provider/config error →
+ * `401 { auth_required, provider, authorize_url }`; a principal that cannot
+ * carry a per-user claim (anonymous/machine) → 403; provider/config error →
  * fail closed with a 500. Returns the principal to use downstream — stamped
  * with `canonical_agent_user_id` when admitted — or null when the response
  * has already been written.
@@ -55,9 +56,13 @@ async function admitChatPrincipal(ctx: AuthedRouteCtx<unknown>): Promise<Session
     const claim = httpTransportClaim(ctx.principal, readBearer(req), resolved.revision)
     if (!claim) {
         // Machine principals and the public opt-in anonymous principal carry no
-        // per-sender human identity to admit — their trust model is the auth
-        // mode the author configured (see `httpTransportClaim`).
-        return ctx.principal
+        // per-sender human identity to verify (see `httpTransportClaim`), and
+        // the authoritative gate is absolute: fail closed rather than let a
+        // coexisting public/shared-secret/internal auth mode silently void it.
+        // An agent that wants machine or anonymous callers must not declare an
+        // authoritative_provider.
+        res.status(403).json({ error: 'admission_unsupported_principal', principal_kind: ctx.principal.kind })
+        return null
     }
     const result = await admission.resolve(claim, {
         application: resolved.application,

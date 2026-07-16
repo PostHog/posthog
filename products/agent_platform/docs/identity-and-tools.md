@@ -131,6 +131,8 @@ identity. Secondary providers' credentials (below) hang off the **canonical**
 > On chat, `/run` and `/send` resolve admission before any session work,
 > and an admitted principal carries `canonical_agent_user_id` so secondary
 > credentials key off the canonical identity on HTTP too.
+> Principals with no per-user subject (anonymous, shared-secret, internal) are
+> refused outright (403) — a coexisting `public`/machine auth mode cannot void the gate.
 > A per-request PostHog bearer satisfies a `kind: posthog` authoritative provider inline
 > (`verifyBearer` exists only when the provider has a `userinfo_url`).
 
