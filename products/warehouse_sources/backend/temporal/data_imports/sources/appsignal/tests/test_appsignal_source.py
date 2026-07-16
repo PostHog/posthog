@@ -23,6 +23,11 @@ class TestAppsignalSource:
     def test_source_type(self):
         assert self.source.source_type == ExternalDataSourceType.APPSIGNAL
 
+    def test_connection_host_fields_force_secret_reentry_on_app_change(self):
+        # Changing app_id retargets the stored token at a different AppSignal app, so the update
+        # serializer must require re-entering the secret — regressing this reopens that hole.
+        assert self.source.connection_host_fields == ["app_id"]
+
     def test_get_source_config(self):
         config = self.source.get_source_config
 

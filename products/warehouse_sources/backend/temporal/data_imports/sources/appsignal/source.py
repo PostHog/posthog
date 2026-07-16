@@ -42,6 +42,12 @@ class AppsignalSource(ResumableSource[AppsignalSourceConfig, AppsignalResumeConf
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.APPSIGNAL
 
+    @property
+    def connection_host_fields(self) -> list[str]:
+        # app_id selects which AppSignal app the stored token is used against; changing it must
+        # require re-entering the secret so a preserved token can't be retargeted at another app.
+        return ["app_id"]
+
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error: Unauthorized for url: https://appsignal.com": "Your AppSignal personal API token is invalid or has been revoked. Copy a fresh token from your AppSignal personal settings, then reconnect.",
