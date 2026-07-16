@@ -718,9 +718,11 @@ function RunDetail({
     renderLogMessage?: (message: string) => JSX.Element | string
 }): JSX.Element {
     const isRerunWrapper = isRerunWrapperKind(record.function_kind)
+    // A batch child's log entries are keyed under the batch run (parent_run_id) as the log
+    // source, not the workflow id — so fetch this run's logs from there when it's a child.
     const logsLogicProps: LogsViewerLogicProps = {
         sourceType: functionKind,
-        sourceId: hogFunctionId,
+        sourceId: record.parent_run_id || hogFunctionId,
         logicKey: `invocations-${record.invocation_id}`,
         defaultFilters: { instanceId: record.invocation_id },
         groupByInstanceId: false,
