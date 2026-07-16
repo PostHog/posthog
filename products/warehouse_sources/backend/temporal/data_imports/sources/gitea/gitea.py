@@ -60,9 +60,26 @@ def normalize_host(host: str) -> str:
     if "://" not in host:
         host = f"https://{host}"
     host = host.rstrip("/")
-    parsed = urlparse(host)
+    # Reject characters that make urlparse (which the SSRF host check trusts) and the HTTP
+    # client disagree on the target host. `https://169.254.169.254\@example.com` parses as
+    # host example.com here while requests connects to 169.254.169.254 — a backslash or an
+    # encoded authority delimiter is the wedge, so refuse them outright.
+    lowered = host.lower()
+    if "\\" in host or "%5c" in lowered or "%40" in lowered:
+        raise ValueError(f"Invalid Gitea instance URL: {host}")
+    try:
+        parsed = urlparse(host)
+        port = parsed.port
+    except ValueError:
+        raise ValueError(f"Invalid Gitea instance URL: {host}")
     if parsed.scheme != "https" or not parsed.hostname:
         raise ValueError(f"Invalid Gitea instance URL (must be https): {host}")
+    # Credentials in the authority (user:pass@host) would ship the token to `host` while the
+    # safety check could be aimed elsewhere; require the authority to be exactly host[:port].
+    host_part = f"[{parsed.hostname}]" if ":" in parsed.hostname else parsed.hostname
+    expected_netloc = host_part + (f":{port}" if port else "")
+    if parsed.netloc.lower() != expected_netloc.lower():
+        raise ValueError(f"Invalid Gitea instance URL: {host}")
     return host
 
 

@@ -58,7 +58,23 @@ class TestNormalizeHost:
     def test_valid_hosts(self, value, expected):
         assert normalize_host(value) == expected
 
-    @pytest.mark.parametrize("value", ["", "   ", "ftp://example.com", "https://", "http://gitea.example.com"])
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "",
+            "   ",
+            "ftp://example.com",
+            "https://",
+            "http://gitea.example.com",
+            # Parser-differential SSRF: urlparse sees example.com, requests connects to the IP.
+            "https://169.254.169.254\\@example.com",
+            "https://169.254.169.254%40example.com",
+            "https://gitea.example.com%5c@169.254.169.254",
+            # Credentials in the authority would ship the token to `host`.
+            "https://user:pass@gitea.example.com",
+            "https://user@gitea.example.com",
+        ],
+    )
     def test_invalid_hosts_raise(self, value):
         with pytest.raises(ValueError):
             normalize_host(value)
