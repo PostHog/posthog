@@ -572,8 +572,13 @@ class EventDefinitionViewSet(
         skipped = [{"id": obj_id, "reason": "Not found"} for obj_id in validated_ids if obj_id not in found_ids]
 
         # Current verified state comes from existing enterprise rows; a base row without one is
-        # unverified by default, so a missing entry means verified=False.
-        verified_by_id = dict(EnterpriseEventDefinition.objects.filter(id__in=found_ids).values_list("id", "verified"))
+        # unverified by default, so a missing entry means verified=False. `found_ids` is already
+        # project-scoped, but keep the team filter explicit for tenant-isolation (IDOR) safety.
+        verified_by_id = dict(
+            EnterpriseEventDefinition.objects.filter(id__in=found_ids, team__project_id=self.project_id).values_list(
+                "id", "verified"
+            )
+        )
 
         user = cast(User, request.user)
         now = timezone.now()
