@@ -22,6 +22,7 @@ from products.tasks.backend.temporal.task_management.workflow import (
     CIFollowUpDecision,
     PendingAckSlot,
     PendingExternalFollowup,
+    TaskEvent,
     TaskManagementWorkflow,
     TaskRunManagementInput,
 )
@@ -985,6 +986,39 @@ class TestShutdownRejectionHandling:
 class TestSandboxSessionCompletionReset:
     """The orchestrator is persistent across sandbox sessions: when one ends
     we reset per-session state but stay alive for the next external signal."""
+
+    async def test_ack_is_processed_before_queued_session_completion(
+        self, monkeypatch, fixed_now, silent_workflow_logger
+    ):
+        workflow = TaskManagementWorkflow()
+        workflow._run_id = "run-id"
+        workflow._sandbox_alive = True
+        workflow._child_completion = ChildCompletion(success=True, error=None, sandbox_id="sb-1", timed_out=False)
+        workflow._pending_ack_slots["ack-delivered"] = PendingAckSlot(
+            signal_name="send_followup_message",
+            sent_at=fixed_now.now,
+            signal_args=["ack-delivered", "already delivered", [], "user"],
+        )
+        workflow._child_acks.append(
+            ChildAck(
+                signal_name="send_followup_message",
+                ack_id="ack-delivered",
+                accepted=True,
+                detail=None,
+                received_at=fixed_now.now,
+            )
+        )
+        monkeypatch.setattr(task_management_workflow_module.workflow, "wait_condition", AsyncMock())
+        monkeypatch.setattr(workflow, "_persist_pending_followups", AsyncMock())
+
+        assert await workflow._wait_for_signal() is TaskEvent.CHILD_FORWARDED
+        await workflow._drain_child_signals()
+        assert workflow._pending_ack_slots == {}
+
+        assert await workflow._wait_for_signal() is TaskEvent.CHILD_COMPLETED
+        await workflow._on_sandbox_session_completed()
+
+        assert workflow._pending_external_followups == []
 
     async def test_session_completion_does_not_close_orchestrator(self, monkeypatch, fixed_now, silent_workflow_logger):
         # Hardest assertion to lose: after `_on_sandbox_session_completed`,

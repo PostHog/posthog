@@ -194,6 +194,12 @@ _PATCH_ID_FOLLOWUP_QUEUE = "tasks-follow-up-message-queue"
 # turn, while ordinary follow-ups remain queued behind it.
 _PATCH_ID_CONCURRENT_FOLLOWUP_STEERING = "tasks-concurrent-followup-steering"
 
+# Keep follow-up admission open while the final active dispatch is still
+# running, then close it synchronously once the queue is empty. Older histories
+# set the shutdown flag before awaiting the active dispatch, so the change must
+# remain patch-gated until those executions have drained.
+_PATCH_ID_DRAIN_FOLLOWUPS_BEFORE_SHUTDOWN = "tasks-drain-followups-before-shutdown"
+
 # #60923 dropped the redundant slack post that ran immediately after sandbox
 # provisioning — between `_get_sandbox_for_repository` and the agent-start
 # progress emit. Pre-rollout histories scheduled a `post_slack_update` activity
@@ -234,6 +240,12 @@ def _complete_stream_after_cleanup_failure() -> bool:
     return workflow.patched(_PATCH_ID_COMPLETE_STREAM_AFTER_CLEANUP_FAILURE)
 
 
+def _drain_followups_before_shutdown() -> bool:
+    if not workflow.in_workflow():
+        return True
+    return workflow.patched(_PATCH_ID_DRAIN_FOLLOWUPS_BEFORE_SHUTDOWN)
+
+
 @temporalio.workflow.defn(name="process-task")
 class ProcessTaskWorkflow(PostHogWorkflow):
     def __init__(self) -> None:
@@ -254,6 +266,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._next_followup_sequence: int = 0
         self._active_followup_task: asyncio.Task[None] | None = None
         self._shutting_down: bool = False
+        self._drain_followups_before_shutdown: bool = True
         self._pending_permission_responses: list[PendingPermissionResponse] = []
         self._ci_repetitions: int = 0
         self._last_active_time: Optional[datetime] = None
@@ -371,7 +384,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             )
 
     async def _finish_active_followup(self) -> None:
-        self._shutting_down = True
+        if not self._drain_followups_before_shutdown:
+            self._shutting_down = True
         while True:
             if self._active_followup_task is not None:
                 task = self._active_followup_task
@@ -379,8 +393,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 await task
 
             if self._pending_followup is None and not self._pending_followups:
+                self._shutting_down = True
                 return
             if not workflow.patched(_PATCH_ID_CONCURRENT_FOLLOWUP_STEERING):
+                self._shutting_down = True
                 return
 
             followup = self._pop_next_followup()
@@ -588,6 +604,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         timed_out = False
         run_id = input.run_id
         self._sandbox_id_for_cleanup = None
+        self._drain_followups_before_shutdown = _drain_followups_before_shutdown()
         self._slack_thread_context = input.slack_thread_context
         self._prewarmed = input.prewarmed
         credential_refresh_task: asyncio.Task[None] | None = None

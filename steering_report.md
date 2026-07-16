@@ -1,6 +1,6 @@
 # Cloud steering implementation and hardening report
 
-Date: 2026-07-15
+Date: 2026-07-16
 
 ## Status
 
@@ -11,7 +11,7 @@ The implementation is split across:
 - PostHog backend branch: `posthog-code/cloud-run-steering`
 - PostHog Code branch: `posthog-code/cloud-run-steering-agent`
 
-The latest fixes add a receiver-first Temporal rollout gate, strict adapter-level steer decline handling, safe Temporal requeueing, stale Codex turn rejection handling, ordered fallback delivery, a synchronous workflow closing boundary, atomic retry hydration, and exact same-timestamp event deduplication.
+The latest fixes keep follow-up admission open through the final legacy dispatch, order child acknowledgements before completion, retry child outbound signals without allowing completion to overtake a failed acknowledgement, and discard live response chunks superseded by persisted coalesced messages.
 
 ## What the feature does
 
@@ -208,21 +208,67 @@ Hydration no longer treats timestamps as the provenance boundary. Existing and h
 
 Distinct events that share a millisecond timestamp, including turn completion, errors, tool updates, and response chunks, are retained.
 
+## Final drain, acknowledgement, and coalescing fixes
+
+### Legacy final draining keeps follow-up admission open
+
+New `ProcessTaskWorkflow` histories keep accepting follow-ups while the final active dispatch finishes. When that dispatch completes, the workflow closes admission and checks the queue synchronously before returning.
+
+Existing histories preserve their prior command order through the `tasks-drain-followups-before-shutdown` Temporal patch. Regressions cover both the new admission behavior and replay-compatible legacy behavior.
+
+### Child acknowledgements are ordered before completion
+
+New `TaskManagementWorkflow` histories drain queued child acknowledgements before processing a queued child completion. The parent therefore removes an acknowledged message before completion recovery considers requeueing it.
+
+The behavior is protected by the `tasks-task-management-ack-before-completion` Temporal patch so existing histories replay with their recorded command order.
+
+### Child completion cannot overtake a failed acknowledgement
+
+New `ExecuteSandboxWorkflow` histories preserve outbound order when a signal send fails. A failed acknowledgement and every later outbound signal are restored ahead of signals that arrived during the await, and finalization retries the ordered queue until it is empty.
+
+This prevents a completion signal from succeeding after an earlier acknowledgement failed and avoids redelivering an already-executed follow-up in a replacement sandbox. Existing histories retain their prior behavior through the `tasks-execute-sandbox-ordered-outbound-delivery` Temporal patch.
+
+### Persisted final responses supersede inherited chunk runs
+
+Resume hydration uses the stable coalesced message boundary produced by `SessionLogWriter`. When persisted history contains an authoritative `agent_message`, inherited live `agent_message_chunk` events from the same coalesced response are discarded as one contiguous chunk run.
+
+Exact event-key deduplication still preserves distinct same-timestamp completion, error, tool, and response events. The regression uses different partial and final text, so content-based deduplication cannot make it pass.
+
 ## Automated validation
 
 Latest validation:
 
-- Backend `execute_sandbox` workflow suite: 58 passed.
-- Backend `task_management` workflow suite: 60 passed.
-- Backend focused `process_task` ordering and terminal-boundary regressions: 4 passed.
-- Backend pending-follow-up activity suite: 12 passed.
-- PostHog Code session service UI suite: 142 passed.
+- Backend `process_task` workflow suite: 48 passed.
+- Backend `execute_sandbox` workflow suite: 59 passed.
+- Backend `task_management` workflow suite: 61 passed.
+- PostHog Code UI suite: 1,523 passed across 172 files.
 - Core and UI TypeScript package typechecks passed.
 - Ruff, Biome formatting and lint, and diff checks passed.
 
 Earlier validation across the branch also covered the full UI and agent packages, OpenAPI generation, Python compilation, shared and agent typechecks, and the focused Temporal, activity, client, adapter, and app-server suites.
 
 ## Live cloud-run verification
+
+### Final drain and resume coalescing verification
+
+- Task: `40d5e6f4-057b-49b2-bb71-2e52f0b22464`
+- A run: `177e3659-18fa-4acd-968a-b5b518f0b8c1`
+- B run: `f0b80ac1-4ffc-4718-a69d-d249589117bc`
+- C run: `fd92730d-755c-4a6d-8ca4-8b27397a5ceb`
+
+The backend worker and Electron app ran the current working trees through the active backend and LLM gateway tunnels.
+
+Verified:
+
+- A returned `BASE716ACK` exactly twice: once in the prompt and once in the response.
+- A normal follow-up returned `FALLBACK716` exactly twice.
+- A second normal follow-up started a 45-second terminal command. An active native steer returned `STEER716ACK` exactly twice, while the superseded `LONG716DONE` instruction remained exactly once as its user prompt and produced no response.
+- The active steer left the run connected, without a terminal error or pending prompt.
+- A and B were terminalized before the next message was sent, producing real A→B→C resumed runs.
+- B returned `RESUMEB716ACK` exactly twice and C returned `RESUMEC716ACK` exactly twice after cold hydration.
+- A full Electron process restart and task reopen loaded the entire transcript with all successful prompt/response pairs exactly once, the superseded long instruction once, and two restored-sandbox boundaries.
+- The cold transcript had no error, no pending prompt, no missing ancestry, and no duplicate partial response.
+- Read-only database state confirmed the exact A→B→C `state.resume_from_run_id` chain, and all three runs reached `completed`.
 
 ### Latest ordered steering and A-to-B-to-C cold hydration run
 

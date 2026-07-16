@@ -349,6 +349,43 @@ class TestFlushPendingOutbound:
         # immediately and tight-loop against the unreachable parent.
         sleep_mock.assert_awaited_once()
 
+    async def test_final_flush_retries_ack_before_sending_completion(self, monkeypatch, silent_workflow_logger):
+        workflow = ExecuteSandboxWorkflow()
+        workflow._context = _build_context()
+        workflow._parent_workflow_id = "parent-wf"
+        payload = ChildCompletionPayload(success=True, error=None, sandbox_id="sb-1", timed_out=False)
+        workflow._pending_outbound.extend(
+            [
+                OutboundSignal(
+                    target_signal=PARENT_ACK_SIGNAL,
+                    args=["send_followup_message", "ack-delivered", True, None],
+                    correlation_id="ack-delivered",
+                ),
+                OutboundSignal(target_signal=PARENT_COMPLETED_SIGNAL, args=[payload]),
+            ]
+        )
+
+        signal_mock = AsyncMock(side_effect=[RuntimeError("transient failure"), None, None])
+        handle_mock = Mock()
+        handle_mock.signal = signal_mock
+        monkeypatch.setattr(
+            execute_sandbox_workflow_module.workflow,
+            "get_external_workflow_handle",
+            Mock(return_value=handle_mock),
+        )
+        sleep_mock = AsyncMock()
+        monkeypatch.setattr(execute_sandbox_workflow_module.workflow, "sleep", sleep_mock)
+
+        await workflow._flush_all_pending_outbound()
+
+        assert [call.args[0] for call in signal_mock.await_args_list] == [
+            PARENT_ACK_SIGNAL,
+            PARENT_ACK_SIGNAL,
+            PARENT_COMPLETED_SIGNAL,
+        ]
+        assert workflow._pending_outbound == []
+        sleep_mock.assert_awaited_once()
+
     async def test_no_backoff_when_flush_succeeds(self, monkeypatch):
         workflow = ExecuteSandboxWorkflow()
         workflow._context = _build_context()
@@ -629,7 +666,7 @@ class TestRun:
         monkeypatch.setattr(workflow, "_cleanup_sandbox", cleanup_sandbox_mock)
         monkeypatch.setattr(workflow, "_create_resume_snapshot", create_resume_snapshot_mock)
         monkeypatch.setattr(workflow, "_clear_persisted_sandbox_id", AsyncMock())
-        monkeypatch.setattr(workflow, "_flush_pending_outbound", AsyncMock())
+        monkeypatch.setattr(workflow, "_flush_all_pending_outbound", AsyncMock())
         monkeypatch.setattr(workflow, "_relay_sandbox_events", AsyncMock())
         monkeypatch.setattr(workflow, "_run_credential_refresh_until_sandbox_gone", AsyncMock())
         monkeypatch.setattr(
@@ -689,7 +726,7 @@ class TestRun:
         monkeypatch.setattr(workflow, "_update_task_run_status", update_status_mock)
         monkeypatch.setattr(workflow, "_track_workflow_event", track_event_mock)
         monkeypatch.setattr(workflow, "_reap_orphaned_sandbox", reap_mock)
-        monkeypatch.setattr(workflow, "_flush_pending_outbound", AsyncMock())
+        monkeypatch.setattr(workflow, "_flush_all_pending_outbound", AsyncMock())
 
         result = await workflow.run(ExecuteSandboxInput(run_id="run-id", parent_workflow_id="parent-wf-id"))
 
@@ -1039,7 +1076,7 @@ class TestCompletionStatusOnExceptionPaths:
         monkeypatch.setattr(workflow, "_update_task_run_status", AsyncMock())
         monkeypatch.setattr(workflow, "_track_workflow_event", AsyncMock())
         monkeypatch.setattr(workflow, "_reap_orphaned_sandbox", AsyncMock())
-        monkeypatch.setattr(workflow, "_flush_pending_outbound", AsyncMock())
+        monkeypatch.setattr(workflow, "_flush_all_pending_outbound", AsyncMock())
 
         with pytest.raises(asyncio.CancelledError):
             await workflow.run(ExecuteSandboxInput(run_id="run-id", parent_workflow_id="parent-wf-id"))
@@ -1064,7 +1101,7 @@ class TestCompletionStatusOnExceptionPaths:
         monkeypatch.setattr(workflow, "_update_task_run_status", AsyncMock())
         monkeypatch.setattr(workflow, "_track_workflow_event", AsyncMock())
         monkeypatch.setattr(workflow, "_reap_orphaned_sandbox", AsyncMock())
-        monkeypatch.setattr(workflow, "_flush_pending_outbound", AsyncMock())
+        monkeypatch.setattr(workflow, "_flush_all_pending_outbound", AsyncMock())
 
         result = await workflow.run(ExecuteSandboxInput(run_id="run-id", parent_workflow_id="parent-wf-id"))
 

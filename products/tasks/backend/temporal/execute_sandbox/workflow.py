@@ -216,6 +216,13 @@ class SandboxEvent(StrEnum):
 
 
 _PATCH_ID_CONCURRENT_FOLLOWUP_STEERING = "tasks-execute-sandbox-concurrent-followup-steering"
+_PATCH_ID_ORDERED_OUTBOUND_DELIVERY = "tasks-execute-sandbox-ordered-outbound-delivery"
+
+
+def _ordered_outbound_delivery() -> bool:
+    if not workflow.in_workflow():
+        return True
+    return workflow.patched(_PATCH_ID_ORDERED_OUTBOUND_DELIVERY)
 
 
 @temporalio.workflow.defn(name="execute-sandbox")
@@ -261,6 +268,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         self._pending_followups: list[PendingFollowup] = []
         self._next_followup_sequence: int = 0
         self._pending_outbound: list[OutboundSignal] = []
+        self._ordered_outbound_delivery: bool = True
         self._active_followup_task: asyncio.Task[None] | None = None
 
         # Set in the `finally` block before we start emitting the terminal
@@ -414,6 +422,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         timed_out = False
         run_id = input.run_id
 
+        self._ordered_outbound_delivery = _ordered_outbound_delivery()
         self._parent_workflow_id = input.parent_workflow_id
         self._slack_thread_context = input.slack_thread_context
         self._sandbox_id_for_cleanup = None
@@ -641,7 +650,10 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             )
             # Final outbound flush — the parent should never be left waiting
             # on a signal we accepted but never acknowledged.
-            await self._flush_pending_outbound()
+            if self._ordered_outbound_delivery:
+                await self._flush_all_pending_outbound()
+            else:
+                await self._flush_pending_outbound()
 
     # ------------------------------------------------------------------
     # Signal handlers — keep these short. They only mutate state; the main
@@ -920,25 +932,13 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             return
         # Snapshot + clear before awaiting so a signal landing mid-flush
         # doesn't lose its delivery on the next iteration.
-        #
-        # Ordering note: we keep iterating after a failure, so a later
-        # signal that succeeds is delivered before an earlier one that
-        # failed and was re-queued. The protocol tolerates this — ACKs
-        # match by `ack_id` and PARENT_COMPLETED_SIGNAL is always enqueued
-        # last (from the finally block), so it trails any failed signals
-        # in the snapshot. Don't "fix" this by breaking after the first
-        # failure: that would drop the rest of the snapshot on the floor.
         to_send = self._pending_outbound
         self._pending_outbound = []
         parent = workflow.get_external_workflow_handle(self._parent_workflow_id)
-        for outbound in to_send:
+        for index, outbound in enumerate(to_send):
             try:
                 await parent.signal(outbound.target_signal, args=outbound.args)
             except Exception as e:
-                # Don't lose the signal — re-queue and let the next flush
-                # retry. If the parent is gone, future flushes will keep
-                # failing but the child run is independent and can complete
-                # on its own.
                 workflow.logger.warning(
                     "execute_sandbox_outbound_signal_failed",
                     run_id=self.context.run_id if self._context else None,
@@ -946,6 +946,12 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                     correlation_id=outbound.correlation_id,
                     error=str(e),
                 )
+                if self._ordered_outbound_delivery:
+                    # Keep the failed ACK and every later signal ahead of
+                    # anything that arrived during the await. Completion must
+                    # never overtake an ACK for already-delivered work.
+                    self._pending_outbound = to_send[index:] + self._pending_outbound
+                    break
                 self._pending_outbound.append(outbound)
         if self._pending_outbound:
             # Re-queued items would otherwise wake the main loop immediately
@@ -953,6 +959,10 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             # tight-loop against an unreachable parent, starving the
             # inactivity timer. Sleep to rate-limit retries.
             await workflow.sleep(OUTBOUND_RETRY_BACKOFF.total_seconds())
+
+    async def _flush_all_pending_outbound(self) -> None:
+        while self._pending_outbound:
+            await self._flush_pending_outbound()
 
     # ------------------------------------------------------------------
     # Activities — these mirror process_task's implementations directly so

@@ -67,6 +67,13 @@ from products.tasks.backend.temporal.task_management.activities.pending_followup
 )
 
 _PATCH_ID_CAPABILITY_GATED_STEERING = "tasks-capability-gated-steering-signal"
+_PATCH_ID_ACK_BEFORE_COMPLETION = "tasks-task-management-ack-before-completion"
+
+
+def _ack_before_completion() -> bool:
+    if not workflow.in_workflow():
+        return True
+    return workflow.patched(_PATCH_ID_ACK_BEFORE_COMPLETION)
 
 
 @dataclass
@@ -195,6 +202,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
         self._child_acks: list[ChildAck] = []
         self._pending_ack_slots: dict[str, PendingAckSlot] = {}
         self._child_completion: Optional[ChildCompletion] = None
+        self._ack_before_completion: bool = True
         # True between a successful `_ensure_sandbox_workflow_started` and
         # the next `PARENT_COMPLETED_SIGNAL`. The orchestrator lives for the
         # whole task run and spawns sandboxes lazily: when a follow-up arrives
@@ -352,6 +360,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
         self._slack_thread_context = input.slack_thread_context
         self._posthog_mcp_scopes = input.posthog_mcp_scopes
         self._sandbox_workflow_id = f"{workflow.info().workflow_id}-sandbox"
+        self._ack_before_completion = _ack_before_completion()
 
         try:
             self._context = await self._get_task_processing_context()
@@ -447,11 +456,10 @@ class TaskManagementWorkflow(PostHogWorkflow):
                 or self._child_completion is not None
             )
         )
-        # Session-completion wins outright — short-circuits any pending work
-        # because the current sandbox session is ending. The orchestrator
-        # itself keeps running; the next follow-up will re-bootstrap a
-        # fresh sandbox.
-        if self._child_completion is not None:
+        # Older histories processed completion first. New executions drain
+        # ACKs before resetting the sandbox session so an already-delivered
+        # follow-up is not re-queued onto the replacement sandbox.
+        if self._child_completion is not None and (not self._ack_before_completion or not self._child_acks):
             return TaskEvent.CHILD_COMPLETED
         # Prefer external signals when both classes are pending — the child
         # signal drain is cheap and rarely time-critical.
