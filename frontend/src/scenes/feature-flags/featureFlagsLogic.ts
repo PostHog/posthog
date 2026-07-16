@@ -235,10 +235,19 @@ export interface featureFlagsLogicActions {
         id: number
         payload: Partial<FeatureFlagType>
     }
-    updateFeatureFlagArchived: (payload: { archived: boolean; id: number; via?: FeatureFlagArchivedSource }) => {
+    updateFeatureFlagArchived: ({
+        id,
+        archived,
+        via,
+    }: {
         archived: boolean
         id: number
-        via?: FeatureFlagArchivedSource | undefined
+        /** Telemetry source; only meaningful (and only captured) when archiving, not unarchiving. */
+        via?: FeatureFlagArchivedSource
+    }) => {
+        id: number
+        archived: boolean
+        via?: FeatureFlagArchivedSource
     }
     updateFeatureFlagArchivedFailure: (
         error: string,
@@ -257,8 +266,8 @@ export interface featureFlagsLogicActions {
             results: any[]
         },
         payload?: {
-            archived: boolean
             id: number
+            archived: boolean
             via?: FeatureFlagArchivedSource
         }
     ) => {
@@ -271,9 +280,9 @@ export interface featureFlagsLogicActions {
             results: any[]
         }
         payload?: {
-            archived: boolean
             id: number
-            via?: FeatureFlagArchivedSource | undefined
+            archived: boolean
+            via?: FeatureFlagArchivedSource
         }
     }
     updateFeatureFlagFailure: (

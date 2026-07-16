@@ -1760,9 +1760,16 @@ export interface featureFlagLogicActions {
         featureFlagActiveUpdate: FeatureFlagType
         payload?: boolean
     }
-    updateFeatureFlagArchived: (payload: { archived: boolean; via?: FeatureFlagArchivedSource }) => {
+    updateFeatureFlagArchived: ({
+        archived,
+        via,
+    }: {
         archived: boolean
-        via?: FeatureFlagArchivedSource | undefined
+        /** Telemetry source; only meaningful (and only captured) when archiving, not unarchiving. */
+        via?: FeatureFlagArchivedSource
+    }) => {
+        archived: boolean
+        via?: FeatureFlagArchivedSource
     }
     updateFeatureFlagArchivedFailure: (
         error: string,
@@ -1781,7 +1788,7 @@ export interface featureFlagLogicActions {
         featureFlagActiveUpdate: FeatureFlagType
         payload?: {
             archived: boolean
-            via?: FeatureFlagArchivedSource | undefined
+            via?: FeatureFlagArchivedSource
         }
     }
 }
@@ -1803,6 +1810,7 @@ export interface featureFlagLogicMeta {
                 type: string
                 payload: {
                     onConfirm: () => void
+                    onDisableAndArchive?: (() => void) | undefined
                     originalFlag: FeatureFlagType | null
                     requireStatusConfirmation?: boolean | undefined
                     updatedFlag: Partial<FeatureFlagType>
@@ -1827,6 +1835,7 @@ export interface featureFlagLogicMeta {
                     dependentFlags: DependentFlag[]
                     isBeingDisabled?: boolean | undefined
                     onConfirm: () => void
+                    onDisableAndArchive?: (() => void) | undefined
                     originalFlag: FeatureFlagType | null
                     requireStatusConfirmation?: boolean | undefined
                     updatedFlag: Partial<FeatureFlagType>
