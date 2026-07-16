@@ -5,7 +5,7 @@ from typing import Any, Optional
 import structlog
 from prometheus_client import Counter
 
-from posthog.schema import QueryTiming, ResolvedDateRangeResponse
+from posthog.schema import QueryTiming
 
 from posthog.cache_utils import OrjsonJsonSerializer
 from posthog.caching.query_cache_routing import get_query_cache
@@ -61,7 +61,8 @@ class InsightResult:
     query_status: Optional[Any] = None
     hogql: Optional[str] = None
     types: Optional[list] = None
-    resolved_date_range: Optional[ResolvedDateRangeResponse] = None
+    # A ResolvedDateRangeResponse-shaped dict — the field carries model_dump output
+    resolved_date_range: Optional[dict] = None
 
 
 @dataclass(frozen=True)

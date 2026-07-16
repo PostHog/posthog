@@ -30,6 +30,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AirtableSource(SimpleSource[AirtableSourceConfig]):
+    supported_versions = ("v0",)
+    default_version = "v0"
+    api_docs_url = "https://airtable.com/developers/web/api/changelog"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

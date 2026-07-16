@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import type { DashboardWidgetTileFiltersProps } from '../registry'
 import { useWidgetTileConfigPersist } from '../widgetTileFiltersHooks'
@@ -41,9 +41,7 @@ export function ExperimentResultsWidgetTileFilters({
     const parsed = parseExperimentResultsWidgetConfig(config)
     const experimentId = parsed.experimentId ?? null
 
-    const configRef = useRef(config)
-    configRef.current = config
-    const { persistConfigNow } = useWidgetTileConfigPersist(onUpdateConfig)
+    const { getLatestConfig, persistConfigNow } = useWidgetTileConfigPersist(onUpdateConfig, config)
 
     // Reflect the pick immediately rather than waiting for the persist round-trip to update `config`.
     const [optimisticExperimentId, setOptimisticExperimentId] = useState<number | null | undefined>(undefined)
@@ -51,8 +49,7 @@ export function ExperimentResultsWidgetTileFilters({
 
     const applyExperimentId = async (value: number | null): Promise<void> => {
         setOptimisticExperimentId(value)
-        const nextConfig = patchExperimentResultsWidgetConfig(configRef.current, value)
-        configRef.current = nextConfig
+        const nextConfig = patchExperimentResultsWidgetConfig(getLatestConfig(), value)
         try {
             // persist resolves only after `config` reflects the pick, so clearing here never flickers.
             await persistConfigNow(nextConfig)

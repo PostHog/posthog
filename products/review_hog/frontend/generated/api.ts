@@ -15,6 +15,7 @@ import type {
     PatchedReviewValidatorConfigSelectApi,
     ReviewBlindSpotsConfigApi,
     ReviewDetailApi,
+    ReviewHogReviewsListParams,
     ReviewPerspectiveConfigApi,
     ReviewPerspectiveStatsApi,
     ReviewRecentReviewApi,
@@ -102,19 +103,32 @@ export const reviewHogPerspectivesPartialUpdate = async (
     })
 }
 
-export const getReviewHogReviewsListUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/review_hog/reviews/`
+export const getReviewHogReviewsListUrl = (projectId: string, params?: ReviewHogReviewsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/review_hog/reviews/?${stringifiedParams}`
+        : `/api/projects/${projectId}/review_hog/reviews/`
 }
 
 /**
- * The requesting user's ReviewHog reviews on this project: actively running reviews first (with the in-flight turn's stage), then the most recent completed ones (at most 5 rows).
- * @summary List the user's recent reviews
+ * Recent ReviewHog reviews on this project: actively running reviews first (with the in-flight turn's stage), then the most recent completed ones (at most 5 rows). By default only the requesting user's reviews; `scope=everyone` lists every review on the project.
+ * @summary List recent reviews
  */
 export const reviewHogReviewsList = async (
     projectId: string,
+    params?: ReviewHogReviewsListParams,
     options?: RequestInit
 ): Promise<ReviewRecentReviewApi[]> => {
-    return apiMutator<ReviewRecentReviewApi[]>(getReviewHogReviewsListUrl(projectId), {
+    return apiMutator<ReviewRecentReviewApi[]>(getReviewHogReviewsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -125,7 +139,7 @@ export const getReviewHogReviewsRetrieveUrl = (projectId: string, id: string) =>
 }
 
 /**
- * One completed ReviewHog review of the requesting user's pull requests, with the latest turn's validated findings, the findings the validator dismissed (and why), and the review body published to GitHub.
+ * One completed ReviewHog review on this project, with the latest turn's validated findings, the findings the validator dismissed (and why), and the review body published to GitHub. Project-wide, so reviews listed under `scope=everyone` can be opened too.
  * @summary Retrieve one review's detail
  */
 export const reviewHogReviewsRetrieve = async (
