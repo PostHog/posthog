@@ -51,6 +51,13 @@ class CiscoDuoHostNotAllowedError(Exception):
     pass
 
 
+class CiscoDuoLogSaturationError(Exception):
+    """More events share a single second than the v1 log API can page through, so the sync
+    cannot advance without silently dropping audit records."""
+
+    pass
+
+
 @dataclasses.dataclass
 class CiscoDuoResumeConfig:
     # v2 logs: opaque cursor within a fixed [mintime, maxtime] window (both ms).
@@ -314,18 +321,24 @@ def _get_log_v1_rows(
 
         if not fresh:
             if full_page:
-                # A full page entirely at/before the cursor second: step past it to avoid
-                # looping. Same-second events beyond the page boundary may be skipped.
-                logger.warning(f"Cisco Duo: {config.name} full page with no new rows at mintime={cursor}; advancing")
-                cursor = (cursor or 0) + 1
-                continue
+                # A full page with no rows past the cursor second means more than one page of
+                # events share that second. The v1 admin log can only page by mintime (seconds),
+                # so advancing would silently drop the remaining same-second audit records.
+                # Fail loudly instead — for an audit table, a missing record is worse than a
+                # stalled sync.
+                raise CiscoDuoLogSaturationError(
+                    f"Cisco Duo {config.name}: more than {LOG_V1_PAGE_SIZE} events at timestamp {cursor}. "
+                    f"The v1 log API cannot paginate within a single second, so the sync cannot advance "
+                    f"without dropping audit records."
+                )
             break
 
         if full_page:
             last_timestamp = _row_timestamp(fresh[-1])
             kept = [item for item in fresh if _row_timestamp(item) < last_timestamp]
             # If the whole fresh page shares one second there is nothing safe to hold back;
-            # yield it all and let the next iteration advance past that second.
+            # yield it all. The next iteration re-fetches from that second and either finishes
+            # (fewer than a full page there) or raises the saturation error above.
             to_yield = kept or fresh
         else:
             to_yield = fresh

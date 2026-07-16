@@ -10,6 +10,7 @@ import requests
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.cisco_duo.cisco_duo import (
     CiscoDuoHostNotAllowedError,
+    CiscoDuoLogSaturationError,
     CiscoDuoResumeConfig,
     CiscoDuoRetryableError,
     _canonicalize_params,
@@ -334,16 +335,17 @@ class TestLogV1Rows:
         assert batches == [[{"timestamp": 101}]]
         assert _query(session.urls[0])["mintime"] == "100"
 
-    def test_full_page_sharing_one_second_does_not_loop(self):
+    def test_saturated_second_raises_instead_of_dropping_records(self):
+        # A full page whose rows all share one second means more events exist at that second
+        # than one page can return. Because the v1 log API only pages by mintime (seconds),
+        # advancing would silently drop the remaining same-second audit records — so the sync
+        # must fail loudly rather than skip them.
         with mock.patch(f"{MODULE}.LOG_V1_PAGE_SIZE", 2):
             same_second = [{"timestamp": 7, "object": "x"}, {"timestamp": 7, "object": "y"}]
-            session = _FakeSession([self._page(same_second), self._page(same_second), self._page([])])
+            session = _FakeSession([self._page(same_second), self._page(same_second)])
 
-            batches = _run("administrator_logs", session, _manager())
-
-        # Rows are yielded exactly once even though the server keeps returning the boundary page.
-        assert batches == [same_second]
-        assert _query(session.urls[2])["mintime"] == "8"
+            with pytest.raises(CiscoDuoLogSaturationError):
+                _run("administrator_logs", session, _manager())
 
     def test_resume_starts_from_saved_mintime(self):
         session = _FakeSession([self._page([{"timestamp": 51}])])
