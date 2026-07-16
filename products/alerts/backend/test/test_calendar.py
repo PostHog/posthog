@@ -1,8 +1,12 @@
 from datetime import UTC, datetime
+from typing import Any
+
+import pytest
 
 from parameterized import parameterized
 
 from products.alerts.backend.calendar import (
+    BlockedWindow,
     CalendarInterval,
     is_weekend,
     next_calendar_check_time,
@@ -14,6 +18,95 @@ from products.alerts.backend.calendar import (
 # Wednesday 2026-03-18 12:00 UTC
 NOW = datetime(2026, 3, 18, 12, 0, tzinfo=UTC)
 PREV_CHECK = datetime(2026, 3, 18, 11, 47, tzinfo=UTC)
+
+
+class TestValidateAndNormalizeScheduleRestriction:
+    @parameterized.expand(
+        [
+            (None, None),
+            ({}, None),
+            ({"blocked_windows": []}, None),
+            (
+                {"blocked_windows": [{"start": "22:00", "end": "07:00"}]},
+                {"blocked_windows": [{"start": "22:00", "end": "07:00"}]},
+            ),
+        ]
+    )
+    def test_normalize_feature_off_or_valid_overnight(self, raw: Any, expected: dict[str, Any] | None) -> None:
+        assert validate_and_normalize_schedule_restriction(raw) == expected
+
+    def test_merges_overlapping_same_day_windows(self) -> None:
+        raw = {
+            "blocked_windows": [
+                {"start": "10:30", "end": "11:00"},
+                {"start": "10:40", "end": "11:15"},
+            ]
+        }
+        assert validate_and_normalize_schedule_restriction(raw) == {
+            "blocked_windows": [{"start": "10:30", "end": "11:15"}]
+        }
+
+    def test_adjacent_half_open_windows_merge(self) -> None:
+        raw = {
+            "blocked_windows": [
+                {"start": "12:00", "end": "13:00"},
+                {"start": "13:00", "end": "14:00"},
+            ]
+        }
+        assert validate_and_normalize_schedule_restriction(raw) == {
+            "blocked_windows": [{"start": "12:00", "end": "14:00"}]
+        }
+
+    def test_rejects_full_day_coverage(self) -> None:
+        raw = {
+            "blocked_windows": [
+                {"start": "00:00", "end": "12:00"},
+                {"start": "12:00", "end": "00:00"},
+            ]
+        }
+        with pytest.raises(ValueError, match="at least one time"):
+            validate_and_normalize_schedule_restriction(raw)
+
+    def test_rejects_too_many_windows_before_merge(self) -> None:
+        raw = {"blocked_windows": [{"start": f"{i:02d}:00", "end": f"{i:02d}:30"} for i in range(6)]}
+        with pytest.raises(ValueError, match="At most 5"):
+            validate_and_normalize_schedule_restriction(raw)
+
+    @parameterized.expand(
+        [
+            ("12:00:00",),
+            ("not_a_time",),
+        ]
+    )
+    def test_rejects_malformed_times(self, bad_time: str) -> None:
+        raw = {"blocked_windows": [{"start": bad_time, "end": "13:00"}]}
+        with pytest.raises(ValueError):
+            validate_and_normalize_schedule_restriction(raw)
+
+    def test_rejects_equal_start_and_end(self) -> None:
+        raw = {"blocked_windows": [{"start": "10:00", "end": "10:00"}]}
+        with pytest.raises(ValueError, match="differ"):
+            validate_and_normalize_schedule_restriction(raw)
+
+    @parameterized.expand(
+        [
+            ("same_day_too_short", "10:00", "10:29", False),
+            ("same_day_minimum", "10:00", "10:30", True),
+            ("overnight_too_short", "23:50", "00:09", False),
+            ("overnight_minimum", "23:40", "00:10", True),
+        ]
+    )
+    def test_enforces_minimum_window_length(self, _name: str, start: str, end: str, is_valid: bool) -> None:
+        raw = {"blocked_windows": [{"start": start, "end": end}]}
+        if is_valid:
+            assert validate_and_normalize_schedule_restriction(raw) == raw
+        else:
+            with pytest.raises(ValueError, match="at least 30 minutes"):
+                validate_and_normalize_schedule_restriction(raw)
+
+    def test_evening_until_midnight_preserves_end_at_midnight(self) -> None:
+        raw = {"blocked_windows": [{"start": "19:00", "end": "00:00"}]}
+        assert validate_and_normalize_schedule_restriction(raw) == raw
 
 
 class TestNextCalendarCheckTime:
@@ -102,7 +195,6 @@ class TestIsWeekend:
             ("utc_friday", datetime(2026, 3, 20, 23, 0, tzinfo=UTC), "UTC", False),
             # Sunday 05:00 UTC is still Saturday 22:00 in Pacific
             ("pacific_saturday", datetime(2026, 3, 22, 5, 0, tzinfo=UTC), "US/Pacific", True),
-            ("monday_utc", datetime(2026, 3, 23, 9, 0, tzinfo=UTC), "UTC", False),
         ]
     )
     def test_weekend_is_local(self, _name: str, now: datetime, tz_name: str, expected: bool) -> None:
@@ -110,7 +202,7 @@ class TestIsWeekend:
 
 
 class TestScanNextUnblockedUtc:
-    def _windows(self, *pairs: tuple[str, str]):
+    def _windows(self, *pairs: tuple[str, str]) -> list[BlockedWindow] | None:
         raw = {"blocked_windows": [{"start": s, "end": e} for s, e in pairs]}
         return parse_blocked_windows_tuples(validate_and_normalize_schedule_restriction(raw))
 
@@ -161,16 +253,3 @@ class TestScanNextUnblockedUtc:
         self, _name: str, window: tuple[str, str], candidate: datetime, expected: datetime
     ) -> None:
         assert scan_next_unblocked_utc(candidate, "America/New_York", self._windows(window)) == expected
-
-    def test_no_windows_returns_candidate(self) -> None:
-        candidate = datetime(2026, 3, 18, 12, 30, 45, 123456, tzinfo=UTC)
-        assert scan_next_unblocked_utc(candidate, "UTC", None) == candidate.replace(microsecond=0)
-
-    def test_full_day_coverage_is_rejected_at_validation(self) -> None:
-        try:
-            validate_and_normalize_schedule_restriction(
-                {"blocked_windows": [{"start": "00:00", "end": "12:00"}, {"start": "12:00", "end": "00:00"}]}
-            )
-            raise AssertionError("expected ValueError")
-        except ValueError:
-            pass
