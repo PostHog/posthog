@@ -16,6 +16,7 @@ import {
 import {
     LemonBanner,
     LemonButton,
+    LemonInput,
     LemonSegmentedButton,
     LemonSkeleton,
     LemonSlider,
@@ -581,6 +582,50 @@ function RecentReviewsSection(): JSX.Element | null {
                     </div>
                 )}
             </LemonCard>
+        </section>
+    )
+}
+
+/**
+ * "Review a pull request": paste any PR URL the project's GitHub App installation can access and
+ * start a publishing review, acting as the requesting user. Hidden unless the backend says this
+ * project can trigger reviews (limited to the designated ReviewHog team while in alpha).
+ */
+function TriggerReviewSection(): JSX.Element | null {
+    const { settings, triggerPrUrl, triggeringReview } = useValues(reviewHogSettingsLogic)
+    const { setTriggerPrUrl, submitTriggerReview } = useActions(reviewHogSettingsLogic)
+
+    if (!settings?.can_trigger_reviews) {
+        return null
+    }
+    return (
+        <section className="flex flex-col gap-4">
+            <SectionHeader icon={<IconGithub />} title="Review a pull request">
+                Start a review of any pull request the GitHub App can access. The review is posted back to the pull
+                request, runs with your perspectives, and shows up under your recent reviews.
+            </SectionHeader>
+            <form
+                className="ml-9 flex flex-wrap items-center gap-2"
+                onSubmit={(e) => {
+                    e.preventDefault()
+                    submitTriggerReview()
+                }}
+            >
+                <LemonInput
+                    className="min-w-80 flex-1"
+                    placeholder="https://github.com/posthog/posthog.com/pull/1234"
+                    value={triggerPrUrl}
+                    onChange={setTriggerPrUrl}
+                />
+                <LemonButton
+                    type="primary"
+                    htmlType="submit"
+                    loading={triggeringReview}
+                    disabledReason={!triggerPrUrl.trim() ? 'Paste a pull request URL first' : undefined}
+                >
+                    Review
+                </LemonButton>
+            </form>
         </section>
     )
 }
@@ -1492,6 +1537,7 @@ export function CodeReviewScene(): JSX.Element {
                     </LemonBanner>
                 )}
 
+                <TriggerReviewSection />
                 <RecentReviewsSection />
                 <PipelineSection />
                 <TriggersSection />

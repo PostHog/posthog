@@ -75,10 +75,11 @@ target/debug/personhog-test-harness gate --leaders 3 --duration 15s --restart-af
 target/debug/personhog-test-harness gate --duration 15s --writer-crash-after 5s
 target/debug/personhog-test-harness gate --duration 15s --writer-pause-after 3s --writer-pause-duration 8s
 
-# Kill the coordinator: bring-up guarantees the first router holds the
-# election, traffic targets the last; the kill revokes the election lease so
-# failover is immediate and a later handoff runs under the new coordinator
-target/debug/personhog-test-harness gate --leaders 3 --routers 2 --duration 20s \
+# Kill the coordinator: the kill resolves the live election holder from etcd
+# (the traffic router never campaigns, so it can never be the target),
+# revokes the election lease so failover is immediate, and a later handoff
+# runs under the new coordinator
+target/debug/personhog-test-harness gate --leaders 3 --routers 3 --duration 20s \
   --router-kill-after 5s --shutdown-after 9s
 
 # Compound: kill the target pod of an in-flight handoff (best-effort timing —
@@ -120,13 +121,13 @@ Both paths are gated in CI and the slow-failover window is finally exercised:
 ```bash
 # Graceful handover: SIGTERM the coordinator, then drain a leader under
 # the successor. Settles in ~0s with zero failed writes.
-target/debug/personhog-test-harness gate --routers 2 --leaders 3 --duration 15s \
+target/debug/personhog-test-harness gate --routers 3 --leaders 3 --duration 15s \
   --router-shutdown-after 4s --shutdown-after 8s
 
 # True crash: no lease revoked, the survivor is blind until the TTLs
 # expire; a drain issued inside the window completes once they do. The
 # phased leader shutdown keeps the drained pod serving throughout.
-target/debug/personhog-test-harness gate --routers 2 --leaders 3 --duration 18s \
+target/debug/personhog-test-harness gate --routers 3 --leaders 3 --duration 18s \
   --router-kill-after 4s --router-kill-fast false --shutdown-after 8s
 ```
 
@@ -138,7 +139,7 @@ Before ordered shutdown, that wedged everything: the draining pod's coordination
 With phased shutdown, coordination survives the whole drain and acks promptly — the composite below now settles in ~0s with only the killed pod's own crash window as failures.
 
 ```bash
-target/debug/personhog-test-harness gate --routers 2 --leaders 3 --duration 18s \
+target/debug/personhog-test-harness gate --routers 3 --leaders 3 --duration 18s \
   --router-kill-after 4s --shutdown-after 8s --kill-handoff-target
 ```
 

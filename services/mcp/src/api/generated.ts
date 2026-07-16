@@ -33094,6 +33094,13 @@ export namespace Schemas {
          * @maxLength 4096
          */
       description: string;
+      /** Total length of the full body in characters, independent of any body_offset/body_length paging. Compare against the length of the returned body to detect a truncated response. */
+      readonly body_total_length: number;
+      /**
+         * When body_length paging stops before the end of the body, the character offset to request next (pass as body_offset). Null when the returned body reaches the end.
+         * @nullable
+         */
+      readonly body_next_offset: number | null;
       /** The SKILL.md instruction content (markdown). */
       body: string;
       /**
@@ -33162,6 +33169,13 @@ export namespace Schemas {
          * @maxLength 4096
          */
       description: string;
+      /** Total length of the full body in characters, independent of any body_offset/body_length paging. Compare against the length of the returned body to detect a truncated response. */
+      readonly body_total_length: number;
+      /**
+         * When body_length paging stops before the end of the body, the character offset to request next (pass as body_offset). Null when the returned body reaches the end.
+         * @nullable
+         */
+      readonly body_next_offset: number | null;
       /** The SKILL.md instruction content (markdown). */
       body: string;
       /**
@@ -41703,6 +41717,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly error_reason: string | null;
+      /** True for the run recording an alert's condition clearing after a breach (the recovery bookend in run history). False for alert firings and summaries. */
+      readonly is_recovery: boolean;
       readonly created_at: string;
       readonly updated_at: string;
     }
@@ -46875,6 +46891,8 @@ export namespace Schemas {
        * * `should_fix` - Should Fix
        * * `must_fix` - Must Fix */
       urgency_threshold?: UrgencyThresholdEnum;
+      /** Whether reviews can be started from this project's Code review page (the UI trigger is limited to the designated ReviewHog team while the product is in alpha). */
+      readonly can_trigger_reviews?: boolean;
     }
 
     export interface PatchedReviewValidatorConfigSelect {
@@ -54990,6 +55008,23 @@ export namespace Schemas {
       stale: number;
     }
 
+    export interface ReviewTriggerError {
+      /** Human-readable explanation of why the trigger was rejected. */
+      error: string;
+    }
+
+    export interface ReviewTriggerRequest {
+      /** GitHub pull request URL to review, e.g. 'https://github.com/PostHog/posthog.com/pull/123'. The repository must be accessible to the project's GitHub App installation. */
+      pr_url: string;
+    }
+
+    export interface ReviewTriggerResponse {
+      /** Temporal workflow id for the started review run; empty when no run was started. */
+      workflow_id: string;
+      /** Run lifecycle marker: 'started' when the review was queued, 'already_reviewed' when the pull request's current commit already has a published review (no new run starts). */
+      status: string;
+    }
+
     export interface ReviewUserSettings {
       /** Automatically review pull requests opened by PostHog agents from the user's Inbox. Stored but not consumed yet — the Inbox auto-review trigger is not built. */
       review_inbox_prs?: boolean;
@@ -55001,6 +55036,8 @@ export namespace Schemas {
        * * `should_fix` - Should Fix
        * * `must_fix` - Must Fix */
       urgency_threshold?: UrgencyThresholdEnum;
+      /** Whether reviews can be started from this project's Code review page (the UI trigger is limited to the designated ReviewHog team while the product is in alpha). */
+      readonly can_trigger_reviews: boolean;
     }
 
     export interface ReviewValidatorConfig {
@@ -62449,6 +62486,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly error_reason: string | null;
+      /** True for the run recording an alert's condition clearing after a breach (the recovery bookend in run history). False for alert firings and summaries. */
+      readonly is_recovery: boolean;
       readonly created_at: string;
       readonly updated_at: string;
       /** The synthesized group-summary report in Markdown. Empty until a run completes successfully. */
@@ -67857,6 +67896,16 @@ export namespace Schemas {
 
     export type EnvironmentsLlmSkillsNameRetrieveParams = {
     /**
+     * Maximum number of characters of the body to return starting at body_offset. Omit to return the whole body from the offset onwards. When the slice stops before the end, body_next_offset is the offset to request next.
+     * @minimum 1
+     */
+    body_length?: number;
+    /**
+     * Zero-based character offset to start the returned body from. Use with body_length to page through a large body that a client would otherwise truncate. Compare the returned body length against body_total_length to detect truncation, then re-fetch from body_next_offset. Defaults to 0 (start of body).
+     * @minimum 0
+     */
+    body_offset?: number;
+    /**
      * Specific skill version to fetch. If omitted, the latest version is returned.
      * @minimum 1
      */
@@ -69234,7 +69283,7 @@ export namespace Schemas {
      */
     order_by?: string;
     /**
-     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     * Filter to observations whose person email contains this value (case-insensitive).
      */
     recording_subject?: string;
     /**
@@ -69312,7 +69361,7 @@ export namespace Schemas {
      */
     order_by?: string;
     /**
-     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     * Filter to observations whose person email contains this value (case-insensitive).
      */
     recording_subject?: string;
     /**
@@ -69347,7 +69396,7 @@ export namespace Schemas {
      */
     order_by?: string;
     /**
-     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     * Filter to observations whose person email contains this value (case-insensitive).
      */
     recording_subject?: string;
     /**
@@ -69382,7 +69431,7 @@ export namespace Schemas {
      */
     recent_days?: number;
     /**
-     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     * Filter to observations whose person email contains this value (case-insensitive).
      */
     recording_subject?: string;
     /**
@@ -75475,6 +75524,16 @@ export namespace Schemas {
 
     export type LlmSkillsNameRetrieveParams = {
     /**
+     * Maximum number of characters of the body to return starting at body_offset. Omit to return the whole body from the offset onwards. When the slice stops before the end, body_next_offset is the offset to request next.
+     * @minimum 1
+     */
+    body_length?: number;
+    /**
+     * Zero-based character offset to start the returned body from. Use with body_length to page through a large body that a client would otherwise truncate. Compare the returned body length against body_total_length to detect truncation, then re-fetch from body_next_offset. Defaults to 0 (start of body).
+     * @minimum 0
+     */
+    body_offset?: number;
+    /**
      * Specific skill version to fetch. If omitted, the latest version is returned.
      * @minimum 1
      */
@@ -77961,7 +78020,7 @@ export namespace Schemas {
      */
     order_by?: string;
     /**
-     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     * Filter to observations whose person email contains this value (case-insensitive).
      */
     recording_subject?: string;
     /**
@@ -78039,7 +78098,7 @@ export namespace Schemas {
      */
     order_by?: string;
     /**
-     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     * Filter to observations whose person email contains this value (case-insensitive).
      */
     recording_subject?: string;
     /**
@@ -78074,7 +78133,7 @@ export namespace Schemas {
      */
     order_by?: string;
     /**
-     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     * Filter to observations whose person email contains this value (case-insensitive).
      */
     recording_subject?: string;
     /**
@@ -78109,7 +78168,7 @@ export namespace Schemas {
      */
     recent_days?: number;
     /**
-     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     * Filter to observations whose person email contains this value (case-insensitive).
      */
     recording_subject?: string;
     /**
