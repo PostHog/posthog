@@ -29,8 +29,8 @@ class ReviewUserSettingsSerializer(serializers.ModelSerializer):
     urgency_threshold = serializers.ChoiceField(
         required=False,
         choices=ReviewUserSettings.UrgencyThreshold.choices,
-        help_text="Minimum priority a validated finding needs to be published: 'consider' publishes "
-        "everything, 'should_fix' (default) drops consider-level findings, 'must_fix' publishes only "
+        help_text="Minimum priority a validated finding needs to be published: 'consider' (default) "
+        "publishes everything, 'should_fix' drops consider-level findings, 'must_fix' publishes only "
         "blocking issues.",
     )
 
