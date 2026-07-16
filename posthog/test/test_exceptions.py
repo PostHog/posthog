@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 from django.http import HttpRequest
 from django.test import RequestFactory, SimpleTestCase, override_settings
 
@@ -10,7 +12,7 @@ from rest_framework.exceptions import (
     ValidationError,
 )
 
-from posthog.exceptions import exception_handler
+from posthog.exceptions import APIQueryQuotaLimitExceeded, exception_handler
 
 
 @override_settings(SITE_URL="https://us.posthog.com")
@@ -70,3 +72,25 @@ class TestExceptionHandlerWWWAuthenticate(SimpleTestCase):
             response["WWW-Authenticate"]
             == 'Bearer resource_metadata="https://us.posthog.com/.well-known/oauth-protected-resource"'
         )
+
+
+class TestAPIQueryQuotaLimitExceeded(SimpleTestCase):
+    def test_response_contract_includes_billing_period_end(self) -> None:
+        request = RequestFactory().post("/api/environments/1/query/")
+        exception = APIQueryQuotaLimitExceeded(billing_period_end=datetime(2026, 8, 1, tzinfo=UTC))
+
+        response = exception_handler(exception, {"request": request})
+
+        assert response is not None
+        assert response.status_code == 402
+        assert response.data == {
+            "type": "quota_limited",
+            "code": "quota_limit_exceeded",
+            "detail": (
+                "Your organization has reached its API query usage limit for this billing period. "
+                "Ask an organization admin to review Billing settings. "
+                "You can try again after the billing period resets."
+            ),
+            "attr": None,
+            "extra": {"billing_period_end": "2026-08-01T00:00:00+00:00"},
+        }

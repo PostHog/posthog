@@ -1,4 +1,3 @@
-from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, Optional
 from zoneinfo import ZoneInfo
@@ -50,7 +49,7 @@ from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError
-from posthog.exceptions import QuotaLimitExceeded
+from posthog.exceptions import APIQueryQuotaLimitExceeded
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import (
@@ -184,33 +183,41 @@ class TestQueryRunner(BaseTest):
 
     @parameterized.expand(
         [
-            ("query_service", True, True),
-            ("in_app", False, False),
+            ("blocking_query_service", True, ExecutionMode.CALCULATE_BLOCKING_ALWAYS, True),
+            ("async_query_service", True, ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE, True),
+            ("blocking_in_app", False, ExecutionMode.CALCULATE_BLOCKING_ALWAYS, False),
         ]
     )
     @override_settings(EE_AVAILABLE=True, API_QUERIES_ENABLED=True)
-    @mock.patch("ee.billing.quota_limiting.list_limited_team_attributes")
+    @mock.patch("ee.billing.quota_limiting.is_team_limited")
     def test_api_query_quota_only_blocks_query_service_calculations(
         self,
         _name: str,
         is_query_service: bool,
+        execution_mode: ExecutionMode,
         should_block: bool,
-        mock_list_limited_team_attributes: mock.MagicMock,
+        mock_is_team_limited: mock.MagicMock,
     ) -> None:
         TestQueryRunner = self.setup_test_query_runner_class()
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
         runner.is_query_service = is_query_service
-        mock_list_limited_team_attributes.return_value = [self.team.api_token]
+        runner.team.organization.usage = {
+            "period": ["2026-07-01T00:00:00Z", "2026-08-01T00:00:00Z"],
+        }
+        mock_is_team_limited.return_value = True
 
-        expected_result = self.assertRaises(QuotaLimitExceeded) if should_block else nullcontext()
-        with expected_result:
-            response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        with mock.patch.object(runner, "enqueue_async_calculation") as mock_enqueue_async_calculation:
+            if should_block:
+                with self.assertRaises(APIQueryQuotaLimitExceeded) as context:
+                    runner.run(execution_mode=execution_mode)
 
-        if should_block:
-            mock_list_limited_team_attributes.assert_called_once()
-        else:
-            self.assertEqual(response.results[0], ["row", 1, 2, 3])
-            mock_list_limited_team_attributes.assert_not_called()
+                self.assertEqual(context.exception.extra, {"billing_period_end": "2026-08-01T00:00:00+00:00"})
+                mock_is_team_limited.assert_called_once()
+                mock_enqueue_async_calculation.assert_not_called()
+            else:
+                response = runner.run(execution_mode=execution_mode)
+                self.assertEqual(response.results[0], ["row", 1, 2, 3])
+                mock_is_team_limited.assert_not_called()
 
     def test_init_with_query_instance(self):
         TestQueryRunner = self.setup_test_query_runner_class()
