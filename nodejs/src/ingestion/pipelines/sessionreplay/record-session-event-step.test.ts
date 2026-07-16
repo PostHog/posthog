@@ -23,7 +23,7 @@ describe('createRecordSessionEventStep', () => {
         teamId: 1,
         consoleLogIngestionEnabled: false,
         aiTrainingOptedIn: true,
-        firstPartyHosts: [],
+        firstPartyUrlEntries: [],
     }
 
     const createParsedMessage = (overrides: Partial<ParsedMessageData> = {}): ParsedMessageData => ({

@@ -1,7 +1,6 @@
 import { BackgroundRefresher } from '~/common/utils/background-refresher'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { logger } from '~/common/utils/logger'
-import { firstPartyHostPatterns } from '~/ingestion/pipelines/sessionreplay/ml-mirror/first-party-hosts'
 import { RetentionPeriod, isValidRetentionPeriod } from '~/ingestion/pipelines/sessionreplay/shared/constants'
 import { Team, TeamId } from '~/types'
 
@@ -62,8 +61,14 @@ export class TeamService {
     }
 }
 
-// Spreading a non-array here must never reach firstPartyHostPatterns: spreading a bare string
-// would explode it into single characters.
+/**
+ * Bound on the raw entries handed to the anonymizer per team; it reduces them to root-domain
+ * patterns and applies its own root-domain cap, so this only guards the FFI payload size.
+ */
+const MAX_FIRST_PARTY_URL_ENTRIES = 500
+
+// Spreading a non-array must never reach the entry list: spreading a bare string would explode
+// it into single characters.
 function asStringArray(value: string[] | string | null | undefined): string[] {
     if (Array.isArray(value)) {
         return value
@@ -108,10 +113,10 @@ export async function fetchTeamTokensWithRecordings(client: PostgresRouter): Pro
                 teamId: row.id,
                 consoleLogIngestionEnabled: row.capture_console_log_opt_in,
                 aiTrainingOptedIn: row.is_ai_training_opted_in,
-                firstPartyHosts: firstPartyHostPatterns([
-                    ...asStringArray(row.recording_domains),
-                    ...asStringArray(row.app_urls),
-                ]),
+                firstPartyUrlEntries: [...asStringArray(row.recording_domains), ...asStringArray(row.app_urls)].slice(
+                    0,
+                    MAX_FIRST_PARTY_URL_ENTRIES
+                ),
             }
             return acc
         },

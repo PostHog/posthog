@@ -276,7 +276,7 @@ describe('SessionBatchRecorder', () => {
             teamId,
             consoleLogIngestionEnabled: false,
             aiTrainingOptedIn: true,
-            firstPartyHosts: [],
+            firstPartyUrlEntries: [],
         },
         message: {
             distinct_id: distinctId,

@@ -228,12 +228,17 @@ pub fn anonymize_kafka_payload_opts(
     allow: &AllowLists,
     payload: &mut [u8],
     opts: AnonymizeOpts,
-    first_party_hosts: Vec<String>,
+    first_party_url_entries: Vec<String>,
 ) -> SResult<AnonymizedMessage> {
     if let Some((distinct_id_span, data_span)) = scan_outer_envelope(payload) {
         // Resolve distinct_id to an owned string first — the unescape below rewrites the buffer.
         let Ok(distinct_id) = scan::unescape(payload, distinct_id_span) else {
-            return anonymize_kafka_payload_via_parse(allow, payload, opts, first_party_hosts);
+            return anonymize_kafka_payload_via_parse(
+                allow,
+                payload,
+                opts,
+                first_party_url_entries,
+            );
         };
         let distinct_id = distinct_id.into_owned();
         // Point of no return: the in-place unescape consumes the buffer, so failures past here are
@@ -251,9 +256,15 @@ pub fn anonymize_kafka_payload_opts(
                 "invalid utf-8 in data string",
             ));
         }
-        return anonymize_snapshot_data_opts(allow, &distinct_id, inner, opts, first_party_hosts);
+        return anonymize_snapshot_data_opts(
+            allow,
+            &distinct_id,
+            inner,
+            opts,
+            first_party_url_entries,
+        );
     }
-    anonymize_kafka_payload_via_parse(allow, payload, opts, first_party_hosts)
+    anonymize_kafka_payload_via_parse(allow, payload, opts, first_party_url_entries)
 }
 
 /// Locate the `distinct_id` + `data` string spans by scanning the outer object. `None` means "let
@@ -328,7 +339,7 @@ fn anonymize_kafka_payload_via_parse(
     allow: &AllowLists,
     payload: &mut [u8],
     opts: AnonymizeOpts,
-    first_party_hosts: Vec<String>,
+    first_party_url_entries: Vec<String>,
 ) -> SResult<AnonymizedMessage> {
     reject_if_too_deep(payload, "kafka payload")
         .map_err(|e| Failure::new(FailKind::InvalidJson, e.to_string()))?;
@@ -354,7 +365,13 @@ fn anonymize_kafka_payload_via_parse(
     };
     // Rare path (the scanner bailed): one owned copy buys the in-place processing a mutable buffer.
     let mut data_bytes = data.as_bytes().to_vec();
-    anonymize_snapshot_data_opts(allow, distinct_id, &mut data_bytes, opts, first_party_hosts)
+    anonymize_snapshot_data_opts(
+        allow,
+        distinct_id,
+        &mut data_bytes,
+        opts,
+        first_party_url_entries,
+    )
 }
 
 /// Anonymize the inner `$snapshot_items` event JSON (the payload's `data` string). The buffer is
@@ -379,10 +396,9 @@ pub fn anonymize_snapshot_data_opts(
     distinct_id: &str,
     inner: &mut [u8],
     opts: AnonymizeOpts,
-    configured_first_party_hosts: Vec<String>,
+    first_party_url_entries: Vec<String>,
 ) -> SResult<AnonymizedMessage> {
-    let (first_party_hosts, host_scan) =
-        message_first_party_hosts(inner, configured_first_party_hosts);
+    let (first_party_hosts, host_scan) = message_first_party_hosts(inner, first_party_url_entries);
     // No whole-message depth pre-pass here: the byte walk bounds its own recursion and declines
     // past its limit, and every recursive parse below is preceded by a span-local
     // reject_if_too_deep — so the common all-walked path never pays a depth scan at all.
@@ -416,8 +432,9 @@ pub const SNAPSHOT_HOST_PROPERTY: &str = "$snapshot_host";
 // `"` + SNAPSHOT_HOST_PROPERTY + `"`; a test pins the equality (no const string concat).
 const SNAPSHOT_HOST_NEEDLE: &[u8] = b"\"$snapshot_host\"";
 
-/// Mirrors the TS `MAX_FIRST_PARTY_HOST_PATTERNS`: at most this many configured root-domain
-/// patterns per message, so the per-URL pattern scan stays bounded regardless of caller.
+/// At most this many configured root-domain patterns per message (counted after reduction and
+/// dedup, so subdomain entries of one root cannot exhaust it), keeping the per-URL pattern scan
+/// bounded regardless of caller.
 const MAX_CONFIGURED_FIRST_PARTY_PATTERNS: usize = 100;
 
 /// Which host-classification regime the pre-scan chose for a message. Surfaced through the FFI so
@@ -449,13 +466,14 @@ impl HostScanOutcome {
 
 /// The scrub context's first-party patterns for one message, plus the outcome that produced them.
 /// `$snapshot_host` gates everything: absent or unusable means no patterns — every host collapses.
-/// When present, its registrable domain seeds the set, enriched with the team's configured
-/// patterns (recording domains + app URLs, from TS) and the host of the message's first Meta
-/// `href` — in-payload ground truth that keeps a wrong stamp from turning the recorded page's own
-/// self-links into "external" hosts that pass through.
+/// When present, its registrable domain seeds the set, enriched with the team's configured URL
+/// entries (raw recording domains + app URLs, reduced here so one public-suffix implementation
+/// governs the whole feature) and the host of the message's first Meta `href` — in-payload ground
+/// truth that keeps a wrong stamp from turning the recorded page's own self-links into "external"
+/// hosts that pass through.
 pub fn message_first_party_hosts(
     inner: &[u8],
-    configured: Vec<String>,
+    configured_url_entries: Vec<String>,
 ) -> (Vec<String>, HostScanOutcome) {
     if memchr::memmem::find(inner, SNAPSHOT_HOST_NEEDLE).is_none() {
         return (Vec::new(), HostScanOutcome::NoStamp);
@@ -470,13 +488,25 @@ pub fn message_first_party_hosts(
     let Some(stamp_pattern) = stamp_host_pattern(&stamp) else {
         return (Vec::new(), HostScanOutcome::StampUnusable);
     };
-    let mut patterns = configured;
-    // Truncation is safe: the stamp and meta patterns are appended after the cap, so the
-    // recorded page itself always collapses; overflow domains get the external-host treatment.
-    patterns.truncate(MAX_CONFIGURED_FIRST_PARTY_PATTERNS);
-    if !patterns.contains(&stamp_pattern) {
-        patterns.push(stamp_pattern);
+    let mut patterns: Vec<String> = Vec::new();
+    let mut add = |p: String, patterns: &mut Vec<String>| {
+        if !patterns.contains(&p) {
+            patterns.push(p);
+        }
+    };
+    for entry in &configured_url_entries {
+        // The root-domain cap counts the deduplicated patterns, not entries, so many subdomain
+        // entries of one root cannot exhaust it. Truncation is safe: the stamp and meta patterns
+        // append after the cap, so the recorded page itself always collapses; overflow domains
+        // get the external-host treatment.
+        if patterns.len() >= MAX_CONFIGURED_FIRST_PARTY_PATTERNS {
+            break;
+        }
+        if let Some(p) = url_entry_host_pattern(entry) {
+            add(p, &mut patterns);
+        }
     }
+    add(stamp_pattern, &mut patterns);
     if let Some(p) = scanned
         .meta_href
         .as_deref()
@@ -484,11 +514,30 @@ pub fn message_first_party_hosts(
         .as_deref()
         .and_then(host_pattern)
     {
-        if !patterns.contains(&p) {
-            patterns.push(p);
-        }
+        add(p, &mut patterns);
     }
     (patterns, HostScanOutcome::StampedOk)
+}
+
+/// Reduce one configured first-party URL entry (a recording domain or app URL: `example.com`,
+/// `https://app.example.com/path`, `https://*.example.com`) to a host pattern.
+fn url_entry_host_pattern(entry: &str) -> Option<String> {
+    let trimmed = entry.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let rest = trimmed
+        .split_once("://")
+        .map(|(_, rest)| rest)
+        .unwrap_or(trimmed);
+    let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let authority = &rest[..end];
+    let host_port = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
+    let host_port = host_port.strip_prefix("*.").unwrap_or(host_port);
+    if host_port == "*" {
+        return None;
+    }
+    host_pattern(host_port)
 }
 
 struct ScannedPageHosts {
@@ -1760,9 +1809,9 @@ mod tests {
     }
 
     #[test]
-    fn host_pattern_matches_the_shared_fixture() {
-        // The same fixture drives the TS `firstPartyHostPatterns` test, so the two PSL
-        // reductions (tldts vs the psl crate) cannot drift on these cases.
+    fn url_entry_reduction_matches_the_fixture() {
+        // Bare-host and URL-shaped entries both reduce through `url_entry_host_pattern`, the
+        // reduction applied to the team's raw recording-domain/app-URL config.
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("tests/fixtures/host-pattern.json");
         let data = std::fs::read_to_string(&path).unwrap();
@@ -1772,7 +1821,7 @@ mod tests {
             let input = case["input"].as_str().unwrap();
             let expected = case["expected"].as_str();
             assert_eq!(
-                host_pattern(input).as_deref(),
+                super::url_entry_host_pattern(input).as_deref(),
                 expected,
                 "host-pattern case: {}",
                 case["name"]
@@ -1787,6 +1836,27 @@ mod tests {
         assert_eq!(host_pattern("[::1]").as_deref(), Some("::1"));
         assert_eq!(host_pattern("[::1]:8443").as_deref(), Some("::1"));
         assert_eq!(host_pattern("example.com.").as_deref(), Some("example.com"));
+    }
+
+    #[test]
+    fn configured_pattern_cap_counts_root_domains_not_entries() {
+        // Subdomain entries reduce and dedupe into their root before counting toward the cap;
+        // counting entries instead would let one root's subdomains push real domains out.
+        let inner = br#"{"event":"$snapshot_items","properties":{"$session_id":"s","$snapshot_items":[],"$snapshot_host":"app.stamped.test"}}"#;
+        let mut entries: Vec<String> = (0..150)
+            .map(|i| format!("https://tenant-{i}.one-root.example"))
+            .collect();
+        entries.push("https://other-root.example".to_string());
+        let (patterns, outcome) = super::message_first_party_hosts(inner, entries);
+        assert_eq!(outcome, super::HostScanOutcome::StampedOk);
+        assert!(patterns.contains(&"one-root.example".to_string()));
+        assert!(patterns.contains(&"other-root.example".to_string()));
+        assert!(patterns.contains(&"stamped.test".to_string()));
+
+        let many_roots: Vec<String> = (0..150).map(|i| format!("root-{i}.example")).collect();
+        let (patterns, _) = super::message_first_party_hosts(inner, many_roots);
+        // The cap plus the stamp pattern appended after it.
+        assert_eq!(patterns.len(), 101);
     }
 
     #[test]

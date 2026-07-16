@@ -48,7 +48,7 @@ describe('SessionConsoleLogRecorder', () => {
             teamId,
             consoleLogIngestionEnabled,
             aiTrainingOptedIn: true,
-            firstPartyHosts: [],
+            firstPartyUrlEntries: [],
         },
         message: {
             distinct_id: distinctId,

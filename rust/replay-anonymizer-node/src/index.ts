@@ -79,18 +79,19 @@ export function initAnonymizer(allow: AllowListsInput): void {
  *
  * `cv` payloads re-emit as zstd; the reader dispatches on magic bytes.
  *
- * `firstPartyHosts` (the team's recording domains + app URLs as registrable-domain patterns) is
- * only consulted when the message carries an SDK-stamped `$snapshot_host` property; without that
- * trust anchor every hostname in the recording collapses to a placeholder.
+ * `firstPartyUrlEntries` (the team's raw recording-domain and app-URL entries) is reduced to
+ * root-domain patterns inside the addon — the psl crate is the feature's single public-suffix
+ * implementation — and only consulted when the message carries an SDK-stamped `$snapshot_host`
+ * property; without that trust anchor every hostname in the recording collapses to a placeholder.
  */
 export function anonymizeKafkaPayload(
     payload: Buffer,
     contentEncoding?: string | null,
-    firstPartyHosts?: string[] | null
+    firstPartyUrlEntries?: string[] | null
 ): Promise<AnonymizeKafkaPayloadResult> {
     return native.anonymizeKafkaPayload(
         payload,
         contentEncoding ?? undefined,
-        firstPartyHosts && firstPartyHosts.length > 0 ? JSON.stringify(firstPartyHosts) : undefined
+        firstPartyUrlEntries && firstPartyUrlEntries.length > 0 ? JSON.stringify(firstPartyUrlEntries) : undefined
     )
 }

@@ -155,14 +155,25 @@ describeAddon('native rust addon matches the shared fixtures', () => {
             const result = await rustAddon!.anonymizeKafkaPayload(
                 payloadOf(
                     'w',
-                    [linkEvent(['https://www.customer-site.test/settings', 'https://vendor.test/docs'])],
+                    [
+                        linkEvent([
+                            'https://www.customer-site.test/settings',
+                            'https://docs.second-site.test/intro',
+                            'https://vendor.test/docs',
+                        ]),
+                    ],
                     'app.customer-site.test'
                 ),
                 undefined,
-                []
+                // Raw app-URL shape: the addon owns the reduction to a root-domain pattern.
+                ['https://app.second-site.test/welcome']
             )
             expect(result.failed).toBe(false)
-            expect(hrefsOf(result.lines!)).toEqual(['https://example.com/[redacted]', 'https://vendor.test/[redacted]'])
+            expect(hrefsOf(result.lines!)).toEqual([
+                'https://example.com/[redacted]',
+                'https://example.com/[redacted]',
+                'https://vendor.test/[redacted]',
+            ])
         })
     })
 

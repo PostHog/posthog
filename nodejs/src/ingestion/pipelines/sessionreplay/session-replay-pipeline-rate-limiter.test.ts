@@ -168,7 +168,7 @@ describe('session-replay-pipeline rate limiter failure modes', () => {
         teamId: TEAM_ID,
         consoleLogIngestionEnabled: false,
         aiTrainingOptedIn: true,
-        firstPartyHosts: [],
+        firstPartyUrlEntries: [],
     }
     const now = DateTime.fromMillis(1_700_000_000_000)
 
