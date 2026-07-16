@@ -28,7 +28,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CannySourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -89,22 +92,9 @@ Find your secret API key under **Settings → API** in your Canny dashboard.""",
         force_refresh: bool = False,
     ) -> list[SourceSchema]:
         # No Canny list endpoint exposes a server-side updated-since filter, so every stream is
-        # full refresh only — neither incremental nor append is offered.
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-            )
-            for endpoint in CANNY_ENDPOINTS
-        ]
-
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-
-        return schemas
+        # full refresh only — neither incremental nor append is offered (every INCREMENTAL_FIELDS
+        # entry is empty, which build_endpoint_schemas maps to both flags off).
+        return build_endpoint_schemas(CANNY_ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
         self, config: CannySourceConfig, team_id: int, schema_name: Optional[str] = None
@@ -133,6 +123,7 @@ Find your secret API key under **Settings → API** in your Canny dashboard.""",
         return canny_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )
