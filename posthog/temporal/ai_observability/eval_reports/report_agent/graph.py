@@ -263,6 +263,7 @@ def run_eval_report_agent(
         "previous_period_start": previous_period_start,
         "report_prompt_guidance": report_prompt_guidance,
         "report": EvalReportContent(evaluation_target=evaluation_target, metrics=metrics),
+        "trace_id_allowlist": [],
     }
 
     from posthog.temporal.ai_observability.eval_reports.metrics import increment_errors, increment_report_generated

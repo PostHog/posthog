@@ -69,6 +69,27 @@ def _normalize_trace_id(trace_id: object) -> str | None:
     return trace_id
 
 
+def _remember_returned_trace_ids(state: dict, target_ids: list[object]) -> None:
+    if resolve_evaluation_target(state.get("evaluation_target")) != TRACE_TARGET:
+        return
+
+    allowlist = state.get("trace_id_allowlist")
+    if not isinstance(allowlist, list):
+        return
+
+    known_trace_ids = set(allowlist)
+    for target_id in target_ids:
+        trace_id = _normalize_trace_id(target_id)
+        if trace_id is not None and trace_id not in known_trace_ids:
+            allowlist.append(trace_id)
+            known_trace_ids.add(trace_id)
+
+
+def _is_returned_trace_id(state: dict, trace_id: str) -> bool:
+    allowlist = state.get("trace_id_allowlist")
+    return isinstance(allowlist, list) and trace_id in allowlist
+
+
 def _report_run_target_filter(evaluation_target: str) -> Q:
     if resolve_evaluation_target(evaluation_target) == TRACE_TARGET:
         return Q(content__evaluation_target=TRACE_TARGET)
@@ -426,6 +447,7 @@ def list_all_eval_results(
         """,
         placeholders=shared_placeholders,
     )
+    _remember_returned_trace_ids(state, [row[0] for row in rows if row])
 
     max_reasoning_length = min(max(20, max_reasoning_length), 200)
     lines = []
@@ -503,6 +525,7 @@ def sample_eval_results(
             "limit": ast.Constant(value=limit),
         },
     )
+    _remember_returned_trace_ids(state, [row[0] for row in rows if row])
 
     target_id_key = _target_id_key(state)
     result = []
@@ -879,53 +902,15 @@ def get_generation_text_repr(
     return text_repr
 
 
-def _evaluated_trace_ids(state: dict, trace_ids: list[str]) -> set[str]:
-    unique_trace_ids = list(dict.fromkeys(trace_ids))
-    if not unique_trace_ids or resolve_evaluation_target(state.get("evaluation_target")) != TRACE_TARGET:
-        return set()
-
-    _, definition = _resolve_output_type(state.get("output_type"))
-    rows = _execute_hogql(
-        state["team_id"],
-        f"""
-        SELECT DISTINCT {_TARGET_ID_EXPRESSION} as trace_id
-        FROM events
-        WHERE event = '$ai_evaluation'
-            AND properties.$ai_evaluation_id = {{evaluation_id}}
-            AND {definition.event_predicate}
-            AND {target_event_predicate(TRACE_TARGET)}
-            AND {_TARGET_ID_EXPRESSION} IN {{trace_ids}}
-            AND timestamp >= {{ts_start}}
-            AND timestamp < {{ts_end}}
-        LIMIT {{limit}}
-        """,
-        placeholders={
-            "evaluation_id": ast.Constant(value=state["evaluation_id"]),
-            "trace_ids": ast.Tuple(exprs=[ast.Constant(value=trace_id) for trace_id in unique_trace_ids]),
-            "ts_start": ast.Constant(value=_ch_ts(state["period_start"])),
-            "ts_end": ast.Constant(value=_ch_ts(state["period_end"])),
-            "limit": ast.Constant(value=len(unique_trace_ids)),
-        },
-    )
-    return {str(row[0]) for row in rows if row and row[0]}
-
-
-def _fetch_trace_detail(
-    state: dict,
-    trace_id: object,
-    max_length: int,
-    evaluated_trace_ids: set[str] | None = None,
-) -> dict:
+def _fetch_trace_detail(state: dict, trace_id: object, max_length: int) -> dict:
     normalized_trace_id = _normalize_trace_id(trace_id)
     if normalized_trace_id is None:
         return {"error": "Invalid trace ID"}
 
-    if evaluated_trace_ids is None:
-        evaluated_trace_ids = _evaluated_trace_ids(state, [normalized_trace_id])
-    if normalized_trace_id not in evaluated_trace_ids:
+    if not _is_returned_trace_id(state, normalized_trace_id):
         return {
             "trace_id": normalized_trace_id,
-            "error": "Trace not found for this evaluation period",
+            "error": "Trace ID is not available for this evaluation report",
         }
 
     # The report period locates evaluation events, not the boundaries of their target traces.
@@ -965,13 +950,6 @@ def sample_trace_details(
     Args:
         trace_ids: Trace IDs returned by sample_eval_results (max 10)
     """
-    normalized_trace_ids = [
-        normalized_trace_id
-        for trace_id in trace_ids[:_MAX_TRACE_SAMPLE_IDS]
-        if (normalized_trace_id := _normalize_trace_id(trace_id)) is not None
-    ]
-    evaluated_trace_ids = _evaluated_trace_ids(state, normalized_trace_ids)
-
     details: list[dict] = []
     seen: set[str] = set()
     for trace_id in trace_ids[:_MAX_TRACE_SAMPLE_IDS]:
@@ -982,14 +960,7 @@ def sample_trace_details(
         if normalized_trace_id in seen:
             continue
         seen.add(normalized_trace_id)
-        details.append(
-            _fetch_trace_detail(
-                state,
-                normalized_trace_id,
-                _MAX_TRACE_SAMPLE_CHARS,
-                evaluated_trace_ids=evaluated_trace_ids,
-            )
-        )
+        details.append(_fetch_trace_detail(state, normalized_trace_id, _MAX_TRACE_SAMPLE_CHARS))
     return json.dumps(details, indent=2)
 
 
@@ -1290,10 +1261,8 @@ def add_citation(
     normalized_trace_id = _normalize_trace_id(trace_id)
     if normalized_trace_id is None:
         return "Error: trace_id is empty, too long, or contains control characters"
-    if evaluation_target == TRACE_TARGET and normalized_trace_id not in _evaluated_trace_ids(
-        state, [normalized_trace_id]
-    ):
-        return "Error: trace_id was not evaluated during this report period"
+    if evaluation_target == TRACE_TARGET and not _is_returned_trace_id(state, normalized_trace_id):
+        return "Error: trace_id was not returned by an evaluation query for this report"
     clean_reason = (reason or "").strip()[:200]
     state["report"].citations.append(
         Citation(generation_id=generation_id, trace_id=normalized_trace_id, reason=clean_reason)

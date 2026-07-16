@@ -37,3 +37,4 @@ class EvalReportAgentState(TypedDict):
 
     # Working state — the agent builds this up via tool calls
     report: EvalReportContent
+    trace_id_allowlist: list[str]

@@ -53,6 +53,7 @@ _get_trace_detail_fn = get_trace_detail.func  # type: ignore[attr-defined]
 
 class _ReportToolState(TypedDict):
     report: EvalReportContent
+    trace_id_allowlist: list[str]
     evaluation_target: NotRequired[str]
     team_id: NotRequired[int]
     evaluation_id: NotRequired[str]
@@ -62,7 +63,7 @@ class _ReportToolState(TypedDict):
 
 
 def _state_with_empty_report(*, evaluation_target: str | None = None) -> _ReportToolState:
-    state: _ReportToolState = {"report": EvalReportContent()}
+    state: _ReportToolState = {"report": EvalReportContent(), "trace_id_allowlist": []}
     if evaluation_target is not None:
         state["evaluation_target"] = evaluation_target
     return state
@@ -71,6 +72,7 @@ def _state_with_empty_report(*, evaluation_target: str | None = None) -> _Report
 def _trace_report_tool_state() -> _ReportToolState:
     return {
         "report": EvalReportContent(),
+        "trace_id_allowlist": [],
         "evaluation_target": "trace",
         "team_id": 7,
         "evaluation_id": "eval-id",
@@ -213,6 +215,7 @@ class TestTargetAwareEvalResults(SimpleTestCase):
             "output_type": "boolean",
             "period_start": "2026-04-08T14:00:00+00:00",
             "period_end": "2026-04-08T15:00:00+00:00",
+            "trace_id_allowlist": [],
         }
 
     @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._execute_hogql")
@@ -222,13 +225,17 @@ class TestTargetAwareEvalResults(SimpleTestCase):
             [["customer-trace/42", False, "failed", True, None]],
         ]
 
-        generation_result = json.loads(_sample_eval_results_fn(state=self._state("generation")))
-        trace_result = json.loads(_sample_eval_results_fn(state=self._state("trace")))
+        generation_state = self._state("generation")
+        trace_state = self._state("trace")
+        generation_result = json.loads(_sample_eval_results_fn(state=generation_state))
+        trace_result = json.loads(_sample_eval_results_fn(state=trace_state))
 
         self.assertEqual(generation_result[0]["generation_id"], _VALID_GEN_ID)
         self.assertNotIn("trace_id", generation_result[0])
         self.assertEqual(trace_result[0]["trace_id"], "customer-trace/42")
         self.assertNotIn("generation_id", trace_result[0])
+        self.assertEqual(generation_state["trace_id_allowlist"], [])
+        self.assertEqual(trace_state["trace_id_allowlist"], ["customer-trace/42"])
         for call in mock_execute_hogql.call_args_list:
             query = call.args[1]
             self.assertIn("properties.$ai_target_id", query)
@@ -245,9 +252,11 @@ class TestTargetAwareEvalResults(SimpleTestCase):
             [["customer-trace/42", False, True, None, "failed criteria"]],
         ]
 
-        result = _list_all_eval_results_fn(state=self._state("trace"))
+        state = self._state("trace")
+        result = _list_all_eval_results_fn(state=state)
 
         self.assertIn("customer-trace/42", result)
+        self.assertEqual(state["trace_id_allowlist"], ["customer-trace/42"])
         query = mock_execute_hogql.call_args_list[1].args[1]
         self.assertIn("properties.$ai_target_id", query)
         self.assertIn("properties.$ai_target_event_id", query)
@@ -262,6 +271,7 @@ class TestTraceDetailTools(SimpleTestCase):
             "output_type": "boolean",
             "period_start": "2026-04-08T14:00:00+00:00",
             "period_end": "2026-04-08T15:00:00+00:00",
+            "trace_id_allowlist": [],
         }
 
     @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._execute_hogql")
@@ -271,9 +281,11 @@ class TestTraceDetailTools(SimpleTestCase):
     ) -> None:
         mock_fetch.return_value = MagicMock(text_repr="x" * 5_000, event_count=4)
         trace_id = " customer/trace:alpha 42 "
-        mock_execute_hogql.return_value = [[trace_id]]
+        mock_execute_hogql.return_value = [[trace_id, True, "matched", True, None]]
+        state = self._state()
+        _sample_eval_results_fn(state=state)
 
-        result = json.loads(_sample_trace_details_fn(state=self._state(), trace_ids=[trace_id]))
+        result = json.loads(_sample_trace_details_fn(state=state, trace_ids=[trace_id]))
 
         self.assertEqual(result[0]["trace_id"], trace_id)
         self.assertEqual(len(result[0]["text"]), 3_000)
@@ -281,26 +293,26 @@ class TestTraceDetailTools(SimpleTestCase):
         self.assertEqual(mock_fetch.call_args.kwargs["max_length"], 3_000)
         self.assertEqual(mock_fetch.call_args.kwargs["window_start"], "2020-01-01T00:00:00+00:00")
         self.assertEqual(mock_fetch.call_args.kwargs["window_end"], "2099-01-01T00:00:00+00:00")
-        authorization_query = mock_execute_hogql.call_args.args[1]
-        self.assertIn("properties.$ai_evaluation_id = {evaluation_id}", authorization_query)
-        self.assertIn("properties.$ai_target_type = 'trace_id'", authorization_query)
-        self.assertIn("timestamp >= {ts_start}", authorization_query)
-        self.assertIn("timestamp < {ts_end}", authorization_query)
+        mock_execute_hogql.assert_called_once()
 
     @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._execute_hogql")
     @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._fetch_and_format_trace")
-    def test_deep_dive_rejects_trace_outside_evaluation_period(
+    def test_deep_dive_rejects_trace_not_returned_by_evaluation_query(
         self, mock_fetch: MagicMock, mock_execute_hogql: MagicMock
     ) -> None:
-        mock_execute_hogql.return_value = []
+        state = self._state()
+        mock_execute_hogql.return_value = [["allowed-trace", True, "matched", True, None]]
+        _sample_eval_results_fn(state=state)
+        mock_execute_hogql.reset_mock()
 
-        result = json.loads(_get_trace_detail_fn(state=self._state(), trace_id="unrelated-trace"))
+        result = json.loads(_get_trace_detail_fn(state=state, trace_id="unrelated-trace"))
 
         self.assertEqual(
             result,
-            {"trace_id": "unrelated-trace", "error": "Trace not found for this evaluation period"},
+            {"trace_id": "unrelated-trace", "error": "Trace ID is not available for this evaluation report"},
         )
         mock_fetch.assert_not_called()
+        mock_execute_hogql.assert_not_called()
 
     @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._execute_hogql")
     @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._fetch_and_format_trace")
@@ -461,7 +473,9 @@ class TestAddCitation(SimpleTestCase):
     @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._execute_hogql")
     def test_trace_target_allows_evaluated_trace_with_empty_generation_id(self, mock_execute_hogql: MagicMock) -> None:
         state = _trace_report_tool_state()
-        mock_execute_hogql.return_value = [["customer/trace:42"]]
+        mock_execute_hogql.return_value = [["customer/trace:42", True, "matched", True, None]]
+        _sample_eval_results_fn(state=state)
+        mock_execute_hogql.reset_mock()
         result = _add_citation_fn(
             state=state,
             generation_id="",
@@ -474,11 +488,16 @@ class TestAddCitation(SimpleTestCase):
             state["report"].citations[0],
             Citation(generation_id="", trace_id="customer/trace:42", reason="failed criteria"),
         )
+        mock_execute_hogql.assert_not_called()
 
     @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._execute_hogql")
-    def test_trace_target_rejects_citation_outside_evaluation_period(self, mock_execute_hogql: MagicMock) -> None:
+    def test_trace_target_rejects_citation_not_returned_by_evaluation_query(
+        self, mock_execute_hogql: MagicMock
+    ) -> None:
         state = _trace_report_tool_state()
-        mock_execute_hogql.return_value = []
+        mock_execute_hogql.return_value = [["allowed-trace", True, "matched", True, None]]
+        _sample_eval_results_fn(state=state)
+        mock_execute_hogql.reset_mock()
 
         result = _add_citation_fn(
             state=state,
@@ -489,6 +508,7 @@ class TestAddCitation(SimpleTestCase):
 
         self.assertIn("Error", result)
         self.assertEqual(state["report"].citations, [])
+        mock_execute_hogql.assert_not_called()
 
     def test_trace_target_rejects_generation_id(self):
         state = _state_with_empty_report(evaluation_target="trace")
