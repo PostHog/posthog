@@ -3,7 +3,7 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus
+from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig, SourceFieldSelectConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.checkmarx.checkmarx import CheckmarxResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.checkmarx.source import CheckmarxSource
@@ -36,6 +36,7 @@ class TestCheckmarxSource:
 
     def test_api_key_field_is_secret(self) -> None:
         api_key_field = next(field for field in self.source.get_source_config.fields if field.name == "api_key")
+        assert isinstance(api_key_field, SourceFieldInputConfig)
         assert api_key_field.secret is True
 
     def test_region_field_covers_all_configured_hosts(self) -> None:
@@ -44,6 +45,7 @@ class TestCheckmarxSource:
         )
 
         region_field = next(field for field in self.source.get_source_config.fields if field.name == "region")
+        assert isinstance(region_field, SourceFieldSelectConfig)
         assert {option.value for option in region_field.options} == set(CHECKMARX_REGION_HOSTS.keys())
 
     @pytest.mark.parametrize(
