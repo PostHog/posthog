@@ -53,6 +53,7 @@ from .activities.provision_sandbox import (
     checkout_branch_in_sandbox,
     clone_repository_in_sandbox,
     create_sandbox_for_repository,
+    get_fresh_image_source_for_context,
     inject_fresh_tokens_on_resume,
     invalidate_resume_snapshot,
     prepare_sandbox_for_repository,
@@ -927,6 +928,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 )
                 await self._cleanup_sandbox(created.sandbox_id)
                 self._sandbox_id_for_cleanup = None
+                fresh_image_source, fresh_image_source_label = get_fresh_image_source_for_context(self.context)
                 prepared = replace(
                     prepared,
                     snapshot_id=None,
@@ -936,8 +938,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     snapshot_kind=SNAPSHOT_KIND_FILESYSTEM,
                     snapshot_mount_path=None,
                     snapshot_source="none",
-                    image_source="base_image",
-                    image_source_label="published sandbox base image",
+                    image_source=fresh_image_source,
+                    image_source_label=fresh_image_source_label,
                 )
                 await self._emit_progress(
                     "sandbox",
