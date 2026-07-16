@@ -104,12 +104,13 @@ const URGENCY_STOPS: { key: UrgencyThresholdEnumApi; label: string; description:
     {
         key: 'consider',
         label: 'All issues',
-        description: 'Every validated finding is published, including the minor consider-level ones.',
+        description:
+            'Every validated finding is published, including the minor consider-level ones. This is the default.',
     },
     {
         key: 'should_fix',
         label: 'Should fix',
-        description: 'Recommended fixes and anything more serious — the default balance.',
+        description: 'Recommended fixes and anything more serious. Minor consider-level findings are dropped.',
     },
     {
         key: 'must_fix',
@@ -1024,7 +1025,7 @@ function UrgencySection(): JSX.Element {
 
     const activeIndex = Math.max(
         0,
-        URGENCY_STOPS.findIndex((stop) => stop.key === (settings?.urgency_threshold ?? 'should_fix'))
+        URGENCY_STOPS.findIndex((stop) => stop.key === (settings?.urgency_threshold ?? 'consider'))
     )
 
     return (
