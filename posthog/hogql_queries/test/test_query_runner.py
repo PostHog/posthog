@@ -47,9 +47,10 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.errors import QueryError, ResolutionError
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.clickhouse.query_tagging import AccessMethod, get_query_tag_value, tags_context
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError
-from posthog.exceptions import APIQueryQuotaLimitExceeded
+from posthog.exceptions import QueryQuotaLimitExceeded
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import (
@@ -183,16 +184,43 @@ class TestQueryRunner(BaseTest):
 
     @parameterized.expand(
         [
-            ("blocking_query_service", True, ExecutionMode.CALCULATE_BLOCKING_ALWAYS, True),
-            ("async_query_service", True, ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE, True),
-            ("blocking_in_app", False, ExecutionMode.CALCULATE_BLOCKING_ALWAYS, False),
+            (
+                "blocking_personal_api_key",
+                AccessMethod.PERSONAL_API_KEY,
+                True,
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                True,
+            ),
+            (
+                "async_personal_api_key",
+                AccessMethod.PERSONAL_API_KEY,
+                True,
+                ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+                True,
+            ),
+            (
+                "blocking_shared_dashboard",
+                AccessMethod.SHARING_TOKEN,
+                False,
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                True,
+            ),
+            (
+                "async_shared_dashboard",
+                AccessMethod.SHARING_TOKEN,
+                False,
+                ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+                True,
+            ),
+            ("blocking_in_app", None, False, ExecutionMode.CALCULATE_BLOCKING_ALWAYS, False),
         ]
     )
     @override_settings(EE_AVAILABLE=True, API_QUERIES_ENABLED=True)
     @mock.patch("ee.billing.quota_limiting.is_team_limited")
-    def test_api_query_quota_only_blocks_query_service_calculations(
+    def test_query_quota_only_blocks_eligible_external_calculations(
         self,
         _name: str,
+        access_method: AccessMethod | None,
         is_query_service: bool,
         execution_mode: ExecutionMode,
         should_block: bool,
@@ -206,9 +234,12 @@ class TestQueryRunner(BaseTest):
         }
         mock_is_team_limited.return_value = True
 
-        with mock.patch.object(runner, "enqueue_async_calculation") as mock_enqueue_async_calculation:
+        with (
+            tags_context(access_method=access_method),
+            mock.patch.object(runner, "enqueue_async_calculation") as mock_enqueue_async_calculation,
+        ):
             if should_block:
-                with self.assertRaises(APIQueryQuotaLimitExceeded) as context:
+                with self.assertRaises(QueryQuotaLimitExceeded) as context:
                     runner.run(execution_mode=execution_mode)
 
                 self.assertEqual(context.exception.extra, {"billing_period_end": "2026-08-01T00:00:00+00:00"})
@@ -218,6 +249,28 @@ class TestQueryRunner(BaseTest):
                 response = runner.run(execution_mode=execution_mode)
                 self.assertEqual(response.results[0], ["row", 1, 2, 3])
                 mock_is_team_limited.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("personal_api_key", AccessMethod.PERSONAL_API_KEY, True),
+            ("shared_dashboard", AccessMethod.SHARING_TOKEN, False),
+        ]
+    )
+    @override_settings(API_QUERIES_ENABLED=False)
+    def test_query_quota_access_methods_are_chargeable(
+        self,
+        _name: str,
+        access_method: AccessMethod,
+        is_query_service: bool,
+    ) -> None:
+        TestQueryRunner = self.setup_test_query_runner_class()
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+        runner.is_query_service = is_query_service
+
+        with tags_context(access_method=access_method):
+            runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+            self.assertTrue(get_query_tag_value("chargeable"))
 
     def test_init_with_query_instance(self):
         TestQueryRunner = self.setup_test_query_runner_class()

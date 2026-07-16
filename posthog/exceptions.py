@@ -30,11 +30,12 @@ class QuotaLimitExceeded(APIException):
     default_detail = "Your organization reached its billing limit for this resource. Increase the limits in Billing settings, or ask an org admin to do so."
 
 
-class APIQueryQuotaLimitExceeded(QuotaLimitExceeded):
+class QueryQuotaLimitExceeded(QuotaLimitExceeded):
     default_type = "quota_limited"
     default_detail = (
-        "Your organization has reached its API query usage limit for this billing period. "
-        "Ask an organization admin to review Billing settings. You can try again after the billing period resets."
+        "Your organization has reached its query usage limit for this billing period. "
+        "New API queries and shared dashboard or insight refreshes are unavailable. "
+        "Ask an organization admin to review Billing settings, or try again after the billing period resets."
     )
 
     def __init__(self, billing_period_end: datetime | None = None) -> None:

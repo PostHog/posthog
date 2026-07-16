@@ -13,7 +13,7 @@ from drf_spectacular.utils import OpenApiParameter, OpenApiResponse
 from opentelemetry import trace
 from prometheus_client import Counter
 from pydantic import BaseModel
-from rest_framework import serializers, status, viewsets
+from rest_framework import status, viewsets
 from rest_framework.exceptions import APIException, NotAuthenticated, Throttled, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -42,6 +42,7 @@ from posthog.api.monitoring import (
     monitor,
 )
 from posthog.api.query_coalescer import QueryCoalescingMixin
+from posthog.api.query_quota import QueryQuotaLimitResponseSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
 from posthog.api.streaming import sse_streaming_response
@@ -80,25 +81,6 @@ tracer = trace.get_tracer(__name__)
 # exception embeds an internal Redis key + task id, so we log that for debugging and surface this
 # friendly message instead of leaking implementation details into the UI.
 CONCURRENCY_LIMIT_USER_MESSAGE = "Too many queries are running right now — please try again in a moment."
-
-
-class APIQueryQuotaLimitExtraSerializer(serializers.Serializer):
-    billing_period_end = serializers.DateTimeField(
-        help_text="ISO 8601 timestamp when API query access resets for the current billing period."
-    )
-
-
-class APIQueryQuotaLimitResponseSerializer(serializers.Serializer):
-    type = serializers.CharField(help_text="Stable error category. Always `quota_limited` for this response.")
-    code = serializers.CharField(help_text="Stable error code. Always `quota_limit_exceeded` for this response.")
-    detail = serializers.CharField(help_text="Customer-facing explanation of the API query limit.")
-    attr = serializers.CharField(
-        allow_null=True, help_text="Always null because the error is not tied to an input field."
-    )
-    extra = APIQueryQuotaLimitExtraSerializer(
-        required=False,
-        help_text="Billing-period metadata. Omitted when the reset timestamp is unavailable.",
-    )
 
 
 QUERY_VALIDATION_ERROR_TOTAL = Counter(
@@ -243,7 +225,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
         responses={
             200: QueryResponseAlternative,
             402: OpenApiResponse(
-                response=APIQueryQuotaLimitResponseSerializer,
+                response=QueryQuotaLimitResponseSerializer,
                 description="The organization has reached its API query usage limit for the billing period.",
             ),
         },

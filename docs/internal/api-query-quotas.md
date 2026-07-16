@@ -1,28 +1,28 @@
-# API query quotas
+# API and shared query quotas
 
 ## Purpose
 
-API query quotas limit the ClickHouse read cost created by personal API key requests to the query API.
+Query quotas limit the ClickHouse read cost created by personal API key requests and public shared dashboard or insight views.
 The first rollout is configured for free organizations only.
 Application code remains plan-agnostic so an existing finite allowance on another plan continues to work, but this change does not add or lower a paid-plan allowance.
 
 The quota is a cost control, not a concurrency control.
 Concurrency limits protect the service from simultaneous work and return HTTP 429.
-API query quotas protect billing-period usage and return HTTP 402.
+Query quotas protect billing-period usage and return HTTP 402.
 
 ## Responsibilities
 
 - Billing defines the allowance for each plan and sends usage, limit, billing-period, and trust-score data to PostHog.
 - The usage-report pipeline measures chargeable ClickHouse reads and reports them per team for the billing period.
 - The billing quota task decides which organizations are limited and writes their team tokens to Redis with the billing-period end as the expiry.
-- The query API checks the Redis decision before starting new ClickHouse work and returns the customer-facing quota response.
+- The query layer checks the Redis decision before starting new ClickHouse work and returns the customer-facing quota response.
 - The launch owner coordinates pricing documentation, support guidance, customer communication, dashboards, and alerting before enabling a finite free-plan allowance.
 
 ## Metering
 
 The resource key is `api_queries_read_bytes`.
 Usage is the sum of ClickHouse `read_bytes` for query-log rows tagged `chargeable`.
-Personal API key query-service calculations set that tag.
+Personal API key calculations and shared dashboard or insight calculations set that tag.
 
 Failed queries count when ClickHouse reports bytes read.
 Validation failures that do not start execution contribute no meaningful read bytes.
@@ -37,7 +37,7 @@ The query path uses the existing 30-second process cache for Redis quota members
 The first version is intentionally an eventual billing-period limit, not a real-time hard cap.
 The usage-report pipeline, billing quota task, and Redis decision cache remain the authoritative enforcement loop.
 A request that crosses the allowance is allowed to finish, and later requests can continue until that loop marks the organization as limited.
-Once the decision is visible to the query process, new uncached personal API key queries return HTTP 402.
+Once the decision is visible to the query process, new uncached personal API key queries and shared dashboard or insight refreshes return HTTP 402.
 
 This delay is an accepted simplicity tradeoff for the first rollout.
 The query path will not maintain a second per-query byte accumulator or synchronously fetch current billing usage.
@@ -46,31 +46,37 @@ Observed usage beyond the allowance should be monitored to validate the reportin
 
 ## Request scope
 
-The first rollout covers requests to the query API authenticated with a personal API key.
-Session-authenticated product usage, OAuth requests, sharing tokens, and in-app queries are not included.
+The first rollout covers requests to the query API authenticated with a personal API key and query calculations made while rendering shared dashboards or insights.
+Session-authenticated product usage, OAuth requests, and other in-app queries are not included.
 Materialized endpoints have separate concurrency controls but remain chargeable when run through the personal API key query service.
+
+Shared traffic is attributed to the organization that owns the shared resource.
+Anonymous viewers do not receive a separate allowance, and rotating a sharing token does not reset usage.
 
 The quota check applies only when a request would start new ClickHouse work:
 
 | Request state                                    | Result while limited                         |
 | ------------------------------------------------ | -------------------------------------------- |
-| Fresh cached result                              | Return the cached result                     |
+| Fresh cached API or shared result                | Return the cached result                     |
 | Stale or missing cache with blocking calculation | HTTP 402                                     |
 | A request that would enqueue async calculation   | HTTP 402 without enqueueing work             |
-| In-app calculation                               | Existing behavior; this quota does not apply |
+| Session or OAuth in-app calculation              | Existing behavior; this quota does not apply |
 
 This distinction keeps no-cost cache reads available while preventing new billable reads.
 Quota activation does not cancel a query that is already running or an async task that was enqueued before the organization became limited.
 
-## Customer API contract
+Shared dashboards can therefore remain available from cache after the organization becomes limited.
+Once a tile needs new ClickHouse work, the shared dashboard or insight request returns HTTP 402 instead of refreshing the tile.
 
-The query API returns HTTP 402 with a stable error type and code:
+## Customer response contract
+
+The query API and shared dashboard or insight endpoints return HTTP 402 with a stable error type and code:
 
 ```json
 {
   "type": "quota_limited",
   "code": "quota_limit_exceeded",
-  "detail": "Your organization has reached its API query usage limit for this billing period. Ask an organization admin to review Billing settings. You can try again after the billing period resets.",
+  "detail": "Your organization has reached its query usage limit for this billing period. New API queries and shared dashboard or insight refreshes are unavailable. Ask an organization admin to review Billing settings, or try again after the billing period resets.",
   "attr": null,
   "extra": {
     "billing_period_end": "2026-08-01T00:00:00+00:00"
@@ -91,7 +97,7 @@ Before launch, confirm that the free plan has the intended finite `api_queries_r
 Separate from the accepted reporting delay, the existing quota framework can add grace or bypass enforcement:
 
 - Customer trust scores can add a grace period before hard limiting.
-- `never_drop_data` bypasses API query limiting because API queries are not in `GRACE_PERIOD_EXEMPT_RESOURCES`.
+- `never_drop_data` bypasses query limiting because this resource is not in `GRACE_PERIOD_EXEMPT_RESOURCES`.
 - The `retain-data-past-quota-limit` feature flag can bypass a new limit before the organization is already limited.
 
 These behaviors must be reviewed explicitly for the free-plan rollout because they can extend access beyond the normal reporting delay.
@@ -103,14 +109,14 @@ This is the chosen enforcement model, not a fallback for the first rollout.
 It keeps the billing usage report authoritative and avoids adding a request-time dependency on billing or a write on every query.
 Enforcement therefore depends on the existing usage-report schedule, billing quota task, Redis quota infrastructure, and query-process cache.
 
-Quota membership is keyed by the team's project token, not the caller's personal API key.
+Quota membership is keyed by the team's project token, not the caller's personal API key or sharing token.
 Rotating a project token can delay enforcement until the quota task refreshes Redis.
 The organization usage record remains the source for billing-period reset metadata.
 
 Monitor at least:
 
-- HTTP 402 responses from the query endpoint
-- `posthog_api_query_quota_limited_total` split by plan tier, with an alert if paid or enterprise organizations appear unexpectedly
+- HTTP 402 responses from query and shared-resource endpoints
+- `posthog_external_query_quota_limited_total` split by plan tier and access method, with an alert if paid or enterprise organizations appear unexpectedly
 - organizations entering and leaving `api_queries_read_bytes` quota limiting
 - usage beyond the configured allowance before enforcement
 - Redis quota lookup failures
@@ -121,15 +127,16 @@ Monitor at least:
 1. Confirm the free-plan allowance and verify paid-plan configuration is unchanged.
 2. Decide whether trust-score grace, `never_drop_data`, and the retention feature flag are acceptable for this resource.
 3. Verify `API_QUERIES_ENABLED` in every cloud region.
-4. Test blocking and async personal API key requests against a limited organization.
-5. Test that fresh cached results remain available and no async task is enqueued while limited.
-6. Publish the allowance, eventual enforcement timing, and HTTP 402 behavior in customer API and pricing documentation.
-7. Give Support the response shape, reset behavior, expected enforcement delay, and escalation path.
-8. Enable monitoring before rollout, alert on unexpected paid-plan blocks, and review usage leakage caused by the reporting interval.
+4. Test blocking and async personal API key and sharing-token requests against a limited organization.
+5. Test that fresh cached API and shared results remain available and no async task is enqueued while limited.
+6. Publish that shared dashboard and insight traffic consumes the allowance and can return HTTP 402 after it is exhausted.
+7. Publish the allowance and eventual enforcement timing in customer API and pricing documentation.
+8. Give Support the response shape, shared-dashboard behavior, reset behavior, expected enforcement delay, and escalation path.
+9. Enable monitoring before rollout, alert on unexpected paid-plan blocks, and review usage leakage caused by the reporting interval.
 
 ## Out of scope
 
-- A limit for in-app or sharing-token queries
+- A limit for session-authenticated or OAuth queries
 - A live Redis byte counter updated after each query
 - CPU-based accounting
 - Per-query byte ceilings

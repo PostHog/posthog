@@ -103,11 +103,16 @@ from posthog.clickhouse.client.limit import (
     get_materialized_endpoints_rate_limiter,
     get_org_app_concurrency_limit,
 )
-from posthog.clickhouse.query_tagging import get_query_tag_value, is_api_key_access_method, tag_queries
+from posthog.clickhouse.query_tagging import (
+    get_query_tag_value,
+    is_api_key_access_method,
+    is_query_quota_access_method,
+    tag_queries,
+)
 from posthog.constants import AvailableFeature
 from posthog.errors import QueryErrorCategory, classify_query_error, clickhouse_error_type
 from posthog.event_usage import AnalyticsProps, groups, report_user_or_team_action
-from posthog.exceptions import APIQueryQuotaLimitExceeded
+from posthog.exceptions import QueryQuotaLimitExceeded
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.access_controlled_resources import queried_access_controlled_resources
 from posthog.hogql_queries.insights.utils.breakdowns import has_multi_breakdown, has_single_breakdown
@@ -141,10 +146,10 @@ QUERY_EXECUTION_TOTAL = Counter(
     labelnames=["query_type", "category", "error_type", "contains_user_hogql"],
 )
 
-API_QUERY_QUOTA_LIMITED_TOTAL = Counter(
-    "posthog_api_query_quota_limited_total",
-    "Fresh API query calculations blocked by the billing-period read-byte quota.",
-    labelnames=["plan_tier"],
+QUERY_QUOTA_LIMITED_TOTAL = Counter(
+    "posthog_external_query_quota_limited_total",
+    "Fresh external query calculations blocked by the billing-period read-byte quota.",
+    labelnames=["plan_tier", "access_method"],
 )
 
 QUERY_EXECUTION_DURATION = Histogram(
@@ -1585,7 +1590,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
             ):
                 # We're allowed to calculate, but we'll do it asynchronously and attach the query status
-                self._raise_if_api_query_quota_limited()
+                self._raise_if_query_quota_limited()
                 cached_response.query_status = self.enqueue_async_calculation(
                     cache_manager=cache_manager, user=user, refresh_requested=True, analytics_props=analytics_props
                 )
@@ -1594,7 +1599,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 # We're allowed to calculate if the lazy check fails, but we'll do it asynchronously
                 assert isinstance(cached_response, CachedResponse)
                 if self._is_stale_for_request(last_refresh=last_refresh_from_cached_result(cached_response), lazy=True):
-                    self._raise_if_api_query_quota_limited()
+                    self._raise_if_query_quota_limited()
                     cached_response.query_status = self.enqueue_async_calculation(
                         cache_manager=cache_manager, user=user, analytics_props=analytics_props
                     )
@@ -1612,7 +1617,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
             ):
                 # We're allowed to calculate, but we'll do it asynchronously
-                self._raise_if_api_query_quota_limited()
+                self._raise_if_query_quota_limited()
                 cached_response.query_status = self.enqueue_async_calculation(
                     cache_manager=cache_manager, user=user, analytics_props=analytics_props
                 )
@@ -1629,12 +1634,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         Returns:
             Tuple of (query_result, query_duration_ms)
         """
-        self._raise_if_api_query_quota_limited()
+        self._raise_if_query_quota_limited()
         concurrency_limit = self.get_api_queries_concurrency_limit()
         is_materialized_endpoint = get_query_tag_value("workload") == Workload.ENDPOINTS
         is_api_key_access = is_api_key_access_method(get_query_tag_value("access_method"))
 
-        if self.is_query_service:
+        if is_query_quota_access_method(get_query_tag_value("access_method")):
             tag_queries(chargeable=1)
 
         with (
@@ -2039,16 +2044,23 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
             return CachedResponse(**fresh_response_dict)
 
-    def _raise_if_api_query_quota_limited(self) -> None:
-        if not self.is_query_service or not settings.EE_AVAILABLE or not settings.API_QUERIES_ENABLED:
+    def _raise_if_query_quota_limited(self) -> None:
+        access_method = get_query_tag_value("access_method")
+        if (
+            not is_query_quota_access_method(access_method)
+            or not settings.EE_AVAILABLE
+            or not settings.API_QUERIES_ENABLED
+        ):
             return
 
         from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 
         if is_team_limited(self.team.api_token, QuotaResource.API_QUERIES, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY):
             billing_period = self.team.organization.current_billing_period
-            API_QUERY_QUOTA_LIMITED_TOTAL.labels(plan_tier=self.team.organization.get_plan_tier()).inc()
-            raise APIQueryQuotaLimitExceeded(billing_period_end=billing_period[1] if billing_period else None)
+            QUERY_QUOTA_LIMITED_TOTAL.labels(
+                plan_tier=self.team.organization.get_plan_tier(), access_method=str(access_method)
+            ).inc()
+            raise QueryQuotaLimitExceeded(billing_period_end=billing_period[1] if billing_period else None)
 
     def get_api_queries_concurrency_limit(self) -> int | None:
         """

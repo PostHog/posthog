@@ -43,7 +43,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Product, QueryTags
 from posthog.event_usage import EventSource
-from posthog.exceptions import APIQueryQuotaLimitExceeded
+from posthog.exceptions import QueryQuotaLimitExceeded
 from posthog.models.utils import UUIDT
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
@@ -71,7 +71,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         billing_period_end = datetime(2026, 8, 1, tzinfo=UTC)
         with patch(
             "posthog.api.query.process_query_model",
-            side_effect=APIQueryQuotaLimitExceeded(billing_period_end=billing_period_end),
+            side_effect=QueryQuotaLimitExceeded(billing_period_end=billing_period_end),
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/query/",
