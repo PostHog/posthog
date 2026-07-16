@@ -739,7 +739,8 @@ class IsolationChainCheck(ProductCheck):
                 "'backend:contract-check', but turbo.json does not narrow contract-check inputs to "
                 "facade/presentation — the skip is inert (every change still re-runs the full Django "
                 'suite). Add a turbo.json narrowing inputs to ["backend/facade/**", '
-                '"backend/presentation/**"] to turn the skip on'
+                '"backend/presentation/**"] plus any wiring locations the product has '
+                "(backend/tasks/**, backend/temporal/**, …) to turn the skip on"
             )
         # When needs_turn_on is suppressed purely because of a facade violation (the other four
         # conjuncts hold), the facade_violations warning above already explains what blocks narrowing,

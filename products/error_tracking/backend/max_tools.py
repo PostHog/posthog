@@ -1,6 +1,6 @@
 import re
 import json
-from datetime import UTC
+from datetime import UTC, datetime
 from textwrap import dedent
 from typing import Literal, Optional, cast
 
@@ -470,8 +470,6 @@ class SearchErrorTrackingIssuesTool(MaxTool):
         """Format a date value for display in UTC."""
         if not date_value:
             return ""
-        from datetime import datetime
-
         try:
             if isinstance(date_value, datetime):
                 return date_value.strftime("%Y-%m-%d %H:%M UTC")

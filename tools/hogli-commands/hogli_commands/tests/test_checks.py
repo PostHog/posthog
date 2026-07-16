@@ -1615,6 +1615,9 @@ class TestUnwatchedGarages:
             # the flat-file garage form is detected and satisfied the same way
             ("tasks.py", ["backend/facade/**"], {"backend/tasks.py"}),
             ("tasks.py", ["backend/facade/**", "backend/tasks.py"], set()),
+            # near-miss prefixes must not count as covering the directory garage
+            ("tasks/tasks.py", ["backend/facade/**", "backend/tasks.py"], {"backend/tasks/"}),
+            ("tasks/tasks.py", ["backend/facade/**", "backend/tasks_extra/**"], {"backend/tasks/"}),
         ],
     )
     def test_present_garage_coverage(

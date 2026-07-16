@@ -681,9 +681,13 @@ def facade_carveout_modules(backend_dir: Path, name: str) -> set[str]:
 
 
 def unwatched_garages(product_dir: Path) -> set[str]:
-    """Garage locations present in the product but missing from its (narrowed) contract-check inputs."""
+    """Garage locations present in the product but missing from its (narrowed) contract-check inputs.
+
+    The accepted prefix keeps the garage's trailing slash, so a directory garage is only covered
+    by an input inside it — backend/tasks.py or backend/tasks_extra/** must not count as watching
+    backend/tasks/ (same anchoring as _module_input_prefixes)."""
     present = {g for g in GARAGE_PREFIXES if (product_dir / g.rstrip("/")).exists()}
-    return _uncovered_locations(product_dir, {g: (g.rstrip("/"),) for g in present})
+    return _uncovered_locations(product_dir, {g: (g,) for g in present})
 
 
 def uncovered_carveout_modules(product_dir: Path, carveout_modules: frozenset[str]) -> set[str]:
