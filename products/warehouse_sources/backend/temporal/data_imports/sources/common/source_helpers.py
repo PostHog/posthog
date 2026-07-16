@@ -22,16 +22,19 @@ def validate_via_probe(
 ) -> tuple[bool, int | None]:
     """Probe ``url`` with a GET and report ``(is_valid, status_code)``.
 
-    ``session_factory`` should return a tracked session (``make_tracked_session``). Transport failures
-    (DNS, connection, timeout) map to ``(False, None)``; any HTTP response maps to
-    ``(status in ok_statuses, status)`` so the caller can distinguish 401 (bad token) from 403
-    (valid token, missing scope) — accept 403 at source-create when ``schema_name`` is None, per the
-    skill. The caller wraps the result into the ``(bool, message)`` its ``validate_credentials``
-    returns.
+    ``session_factory`` should return a tracked session (``make_tracked_session``). ANY failure
+    building the session or making the request (transport error, and defensively anything else) maps
+    to ``(False, None)`` — a credential probe should never raise out of ``validate_credentials`` and
+    fail source creation; an unreachable/erroring probe just means "not validated". This matches the
+    broad ``except Exception`` the hand-rolled probes across ~all sources use, so it's a drop-in.
+    Any HTTP response maps to ``(status in ok_statuses, status)`` so the caller can distinguish 401
+    (bad token) from 403 (valid token, missing scope) — accept 403 at source-create when
+    ``schema_name`` is None, per the skill. The caller wraps the result into the ``(bool, message)``
+    its ``validate_credentials`` returns.
     """
     try:
         session = session_factory()
         response = session.get(url, headers=dict(headers) if headers else None, auth=auth, timeout=timeout)
-    except requests.RequestException:
+    except Exception:  # noqa: BLE001 — a credential probe must never raise; any failure means "not validated"
         return False, None
     return response.status_code in ok_statuses, response.status_code

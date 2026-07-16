@@ -132,3 +132,11 @@ class TestValidateViaProbe:
         session = Mock()
         session.get.side_effect = requests.ConnectionError("boom")
         assert validate_via_probe(lambda: session, "https://x") == (False, None)
+
+    def test_any_exception_maps_to_false_none(self) -> None:
+        # A credential probe must never raise out of validate_credentials — matches the broad
+        # `except Exception` the hand-rolled source probes use, so the helper is a drop-in.
+        def boom() -> Mock:
+            raise ValueError("session build failed")
+
+        assert validate_via_probe(boom, "https://x") == (False, None)
