@@ -255,7 +255,9 @@ describe('session recording integration', () => {
             if (!isOkResult(extracted)) {
                 throw new Error('extract step returned a non-ok result')
             }
-            recorder.recordSessionData(extracted.value.session, extracted.value.data)
+            // This suite verifies the block format, so the messages carry no console logs.
+            const emptyLogs = { consoleLogCount: 0, consoleWarnCount: 0, consoleErrorCount: 0, entries: [] }
+            await recorder.record(extracted.value.session, extracted.value.data, emptyLogs, message.message)
         }
 
         // Flush and get metadata

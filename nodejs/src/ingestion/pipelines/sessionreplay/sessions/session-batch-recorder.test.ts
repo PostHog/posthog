@@ -207,8 +207,7 @@ describe('SessionBatchRecorder', () => {
     // step always hands the recorder empty logs.
     const emptyLogs = { consoleLogCount: 0, consoleWarnCount: 0, consoleErrorCount: 0, entries: [] }
 
-    // Extracts a message through the real extract steps and records it, following the record step's
-    // call order: session data first, then logs and features only when the data was accepted.
+    // Extracts a message through the real extract steps and records it.
     // Defaults to 30d and a fresh cleartext key — most tests don't vary either.
     const record = async (
         message: MessageWithTeam,
@@ -226,11 +225,7 @@ describe('SessionBatchRecorder', () => {
             throw new Error('extract steps returned a non-ok result')
         }
         const { session, data } = extracted.value
-        const { accepted, bytesWritten } = recorder.recordSessionData(session, data)
-        if (accepted) {
-            await recorder.recordSessionLogs(session, extractedLogs.value.logs)
-            recorder.recordSessionFeatures(session, message.message)
-        }
+        const { bytesWritten } = await recorder.record(session, data, extractedLogs.value.logs, message.message)
         return bytesWritten
     }
 
@@ -1642,6 +1637,34 @@ describe('SessionBatchRecorder', () => {
             await recorder.flush()
             const writtenData = captureWrittenData(mockWriter.writeSession as jest.Mock)
             expect(writtenData).toHaveLength(0)
+        })
+
+        it('should not record logs or features for a rejected message', async () => {
+            recorder = new SessionBatchRecorder(
+                mockOffsetManager,
+                mockStorage,
+                mockMetadataStore,
+                mockConsoleLogStore,
+                mockFeatureStore,
+                mockEncryptor,
+                2
+            )
+
+            const messages = [
+                createMessage('session1', [{ type: EventType.Meta, timestamp: 1000, data: {} }]),
+                createMessage('session1', [{ type: EventType.Meta, timestamp: 2000, data: {} }]),
+                createMessage('session1', [{ type: EventType.Meta, timestamp: 3000, data: {} }]),
+            ]
+
+            for (const message of messages) {
+                await record(message)
+            }
+
+            // Only the two accepted messages reached the per-session recorders.
+            const consoleLogRecorder = jest.mocked(SessionConsoleLogRecorder).mock.results[0].value
+            expect(consoleLogRecorder.recordSessionLogs).toHaveBeenCalledTimes(2)
+            const featureRecorder = jest.mocked(SessionFeatureRecorder).mock.results[0].value
+            expect(featureRecorder.recordMessage).toHaveBeenCalledTimes(2)
         })
 
         it('should delete session recorders when rate limited', async () => {

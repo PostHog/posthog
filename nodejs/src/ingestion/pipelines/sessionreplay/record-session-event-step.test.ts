@@ -45,7 +45,7 @@ describe('createRecordSessionEventStep', () => {
     })
 
     // Builds the step's input in the shape the extract steps produce. The record step passes the
-    // extracted data through untouched, so its content doesn't matter here — only the call order.
+    // extracted data through untouched, so its content doesn't matter here.
     const createInput = (
         overrides: Partial<ParsedMessageData> = {},
         team: TeamForReplay = defaultTeam
@@ -85,13 +85,11 @@ describe('createRecordSessionEventStep', () => {
         jest.clearAllMocks()
 
         mockBatchRecorder = {
-            recordSessionData: jest.fn().mockReturnValue({ accepted: true, bytesWritten: 100 }),
-            recordSessionLogs: jest.fn().mockResolvedValue(undefined),
-            recordSessionFeatures: jest.fn(),
+            record: jest.fn().mockResolvedValue({ accepted: true, bytesWritten: 100 }),
         } as unknown as jest.Mocked<SessionBatchRecorder>
     })
 
-    it('should record the serialized data, logs, and features to the recorder on the element', async () => {
+    it('should record the extracted data, logs, and parsed message to the recorder on the element', async () => {
         const step = createRecordSessionEventStep({
             isDebugLoggingEnabled: () => false,
         })
@@ -99,22 +97,13 @@ describe('createRecordSessionEventStep', () => {
         const input = createInput()
         await step(input)
 
-        expect(mockBatchRecorder.recordSessionData).toHaveBeenCalledTimes(1)
-        expect(mockBatchRecorder.recordSessionData).toHaveBeenCalledWith(input.session, input.data)
-        expect(mockBatchRecorder.recordSessionLogs).toHaveBeenCalledWith(input.session, input.logs)
-        expect(mockBatchRecorder.recordSessionFeatures).toHaveBeenCalledWith(input.session, input.parsedMessage)
-    })
-
-    it('should not record logs or features when the recorder rejects the message', async () => {
-        mockBatchRecorder.recordSessionData.mockReturnValue({ accepted: false, bytesWritten: 0 })
-        const step = createRecordSessionEventStep({
-            isDebugLoggingEnabled: () => false,
-        })
-
-        await step(createInput())
-
-        expect(mockBatchRecorder.recordSessionLogs).not.toHaveBeenCalled()
-        expect(mockBatchRecorder.recordSessionFeatures).not.toHaveBeenCalled()
+        expect(mockBatchRecorder.record).toHaveBeenCalledTimes(1)
+        expect(mockBatchRecorder.record).toHaveBeenCalledWith(
+            input.session,
+            input.data,
+            input.logs,
+            input.parsedMessage
+        )
     })
 
     it('should return ok result with input preserved', async () => {

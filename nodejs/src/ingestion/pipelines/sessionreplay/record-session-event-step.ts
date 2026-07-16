@@ -21,8 +21,7 @@ export interface RecordSessionEventStepConfig {
 
 /**
  * Creates a step that aggregates a message's precomputed record data — derived by the
- * extract-session-data and extract-console-logs steps — into the session batch: session data
- * first, then, if the recorder accepted the message, its console logs and features. The parsed
+ * extract-session-data and extract-console-logs steps — into the session batch. The parsed
  * message still feeds feature extraction, which is a sequential state machine across a session's
  * messages and can't be precomputed.
  */
@@ -55,11 +54,7 @@ export function createRecordSessionEventStep<T extends RecordSessionEventStepInp
         SessionRecordingIngesterMetrics.observeSessionInfo(parsedMessage.metadata.rawSize)
 
         // Aggregate into the batch's recorder, carried on the element by the pipeline's beforeBatch.
-        const { accepted } = sessionBatchRecorder.recordSessionData(session, data)
-        if (accepted) {
-            await sessionBatchRecorder.recordSessionLogs(session, logs)
-            sessionBatchRecorder.recordSessionFeatures(session, parsedMessage)
-        }
+        await sessionBatchRecorder.record(session, data, logs, parsedMessage)
 
         return ok(input)
     }

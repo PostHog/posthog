@@ -112,19 +112,53 @@ export class SessionBatchRecorder {
     }
 
     /**
-     * Aggregates one message's precomputed session data (from the extract-session-data step) into the
-     * appropriate session block, enforcing the per-session rate limit and consistency checks.
+     * Aggregates one message's extracted record into the batch: the serialized session data (from
+     * the extract-session-data step), its console logs (from the extract-console-logs step), and
+     * the parsed message, which feeds feature extraction — a sequential state machine across a
+     * session's messages that can't be precomputed per message. Enforces the per-session rate
+     * limit and team/key consistency checks; a rejected message contributes nothing, logs and
+     * features included.
      *
-     * @returns Whether the message was accepted — when false the caller must not record the
-     *   message's logs or features either — and the raw bytes written (without compression).
+     * @returns Whether the message was accepted and the raw bytes written (without compression).
      */
-    public recordSessionData(
+    public async record(
         session: SessionRef,
-        data: SerializedSessionData
-    ): { accepted: boolean; bytesWritten: number } {
+        data: SerializedSessionData,
+        logs: ExtractedConsoleLogs,
+        message: ParsedMessageData
+    ): Promise<{ accepted: boolean; bytesWritten: number }> {
+        const entry = this.acceptMessage(session, data.eventCount)
+        if (!entry) {
+            return { accepted: false, bytesWritten: 0 }
+        }
+
+        const bytesWritten = entry.sessionBlockRecorder.recordSessionData(data)
+        this._size += bytesWritten
+
+        logger.debug('🔁', 'session_batch_recorder_recorded_message', {
+            partition: session.partition,
+            sessionId: session.sessionId,
+            teamId: session.teamId,
+            bytesWritten,
+            totalSize: this._size,
+        })
+
+        await entry.consoleLogRecorder.recordSessionLogs(logs)
+        this.recordFeatures(entry, session, message)
+
+        return { accepted: true, bytesWritten }
+    }
+
+    /**
+     * Resolves the batch entry the message's session folds into, creating it on first sight.
+     * Returns null when the message must be rejected: the per-session rate limit was hit (which
+     * also evicts the session from the batch), or the message is inconsistent with the entry's
+     * team or encryption key.
+     */
+    private acceptMessage(session: SessionRef, eventCount: number): SessionBatchEntry | null {
         const { teamId, sessionId, partition } = session
 
-        const isEventAllowed = this.rateLimiter.handleMessage(teamId, sessionId, data.eventCount)
+        const isEventAllowed = this.rateLimiter.handleMessage(teamId, sessionId, eventCount)
 
         if (!isEventAllowed) {
             logger.debug('🔁', 'session_batch_recorder_event_rate_limited', {
@@ -145,7 +179,7 @@ export class SessionBatchRecorder {
                 })
             }
 
-            return { accepted: false, bytesWritten: 0 }
+            return null
         }
 
         const existingBatchState = this.sessions.get(teamId, sessionId)
@@ -159,7 +193,7 @@ export class SessionBatchRecorder {
                     newTeamId: teamId,
                     batchId: this.batchId,
                 })
-                return { accepted: false, bytesWritten: 0 }
+                return null
             }
 
             if (!existingSessionKey.encryptedKey.equals(session.sessionKey.encryptedKey)) {
@@ -168,66 +202,35 @@ export class SessionBatchRecorder {
                     teamId,
                     batchId: this.batchId,
                 })
-                return { accepted: false, bytesWritten: 0 }
+                return null
             }
-        } else {
-            this.sessions.set(teamId, sessionId, {
-                sessionBlockRecorder: new SnappySessionRecorder(sessionId, teamId, this.batchId),
-                consoleLogRecorder: new SessionConsoleLogRecorder(
-                    sessionId,
-                    teamId,
-                    this.batchId,
-                    this.consoleLogStore
-                ),
-                featureRecorder: new SessionFeatureRecorder(
-                    sessionId,
-                    teamId,
-                    this.batchId,
-                    this.featuresRolloutPercentage
-                ),
-                sessionKey: session.sessionKey,
-                retentionPeriod: session.retentionPeriod,
-            })
+
+            return existingBatchState
         }
 
-        const { sessionBlockRecorder } = this.sessions.get(teamId, sessionId)!
-        const bytesWritten = sessionBlockRecorder.recordSessionData(data)
-        this._size += bytesWritten
-
-        logger.debug('🔁', 'session_batch_recorder_recorded_message', {
-            partition,
-            sessionId,
-            teamId,
-            bytesWritten,
-            totalSize: this._size,
-        })
-
-        return { accepted: true, bytesWritten }
-    }
-
-    /**
-     * Aggregates one message's precomputed console log data (from the extract-console-logs step) into the
-     * session. Call only after {@link recordSessionData} accepted the message for this session.
-     */
-    public async recordSessionLogs(session: SessionRef, logs: ExtractedConsoleLogs): Promise<void> {
-        const entry = this.sessions.get(session.teamId, session.sessionId)
-        if (!entry) {
-            return
+        const entry: SessionBatchEntry = {
+            sessionBlockRecorder: new SnappySessionRecorder(sessionId, teamId, this.batchId),
+            consoleLogRecorder: new SessionConsoleLogRecorder(sessionId, teamId, this.batchId, this.consoleLogStore),
+            featureRecorder: new SessionFeatureRecorder(
+                sessionId,
+                teamId,
+                this.batchId,
+                this.featuresRolloutPercentage
+            ),
+            sessionKey: session.sessionKey,
+            retentionPeriod: session.retentionPeriod,
         }
-        await entry.consoleLogRecorder.recordSessionLogs(logs)
+        this.sessions.set(teamId, sessionId, entry)
+        return entry
     }
 
     /**
      * Feeds one message's parsed events into the session's feature extraction. Takes the parsed
      * message rather than precomputed data: feature extraction is a sequential state machine across
-     * a session's messages, so it can't be computed per message upfront. Call only after
-     * {@link recordSessionData} accepted the message for this session.
+     * a session's messages, so it can't be computed per message upfront. Failures are logged and
+     * swallowed — features are best-effort and must not fail the recording.
      */
-    public recordSessionFeatures(session: SessionRef, message: ParsedMessageData): void {
-        const entry = this.sessions.get(session.teamId, session.sessionId)
-        if (!entry) {
-            return
-        }
+    private recordFeatures(entry: SessionBatchEntry, session: SessionRef, message: ParsedMessageData): void {
         // Features derive from `eventsByWindowId`, which is empty on native-anonymizer messages —
         // skip the recorder (which throws on pre-serialized input) rather than catch it per message.
         if (message.preSerialized) {

@@ -31,9 +31,7 @@ jest.mock('~/ingestion/common/steps/event-preprocessing', () => ({
 
 function createMockBatchRecorder(): jest.Mocked<SessionBatchRecorder> {
     return {
-        recordSessionData: jest.fn().mockReturnValue({ accepted: true, bytesWritten: 1 }),
-        recordSessionLogs: jest.fn().mockResolvedValue(undefined),
-        recordSessionFeatures: jest.fn(),
+        record: jest.fn().mockResolvedValue({ accepted: true, bytesWritten: 1 }),
         getRetention: jest.fn().mockReturnValue(undefined),
     } as unknown as jest.Mocked<SessionBatchRecorder>
 }
@@ -278,7 +276,7 @@ describe('session-replay-pipeline', () => {
         // The runner now returns the max offset per partition; which messages actually reached
         // recording is observed through the batch recorder mock.
         const recordedSessionIds = (): string[] =>
-            (mockBatchRecorder.recordSessionData as jest.Mock).mock.calls.map((call) => call[0].sessionId)
+            (mockBatchRecorder.record as jest.Mock).mock.calls.map((call) => call[0].sessionId)
 
         it('passes through messages when no restrictions apply', async () => {
             const pipeline = createSessionReplayPipeline({
@@ -994,19 +992,18 @@ describe('session-replay-pipeline', () => {
             const messages = [createMessage(0, 1, 'session-1')]
 
             await runSessionReplayPipeline(pipeline, messages, mockBatchRecorder, promiseScheduler)
-            expect(mockBatchRecorder.recordSessionData).toHaveBeenCalledTimes(1)
-            expect(mockBatchRecorder.recordSessionData).toHaveBeenCalledWith(
+            expect(mockBatchRecorder.record).toHaveBeenCalledTimes(1)
+            expect(mockBatchRecorder.record).toHaveBeenCalledWith(
                 expect.objectContaining({
                     teamId: defaultTeam.teamId,
                     sessionId: 'session-1',
                     retentionPeriod: '30d',
                     sessionKey: expect.objectContaining({ sessionState: 'cleartext' }),
                 }),
-                expect.objectContaining({ eventCount: expect.any(Number) })
+                expect.objectContaining({ eventCount: expect.any(Number) }),
+                expect.objectContaining({ entries: expect.any(Array) }),
+                expect.objectContaining({ session_id: 'session-1' })
             )
-            // Accepted messages also record their logs and features into the same session.
-            expect(mockBatchRecorder.recordSessionLogs).toHaveBeenCalledTimes(1)
-            expect(mockBatchRecorder.recordSessionFeatures).toHaveBeenCalledTimes(1)
         })
 
         it('records multiple messages to session batch', async () => {
@@ -1033,7 +1030,7 @@ describe('session-replay-pipeline', () => {
 
             await runSessionReplayPipeline(pipeline, messages, mockBatchRecorder, promiseScheduler)
 
-            expect(mockBatchRecorder.recordSessionData).toHaveBeenCalledTimes(3)
+            expect(mockBatchRecorder.record).toHaveBeenCalledTimes(3)
         })
 
         it('does not record dropped messages to session batch', async () => {
@@ -1059,7 +1056,7 @@ describe('session-replay-pipeline', () => {
 
             const offsets = await runSessionReplayPipeline(pipeline, messages, mockBatchRecorder, promiseScheduler)
 
-            expect(mockBatchRecorder.recordSessionData).not.toHaveBeenCalled()
+            expect(mockBatchRecorder.record).not.toHaveBeenCalled()
             // Dropped, but its offset is still tracked so the partition commits past it.
             expect(offsets).toEqual(new Map([[0, 1]]))
         })
@@ -1088,7 +1085,7 @@ describe('session-replay-pipeline', () => {
 
             const offsets = await runSessionReplayPipeline(pipeline, messages, mockBatchRecorder, promiseScheduler)
 
-            expect(mockBatchRecorder.recordSessionData).not.toHaveBeenCalled()
+            expect(mockBatchRecorder.record).not.toHaveBeenCalled()
             // Dropped, but its offset is still tracked so the partition commits past it.
             expect(offsets).toEqual(new Map([[0, 1]]))
         })

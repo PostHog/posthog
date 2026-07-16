@@ -97,8 +97,7 @@ describe('session recording encryption integration', () => {
     const extractLogsStep = createExtractConsoleLogsStep()
 
     // Resolves the session's key the way the pre-record step would (generate once, then get),
-    // extracts the message through the real extract steps, and records it following the record
-    // step's call order: session data first, then logs and features only when the data was accepted.
+    // extracts the message through the real extract steps, and records it.
     const recordMessage = async (
         message: MessageWithTeam,
         retentionPeriod: RetentionPeriod = '30d'
@@ -121,11 +120,7 @@ describe('session recording encryption integration', () => {
             throw new Error('extract steps returned a non-ok result')
         }
         const { session, data } = extracted.value
-        const { accepted, bytesWritten } = recorder.recordSessionData(session, data)
-        if (accepted) {
-            await recorder.recordSessionLogs(session, extractedLogs.value.logs)
-            recorder.recordSessionFeatures(session, message.message)
-        }
+        const { bytesWritten } = await recorder.record(session, data, extractedLogs.value.logs, message.message)
         return bytesWritten
     }
 
