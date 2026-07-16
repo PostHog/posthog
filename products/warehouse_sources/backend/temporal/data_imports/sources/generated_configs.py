@@ -2702,7 +2702,8 @@ class MonoSourceConfig(config.Config):
 
 @config.config
 class MonteCarloSourceConfig(config.Config):
-    pass
+    api_key_id: str
+    api_key_secret: str
 
 
 @config.config
