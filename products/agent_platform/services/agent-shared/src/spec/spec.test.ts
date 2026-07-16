@@ -1138,6 +1138,28 @@ describe('models.optimize_for', () => {
             }
         })
 
+        it.each([
+            '@posthog/slack-post-message',
+            '@posthog/slack-update-message',
+            '@posthog/slack-read-channel',
+            '@posthog/slack-read-thread',
+            '@posthog/slack-react',
+        ])('rejects the owner-credential tool %s — confused deputy on an open run', (id) => {
+            const res = AgentSpecSchema.safeParse({ triggers: [authTrigger], tools: [{ kind: 'native', id }] })
+            expect(res.success).toBe(false)
+            if (!res.success) {
+                expect(res.error.issues.some((i) => i.path.includes('tools'))).toBe(true)
+            }
+        })
+
+        it('rejects declaring secrets — owner authority the runtime withholds on an open run', () => {
+            const res = AgentSpecSchema.safeParse({ triggers: [authTrigger], secrets: ['SOME_API_KEY'] })
+            expect(res.success).toBe(false)
+            if (!res.success) {
+                expect(res.error.issues.some((i) => i.path.includes('secrets'))).toBe(true)
+            }
+        })
+
         it('allows @posthog/table-append (additive; runtime forces plain, non-dedupe append)', () => {
             const res = AgentSpecSchema.safeParse({
                 triggers: [authTrigger],

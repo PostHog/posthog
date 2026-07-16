@@ -1130,6 +1130,22 @@ export const AUTHENTICATED_FORBIDDEN_TOOLS: ReadonlySet<string> = new Set([
 ])
 
 /**
+ * Native tools that act with the OWNER's ambient credential (the app's
+ * encrypted_env, reached via `ctx.secret`). On an `authenticated` agent the
+ * runner empties those secrets (see the secrets chokepoint in the worker), so
+ * these tools would throw at runtime. Reject them at freeze instead: any caller
+ * driving the owner's Slack bot is a confused deputy, so needing it here is a
+ * design error to surface at authoring, not a missing-token error to hit later.
+ */
+export const AUTHENTICATED_OWNER_CREDENTIAL_TOOLS: ReadonlySet<string> = new Set([
+    '@posthog/slack-post-message',
+    '@posthog/slack-update-message',
+    '@posthog/slack-read-channel',
+    '@posthog/slack-read-thread',
+    '@posthog/slack-react',
+])
+
+/**
  * Whether any trigger opens this agent to every PostHog user via a posthog
  * `authenticated` audience. Because the memory/table store is shared across all
  * of an agent's callers regardless of which trigger they came through, one
@@ -1192,6 +1208,28 @@ export const AgentSpecSchema = AgentSpecObjectSchema.superRefine((spec, ctx) => 
                 code: 'custom',
                 path: ['tools'],
                 message: `an agent with a posthog "authenticated" audience must not read or mutate shared per-(team, application) state: remove ${forbidden.join(', ')}. These stores are shared across all callers, so one caller could read, overwrite, or destroy another's data. Additive @posthog/table-append is allowed (the runtime forces it to plain, non-dedupe append).`,
+            })
+        }
+        const ownerCredentialTools = [
+            ...new Set(
+                spec.tools
+                    .filter((t) => t.kind === 'native' && AUTHENTICATED_OWNER_CREDENTIAL_TOOLS.has(t.id))
+                    .map((t) => t.id)
+            ),
+        ].sort()
+        if (ownerCredentialTools.length > 0) {
+            ctx.addIssue({
+                code: 'custom',
+                path: ['tools'],
+                message: `an agent with a posthog "authenticated" audience must not act with the owner's ambient credential: remove ${ownerCredentialTools.join(', ')}. Every caller would drive the owner's Slack bot (confused deputy). Use a kind:"principal" MCP or a per-caller identity instead.`,
+            })
+        }
+        if (spec.secrets.length > 0) {
+            ctx.addIssue({
+                code: 'custom',
+                path: ['secrets'],
+                message:
+                    'an agent with a posthog "authenticated" audience must not declare secrets — they are owner authority the runtime withholds from an open-to-everyone run, so any tool reaching for them would fail closed. Resolve per-caller credentials via a kind:"principal" MCP or identity_providers instead.',
             })
         }
     }
