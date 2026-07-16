@@ -1036,6 +1036,20 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert "$virt_traffic_category" in virtual_names
         assert "$virt_bot_name" in virtual_names
 
+    def test_retrieve_virtual_property_by_builtin_id(self):
+        # Virtual properties carry a synthetic "$builtin_"-prefixed id (they have no DB row);
+        # the detail endpoint must resolve them instead of 404ing on the UUID-only lookup.
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/$builtin_$virt_is_bot")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert body["id"] == "$builtin_$virt_is_bot"
+        assert body["name"] == "$virt_is_bot"
+        assert body["virtual"] is True
+
+    def test_retrieve_unknown_builtin_property_returns_404(self):
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/$builtin_$virt_not_real")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
 
 class TestPropertyDefinitionQuerySerializer(SimpleTestCase):
     @parameterized.expand(

@@ -615,6 +615,18 @@ class PropertyDefinitionViewSet(
     _BUILTIN_VIRTUAL_EVENT_PROPERTIES = _build_virtual_properties("event_properties")
     _BUILTIN_VIRTUAL_GROUP_PROPERTIES = _build_virtual_properties("groups")
 
+    # Lookup by synthetic "$builtin_"-prefixed id, so the detail endpoint can resolve a
+    # virtual property that has no database row.
+    _BUILTIN_VIRTUAL_PROPERTIES_BY_ID = {
+        prop["id"]: prop
+        for props in (
+            _BUILTIN_VIRTUAL_EVENT_PROPERTIES,
+            _BUILTIN_VIRTUAL_PERSON_PROPERTIES,
+            _BUILTIN_VIRTUAL_GROUP_PROPERTIES,
+        )
+        for prop in props
+    }
+
     def dangerously_get_queryset(self):
         with tracer.start_as_current_span("property_definitions_get_queryset") as span:
             span.set_attribute("team_id", self.team_id)
@@ -756,6 +768,16 @@ class PropertyDefinitionViewSet(
             return set()
         user = self.request.user if self.request.user.is_authenticated else None
         return get_restricted_property_names(team_id=self.team_id, user=user, property_type=pd_type)
+
+    def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        # Virtual properties (e.g. the bot-detection properties) are synthesized from the
+        # taxonomy rather than stored in the database, so they carry a "$builtin_"-prefixed
+        # id instead of a UUID. Serve them directly — the UUID-only DB lookup below would
+        # otherwise 404 and the detail page would fail to load.
+        virtual_property = self._BUILTIN_VIRTUAL_PROPERTIES_BY_ID.get(str(self.kwargs[self.lookup_field]))
+        if virtual_property is not None:
+            return response.Response(virtual_property)
+        return super().retrieve(request, *args, **kwargs)
 
     def safely_get_object(self, queryset):
         id = self.kwargs["id"]
