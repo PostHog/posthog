@@ -2,11 +2,9 @@
 
 use chrono_tz::Tz;
 
+use crate::bucket_tz::{day_idx_in_tz, day_idx_of_naive_date, start_of_day_ms_in_tz, DayIdx};
 use crate::filters::tree::{BehavioralLeafConfig, BehavioralValue};
-use crate::stage1::bucket_tz::{
-    day_idx_in_tz, day_idx_of_naive_date, start_of_day_ms_in_tz, DayIdx,
-};
-use crate::stage1::state::StateVariant;
+use crate::leaf_state::variant::StateVariant;
 
 /// A cohort time interval with its fixed second-count (the `INTERVAL_TO_SECONDS` contract).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -138,11 +136,11 @@ pub enum UnsupportedVariant {
     MissingWindow,
     #[error("behavioral value does not contribute realtime bytecode")]
     NonRealtimeValue,
-    /// An `explicit_datetime` range the sweep cannot model: a relative *upper* bound, or a relative
-    /// lower bound paired with any upper bound. These need delayed entry and double-ended eviction
-    /// (a person enters only once the relative `from` slides past and leaves once the relative `to`
-    /// does), which the single-deadline sweep does not represent. Skipping the leaf is the safe
-    /// choice — no realtime state, hence no wrong members — until that machinery exists.
+    /// An `explicit_datetime` range the single-deadline eviction model cannot represent: a relative
+    /// *upper* bound, or a relative lower bound paired with any upper bound. These need delayed entry
+    /// and double-ended eviction (a person enters only once the relative `from` slides past and leaves
+    /// once the relative `to` does), which one eviction deadline does not capture. Skipping the leaf
+    /// is the safe choice — no realtime state, hence no wrong members — until that machinery exists.
     #[error("explicit_datetime relative range is unsupported")]
     RelativeRangeUnsupported,
     /// A *present* `explicit_datetime`(_to) bound that parses as neither an absolute date nor a known
@@ -184,7 +182,7 @@ pub fn pick_state_variant(
 ///     is byte-identical to the `time_value:N, time_interval:<unit>` path the oracle also funnels
 ///     through `relative_date_parse` — so a sliding window recovers the common case correctly;
 ///   - **relative with any upper bound, or a relative upper bound** → [`UnsupportedVariant`], because
-///     the sweep cannot model delayed entry / double-ended eviction.
+///     a single eviction deadline cannot model delayed entry / double-ended eviction.
 fn eviction_window(leaf: &BehavioralLeafConfig) -> Result<EvictionWindow, UnsupportedVariant> {
     if leaf.explicit_datetime.is_some() || leaf.explicit_datetime_to.is_some() {
         return explicit_eviction_window(
@@ -218,7 +216,7 @@ fn explicit_eviction_window(
             Err(UnsupportedVariant::UnparseableExplicitBound)
         }
         // A relative *upper* bound (with or without a lower bound) needs delayed double-ended
-        // eviction the sweep does not model.
+        // eviction a single deadline does not model.
         (_, Some(Bound::Relative(_))) => Err(UnsupportedVariant::RelativeRangeUnsupported),
         // A relative *lower* bound combined with any upper bound is the same problem: the person
         // would enter only once the relative `from` slides past, then leave at the upper bound.
@@ -406,7 +404,7 @@ mod tests {
 
     use super::*;
 
-    use crate::stage1::key::LeafStateKey;
+    use crate::leaf_state::key::LeafStateKey;
 
     const HASH: [u8; 16] = *b"0123456789abcdef";
 
@@ -819,7 +817,7 @@ mod tests {
     #[test]
     fn relative_explicit_ranges_and_relative_upper_bounds_are_unsupported() {
         // Two-sided relative, relative upper bound, and relative-lower + absolute-upper all need
-        // delayed-entry / double-ended eviction the sweep cannot model.
+        // delayed-entry / double-ended eviction a single eviction deadline cannot model.
         let cases = [
             (Some("-30d"), Some("-7d")),                        // two-sided relative
             (Some("2026-01-01 00:00:00.000000"), Some("-7d")),  // absolute lower, relative upper
@@ -915,7 +913,7 @@ mod tests {
 
     #[test]
     fn explicit_window_never_evicts_for_permanent_membership() {
-        // An in-range absolute match is permanent: never evict at the upper bound, or the sweep would
+        // An in-range absolute match is permanent: never evict at the upper bound, or a consumer would
         // emit a spurious `Left` even though the oracle's fixed-date predicate still matches.
         for window in [
             EvictionWindow::Explicit {

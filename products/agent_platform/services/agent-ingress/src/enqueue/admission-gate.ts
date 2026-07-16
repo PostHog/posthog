@@ -11,12 +11,14 @@
 import {
     AdmissionService,
     buildIdentityRegistry,
+    buildLinkCallbackUrl,
     type AgentRevision,
     type EncryptedFields,
     type HttpFetcher,
     type IdentityCredentialStore,
     type IdentityLinkStateStore,
     type IdentityStore,
+    type IngressRoutingMode,
     type TransportBindingStore,
 } from '@posthog/agent-shared'
 
@@ -28,18 +30,22 @@ export interface AdmissionDepsBundle {
     envEncryption: EncryptedFields
     http: HttpFetcher
     posthogApiBaseUrl?: string
+    /** Ingress routing mode; builds the OAuth callback host (`domain` → per-agent, `path` → flat). */
+    routingMode?: IngressRoutingMode
+    /** Domain suffix for domain mode (e.g. `.agents.us.posthog.com`). */
+    domainSuffix?: string
+    /** Flat ingress base URL for the OAuth callback in `path` mode (dev). */
     publicBaseUrl?: string
 }
 
-/** The ingress's own OAuth callback URL for a provider. */
-export function admissionRedirectUri(publicBaseUrl: string | undefined, providerId: string): string {
-    const base = (publicBaseUrl ?? 'https://agents.posthog.com').replace(/\/+$/, '')
-    return `${base}/link/${providerId}/callback`
-}
-
 /** Build an `AdmissionService` for a revision, or null when the agent declares
- *  no authoritative provider (passthrough). */
-export function buildAdmission(deps: AdmissionDepsBundle, revision: AgentRevision): AdmissionService | null {
+ *  no authoritative provider (passthrough). `slug` is the agent's slug — in
+ *  domain mode the OAuth callback lands on that agent's own host. */
+export function buildAdmission(
+    deps: AdmissionDepsBundle,
+    revision: AgentRevision,
+    slug: string
+): AdmissionService | null {
     if (!revision.spec.authoritative_provider) {
         return null
     }
@@ -56,6 +62,18 @@ export function buildAdmission(deps: AdmissionDepsBundle, revision: AgentRevisio
         identities: deps.identities,
         bindings: deps.transportBindings,
         credentials: deps.identityCredentials,
-        redirectUriFor: (p) => admissionRedirectUri(deps.publicBaseUrl, p),
+        redirectUriFor: (p) => {
+            const url = buildLinkCallbackUrl({
+                routingMode: deps.routingMode ?? 'path',
+                domainSuffix: deps.domainSuffix,
+                publicBaseUrl: deps.publicBaseUrl,
+                slug,
+                provider: p,
+            })
+            if (!url) {
+                throw new Error('link_callback_url_unconfigured')
+            }
+            return url
+        },
     })
 }

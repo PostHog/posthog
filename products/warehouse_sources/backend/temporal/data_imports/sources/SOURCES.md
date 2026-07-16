@@ -326,6 +326,7 @@ the row lists both.
 | openai                    | HTTP                        | requests                                                        | ✅                          |
 | opinion_stage             | HTTP                        | requests                                                        | ✅                          |
 | orb                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| orca_security             | HTTP (POST query DSL)       | requests                                                        | ✅                          |
 | openaq                    | HTTP                        | requests                                                        | ✅                          |
 | openfda                   | HTTP                        | requests                                                        | ✅                          |
 | openrouter                | HTTP                        | requests                                                        | ✅                          |
@@ -404,6 +405,7 @@ the row lists both.
 | scaleway                  | HTTP                        | requests                                                        | ✅                          |
 | secoda                    | HTTP                        | requests                                                        | ✅                          |
 | segment                   | HTTP                        | requests                                                        | ✅                          |
+| semgrep                   | HTTP                        | requests                                                        | ✅                          |
 | sendgrid                  | HTTP                        | requests                                                        | ✅                          |
 | sendowl                   | HTTP                        | requests                                                        | ✅                          |
 | sentry                    | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -444,6 +446,7 @@ the row lists both.
 | teamwork                  | HTTP                        | requests                                                        | ✅                          |
 | tempo                     | HTTP                        | requests                                                        | ✅                          |
 | temporalio                | gRPC (vendor SDK)           | temporalio (`Client`, Rust core via `temporalio.bridge`)        | ⚠️                          |
+| terraform_cloud           | HTTP                        | requests                                                        | ✅                          |
 | testrail                  | HTTP                        | requests                                                        | ✅                          |
 | thinkific                 | HTTP                        | requests                                                        | ✅                          |
 | tickettailor              | HTTP                        | requests                                                        | ✅                          |
@@ -791,7 +794,6 @@ doesn't conflict with concurrent PRs.
 - oracle_ebs
 - oracle_fusion
 - orbit
-- orca_security
 - outlook
 - outreach
 - oveit
@@ -866,7 +868,6 @@ doesn't conflict with concurrent PRs.
 - search_ads_360
 - secureframe
 - semaphore
-- semgrep
 - sendpulse
 - senseforce
 - sentinelone
@@ -928,7 +929,6 @@ doesn't conflict with concurrent PRs.
 - tempo
 - tenable_vulnerability_management
 - terra_api
-- terraform_cloud
 - thinkific_courses
 - thrive_learning
 - ticketmaster
