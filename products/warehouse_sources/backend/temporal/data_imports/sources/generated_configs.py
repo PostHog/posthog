@@ -3409,7 +3409,7 @@ class Rapid7InsightvmSourceConfig(config.Config):
 
 @config.config
 class RaygunSourceConfig(config.Config):
-    pass
+    personal_access_token: str
 
 
 @config.config
