@@ -301,13 +301,13 @@ describe('verifyBearer (per-request identity proof)', () => {
         credentials: new MemCredStore(),
     })
 
-    it('a bearer userinfo accepts verifies to that subject, carrying the bearer as the credential', async () => {
+    it('a bearer that userinfo accepts verifies to its subject, carrying the bearer as the credential', async () => {
         const provider = posthogProvider(bearerAwareUserinfo({ 'live-token': 'phuser-42' }), stores())
         const verified = await provider.verifyBearer!('live-token')
         expect(verified).toEqual({ subject: 'phuser-42', stored: { access_token: 'live-token' }, scopes: [] })
     })
 
-    it('a bearer userinfo rejects verifies to null (admission then re-auths, never admits)', async () => {
+    it('a bearer that userinfo rejects verifies to null (admission then re-auths, never admits)', async () => {
         const provider = posthogProvider(bearerAwareUserinfo({ 'live-token': 'phuser-42' }), stores())
         expect(await provider.verifyBearer!('revoked-token')).toBeNull()
     })
