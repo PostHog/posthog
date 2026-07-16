@@ -13,7 +13,15 @@ from posthog.hogql_queries.ai.trace_query_runner import TraceQueryRunner
 from posthog.models.team import Team
 
 
-def fetch_trace(team: Team, trace_id: str, window_start: str, window_end: str) -> LLMTrace | None:
+def fetch_trace(
+    team: Team,
+    trace_id: str,
+    window_start: str,
+    window_end: str,
+    *,
+    max_trace_events: int | None = None,
+    max_trace_properties_size: int | None = None,
+) -> LLMTrace | None:
     """Fetch a single trace by ID via the migrated `TraceQueryRunner`.
 
     The runner's `TraceQueryDateRange` widens the input window by ±10 minutes
@@ -28,7 +36,12 @@ def fetch_trace(team: Team, trace_id: str, window_start: str, window_end: str) -
         dateRange=DateRange(date_from=window_start, date_to=window_end),
     )
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.QUERY, team_id=team.id):
-        runner = TraceQueryRunner(team=team, query=trace_query)
+        runner = TraceQueryRunner(
+            team=team,
+            query=trace_query,
+            max_trace_events=max_trace_events,
+            max_trace_properties_size=max_trace_properties_size,
+        )
         response = runner.calculate()
 
     if not response.results:

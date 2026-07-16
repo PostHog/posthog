@@ -5,9 +5,10 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from posthog.temporal.ai_observability.trace_summarization.fetch_and_format import (
+    _fetch_and_format_trace,
     _format_generation_text_repr,
     fetch_and_format_activity,
 )
@@ -65,6 +66,32 @@ class TestFormatGenerationTextRepr:
         result = _format_generation_text_repr({"model": "gpt-4"})
         assert "Provider:" not in result
         assert "Tokens:" not in result
+
+
+class TestFetchAndFormatTrace:
+    @patch("posthog.temporal.ai_observability.trace_summarization.fetch_and_format.fetch_trace")
+    @patch("posthog.temporal.ai_observability.trace_summarization.fetch_and_format.Team.objects.get")
+    def test_forwards_query_limits(self, mock_get_team: MagicMock, mock_fetch: MagicMock) -> None:
+        mock_fetch.return_value = None
+
+        result = _fetch_and_format_trace(
+            trace_id="trace-id",
+            team_id=7,
+            window_start="2026-04-08T14:00:00+00:00",
+            window_end="2026-04-08T15:00:00+00:00",
+            max_trace_events=50,
+            max_trace_properties_size=2_000_000,
+        )
+
+        assert result is None
+        mock_fetch.assert_called_once_with(
+            mock_get_team.return_value,
+            "trace-id",
+            "2026-04-08T14:00:00+00:00",
+            "2026-04-08T15:00:00+00:00",
+            max_trace_events=50,
+            max_trace_properties_size=2_000_000,
+        )
 
 
 @patch(

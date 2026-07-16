@@ -34,7 +34,14 @@ logger = structlog.get_logger(__name__)
 
 
 def _fetch_and_format_trace(
-    trace_id: str, team_id: int, window_start: str, window_end: str, max_length: int | None = None
+    trace_id: str,
+    team_id: int,
+    window_start: str,
+    window_end: str,
+    max_length: int | None = None,
+    *,
+    max_trace_events: int | None = None,
+    max_trace_properties_size: int | None = None,
 ) -> FetchResult | None:
     """Fetch trace data and format text representation.
 
@@ -42,7 +49,14 @@ def _fetch_and_format_trace(
     """
     team = Team.objects.get(id=team_id)
 
-    llm_trace = fetch_trace(team, trace_id, window_start, window_end)
+    llm_trace = fetch_trace(
+        team,
+        trace_id,
+        window_start,
+        window_end,
+        max_trace_events=max_trace_events,
+        max_trace_properties_size=max_trace_properties_size,
+    )
     if llm_trace is None:
         return None
 

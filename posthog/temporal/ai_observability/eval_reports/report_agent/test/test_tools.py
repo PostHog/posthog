@@ -291,6 +291,8 @@ class TestTraceDetailTools(SimpleTestCase):
         self.assertEqual(len(result[0]["text"]), 3_000)
         self.assertEqual(mock_fetch.call_args.kwargs["trace_id"], trace_id)
         self.assertEqual(mock_fetch.call_args.kwargs["max_length"], 3_000)
+        self.assertEqual(mock_fetch.call_args.kwargs["max_trace_events"], 50)
+        self.assertEqual(mock_fetch.call_args.kwargs["max_trace_properties_size"], 2_000_000)
         self.assertEqual(mock_fetch.call_args.kwargs["window_start"], "2020-01-01T00:00:00+00:00")
         self.assertEqual(mock_fetch.call_args.kwargs["window_end"], "2099-01-01T00:00:00+00:00")
         mock_execute_hogql.assert_called_once()

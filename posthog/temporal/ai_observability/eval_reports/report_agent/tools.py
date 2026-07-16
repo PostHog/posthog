@@ -38,6 +38,10 @@ from posthog.temporal.ai_observability.eval_reports.targets import (
     resolve_evaluation_target,
     target_event_predicate,
 )
+from posthog.temporal.ai_observability.trace_summarization.constants import (
+    MAX_TRACE_EVENTS_LIMIT,
+    MAX_TRACE_PROPERTIES_SIZE,
+)
 from posthog.temporal.ai_observability.trace_summarization.fetch_and_format import _fetch_and_format_trace
 
 if TYPE_CHECKING:
@@ -921,9 +925,11 @@ def _fetch_trace_detail(state: dict, trace_id: object, max_length: int) -> dict:
         window_start=_TARGET_LOOKUP_TS_START_SENTINEL,
         window_end=_TARGET_LOOKUP_TS_END_SENTINEL,
         max_length=max_length,
+        max_trace_events=MAX_TRACE_EVENTS_LIMIT,
+        max_trace_properties_size=MAX_TRACE_PROPERTIES_SIZE,
     )
     if result is None:
-        return {"trace_id": normalized_trace_id, "error": "Trace not found"}
+        return {"trace_id": normalized_trace_id, "error": "Trace not found or too large to inspect"}
     if result.text_repr is None:
         return {
             "trace_id": normalized_trace_id,

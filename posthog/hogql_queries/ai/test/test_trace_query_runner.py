@@ -5,8 +5,17 @@ from uuid import UUID
 
 import pytest
 from freezegun import freeze_time
-from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person, snapshot_clickhouse_queries
+from posthog.test.base import (
+    BaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    flush_persons_and_events,
+    snapshot_clickhouse_queries,
+)
 from unittest.mock import patch
+
+from parameterized import parameterized
 
 from posthog.schema import (
     DateRange,
@@ -341,6 +350,69 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
                 },
             },
         )
+
+    def test_bounded_trace_query_returns_eligible_trace(self) -> None:
+        trace_id = "bounded-trace"
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id=trace_id,
+            input="small input",
+            output="small output",
+            team=self.team,
+            timestamp=datetime(2025, 1, 15, 0),
+        )
+        flush_persons_and_events()
+
+        response = TraceQueryRunner(
+            team=self.team,
+            query=TraceQuery(
+                traceId=trace_id,
+                dateRange=DateRange(date_from="2025-01-15T00:00:00Z", date_to="2025-01-15T01:00:00Z"),
+            ),
+            max_trace_events=1,
+            max_trace_properties_size=10_000,
+        ).calculate()
+
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0].id, trace_id)
+
+    @parameterized.expand(
+        [
+            ("event_count", 2, "small input", 1, 10_000),
+            ("heavy_properties_size", 1, "x" * 2_000, 50, 1_000),
+        ]
+    )
+    def test_bounded_trace_query_rejects_oversized_trace(
+        self,
+        _name: str,
+        event_count: int,
+        input_content: str,
+        max_trace_events: int,
+        max_trace_properties_size: int,
+    ) -> None:
+        trace_id = f"oversized-{_name}"
+        for index in range(event_count):
+            _create_ai_generation_event(
+                distinct_id="person1",
+                trace_id=trace_id,
+                input=input_content,
+                output="output",
+                team=self.team,
+                timestamp=datetime(2025, 1, 15, 0, index),
+            )
+        flush_persons_and_events()
+
+        response = TraceQueryRunner(
+            team=self.team,
+            query=TraceQuery(
+                traceId=trace_id,
+                dateRange=DateRange(date_from="2025-01-15T00:00:00Z", date_to="2025-01-15T01:00:00Z"),
+            ),
+            max_trace_events=max_trace_events,
+            max_trace_properties_size=max_trace_properties_size,
+        ).calculate()
+
+        self.assertEqual(response.results, [])
 
     def test_stored_sentiment_evaluations_are_mapped_to_trace_and_generation(self):
         event_uuid = uuid.uuid4()

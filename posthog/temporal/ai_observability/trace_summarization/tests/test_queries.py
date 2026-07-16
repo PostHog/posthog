@@ -39,7 +39,14 @@ class TestFetchTrace:
             mock_runner.calculate.return_value = TraceQueryResponse(results=[trace])
             mock_runner_cls.return_value = mock_runner
 
-            result = fetch_trace(team, "trace-abc", "2026-04-27T07:00:00+00:00", "2026-04-27T08:00:00+00:00")
+            result = fetch_trace(
+                team,
+                "trace-abc",
+                "2026-04-27T07:00:00+00:00",
+                "2026-04-27T08:00:00+00:00",
+                max_trace_events=50,
+                max_trace_properties_size=2_000_000,
+            )
 
             assert result is not None
             assert result.id == "trace-abc"
@@ -47,6 +54,8 @@ class TestFetchTrace:
             args, kwargs = mock_runner_cls.call_args
             assert kwargs["team"] is team
             assert kwargs["query"].traceId == "trace-abc"
+            assert kwargs["max_trace_events"] == 50
+            assert kwargs["max_trace_properties_size"] == 2_000_000
             # Date range is forwarded raw — TraceQueryDateRange handles ±10min widening.
             assert kwargs["query"].dateRange.date_from == "2026-04-27T07:00:00+00:00"
             assert kwargs["query"].dateRange.date_to == "2026-04-27T08:00:00+00:00"
