@@ -9571,6 +9571,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `above` - At or above
+     * * `below` - At or below
+     */
+    export type VisionAlertDirectionEnum = typeof VisionAlertDirectionEnum[keyof typeof VisionAlertDirectionEnum];
+
+
+    export const VisionAlertDirectionEnum = {
+      Above: 'above',
+      Below: 'below',
+    } as const;
+
+    /**
      * * `1` - 1 day
      * * `3` - 3 days
      * * `7` - 7 days
@@ -9604,8 +9616,13 @@ export namespace Schemas {
        * * `count` - Count of matching observations
        * * `avg_score` - Average score */
       metric?: VisionAlertMetricEnum;
-      /** The alert fires when the metric is at or above this value. Required for on_breach; ignored for every_match. */
+      /** The alert fires when the metric is at or above ('above') or at or below ('below') this value, per 'direction'. Required for on_breach; ignored for every_match. */
       threshold?: number;
+      /** Which side of the threshold breaches: 'above' fires when the metric is at or above it, 'below' when at or below (e.g. an average score dropping under a floor). Both inclusive. Defaults to 'above'; ignored for every_match.
+       *
+       * * `above` - At or above
+       * * `below` - At or below */
+      direction?: VisionAlertDirectionEnum;
       /** Rolling lookback window for on_breach conditions, ending at each check. Defaults to 1 day. every_match ignores it (each check covers what's new since the previous one).
        *
        * * `1` - 1 day
@@ -12354,6 +12371,92 @@ export namespace Schemas {
       has_more: boolean;
     }
 
+    export interface BriefAnchors {
+      /** IDs of the dashboards this brief is anchored on. */
+      dashboards?: number[];
+      /** Short IDs of the insights this brief is anchored on. */
+      insights?: string[];
+    }
+
+    export interface BriefSettings {
+      /**
+         * Minimum absolute percent change for a movement to count as significant. Default 20.
+         * @minimum 1
+         * @maximum 1000
+         */
+      min_abs_change_pct?: number;
+      /**
+         * Minimum per-sample baseline volume before a movement is considered. Default 10.
+         * @minimum 0
+         * @maximum 1000000
+         */
+      min_baseline_value?: number;
+      /**
+         * Maximum anchor insights gathered per brief. Default 10.
+         * @minimum 1
+         * @maximum 100
+         */
+      max_anchor_insights?: number;
+      /**
+         * How many recent dashboards to pull insights from when no anchors are set. Default 3.
+         * @minimum 1
+         * @maximum 20
+         */
+      fallback_dashboard_count?: number;
+      /**
+         * Minimum confidence for a section or opportunity to survive the gate. Default 0.6.
+         * @minimum 0
+         * @maximum 1
+         */
+      confidence_threshold?: number;
+      /**
+         * Maximum opportunities kept per brief. Default 3.
+         * @minimum 1
+         * @maximum 20
+         */
+      max_opportunities?: number;
+    }
+
+    export interface BriefConfig {
+      readonly id: string;
+      /**
+         * Human-readable name for this brief focus.
+         * @maxLength 400
+         */
+      name: string;
+      /**
+         * Free-text focus steering gathering and tone, e.g. "we're the feature flags team". Max 2000 characters.
+         * @maxLength 2000
+         */
+      focus_prompt?: string;
+      /** Anchor resources the brief gathers movements from. Empty anchors fall back to the team's most recently accessed dashboards. */
+      anchors?: BriefAnchors;
+      /** Per-config tunables overriding the system defaults. Omitted knobs keep their default. */
+      settings?: BriefSettings;
+      /** Whether this config generates briefs. */
+      enabled?: boolean;
+      /** Soft-delete flag. Deleted configs are hidden from lists but recoverable by patching this back to false. */
+      deleted?: boolean;
+      readonly created_at: string;
+      /** User who created the config. */
+      readonly created_by: UserBasic | null;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
+    export interface BriefSection {
+      /** Section kind, e.g. 'what_happened' or 'what_to_build_next'. */
+      kind: string;
+      /** Short, specific section heading. */
+      title: string;
+      /** Section body in markdown. */
+      markdown: string;
+      /** Citation ids (e.g. 'c1') backing the section, copied verbatim. */
+      citations: string[];
+      /** Confidence in this section, 0.0-1.0. */
+      confidence: number;
+    }
+
     /**
      * * `breaking_master` - BREAKING_MASTER
      * * `novel_burst` - NOVEL_BURST
@@ -13461,6 +13564,45 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `http` - http
+     * * `sse` - sse
+     */
+    export type ImportedMcpServerTypeEnum = typeof ImportedMcpServerTypeEnum[keyof typeof ImportedMcpServerTypeEnum];
+
+
+    export const ImportedMcpServerTypeEnum = {
+      Http: 'http',
+      Sse: 'sse',
+    } as const;
+
+    export interface ImportedMcpServerHeader {
+      /** @maxLength 256 */
+      name: string;
+      /** @maxLength 4096 */
+      value: string;
+    }
+
+    /**
+     * One client-imported MCP server, in the agent server's --mcpServers entry shape.
+     */
+    export interface ImportedMcpServer {
+      type: ImportedMcpServerTypeEnum;
+      /** @maxLength 64 */
+      name: string;
+      /** @maxLength 2048 */
+      url: string;
+      headers?: ImportedMcpServerHeader[];
+    }
+
+    /**
+     * One desktop-only MCP server relayed into the run — a name only, never configuration.
+     */
+    export interface RelayedMcpServer {
+      /** @maxLength 64 */
+      name: string;
+    }
+
+    /**
      * * `interactive` - interactive
      * * `background` - background
      */
@@ -13536,6 +13678,16 @@ export namespace Schemas {
      * Request body for creating a new task run
      */
     export interface ClaudeTaskRunCreateSchema {
+      /**
+         * Local url-based MCP servers from the creating client (PostHog Code) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.
+         * @nullable
+         */
+      imported_mcp_servers?: ImportedMcpServer[] | null;
+      /**
+         * Names of desktop-only MCP servers the creating client (PostHog Code) relays into the cloud sandbox over the durable event/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.
+         * @nullable
+         */
+      relayed_mcp_servers?: RelayedMcpServer[] | null;
       /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
        *
        * * `interactive` - interactive
@@ -13897,6 +14049,16 @@ export namespace Schemas {
      * Request body for creating a new task run
      */
     export interface CodexTaskRunCreateSchema {
+      /**
+         * Local url-based MCP servers from the creating client (PostHog Code) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.
+         * @nullable
+         */
+      imported_mcp_servers?: ImportedMcpServer[] | null;
+      /**
+         * Names of desktop-only MCP servers the creating client (PostHog Code) relays into the cloud sandbox over the durable event/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.
+         * @nullable
+         */
+      relayed_mcp_servers?: RelayedMcpServer[] | null;
       /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
        *
        * * `interactive` - interactive
@@ -17848,6 +18010,13 @@ export namespace Schemas {
      * * `KongKonnect` - KongKonnect
      * * `Kandji` - Kandji
      * * `Automox` - Automox
+     * * `Autumn` - Autumn
+     * * `GetStream` - GetStream
+     * * `Octolens` - Octolens
+     * * `Kajabi` - Kajabi
+     * * `Shopware` - Shopware
+     * * `Dubsado` - Dubsado
+     * * `Campfire` - Campfire
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -18703,6 +18872,13 @@ export namespace Schemas {
       KongKonnect: 'KongKonnect',
       Kandji: 'Kandji',
       Automox: 'Automox',
+      Autumn: 'Autumn',
+      GetStream: 'GetStream',
+      Octolens: 'Octolens',
+      Kajabi: 'Kajabi',
+      Shopware: 'Shopware',
+      Dubsado: 'Dubsado',
+      Campfire: 'Campfire',
     } as const;
 
     /**
@@ -19571,7 +19747,14 @@ export namespace Schemas {
        * * `ConfluentCloud` - ConfluentCloud
        * * `KongKonnect` - KongKonnect
        * * `Kandji` - Kandji
-       * * `Automox` - Automox */
+       * * `Automox` - Automox
+       * * `Autumn` - Autumn
+       * * `GetStream` - GetStream
+       * * `Octolens` - Octolens
+       * * `Kajabi` - Kajabi
+       * * `Shopware` - Shopware
+       * * `Dubsado` - Dubsado
+       * * `Campfire` - Campfire */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -19951,6 +20134,99 @@ export namespace Schemas {
       summary: DiagnosticReportSummary;
       /** Per-check results in execution order. */
       checks: DiagnosticCheckResult[];
+    }
+
+    /**
+     * * `manual` - MANUAL
+     * * `slack_name_match` - SLACK_NAME_MATCH
+     * * `stamphog_config` - STAMPHOG_CONFIG
+     * * `owners_contact` - OWNERS_CONTACT
+     */
+    export type ResolutionSourceEnum = typeof ResolutionSourceEnum[keyof typeof ResolutionSourceEnum];
+
+
+    export const ResolutionSourceEnum = {
+      Manual: 'manual',
+      SlackNameMatch: 'slack_name_match',
+      StamphogConfig: 'stamphog_config',
+      OwnersContact: 'owners_contact',
+    } as const;
+
+    export interface DigestChannel {
+      readonly id: string;
+      /**
+         * Opaque digest bucket this channel receives, e.g. 'repo:PostHog/posthog'.
+         * @maxLength 255
+         */
+      audience_key: string;
+      /**
+         * ID of the team's Slack integration used to post the digest.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      slack_integration_id: number;
+      /**
+         * Slack channel ID to post the digest to, e.g. 'C012AB3CD'.
+         * @maxLength 64
+         */
+      slack_channel_id: string;
+      /**
+         * Human-readable Slack channel name, for display only.
+         * @maxLength 255
+         */
+      slack_channel_name?: string;
+      /** How this row was created: 'manual' (via this API), 'slack_name_match' (auto-provisioned because the workspace has a channel named exactly like the audience_key), 'stamphog_config' (auto-provisioned from the channel the repo declared under 'digest:' in .stamphog/policy.yml), or 'owners_contact' (reserved for the future owners.yaml contact.slack step, not implemented yet).
+       *
+       * * `manual` - MANUAL
+       * * `slack_name_match` - SLACK_NAME_MATCH
+       * * `stamphog_config` - STAMPHOG_CONFIG
+       * * `owners_contact` - OWNERS_CONTACT */
+      readonly resolution_source: ResolutionSourceEnum;
+      /** Whether this channel is included in the daily digest fan-out. */
+      enabled?: boolean;
+      /** @nullable */
+      readonly last_digest_at: string | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    /**
+     * * `pending` - PENDING
+     * * `completed` - COMPLETED
+     * * `failed` - FAILED
+     */
+    export type DigestRunStatusEnum = typeof DigestRunStatusEnum[keyof typeof DigestRunStatusEnum];
+
+
+    export const DigestRunStatusEnum = {
+      Pending: 'pending',
+      Completed: 'completed',
+      Failed: 'failed',
+    } as const;
+
+    export interface DigestRun {
+      readonly id: string;
+      /** ID of the digest channel this run belongs to. */
+      readonly digest_channel: string;
+      /** Current state of the digest run (pending, completed, failed).
+       *
+       * * `pending` - PENDING
+       * * `completed` - COMPLETED
+       * * `failed` - FAILED */
+      readonly status: DigestRunStatusEnum;
+      /** Number of merged PRs included in the posted digest. */
+      readonly pr_count: number;
+      /** Slack message timestamp of the posted digest, if posted. */
+      readonly slack_message_ts: string;
+      /** Error message if the run failed, blank otherwise. */
+      readonly error: string;
+      /** When the digest run was created. */
+      readonly created_at: string;
+      /**
+         * When the digest was posted to Slack, if it was.
+         * @nullable
+         */
+      readonly posted_at: string | null;
     }
 
     /**
@@ -21928,17 +22204,27 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `summary` - summary
-     * * `stack` - stack
-     * * `raw` - raw
+     * * `exception` - exception
+     * * `stacktrace` - stacktrace
+     * * `code_variables` - code_variables
+     * * `environment` - environment
+     * * `release` - release
+     * * `navigation` - navigation
+     * * `correlation` - correlation
+     * * `diagnostics` - diagnostics
      */
-    export type VerbosityEnum = typeof VerbosityEnum[keyof typeof VerbosityEnum];
+    export type IncludeEnum = typeof IncludeEnum[keyof typeof IncludeEnum];
 
 
-    export const VerbosityEnum = {
-      Summary: 'summary',
-      Stack: 'stack',
-      Raw: 'raw',
+    export const IncludeEnum = {
+      Exception: 'exception',
+      Stacktrace: 'stacktrace',
+      CodeVariables: 'code_variables',
+      Environment: 'environment',
+      Release: 'release',
+      Navigation: 'navigation',
+      Correlation: 'correlation',
+      Diagnostics: 'diagnostics',
     } as const;
 
     export interface ErrorTrackingIssueEventsQueryRequest {
@@ -21971,12 +22257,8 @@ export namespace Schemas {
          * @minimum 0
          */
       offset?: number;
-      /** Controls exception detail size: summary, stack, or raw. Defaults to summary.
-       *
-       * * `summary` - summary
-       * * `stack` - stack
-       * * `raw` - raw */
-      verbosity?: VerbosityEnum;
+      /** Context groups to return. Defaults to exception, environment, navigation, and correlation. Request stacktrace for frames, code_variables for captured and SDK-masked frame variables, release for release metadata, or diagnostics for ingestion errors. code_variables implies stacktrace. */
+      include?: IncludeEnum[];
       /** When true, include only stack frames marked in_app. Defaults to true. */
       onlyAppFrames?: boolean;
     }
@@ -24326,6 +24608,11 @@ export namespace Schemas {
          * @nullable
          */
       conclusion_comment?: string | null;
+      /**
+         * ID of the Code task opened to remove the experiment's feature-flag code, when one was requested via open_cleanup_pr on end/ship_variant. Read its status via the flag_cleanup_task action.
+         * @nullable
+         */
+      readonly flag_cleanup_task_id: string | null;
       primary_metrics_ordered_uuids?: unknown;
       secondary_metrics_ordered_uuids?: unknown;
       only_count_matured_users?: boolean;
@@ -24335,6 +24622,8 @@ export namespace Schemas {
       readonly status: ExperimentStatusEnum;
       /** Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support them, such as duplicate and copy-to-project. */
       readonly is_legacy: boolean;
+      /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
+      readonly can_freeze_exposure: boolean;
       /**
          * The effective access level the user has for this object
          * @nullable
@@ -24586,6 +24875,47 @@ export namespace Schemas {
          * @nullable
          */
       ensure_experience_continuity?: boolean | null;
+    }
+
+    /**
+     * * `not_started` - not_started
+     * * `queued` - queued
+     * * `in_progress` - in_progress
+     * * `completed` - completed
+     * * `failed` - failed
+     * * `cancelled` - cancelled
+     */
+    export type RunStatusEnum = typeof RunStatusEnum[keyof typeof RunStatusEnum];
+
+
+    export const RunStatusEnum = {
+      NotStarted: 'not_started',
+      Queued: 'queued',
+      InProgress: 'in_progress',
+      Completed: 'completed',
+      Failed: 'failed',
+      Cancelled: 'cancelled',
+    } as const;
+
+    export interface ExperimentFlagCleanupTask {
+      /** ID of the flag-cleanup Code task. */
+      task_id: string;
+      /** Status of the task's latest run.
+       *
+       * * `not_started` - not_started
+       * * `queued` - queued
+       * * `in_progress` - in_progress
+       * * `completed` - completed
+       * * `failed` - failed
+       * * `cancelled` - cancelled */
+      run_status: RunStatusEnum;
+      /** Whether the run has finished (successfully or not). Stop polling once true. */
+      is_terminal: boolean;
+      /**
+         * URL of the pull request the task opened, when it opened one.
+         * @nullable
+         */
+      pr_url: string | null;
     }
 
     /**
@@ -24971,6 +25301,11 @@ export namespace Schemas {
          * @nullable
          */
       conclusion_comment?: string | null;
+      /**
+         * ID of the Code task opened to remove the experiment's feature-flag code, when one was requested via open_cleanup_pr on end/ship_variant. Read its status via the flag_cleanup_task action.
+         * @nullable
+         */
+      readonly flag_cleanup_task_id: string | null;
       primary_metrics_ordered_uuids?: unknown;
       secondary_metrics_ordered_uuids?: unknown;
       only_count_matured_users?: boolean;
@@ -24980,6 +25315,8 @@ export namespace Schemas {
       readonly status: ExperimentStatusEnum;
       /** Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support them, such as duplicate and copy-to-project. */
       readonly is_legacy: boolean;
+      /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
+      readonly can_freeze_exposure: boolean;
       /**
          * The effective access level the user has for this object
          * @nullable
@@ -25127,6 +25464,9 @@ export namespace Schemas {
       readonly supports_row_filters?: boolean;
       /** @nullable */
       readonly user_access_level?: string | null;
+      /** @nullable */
+      readonly api_version?: string | null;
+      readonly supported_api_versions?: string[];
     } | null;
 
     /**
@@ -25200,6 +25540,18 @@ export namespace Schemas {
       '7day': '7day',
       '30day': '30day',
     } as const;
+
+    export interface ExternalDataSourceApiVersionDeprecation {
+      /** The deprecated vendor API version this source is pinned to. */
+      version: string;
+      /**
+         * Date the vendor stops serving this version; null if not announced.
+         * @nullable
+         */
+      sunset_at: string | null;
+      /** The source's current default vendor API version — the migration target. */
+      default_version: string;
+    }
 
     export interface ExternalDataSchema {
       readonly id: string;
@@ -25299,6 +25651,14 @@ export namespace Schemas {
          * @nullable
          */
       readonly source: ExternalDataSchemaSource;
+      /**
+         * Vendor API version override for this schema. `null` (default) syncs on the source's pinned version. Must be one of the source type's supported versions. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas.
+         * @maxLength 128
+         * @nullable
+         */
+      api_version?: string | null;
+      /** Set when this schema's version override is deprecated by the vendor; null when there is no override or it is not deprecated. The source-level field covers the source pin. */
+      readonly api_version_deprecation: ExternalDataSourceApiVersionDeprecation | null;
     }
 
     export type ExternalDataSourceBulkUpdateSchemaRowFiltersItem = {
@@ -26224,7 +26584,14 @@ export namespace Schemas {
        * * `ConfluentCloud` - ConfluentCloud
        * * `KongKonnect` - KongKonnect
        * * `Kandji` - Kandji
-       * * `Automox` - Automox */
+       * * `Automox` - Automox
+       * * `Autumn` - Autumn
+       * * `GetStream` - GetStream
+       * * `Octolens` - Octolens
+       * * `Kajabi` - Kajabi
+       * * `Shopware` - Shopware
+       * * `Dubsado` - Dubsado
+       * * `Campfire` - Campfire */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -27106,7 +27473,14 @@ export namespace Schemas {
        * * `ConfluentCloud` - ConfluentCloud
        * * `KongKonnect` - KongKonnect
        * * `Kandji` - Kandji
-       * * `Automox` - Automox */
+       * * `Automox` - Automox
+       * * `Autumn` - Autumn
+       * * `GetStream` - GetStream
+       * * `Octolens` - Octolens
+       * * `Kajabi` - Kajabi
+       * * `Shopware` - Shopware
+       * * `Dubsado` - Dubsado
+       * * `Campfire` - Campfire */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -27245,6 +27619,13 @@ export namespace Schemas {
       readonly supports_webhooks: boolean;
       /** Whether this source supports per-column sync selection via `enabled_columns`. */
       readonly supports_column_selection: boolean;
+      /**
+         * Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe date version). Null resolves to the source type's default version at sync time.
+         * @nullable
+         */
+      readonly api_version: string | null;
+      /** Set when the vendor has deprecated the API version this source is pinned to; null otherwise. Drives the in-product deprecation warning. */
+      readonly api_version_deprecation: ExternalDataSourceApiVersionDeprecation | null;
     }
 
     export type ExternalQueryErrorCode = typeof ExternalQueryErrorCode[keyof typeof ExternalQueryErrorCode];
@@ -28109,6 +28490,42 @@ export namespace Schemas {
       readonly normalized_topic: string;
       /** Number of gap rows whose status changed. */
       readonly updated: number;
+    }
+
+    /**
+     * * `last_n_days` - last_n_days
+     * * `since_last_run` - since_last_run
+     */
+    export type PeriodTypeEnum = typeof PeriodTypeEnum[keyof typeof PeriodTypeEnum];
+
+
+    export const PeriodTypeEnum = {
+      LastNDays: 'last_n_days',
+      SinceLastRun: 'since_last_run',
+    } as const;
+
+    export interface Period {
+      /** How the brief window is chosen: a fixed lookback (last_n_days) or since the last ready brief.
+       *
+       * * `last_n_days` - last_n_days
+       * * `since_last_run` - since_last_run */
+      period_type: PeriodTypeEnum;
+      /**
+         * Lookback length in days. Required and used only when period_type is last_n_days.
+         * @minimum 1
+         * @maximum 90
+         */
+      days?: number;
+    }
+
+    export interface GenerateBriefRequest {
+      /**
+         * Optional brief config to generate for. Omit for the zero-config default brief.
+         * @nullable
+         */
+      config_id?: string | null;
+      /** Period the brief should cover. Defaults to the last 7 days. */
+      period?: Period;
     }
 
     export type GenerateRequestStepsItem = { [key: string]: unknown };
@@ -32528,6 +32945,8 @@ export namespace Schemas {
       readonly version_count: number;
       readonly first_version_created_at: string;
       readonly outline: readonly LLMPromptOutlineEntry[];
+      /** Names of the labels currently pointing at this version. */
+      readonly labels: readonly string[];
     }
 
     export interface LLMPromptDuplicate {
@@ -32543,6 +32962,18 @@ export namespace Schemas {
       old: string;
       /** Replacement text. */
       new: string;
+    }
+
+    export interface LLMPromptLabel {
+      readonly id: string;
+      /** Label name, e.g. 'production'. Points to exactly one version of the prompt. */
+      readonly name: string;
+      /** Name of the prompt this label belongs to. */
+      readonly prompt_name: string;
+      readonly version: number;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      readonly updated_at: string;
     }
 
     export interface LLMPromptList {
@@ -32566,6 +32997,8 @@ export namespace Schemas {
       readonly version_count: number;
       readonly first_version_created_at: string;
       readonly outline: readonly LLMPromptOutlineEntry[];
+      /** Names of the labels currently pointing at this version. */
+      readonly labels: readonly string[];
       readonly prompt_preview: string;
       readonly prompt_size_bytes: number;
     }
@@ -32597,12 +33030,22 @@ export namespace Schemas {
       readonly created_by: UserBasic;
       readonly created_at: string;
       readonly is_latest: boolean;
+      /** Names of the labels currently pointing at this version. */
+      readonly labels: readonly string[];
     }
 
     export interface LLMPromptResolveResponse {
       prompt: LLMPrompt;
       versions: LLMPromptVersionSummary[];
       has_more: boolean;
+    }
+
+    export interface LLMPromptSetLabel {
+      /**
+         * Prompt version this label should point to. If the label already exists on another version of the prompt, it is moved there.
+         * @minimum 1
+         */
+      version: number;
     }
 
     /**
@@ -33046,6 +33489,7 @@ export namespace Schemas {
      * * `posthog-go` - posthog-go
      * * `posthog-flutter` - posthog-flutter
      * * `posthog-react-native` - posthog-react-native
+     * * `posthog-kmp` - posthog-kmp
      * * `posthog-dotnet` - posthog-dotnet
      * * `posthog-elixir` - posthog-elixir
      */
@@ -33065,6 +33509,7 @@ export namespace Schemas {
       PosthogGo: 'posthog-go',
       PosthogFlutter: 'posthog-flutter',
       PosthogReactNative: 'posthog-react-native',
+      PosthogKmp: 'posthog-kmp',
       PosthogDotnet: 'posthog-dotnet',
       PosthogElixir: 'posthog-elixir',
     } as const;
@@ -34782,6 +35227,7 @@ export namespace Schemas {
      * * `close` - close
      * * `permission_response` - permission_response
      * * `set_config_option` - set_config_option
+     * * `mcp_response` - mcp_response
      */
     export type MethodEnum = typeof MethodEnum[keyof typeof MethodEnum];
 
@@ -34792,6 +35238,7 @@ export namespace Schemas {
       Close: 'close',
       PermissionResponse: 'permission_response',
       SetConfigOption: 'set_config_option',
+      McpResponse: 'mcp_response',
     } as const;
 
     /**
@@ -36309,6 +36756,15 @@ export namespace Schemas {
       results: BatchImport[];
     }
 
+    export interface PaginatedBriefConfigList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: BriefConfig[];
+    }
+
     export interface PaginatedCIMDVerificationTokenList {
       count: number;
       /** @nullable */
@@ -36564,6 +37020,24 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: Dataset[];
+    }
+
+    export interface PaginatedDigestChannelList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: DigestChannel[];
+    }
+
+    export interface PaginatedDigestRunList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: DigestRun[];
     }
 
     export interface PaginatedEarlyAccessFeatureList {
@@ -37398,6 +37872,78 @@ export namespace Schemas {
     }
 
     /**
+     * * `generating` - Generating
+     * * `ready` - Ready
+     * * `quiet` - Quiet
+     * * `failed` - Failed
+     */
+    export type ProductBriefStatusEnum = typeof ProductBriefStatusEnum[keyof typeof ProductBriefStatusEnum];
+
+
+    export const ProductBriefStatusEnum = {
+      Generating: 'generating',
+      Ready: 'ready',
+      Quiet: 'quiet',
+      Failed: 'failed',
+    } as const;
+
+    /**
+     * * `on_demand` - On Demand
+     * * `scheduled` - Scheduled
+     */
+    export type ProductBriefTriggerEnum = typeof ProductBriefTriggerEnum[keyof typeof ProductBriefTriggerEnum];
+
+
+    export const ProductBriefTriggerEnum = {
+      OnDemand: 'on_demand',
+      Scheduled: 'scheduled',
+    } as const;
+
+    export interface ProductBriefList {
+      readonly id: string;
+      /**
+         * The brief config this brief was generated for, if any.
+         * @nullable
+         */
+      readonly config: string | null;
+      /** Lifecycle status: generating, ready, quiet (nothing confident to say), or failed.
+       *
+       * * `generating` - Generating
+       * * `ready` - Ready
+       * * `quiet` - Quiet
+       * * `failed` - Failed */
+      readonly status: ProductBriefStatusEnum;
+      /** What started the generation: on_demand or scheduled.
+       *
+       * * `on_demand` - On Demand
+       * * `scheduled` - Scheduled */
+      readonly trigger: ProductBriefTriggerEnum;
+      /** The resolved-at-gather period spec the brief covers. */
+      readonly period: Period;
+      /** Names of the brief sources that contributed items. */
+      readonly sources_used: readonly string[];
+      /**
+         * Error detail when status is failed.
+         * @nullable
+         */
+      readonly error: string | null;
+      readonly created_at: string;
+      /** User who requested the brief. */
+      readonly created_by: UserBasic | null;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
+    export interface PaginatedProductBriefListList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ProductBriefList[];
+    }
+
+    /**
      * Return the targeting flag filters, excluding the base exclusion properties.
      * @nullable
      */
@@ -37986,6 +38532,138 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: ReviewQueue[];
+    }
+
+    /**
+     * * `queued` - QUEUED
+     * * `gated` - GATED
+     * * `reviewing` - REVIEWING
+     * * `completed` - COMPLETED
+     * * `failed` - FAILED
+     * * `superseded` - SUPERSEDED
+     */
+    export type ReviewRunStatusEnum = typeof ReviewRunStatusEnum[keyof typeof ReviewRunStatusEnum];
+
+
+    export const ReviewRunStatusEnum = {
+      Queued: 'queued',
+      Gated: 'gated',
+      Reviewing: 'reviewing',
+      Completed: 'completed',
+      Failed: 'failed',
+      Superseded: 'superseded',
+    } as const;
+
+    /**
+     * * `none` - NONE
+     * * `approved` - APPROVED
+     * * `refused` - REFUSED
+     * * `escalate` - ESCALATE
+     * * `wait` - WAIT
+     * * `error` - ERROR
+     */
+    export type ReviewRunVerdictEnum = typeof ReviewRunVerdictEnum[keyof typeof ReviewRunVerdictEnum];
+
+
+    export const ReviewRunVerdictEnum = {
+      None: 'none',
+      Approved: 'approved',
+      Refused: 'refused',
+      Escalate: 'escalate',
+      Wait: 'wait',
+      Error: 'error',
+    } as const;
+
+    /**
+     * Allowlisted, content-free slice of ``ReviewRun.gate_result``.
+     *
+     * The raw gate blob nests ``gates``, ``classification``, and ``policy`` sub-objects that carry
+     * repository content — changed-file paths (``safe_migration_files``, ``invalid_folder_files``),
+     * manifest gate messages, and declared ``policy.scopes`` — which a project member without repo
+     * access must not read. Only the terminal decision is exposed.
+     */
+    export interface _GateResultSummary {
+      /** Whether the deterministic gates blocked auto-review before the reviewer ran. */
+      readonly gate_blocked: boolean;
+      /** The engine's raw final-verdict token, if the run reached a verdict. */
+      readonly final_verdict: string;
+    }
+
+    /**
+     * Allowlisted, non-sensitive slice of ``ReviewRun.output``.
+     *
+     * The raw ``output`` blob also holds the reviewer's stdout, the full PR payload, changed-file patches,
+     * and default-branch policy file contents — repository content a project member without repo access
+     * must never read over the API. Only these derived, content-free fields are exposed.
+     */
+    export interface _ReviewOutputSummary {
+      /** Version of the stamphog engine that produced this review, if it reported one. */
+      readonly stamphog_version: string;
+      /** Exit code of the reviewer process in the sandbox, if the run reached the sandbox stage. */
+      readonly reviewer_exit_code: number;
+    }
+
+    export interface ReviewRun {
+      readonly id: string;
+      /** ID of the pull request this review run belongs to. */
+      readonly pull_request: string;
+      /** Full name of the repository this review run belongs to. */
+      readonly repository: string;
+      /** Pull request number on GitHub. */
+      readonly pr_number: number;
+      /** Full URL to the pull request on GitHub. */
+      readonly pr_url: string;
+      /** Commit SHA of the PR head at the time this run started. */
+      readonly head_sha: string;
+      /** Branch name of the PR head. */
+      readonly head_branch: string;
+      /**
+         * GitHub webhook delivery ID that triggered this run, used for deduplication.
+         * @nullable
+         */
+      readonly delivery_id: string | null;
+      /** Current stage of the review run's lifecycle.
+       *
+       * * `queued` - QUEUED
+       * * `gated` - GATED
+       * * `reviewing` - REVIEWING
+       * * `completed` - COMPLETED
+       * * `failed` - FAILED
+       * * `superseded` - SUPERSEDED */
+      readonly status: ReviewRunStatusEnum;
+      /** Final verdict reached by the reviewer, if any.
+       *
+       * * `none` - NONE
+       * * `approved` - APPROVED
+       * * `refused` - REFUSED
+       * * `escalate` - ESCALATE
+       * * `wait` - WAIT
+       * * `error` - ERROR */
+      readonly verdict: ReviewRunVerdictEnum;
+      /** Allowlisted deterministic gate outcome (gate_blocked, final_verdict). The nested gate, classification, and policy sub-objects are excluded — they carry changed-file paths and policy scopes, repository content a project member without repo access must not read. */
+      readonly gate_result: _GateResultSummary;
+      /** Allowlisted, non-sensitive subset of the reviewer output blob (stamphog version, reviewer exit code). The raw reviewer stdout, PR payload, changed-file patches, and policy file contents are deliberately excluded — they carry repository content a project member without repo access must not read. */
+      readonly output: _ReviewOutputSummary;
+      /** Error message if the run failed, blank otherwise. */
+      readonly error: string;
+      /** When the review run was created. */
+      readonly created_at: string;
+      /** When the review run was last updated. */
+      readonly updated_at: string;
+      /**
+         * When the review run reached a terminal state, if it has.
+         * @nullable
+         */
+      readonly completed_at: string | null;
+    }
+
+    export interface PaginatedReviewRunList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ReviewRun[];
     }
 
     export interface RoleExternalReference {
@@ -38922,6 +39600,110 @@ export namespace Schemas {
       results: Snapshot[];
       /** Count of this run's snapshots whose identifier is currently quarantined. Excluded from results unless include_quarantined=true is passed. */
       quarantined_count?: number;
+    }
+
+    export interface StamphogPullRequest {
+      readonly id: string;
+      /** Full name of the repository this pull request belongs to. */
+      readonly repository: string;
+      /** Pull request number on GitHub. */
+      readonly pr_number: number;
+      /** Pull request title, refreshed on every relevant webhook delivery. */
+      readonly title: string;
+      /** GitHub login of the pull request author. */
+      readonly author_login: string;
+      /** Full URL to the pull request on GitHub. */
+      readonly pr_url: string;
+      /** Branch name of the PR head. */
+      readonly head_branch: string;
+      /** Whether this pull request has merged (merged_at is set). */
+      readonly merged: boolean;
+      /**
+         * When the pull request merged, null if it hasn't.
+         * @nullable
+         */
+      readonly merged_at: string | null;
+      /** Merge commit SHA, blank until the pull request merges. */
+      readonly merge_commit_sha: string;
+      /** Lines added, recorded when the pull request merges. */
+      readonly additions: number;
+      /** Lines deleted, recorded when the pull request merges. */
+      readonly deletions: number;
+      /** Files changed, recorded when the pull request merges. */
+      readonly changed_files: number;
+      /** Digest bucket this merged PR belongs to; blank unless it was digest-eligible. */
+      readonly audience_key: string;
+      /**
+         * ID of the digest run that reported this merged PR, if any.
+         * @nullable
+         */
+      readonly digest_run: string | null;
+      /** When this pull request was first captured. */
+      readonly created_at: string;
+      /** When this pull request was last updated. */
+      readonly updated_at: string;
+    }
+
+    export interface PaginatedStamphogPullRequestList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: StamphogPullRequest[];
+    }
+
+    /**
+     * * `all` - all
+     * * `label` - label
+     */
+    export type ReviewModeEnum = typeof ReviewModeEnum[keyof typeof ReviewModeEnum];
+
+
+    export const ReviewModeEnum = {
+      All: 'all',
+      Label: 'label',
+    } as const;
+
+    export interface StamphogRepoConfig {
+      readonly id: string;
+      /**
+         * SCM provider this config talks to. Defaults to 'github'.
+         * @maxLength 32
+         */
+      provider?: string;
+      /**
+         * Repository full name, e.g. 'PostHog/posthog'.
+         * @maxLength 255
+         */
+      repository: string;
+      /** Whether stamphog actively reviews pull requests for this repo. */
+      enabled?: boolean;
+      /** Provider app installation ID that authorizes API calls for this repo. Set only by the verified sync_installation flow; ignored on direct writes. */
+      readonly installation_id: string;
+      /** Whether merged PRs on this repo are captured for the daily Slack digest. */
+      digest_enabled?: boolean;
+      /** When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.
+       *
+       * * `all` - all
+       * * `label` - label */
+      review_mode?: ReviewModeEnum;
+      /**
+         * Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'.
+         * @maxLength 100
+         */
+      trigger_label?: string;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    export interface PaginatedStamphogRepoConfigList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: StamphogRepoConfig[];
     }
 
     /**
@@ -41615,6 +42397,33 @@ export namespace Schemas {
       readonly import_config?: unknown;
     }
 
+    export interface PatchedBriefConfig {
+      readonly id?: string;
+      /**
+         * Human-readable name for this brief focus.
+         * @maxLength 400
+         */
+      name?: string;
+      /**
+         * Free-text focus steering gathering and tone, e.g. "we're the feature flags team". Max 2000 characters.
+         * @maxLength 2000
+         */
+      focus_prompt?: string;
+      /** Anchor resources the brief gathers movements from. Empty anchors fall back to the team's most recently accessed dashboards. */
+      anchors?: BriefAnchors;
+      /** Per-config tunables overriding the system defaults. Omitted knobs keep their default. */
+      settings?: BriefSettings;
+      /** Whether this config generates briefs. */
+      enabled?: boolean;
+      /** Soft-delete flag. Deleted configs are hidden from lists but recoverable by patching this back to false. */
+      deleted?: boolean;
+      readonly created_at?: string;
+      /** User who created the config. */
+      readonly created_by?: UserBasic | null;
+      /** @nullable */
+      readonly updated_at?: string | null;
+    }
+
     /**
      * Payload for publishing a freeform canvas's React source via the agent.
      */
@@ -42327,6 +43136,44 @@ export namespace Schemas {
     export interface PatchedDesignPatch {
       /** Ordered edits applied atomically to a template's Unlayer design: the stored design is read, the ops are applied in order, the result is validated and re-rendered to HTML, and it's saved only if valid — otherwise the template is unchanged. Reference blocks by id so you never resend the whole design. */
       operations?: DesignOperation[];
+    }
+
+    export interface PatchedDigestChannel {
+      readonly id?: string;
+      /**
+         * Opaque digest bucket this channel receives, e.g. 'repo:PostHog/posthog'.
+         * @maxLength 255
+         */
+      audience_key?: string;
+      /**
+         * ID of the team's Slack integration used to post the digest.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      slack_integration_id?: number;
+      /**
+         * Slack channel ID to post the digest to, e.g. 'C012AB3CD'.
+         * @maxLength 64
+         */
+      slack_channel_id?: string;
+      /**
+         * Human-readable Slack channel name, for display only.
+         * @maxLength 255
+         */
+      slack_channel_name?: string;
+      /** How this row was created: 'manual' (via this API), 'slack_name_match' (auto-provisioned because the workspace has a channel named exactly like the audience_key), 'stamphog_config' (auto-provisioned from the channel the repo declared under 'digest:' in .stamphog/policy.yml), or 'owners_contact' (reserved for the future owners.yaml contact.slack step, not implemented yet).
+       *
+       * * `manual` - MANUAL
+       * * `slack_name_match` - SLACK_NAME_MATCH
+       * * `stamphog_config` - STAMPHOG_CONFIG
+       * * `owners_contact` - OWNERS_CONTACT */
+      readonly resolution_source?: ResolutionSourceEnum;
+      /** Whether this channel is included in the daily digest fan-out. */
+      enabled?: boolean;
+      /** @nullable */
+      readonly last_digest_at?: string | null;
+      readonly created_at?: string;
+      readonly updated_at?: string;
     }
 
     /**
@@ -43084,6 +43931,11 @@ export namespace Schemas {
          * @nullable
          */
       conclusion_comment?: string | null;
+      /**
+         * ID of the Code task opened to remove the experiment's feature-flag code, when one was requested via open_cleanup_pr on end/ship_variant. Read its status via the flag_cleanup_task action.
+         * @nullable
+         */
+      readonly flag_cleanup_task_id?: string | null;
       primary_metrics_ordered_uuids?: unknown;
       secondary_metrics_ordered_uuids?: unknown;
       only_count_matured_users?: boolean;
@@ -43093,6 +43945,8 @@ export namespace Schemas {
       readonly status?: ExperimentStatusEnum;
       /** Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support them, such as duplicate and copy-to-project. */
       readonly is_legacy?: boolean;
+      /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
+      readonly can_freeze_exposure?: boolean;
       /**
          * The effective access level the user has for this object
          * @nullable
@@ -43130,6 +43984,9 @@ export namespace Schemas {
       readonly supports_row_filters?: boolean;
       /** @nullable */
       readonly user_access_level?: string | null;
+      /** @nullable */
+      readonly api_version?: string | null;
+      readonly supported_api_versions?: string[];
     } | null;
 
     export interface PatchedExternalDataSchema {
@@ -43230,6 +44087,14 @@ export namespace Schemas {
          * @nullable
          */
       readonly source?: PatchedExternalDataSchemaSource;
+      /**
+         * Vendor API version override for this schema. `null` (default) syncs on the source's pinned version. Must be one of the source type's supported versions. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas.
+         * @maxLength 128
+         * @nullable
+         */
+      api_version?: string | null;
+      /** Set when this schema's version override is deprecated by the vendor; null when there is no override or it is not deprecated. The source-level field covers the source pin. */
+      readonly api_version_deprecation?: ExternalDataSourceApiVersionDeprecation | null;
     }
 
     export interface PatchedExternalDataSourceBulkUpdateSchemas {
@@ -43295,6 +44160,13 @@ export namespace Schemas {
       readonly supports_webhooks?: boolean;
       /** Whether this source supports per-column sync selection via `enabled_columns`. */
       readonly supports_column_selection?: boolean;
+      /**
+         * Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe date version). Null resolves to the source type's default version at sync time.
+         * @nullable
+         */
+      readonly api_version?: string | null;
+      /** Set when the vendor has deprecated the API version this source is pinned to; null otherwise. Drives the in-product deprecation warning. */
+      readonly api_version_deprecation?: ExternalDataSourceApiVersionDeprecation | null;
     }
 
     export interface PatchedFeatureFlagPartialUpdateRequestSchema {
@@ -46399,6 +47271,38 @@ export namespace Schemas {
       readonly status?: string | null;
     }
 
+    export interface PatchedStamphogRepoConfig {
+      readonly id?: string;
+      /**
+         * SCM provider this config talks to. Defaults to 'github'.
+         * @maxLength 32
+         */
+      provider?: string;
+      /**
+         * Repository full name, e.g. 'PostHog/posthog'.
+         * @maxLength 255
+         */
+      repository?: string;
+      /** Whether stamphog actively reviews pull requests for this repo. */
+      enabled?: boolean;
+      /** Provider app installation ID that authorizes API calls for this repo. Set only by the verified sync_installation flow; ignored on direct writes. */
+      readonly installation_id?: string;
+      /** Whether merged PRs on this repo are captured for the daily Slack digest. */
+      digest_enabled?: boolean;
+      /** When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.
+       *
+       * * `all` - all
+       * * `label` - label */
+      review_mode?: ReviewModeEnum;
+      /**
+         * Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'.
+         * @maxLength 100
+         */
+      trigger_label?: string;
+      readonly created_at?: string;
+      readonly updated_at?: string;
+    }
+
     /**
      * * `monday` - Monday
      * * `tuesday` - Tuesday
@@ -47286,26 +48190,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `not_started` - not_started
-     * * `queued` - queued
-     * * `in_progress` - in_progress
-     * * `completed` - completed
-     * * `failed` - failed
-     * * `cancelled` - cancelled
-     */
-    export type TaskRunUpdateStatusEnum = typeof TaskRunUpdateStatusEnum[keyof typeof TaskRunUpdateStatusEnum];
-
-
-    export const TaskRunUpdateStatusEnum = {
-      NotStarted: 'not_started',
-      Queued: 'queued',
-      InProgress: 'in_progress',
-      Completed: 'completed',
-      Failed: 'failed',
-      Cancelled: 'cancelled',
-    } as const;
-
-    /**
      * * `local` - local
      */
     export type TaskRunUpdateEnvironmentEnum = typeof TaskRunUpdateEnvironmentEnum[keyof typeof TaskRunUpdateEnvironmentEnum];
@@ -47324,7 +48208,7 @@ export namespace Schemas {
        * * `completed` - completed
        * * `failed` - failed
        * * `cancelled` - cancelled */
-      status?: TaskRunUpdateStatusEnum;
+      status?: RunStatusEnum;
       /**
          * Git branch name to associate with the task
          * @nullable
@@ -48666,6 +49550,43 @@ export namespace Schemas {
       NonBlockingException: 'non_blocking_exception',
       Failure: 'failure',
     } as const;
+
+    export interface ProductBrief {
+      readonly id: string;
+      /**
+         * The brief config this brief was generated for, if any.
+         * @nullable
+         */
+      readonly config: string | null;
+      /** Lifecycle status: generating, ready, quiet (nothing confident to say), or failed.
+       *
+       * * `generating` - Generating
+       * * `ready` - Ready
+       * * `quiet` - Quiet
+       * * `failed` - Failed */
+      readonly status: ProductBriefStatusEnum;
+      /** What started the generation: on_demand or scheduled.
+       *
+       * * `on_demand` - On Demand
+       * * `scheduled` - Scheduled */
+      readonly trigger: ProductBriefTriggerEnum;
+      /** The resolved-at-gather period spec the brief covers. */
+      readonly period: Period;
+      /** Generated brief sections, most important first. */
+      readonly sections: readonly BriefSection[];
+      /** Names of the brief sources that contributed items. */
+      readonly sources_used: readonly string[];
+      /**
+         * Error detail when status is failed.
+         * @nullable
+         */
+      readonly error: string | null;
+      readonly created_at: string;
+      /** User who requested the brief. */
+      readonly created_by: UserBasic | null;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
 
     /**
      * * `conversations` - conversations
@@ -53015,6 +53936,16 @@ export namespace Schemas {
     export interface QuotaResourceLimit {
       /** True when the team is currently over its quota for this resource and limits are in effect. */
       limited: boolean;
+      /**
+         * Units of this resource the organization has used so far this billing period, in the resource's native unit (credits for credit buckets). Null when billing hasn't synced usage for the resource.
+         * @nullable
+         */
+      usage: number | null;
+      /**
+         * The organization's limit for this resource in the same unit. Null when unlimited or unknown.
+         * @nullable
+         */
+      limit: number | null;
     }
 
     /**
@@ -54034,6 +54965,13 @@ export namespace Schemas {
       blind_spot_issue_count: number | null;
     }
 
+    export interface ReviewRecentReviewsPage {
+      /** The scoped reviews: in-progress runs first, then completed newest first. */
+      results: ReviewRecentReview[];
+      /** Whether reviews exist beyond this page — drives the list's "Show more" button. */
+      has_more: boolean;
+    }
+
     export interface ReviewStateCounts {
       needs_review: number;
       clean: number;
@@ -54742,6 +55680,7 @@ export namespace Schemas {
        * * `posthog-go` - posthog-go
        * * `posthog-flutter` - posthog-flutter
        * * `posthog-react-native` - posthog-react-native
+       * * `posthog-kmp` - posthog-kmp
        * * `posthog-dotnet` - posthog-dotnet
        * * `posthog-elixir` - posthog-elixir */
       lib: LibEnum;
@@ -56599,7 +57538,14 @@ export namespace Schemas {
        * * `ConfluentCloud` - ConfluentCloud
        * * `KongKonnect` - KongKonnect
        * * `Kandji` - Kandji
-       * * `Automox` - Automox */
+       * * `Automox` - Automox
+       * * `Autumn` - Autumn
+       * * `GetStream` - GetStream
+       * * `Octolens` - Octolens
+       * * `Kajabi` - Kajabi
+       * * `Shopware` - Shopware
+       * * `Dubsado` - Dubsado
+       * * `Campfire` - Campfire */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -57494,7 +58440,14 @@ export namespace Schemas {
        * * `ConfluentCloud` - ConfluentCloud
        * * `KongKonnect` - KongKonnect
        * * `Kandji` - Kandji
-       * * `Automox` - Automox */
+       * * `Automox` - Automox
+       * * `Autumn` - Autumn
+       * * `GetStream` - GetStream
+       * * `Octolens` - Octolens
+       * * `Kajabi` - Kajabi
+       * * `Shopware` - Shopware
+       * * `Dubsado` - Dubsado
+       * * `Campfire` - Campfire */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -58381,7 +59334,14 @@ export namespace Schemas {
        * * `ConfluentCloud` - ConfluentCloud
        * * `KongKonnect` - KongKonnect
        * * `Kandji` - Kandji
-       * * `Automox` - Automox */
+       * * `Automox` - Automox
+       * * `Autumn` - Autumn
+       * * `GetStream` - GetStream
+       * * `Octolens` - Octolens
+       * * `Kajabi` - Kajabi
+       * * `Shopware` - Shopware
+       * * `Dubsado` - Dubsado
+       * * `Campfire` - Campfire */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -58631,6 +59591,42 @@ export namespace Schemas {
     export interface StaffWarmRunResponse {
       /** Most recent warm-all run, or null when none has been recorded (or the dedicated flags cache is not configured). */
       run: StaffWarmRun | null;
+    }
+
+    /**
+     * Static info the frontend needs to render the 'Connect a repository' button.
+     */
+    export interface StamphogInstallInfo {
+      /** URL-friendly slug of the dedicated Stamphog GitHub App, or blank if unconfigured. */
+      readonly app_slug: string;
+      /** GitHub install URL (github.com/apps/<slug>/installations/new) the user opens to install the App, or blank if the App slug is unconfigured. */
+      readonly install_url: string;
+    }
+
+    /**
+     * Request body for binding a completed GitHub App installation to the current team.
+     *
+     * Requires both the ``installation_id`` and the user-to-server OAuth ``code`` from the post-install
+     * redirect: the code proves the caller actually owns the installation, without which any caller could
+     * bind another org's installation to their own team.
+     */
+    export interface StamphogSyncInstallationRequest {
+      /** GitHub App installation ID returned on the post-install Setup URL redirect. */
+      installation_id: string;
+      /** GitHub user-to-server OAuth code from the post-install redirect (present when the App has 'Request user authorization during installation' enabled). Exchanged server-side to prove the caller owns the installation before its repos are bound. */
+      code: string;
+      /** Signed state token minted by install_info and round-tripped through GitHub's install redirect. Binds the callback to the team and user that started the flow, so a stolen installation_id + code can't be replayed against another team's session. */
+      state: string;
+    }
+
+    /**
+     * Result of syncing an installation: rows created/kept for this team, plus conflicting repos skipped.
+     */
+    export interface StamphogSyncInstallationResponse {
+      /** Repo configs now bound to this team for the installation (created this call or already present). */
+      readonly synced: readonly StamphogRepoConfig[];
+      /** Repository full names skipped because another team already owns them under this installation. */
+      readonly skipped: readonly string[];
     }
 
     /**
@@ -59799,6 +60795,16 @@ export namespace Schemas {
      * Request body for creating a task run without starting execution yet.
      */
     export interface TaskRunBootstrapCreateRequest {
+      /**
+         * Local url-based MCP servers from the creating client (PostHog Code) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.
+         * @nullable
+         */
+      imported_mcp_servers?: ImportedMcpServer[] | null;
+      /**
+         * Names of desktop-only MCP servers the creating client (PostHog Code) relays into the cloud sandbox over the durable event/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.
+         * @nullable
+         */
+      relayed_mcp_servers?: RelayedMcpServer[] | null;
       /** Execution environment for the new run. Use 'cloud' for remote sandbox runs and 'local' for desktop sessions.
        *
        * * `local` - local
@@ -59903,7 +60909,8 @@ export namespace Schemas {
        * * `cancel` - cancel
        * * `close` - close
        * * `permission_response` - permission_response
-       * * `set_config_option` - set_config_option */
+       * * `set_config_option` - set_config_option
+       * * `mcp_response` - mcp_response */
       method: MethodEnum;
       /** Parameters for the command */
       params?: TaskRunCommandRequestParams;
@@ -72100,6 +73107,10 @@ export namespace Schemas {
      */
     created_by_id?: string;
     /**
+     * When 'true', only return flags that can back an experiment: multivariate with 2-20 variants. Any other value is ignored.
+     */
+    eligible_for_experiment?: FeatureFlagsListEligibleForExperiment;
+    /**
      * Filter feature flags by their evaluation runtime.
      */
     evaluation_runtime?: FeatureFlagsListEvaluationRuntime;
@@ -72148,6 +73159,13 @@ export namespace Schemas {
 
     export const FeatureFlagsListArchived = {
       False: 'false',
+      True: 'true',
+    } as const;
+
+    export type FeatureFlagsListEligibleForExperiment = typeof FeatureFlagsListEligibleForExperiment[keyof typeof FeatureFlagsListEligibleForExperiment];
+
+
+    export const FeatureFlagsListEligibleForExperiment = {
       True: 'true',
     } as const;
 
@@ -72210,6 +73228,10 @@ export namespace Schemas {
      * @minLength 1
      */
     distinct_id: string;
+    /**
+     * Optional list of flag keys to scope the response to. When omitted, evaluation reasons are returned for every flag in the project, which can be a very large payload on projects with many flags. Pass the specific flag(s) you are debugging to keep the response small. Accepts either repeated query params (flag_keys=a&flag_keys=b) or a JSON array string (flag_keys=["a","b"]).
+     */
+    flag_keys?: string[];
     /**
      * Groups for feature flag evaluation (JSON object string)
      */
@@ -75427,6 +76449,28 @@ export namespace Schemas {
       Session: 'session',
     } as const;
 
+    export type PulseBriefConfigsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type PulseBriefsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type QueryLogRetrieve200 = { [key: string]: unknown };
 
     export type QueryCheckAuthForAsyncCreate200 = { [key: string]: unknown };
@@ -75456,6 +76500,12 @@ export namespace Schemas {
     };
 
     export type ReviewHogReviewsListParams = {
+    /**
+     * Maximum rows to return. The list grows this instead of paging by offset — in-progress rows reorder the list between refreshes, so offset pages would shift under the reader.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
     /**
      * Whose reviews to list: `mine` for reviews of the requesting user's pull requests (the default), `everyone` for every review on this project.
      *
@@ -75918,6 +76968,85 @@ export namespace Schemas {
       Success: 'success',
       Unknown: 'unknown',
     } as const;
+
+    export type StamphogDigestChannelsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type StamphogDigestRunsListParams = {
+    /**
+     * Filter by digest channel ID.
+     */
+    digest_channel?: string;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type StamphogPullRequestsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * Filter by merge state: true for merged pull requests, false for unmerged.
+     */
+    merged?: boolean;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Filter by pull request number.
+     */
+    pr_number?: number;
+    };
+
+    export type StamphogRepoConfigsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type StamphogReviewRunsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Filter by pull request number.
+     */
+    pr_number?: number;
+    /**
+     * Filter by repository full name, e.g. 'PostHog/posthog'.
+     */
+    repository?: string;
+    /**
+     * Filter by review run status.
+     */
+    status?: string;
+    };
 
     export type StreamlitAppsListParams = {
     /**

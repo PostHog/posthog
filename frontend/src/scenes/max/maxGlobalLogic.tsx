@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -11,6 +11,7 @@ import { newInternalTab } from 'lib/utils/newInternalTab'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -18,7 +19,6 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { Conversation, ConversationDetail, SidePanelTab } from '~/types'
 
 import { conversationsDestroy } from 'products/conversations/frontend/generated/api'
-import { requestAiAccessCreate } from 'products/platform_features/frontend/generated/api'
 
 import { TOOL_DEFINITIONS, ToolRegistration } from './max-constants'
 import { PHAI_VIEW_MODE_KEY } from './max-storage-keys'
@@ -34,13 +34,6 @@ export type PhaiViewMode = 'new' | 'legacy'
 
 // Keep this stored across all projects, only display this once per device
 const AI_LIABILITY_NOTICE_STORAGE_KEY = 'posthog_ai_liability_notice_dismissed'
-
-// Keep this stored across all projects, only display this once per month
-const AI_DATA_PROCESSING_DISMISSED_STORAGE_KEY = `posthog_ai_data_processing_dismissed_${dayjs().format('YYYY-MM')}`
-
-// Records, per organization, that this member has already asked an admin to enable
-// PostHog AI — so the request button doesn't invite repeated submissions.
-const AI_ACCESS_REQUESTED_STORAGE_KEY = 'posthog_ai_access_requested_by_org'
 
 /** Tools available everywhere. These CAN be shadowed by contextual tools for scene-specific handling (e.g. to intercept insight creation). */
 export const STATIC_TOOLS: ToolRegistration[] = [
@@ -107,24 +100,34 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             ['sidePanelOpen', 'selectedTab'],
             preflightLogic,
             ['preflight', 'isCloudOrDev'],
+            aiConsentLogic,
+            [
+                'dataProcessingAccepted',
+                'dataProcessingDismissed',
+                'dataProcessingApprovalDisabledReason',
+                'aiAccessRequested',
+                'requestingAiAccess',
+            ],
         ],
-        actions: [router, ['locationChanged'], sidePanelStateLogic, ['openSidePanel']],
+        actions: [
+            router,
+            ['locationChanged'],
+            sidePanelStateLogic,
+            ['openSidePanel'],
+            aiConsentLogic,
+            ['acceptDataProcessing', 'dismissDataProcessing', 'requestAiAccess'],
+        ],
     })),
     actions({
         openSidePanelMax: (conversationId?: string) => ({ conversationId }),
         openSidePanelMaxWithTaskBind: (taskId: string) => ({ taskId }),
         askSidePanelMax: (prompt: string) => ({ prompt }),
-        acceptDataProcessing: (testOnlyOverride?: boolean) => ({ testOnlyOverride }),
         registerTool: (tool: ToolRegistration) => ({ tool }),
         deregisterTool: (key: string) => ({ key }),
         prependOrReplaceConversation: (conversation: ConversationDetail | Conversation) => ({ conversation }),
         deleteConversation: (id: string) => ({ id }),
         dismissLiabilityNotice: true,
-        dismissDataProcessing: true,
         setPhaiViewMode: (mode: PhaiViewMode) => ({ mode }),
-        requestAiAccess: true,
-        markAiAccessRequested: (organizationId: string) => ({ organizationId }),
-        requestAiAccessError: true,
     }),
 
     loaders(({ values }) => ({
@@ -195,28 +198,6 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                 dismissLiabilityNotice: () => true,
             },
         ],
-        dataProcessingDismissed: [
-            false,
-            { persist: true, storageKey: AI_DATA_PROCESSING_DISMISSED_STORAGE_KEY },
-            {
-                dismissDataProcessing: () => true,
-            },
-        ],
-        requestingAiAccess: [
-            false,
-            {
-                requestAiAccess: () => true,
-                markAiAccessRequested: () => false,
-                requestAiAccessError: () => false,
-            },
-        ],
-        aiAccessRequestedByOrg: [
-            {} as Record<string, boolean>,
-            { persist: true, storageKey: AI_ACCESS_REQUESTED_STORAGE_KEY },
-            {
-                markAiAccessRequested: (state, { organizationId }) => ({ ...state, [organizationId]: true }),
-            },
-        ],
         // The user's chosen implementation, persisted per device. Defaults to the new surface so a
         // flagged user lands there; `effectivePhaiView` collapses this to legacy when the flag is off.
         phaiViewMode: [
@@ -228,28 +209,6 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
-        acceptDataProcessing: async ({ testOnlyOverride }) => {
-            await organizationLogic.asyncActions.updateOrganization({
-                is_ai_data_processing_approved: testOnlyOverride ?? true,
-            })
-        },
-        requestAiAccess: async () => {
-            const organization = values.currentOrganization
-            if (!organization) {
-                actions.requestAiAccessError()
-                return
-            }
-            try {
-                // Backend notifies the org admins/owners via a customer.io email — keeps the
-                // recipient resolution server-side so it can't be tampered with from the client.
-                await requestAiAccessCreate(organization.id)
-                actions.markAiAccessRequested(organization.id)
-                lemonToast.success('Request sent to your organization admins')
-            } catch {
-                actions.requestAiAccessError()
-                lemonToast.error('Could not send your request. Please try again.')
-            }
-        },
         askSidePanelMax: ({ prompt }) => {
             newInternalTab(urls.ai(undefined, prompt))
         },
@@ -311,10 +270,6 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             () => [router.selectors.searchParams],
             (searchParams): string | null => searchParams?.chat ?? null,
         ],
-        dataProcessingAccepted: [
-            (s) => [s.currentOrganization],
-            (currentOrganization): boolean => !!currentOrganization?.is_ai_data_processing_approved,
-        ],
         // On Cloud/dev a provider key is always present. On a self-hosted (hobby) instance Max only
         // works once ANTHROPIC_API_KEY is configured, so we surface a "set the key" state instead.
         // Treat a not-yet-loaded preflight (null) as available so the empty-state doesn't flash
@@ -322,19 +277,6 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         isMaxAvailable: [
             (s) => [s.isCloudOrDev, s.preflight],
             (isCloudOrDev, preflight): boolean => !preflight || !!isCloudOrDev || !!preflight.anthropic_available,
-        ],
-        dataProcessingApprovalDisabledReason: [
-            (s) => [s.currentOrganization],
-            (currentOrganization): string | null =>
-                !currentOrganization?.membership_level ||
-                currentOrganization.membership_level < OrganizationMembershipLevel.Admin
-                    ? `Ask an admin or owner of ${currentOrganization?.name} to approve this`
-                    : null,
-        ],
-        aiAccessRequested: [
-            (s) => [s.aiAccessRequestedByOrg, s.currentOrganization],
-            (aiAccessRequestedByOrg, currentOrganization): boolean =>
-                !!(currentOrganization && aiAccessRequestedByOrg[currentOrganization.id]),
         ],
         isOrganizationCreatedRecently: [
             (s) => [s.currentOrganization],

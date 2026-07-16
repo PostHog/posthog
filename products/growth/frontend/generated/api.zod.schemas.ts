@@ -472,11 +472,12 @@ export const LibEnumApi = zod
         'posthog-go',
         'posthog-flutter',
         'posthog-react-native',
+        'posthog-kmp',
         'posthog-dotnet',
         'posthog-elixir',
     ])
     .describe(
-        '\* `web` - web\n\* `posthog-ios` - posthog-ios\n\* `posthog-android` - posthog-android\n\* `posthog-java` - posthog-java\n\* `posthog-server` - posthog-server\n\* `posthog-node` - posthog-node\n\* `posthog-python` - posthog-python\n\* `posthog-php` - posthog-php\n\* `posthog-ruby` - posthog-ruby\n\* `posthog-go` - posthog-go\n\* `posthog-flutter` - posthog-flutter\n\* `posthog-react-native` - posthog-react-native\n\* `posthog-dotnet` - posthog-dotnet\n\* `posthog-elixir` - posthog-elixir'
+        '\* `web` - web\n\* `posthog-ios` - posthog-ios\n\* `posthog-android` - posthog-android\n\* `posthog-java` - posthog-java\n\* `posthog-server` - posthog-server\n\* `posthog-node` - posthog-node\n\* `posthog-python` - posthog-python\n\* `posthog-php` - posthog-php\n\* `posthog-ruby` - posthog-ruby\n\* `posthog-go` - posthog-go\n\* `posthog-flutter` - posthog-flutter\n\* `posthog-react-native` - posthog-react-native\n\* `posthog-kmp` - posthog-kmp\n\* `posthog-dotnet` - posthog-dotnet\n\* `posthog-elixir` - posthog-elixir'
     )
 
 export type LibEnumApi = zod.input<typeof LibEnumApi>
@@ -557,14 +558,15 @@ export const SdkAssessmentApi = zod.object({
             'posthog-go',
             'posthog-flutter',
             'posthog-react-native',
+            'posthog-kmp',
             'posthog-dotnet',
             'posthog-elixir',
         ])
         .describe(
-            '\* `web` - web\n\* `posthog-ios` - posthog-ios\n\* `posthog-android` - posthog-android\n\* `posthog-java` - posthog-java\n\* `posthog-server` - posthog-server\n\* `posthog-node` - posthog-node\n\* `posthog-python` - posthog-python\n\* `posthog-php` - posthog-php\n\* `posthog-ruby` - posthog-ruby\n\* `posthog-go` - posthog-go\n\* `posthog-flutter` - posthog-flutter\n\* `posthog-react-native` - posthog-react-native\n\* `posthog-dotnet` - posthog-dotnet\n\* `posthog-elixir` - posthog-elixir'
+            '\* `web` - web\n\* `posthog-ios` - posthog-ios\n\* `posthog-android` - posthog-android\n\* `posthog-java` - posthog-java\n\* `posthog-server` - posthog-server\n\* `posthog-node` - posthog-node\n\* `posthog-python` - posthog-python\n\* `posthog-php` - posthog-php\n\* `posthog-ruby` - posthog-ruby\n\* `posthog-go` - posthog-go\n\* `posthog-flutter` - posthog-flutter\n\* `posthog-react-native` - posthog-react-native\n\* `posthog-kmp` - posthog-kmp\n\* `posthog-dotnet` - posthog-dotnet\n\* `posthog-elixir` - posthog-elixir'
         )
         .describe(
-            "SDK identifier, e.g. 'web', 'posthog-python', 'posthog-node', 'posthog-ios'.\n\n\* `web` - web\n\* `posthog-ios` - posthog-ios\n\* `posthog-android` - posthog-android\n\* `posthog-java` - posthog-java\n\* `posthog-server` - posthog-server\n\* `posthog-node` - posthog-node\n\* `posthog-python` - posthog-python\n\* `posthog-php` - posthog-php\n\* `posthog-ruby` - posthog-ruby\n\* `posthog-go` - posthog-go\n\* `posthog-flutter` - posthog-flutter\n\* `posthog-react-native` - posthog-react-native\n\* `posthog-dotnet` - posthog-dotnet\n\* `posthog-elixir` - posthog-elixir"
+            "SDK identifier, e.g. 'web', 'posthog-python', 'posthog-node', 'posthog-ios'.\n\n\* `web` - web\n\* `posthog-ios` - posthog-ios\n\* `posthog-android` - posthog-android\n\* `posthog-java` - posthog-java\n\* `posthog-server` - posthog-server\n\* `posthog-node` - posthog-node\n\* `posthog-python` - posthog-python\n\* `posthog-php` - posthog-php\n\* `posthog-ruby` - posthog-ruby\n\* `posthog-go` - posthog-go\n\* `posthog-flutter` - posthog-flutter\n\* `posthog-react-native` - posthog-react-native\n\* `posthog-kmp` - posthog-kmp\n\* `posthog-dotnet` - posthog-dotnet\n\* `posthog-elixir` - posthog-elixir"
         ),
     readable_name: zod
         .string()
@@ -693,14 +695,15 @@ export const SdkHealthReportApi = zod.object({
                         'posthog-go',
                         'posthog-flutter',
                         'posthog-react-native',
+                        'posthog-kmp',
                         'posthog-dotnet',
                         'posthog-elixir',
                     ])
                     .describe(
-                        '\* `web` - web\n\* `posthog-ios` - posthog-ios\n\* `posthog-android` - posthog-android\n\* `posthog-java` - posthog-java\n\* `posthog-server` - posthog-server\n\* `posthog-node` - posthog-node\n\* `posthog-python` - posthog-python\n\* `posthog-php` - posthog-php\n\* `posthog-ruby` - posthog-ruby\n\* `posthog-go` - posthog-go\n\* `posthog-flutter` - posthog-flutter\n\* `posthog-react-native` - posthog-react-native\n\* `posthog-dotnet` - posthog-dotnet\n\* `posthog-elixir` - posthog-elixir'
+                        '\* `web` - web\n\* `posthog-ios` - posthog-ios\n\* `posthog-android` - posthog-android\n\* `posthog-java` - posthog-java\n\* `posthog-server` - posthog-server\n\* `posthog-node` - posthog-node\n\* `posthog-python` - posthog-python\n\* `posthog-php` - posthog-php\n\* `posthog-ruby` - posthog-ruby\n\* `posthog-go` - posthog-go\n\* `posthog-flutter` - posthog-flutter\n\* `posthog-react-native` - posthog-react-native\n\* `posthog-kmp` - posthog-kmp\n\* `posthog-dotnet` - posthog-dotnet\n\* `posthog-elixir` - posthog-elixir'
                     )
                     .describe(
-                        "SDK identifier, e.g. 'web', 'posthog-python', 'posthog-node', 'posthog-ios'.\n\n\* `web` - web\n\* `posthog-ios` - posthog-ios\n\* `posthog-android` - posthog-android\n\* `posthog-java` - posthog-java\n\* `posthog-server` - posthog-server\n\* `posthog-node` - posthog-node\n\* `posthog-python` - posthog-python\n\* `posthog-php` - posthog-php\n\* `posthog-ruby` - posthog-ruby\n\* `posthog-go` - posthog-go\n\* `posthog-flutter` - posthog-flutter\n\* `posthog-react-native` - posthog-react-native\n\* `posthog-dotnet` - posthog-dotnet\n\* `posthog-elixir` - posthog-elixir"
+                        "SDK identifier, e.g. 'web', 'posthog-python', 'posthog-node', 'posthog-ios'.\n\n\* `web` - web\n\* `posthog-ios` - posthog-ios\n\* `posthog-android` - posthog-android\n\* `posthog-java` - posthog-java\n\* `posthog-server` - posthog-server\n\* `posthog-node` - posthog-node\n\* `posthog-python` - posthog-python\n\* `posthog-php` - posthog-php\n\* `posthog-ruby` - posthog-ruby\n\* `posthog-go` - posthog-go\n\* `posthog-flutter` - posthog-flutter\n\* `posthog-react-native` - posthog-react-native\n\* `posthog-kmp` - posthog-kmp\n\* `posthog-dotnet` - posthog-dotnet\n\* `posthog-elixir` - posthog-elixir"
                     ),
                 readable_name: zod
                     .string()
