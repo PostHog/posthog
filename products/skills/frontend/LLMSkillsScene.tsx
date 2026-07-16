@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { useMemo, useRef } from 'react'
 
-import { IconDownload, IconPlusSmall, IconUpload } from '@posthog/icons'
+import { IconDownload, IconGlobe, IconPlusSmall, IconUpload } from '@posthog/icons'
 import { LemonDivider, LemonModal, LemonSwitch, LemonTabs, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -16,6 +16,7 @@ import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -61,6 +62,7 @@ function buildSkillColumns(
     duplicateSkill: (name: string, newName: string) => void,
     deleteSkill: (name: string) => void,
     downloadSkillZip: (name: string) => void,
+    currentTeamId: number | null,
     options?: { showScoutOrigin?: boolean }
 ): LemonTableColumns<LLMSkillListApi> {
     return [
@@ -71,9 +73,16 @@ function buildSkillColumns(
             width: '20%',
             render: function renderName(_, skill) {
                 return (
-                    <Link to={skillUrl(skill.name)} className="font-semibold" data-attr="llma-skill-name-link">
-                        {skill.name}
-                    </Link>
+                    <div className="flex items-center gap-2">
+                        <Link to={skillUrl(skill.name)} className="font-semibold" data-attr="llma-skill-name-link">
+                            {skill.name}
+                        </Link>
+                        {skill.is_global && (
+                            <LemonTag type="highlight" icon={<IconGlobe />}>
+                                Global
+                            </LemonTag>
+                        )}
+                    </div>
                 )
             },
         },
@@ -150,55 +159,61 @@ function buildSkillColumns(
                                     Download .zip
                                 </LemonButton>
 
-                                <AccessControlAction
-                                    resourceType={AccessControlResourceType.LlmAnalytics}
-                                    minAccessLevel={AccessControlLevel.Editor}
-                                >
-                                    <LemonButton
-                                        onClick={() => {
-                                            LemonDialog.openForm({
-                                                title: 'Duplicate skill',
-                                                initialValues: {
-                                                    newName: `${skill.name}-copy`,
-                                                },
-                                                content: (
-                                                    <LemonField name="newName" label="New skill name">
-                                                        <LemonInput
-                                                            data-attr="llma-skill-duplicate-name"
-                                                            placeholder="my-skill-copy"
-                                                            maxLength={SKILL_NAME_MAX_LENGTH}
-                                                            autoFocus
-                                                        />
-                                                    </LemonField>
-                                                ),
-                                                errors: {
-                                                    newName: (name: string) => validateSkillName(name),
-                                                },
-                                                onSubmit: async ({ newName }) => {
-                                                    duplicateSkill(skill.name, newName)
-                                                },
-                                            })
-                                        }}
-                                        data-attr="llma-skill-dropdown-duplicate"
-                                        fullWidth
-                                    >
-                                        Duplicate
-                                    </LemonButton>
-                                </AccessControlAction>
+                                {/* Duplicate and archive act on the owning team's skill, so a global surfaced
+                                    from another team is view/download-only here. */}
+                                {skill.team_id === currentTeamId && (
+                                    <>
+                                        <AccessControlAction
+                                            resourceType={AccessControlResourceType.LlmAnalytics}
+                                            minAccessLevel={AccessControlLevel.Editor}
+                                        >
+                                            <LemonButton
+                                                onClick={() => {
+                                                    LemonDialog.openForm({
+                                                        title: 'Duplicate skill',
+                                                        initialValues: {
+                                                            newName: `${skill.name}-copy`,
+                                                        },
+                                                        content: (
+                                                            <LemonField name="newName" label="New skill name">
+                                                                <LemonInput
+                                                                    data-attr="llma-skill-duplicate-name"
+                                                                    placeholder="my-skill-copy"
+                                                                    maxLength={SKILL_NAME_MAX_LENGTH}
+                                                                    autoFocus
+                                                                />
+                                                            </LemonField>
+                                                        ),
+                                                        errors: {
+                                                            newName: (name: string) => validateSkillName(name),
+                                                        },
+                                                        onSubmit: async ({ newName }) => {
+                                                            duplicateSkill(skill.name, newName)
+                                                        },
+                                                    })
+                                                }}
+                                                data-attr="llma-skill-dropdown-duplicate"
+                                                fullWidth
+                                            >
+                                                Duplicate
+                                            </LemonButton>
+                                        </AccessControlAction>
 
-                                <AccessControlAction
-                                    resourceType={AccessControlResourceType.LlmAnalytics}
-                                    minAccessLevel={AccessControlLevel.Editor}
-                                >
-                                    <LemonButton
-                                        status="danger"
-                                        onClick={() => openArchiveSkillDialog(() => deleteSkill(skill.name))}
-                                        data-attr="llma-skill-dropdown-delete"
-                                        fullWidth
-                                    >
-                                        Archive
-                                    </LemonButton>
-                                </AccessControlAction>
+                                        <AccessControlAction
+                                            resourceType={AccessControlResourceType.LlmAnalytics}
+                                            minAccessLevel={AccessControlLevel.Editor}
+                                        >
+                                            <LemonButton
+                                                status="danger"
+                                                onClick={() => openArchiveSkillDialog(() => deleteSkill(skill.name))}
+                                                data-attr="llma-skill-dropdown-delete"
+                                                fullWidth
+                                            >
+                                                Archive
+                                            </LemonButton>
+                                        </AccessControlAction>
+                                    </>
+                                )}
                             </>
                         }
                     />
@@ -443,6 +458,7 @@ export function LLMSkillsScene(): JSX.Element {
         visibleCategoryTabs,
     } = useValues(llmSkillsLogic)
     const { searchParams } = useValues(router)
+    const { currentTeamId } = useValues(teamLogic)
     const skillUrl = (name: string): string => combineUrl(urls.skill(name), searchParams).url
     const fileInputRef = useRef<HTMLInputElement | null>(null)
 
@@ -451,9 +467,12 @@ export function LLMSkillsScene(): JSX.Element {
     // Memoize columns so the array reference doesn't change every render — otherwise every
     // nested LemonTable inside the grouped tree reconciles on each parent re-render.
     const columns = useMemo(
-        () => buildSkillColumns(skillUrl, duplicateSkill, deleteSkill, downloadSkillZip, { showScoutOrigin }),
+        () =>
+            buildSkillColumns(skillUrl, duplicateSkill, deleteSkill, downloadSkillZip, currentTeamId, {
+                showScoutOrigin,
+            }),
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [searchParams, duplicateSkill, deleteSkill, downloadSkillZip, showScoutOrigin]
+        [searchParams, duplicateSkill, deleteSkill, downloadSkillZip, currentTeamId, showScoutOrigin]
     )
 
     const showGroupedView = filters.group_by_prefix && groupedSkills && !skillsLoading

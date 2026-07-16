@@ -13,6 +13,7 @@ import {
     llmSkillsNameArchiveCreate,
     llmSkillsNameFilesRetrieve,
     llmSkillsNamePartialUpdate,
+    llmSkillsNameVisibilityCreate,
     llmSkillsResolveNameRetrieve,
 } from 'products/skills/frontend/generated/api'
 import type {
@@ -137,6 +138,8 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
         setCompareVersion: (compareVersion: number | null) => ({ compareVersion }),
         downloadSkill: true,
         setDownloadingZip: (downloadingZip: boolean) => ({ downloadingZip }),
+        setGlobalVisibility: (isGlobal: boolean) => ({ isGlobal }),
+        setSettingVisibility: (settingVisibility: boolean) => ({ settingVisibility }),
     }),
 
     reducers(({ props }) => ({
@@ -199,6 +202,12 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
             false,
             {
                 setDownloadingZip: (_, { downloadingZip }) => downloadingZip,
+            },
+        ],
+        settingVisibility: [
+            false,
+            {
+                setSettingVisibility: (_, { settingVisibility }) => settingVisibility,
             },
         ],
     })),
@@ -421,6 +430,34 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
                 lemonToast.error(detail || (e instanceof Error ? e.message : 'Failed to export skill'))
             } finally {
                 actions.setDownloadingZip(false)
+            }
+        },
+
+        setGlobalVisibility: async ({ isGlobal }) => {
+            const skill = values.skill
+            if (props.skillName === 'new' || !isSkill(skill)) {
+                return
+            }
+            actions.setSettingVisibility(true)
+            try {
+                const updated = await llmSkillsNameVisibilityCreate(String(ApiConfig.getCurrentTeamId()), skill.name, {
+                    is_global: isGlobal,
+                })
+                const current = values.skill
+                if (isSkill(current)) {
+                    actions.setSkill({ ...current, is_global: updated.is_global })
+                }
+                lemonToast.success(
+                    isGlobal ? 'Skill is now visible to everyone.' : 'Skill is now private to this project.'
+                )
+                llmSkillsLogic.findMounted()?.actions.loadSkills(false)
+            } catch (e) {
+                console.error('Failed to update skill visibility', e)
+                const detail =
+                    e !== null && typeof e === 'object' && 'detail' in e ? (e as { detail?: string }).detail : undefined
+                lemonToast.error(detail || 'Failed to update skill visibility')
+            } finally {
+                actions.setSettingVisibility(false)
             }
         },
 
