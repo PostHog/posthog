@@ -41,7 +41,7 @@ describe('wizardActiveSessionDetectorLogic', () => {
     beforeEach(() => {
         initKeaTests()
         mockLatestRetrieve.mockReset()
-        captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockReturnValue('')
+        captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockReturnValue(undefined)
         logic = wizardActiveSessionDetectorLogic()
         logic.mount()
     })
