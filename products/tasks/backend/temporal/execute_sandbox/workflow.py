@@ -26,6 +26,7 @@ from posthog.temporal.oauth import PosthogMcpScopes
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.logic.services.sandbox import is_public_sandbox_repo
 from products.tasks.backend.temporal.constants import (
+    MAX_FINAL_OUTBOUND_FLUSH_ATTEMPTS,
     OUTBOUND_RETRY_BACKOFF,
     PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS,
     RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
@@ -217,12 +218,22 @@ class SandboxEvent(StrEnum):
 
 _PATCH_ID_CONCURRENT_FOLLOWUP_STEERING = "tasks-execute-sandbox-concurrent-followup-steering"
 _PATCH_ID_ORDERED_OUTBOUND_DELIVERY = "tasks-execute-sandbox-ordered-outbound-delivery"
+_PARENT_SIGNAL_TERMINAL_ERROR_TYPES = {
+    "ExternalWorkflowExecutionNotFound",
+    "NamespaceNotFound",
+}
 
 
 def _ordered_outbound_delivery() -> bool:
     if not workflow.in_workflow():
         return True
     return workflow.patched(_PATCH_ID_ORDERED_OUTBOUND_DELIVERY)
+
+
+def _parent_cannot_receive_signals(error: Exception) -> bool:
+    return (
+        isinstance(error, temporalio.exceptions.ApplicationError) and error.type in _PARENT_SIGNAL_TERMINAL_ERROR_TYPES
+    )
 
 
 @temporalio.workflow.defn(name="execute-sandbox")
@@ -269,6 +280,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         self._next_followup_sequence: int = 0
         self._pending_outbound: list[OutboundSignal] = []
         self._ordered_outbound_delivery: bool = True
+        self._parent_signal_delivery_closed: bool = False
         self._active_followup_task: asyncio.Task[None] | None = None
 
         # Set in the `finally` block before we start emitting the terminal
@@ -423,6 +435,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         run_id = input.run_id
 
         self._ordered_outbound_delivery = _ordered_outbound_delivery()
+        self._parent_signal_delivery_closed = False
         self._parent_workflow_id = input.parent_workflow_id
         self._slack_thread_context = input.slack_thread_context
         self._sandbox_id_for_cleanup = None
@@ -928,7 +941,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         )
 
     async def _flush_pending_outbound(self) -> None:
-        if not self._pending_outbound or not self._parent_workflow_id:
+        if not self._pending_outbound or not self._parent_workflow_id or self._parent_signal_delivery_closed:
             return
         # Snapshot + clear before awaiting so a signal landing mid-flush
         # doesn't lose its delivery on the next iteration.
@@ -939,6 +952,17 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             try:
                 await parent.signal(outbound.target_signal, args=outbound.args)
             except Exception as e:
+                if _parent_cannot_receive_signals(e):
+                    self._parent_signal_delivery_closed = True
+                    self._pending_outbound.clear()
+                    workflow.logger.info(
+                        "execute_sandbox_parent_signal_delivery_closed",
+                        run_id=self.context.run_id if self._context else None,
+                        target_signal=outbound.target_signal,
+                        correlation_id=outbound.correlation_id,
+                        error=str(e),
+                    )
+                    return
                 workflow.logger.warning(
                     "execute_sandbox_outbound_signal_failed",
                     run_id=self.context.run_id if self._context else None,
@@ -961,8 +985,22 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             await workflow.sleep(OUTBOUND_RETRY_BACKOFF.total_seconds())
 
     async def _flush_all_pending_outbound(self) -> None:
-        while self._pending_outbound:
+        attempts = 0
+        while (
+            self._pending_outbound
+            and not self._parent_signal_delivery_closed
+            and attempts < MAX_FINAL_OUTBOUND_FLUSH_ATTEMPTS
+        ):
+            attempts += 1
             await self._flush_pending_outbound()
+        if self._pending_outbound:
+            workflow.logger.warning(
+                "execute_sandbox_final_outbound_retries_exhausted",
+                run_id=self.context.run_id if self._context else None,
+                attempts=attempts,
+                undelivered=len(self._pending_outbound),
+            )
+            self._pending_outbound.clear()
 
     # ------------------------------------------------------------------
     # Activities — these mirror process_task's implementations directly so

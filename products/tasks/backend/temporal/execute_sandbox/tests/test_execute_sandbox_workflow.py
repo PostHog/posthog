@@ -3,8 +3,9 @@ import asyncio
 import pytest
 from unittest.mock import AsyncMock, Mock
 
-from temporalio.exceptions import ActivityError, RetryState
+from temporalio.exceptions import ActivityError, ApplicationError, RetryState
 
+from products.tasks.backend.temporal.constants import MAX_FINAL_OUTBOUND_FLUSH_ATTEMPTS
 from products.tasks.backend.temporal.execute_sandbox import workflow as execute_sandbox_workflow_module
 from products.tasks.backend.temporal.execute_sandbox.activities.reap_orphaned_sandbox import (
     ReapOrphanedSandboxInput,
@@ -385,6 +386,68 @@ class TestFlushPendingOutbound:
         ]
         assert workflow._pending_outbound == []
         sleep_mock.assert_awaited_once()
+
+    async def test_final_flush_stops_when_parent_workflow_is_closed(self, monkeypatch, silent_workflow_logger):
+        workflow = ExecuteSandboxWorkflow()
+        workflow._context = _build_context()
+        workflow._parent_workflow_id = "parent-wf"
+        workflow._pending_outbound.append(
+            OutboundSignal(
+                target_signal=PARENT_ACK_SIGNAL,
+                args=["send_followup_message", "ack-delivered", True, None],
+            )
+        )
+
+        signal_mock = AsyncMock(
+            side_effect=ApplicationError(
+                "Unable to signal external workflow because it was not found",
+                type="ExternalWorkflowExecutionNotFound",
+            )
+        )
+        handle_mock = Mock()
+        handle_mock.signal = signal_mock
+        monkeypatch.setattr(
+            execute_sandbox_workflow_module.workflow,
+            "get_external_workflow_handle",
+            Mock(return_value=handle_mock),
+        )
+        sleep_mock = AsyncMock()
+        monkeypatch.setattr(execute_sandbox_workflow_module.workflow, "sleep", sleep_mock)
+
+        await workflow._flush_all_pending_outbound()
+
+        signal_mock.assert_awaited_once()
+        sleep_mock.assert_not_awaited()
+        assert workflow._pending_outbound == []
+
+    async def test_final_flush_bounds_transient_parent_signal_retries(self, monkeypatch, silent_workflow_logger):
+        workflow = ExecuteSandboxWorkflow()
+        workflow._context = _build_context()
+        workflow._parent_workflow_id = "parent-wf"
+        workflow._pending_outbound.append(
+            OutboundSignal(
+                target_signal=PARENT_ACK_SIGNAL,
+                args=["send_followup_message", "ack-delivered", True, None],
+            )
+        )
+
+        signal_mock = AsyncMock(side_effect=RuntimeError("parent temporarily unavailable"))
+        handle_mock = Mock()
+        handle_mock.signal = signal_mock
+        monkeypatch.setattr(
+            execute_sandbox_workflow_module.workflow,
+            "get_external_workflow_handle",
+            Mock(return_value=handle_mock),
+        )
+        sleep_mock = AsyncMock()
+        monkeypatch.setattr(execute_sandbox_workflow_module.workflow, "sleep", sleep_mock)
+
+        await workflow._flush_all_pending_outbound()
+
+        assert signal_mock.await_count == MAX_FINAL_OUTBOUND_FLUSH_ATTEMPTS
+        assert sleep_mock.await_count == MAX_FINAL_OUTBOUND_FLUSH_ATTEMPTS
+        assert workflow._pending_outbound == []
+        silent_workflow_logger.warning.assert_called()
 
     async def test_no_backoff_when_flush_succeeds(self, monkeypatch):
         workflow = ExecuteSandboxWorkflow()

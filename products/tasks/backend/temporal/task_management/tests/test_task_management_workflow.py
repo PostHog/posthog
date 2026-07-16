@@ -1020,6 +1020,66 @@ class TestSandboxSessionCompletionReset:
 
         assert workflow._pending_external_followups == []
 
+    async def test_existing_history_adopts_ack_first_ordering_for_a_new_sandbox_generation(
+        self, monkeypatch, fixed_now, silent_workflow_logger
+    ):
+        workflow = TaskManagementWorkflow()
+        workflow._context = _build_context()
+        workflow._run_id = "run-id"
+        workflow._sandbox_workflow_id = "sandbox-wf"
+        workflow._ack_before_completion = False
+        monkeypatch.setattr(
+            task_management_workflow_module.workflow,
+            "info",
+            Mock(return_value=Mock(workflow_id="parent-wf")),
+        )
+        monkeypatch.setattr(
+            task_management_workflow_module.workflow,
+            "execute_activity",
+            AsyncMock(return_value=0),
+        )
+        monkeypatch.setattr(
+            task_management_workflow_module.workflow,
+            "uuid4",
+            Mock(side_effect=["historical-bootstrap-ack", "new-bootstrap-ack"]),
+        )
+        generation_patch = Mock(side_effect=[False, True])
+        monkeypatch.setattr(
+            task_management_workflow_module,
+            "_ack_before_completion_for_sandbox_generation",
+            generation_patch,
+        )
+
+        await workflow._ensure_sandbox_workflow_started()
+
+        assert workflow._sandbox_generation == 1
+        assert workflow._ack_before_completion is False
+
+        await workflow._ensure_sandbox_workflow_started()
+
+        assert workflow._sandbox_generation == 2
+        assert workflow._ack_before_completion is True
+        assert [entry.args for entry in generation_patch.call_args_list] == [(1,), (2,)]
+
+        workflow._child_completion = ChildCompletion(
+            success=True,
+            error=None,
+            sandbox_id="sb-1",
+            timed_out=False,
+        )
+        workflow._child_acks.append(
+            ChildAck(
+                signal_name="send_followup_message",
+                ack_id="ack-delivered",
+                accepted=True,
+                detail=None,
+                received_at=fixed_now.now,
+            )
+        )
+        monkeypatch.setattr(task_management_workflow_module.workflow, "wait_condition", AsyncMock())
+
+        assert await workflow._wait_for_signal() is TaskEvent.CHILD_FORWARDED
+
     async def test_session_completion_does_not_close_orchestrator(self, monkeypatch, fixed_now, silent_workflow_logger):
         # Hardest assertion to lose: after `_on_sandbox_session_completed`,
         # the workflow has *not* returned and is ready for more work.

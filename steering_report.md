@@ -11,7 +11,7 @@ The implementation is split across:
 - PostHog backend branch: `posthog-code/cloud-run-steering`
 - PostHog Code branch: `posthog-code/cloud-run-steering-agent`
 
-The latest fixes keep follow-up admission open through the final legacy dispatch, order child acknowledgements before completion, retry child outbound signals without allowing completion to overtake a failed acknowledgement, and discard live response chunks superseded by persisted coalesced messages.
+The latest fixes bound final child-to-parent signal delivery, let existing task-management histories adopt acknowledgement-first ordering on their next sandbox generation, and reconcile resume history by stable message identity instead of timestamps.
 
 ## What the feature does
 
@@ -234,20 +234,82 @@ Resume hydration uses the stable coalesced message boundary produced by `Session
 
 Exact event-key deduplication still preserves distinct same-timestamp completion, error, tool, and response events. The regression uses different partial and final text, so content-based deduplication cannot make it pass.
 
+## Final parent delivery, replay, and hydration identity fixes
+
+### Final child signaling is bounded
+
+`ExecuteSandboxWorkflow` now treats closed or missing parent workflow errors as terminal delivery outcomes. It clears the pending acknowledgement/completion queue and lets the child workflow finish instead of retrying a parent that can no longer receive signals.
+
+Transient final-delivery failures are capped at five attempts. After the retry budget is exhausted, the workflow logs the undelivered count, clears the queue, and terminalizes without growing Temporal history forever.
+
+Regressions cover:
+
+- A typed parent-not-found error stopping immediately without sleeping.
+- Repeated transient failures stopping at the configured attempt limit.
+
+### Existing histories adopt acknowledgement-first ordering per sandbox
+
+The workflow-start patch remains in place so existing histories replay their recorded command order.
+
+Task management now also evaluates a deterministic patch ID for each sandbox generation. A sandbox generation recorded by an old worker keeps its historical completion-before-acknowledgement order, while the next live sandbox generation records and enables acknowledgement-first processing.
+
+The regression simulates an old generation followed by a new generation and verifies that a queued child acknowledgement removes the delivered message before completion recovery can requeue it.
+
+### Resume merges use stable message identity
+
+Live E2E exposed a timestamp-only mismatch after the first real resume: the persisted and live copies of the same leaf prompt differed by one millisecond, so both survived hydration.
+
+Resume hydration now:
+
+- Matches prompt turns by the JSON-RPC message identity, independent of timestamp.
+- Deduplicates persisted and live events using message identity plus occurrence count, preserving repeated legitimate events.
+- Matches authoritative final responses to live chunk runs by turn and assistant-message position.
+- Mirrors `SessionLogWriter` chunk coalescing, including empty thought chunks that do not terminate a response chunk run.
+- Retains unrelated events that share a millisecond timestamp.
+
+The updated regression covers a persisted prompt whose timestamp differs from its live copy, a direct final message at a later timestamp than its partial chunks, and an unrelated same-timestamp response in the following turn.
+
 ## Automated validation
 
 Latest validation:
 
 - Backend `process_task` workflow suite: 48 passed.
-- Backend `execute_sandbox` workflow suite: 59 passed.
-- Backend `task_management` workflow suite: 61 passed.
+- Backend `execute_sandbox` workflow suite: 61 passed.
+- Backend `task_management` workflow suite: 62 passed.
+- Focused PostHog Code session host suite: 142 passed.
 - PostHog Code UI suite: 1,523 passed across 172 files.
 - Core and UI TypeScript package typechecks passed.
-- Ruff, Biome formatting and lint, and diff checks passed.
+- Ruff, Python compilation, Biome formatting and lint, and diff checks passed.
 
 Earlier validation across the branch also covered the full UI and agent packages, OpenAPI generation, Python compilation, shared and agent typechecks, and the focused Temporal, activity, client, adapter, and app-server suites.
 
 ## Live cloud-run verification
+
+### Final bounded-delivery and stable-hydration verification
+
+- Task: `48c15ee2-b513-4d39-92be-71f45b0381f9`
+- A run: `fef94ede-c588-43d6-9caa-39d18b9fb541`
+- B run: `c3dae613-21ee-4cba-98d5-cbdf3e8d3354`
+- C run: `52aa9a84-79d3-4f1b-ae39-60f525c7cdc8`
+
+The current backend and PostHog Code working trees ran through the configured backend and LLM gateway tunnels.
+
+Verified:
+
+- A returned `BASE716FINAL` exactly twice: once in the prompt and once in the response.
+- A normal turn started a 45-second terminal command. `NATIVESTEER716` appeared as a user message while that turn was still busy, then returned exactly once after the tool boundary.
+- The superseded `UNSTEERED716` instruction remained exactly once as its original user message and produced no response.
+- The first B hydration initially reproduced the review class of bug: `RESUMEB716` appeared three times because persisted and live prompt copies differed only by timestamp.
+- After applying stable message-identity reconciliation and fully restarting Electron, B cold-hydrated with `RESUMEB716` exactly twice and one restored-sandbox boundary.
+- B was terminalized before C was sent, producing a real resume-of-a-resume. C returned `RESUMEC716` exactly twice.
+- A final full Electron restart loaded BASE, the active native steer, B, and C with every successful marker exactly twice, two restored-sandbox boundaries, no pending prompt, and no semantic session error.
+- Read-only database state confirmed the exact A→B→C `state.resume_from_run_id` chain and `completed` status for all three runs.
+- All three runs persisted durable sandbox snapshots:
+  - A: `im-01KXN89A7487TKXXBEC1DKT9BT`
+  - B: `im-01KXN8JJTMG2ND7JQEBH7QK45B`
+  - C: `im-01KXN8Q8ENYXHZYGD43WXFD1WC`
+
+A non-terminal local Git checkpoint warning reported an invalid cross-device rename during final teardown. It did not affect the Temporal run status, durable sandbox snapshots, transcript hydration, or the completed A→B→C resume chain, and it was unrelated to tunnel connectivity.
 
 ### Final drain and resume coalescing verification
 

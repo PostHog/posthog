@@ -106,6 +106,10 @@ STEERING_PROTOCOL_QUERY_TIMEOUT = timedelta(seconds=2)
 # immediately, starving the inactivity timer. Sleeping after a partial-failure
 # flush rate-limits retries.
 OUTBOUND_RETRY_BACKOFF = timedelta(seconds=10)
+# Final child cleanup must not wait forever for a parent workflow that has
+# already closed or remains unreachable. This caps the total attempts made by
+# the terminal flush before the child records the undelivered signals and exits.
+MAX_FINAL_OUTBOUND_FLUSH_ATTEMPTS = 5
 
 DEFAULT_CI_MESSAGE = f"""\
 You are re-entering this run to address CI feedback on the pull request you opened.

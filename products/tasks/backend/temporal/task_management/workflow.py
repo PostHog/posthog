@@ -68,12 +68,19 @@ from products.tasks.backend.temporal.task_management.activities.pending_followup
 
 _PATCH_ID_CAPABILITY_GATED_STEERING = "tasks-capability-gated-steering-signal"
 _PATCH_ID_ACK_BEFORE_COMPLETION = "tasks-task-management-ack-before-completion"
+_PATCH_ID_ACK_BEFORE_COMPLETION_SANDBOX_GENERATION = "tasks-task-management-ack-before-completion-sandbox-generation"
 
 
 def _ack_before_completion() -> bool:
     if not workflow.in_workflow():
         return True
     return workflow.patched(_PATCH_ID_ACK_BEFORE_COMPLETION)
+
+
+def _ack_before_completion_for_sandbox_generation(generation: int) -> bool:
+    if not workflow.in_workflow():
+        return True
+    return workflow.patched(f"{_PATCH_ID_ACK_BEFORE_COMPLETION_SANDBOX_GENERATION}-{generation}")
 
 
 @dataclass
@@ -203,6 +210,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
         self._pending_ack_slots: dict[str, PendingAckSlot] = {}
         self._child_completion: Optional[ChildCompletion] = None
         self._ack_before_completion: bool = True
+        self._sandbox_generation: int = 0
         # True between a successful `_ensure_sandbox_workflow_started` and
         # the next `PARENT_COMPLETED_SIGNAL`. The orchestrator lives for the
         # whole task run and spawns sandboxes lazily: when a follow-up arrives
@@ -809,6 +817,13 @@ class TaskManagementWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
         self._child_steering_protocol_version = protocol_version if isinstance(protocol_version, int) else 0
+        self._sandbox_generation += 1
+        # The startup patch is memoized for the workflow lifetime. A distinct
+        # marker per sandbox lets an old replay keep its recorded ordering,
+        # then adopt ACK-first handling when a later sandbox starts live.
+        self._ack_before_completion = self._ack_before_completion or _ack_before_completion_for_sandbox_generation(
+            self._sandbox_generation
+        )
         # Activity success means Signal-With-Start landed — either delivered
         # to an already-running execution or kicked off a fresh one. Either
         # way, a sandbox session is now in-flight.
