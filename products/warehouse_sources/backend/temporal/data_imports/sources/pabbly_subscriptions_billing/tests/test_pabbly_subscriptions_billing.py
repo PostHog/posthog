@@ -260,17 +260,17 @@ class TestHttpSampleCapture:
             ("customers", True),
         ]
     )
+    @patch(f"{pabbly.__name__}._fetch_page")
+    @patch(f"{pabbly.__name__}.make_tracked_session")
     def test_capture_disabled_only_for_secret_bearing_endpoints(
-        self, endpoint: str, expected_capture: bool, monkeypatch: Any
+        self,
+        endpoint: str,
+        expected_capture: bool,
+        mock_session: MagicMock,
+        mock_fetch: MagicMock,
     ) -> None:
-        captured_kwargs: dict[str, Any] = {}
-
-        def fake_make_session(**kwargs: Any) -> MagicMock:
-            captured_kwargs.update(kwargs)
-            return MagicMock()
-
-        monkeypatch.setattr(pabbly, "make_tracked_session", fake_make_session)
-        monkeypatch.setattr(pabbly, "_fetch_page", lambda *args, **kwargs: [])
+        mock_session.return_value = MagicMock()
+        mock_fetch.return_value = []
 
         list(
             get_rows(
@@ -282,7 +282,7 @@ class TestHttpSampleCapture:
             )
         )
 
-        assert captured_kwargs["capture"] is expected_capture
+        assert mock_session.call_args.kwargs["capture"] is expected_capture
 
 
 class TestCheckAccess:
