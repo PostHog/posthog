@@ -15,6 +15,7 @@ import {
     LemonTable,
     LemonTableColumns,
     LemonTag,
+    LemonTagType,
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
@@ -32,6 +33,7 @@ import { ScopeBar, SourceScopeChip } from '../components/ScopeBar'
 import { StatCard } from '../components/StatCard'
 import {
     BrokenTestRow,
+    FlakyTestClassification,
     FlakyTestRow,
     FlakyTestWindow,
     QuarantineEntryRow,
@@ -336,6 +338,25 @@ function BrokenTestsPanel(): JSX.Element {
     )
 }
 
+const FLAKY_CLASSIFICATION: Record<FlakyTestClassification, { label: string; type: LemonTagType; tooltip: string }> = {
+    confirmed_flake: {
+        label: 'Confirmed flake',
+        type: 'warning',
+        tooltip:
+            'One commit both failed and passed this test, so the failure is nondeterministic. Fix it, or quarantine it while you do.',
+    },
+    suspected_regression: {
+        label: 'Suspected regression',
+        type: 'danger',
+        tooltip: 'Only failures recorded. Treat it as a real break until one commit is seen both failing and passing.',
+    },
+    quarantined: {
+        label: 'Quarantined, still failing',
+        type: 'muted',
+        tooltip: 'Already masked as xfail in CI and still failing. Fix it, then remove the quarantine.',
+    },
+}
+
 function ActiveTestHealthQueue(): JSX.Element {
     const { flakyTests, flakyTestsLoading, flakyTestsStatus, flakyTestWindow } = useValues(engineeringAnalyticsLogic)
     const { setFlakyTestWindow, openQuarantineModal } = useActions(engineeringAnalyticsLogic)
@@ -344,65 +365,39 @@ function ActiveTestHealthQueue(): JSX.Element {
         {
             title: 'Test',
             key: 'nodeid',
-            width: 340,
-            render: (_, row) => (
-                <div className="flex max-w-[22rem] flex-col gap-0.5">
-                    <Tooltip title={row.nodeid}>
-                        <span className="truncate font-mono text-xs">{row.nodeid}</span>
-                    </Tooltip>
-                    <div>
-                        {row.classification === 'confirmed_flake' ? (
-                            <LemonTag type="warning" size="small">
-                                Confirmed flake
-                            </LemonTag>
-                        ) : row.classification === 'suspected_regression' ? (
-                            <LemonTag type="danger" size="small">
-                                Suspected regression
-                            </LemonTag>
-                        ) : (
-                            <LemonTag type="muted" size="small">
-                                Already quarantined
-                            </LemonTag>
-                        )}
+            width: 360,
+            render: (_, row) => {
+                const { label, type, tooltip } = FLAKY_CLASSIFICATION[row.classification]
+                return (
+                    <div className="flex max-w-[22rem] flex-col gap-0.5">
+                        <Tooltip title={row.nodeid}>
+                            <span className="truncate font-mono text-xs">{row.nodeid}</span>
+                        </Tooltip>
+                        <div>
+                            <Tooltip title={tooltip}>
+                                <LemonTag type={type} size="small">
+                                    {label}
+                                </LemonTag>
+                            </Tooltip>
+                        </div>
                     </div>
-                </div>
-            ),
-        },
-        {
-            title: 'Recommendation',
-            key: 'recommendation',
-            width: 170,
-            render: (_, row) =>
-                row.recommendation === 'consider_quarantine' ? (
-                    <Tooltip title="Repeated or trunk-affecting flake. Use the temporary quarantine workflow while it is fixed.">
-                        <LemonTag type="warning">Consider quarantine</LemonTag>
-                    </Tooltip>
-                ) : row.recommendation === 'investigate_regression' ? (
-                    <Tooltip title="Failures have no recorded recovery. Treat this as a regression until a passing run proves otherwise.">
-                        <LemonTag type="danger">Investigate regression</LemonTag>
-                    </Tooltip>
-                ) : (
-                    <Tooltip title="Fix the nondeterminism. If already quarantined, remove the quarantine after the fix is verified.">
-                        <LemonTag type="success">Deflake</LemonTag>
-                    </Tooltip>
-                ),
+                )
+            },
         },
         {
             title: 'Evidence',
-            key: 'affectedRunCount',
-            tooltip: 'Absolute evidence only. Fast passing tests are not recorded, so this is not a failure rate.',
-            sorter: (a, b) => a.affectedRunCount - b.affectedRunCount,
+            key: 'failedRunCount',
+            tooltip: 'Absolute counts, never a rate: fast passing runs are not recorded, so there is no denominator.',
+            sorter: (a, b) => a.failedRunCount - b.failedRunCount,
             render: (_, row) => (
                 <div className="flex flex-col gap-0.5 text-xs">
                     <span>
-                        {pluralize(row.affectedRunCount, 'affected run')} · {pluralize(row.affectedPrCount, 'PR')}
+                        {pluralize(row.failedRunCount, 'failed run')} · {pluralize(row.failedPrCount, 'PR')}
                     </span>
                     <span className="text-secondary">
-                        {row.rerunRecoveryRunCount > 0
-                            ? `Passed on retry in ${pluralize(row.rerunRecoveryRunCount, 'run')}`
-                            : row.hasInterleavedRuns
-                              ? `${pluralize(row.recordedPassRunCount, 'recorded pass')} interleaved with failures`
-                              : 'No recovery recorded'}
+                        {row.sameCommitRecoveryRunCount > 0
+                            ? `Failed then passed on the same commit in ${pluralize(row.sameCommitRecoveryRunCount, 'run')}`
+                            : 'No recovery recorded'}
                     </span>
                     {row.masterFailedRunCount > 0 && (
                         <span className="font-semibold text-danger">
@@ -418,27 +413,12 @@ function ActiveTestHealthQueue(): JSX.Element {
             ),
         },
         {
-            title: 'Latest evidence',
+            title: 'Last signal',
             key: 'lastSignalAt',
             width: 120,
             align: 'right',
             sorter: (a, b) => a.lastSignalAt.localeCompare(b.lastSignalAt),
-            render: (_, row) => (
-                <Tooltip title={dayjs(row.lastSignalAt).format('YYYY-MM-DD HH:mm:ss')}>
-                    <span className="text-xs whitespace-nowrap text-secondary">
-                        {dayjs(row.lastSignalAt).fromNow()}
-                    </span>
-                </Tooltip>
-            ),
-        },
-        {
-            title: 'Last recorded run',
-            key: 'lastRecordedExecutionAt',
-            width: 130,
-            align: 'right',
-            tooltip: 'Fast passing runs under the telemetry threshold are not recorded.',
-            sorter: (a, b) => a.lastRecordedExecutionAt.localeCompare(b.lastRecordedExecutionAt),
-            render: (_, row) => <RelativeTime iso={row.lastRecordedExecutionAt} />,
+            render: (_, row) => <RelativeTime iso={row.lastSignalAt} />,
         },
         {
             title: '',
@@ -446,7 +426,7 @@ function ActiveTestHealthQueue(): JSX.Element {
             width: 130,
             align: 'right',
             render: (_, row) =>
-                row.recommendation === 'consider_quarantine' ? (
+                row.classification === 'confirmed_flake' ? (
                     <LemonButton
                         size="small"
                         type="tertiary"
@@ -479,8 +459,8 @@ function ActiveTestHealthQueue(): JSX.Element {
                 <div className="flex flex-col gap-0.5">
                     <h3 className="m-0 text-base font-semibold">Active test health queue</h3>
                     <p className="m-0 text-xs text-tertiary">
-                        Fresh run-attempt evidence, separated into confirmed flakes, suspected regressions, and tests
-                        already quarantined. Rows expire after three days without a bad signal.
+                        Backend tests worth acting on now, ranked by blast radius. A test is a confirmed flake once one
+                        commit both failed and passed it, which is what a CI re-run proves.
                     </p>
                 </div>
                 <LemonSegmentedButton
@@ -507,12 +487,12 @@ function ActiveTestHealthQueue(): JSX.Element {
                         loading={flakyTestsLoading}
                         pagination={{ pageSize: 10 }}
                         useURLForSorting={false}
-                        emptyState="No active test health recommendations in this window."
-                        nouns={['test recommendation', 'test recommendations']}
+                        emptyState="No tests need attention in this window."
+                        nouns={['test', 'tests']}
                     />
                     {flakyTests?.truncated && (
                         <div className="text-xs text-tertiary">
-                            Showing the first {flakyTests.limit} active recommendations. More rows matched.
+                            Showing the top {flakyTests.limit} by blast radius. More tests qualified in this window.
                         </div>
                     )}
                 </>

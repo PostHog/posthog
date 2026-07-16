@@ -296,7 +296,6 @@ def list_flaky_tests(
     team: Team,
     date_from: str | None = None,
     date_to: str | None = None,
-    min_rerun_passes: int | None = None,
     min_failed_prs: int | None = None,
     limit: int | None = None,
     source_id: str | None = None,
@@ -306,7 +305,6 @@ def list_flaky_tests(
         curated=_authorized_source(team, source_id, user_access_control),
         date_from=date_from,
         date_to=date_to,
-        min_rerun_passes=min_rerun_passes,
         min_failed_prs=min_failed_prs,
         limit=limit,
     )

@@ -493,31 +493,32 @@ class CIFailureLogs:
     truncated: bool
 
 
-# The one caveat that governs every flaky figure — defined once here (the canonical-types home)
+# The one caveat that governs every flaky figure, defined once here (the canonical-types home)
 # so the API/MCP description and any other consumer-facing copy read from it instead of drifting.
 FLAKY_TEST_SIGNAL_CAVEAT = (
-    "All figures are absolute counts, never rates: passing tests under the trace emitter's duration "
-    "threshold are not recorded, so there is no trustworthy execution denominator. A test is only "
-    "called flaky when the recorded runs contain recovery evidence: pass-on-retry or interleaved "
-    "pass/fail outcomes. 'Last recorded execution' is limited by the same telemetry threshold."
+    "Counts are absolute, never rates: CI emits a span for every failure but only for passes slow "
+    "enough to clear the emitter's duration threshold, so there is no execution denominator. "
+    "'suspected_regression' means no same-commit recovery was recorded, not that none exists."
 )
 
 
 class FlakyTestClassification(StrEnum):
+    # One commit both failed and passed the test.
     CONFIRMED_FLAKE = "confirmed_flake"
+    # Only failures recorded, which is absence of proof, not proof of a regression.
     SUSPECTED_REGRESSION = "suspected_regression"
+    # Failing while masked as xfail.
     QUARANTINED = "quarantined"
-
-
-class FlakyTestRecommendation(StrEnum):
-    DEFLAKE = "deflake"
-    CONSIDER_QUARANTINE = "consider_quarantine"
-    INVESTIGATE_REGRESSION = "investigate_regression"
 
 
 @dataclass(frozen=True)
 class FlakyTestItem:
-    """One active test-health recommendation from deduplicated CI run-attempt evidence."""
+    """One test in the active test-health queue, aggregated from the per-test CI spans in the Traces store.
+
+    Evidence is counted per CI run, never per span or run attempt: a re-run re-reports the shards it
+    did not re-execute, so only the run grain counts one failure once. See
+    ``FLAKY_TEST_SIGNAL_CAVEAT`` for why every figure is an absolute count.
+    """
 
     # Reconstructed pytest nodeid (the span name), e.g. 'posthog/api/test/test_x/TestX::test_y'.
     nodeid: str
@@ -525,32 +526,25 @@ class FlakyTestItem:
     # reporter stamped it; reconstructed from the nodeid (file/class boundary guessed) for older spans.
     selector: str
     classification: FlakyTestClassification
-    recommendation: FlakyTestRecommendation
-    # Distinct GitHub run attempts carrying a failure, pass-on-retry, or xfail signal.
-    affected_run_count: int
-    # Distinct GitHub run attempts whose final outcome was failed/error.
+    # Runs where one commit both failed and passed: a later attempt going green, or an in-job retry.
+    # A pass in a different run is a different commit and proves nothing, hence the name.
+    same_commit_recovery_run_count: int
     failed_run_count: int
-    # Distinct PRs among affected runs; master/branch-only runs have no PR and don't count.
-    affected_pr_count: int
-    # Distinct failed/error run attempts on master/main.
+    # Master/branch failures carry no PR number and don't count here.
+    failed_pr_count: int
+    # master/main approximation: the source doesn't record the default branch.
     master_failed_run_count: int
-    # Distinct run attempts where the test failed, then passed on an automatic retry.
-    rerun_recovery_run_count: int
-    # Recorded ordinary passing run attempts. Fast passes are absent by design.
-    recorded_pass_run_count: int
-    # True when recorded ordinary passes and failures overlap in time, rather than forming one fixed streak.
-    has_interleaved_runs: bool
-    # Distinct xfailed run attempts, which indicate the test is already quarantined and still failing.
     quarantined_failed_run_count: int
-    # Most recent failed/error, pass-on-retry, or xfail run attempt.
     last_signal_at: datetime
-    # Most recent recorded run attempt, including emitted ordinary passes.
-    last_recorded_execution_at: datetime
 
 
 @dataclass(frozen=True)
 class FlakyTestList:
-    """Active test-health recommendations ranked by recency, action, and distinct evidence."""
+    """The active test-health queue for a window: tests with a live failure signal, ranked by blast
+    radius (trunk first, then PRs, then runs), capped at ``limit`` with an explicit truncation flag
+    (same shape as ``PullRequestList``). A test qualifies on any same-commit recovery, any
+    default-branch failure, failures on at least ``min_failed_prs`` distinct PRs, or an xfail.
+    """
 
     items: list[FlakyTestItem]
     truncated: bool

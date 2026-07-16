@@ -239,7 +239,7 @@ export const getEngineeringAnalyticsFlakyTestsUrl = (
 }
 
 /**
- * An active queue of backend tests to deflake, temporarily quarantine, or investigate as regressions. Signals are deduplicated by test and GitHub run attempt. Confirmed flakes require recorded recovery; unrecovered failures are suspected regressions, and xfailed runs are already quarantined. Signals older than three days do not appear in the queue, while the requested window supplies supporting evidence (default -7d, maximum 30 days). All figures are absolute counts, never rates: passing tests under the trace emitter's duration threshold are not recorded, so there is no trustworthy execution denominator. A test is only called flaky when the recorded runs contain recovery evidence: pass-on-retry or interleaved pass/fail outcomes. 'Last recorded execution' is limited by the same telemetry threshold.
+ * The active test-health queue: backend tests worth acting on now, from the per-test CI spans, over a window (default -7d, maximum 30 days). Evidence is counted per CI run, not per span or run attempt. A test is a 'confirmed_flake' when one commit both failed and passed it (a re-run attempt going green, or an in-job retry); 'quarantined' when it fails while masked as xfail; otherwise 'suspected_regression'. It qualifies on any recovery, any master/main failure, an xfail, or failures on at least min_failed_prs distinct PRs. Counts are absolute, never rates: CI emits a span for every failure but only for passes slow enough to clear the emitter's duration threshold, so there is no execution denominator. 'suspected_regression' means no same-commit recovery was recorded, not that none exists.
  */
 export const engineeringAnalyticsFlakyTests = async (
     projectId: string,

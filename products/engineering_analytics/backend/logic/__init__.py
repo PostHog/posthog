@@ -304,19 +304,17 @@ def build_flaky_tests(
     curated: CuratedGitHubSource,
     date_from: str | None = None,
     date_to: str | None = None,
-    min_rerun_passes: int | None = None,
     min_failed_prs: int | None = None,
     limit: int | None = None,
 ) -> FlakyTestList:
     parsed_from, parsed_to = _parse_window(
         curated.team, date_from, date_to, default=_DEFAULT_FLAKY_WINDOW, max_days=_MAX_FLAKY_WINDOW_DAYS
     )
-    min_rerun_passes = min_rerun_passes if min_rerun_passes is not None else _DEFAULT_FLAKY_MIN_RERUN_PASSES
     min_failed_prs = min_failed_prs if min_failed_prs is not None else _DEFAULT_FLAKY_MIN_FAILED_PRS
     # A zero threshold would make its HAVING arm trivially true and silently qualify every
-    # test with any signal span — require an explicit positive bar instead.
-    if min_rerun_passes < 1 or min_failed_prs < 1:
-        raise ValueError("min_rerun_passes and min_failed_prs must be at least 1")
+    # test with any signal span, so require an explicit positive bar instead.
+    if min_failed_prs < 1:
+        raise ValueError("min_failed_prs must be at least 1")
     limit = limit if limit is not None else _DEFAULT_FLAKY_LIMIT
     if not 1 <= limit <= _MAX_FLAKY_LIMIT:
         raise ValueError(f"limit must be between 1 and {_MAX_FLAKY_LIMIT}")
@@ -324,7 +322,6 @@ def build_flaky_tests(
         curated=curated,
         date_from=parsed_from,
         date_to=parsed_to,
-        min_rerun_passes=min_rerun_passes,
         min_failed_prs=min_failed_prs,
         limit=limit,
     )

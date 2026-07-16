@@ -413,41 +413,33 @@ class FlakyTestItemSerializer(DataclassSerializer):
                 "otherwise reconstructed from the nodeid, where the file/class boundary is a best-effort guess.",
             },
             "classification": {
-                "help_text": "Evidence class: confirmed_flake requires recorded recovery, suspected_regression "
-                "has failures without recovery, and quarantined has xfailed runs.",
+                "help_text": "confirmed_flake: one commit both failed and passed the test, so it is provably "
+                "nondeterministic. quarantined: it fails while masked as xfail. suspected_regression: only "
+                "failures were recorded, which is absence of proof, not proof that it is a real break.",
             },
-            "recommendation": {
-                "help_text": "Suggested next action: deflake, consider_quarantine, or investigate_regression.",
-            },
-            "affected_run_count": {
-                "help_text": "Distinct GitHub run attempts with a failure, pass-on-retry, or xfail signal.",
+            "same_commit_recovery_run_count": {
+                "help_text": "Runs where one commit both failed and passed the test: a later run attempt going "
+                "green, or an in-job pytest retry. A pass in a different run is a different commit and proves "
+                "nothing, so it is not counted here. Above zero is the only proof of flakiness this data carries.",
             },
             "failed_run_count": {
-                "help_text": "Distinct GitHub run attempts whose final recorded outcome was failed or error.",
+                "help_text": "Distinct CI runs whose recorded outcome was failed or error. A run counts once "
+                "however many attempts or matrix legs it failed in.",
             },
-            "affected_pr_count": {
-                "help_text": "Distinct pull requests among affected runs. Master and unattributed branches are excluded.",
+            "failed_pr_count": {
+                "help_text": "Distinct pull requests among the failed runs. Failures on master or unattributed "
+                "branches carry no PR number and are excluded here (still in failed_run_count).",
             },
             "master_failed_run_count": {
-                "help_text": "Distinct failed/error run attempts on master or main.",
-            },
-            "rerun_recovery_run_count": {
-                "help_text": "Distinct run attempts where the test failed, then passed on an automatic retry.",
-            },
-            "recorded_pass_run_count": {
-                "help_text": "Recorded ordinary passing run attempts. Fast passes below the emitter threshold are absent.",
-            },
-            "has_interleaved_runs": {
-                "help_text": "True when recorded ordinary pass and failure runs overlap in time, confirming nondeterminism.",
+                "help_text": "Failed runs on the default branch (master/main approximation): the 'matters right "
+                "now' signal that a test is breaking the trunk, not just PR branches.",
             },
             "quarantined_failed_run_count": {
-                "help_text": "Distinct xfailed run attempts: the test was quarantined and still failed.",
+                "help_text": "Runs where the test failed while quarantined (xfail): already masked in CI, still "
+                "failing.",
             },
             "last_signal_at": {
-                "help_text": "Most recent failed/error, pass-on-retry, or xfail run attempt.",
-            },
-            "last_recorded_execution_at": {
-                "help_text": "Most recent recorded run attempt, including emitted ordinary passes. Fast passes may be absent.",
+                "help_text": "Most recent failure, recovery, or xfail run for this test in the window.",
             },
         }
 
@@ -455,14 +447,14 @@ class FlakyTestItemSerializer(DataclassSerializer):
 class FlakyTestListSerializer(DataclassSerializer):
     items = FlakyTestItemSerializer(
         many=True,
-        help_text="Active recommendations ranked by signal recency, action, and distinct run/PR evidence.",
+        help_text="Tests worth acting on now, ranked by blast radius: master failures, then PRs hit, then runs.",
     )
 
     class Meta:
         dataclass = FlakyTestList
         extra_kwargs = {
             "truncated": {
-                "help_text": "True when more active recommendations qualified than the cap.",
+                "help_text": "True when more tests qualified than the cap; `items` is the highest-ranked `limit` rows.",
             },
             "limit": {"help_text": "Maximum number of tests returned in `items`."},
         }

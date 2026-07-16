@@ -94,10 +94,10 @@ The two read surfaces exist to serve that goal, in priority order:
    definitions back the MCP tools and the Signal emitter.
 2. **Read-only UI — a showcase** over the same endpoints. Useful, but secondary.
 
-The test-health view is an active work queue, not a failure-rate leaderboard. It deduplicates evidence by GitHub run
-attempt, requires observed recovery before calling a test flaky, and keeps unrecovered failures in a separate regression
-bucket. Quarantine remains temporary: the existing workflow requires an owner, tracking issue, and expiry before it
-opens a repository change.
+The test-health view is an active work queue, not a failure-rate leaderboard. It counts evidence per CI run, and only
+calls a test flaky once one commit is seen both failing and passing it, which is what a CI re-run proves. Failures with
+no such recovery stay in a separate regression bucket, because absence of proof is not proof. Quarantine remains
+temporary: the existing workflow requires an owner, tracking issue, and expiry before it opens a repository change.
 
 Shortening ready-for-review-to-merge is the headline _metric_ this serves; emitting
 actionable CI Signals to PostHog Code is the _goal_ that metric ladders up to.

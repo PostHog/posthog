@@ -3245,6 +3245,9 @@ jobs:
         runs-on: ubuntu-latest
         continue-on-error: true
         timeout-minutes: 10
+        # Runs on every attempt, unlike the sibling telemetry jobs: a re-run passing what an earlier
+        # attempt failed is the only proof of a flake the test-health queue can get (we run without
+        # --reruns). The queue counts per run, so the shards a rerun re-reports can't inflate it.
         # Master pushes and all in-repo PRs. Skip forks (no secrets access).
         if: >-
             always() &&
