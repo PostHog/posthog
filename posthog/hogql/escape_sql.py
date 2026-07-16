@@ -42,8 +42,12 @@ def escape_param_clickhouse(value: str) -> str:
 def escape_hogql_identifier(identifier: str | int) -> str:
     if isinstance(identifier, int):  # In HogQL we allow integers as identifiers to access array elements
         return str(identifier)
-    if "%" in identifier:
-        raise QueryError(f'The HogQL identifier "{identifier}" is not permitted as it contains the "%" character')
+    # Strip "%" rather than rejecting it. The eventual ClickHouse SQL is rendered with Python
+    # %-substitution (posthog/clickhouse/client/escape.py), where a stray "%" is misread as a format
+    # specifier. Removing it keeps that path safe while letting identifiers that merely contain "%"
+    # (e.g. data-warehouse columns/aliases) print instead of hard-failing the whole query — same
+    # approach as the call-alias handling in #31606.
+    identifier = safe_identifier(identifier)
     # HogQL allows dollars in the identifier.
     if re.match(
         r"^[A-Za-z_$][A-Za-z0-9_$]*$", identifier
@@ -297,8 +301,9 @@ def _quote_postgres_wire_identifier(v: str, extra_reserved_keywords: set[str] | 
 
 # Copied from clickhouse_driver.util.escape, adapted from single quotes to backquotes.
 def escape_clickhouse_identifier(identifier: str) -> str:
-    if "%" in identifier:
-        raise QueryError(f'The HogQL identifier "{identifier}" is not permitted as it contains the "%" character')
+    # See escape_hogql_identifier: "%" is stripped (not rejected) to keep it out of the final
+    # ClickHouse SQL, which is rendered via Python %-substitution.
+    identifier = safe_identifier(identifier)
     if re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", identifier):
         return identifier
     return "`{}`".format("".join(backquote_escape_chars_map.get(c, c) for c in identifier))

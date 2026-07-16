@@ -145,9 +145,9 @@ class TestHogQLIdentifier:
         assert escape_hogql_identifier(n) == str(n)
 
     @given(s=_text_with_percent)
-    def test_percent_always_rejected(self, s: str) -> None:
-        with pytest.raises(QueryError, match='is not permitted as it contains the "%" character'):
-            escape_hogql_identifier(s)
+    def test_percent_always_stripped(self, s: str) -> None:
+        # "%" is removed so it can't reach the Python %-substitution that renders ClickHouse SQL.
+        assert "%" not in escape_hogql_identifier(s)
 
 
 _BACKTICK_IDENTIFIER_FUNCTIONS: list[tuple[str, Callable[[str], str]]] = [
@@ -172,10 +172,10 @@ class TestBacktickIdentifierRoundTrip:
 
     @pytest.mark.parametrize("label,escape_fn", _BACKTICK_IDENTIFIER_FUNCTIONS)
     @given(data=st.data())
-    def test_percent_always_rejected(self, label: str, escape_fn: Callable, data: st.DataObject) -> None:
+    def test_percent_always_stripped(self, label: str, escape_fn: Callable, data: st.DataObject) -> None:
         s = data.draw(_text_with_percent)
-        with pytest.raises(QueryError, match='is not permitted as it contains the "%" character'):
-            escape_fn(s)
+        # "%" is removed so it can't reach the Python %-substitution that renders ClickHouse SQL.
+        assert "%" not in escape_fn(s)
 
 
 class TestClickHouseIdentifier:

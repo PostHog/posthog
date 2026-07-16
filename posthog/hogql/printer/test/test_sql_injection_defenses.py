@@ -202,10 +202,13 @@ class TestEscapePreservationOnParserOutput(BaseTest):
         sql, _ = _print(self, parse_select("SELECT 1 AS `weird``name` FROM events"))
         self.assertIn("`weird``name`", sql)
 
-    def test_identifier_with_percent_rejected(self):
-        # `%` is reserved for parameter placeholders downstream; every identifier escape path rejects it.
-        with self.assertRaises((QueryError, ExposedHogQLError)):
-            _print(self, parse_select("SELECT 1 AS `bad%percent` FROM events"))
+    def test_identifier_with_percent_stripped(self):
+        # `%` is reserved for parameter placeholders downstream (the final SQL is rendered via Python
+        # %-substitution), so every identifier escape path strips it rather than letting it through.
+        # Stripping keeps that path safe while letting identifiers that merely contain `%` print.
+        sql, _ = _print(self, parse_select("SELECT 1 AS `bad%percent` FROM events"))
+        self.assertNotIn("%", sql)
+        self.assertIn("badpercent", sql)
 
     def test_identifier_with_semicolon_in_backticks_escaped_not_executed(self):
         # A semicolon inside a backtick-wrapped identifier lexes as part of the identifier — the backtick scope keeps it from terminating the statement.

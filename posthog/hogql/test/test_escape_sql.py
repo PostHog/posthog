@@ -188,21 +188,15 @@ class TestPrintString(BaseTest):
             "2.3473248237492837e+20",
         )
 
-    def test_escape_hogql_identifier_errors(self):
-        with self.assertRaises(QueryError) as context:
-            escape_hogql_identifier("with % percent")
-        self.assertTrue(
-            'The HogQL identifier "with % percent" is not permitted as it contains the "%" character'
-            in str(context.exception)
-        )
+    def test_escape_hogql_identifier_strips_percent(self):
+        # "%" is stripped (not rejected) so it can't reach the Python %-substitution used to render
+        # the final ClickHouse SQL, while still letting the identifier print.
+        self.assertEqual(escape_hogql_identifier("with % percent"), "`with  percent`")
+        self.assertEqual(escape_hogql_identifier("% прошедших"), "` прошедших`")
 
-    def test_escape_clickhouse_identifier_errors(self):
-        with self.assertRaises(QueryError) as context:
-            escape_clickhouse_identifier("with % percent")
-        self.assertTrue(
-            'The HogQL identifier "with % percent" is not permitted as it contains the "%" character'
-            in str(context.exception)
-        )
+    def test_escape_clickhouse_identifier_strips_percent(self):
+        self.assertEqual(escape_clickhouse_identifier("with % percent"), "`with  percent`")
+        self.assertEqual(escape_clickhouse_identifier("% прошедших"), "` прошедших`")
 
     def test_escape_clickhouse_string_errors(self):
         # This test is a stopgap. Think long and hard before adding support for printing dicts or objects.

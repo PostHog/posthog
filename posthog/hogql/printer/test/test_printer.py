@@ -1374,10 +1374,9 @@ class TestPrinter(BaseTest):
             "properties.id.0",
             "SQL indexes start from one, not from zero. E.g: array.1",
         )
-        self._assert_expr_error(
-            "event as `as%d`",
-            'The HogQL identifier "as%d" is not permitted as it contains the "%" character',
-        )
+        # "%" is stripped from identifiers (not rejected) so it can't leak into the Python
+        # %-substitution that renders the final ClickHouse SQL.
+        self.assertEqual(self._expr("event as `as%d`"), "events.event AS asd")
 
     @parameterized.expand([["percentile_cont"], ["percentile_disc"]])
     def test_percentile_within_group_printer(self, function_name: str):
