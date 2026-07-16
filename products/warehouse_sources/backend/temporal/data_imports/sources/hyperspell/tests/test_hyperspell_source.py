@@ -1,14 +1,11 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-    SourceFieldSelectConfig,
-)
+import structlog
 
+from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSelectConfig
+
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import HyperspellSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.hyperspell.hyperspell import (
@@ -18,106 +15,113 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hyperspell
 from products.warehouse_sources.backend.temporal.data_imports.sources.hyperspell.source import HyperspellSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
+MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.hyperspell.source"
+
+
+def _make_inputs(schema_name: str = "memories") -> SourceInputs:
+    return SourceInputs(
+        schema_name=schema_name,
+        schema_id="schema-id",
+        source_id="source-id",
+        team_id=123,
+        should_use_incremental_field=False,
+        db_incremental_field_last_value=None,
+        db_incremental_field_earliest_value=None,
+        incremental_field=None,
+        incremental_field_type=None,
+        job_id="job-id",
+        logger=structlog.get_logger(),
+        reset_pipeline=False,
+    )
+
 
 class TestHyperspellSource:
     def setup_method(self):
         self.source = HyperspellSource()
         self.team_id = 123
+        self.config = HyperspellSourceConfig(api_key="hs_test", region="eu", user_ids="user-1, user-2")
 
     def test_source_type(self):
         assert self.source.source_type == ExternalDataSourceType.HYPERSPELL
 
-    def test_source_config(self):
+    def test_get_source_config(self):
         config = self.source.get_source_config
+
+        assert config.name.value == "Hyperspell"
         assert config.label == "Hyperspell"
-        assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/hyperspell"
+        assert config.iconPath == "/static/services/hyperspell.svg"
+        assert [f.name for f in config.fields] == ["api_key", "region", "user_ids"]
 
-    def test_source_config_fields(self):
-        fields = self.source.get_source_config.fields
-        assert [f.name for f in fields] == ["api_key", "region", "user_id"]
+        api_key_field = config.fields[0]
+        assert isinstance(api_key_field, SourceFieldInputConfig)
+        assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
+        assert api_key_field.required is True
+        assert api_key_field.secret is True
 
-        api_key = fields[0]
-        assert isinstance(api_key, SourceFieldInputConfig)
-        assert api_key.type == SourceFieldInputConfigType.PASSWORD
-        assert api_key.required is True
-        assert api_key.secret is True
+        region_field = config.fields[1]
+        assert isinstance(region_field, SourceFieldSelectConfig)
+        assert region_field.defaultValue == "us"
+        assert [option.value for option in region_field.options] == ["us", "eu"]
 
-        # API keys are region-locked, so the region select must exist and default to US.
-        region = fields[1]
-        assert isinstance(region, SourceFieldSelectConfig)
-        assert region.defaultValue == "us"
-        assert {o.value for o in region.options} == {"us", "eu"}
+        user_ids_field = config.fields[2]
+        assert isinstance(user_ids_field, SourceFieldInputConfig)
+        assert user_ids_field.required is False
 
-        user_id = fields[2]
-        assert isinstance(user_id, SourceFieldInputConfig)
-        assert user_id.required is False
-        assert user_id.secret is False
+    def test_get_schemas_lists_all_endpoints_as_full_refresh_only(self):
+        schemas = self.source.get_schemas(self.config, self.team_id)
 
-    def test_connection_host_fields_cover_region_and_user(self):
-        # region picks the host the key is sent to and user_id sets the X-As-User identity, so
-        # changing either must force the secret to be re-entered rather than reusing the stored key.
-        assert self.source.connection_host_fields == ["region", "user_id"]
+        assert {schema.name for schema in schemas} == set(ENDPOINTS)
+        # No Hyperspell endpoint has a server-side timestamp filter, so nothing may
+        # advertise incremental support.
+        for schema in schemas:
+            assert schema.supports_incremental is False
+            assert schema.supports_append is False
+            assert schema.incremental_fields == []
 
-    def test_get_schemas_returns_all_endpoints_as_full_refresh(self):
-        schemas = self.source.get_schemas(HyperspellSourceConfig(api_key="key"), self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-        # No server-side timestamp filter exists, so every schema is full-refresh only.
-        assert all(not s.supports_incremental and not s.supports_append for s in schemas)
-        assert all(s.incremental_fields == [] for s in schemas)
+    def test_get_schemas_filtered_by_names(self):
+        schemas = self.source.get_schemas(self.config, self.team_id, names=["memories", "nonexistent"])
 
-    def test_get_schemas_filters_by_names(self):
-        schemas = self.source.get_schemas(
-            HyperspellSourceConfig(api_key="key"), self.team_id, names=["memories", "connections"]
-        )
-        assert {s.name for s in schemas} == {"memories", "connections"}
+        assert [schema.name for schema in schemas] == ["memories"]
 
-    def test_lists_tables_without_credentials(self):
-        # Static endpoint catalog with no I/O — the docs Supported tables section renders from it.
-        assert self.source.lists_tables_without_credentials is True
-        tables = self.source.get_documented_tables()
-        assert {t["name"] for t in tables} == set(ENDPOINTS)
-
-    @pytest.mark.parametrize("expected_key", ["401 Client Error", "403 Client Error"])
-    def test_non_retryable_errors(self, expected_key):
+    @pytest.mark.parametrize(
+        "expected_key",
+        [
+            "401 Client Error: Unauthorized",
+            "403 Client Error: Forbidden",
+        ],
+    )
+    def test_non_retryable_errors_includes_auth_keys(self, expected_key):
         assert expected_key in self.source.get_non_retryable_errors()
 
-    def test_canonical_descriptions_cover_every_endpoint(self):
-        descriptions = self.source.get_canonical_descriptions()
-        assert set(descriptions.keys()) == set(ENDPOINTS)
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.hyperspell.source.validate_hyperspell_credentials"
-    )
-    def test_validate_credentials_delegates_config_values(self, mock_validate):
+    @mock.patch(f"{MODULE}.validate_hyperspell_credentials")
+    def test_validate_credentials_passes_region(self, mock_validate):
         mock_validate.return_value = (True, None)
-        config = HyperspellSourceConfig(api_key="secret-key", region="eu", user_id="user-1")
-        result = self.source.validate_credentials(config, self.team_id)
-        assert result == (True, None)
-        mock_validate.assert_called_once_with("secret-key", "eu", "user-1")
 
-    def test_get_resumable_source_manager_binds_resume_config(self):
-        inputs = mock.MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
+        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id, "memories")
+
+        assert is_valid is True
+        assert error_message is None
+        mock_validate.assert_called_once_with("hs_test", "eu", "memories")
+
+    def test_get_resumable_source_manager(self):
+        manager = self.source.get_resumable_source_manager(_make_inputs())
+
         assert isinstance(manager, ResumableSourceManager)
         assert manager._data_class is HyperspellResumeConfig
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.hyperspell.source.hyperspell_source")
-    def test_source_for_pipeline_plumbs_arguments(self, mock_hyperspell_source):
-        config = HyperspellSourceConfig(api_key="key", region="us", user_id=None)
+    @mock.patch(f"{MODULE}.hyperspell_source")
+    def test_source_for_pipeline_plumbs_config(self, mock_hyperspell_source):
         manager = mock.MagicMock()
-        inputs = mock.MagicMock()
-        inputs.schema_name = "memories"
-        inputs.logger = mock.MagicMock()
+        inputs = _make_inputs(schema_name="connections")
 
-        self.source.source_for_pipeline(config, manager, inputs)
+        self.source.source_for_pipeline(self.config, manager, inputs)
 
         mock_hyperspell_source.assert_called_once_with(
-            api_key="key",
-            region="us",
-            user_id=None,
-            endpoint="memories",
+            api_key="hs_test",
+            region="eu",
+            user_ids="user-1, user-2",
+            endpoint="connections",
             logger=inputs.logger,
             resumable_source_manager=manager,
         )

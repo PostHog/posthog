@@ -5,11 +5,13 @@ from typing import TYPE_CHECKING, Any
 from prometheus_client import Counter, Histogram
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tag_queries, tags_context
 from posthog.hogql_queries.ai.ai_column_rewriter import rewrite_expr_for_events_table, rewrite_query_for_events_table
 from posthog.hogql_queries.ai.ai_property_rewriter import rewrite_expr_for_ai_events_table
+from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.ph_client import feature_enabled_or_false
 
 AI_EVENTS_QUERY_TOTAL = Counter(
@@ -119,14 +121,17 @@ def query_ai_events(
             AI_EVENTS_QUERY_TOTAL.labels(source="dedicated_table").inc()
             return result
 
+        events_schema = use_new_events_schema(team.pk)
         events_query = rewrite_query_for_events_table(query)
-        events_placeholders = {k: rewrite_expr_for_events_table(v) for k, v in placeholders.items()}
+        events_placeholders = {key: rewrite_expr_for_events_table(value) for key, value in placeholders.items()}
+        kwargs["context"] = HogQLContext(team_id=team.pk, use_new_events_schema=events_schema)
 
         if fall_back_to_events:
             tag_queries(ai_query_source="shared_table_fallback")
             AI_EVENTS_QUERY_TOTAL.labels(source="shared_table_fallback").inc()
             with AI_EVENTS_QUERY_DURATION_SECONDS.labels(source="shared_table_fallback").time():
-                return execute_hogql_query(query=events_query, placeholders=events_placeholders, **kwargs)
+                result = execute_hogql_query(query=events_query, placeholders=events_placeholders, **kwargs)
+            return result
 
         # The caller can't use heavy-column-stripped events rows, so probe events solely to
         # tell "aged past the TTL" apart from "never existed" and raise the matching error.
