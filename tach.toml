@@ -92,6 +92,7 @@ depends_on = [
     "products.conversations",
     "products.customer_analytics",
     "products.dashboards",
+    "products.data_catalog",
     "products.data_modeling",
     "products.data_warehouse",
     "products.demo",
@@ -238,6 +239,7 @@ depends_on = [
     "products.feature_flags",
     "products.logs",
     "products.mcp_analytics",
+    "products.notifications",
     "products.product_analytics",
     "products.surveys",
 ]

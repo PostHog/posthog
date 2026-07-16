@@ -1,5 +1,5 @@
 -- AUTO-GENERATED from the declarative HCL by ops/gen-sql.sh — do not edit.
--- Full CREATE schema for the local/aux node. Apply to a fresh ClickHouse to build it.
+-- Full CREATE schema for the local-multi/aux node. Apply to a fresh ClickHouse to build it.
 
 CREATE TABLE posthog.hog_invocation_results_data (
   team_id Int64,
