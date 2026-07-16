@@ -30,6 +30,7 @@ from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.api.organization_feature_flag import (
     EXISTING_TARGET_SCHEDULE_DEPENDENCY_WARNING,
+    MAX_COPY_FLAGS_TARGET_PROJECTS,
     TARGET_COPY_PERMISSION_ERROR,
     OrganizationFeatureFlagView,
 )
@@ -2843,6 +2844,97 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         self.assertNotIn(source_dependency.key, response.content.decode())
         self.assertNotIn("hidden-child-dependency", response.content.decode())
         self.assertFalse(FeatureFlag.objects.filter(team=self.team_2, key=flag_to_copy.key).exists())
+
+    def test_copy_feature_flag_too_many_target_projects(self):
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        # One more than the cap. team_2 is a real, writable target, included to prove it gets
+        # nothing even though it would otherwise succeed on its own.
+        target_project_ids = [*range(10_000, 10_000 + MAX_COPY_FLAGS_TARGET_PROJECTS), self.team_2.id]
+        data = {
+            "feature_flag_key": self.feature_flag_key,
+            "from_project": self.team_1.id,
+            "target_project_ids": target_project_ids,
+        }
+        response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "target_project_ids")
+        self.assertEqual(response.json()["code"], "max_length")
+        self.assertFalse(FeatureFlag.objects.filter(key=self.feature_flag_key, team_id=self.team_2.id).exists())
+
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    @patch("posthog.rate_limit.CopyFlagsBurstRateThrottle.rate", new="1/minute")
+    def test_copy_feature_flag_throttles_session_authenticated_requests(self, *_args):
+        # CopyFlagsBurstRateThrottle subclasses PersonalApiKeyOrUserRateThrottle, which applies
+        # regardless of auth method, so it must catch the test client's session-authenticated
+        # calls too. The patched rate makes the second request trip it deterministically.
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        data = {
+            "feature_flag_key": self.feature_flag_key,
+            "from_project": self.team_1.id,
+            "target_project_ids": [self.team_2.id],
+        }
+
+        first = self.client.post(url, data)
+        self.assertEqual(first.status_code, status.HTTP_200_OK)
+
+        second = self.client.post(url, data)
+        self.assertEqual(second.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    def test_copy_feature_flag_overwrite_denied_by_object_level_access_control_fails(self):
+        from posthog.constants import AvailableFeature
+
+        from ee.models.rbac.access_control import AccessControl
+
+        self.organization.available_product_features = [
+            {
+                "name": AvailableFeature.ACCESS_CONTROL,
+                "key": AvailableFeature.ACCESS_CONTROL,
+            }
+        ]
+        self.organization.save()
+
+        # A flag with this key already exists in team_2, created by a different user so the
+        # creator-always-visible exception doesn't grant self.user access to it.
+        other_user = self._create_user("other-copy@posthog.com")
+        existing_flag = FeatureFlag.objects.create(
+            team=self.team_2,
+            created_by=other_user,
+            key=self.feature_flag_key,
+            filters={"groups": [{"rollout_percentage": 10}]},
+        )
+
+        # Deny editor access to this specific flag at the object level (team_2 stays visible).
+        AccessControl.objects.create(
+            team=self.team_2,
+            resource="feature_flag",
+            resource_id=str(existing_flag.id),
+            organization_member=None,
+            role=None,
+            access_level="viewer",
+        )
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        data = {
+            "feature_flag_key": self.feature_flag_key,
+            "from_project": self.team_1.id,
+            "target_project_ids": [self.team_2.id],
+        }
+        response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["success"]), 0)
+        self.assertEqual(
+            response.json()["failed"],
+            [
+                {
+                    "project_id": self.team_2.id,
+                    "error_message": TARGET_COPY_PERMISSION_ERROR,
+                }
+            ],
+        )
+        existing_flag.refresh_from_db()
+        self.assertEqual(existing_flag.filters, {"groups": [{"rollout_percentage": 10}]})
 
 
 class TestOrganizationFeatureFlagCopyPersonalAPIKey(APIBaseTest):
