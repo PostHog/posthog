@@ -162,7 +162,7 @@ def validate_credentials(api_token: str, app_id: str) -> bool:
     try:
         response = make_tracked_session().get(
             f"{APPSIGNAL_BASE_URL}/api/{app_id}/markers.json",
-            params={"token": api_token, "count_only": "true", "limit": 1},
+            params={"token": api_token, "count_only": "true", "limit": "1"},
             timeout=10,
         )
         return response.status_code == 200
@@ -282,7 +282,9 @@ def _get_windowed_rows(
     until each leaf fits in a single request. Leaves are yielded oldest-window-first with rows
     sorted ascending on the cursor field, so `sort_mode="asc"` watermark checkpointing holds.
     """
-    assert config.path is not None and config.cursor_field is not None
+    # Bound to a local so the None-narrowing survives into the sort lambda below.
+    cursor_field = config.cursor_field
+    assert config.path is not None and cursor_field is not None
 
     url = f"{APPSIGNAL_BASE_URL}{config.path.format(app_id=app_id)}"
     now = int(datetime.now(UTC).timestamp())
@@ -328,7 +330,7 @@ def _get_windowed_rows(
         if not rows:
             continue
 
-        rows.sort(key=lambda row: _to_epoch(row.get(config.cursor_field)) or 0)
+        rows.sort(key=lambda row: _to_epoch(row.get(cursor_field)) or 0)
         yield rows
 
         # Save AFTER yielding: everything before the next pending window is now complete, so a
