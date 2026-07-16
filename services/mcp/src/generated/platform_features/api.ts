@@ -353,7 +353,9 @@ export const CommentsListQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .min(1)
         .optional()
-        .describe('Filter by resource type (e.g. Dashboard, FeatureFlag, Insight, Replay).'),
+        .describe(
+            'Filter by resource type (e.g. Dashboard, FeatureFlag, Insight, Replay). Support-ticket scopes (Ticket, conversations_ticket) additionally require ticket API scope access.'
+        ),
     search: zod.string().min(1).optional().describe('Full-text search within comment content.'),
     source_comment: zod.string().min(1).optional().describe('Filter replies to a specific parent comment.'),
 })
