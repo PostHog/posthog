@@ -148,13 +148,6 @@ pub trait GlobalRateLimiter: Send + Sync {
     /// Returns true if the key is registered in the custom_keys map
     fn is_custom_key(&self, key: &str) -> bool;
 
-    /// Atomically replace the entire custom-key threshold map.
-    ///
-    /// Implemented as a whole-map CAS swap so hot-path readers never block and
-    /// never observe a partially-updated map. Used to push dynamically-refreshed
-    /// thresholds into a running limiter.
-    fn replace_custom_keys(&self, custom_keys: HashMap<String, u64>);
-
     /// Close the update channel and flush remaining update records to global cache
     fn shutdown(&mut self);
 }
@@ -191,10 +184,10 @@ pub struct GlobalRateLimiterConfig {
     /// Per-key custom limits. Overrides the default limit for specific *more granular* keys.
     ///
     /// Wrapped in `Arc<ArcSwap<_>>` so the map can be atomically replaced at
-    /// runtime (via `replace_custom_keys`) without locking hot-path readers.
-    /// Every clone of the config shares the same underlying `ArcSwap`, so a swap
-    /// through any clone (e.g. the copy held by the background task) is visible
-    /// everywhere.
+    /// runtime (by the refresh task via `custom_keys.store(...)`) without locking
+    /// hot-path readers. Every clone of the config shares the same underlying
+    /// `ArcSwap`, so a swap through any clone (e.g. the copy held by the
+    /// background task) is visible everywhere.
     pub custom_keys: Arc<ArcSwap<HashMap<String, u64>>>,
     /// Optional policy for resolving a lookup key to a custom threshold. When
     /// `None`, resolution is an exact lookup in `custom_keys`. When set, the
@@ -441,10 +434,6 @@ impl GlobalRateLimiter for GlobalRateLimiterImpl {
 
     fn is_custom_key(&self, key: &str) -> bool {
         self.config.resolve_custom(key).is_some()
-    }
-
-    fn replace_custom_keys(&self, custom_keys: HashMap<String, u64>) {
-        self.config.custom_keys.store(Arc::new(custom_keys));
     }
 
     fn shutdown(&mut self) {
@@ -2040,16 +2029,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_replace_custom_keys_visible_after_swap() {
+    async fn test_custom_keys_swap_visible_to_running_limiter() {
         let client = Arc::new(MockRedisClient::new());
         let config = test_config();
+        // The refresh task swaps through a clone of the config; hold one here to
+        // drive the same shared ArcSwap the running limiter reads.
+        let cfg_handle = config.clone();
         let limiter = GlobalRateLimiterImpl::new(config, vec![client]).unwrap();
 
         assert!(!limiter.is_custom_key("dyn_key"));
         let result = limiter.check_custom_limit("dyn_key", 1, None).await;
         assert!(matches!(result, EvalResult::NotApplicable));
 
-        limiter.replace_custom_keys(HashMap::from([("dyn_key".to_string(), 42u64)]));
+        cfg_handle
+            .custom_keys
+            .store(Arc::new(HashMap::from([("dyn_key".to_string(), 42u64)])));
 
         assert!(limiter.is_custom_key("dyn_key"));
         // Now subject to a custom limit: a fresh key is Allowed (cache miss), not NotApplicable.
@@ -2061,7 +2055,7 @@ mod tests {
     }
 
     #[test]
-    fn test_replace_custom_keys_shared_across_config_clones() {
+    fn test_custom_keys_swap_shared_across_config_clones() {
         // The background task holds a *clone* of the config; a swap through the
         // clone must be visible to the original (shared ArcSwap).
         let config = test_config();
@@ -2075,7 +2069,7 @@ mod tests {
     }
 
     #[test]
-    fn test_replace_custom_keys_concurrent_read_is_consistent() {
+    fn test_custom_keys_concurrent_read_is_consistent() {
         // Readers never observe a torn map: each load sees either the fully-old
         // or fully-new map, never a missing/partial value.
         use std::sync::atomic::{AtomicBool, Ordering};
@@ -2146,5 +2140,69 @@ mod tests {
 
         // A failed fetch must not disturb the current thresholds.
         assert_eq!(config.resolve_custom("keep"), Some(7));
+    }
+
+    // --- Refresh task lifecycle (spawn on new(), stop on shutdown()) ---
+
+    /// Poll `cond`, driving the paused clock forward so the interval-based refresh
+    /// task gets a chance to tick, up to a bounded number of iterations.
+    async fn wait_until<F: Fn() -> bool>(cond: F) -> bool {
+        for _ in 0..50 {
+            if cond() {
+                return true;
+            }
+            tokio::time::advance(Duration::from_secs(60)).await;
+            tokio::task::yield_now().await;
+        }
+        cond()
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_refresh_task_spawns_ticks_and_stops_on_shutdown() {
+        let mock = Arc::new(MockCustomKeyThresholdSource::with_thresholds(Some(
+            HashMap::from([("first".to_string(), 11u64)]),
+        )));
+        let mut config = test_config();
+        // Hold the shared ArcSwap so we can observe swaps the spawned task makes.
+        let observed = config.custom_keys.clone();
+        config.custom_key_source = Some(mock.clone() as Arc<dyn CustomKeyThresholdSource>);
+        config.custom_key_refresh_interval = Duration::from_secs(60);
+
+        let client = Arc::new(MockRedisClient::new());
+        let mut limiter = GlobalRateLimiterImpl::new(config, vec![client]).unwrap();
+
+        // The task ticks immediately on spawn and applies the initial map.
+        assert!(
+            wait_until(|| observed.load().get("first") == Some(&11)).await,
+            "refresh task should apply the initial map after spawn"
+        );
+
+        // A subsequent Redis-side change is picked up on the next tick.
+        mock.set_thresholds(Some(HashMap::from([("second".to_string(), 22u64)])))
+            .await;
+        assert!(
+            wait_until(|| observed.load().get("second") == Some(&22)).await,
+            "refresh task should apply an updated map on a later tick"
+        );
+
+        // After shutdown the task must exit: let it observe the closed stop channel.
+        limiter.shutdown();
+        for _ in 0..20 {
+            tokio::task::yield_now().await;
+        }
+
+        // A change made after shutdown must never be applied.
+        mock.set_thresholds(Some(HashMap::from([("third".to_string(), 33u64)])))
+            .await;
+        for _ in 0..10 {
+            tokio::time::advance(Duration::from_secs(120)).await;
+            tokio::task::yield_now().await;
+        }
+        assert!(
+            observed.load().get("third").is_none(),
+            "refresh task must not apply changes after shutdown"
+        );
+        // The last pre-shutdown value is still in place.
+        assert_eq!(observed.load().get("second"), Some(&22));
     }
 }

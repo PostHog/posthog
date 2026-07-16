@@ -1997,8 +1997,6 @@ mod tests {
             false
         }
 
-        fn replace_custom_keys(&self, _custom_keys: HashMap<String, u64>) {}
-
         fn shutdown(&mut self) {}
     }
 

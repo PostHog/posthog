@@ -433,8 +433,6 @@ impl GlobalRateLimiter {
                 false
             }
 
-            fn replace_custom_keys(&self, _custom_keys: HashMap<String, u64>) {}
-
             fn shutdown(&mut self) {}
         }
 
@@ -541,8 +539,6 @@ mod tests {
             self.calls.lock().unwrap().push("is_custom_key");
             self.custom_keys.contains(key)
         }
-
-        fn replace_custom_keys(&self, _custom_keys: HashMap<String, u64>) {}
 
         fn shutdown(&mut self) {}
     }
