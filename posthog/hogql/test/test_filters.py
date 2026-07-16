@@ -2,6 +2,8 @@ from typing import Any, Optional
 
 from posthog.test.base import BaseTest
 
+from parameterized import parameterized
+
 from posthog.schema import DateRange, EventPropertyFilter, GroupPropertyFilter, HogQLFilters, PersonPropertyFilter
 
 from posthog.hogql import ast
@@ -141,6 +143,16 @@ class TestFilters(BaseTest):
             "and(less(timestamp, toDateTime('2020-02-03 18:59:59.000000')), "
             f"greaterOrEquals(timestamp, toDateTime('2020-02-02 00:00:00.000000'))) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
+
+    @parameterized.expand(["from", "to"])
+    def test_date_range_placeholder_outside_comparison_raises(self, bound: str):
+        select = self._parse_select(f"SELECT event FROM events WHERE {{filters.dateRange.{bound}}}")
+
+        with self.assertRaisesMessage(
+            QueryError,
+            f"The `{{filters.dateRange.{bound}}}` placeholder can only be used inside a comparison",
+        ):
+            replace_filters(select, HogQLFilters(dateRange=DateRange(date_from="2020-02-02")), self.team)
 
     def test_replace_filters_event_property(self):
         select = replace_filters(
