@@ -503,6 +503,26 @@ export interface WidgetFilterEntryApi {
     value?: string | string[] | null
 }
 
+export type ActivityEventsPropertyFilterApiType =
+    (typeof ActivityEventsPropertyFilterApiType)[keyof typeof ActivityEventsPropertyFilterApiType]
+
+export const ActivityEventsPropertyFilterApiType = {
+    Event: 'event',
+    Person: 'person',
+} as const
+
+export interface ActivityEventsPropertyFilterApi {
+    /**
+     * @minLength 1
+     * @maxLength 400
+     */
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type: ActivityEventsPropertyFilterApiType
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
 export type ActivityEventsListWidgetConfigApiWidgetFilters = { [key: string]: WidgetFilterEntryApi } | null
 
 export interface ActivityEventsListWidgetConfigApi {
@@ -517,6 +537,8 @@ export interface ActivityEventsListWidgetConfigApi {
     limit?: number
     /** Limit the feed to a single event name. Omit or null for all events. */
     eventName?: string | null
+    /** Event and person property filters, matching Activity > Explore events. */
+    properties?: ActivityEventsPropertyFilterApi[] | null
 }
 
 /**
@@ -8458,6 +8480,11 @@ export interface RunWidgetsResponseApi {
     results: DashboardWidgetRunResultApi[]
 }
 
+export interface DashboardSubscribeNudgeResponseApi {
+    /** Whether a nudge notification was created. False when one was already sent recently for this user and dashboard, or when in-app notifications are unavailable. */
+    created: boolean
+}
+
 export interface UpdateTextTileRequestApi {
     /** ID of the dashboard tile to update. Use dashboard-get to look up tile IDs. */
     tile_id: number
@@ -9459,6 +9486,18 @@ export type DashboardsStreamTilesRetrieveLayoutSize =
 export const DashboardsStreamTilesRetrieveLayoutSize = {
     Sm: 'sm',
     Xs: 'xs',
+} as const
+
+export type DashboardsSubscribeNudgeCreateParams = {
+    format?: DashboardsSubscribeNudgeCreateFormat
+}
+
+export type DashboardsSubscribeNudgeCreateFormat =
+    (typeof DashboardsSubscribeNudgeCreateFormat)[keyof typeof DashboardsSubscribeNudgeCreateFormat]
+
+export const DashboardsSubscribeNudgeCreateFormat = {
+    Json: 'json',
+    Txt: 'txt',
 } as const
 
 export type DashboardsUpdateTextTileCreateParams = {

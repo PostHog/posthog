@@ -36,7 +36,6 @@ from posthog.tasks.tasks import (
     calculate_decide_usage,
     capture_task_run_state_metrics,
     check_async_migration_health,
-    check_flags_to_rollback,
     clean_stale_partials,
     clear_clickhouse_deleted_person,
     clear_expired_sessions,
@@ -92,8 +91,10 @@ from products.feature_flags.backend.tasks import (
     sync_cross_region_dogfood_flags_task,
 )
 from products.logs.backend.facade.tasks import logs_alert_events_cleanup_task
+from products.pulse.backend.tasks import mark_stale_pulse_briefs_failed
 from products.reminders.backend.tasks import process_due_reminders
 from products.signals.backend.tasks import sync_pending_signals_refund_credits
+from products.stamphog.backend.facade.tasks import DAILY_DIGEST_CRONTAB, send_daily_digests
 from products.streamlit_apps.backend.facade.api import (
     auto_restart_crashed_streamlit_sandboxes,
     cleanup_deleted_streamlit_app_zips,
@@ -575,6 +576,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="process due reminders",
     )
 
+    # Reconcile pulse briefs stranded in GENERATING by an externally-terminated workflow.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/15"),
+        mark_stale_pulse_briefs_failed.s(),
+        name="mark stale pulse briefs failed",
+    )
+
     if clear_clickhouse_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON):
         sender.add_periodic_task(
             clear_clickhouse_crontab,
@@ -637,12 +646,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
                 clickhouse_materialize_columns.s(),
                 name="clickhouse materialize columns",
             )
-
-        sender.add_periodic_task(
-            crontab(minute="0", hour="*"),
-            check_flags_to_rollback.s(),
-            name="check feature flags that should be rolled back",
-        )
 
         sender.add_periodic_task(
             crontab(minute="10", hour="*/12"),
@@ -786,4 +789,11 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="3", minute="0"),
         prune_old_streamlit_app_versions.s(),
         name="prune old streamlit app versions",
+    )
+
+    # Stamphog daily merged-PR digest fan-out.
+    sender.add_periodic_task(
+        DAILY_DIGEST_CRONTAB,
+        send_daily_digests.s(),
+        name="stamphog daily merged-pr digests",
     )

@@ -1476,7 +1476,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         summary="Send command to task run",
         description="Queue user_message JSON-RPC commands through the task workflow and forward sandbox control "
         "commands to the agent server. Supports user_message, cancel, close, permission_response, "
-        "and set_config_option commands.",
+        "set_config_option, and mcp_response commands.",
         strict_request_validation=True,
     )
     @action(
