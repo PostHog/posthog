@@ -40,6 +40,9 @@ class PageUrlSearchQueryRunner(WebAnalyticsQueryRunner[WebPageURLSearchQueryResp
         return self._get_hogql_query()
 
     def _get_hogql_query(self) -> ast.SelectQuery:
+        # Reads events unsampled on purpose — sampling is a no-op across web
+        # analytics (see WebAnalyticsQueryRunner); the DISTINCT + limit keeps
+        # this scan bounded.
         with self.timings.measure("page_url_search_query"):
             url_column = self._get_url_column()
             search_condition = self._get_search_condition()

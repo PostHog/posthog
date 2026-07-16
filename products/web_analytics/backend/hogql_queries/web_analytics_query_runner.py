@@ -76,6 +76,11 @@ WAR = typing.TypeVar("WAR", bound=AnalyticsQueryResponseProtocol)
 
 
 class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
+    # The `sampling`/`samplingFactor` query fields are accepted for API schema
+    # compatibility but intentionally ignored: web analytics always returns
+    # exact numbers. Sampling was never exposed in the product UI and prod
+    # query_log shows zero queries requesting it, so runners neither inject
+    # SAMPLE clauses nor scale results.
     query: WebQueryNode
     query_type: type[WebQueryNode]
 
