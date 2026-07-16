@@ -1,6 +1,6 @@
 from clickhouse_driver.errors import ServerException
 
-from posthog.errors import ExposedCHQueryError, wrap_clickhouse_query_error
+from posthog.errors import ExposedCHQueryError, InternalCHQueryError, wrap_clickhouse_query_error
 
 
 def test_unknown_type_is_wrapped_as_user_error():
@@ -19,5 +19,6 @@ def test_logical_error_stays_internal():
 
     wrapped = wrap_clickhouse_query_error(err)
 
+    assert isinstance(wrapped, InternalCHQueryError)
     assert not isinstance(wrapped, ExposedCHQueryError)
     assert wrapped.code == 49
