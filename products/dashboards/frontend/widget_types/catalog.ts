@@ -195,13 +195,9 @@ export const DASHBOARD_WIDGET_CATALOG = {
             quickFilterContext: QuickFilterContext.ErrorTrackingIssueFilters,
             allowedPropertyNames: ERROR_TRACKING_LIST_TILE_FILTER_PROPERTIES,
         },
-        availability: {
-            requirement: 'exception_autocapture',
-            unavailableTitle: "You haven't captured any exceptions",
-            unavailableReason: 'Enable exception autocapture to get started.',
-            setupActionLabel: 'Enable exception autocapture',
-            docsHref: 'https://posthog.com/docs/error-tracking',
-        },
+        // No catalog `availability`: error tracking gates setup inline in ErrorTrackingWidget
+        // (exceptions received OR autocapture enabled). Autocapture is not required to use the
+        // widget — manually captured exceptions work too, and iOS has no autocapture support.
     },
     session_replay_list: {
         groupId: 'session_replay',
