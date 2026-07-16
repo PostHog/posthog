@@ -104,8 +104,13 @@ export class CyclotronV2Janitor {
         this.maxTouchCount = config.maxTouchCount ?? 3
         this.cleanupGraceMs = config.cleanupGraceMs ?? 10000
         this.poisonRecoveryEnabled = config.poisonRecoveryEnabled ?? true
-        this.stallBackoffBaseMs = config.stallBackoffBaseMs ?? 60000
-        this.stallBackoffMaxMs = config.stallBackoffMaxMs ?? 600000
+        // Clamp against a misconfigured value: a non-positive base disables backoff
+        // (same as 0), and a non-positive cap falls back to the default — otherwise
+        // a negative cap would win the LEAST() and schedule the retry in the past.
+        const backoffBaseMs = config.stallBackoffBaseMs ?? 60000
+        const backoffMaxMs = config.stallBackoffMaxMs ?? 600000
+        this.stallBackoffBaseMs = backoffBaseMs > 0 ? backoffBaseMs : 0
+        this.stallBackoffMaxMs = backoffMaxMs > 0 ? backoffMaxMs : 600000
 
         if (!this.poisonRecoveryEnabled) {
             logger.warn(
