@@ -23,6 +23,11 @@ MAX_PAGES_PER_COLLECTION = 10_000
 # Notices are the unbounded fan-out (every occurrence of every error group); cap the history
 # pulled per group so one noisy group can't dominate the sync.
 NOTICES_MAX_PAGES_PER_GROUP = 20
+# Per-group and per-collection caps bound each child request, but not the two-level fan-out as a
+# whole: an account with a huge number of error groups would otherwise keep an import worker busy
+# for the full activity timeout. Bound the total groups a single notice sync fans out into — a
+# safety valve far above any realistic account, not an expected limit.
+NOTICES_MAX_GROUPS_PER_SYNC = 10_000
 
 
 class AirbrakeRetryableError(Exception):
@@ -227,6 +232,7 @@ def _notices_rows(
     resume = _load_resume(manager)
     remaining_projects, resumed_project = _slice_from_bookmark(project_ids, resume.project_id if resume else None)
 
+    groups_fanned_out = 0
     for project_index, project_id in enumerate(remaining_projects):
         try:
             group_ids = _list_group_ids(session, api_key, project_id, logger)
@@ -242,6 +248,13 @@ def _notices_rows(
         )
 
         for group_index, group_id in enumerate(remaining_groups):
+            if groups_fanned_out >= NOTICES_MAX_GROUPS_PER_SYNC:
+                logger.warning(
+                    f"Airbrake: notice group budget ({NOTICES_MAX_GROUPS_PER_SYNC}) reached, stopping notice sync"
+                )
+                return
+            groups_fanned_out += 1
+
             start_page = resume.page if resume is not None and resumed_group and group_index == 0 else 1
             path = endpoint_config.path.format(project_id=project_id, group_id=group_id)
 

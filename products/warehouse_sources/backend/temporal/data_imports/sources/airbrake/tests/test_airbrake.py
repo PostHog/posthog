@@ -359,6 +359,28 @@ class TestNoticesFanOut:
         rows = _collect(_FakeResumableManager(), monkeypatch, pages, "notices")
         assert len(rows) == NOTICES_MAX_PAGES_PER_GROUP
 
+    def test_group_budget_caps_total_fan_out(self, monkeypatch: Any) -> None:
+        # The per-group page cap bounds each group, but only this budget bounds the two-level
+        # fan-out as a whole; an account with many groups must stop once it is exhausted.
+        monkeypatch.setattr(airbrake, "NOTICES_MAX_GROUPS_PER_SYNC", 2)
+        pages = _FakePages(
+            {
+                ("/api/v4/projects", 1): {"count": 1, "projects": [{"id": 1}]},
+                ("/api/v4/projects/1/groups", 1): {
+                    "count": 4,
+                    "groups": [{"id": "g1"}, {"id": "g2"}, {"id": "g3"}, {"id": "g4"}],
+                },
+                **{
+                    (f"/api/v4/projects/1/groups/{g}/notices", 1): {"count": 1, "notices": [{"id": f"n-{g}"}]}
+                    for g in ("g1", "g2", "g3", "g4")
+                },
+            }
+        )
+        rows = _collect(_FakeResumableManager(), monkeypatch, pages, "notices")
+        assert rows == [{"id": "n-g1"}, {"id": "n-g2"}]
+        fetched_notice_paths = [path for path, _params in pages.requests if "/notices" in path]
+        assert "/api/v4/projects/1/groups/g3/notices" not in fetched_notice_paths
+
 
 class TestSourceResponse:
     @parameterized.expand(
