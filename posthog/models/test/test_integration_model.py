@@ -159,9 +159,9 @@ class TestLinearIntegrationModel(BaseTest):
                 {"data": {"attachmentCreate": {"success": True}}},
             ],
         ) as mock_query:
+            attachment_url = f'https://us.posthog.com/project/{self.team.id}/error_tracking/issue-id" }} mutation {{'
             result = linear.create_issue(
-                str(self.team.id),
-                'issue-id" } mutation {',
+                attachment_url,
                 {
                     "team_id": 'team-id" } mutation {',
                     "title": 'Title "quoted"',
