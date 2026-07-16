@@ -543,7 +543,7 @@ function ApiVersionSection({
     const deprecation = schema.api_version_deprecation
 
     const options: LemonSelectOption<string | null>[] = [
-        { value: null, label: `Source default${sourceVersion ? ` (${sourceVersion})` : ''}` },
+        { value: null, label: `Automatic${sourceVersion ? ` (${sourceVersion})` : ''}` },
         ...supportedVersions.map((version) => ({ value: version, label: version })),
     ]
 

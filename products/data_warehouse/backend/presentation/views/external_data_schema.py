@@ -49,7 +49,7 @@ from products.data_warehouse.backend.facade.api import (
 )
 from products.data_warehouse.backend.presentation.views.source_api_versions import (
     ExternalDataSourceApiVersionDeprecationSerializer,
-    api_version_deprecation_payload,
+    api_version_deprecation_payload_for_source,
 )
 from products.warehouse_sources.backend.facade.models import (
     ExternalDataJob,
@@ -504,7 +504,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         resolved = source_impl.resolve_schema_api_version(schema.name, schema.api_version, schema.source.api_version)
         if not schema.api_version and resolved == source_impl.resolve_api_version(schema.source.api_version):
             return None
-        return api_version_deprecation_payload(schema.source.source_type, resolved)
+        return api_version_deprecation_payload_for_source(source_impl, resolved)
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         instance = cast(Optional[ExternalDataSchema], self.instance)

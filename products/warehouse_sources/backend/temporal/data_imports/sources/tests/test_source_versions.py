@@ -66,6 +66,16 @@ def test_every_source_declares_valid_versions(source_type):
             f"remove the redundant entry"
         )
 
+    # A typo'd schema name silently never matches — the schema keeps following the source pin
+    # and fails at the vendor. Verifiable only for static-catalog sources (no I/O in get_schemas).
+    if source.schema_supported_versions and source.lists_tables_without_credentials:
+        catalog = {s.name for s in source.get_schemas(source._placeholder_config(), team_id=0)}
+        unknown_schemas = set(source.schema_supported_versions) - catalog
+        assert not unknown_schemas, (
+            f"{source_type}: schema_supported_versions declares schemas {sorted(unknown_schemas)} "
+            f"that get_schemas does not list"
+        )
+
 
 def test_resolve_api_version_honors_pin_and_falls_back_to_default():
     source = ALL_SOURCES[SOURCE_TYPES[0]]
