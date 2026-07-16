@@ -351,10 +351,6 @@ class TestExternalDataSchema(APIBaseTest):
         with (
             mock.patch.object(source_impl, "validate_credentials", return_value=(True, None)),
             mock.patch.object(source_impl, "get_schemas", return_value=[fake_schema]),
-            mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.is_xmin_enabled_for_team",
-                return_value=True,
-            ),
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
@@ -916,7 +912,7 @@ class TestExternalDataSchema(APIBaseTest):
         )
 
     @staticmethod
-    def _xmin_discovery_patches(supports_xmin: bool = True, flag_enabled: bool = True):
+    def _xmin_discovery_patch(supports_xmin: bool = True):
         from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 
         fake_schema = SourceSchema(
@@ -928,13 +924,7 @@ class TestExternalDataSchema(APIBaseTest):
             columns=[("id", "integer", False)],
             detected_primary_keys=["id"],
         )
-        return (
-            mock.patch.object(PostgresSource, "get_schemas", return_value=[fake_schema]),
-            mock.patch(
-                "products.data_warehouse.backend.presentation.views.external_data_schema.is_xmin_enabled_for_team",
-                return_value=flag_enabled,
-            ),
-        )
+        return mock.patch.object(PostgresSource, "get_schemas", return_value=[fake_schema])
 
     def test_update_schema_to_xmin_succeeds_with_primary_key(self):
         source = self._xmin_postgres_source()
@@ -947,8 +937,7 @@ class TestExternalDataSchema(APIBaseTest):
             sync_type_config={},
         )
 
-        get_schemas_patch, flag_patch = self._xmin_discovery_patches()
-        with get_schemas_patch, flag_patch:
+        with self._xmin_discovery_patch():
             response = self.client.patch(
                 f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
                 data={"sync_type": "xmin", "primary_key_columns": ["id"]},
@@ -972,8 +961,7 @@ class TestExternalDataSchema(APIBaseTest):
             sync_type_config={},
         )
 
-        get_schemas_patch, flag_patch = self._xmin_discovery_patches()
-        with get_schemas_patch, flag_patch:
+        with self._xmin_discovery_patch():
             response = self.client.patch(
                 f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
                 data={"sync_type": "xmin"},
@@ -999,14 +987,10 @@ class TestExternalDataSchema(APIBaseTest):
             sync_type_config={"primary_key_columns": ["id"]},
         )
 
-        with mock.patch(
-            "products.data_warehouse.backend.presentation.views.external_data_schema.is_xmin_enabled_for_team",
-            return_value=True,
-        ):
-            response = self.client.patch(
-                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
-                data={"sync_type": "xmin", "primary_key_columns": ["id"]},
-            )
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+            data={"sync_type": "xmin", "primary_key_columns": ["id"]},
+        )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "postgres" in str(response.json()).lower()
@@ -1025,8 +1009,7 @@ class TestExternalDataSchema(APIBaseTest):
             sync_type_config={"primary_key_columns": ["id"]},
         )
 
-        get_schemas_patch, flag_patch = self._xmin_discovery_patches(supports_xmin=False)
-        with get_schemas_patch, flag_patch:
+        with self._xmin_discovery_patch(supports_xmin=False):
             response = self.client.patch(
                 f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
                 data={"sync_type": "xmin", "primary_key_columns": ["id"]},
@@ -1034,29 +1017,6 @@ class TestExternalDataSchema(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "not available" in str(response.json()).lower()
-        schema.refresh_from_db()
-        assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
-
-    def test_update_schema_to_xmin_rejected_when_flag_disabled(self):
-        source = self._xmin_postgres_source()
-        schema = ExternalDataSchema.objects.create(
-            name="public.orders",
-            team=self.team,
-            source=source,
-            should_sync=False,
-            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
-            sync_type_config={"primary_key_columns": ["id"]},
-        )
-
-        get_schemas_patch, flag_patch = self._xmin_discovery_patches(flag_enabled=False)
-        with get_schemas_patch, flag_patch:
-            response = self.client.patch(
-                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
-                data={"sync_type": "xmin", "primary_key_columns": ["id"]},
-            )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "not enabled" in str(response.json()).lower()
         schema.refresh_from_db()
         assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
 
@@ -1074,8 +1034,7 @@ class TestExternalDataSchema(APIBaseTest):
             },
         )
 
-        get_schemas_patch, flag_patch = self._xmin_discovery_patches()
-        with get_schemas_patch, flag_patch:
+        with self._xmin_discovery_patch():
             response = self.client.patch(
                 f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
                 data={"row_filters": [{"column": "id", "operator": ">", "value": "5"}]},
@@ -1105,10 +1064,8 @@ class TestExternalDataSchema(APIBaseTest):
             sync_type_config={"primary_key_columns": ["id"]},
         )
 
-        get_schemas_patch, flag_patch = self._xmin_discovery_patches()
         with (
-            get_schemas_patch,
-            flag_patch,
+            self._xmin_discovery_patch(),
             mock.patch(
                 "products.data_warehouse.backend.presentation.views.external_data_schema.external_data_workflow_exists",
                 return_value=False,
@@ -1142,10 +1099,8 @@ class TestExternalDataSchema(APIBaseTest):
             table=table,
         )
 
-        get_schemas_patch, flag_patch = self._xmin_discovery_patches()
         with (
-            get_schemas_patch,
-            flag_patch,
+            self._xmin_discovery_patch(),
             mock.patch(
                 "products.data_warehouse.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
             ) as mock_trigger,
