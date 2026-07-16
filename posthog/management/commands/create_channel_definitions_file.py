@@ -174,18 +174,13 @@ class Command(BaseCommand):
             "www.webcrawler.com",
             # Yahoo already included
             # Yandex already included
-            "you.com",
             # some other popular search engines and search engines used by our customers' users
             "www.kiddle.co",
             "www.egerin.com",
             "presearch.io",
             "presearch.com",
-            "perplexity.ai",
             "m.search.naver.com",
             "yep.com",
-            "andisearch.com",
-            "phind.com",
-            "komo.ai",
             "sevasearch.org",
             "coccoc.com",
             "so.com",
@@ -217,6 +212,11 @@ class Command(BaseCommand):
             "deepseek.com",
             "meta.ai",
             "chat.mistral.ai",
+            "perplexity.ai",
+            "phind.com",
+            "andisearch.com",
+            "komo.ai",
+            "you.com",
         ):
             entries[(search_domain, EntryKind.source)] = SourceEntry("Search", "Paid Search", "Organic Search")
 
