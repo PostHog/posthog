@@ -195,7 +195,7 @@ export const getReviewHogReviewsTriggerCreateUrl = (projectId: string) => {
 }
 
 /**
- * Start a ReviewHog review of any pull request the project's GitHub App installation can access, and publish it back to the PR. The requesting user is the review's acting user: their enabled perspectives, blind-spot check, validator, and urgency threshold drive the run, and it appears under their recent reviews. Non-blocking: returns the Temporal workflow id immediately while the review runs in the worker.
+ * Start a ReviewHog review of any pull request the project's GitHub App installation can access, and publish it back to the PR. The requesting user is the review's acting user: their enabled perspectives, blind-spot check, validator, and urgency threshold drive the run, and it appears under their recent reviews. Nonexistent, closed, and fork PRs are rejected synchronously; a PR whose current commit already has a published review returns 'already_reviewed' without starting a run, and triggering a PR whose review is currently running joins the in-flight run. Otherwise non-blocking: returns the Temporal workflow id immediately while the review runs in the worker.
  * @summary Start a review of a pull request
  */
 export const reviewHogReviewsTriggerCreate = async (

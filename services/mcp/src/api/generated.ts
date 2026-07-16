@@ -55004,9 +55004,9 @@ export namespace Schemas {
     }
 
     export interface ReviewTriggerResponse {
-      /** Temporal workflow id for the started review run. */
+      /** Temporal workflow id for the started review run; empty when no run was started. */
       workflow_id: string;
-      /** Run lifecycle marker; 'started' when the review was queued. */
+      /** Run lifecycle marker: 'started' when the review was queued, 'already_reviewed' when the pull request's current commit already has a published review (no new run starts). */
       status: string;
     }
 
