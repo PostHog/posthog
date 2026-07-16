@@ -211,8 +211,10 @@ export class SkillCatalog {
     }
 }
 
+const FRONTMATTER_PATTERN = /^---\n([\s\S]*?)\n---(?:\n|$)/
+
 function parseFrontmatter(content: string, source: string): { name: string; description: string } {
-    const match = content.match(/^---\n([\s\S]*?)\n---(?:\n|$)/)
+    const match = content.match(FRONTMATTER_PATTERN)
     if (!match?.[1]) {
         throw new Error(`Missing YAML frontmatter in "${source}"`)
     }
@@ -275,13 +277,19 @@ function compareSkillPaths(left: string, right: string): number {
     return left.localeCompare(right)
 }
 
+// The read output deliberately avoids Markdown structure: the embedded skill
+// content is itself Markdown, so wrapper headings would collide with its own.
 function formatManifest(files: readonly SkillManifestEntry[]): string {
     const lines = files.map((file) =>
         file.lineCount === undefined || file.charCount === undefined
             ? `- ${file.path}`
             : `- ${file.path} (${file.lineCount} lines, ${file.charCount} chars)`
     )
-    return `## Files\n\n${lines.join('\n')}`
+    return `Files:\n${lines.join('\n')}`
+}
+
+function stripFrontmatter(content: string): string {
+    return content.replace(FRONTMATTER_PATTERN, '').replace(/^\n+/, '')
 }
 
 export function formatLearnDocument(
@@ -291,7 +299,7 @@ export function formatLearnDocument(
     manifestFiles: readonly SkillManifestEntry[]
 ): string {
     const manifest = formatManifest(manifestFiles)
-    const full = `# ${identifier}\n\n${description}\n\n${manifest}\n\n## SKILL.md\n\n${skillFile.content}`
+    const full = `Skill: ${identifier}\nDescription: ${description}\n\n${manifest}\n\nSKILL.md content (frontmatter omitted):\n\n${stripFrontmatter(skillFile.content)}`
     if (full.length <= LEARN_OUTPUT_CHAR_LIMIT) {
         return full
     }
@@ -299,7 +307,7 @@ export function formatLearnDocument(
 }
 
 export function formatLearnFile(identifier: string, file: SkillFile): string {
-    const header = `# ${identifier}/${file.path}\n\n${file.lineCount} lines, ${file.charCount} chars`
+    const header = `File: ${identifier}/${file.path} (${file.lineCount} lines, ${file.charCount} chars)`
     const full = `${header}\n\n${file.content}`
     if (full.length <= LEARN_OUTPUT_CHAR_LIMIT) {
         return full
@@ -315,7 +323,7 @@ function formatOversizedFile(identifier: string, file: SkillFile, manifest?: str
     const outline = headings.length > 0 ? headings.join('\n') : '(No Markdown headings found.)'
     const scope = manifest ? `${manifest}\n\n` : ''
     return fitLearnOutput(
-        `# ${identifier}/${file.path}\n\n${file.lineCount} lines, ${file.charCount} chars. This file is too large to return in full. Use \`learn ${identifier} ${file.path} -s <query>\` or \`learn ${identifier} ${file.path} --lines <start>:<end>\`.\n\n${scope}## Heading outline\n\n${outline}`
+        `File: ${identifier}/${file.path} (${file.lineCount} lines, ${file.charCount} chars)\nThis file is too large to return in full. Use \`learn ${identifier} ${file.path} -s <query>\` or \`learn ${identifier} ${file.path} --lines <start>:<end>\`.\n\n${scope}Heading outline:\n${outline}`
     )
 }
 
@@ -343,7 +351,7 @@ export function searchLearnFile(identifier: string, file: SkillFile, query: stri
             .map((line, offset) => `${start + offset + 1}: ${line}`)
             .join('\n')
     })
-    return fitLearnOutput(`# ${identifier}/${file.path}\n\n${blocks.join('\n\n')}`)
+    return fitLearnOutput(`Matches in ${identifier}/${file.path}:\n\n${blocks.join('\n\n')}`)
 }
 
 export function readLearnLines(identifier: string, file: SkillFile, start: number, end: number): string {
@@ -356,7 +364,7 @@ export function readLearnLines(identifier: string, file: SkillFile, start: numbe
         .slice(start - 1, end)
         .map((line, index) => `${start + index}: ${line}`)
         .join('\n')
-    const result = `# ${identifier}/${file.path} lines ${start}:${end}\n\n${body}`
+    const result = `File: ${identifier}/${file.path} lines ${start}:${end}\n\n${body}`
     if (result.length > LEARN_OUTPUT_CHAR_LIMIT) {
         throw new Error(
             `Requested line range is ${result.length} characters. Narrow it to at most ${LEARN_OUTPUT_CHAR_LIMIT} characters.`
