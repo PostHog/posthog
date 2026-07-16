@@ -181,7 +181,7 @@ export const billingLogic = kea<billingLogicType>([
     connect(() => ({
         values: [
             featureFlagLogic,
-            ['featureFlags'],
+            ['featureFlags', 'featureFlagsWithoutTracking'],
             preflightLogic,
             ['preflight'],
             organizationLogic,
@@ -880,7 +880,7 @@ export const billingLogic = kea<billingLogicType>([
                         return false
                     }
                     const hideProductFlag = `billing_hide_product_${x.type}`
-                    if (values.featureFlags[hideProductFlag as FeatureFlagKey] === true) {
+                    if (values.featureFlagsWithoutTracking[hideProductFlag as FeatureFlagKey] === true) {
                         return false
                     }
                     if (isBillingAlertDismissed(values.currentOrganizationId, x.type, billingPeriodEnd)) {
@@ -924,7 +924,7 @@ export const billingLogic = kea<billingLogicType>([
                         return false
                     }
                     const hideProductFlag = `billing_hide_product_${x.type}`
-                    if (values.featureFlags[hideProductFlag as FeatureFlagKey] === true) {
+                    if (values.featureFlagsWithoutTracking[hideProductFlag as FeatureFlagKey] === true) {
                         return false
                     }
                     if (

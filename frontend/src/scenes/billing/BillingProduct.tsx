@@ -82,7 +82,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
         setSurveyResponse,
         toggleVariantExpanded,
     } = useActions(billingProductLogic({ product, productRef }))
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { featureFlagsWithoutTracking } = useValues(featureFlagLogic)
 
     const { upgradePlan, currentPlan } = currentAndUpgradePlans
 
@@ -113,7 +113,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
     // If the feature flag `billing_hide_product_{product.type}` is true,
     // don't show the product in the billing page.
     const hideProductFlag = `billing_hide_product_${product.type}`
-    if (featureFlags[hideProductFlag as FeatureFlagKey] === true) {
+    if (featureFlagsWithoutTracking[hideProductFlag as FeatureFlagKey] === true) {
         return null
     }
 

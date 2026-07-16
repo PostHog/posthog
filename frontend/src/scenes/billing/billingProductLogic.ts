@@ -99,7 +99,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 'timeTotalInSeconds',
             ],
             featureFlagLogic,
-            ['featureFlags'],
+            ['featureFlagsWithoutTracking'],
         ],
         actions: [
             billingLogic,
@@ -366,14 +366,14 @@ export const billingProductLogic = kea<billingProductLogicType>([
             },
         ],
         visibleAddons: [
-            (s, p) => [s.featureFlags, p.product],
-            (featureFlags: Record<string, any>, product: BillingProductV2Type) => {
+            (s, p) => [s.featureFlagsWithoutTracking, p.product],
+            (featureFlagsWithoutTracking: Record<string, any>, product: BillingProductV2Type) => {
                 if (!product.addons?.length) {
                     return []
                 }
 
                 return product.addons.filter((addon: BillingProductV2AddonType) =>
-                    isAddonVisible(product, addon, featureFlags)
+                    isAddonVisible(product, addon, featureFlagsWithoutTracking)
                 )
             },
         ],

@@ -270,7 +270,7 @@ export const maxBillingContextLogic = kea<maxBillingContextLogicType>([
             teamLogic,
             ['currentTeam'],
             featureFlagLogic,
-            ['featureFlags'],
+            ['featureFlagsWithoutTracking'],
             hogFunctionsListLogic({ type: 'destination' }),
             ['hogFunctions'],
         ],
@@ -283,7 +283,7 @@ export const maxBillingContextLogic = kea<maxBillingContextLogicType>([
                 s.billingSpendResponse,
                 s.isAdminOrOwner,
                 s.currentTeam,
-                s.featureFlags,
+                s.featureFlagsWithoutTracking,
                 s.hogFunctions,
             ],
             (
@@ -292,7 +292,7 @@ export const maxBillingContextLogic = kea<maxBillingContextLogicType>([
                 billingSpendResponse: BillingSpendResponse | null,
                 isAdminOrOwner: boolean,
                 currentTeam: TeamType,
-                featureFlags: Record<string, any>,
+                featureFlagsWithoutTracking: Record<string, any>,
                 destinations: HogFunctionType[]
             ): MaxBillingContext | null => {
                 if (!isAdminOrOwner) {
@@ -300,7 +300,7 @@ export const maxBillingContextLogic = kea<maxBillingContextLogicType>([
                 }
                 return billingToMaxContext(
                     billing,
-                    featureFlags,
+                    featureFlagsWithoutTracking,
                     currentTeam,
                     destinations,
                     billingUsageResponse,
