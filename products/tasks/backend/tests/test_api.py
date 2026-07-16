@@ -7352,27 +7352,6 @@ class TestTaskRunLivingArtifactChartAPI(BaseTaskAPITest):
     @parameterized.expand(
         [
             (
-                "two_series",
-                [{"kind": "EventsNode", "event": "$pageview"}, {"kind": "EventsNode", "event": "$pageleave"}],
-                True,
-            ),
-            ("single_series", [{"kind": "EventsNode", "event": "$pageview"}], None),
-        ]
-    )
-    @patch("products.tasks.backend.presentation.views.api.tasks_facade.create_task_run_living_artifact")
-    @patch("products.tasks.backend.presentation.views.api.render_png_export")
-    def test_multi_series_charts_render_with_legend(self, _name, series, expected_legend, mock_render, mock_create):
-        mock_render.return_value = (MagicMock(id=321, exception=None), b"png-bytes")
-        mock_create.return_value = (self._artifact_response(), None)
-        query = {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": series}}
-        response = self._post_chart(["task:write", "query:read"], {"name": "Chart", "query": query})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        rendered_source = mock_render.call_args.kwargs["export_context"]["source"]["source"]
-        self.assertEqual(rendered_source.get("trendsFilter", {}).get("showLegend"), expected_legend)
-
-    @parameterized.expand(
-        [
-            (
                 "dataviz_node",
                 {"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "SELECT 1"}},
                 "InsightVizNode",

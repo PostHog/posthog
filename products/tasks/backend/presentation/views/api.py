@@ -2012,23 +2012,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return method
 
 
-# A static PNG has no hover tooltips, so a multi-series chart is unreadable without a
-# legend. The frontend still skips the legend for display types that don't support one.
-def _enable_legend_for_multi_series(query: dict) -> None:
-    if query.get("kind") != "InsightVizNode":
-        return
-    source = query.get("source")
-    if not isinstance(source, dict) or source.get("kind") != "TrendsQuery":
-        return
-    series = source.get("series")
-    multi_series = (isinstance(series, list) and len(series) > 1) or bool(source.get("breakdownFilter"))
-    if not multi_series:
-        return
-    trends_filter = source.setdefault("trendsFilter", {})
-    if isinstance(trends_filter, dict):
-        trends_filter.setdefault("showLegend", True)
-
-
 class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
     API for a task run's living artifacts — stable, versioned deliverable handles
@@ -2190,7 +2173,6 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
                     TaskRunErrorResponseSerializer({"error": "Invalid insight query"}).data,
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            _enable_legend_for_multi_series(query)
         try:
             asset, png = render_png_export(
                 team=self.team,
