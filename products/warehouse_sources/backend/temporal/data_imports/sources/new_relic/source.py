@@ -93,6 +93,13 @@ If your account is hosted in New Relic's EU data center, select the EU region.
             ),
         )
 
+    @property
+    def connection_host_fields(self) -> list[str]:
+        # `region` picks the host the stored API key is sent to, and `account_id` selects which
+        # New Relic account the key is used against. Retargeting either must re-require the secret
+        # so a preserved key can't be pointed at a different endpoint or account without re-entry.
+        return ["account_id", "region"]
+
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.backend.temporal.data_imports.sources.new_relic.canonical_descriptions import (
             CANONICAL_DESCRIPTIONS,

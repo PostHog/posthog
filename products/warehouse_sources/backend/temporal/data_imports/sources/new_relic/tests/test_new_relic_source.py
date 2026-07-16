@@ -125,6 +125,9 @@ class TestNewRelicSource:
         assert self.source.validate_credentials(self.config, self.team_id) == result
         mock_validate.assert_called_once_with(self.config.api_key, self.config.account_id, self.config.region)
 
+    def test_connection_host_fields_require_secret_reentry_on_retarget(self):
+        assert self.source.connection_host_fields == ["account_id", "region"]
+
     def test_get_resumable_source_manager_binds_resume_config(self):
         inputs = MagicMock()
         manager = self.source.get_resumable_source_manager(inputs)

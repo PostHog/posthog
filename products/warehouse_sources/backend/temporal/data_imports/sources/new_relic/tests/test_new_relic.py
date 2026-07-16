@@ -1,5 +1,6 @@
+from collections.abc import Iterable
 from datetime import UTC, date, datetime
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from freezegun import freeze_time
@@ -118,7 +119,9 @@ class TestExecuteGraphql:
         session = MagicMock()
         session.post.return_value = response
         # Call the undecorated function so retryable-error tests don't sit through backoff.
-        return _execute_graphql.__wrapped__(session, "https://api.newrelic.com/graphql", "query", {}, MagicMock())
+        return _execute_graphql.__wrapped__(  # type: ignore[attr-defined]
+            session, "https://api.newrelic.com/graphql", "query", {}, MagicMock()
+        )
 
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 502)])
     def test_retryable_status_codes_raise_retryable_error(self, _name: str, status_code: int) -> None:
@@ -444,4 +447,4 @@ class TestNewRelicSourceResponse:
                 logger=MagicMock(),
                 resumable_source_manager=MagicMock(),
             )
-            assert list(response.items()) == [[{"guid": "g1"}]]
+            assert list(cast(Iterable[Any], response.items())) == [[{"guid": "g1"}]]
