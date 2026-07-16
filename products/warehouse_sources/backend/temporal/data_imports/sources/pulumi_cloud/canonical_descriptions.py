@@ -64,6 +64,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "description": "Organization audit log events: who did what, when, and from where. Requires a Pulumi Cloud plan with audit logs enabled.",
         "docs_url": "https://www.pulumi.com/docs/reference/cloud-rest-api/audit-logs/",
         "columns": {
+            "event_id": "Synthetic primary key derived by hashing the full event payload (Pulumi does not assign audit events an id).",
             "timestamp": "Unix epoch timestamp (seconds) when the event occurred.",
             "event": "The audit event type identifier (e.g. 'stack.update', 'member.added').",
             "description": "Human-readable description of the event.",

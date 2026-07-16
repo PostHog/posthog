@@ -317,6 +317,22 @@ class TestAuditLogs:
         _run_rows("audit_logs", self._pages_fetch(captured), _FakeResumableManager())
         assert all("startTime" not in p for p in captured)
 
+    def test_synthetic_event_id_distinguishes_events_colliding_on_time_type_description(self) -> None:
+        # Two distinct events sharing timestamp/type/description but differing only by actor must not
+        # collapse onto one primary key; an identical re-pulled event must reuse its key so it dedupes.
+        page = {
+            "auditLogEvents": [
+                {"timestamp": 100, "event": "stack.update", "description": "updated prod", "user": "alice"},
+                {"timestamp": 100, "event": "stack.update", "description": "updated prod", "user": "bob"},
+                {"timestamp": 100, "event": "stack.update", "description": "updated prod", "user": "alice"},
+            ]
+        }
+        rows = _run_rows("audit_logs", lambda *a, **k: page, _FakeResumableManager())
+
+        assert PULUMI_CLOUD_ENDPOINTS["audit_logs"].primary_keys == ["event_id"]
+        assert rows[0]["event_id"] != rows[1]["event_id"]
+        assert rows[0]["event_id"] == rows[2]["event_id"]
+
 
 class TestResources:
     def test_cursor_advances_only_while_next_link_present(self) -> None:

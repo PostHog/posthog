@@ -83,10 +83,11 @@ PULUMI_CLOUD_ENDPOINTS: dict[str, PulumiCloudEndpointConfig] = {
     "audit_logs": PulumiCloudEndpointConfig(
         name="audit_logs",
         path="/api/orgs/{org}/auditlogs/v2",
-        # Audit log events carry no id. Two genuinely distinct events sharing the same second, type,
-        # and description would collapse into one row; the description embeds the acted-on object,
-        # so this is vanishingly rare and preferable to duplicating rows on every overlap re-pull.
-        primary_keys=["timestamp", "event", "description"],
+        # Audit log events carry no server-assigned id, so the source derives a synthetic `event_id`
+        # by hashing the full event payload (see `_audit_event_id`). A composite of timestamp/type/
+        # description alone would collapse distinct events that differ only by actor, token, or source
+        # IP; hashing every field keeps those apart while identical overlap re-pulls still dedupe.
+        primary_keys=["event_id"],
         pagination="continuation_token",
         default_incremental_field="timestamp",
         incremental_fields=[

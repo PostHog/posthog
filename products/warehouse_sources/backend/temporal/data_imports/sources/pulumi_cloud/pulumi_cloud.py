@@ -1,9 +1,11 @@
+import hashlib
 import dataclasses
 from collections.abc import Iterator
 from datetime import date, datetime
 from typing import Any, Optional
 from urllib.parse import quote
 
+import orjson
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
@@ -27,7 +29,7 @@ MAX_PAGES = 10_000
 STACK_UPDATES_LOOKBACK_SECONDS = 24 * 60 * 60
 # Small overlap below the audit-log watermark: the spec doesn't state whether the server-side
 # `startTime` lower bound is inclusive, so re-pull a window rather than risk dropping events that
-# share the watermark second. Merge dedupes on the composite primary key.
+# share the watermark second. Merge dedupes the re-pulled rows on the synthetic `event_id`.
 AUDIT_LOGS_LOOKBACK_SECONDS = 15 * 60
 
 
@@ -310,6 +312,14 @@ def _get_deployment_rows(
     logger.warning(f"Pulumi Cloud: deployments hit the page cap ({MAX_PAGES}) for org={organization}")
 
 
+def _audit_event_id(event: dict[str, Any]) -> str:
+    # Pulumi audit events carry no server-assigned id, so we derive a stable synthetic key by
+    # hashing the full event payload. This keeps genuinely distinct events apart even when they
+    # share a timestamp/type/description (different actor, token, or source IP hash differently),
+    # while an identical row re-pulled inside the overlap window still collapses onto one row.
+    return hashlib.sha256(orjson.dumps(event, option=orjson.OPT_SORT_KEYS, default=str)).hexdigest()
+
+
 def _get_audit_log_rows(
     session: requests.Session,
     headers: dict[str, str],
@@ -340,6 +350,8 @@ def _get_audit_log_rows(
         events = data.get("auditLogEvents", [])
         token = data.get("continuationToken") or None
         if events:
+            for event in events:
+                event["event_id"] = _audit_event_id(event)
             yield events
             if token:
                 resumable_source_manager.save_state(PulumiCloudResumeConfig(next_token=token))
