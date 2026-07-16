@@ -9,7 +9,7 @@ import { mockCohort } from '~/test/mocks'
 import { CohortType, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { CohortCountWarningLogicProps, cohortCountWarningLogic } from './cohortCountWarningLogic'
-import type { cohortCountWarningLogicType } from './cohortCountWarningLogicType'
+import type { cohortCountWarningLogicType } from './cohortCountWarningLogic'
 
 const createMockQuery = (cohortId: number, overrides: Partial<ActorsQuery> = {}): DataTableNode => ({
     kind: NodeKind.DataTableNode,
@@ -116,7 +116,7 @@ describe('cohortCountWarningLogic', () => {
             })
             mockDataNodeLogic.mount()
             mockDataNodeLogic.actions.loadDataSuccess({
-                results: new Array(50),
+                results: Array.from({ length: 50 }),
                 hasMore: true,
             })
 
@@ -134,7 +134,7 @@ describe('cohortCountWarningLogic', () => {
             })
             mockDataNodeLogic.mount()
             mockDataNodeLogic.actions.loadDataSuccess({
-                results: new Array(100),
+                results: Array.from({ length: 100 }),
                 hasMore: false,
             })
 
@@ -152,7 +152,7 @@ describe('cohortCountWarningLogic', () => {
             })
             mockDataNodeLogic.mount()
             mockDataNodeLogic.actions.loadDataSuccess({
-                results: new Array(85),
+                results: Array.from({ length: 85 }),
                 hasMore: false,
             })
 
@@ -205,7 +205,7 @@ describe('cohortCountWarningLogic', () => {
             })
             mockDataNodeLogic.mount()
             mockDataNodeLogic.actions.loadDataSuccess({
-                results: new Array(120),
+                results: Array.from({ length: 120 }),
                 hasMore: false,
             })
 
@@ -224,7 +224,7 @@ describe('cohortCountWarningLogic', () => {
             })
             mockDataNodeLogic.mount()
             mockDataNodeLogic.actions.loadDataSuccess({
-                results: new Array(50),
+                results: Array.from({ length: 50 }),
                 hasMore: false,
             })
 
@@ -252,7 +252,7 @@ describe('cohortCountWarningLogic', () => {
             })
             mockDataNodeLogic.mount()
             mockDataNodeLogic.actions.loadDataSuccess({
-                results: new Array(50),
+                results: Array.from({ length: 50 }),
                 hasMore: false,
             })
 
@@ -281,7 +281,7 @@ describe('cohortCountWarningLogic', () => {
             })
             mockDataNodeLogic.mount()
             mockDataNodeLogic.actions.loadDataSuccess({
-                results: new Array(25),
+                results: Array.from({ length: 25 }),
                 hasMore: false,
             })
 
@@ -312,7 +312,7 @@ describe('cohortCountWarningLogic', () => {
             })
             mockDataNodeLogic.mount()
             mockDataNodeLogic.actions.loadDataSuccess({
-                results: new Array(50),
+                results: Array.from({ length: 50 }),
                 hasMore: false,
             })
 
