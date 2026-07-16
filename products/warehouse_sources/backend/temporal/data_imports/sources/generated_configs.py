@@ -4471,7 +4471,9 @@ class VellumSourceConfig(config.Config):
 
 @config.config
 class VeracodeSourceConfig(config.Config):
-    pass
+    api_id: str
+    api_secret: str
+    region: Literal["com", "eu", "us"] = config.value(default="com")
 
 
 @config.config
