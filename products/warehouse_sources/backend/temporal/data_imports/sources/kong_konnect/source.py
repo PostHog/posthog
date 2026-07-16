@@ -47,6 +47,12 @@ class KongKonnectSource(ResumableSource[KongKonnectSourceConfig, KongKonnectResu
         return ExternalDataSourceType.KONGKONNECT
 
     @property
+    def connection_host_fields(self) -> list[str]:
+        # `region` picks the host the stored access token is sent to. Retargeting it must re-require
+        # the secret so a preserved token can't be aimed at a different regional endpoint without re-entry.
+        return ["region"]
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.KONG_KONNECT,

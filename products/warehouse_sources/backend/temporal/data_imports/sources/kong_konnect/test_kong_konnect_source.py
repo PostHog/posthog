@@ -30,6 +30,10 @@ class TestSourceConfig:
     def test_source_type(self) -> None:
         assert KongKonnectSource().source_type == ExternalDataSourceType.KONGKONNECT
 
+    def test_connection_host_fields_includes_region(self) -> None:
+        # `region` selects the host the stored access token is sent to, so editing it must re-require the secret.
+        assert KongKonnectSource().connection_host_fields == ["region"]
+
     def test_ships_visible_as_alpha(self) -> None:
         config = KongKonnectSource().get_source_config
         # A finished source must be visible (no unreleasedSource) and flagged alpha.
