@@ -60,9 +60,12 @@ export function WebhookTab({ id }: { id: string }): JSX.Element {
         sourceConfig,
         canDeleteWebhook,
         webhookDeleting,
+        webhookSyncing,
         currentSection,
     } = useValues(webhookTabLogic({ id }))
-    const { createWebhook, loadWebhookInfo, deleteWebhook, setCurrentSection } = useActions(webhookTabLogic({ id }))
+    const { createWebhook, loadWebhookInfo, deleteWebhook, syncWebhookEvents, setCurrentSection } = useActions(
+        webhookTabLogic({ id })
+    )
 
     if (webhookInfoLoading && !webhookInfo) {
         return (
@@ -139,6 +142,8 @@ export function WebhookTab({ id }: { id: string }): JSX.Element {
                         <WebhookMissingEventsSection
                             missingEvents={webhookInfo.missing_events!}
                             sourceName={sourceConfig?.label ?? source?.source_type ?? 'source'}
+                            syncing={webhookSyncing}
+                            onUpdateWebhook={syncWebhookEvents}
                         />
                     )}
                     <WebhookDetailsSection webhookInfo={webhookInfo} />
@@ -331,9 +336,13 @@ function WebhookRecreateSection({
 function WebhookMissingEventsSection({
     missingEvents,
     sourceName,
+    syncing,
+    onUpdateWebhook,
 }: {
     missingEvents: string[]
     sourceName: string
+    syncing: boolean
+    onUpdateWebhook: () => void
 }): JSX.Element {
     return (
         <LemonBanner
@@ -346,16 +355,19 @@ function WebhookMissingEventsSection({
         >
             <p className="mb-2">
                 Some tables won't receive data until these events are added to your {sourceName} webhook. This happens
-                when the webhook was created manually, or before a newly added table was supported. Add them in your{' '}
-                {sourceName} dashboard, then refresh.
+                when the webhook was created manually, or before a newly added table was supported. Update the webhook
+                to add them automatically, or add them in your {sourceName} dashboard and refresh.
             </p>
-            <div className="flex flex-wrap gap-1">
+            <div className="flex flex-wrap gap-1 mb-2">
                 {missingEvents.map((event) => (
                     <LemonTag key={event} type="warning" className="text-xs">
                         {event}
                     </LemonTag>
                 ))}
             </div>
+            <LemonButton type="primary" size="small" onClick={onUpdateWebhook} loading={syncing}>
+                Update webhook
+            </LemonButton>
         </LemonBanner>
     )
 }

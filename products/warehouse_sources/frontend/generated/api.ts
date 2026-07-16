@@ -39,6 +39,8 @@ import type {
     SourcePreviewResponseApi,
     SourceSetupApi,
     SourceSetupResponseApi,
+    SyncWebhookEventsResponseApi,
+    WebhookInfoResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -699,6 +701,30 @@ export const externalDataSourcesRevenueAnalyticsConfigPartialUpdate = async (
     })
 }
 
+export const getExternalDataSourcesSyncWebhookEventsCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_sources/${id}/sync_webhook_events/`
+}
+
+/**
+ * Reconcile a source's webhook with the currently selected schemas and re-sync the
+ * hog function's inputs_schema, schema_mapping, and template linkage from the current
+ * template. Hog code itself stays current at runtime via the CDP template mechanisms.
+ *
+ * Sources that override sync_webhook_events (e.g. Stripe) get their provider events
+ * reconciled; sources without an override no-op successfully, and the still-nonempty
+ * missing_events in the response tells the UI to keep showing the manual instructions.
+ */
+export const externalDataSourcesSyncWebhookEventsCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SyncWebhookEventsResponseApi> => {
+    return apiMutator<SyncWebhookEventsResponseApi>(getExternalDataSourcesSyncWebhookEventsCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getExternalDataSourcesUpdateCdcSettingsCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/external_data_sources/${id}/update_cdc_settings/`
 }
@@ -757,8 +783,8 @@ export const externalDataSourcesWebhookInfoRetrieve = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSourcesWebhookInfoRetrieveUrl(projectId, id), {
+): Promise<WebhookInfoResponseApi> => {
+    return apiMutator<WebhookInfoResponseApi>(getExternalDataSourcesWebhookInfoRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })

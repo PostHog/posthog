@@ -23,6 +23,27 @@ export const WEBHOOK_SECTIONS = ['overview', 'configuration', 'activity'] as con
 export type WebhookSection = (typeof WEBHOOK_SECTIONS)[number]
 export const DEFAULT_WEBHOOK_SECTION: WebhookSection = 'overview'
 
+// A source without automatic reconcile support (base no-op sync_webhook_events) reports
+// success while missing_events stays non-empty, so "success" alone must not be announced
+// as the provider having been updated.
+export function syncWebhookEventsToast(
+    success: boolean,
+    error: string | null | undefined,
+    missingEvents: string[] | undefined
+): { type: 'success' | 'info' | 'error'; message: string } {
+    if (!success) {
+        return { type: 'error', message: error ?? 'Failed to update webhook on the source' }
+    }
+    if ((missingEvents?.length ?? 0) > 0) {
+        return {
+            type: 'info',
+            message:
+                'Webhook checked, but some events could not be added automatically. Add them in your source dashboard following the instructions below.',
+        }
+    }
+    return { type: 'success', message: 'Webhook updated' }
+}
+
 export const webhookTabLogic = kea<webhookTabLogicType>([
     props({} as WebhookTabLogicProps),
     key(({ id }: WebhookTabLogicProps) => id),
@@ -34,6 +55,8 @@ export const webhookTabLogic = kea<webhookTabLogicType>([
             result,
         }),
         submitWebhookFields: true,
+        syncWebhookEvents: true,
+        setWebhookSyncing: (syncing: boolean) => ({ syncing }),
         deleteWebhook: true,
         setWebhookDeleting: (deleting: boolean) => ({ deleting }),
         setCurrentSection: (section: WebhookSection) => ({ section }),
@@ -59,6 +82,13 @@ export const webhookTabLogic = kea<webhookTabLogicType>([
             {
                 createWebhook: () => null,
                 setCreateWebhookResult: (_, { result }) => result,
+            },
+        ],
+        webhookSyncing: [
+            false,
+            {
+                syncWebhookEvents: () => true,
+                setWebhookSyncing: (_, { syncing }) => syncing,
             },
         ],
         webhookDeleting: [
@@ -288,6 +318,20 @@ export const webhookTabLogic = kea<webhookTabLogicType>([
             } catch (e: any) {
                 lemonToast.error(e.data?.message ?? e.message ?? 'Failed to update webhook inputs')
             }
+        },
+        syncWebhookEvents: async () => {
+            try {
+                const result = await api.externalDataSources.syncWebhookEvents(props.id)
+                // The response carries the refreshed webhook_info payload, so update in place
+                // via the loader success action instead of firing a second GET.
+                const { success, error, ...webhookInfo } = result
+                actions.loadWebhookInfoSuccess(webhookInfo)
+                const toast = syncWebhookEventsToast(success, error, webhookInfo.missing_events)
+                lemonToast[toast.type](toast.message)
+            } catch (e: any) {
+                lemonToast.error(e.data?.message ?? e.message ?? 'Failed to update webhook')
+            }
+            actions.setWebhookSyncing(false)
         },
         deleteWebhook: async () => {
             try {
