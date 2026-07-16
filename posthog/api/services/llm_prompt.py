@@ -326,8 +326,11 @@ def set_prompt_label(
     moved, so the one-version-per-label invariant can't be violated through this path.
     """
     with transaction.atomic():
+        # Locked so a concurrent archive_prompt (which locks the same rows) can't mark the
+        # prompt deleted between this check and the label write, orphaning the label.
         target = (
-            LLMPrompt.objects.filter(team=team, name=prompt_name, deleted=False, version=version)
+            LLMPrompt.objects.select_for_update()
+            .filter(team=team, name=prompt_name, deleted=False, version=version)
             .order_by("created_at", "id")
             .first()
         )
