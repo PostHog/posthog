@@ -104,7 +104,10 @@ def test_skill_search_must_precede_successful_non_learning_exec_commands(
 def test_skill_search_must_not_be_parallelized_with_non_learning_exec_commands() -> None:
     search = _exec("search", "learn -s revenue", QUALIFIED_SKILL)
     data_call = _exec("data", 'call read-data-schema {"query":{"kind":"events"}}')
-    output = {"raw_log": "\n".join([search[0], data_call[0], search[1], data_call[1]]), "prompt": "analyze revenue"}
+    output: dict[str, object] = {
+        "raw_log": "\n".join([search[0], data_call[0], search[1], data_call[1]]),
+        "prompt": "analyze revenue",
+    }
 
     assert _score(SkillSearchFirst(), output).score == 0.0
 
