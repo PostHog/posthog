@@ -3,7 +3,8 @@ import { parse as parseYaml } from 'yaml'
 
 export const LEARN_OUTPUT_CHAR_LIMIT = 44_000
 
-const MAX_GLOBAL_SKILLS = 10
+// Also the cap applied after merging PostHog and project results in `learn -s`.
+export const MAX_GLOBAL_SKILLS = 10
 const MAX_GLOBAL_SNIPPETS = 2
 const MAX_SCOPED_MATCHES = 50
 const SEARCH_CONTEXT_LINES = 2
@@ -146,6 +147,10 @@ export class SkillCatalog {
 
     has(name: string): boolean {
         return this.skillsByName.has(name)
+    }
+
+    describe(name: string): string | undefined {
+        return this.skillsByName.get(name)?.description
     }
 
     searchResults(query: string, namespace = ''): LearnSearchResult[] {
@@ -389,6 +394,35 @@ export function formatLearnSearchResults(results: readonly LearnSearchResult[]):
         return lines.join('\n')
     })
     return fitLearnOutput(sections.join('\n\n'))
+}
+
+// Per-match tier bonuses mirroring `rankSkill`'s content weights, keyed by the
+// backend's `matched_field`. Name and description already score via their own
+// text below, so they add no tier bonus here.
+const MATCHED_FIELD_TIER_BONUS: Record<string, number> = {
+    body: 80,
+    file_path: 120,
+    file_content: 40,
+}
+
+/**
+ * Client-side relevance score for a project search result, comparable to `SkillCatalog`'s
+ * `rankSkill` scores so both sources can merge into one ranked list. The project body/file
+ * text is not available client-side, so per-match tier bonuses derived from `matched_field`
+ * stand in for content scoring.
+ */
+export function scoreProjectSearchResult(
+    query: string,
+    name: string,
+    description: string,
+    matchedFields: readonly string[]
+): number {
+    const normalizedQuery = normalizeQuery(query)
+    let score = scoreText(name, normalizedQuery, 1_000) + scoreText(description, normalizedQuery, 300)
+    for (const field of matchedFields) {
+        score += MATCHED_FIELD_TIER_BONUS[field] ?? 0
+    }
+    return score
 }
 
 function rankSkill(skill: SkillDefinition, query: NormalizedQuery): RankedSkill | null {

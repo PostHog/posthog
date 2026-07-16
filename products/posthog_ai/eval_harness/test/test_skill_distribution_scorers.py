@@ -212,6 +212,7 @@ def test_bundled_distribution_rejects_wrong_failed_or_late_skill_loads(
         ("learn skills", False, 0.0),
         (f"learn {QUALIFIED_SKILL}", False, 0.0),
         ("learn project:team-retention", False, 0.0),
+        (f"learn -d {QUALIFIED_SKILL}", False, 0.0),
         ("learn analytics", False, 1.0),
         ("learn -s revenue", True, 1.0),
     ],
@@ -222,6 +223,22 @@ def test_exec_skill_bypass_counts_only_successful_distribution_commands(
     output = _output(_exec("learn", command, failed=failed))
 
     assert _score(NoExecSkillBypass(), output, BUNDLED_EXPECTED).score == expected_score
+
+
+@pytest.mark.parametrize(
+    "load_command,expected_score",
+    [
+        (f"learn posthog:other {QUALIFIED_SKILL}", 1.0),
+        (f"learn -d {QUALIFIED_SKILL}", 0.0),
+    ],
+)
+def test_exec_batch_read_counts_as_load_but_describe_does_not(load_command: str, expected_score: float) -> None:
+    output = _output(
+        _exec("search", "learn -s revenue", QUALIFIED_SKILL),
+        _exec("load", load_command),
+    )
+
+    assert _score(ExpectedSkillLoaded(), output).score == expected_score
 
 
 @pytest.mark.parametrize(

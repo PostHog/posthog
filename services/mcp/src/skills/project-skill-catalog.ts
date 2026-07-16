@@ -5,6 +5,7 @@ import {
     type LearnSearchResult,
     makeSkillFile,
     readLearnLines,
+    scoreProjectSearchResult,
     searchLearnFile,
     type SkillFile,
 } from '@/skills/skill-catalog'
@@ -68,6 +69,13 @@ export class ProjectSkillCatalog {
                 line: match.line ?? 1,
                 text: match.excerpt,
             })),
+            // Scored client-side so project and PostHog results merge into one relevance order.
+            score: scoreProjectSearchResult(
+                query,
+                skill.name,
+                skill.description,
+                skill.matches.map((match) => match.matched_field)
+            ),
         }))
     }
 
