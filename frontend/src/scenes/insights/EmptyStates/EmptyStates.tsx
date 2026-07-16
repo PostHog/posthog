@@ -15,21 +15,27 @@ import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { dayjs } from 'lib/dayjs'
 import { holidaysMatcher, isChristmas } from 'lib/holidays'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { IconChristmasOrnament, IconErrorOutline, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
+import posthog from 'lib/posthog-typed'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { humanFriendlyNumber, humanizeBytes } from 'lib/utils/numbers'
+import { isTrustedPostHogUrl } from 'lib/utils/trustedUrl'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { autoRunMaxPrompt } from 'scenes/max/maxPrompt'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
+import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { seriesToActionsAndEvents } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { FunnelsQuery, Node, NodeKind, QueryStatus } from '~/queries/schema/schema-general'
@@ -40,6 +46,7 @@ import {
     FilterType,
     InsightLogicProps,
     SavedInsightsTabs,
+    SidePanelTab,
 } from '~/types'
 
 import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
@@ -49,6 +56,17 @@ import { SampleDataState, SampleDataVariant } from './SampleDataState'
 import { sampleDataStateLogic } from './sampleDataStateLogic'
 
 const HedgehogConstruction2 = pngHoggie(construction2Png)
+
+// Matches ClickHouseQueryMemoryLimitExceeded.default_code on the backend. Keep the two in sync.
+const CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE = 'clickhouse_memory_limit_exceeded'
+
+const MEMORY_LIMIT_AI_PROMPT = autoRunMaxPrompt(
+    "This insight ran out of memory before it could finish. Help me work out why it's scanning so much data and how to fix it: a shorter date range, narrower filters, or materializing the data."
+)
+
+// Stop the capture before trailing sentence punctuation so a URL ending a sentence (".", ")") keeps
+// a clean href. No `g` flag needed: split() finds all matches and interleaves the captured URLs.
+const DETAIL_URL_REGEX = /(https?:\/\/[^\s]*[^\s.,;:!?)\]}'"])/
 
 export function InsightEmptyState({
     heading,
@@ -516,17 +534,55 @@ export function InsightTimeoutState({ queryId }: { queryId?: string | null }): J
     )
 }
 
+// Render embedded URLs (e.g. backend docs links) as clickable links. Only PostHog-host URLs are
+// linkified — error detail can echo user-controlled text.
+export function renderDetailWithLinks(detail: string): (string | JSX.Element)[] {
+    // Splitting on a capturing group interleaves text and URL matches, so odd indexes are the URLs
+    return detail.split(DETAIL_URL_REGEX).map((part, index) =>
+        index % 2 === 1 && isTrustedPostHogUrl(part) ? (
+            <Link key={index} to={part} target="_blank">
+                {part}
+            </Link>
+        ) : (
+            part
+        )
+    )
+}
+
+/** Kind of the query that errored, unwrapping InsightVizNode/DataTableNode wrappers to the source query. */
+function queryKindForReporting(query: Record<string, any> | Node | null | undefined): string | null {
+    const record = query as Record<string, any> | null | undefined
+    return record?.source?.kind ?? record?.kind ?? null
+}
+
 export function InsightValidationError({
     detail,
+    validationErrorCode,
     query,
     onRetry,
     cta,
 }: {
     detail: string
+    validationErrorCode?: string | null
     query?: Record<string, any> | null
     onRetry?: () => void
     cta?: JSX.Element
 }): JSX.Element {
+    const { openSidePanel } = useActions(sidePanelStateLogic)
+    const debugWithAI = (): void => openSidePanel(SidePanelTab.Max, MEMORY_LIMIT_AI_PROMPT)
+    const isMemoryLimitError = validationErrorCode === CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE
+    const defaultCta =
+        cta ?? (onRetry ? <RetryButton onRetry={onRetry} query={query} /> : <QueryDebuggerButton query={query} />)
+
+    // Raw error detail can echo query fragments, so telemetry only gets the code and coarse metadata
+    useOnMountEffect(() => {
+        posthog.capture('insight error message shown', {
+            error_type: 'validation',
+            code: validationErrorCode ?? null,
+            query_kind: queryKindForReporting(query),
+        })
+    })
+
     return (
         <div
             data-attr="insight-empty-state"
@@ -546,9 +602,28 @@ export function InsightValidationError({
                 {/* but rather that it's something with the definition of the query itself */}
             </h2>
 
-            <p className="text-sm text-muted max-w-120 mb-2">{detail}</p>
+            <p className="text-sm text-muted max-w-120 mb-2">{renderDetailWithLinks(detail)}</p>
 
-            {cta ?? (onRetry ? <RetryButton onRetry={onRetry} query={query} /> : <QueryDebuggerButton query={query} />)}
+            {/* For memory-limit errors, lead with the AI debugger but keep the retry/debugger action
+                beside it so users who decline AI consent (or lack AI access) still have a next step.
+                onClick fires when consent was already given (popover hidden); onApprove fires after
+                the consent flow completes — same pattern as InsightAIAnalysis. */}
+            {isMemoryLimitError && !cta ? (
+                <div className="flex items-center gap-2">
+                    <AIConsentPopoverWrapper onApprove={debugWithAI}>
+                        <LemonButton
+                            type="primary"
+                            onClick={debugWithAI}
+                            data-attr="insight-memory-limit-debug-with-ai"
+                        >
+                            Debug with PostHog AI
+                        </LemonButton>
+                    </AIConsentPopoverWrapper>
+                    {defaultCta}
+                </div>
+            ) : (
+                defaultCta
+            )}
 
             {detail.includes('Exclusion') && (
                 <div className="mt-4">
@@ -587,6 +662,16 @@ export function InsightErrorState({
 }: InsightErrorStateProps): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
+
+    // Raw error detail can echo query fragments, so telemetry only gets coarse metadata;
+    // query_id lets staff look the actual error up server-side
+    useOnMountEffect(() => {
+        posthog.capture('insight error message shown', {
+            error_type: 'server',
+            query_kind: queryKindForReporting(query),
+            query_id: queryId ?? null,
+        })
+    })
 
     if (!preflight?.cloud) {
         excludeDetail = true // We don't provide support for self-hosted instances

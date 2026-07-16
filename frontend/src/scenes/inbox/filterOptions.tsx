@@ -8,6 +8,7 @@ import {
     IconCompass,
     IconDatabase,
     IconGithub,
+    IconGraph,
     IconList,
     IconReceipt,
     IconRefresh,
@@ -17,7 +18,7 @@ import {
 } from '@posthog/icons'
 import { LemonTagType } from '@posthog/lemon-ui'
 
-import { InboxSortDirection, InboxSortField } from './logics/inboxFiltersLogic'
+import type { InboxSortDirection, InboxSortField } from './logics/inboxFiltersLogic'
 import { SignalReportPriority } from './types'
 
 /**
@@ -85,6 +86,7 @@ export const INBOX_SOURCE_OPTIONS: { value: string; label: string; icon: JSX.Ele
     { value: 'zendesk', label: 'Zendesk', icon: <IconReceipt /> },
     { value: 'conversations', label: 'Conversations', icon: <IconSupport /> },
     { value: 'pganalyze', label: 'pganalyze', icon: <IconDatabase /> },
+    { value: 'analytics', label: 'Product analytics', icon: <IconGraph /> },
     { value: 'signals_scout', label: 'Scout', icon: <IconCompass /> },
 ]
 

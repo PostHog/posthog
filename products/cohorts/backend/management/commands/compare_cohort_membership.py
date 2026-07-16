@@ -1,9 +1,12 @@
 """Classified parity report: new Rust cohort pipeline vs old Temporal recompute pipeline.
 
 Compares converged membership snapshots — the shadow topic folded to final state per
-(cohort, person) vs the argMax of ClickHouse cohort_membership — and classifies the
-divergences (R-EXCLUDE / R-FRESH / R-WARMUP / residual) so expected skew is separated
-from real bugs. Exits non-zero if any eligible cohort FAILs the residual gate.
+(cohort, person) vs the argMax of ClickHouse cohort_membership. The diff is bounded to
+the observed universe O = persons the new pipeline decided on since the store wipe;
+never-computed persons (old - O) are excluded from the gate and instead feed a separate
+missed-emission probe. Divergences are classified (R-EXCLUDE / R-FRESH / R-STALE /
+suspect-missing / dormant) so expected skew is separated from real bugs. Exits non-zero
+if any eligible cohort FAILs the residual gate or the (sound-window) suspect-missing gate.
 
 Run from a toolbox/web pod (needs KAFKA_INGESTION_HOSTS + the offline ClickHouse host):
 
@@ -30,7 +33,9 @@ SHADOW_TOPIC_RETENTION_DAYS = 7
 
 # Deliberate coverage limits, restated with every report so a clean run is not over-read.
 COVERAGE_CAVEATS = (
-    "WARMUP cohorts attribute all only_old to warmup (window predates the pipeline); they gate only on unexplained only_new",
+    "the diff is bounded to persons the new pipeline decided on (O); old-only persons outside O are excluded and only probed for missed emissions",
+    "suspect_missing gates FAIL only where the store provably covers the window (window <= pipeline age, or property-only cohorts); on longer windows unobserved actives are unresolvable until warmup (no snapshot resolves pre-since qualifiers) and report as WARMUP",
+    "minute/hour-window cohorts get suspect≈0 by construction — the probe cutoff collapses to now",
     "cohorts the old pipeline never recomputed count all only_new as fresh (residual_new is 0 there)",
     "a partial drain (poll timeout or --max-messages) understates the new side and biases toward FAIL",
 )
@@ -99,9 +104,13 @@ class Command(BaseCommand):
             "--warmup-sample",
             type=int,
             default=5000,
-            help="Persons sampled per cohort for the R-WARMUP event check; 0 skips it (cohort-level warmup only)",
+            help="Persons sampled per cohort for the missed-emission (suspect) probe over old - O; 0 skips it",
         )
-        parser.add_argument("--no-classify", action="store_true", help="Raw snapshot diff only, no R-* rules")
+        parser.add_argument(
+            "--no-classify",
+            action="store_true",
+            help="O-bounded raw diff only, no R-FRESH/R-STALE rules or suspect probe",
+        )
         parser.add_argument("--shadow-topic", type=str, default=DEFAULT_SHADOW_TOPIC)
         parser.add_argument("--new-kafka-hosts", type=str, default=None, help="Override shadow-topic bootstrap servers")
         parser.add_argument("--security-protocol", type=str, default=None, help="Override Kafka security protocol")
@@ -224,4 +233,6 @@ class Command(BaseCommand):
                 self.stdout.write(f"  {caveat}")
 
         if summary.failed:
-            raise CommandError(f"{summary.failed} eligible cohort(s) FAIL the {options['threshold']}% residual gate")
+            raise CommandError(
+                f"{summary.failed} eligible cohort(s) FAIL the {options['threshold']}% parity gate (residual or suspect-missing)"
+            )

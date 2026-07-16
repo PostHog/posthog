@@ -51,8 +51,11 @@ export interface Series<Meta = unknown> {
     /** Bar charts only: per-bar overrides of the series-level `color`/`label`/`meta`, indexed by
      *  data index. Lets one series draw bars with distinct identity (e.g. an aggregated breakdown,
      *  one bar per breakdown value) instead of paying the O(n²) cost of one series per bar. Read by
-     *  bar fill, hover highlight, and the tooltip; not by track decorations (`drawBarTracks`). */
-    bars?: { color?: string; label?: string; meta?: Meta }[]
+     *  bar fill, hover highlight, and the tooltip; not by track decorations (`drawBarTracks`).
+     *  `hatch` fills that bar with the diagonal-hatch pattern (in the bar's resolved color) instead
+     *  of a solid fill — for flagging individual not-final bars (e.g. a bucket still being
+     *  ingested) without the contiguous-range constraint of `stroke.partial`. */
+    bars?: { color?: string; label?: string; meta?: Meta; hatch?: boolean }[]
     /** Bar charts only: per-bar ceiling (in value-axis units) of the bar's interactive extent. The
      *  region beyond the ceiling is a blank, fully inert gap — no hover, tooltip, highlight, or
      *  click (`onPointClick` passes through). On grouped charts with `bars.track`, the hatched
@@ -122,6 +125,10 @@ export interface Series<Meta = unknown> {
         excluded?: boolean
         /** Whether the series appears in the tooltip's seriesData. Defaults to true. */
         tooltip?: boolean
+        /** Whether the series' value counts toward the built-in tooltip's total row — its own row
+         *  still renders. Use for series whose values don't sum meaningfully with the rest (e.g. a
+         *  percentage column alongside counts). Defaults to true. */
+        total?: boolean
         /** Whether the ValueLabels overlay draws a label for this series. Defaults to true. */
         valueLabel?: boolean
     }
@@ -463,6 +470,10 @@ export interface ComboChartConfig extends Omit<ChartConfig, 'axisOrientation'> {
     /** Layout applied to *bar* series only — lines and areas never stack or group. Defaults to
      *  `'stacked'`. `'percent'` stacks bars to 100%; line/area series still plot at raw values. */
     barLayout?: 'stacked' | 'grouped' | 'percent'
+    /** Stacked layout only — use d3.stackOffsetDiverging so negative bar values stack below the
+     *  zero baseline (positives above). Default `false` clamps negatives to 0. Mirrors
+     *  {@link BarsConfig.divergingStack}. */
+    divergingStack?: boolean
     /** Corner radius for the cap of bar segments. Stacked bars only round the topmost segment. */
     barCornerRadius?: number
     /** Value-axis domain control for the primary axis — omit for data-derived auto-scaling. Used

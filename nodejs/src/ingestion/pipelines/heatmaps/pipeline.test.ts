@@ -79,9 +79,8 @@ describe('HeatmapsPipeline', () => {
         await pipeline.feed(batch)
         let result = await pipeline.next()
         while (result !== null) {
-            for (const sideEffect of result.sideEffects ?? []) {
-                void promiseScheduler.schedule(sideEffect)
-            }
+            // The pipeline handles its own side effects; none may leak to drivers.
+            expect(result.sideEffects ?? []).toEqual([])
             result = await pipeline.next()
         }
         await promiseScheduler.waitForAll()

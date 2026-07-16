@@ -4,8 +4,10 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
+from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models import Value
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.team.extensions import register_team_extension_signal
@@ -23,6 +25,17 @@ logger = logging.getLogger(__name__)
 # they emit, and the docs instruct OTel-emitting backends to set the same key. Customers
 # whose pipeline uses a different key can override via the `logs_config` endpoint.
 DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY = "posthogDistinctId"
+
+# Default log attribute keys whose values hold the PostHog session ID. `posthogSessionId`
+# is the key the posthog-js / posthog-react-native SDKs auto-attach to every log they
+# emit (see https://posthog.com/docs/logs/link-session-replay). Ordered: detection checks
+# keys in list order and the first match wins. Customers whose pipeline emits the session
+# ID under different keys can override via the `logs_config` endpoint.
+DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS = ["posthogSessionId"]
+
+
+def default_logs_session_id_attribute_keys() -> list[str]:
+    return list(DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS)
 
 
 class TeamLogsConfig(models.Model):
@@ -42,6 +55,15 @@ class TeamLogsConfig(models.Model):
         db_default=DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY,
     )
 
+    # Ordered list of log attribute keys whose values hold the PostHog session ID.
+    # Detection checks keys in order; the first key with a value wins. Used to link
+    # logs to session replay and error tracking sessions.
+    logs_session_id_attribute_keys = ArrayField(
+        models.CharField(max_length=200),
+        default=default_logs_session_id_attribute_keys,
+        db_default=Value("{posthogSessionId}"),
+    )
+
 
 register_team_extension_signal(TeamLogsConfig, logger=logger)
 
@@ -57,6 +79,8 @@ class LogsView(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     short_id = models.CharField(max_length=12, blank=True, default=generate_short_id)
     name = models.CharField(max_length=400)
     filters = models.JSONField(default=dict)
+    # Display config (LogsColumnConfig[]), separate from filter state. Null = default column set.
+    columns = models.JSONField(null=True, default=None)
     pinned = models.BooleanField(default=False)
 
     class Meta:

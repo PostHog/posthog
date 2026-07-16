@@ -37,6 +37,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class HubplannerSource(ResumableSource[HubplannerSourceConfig, HubPlannerResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://github.com/hubplanner/API"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -53,7 +54,6 @@ class HubplannerSource(ResumableSource[HubplannerSourceConfig, HubPlannerResumeC
 Generate a **Read Only** API key in Hub Planner under **Settings → API** (admin access required).""",
             iconPath="/static/services/hubplanner.png",
             docsUrl="https://posthog.com/docs/cdp/sources/hubplanner",
-            unreleasedSource=True,
             releaseStatus=ReleaseStatus.ALPHA,
             fields=cast(
                 list[FieldType],

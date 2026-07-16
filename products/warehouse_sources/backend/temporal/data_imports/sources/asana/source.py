@@ -35,6 +35,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AsanaSource(ResumableSource[AsanaSourceConfig, AsanaResumeConfig]):
+    supported_versions = ("1.0",)
+    default_version = "1.0"
+    api_docs_url = "https://developers.asana.com/reference/rest-api-reference"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

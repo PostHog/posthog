@@ -776,6 +776,14 @@ tests:
     test:quarantine:
         click: hogli_commands.quarantine.cli:quarantine
         description: Manage .test_quarantine.json — quarantine flaky tests so they stop blocking CI
+    evals:
+        cmd: python -m products.posthog_ai.eval_harness.harness
+        description: Run evals — sandboxed agent and one-shot suites (extra args pass through, e.g. `sql` or `cli_mcp --provider modal`)
+        needs_secrets: true
+    evals:sandboxed:
+        cmd: python -m products.posthog_ai.eval_harness.harness
+        description: Alias of `evals` (kept for back-compat)
+        needs_secrets: true
 quality:
     lint:
         cmd: ./bin/ruff.sh check . && pnpm --filter=@posthog/frontend run lint
@@ -791,8 +799,8 @@ quality:
             "$@"
         description: Format CSS/SCSS files
     format:js:
-        cmd: pnpm oxlint --fix --fix-suggestions --quiet "$@" && pnpm exec oxfmt --no-error-on-unmatched-pattern
-            "$@"
+        cmd: pnpm oxlint --fix --fix-suggestions --quiet --no-error-on-unmatched-pattern
+            "$@" && pnpm exec oxfmt --no-error-on-unmatched-pattern "$@"
         description: Format JavaScript/TypeScript files (frontend)
     format:nodejs:
         cmd: pnpm --dir nodejs exec eslint --fix "$@" && pnpm --dir nodejs exec prettier
@@ -1003,6 +1011,22 @@ tools:
     ci:preflight:
         click: hogli_commands.ci_preflight:ci_preflight
         description: Catch deterministic CI failures reachable from your diff before you push (advisory; --fix, --strict)
+owners:
+    owners:resolve:
+        click: posthog_owners.cli:cmd_resolve
+        description: Resolve ownership for paths (args or newline-delimited stdin); --json for machine output
+    owners:who:
+        click: posthog_owners.cli:cmd_who
+        description: Show who owns a single path (owners, status, slack, source)
+    owners:unowned:
+        click: posthog_owners.cli:cmd_unowned
+        description: List unowned tracked files, respecting owners:null exemptions (optional PREFIX)
+    owners:lint:
+        click: posthog_owners.cli:cmd_lint
+        description: Validate owners.yaml schema, product.yaml conflicts, dead globs, coverage (--live checks the GitHub org)
+    owners:fmt:
+        click: posthog_owners.cli:cmd_fmt
+        description: Dry-run oracle showing how the owners.yaml layout differs from canonical placement (never writes)
 devex:
     devex:feedback:
         click: hogli_commands.feedback:devex_feedback

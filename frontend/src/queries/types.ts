@@ -42,6 +42,11 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     refresh?: RefreshType
     /** Extra source feature for Data Tables */
     extraDataTableQueryFeatures?: QueryFeature[]
+    /**
+     * Force-show the DataTable "load more" footer even for query kinds that normally hide it
+     * (e.g. Web analytics breakdown tables when expanded in the "Show more" modal).
+     */
+    showLoadNextButton?: boolean
     /** Allow customization of file name when exporting */
     fileNameForExport?: string
     /** Cohort ID to enable cohort-specific features like View Replays button */

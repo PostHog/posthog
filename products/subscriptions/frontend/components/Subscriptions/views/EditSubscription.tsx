@@ -25,16 +25,16 @@ import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { SubscriptionFreeTierLimit } from '~/queries/schema/schema-general'
-import { AvailableFeature, DashboardType, InsightShortId, SubscriptionResourceTypes, SubscriptionType } from '~/types'
+import { AvailableFeature, DashboardType, InsightShortId, SubscriptionResourceTypes } from '~/types'
 
 import type { AIWindowConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
@@ -46,6 +46,7 @@ import {
     bysetposOptions,
     frequencyOptionsPlural,
     frequencyOptionsSingular,
+    formatNextDeliveryDate,
     getAiSubscriptionGate,
     getNextDeliveryDate,
     intervalOptions,
@@ -307,12 +308,10 @@ function AiPromptFields({
 
 function DashboardInsightsField({
     dashboard,
-    subscription,
-    onResetSubscription,
+    onDefaultsApplied,
 }: {
     dashboard: DashboardType<any>
-    subscription: SubscriptionType
-    onResetSubscription: (subscription: SubscriptionType) => void
+    onDefaultsApplied: (selectedIds: number[]) => void
 }): JSX.Element {
     return (
         <LemonField name="dashboard_export_insights" label="Insights to include">
@@ -321,11 +320,9 @@ function DashboardInsightsField({
                     tiles={dashboard.tiles}
                     selectedInsightIds={value ?? []}
                     onChange={onChange}
-                    // Reset the form's "changed" state after auto-selecting defaults so it doesn't trip the
-                    // unsaved-changes warning; merge the IDs into the subscription to preserve them.
-                    onDefaultsApplied={(selectedIds) =>
-                        onResetSubscription({ ...subscription, dashboard_export_insights: selectedIds })
-                    }
+                    // The logic decides whether the auto-selection resets the form to a clean state
+                    // or joins a prefill's baseline — see applyInsightSelectionDefaults.
+                    onDefaultsApplied={onDefaultsApplied}
                 />
             )}
         </LemonField>
@@ -344,6 +341,7 @@ function EditSubscriptionForm({
         id,
         insightShortId,
         dashboardId,
+        dashboardName: dashboard?.name,
     }
     const logic = subscriptionLogic(logicProps)
     const subscriptionslogic = subscriptionsLogic({
@@ -355,7 +353,7 @@ function EditSubscriptionForm({
     const { subscription, subscriptionLoading, isSubscriptionSubmitting, subscriptionChanged, summaryQuota } =
         useValues(logic)
     const { previewLoading, previewError, previewImageUrl } = useValues(logic)
-    const { resetSubscription, generatePreview } = useActions(logic)
+    const { applyInsightSelectionDefaults, generatePreview } = useActions(logic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { deleteSubscription } = useActions(subscriptionslogic)
@@ -514,8 +512,7 @@ function EditSubscriptionForm({
                         {dashboard?.tiles && selectionReady && !isAiPrompt && (
                             <DashboardInsightsField
                                 dashboard={dashboard}
-                                subscription={subscription}
-                                onResetSubscription={resetSubscription}
+                                onDefaultsApplied={applyInsightSelectionDefaults}
                             />
                         )}
 
@@ -741,67 +738,94 @@ function EditSubscriptionForm({
                             </div>
                             {nextDeliveryDate && (
                                 <div className="text-xs text-secondary mt-1">
-                                    Next delivery: {dayjs(nextDeliveryDate).format('ddd, MMM D [at] HH:mm')}
+                                    Next delivery: {formatNextDeliveryDate(nextDeliveryDate)}
                                 </div>
                             )}
                         </div>
 
                         {/*
-                         * AI-prompt subscriptions are themselves an LLM-generated report —
-                         * appending an insight-style "automatic AI summary" on top would be
-                         * a summary of a summary. Hide the toggle entirely for AI subs.
+                         * Delivery options: the AI-summary toggle is hidden for AI-prompt subs, which are
+                         * themselves an LLM report — a summary of a summary. The test-run toggle always
+                         * renders; it is disabled (with a reason) while the subscription is disabled.
                          */}
-                        {!isAiPrompt && (
-                            <>
-                                <LemonField name="summary_enabled">
-                                    {({ value, onChange }) => (
-                                        <AIConsentPopoverWrapper>
-                                            <LemonSwitch
-                                                checked={value}
-                                                onChange={onChange}
-                                                bordered
-                                                label="Include an automatic AI summary"
-                                                fullWidth
-                                                disabledReason={
-                                                    !dataProcessingAccepted && !value
-                                                        ? 'Your organization needs to approve AI data processing before enabling AI summaries'
-                                                        : summaryQuota?.at_limit && !value
-                                                          ? `Plan limit reached (${summaryQuota.limit} active AI summaries). See details below.`
-                                                          : undefined
-                                                }
-                                            />
-                                        </AIConsentPopoverWrapper>
-                                    )}
-                                </LemonField>
+                        <div className="flex flex-col gap-2">
+                            <LemonLabel className="mb-2">Settings</LemonLabel>
+                            {!isAiPrompt && (
+                                <>
+                                    <LemonField name="summary_enabled">
+                                        {({ value, onChange }) => (
+                                            <AIConsentPopoverWrapper>
+                                                <LemonSwitch
+                                                    checked={value}
+                                                    onChange={onChange}
+                                                    bordered
+                                                    label="Include an automatic AI summary"
+                                                    fullWidth
+                                                    disabledReason={
+                                                        !dataProcessingAccepted && !value
+                                                            ? 'Your organization needs to approve AI data processing before enabling AI summaries'
+                                                            : summaryQuota?.at_limit && !value
+                                                              ? `Plan limit reached (${summaryQuota.limit} active AI summaries). See details below.`
+                                                              : undefined
+                                                    }
+                                                />
+                                            </AIConsentPopoverWrapper>
+                                        )}
+                                    </LemonField>
 
-                                {summaryQuota?.at_limit &&
-                                    !subscription.summary_enabled &&
-                                    summaryQuota.limit !== null && (
-                                        <UsageLimitPaywall
-                                            title="AI summary limit reached"
-                                            description="Disable an existing AI summary or upgrade your plan to add more."
-                                            limit={summaryQuota.limit}
-                                            currentUsage={summaryQuota.active_count}
-                                            unit="active AI summaries on your plan"
+                                    {summaryQuota?.at_limit &&
+                                        !subscription.summary_enabled &&
+                                        summaryQuota.limit !== null && (
+                                            <UsageLimitPaywall
+                                                title="AI summary limit reached"
+                                                description="Disable an existing AI summary or upgrade your plan to add more."
+                                                limit={summaryQuota.limit}
+                                                currentUsage={summaryQuota.active_count}
+                                                unit="active AI summaries on your plan"
+                                            />
+                                        )}
+
+                                    {subscription.summary_enabled && (
+                                        <FlaggedFeature flag={FEATURE_FLAGS.SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE}>
+                                            <LemonField
+                                                name="summary_prompt_guide"
+                                                label="Context for the AI summary"
+                                                showOptional
+                                            >
+                                                <LemonTextArea
+                                                    placeholder="e.g. This is a daily revenue health check - focus on revenue drop-off and churn signals"
+                                                    maxLength={500}
+                                                />
+                                            </LemonField>
+                                        </FlaggedFeature>
+                                    )}
+                                </>
+                            )}
+
+                            <div>
+                                <LemonField name="send_test_now">
+                                    {({ value, onChange }) => (
+                                        <LemonSwitch
+                                            checked={subscription?.enabled === false ? false : value}
+                                            onChange={onChange}
+                                            bordered
+                                            fullWidth
+                                            label="Send a test run now"
+                                            disabledReason={
+                                                subscription?.enabled === false
+                                                    ? 'This subscription is disabled — re-enable it to send a test run'
+                                                    : undefined
+                                            }
                                         />
                                     )}
-
-                                {subscription.summary_enabled && (
-                                    <FlaggedFeature flag={FEATURE_FLAGS.SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE}>
-                                        <LemonField
-                                            name="summary_prompt_guide"
-                                            label="Context for the AI summary"
-                                            showOptional
-                                        >
-                                            <LemonTextArea
-                                                placeholder="e.g. This is a daily revenue health check - focus on revenue drop-off and churn signals"
-                                                maxLength={500}
-                                            />
-                                        </LemonField>
-                                    </FlaggedFeature>
-                                )}
-                            </>
-                        )}
+                                </LemonField>
+                                <p className="text-xs text-secondary mt-1 mb-0">
+                                    On save we send this report once to the destination above, so you can confirm it
+                                    looks right. Turn this off to wait for the next scheduled delivery
+                                    {nextDeliveryDate ? ` (${formatNextDeliveryDate(nextDeliveryDate)})` : ''}.
+                                </p>
+                            </div>
+                        </div>
 
                         {insightShortId && !isAiPrompt && (
                             <div>

@@ -193,7 +193,8 @@ class TestExperimentServiceApprovals(APIBaseTest):
         with self.assertRaises(ApprovalRequired):
             self._service().update_experiment(
                 experiment,
-                {"parameters": {"feature_flag_variants": new_variants}, "update_feature_flag_params": True},
+                {"update_feature_flag_params": True},
+                feature_flag_config={"filters": {"multivariate": {"variants": new_variants}}},
                 serializer_context=context,
             )
 
@@ -227,11 +228,11 @@ class TestExperimentServiceApprovals(APIBaseTest):
             self._service().update_experiment(
                 experiment,
                 {
-                    "parameters": {"feature_flag_variants": new_variants},
                     "update_feature_flag_params": True,
                     # baseline_variant_key references a variant that does not exist in the resolved set.
                     "stats_config": {"baseline_variant_key": "nonexistent"},
                 },
+                feature_flag_config={"filters": {"multivariate": {"variants": new_variants}}},
                 serializer_context=context,
             )
 

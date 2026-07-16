@@ -52,7 +52,6 @@ class TestChurnkeySourceConfig:
 
     def test_source_config_metadata(self) -> None:
         config = ChurnkeySource().get_source_config
-        assert config.unreleasedSource is True
         assert config.releaseStatus == ReleaseStatus.ALPHA
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/churnkey"
 

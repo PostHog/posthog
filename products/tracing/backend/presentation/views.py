@@ -377,6 +377,12 @@ class _TracingAttributeBreakdownQueryBodySerializer(serializers.Serializer):
         default=False,
         help_text="Drop filters targeting the breakdown key itself (including serviceNames for a service_name breakdown), so a facet's value list stays complete while one of its values is selected.",
     )
+    facetSearch = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Type-ahead filter over the breakdown field's own values (case-insensitive substring match). "
+        "An empty string means no filter. Lets a facet's value search reach past the row limit.",
+    )
     orderBy = serializers.ChoiceField(
         choices=["count", "error_count"],
         required=False,
@@ -405,6 +411,28 @@ class _TracingAttributeBreakdownQueryBodySerializer(serializers.Serializer):
 
 class _TracingAttributeBreakdownRequestSerializer(serializers.Serializer):
     query = _TracingAttributeBreakdownQueryBodySerializer(help_text="The attribute breakdown query to execute.")
+
+
+class _TracingAttributeBreakdownRowSerializer(serializers.Serializer):
+    value = serializers.CharField(
+        help_text="The attribute's value for this group. Spans without the attribute group under ''."
+    )
+    count = serializers.IntegerField(help_text="Number of matching spans with this value.")
+    error_count = serializers.IntegerField(help_text="Number of matching error spans (status_code = 2).")
+    p50_duration_nano = serializers.FloatField(help_text="Median span duration in nanoseconds.")
+    p95_duration_nano = serializers.FloatField(help_text="95th percentile span duration in nanoseconds.")
+
+
+class _TracingAttributeBreakdownResponseSerializer(serializers.Serializer):
+    results = _TracingAttributeBreakdownRowSerializer(
+        many=True,
+        help_text="One row per distinct attribute value, ordered by the requested column descending.",
+    )
+    compare = _TracingAttributeBreakdownRowSerializer(
+        many=True,
+        allow_null=True,
+        help_text="Rows for the comparison window when compareFilter.compare is true, else null.",
+    )
 
 
 class _TracingTreeQueryBodySerializer(serializers.Serializer):
@@ -1023,7 +1051,10 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             status=status.HTTP_200_OK,
         )
 
-    @extend_schema(request=_TracingAttributeBreakdownRequestSerializer)
+    @extend_schema(
+        request=_TracingAttributeBreakdownRequestSerializer,
+        responses={200: _TracingAttributeBreakdownResponseSerializer},
+    )
     @action(detail=False, methods=["POST"], url_path="attribute-breakdown", required_scopes=["tracing:read"])
     def attribute_breakdown(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
@@ -1089,6 +1120,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             filter_group=filter_group,
             service_names=query_data.get("serviceNames", None),
             exclude_breakdown_filter=bool(query_data.get("excludeBreakdownFilter")),
+            facet_search=query_data.get("facetSearch") or None,
         )
 
         return Response(

@@ -135,23 +135,37 @@ async def get_llm_session_group_patterns_extraction(
 ) -> RawSessionGroupSummaryPatternsList:
     """Call LLM to extract patterns from multiple sessions."""
     sessions_identifier = generate_state_id_from_session_ids(session_ids)
-    result = await call_llm(
-        input_prompt=prompt.patterns_prompt,
-        session_id=sessions_identifier,
-        system_prompt=prompt.system_prompt,
-        model=model_to_use,
-        trace_id=trace_id,
-        user_id=user_id,
-        user_distinct_id=user_distinct_id,
-        trigger_session_id=trigger_session_id,
-    )
-    raw_content = get_raw_content(result)
-    if not raw_content:
-        msg = f"No content consumed when calling LLM for session group patterns extraction, sessions {sessions_identifier}"
-        logger.error(msg, signals_type="session-summaries")
-        raise ValueError(msg)
-    patterns = load_patterns_from_llm_content(raw_content, sessions_identifier)
-    return patterns
+    try:
+        result = await call_llm(
+            input_prompt=prompt.patterns_prompt,
+            session_id=sessions_identifier,
+            system_prompt=prompt.system_prompt,
+            model=model_to_use,
+            trace_id=trace_id,
+            user_id=user_id,
+            user_distinct_id=user_distinct_id,
+            trigger_session_id=trigger_session_id,
+        )
+        raw_content = get_raw_content(result)
+        if not raw_content:
+            msg = f"No content consumed when calling LLM for session group patterns extraction, sessions {sessions_identifier}"
+            logger.error(msg, signals_type="session-summaries")
+            raise ValueError(msg)
+        patterns = load_patterns_from_llm_content(raw_content, sessions_identifier)
+        return patterns
+    except (SummaryValidationError, ValueError) as err:
+        # Hallucinations or parsing inconsistencies: retry as early as possible to reduce latency.
+        logger.exception(
+            f"Hallucinated data or inconsistencies in session group patterns extraction for sessions {sessions_identifier}: {err}",
+            signals_type="session-summaries",
+        )
+        raise ExceptionToRetry() from err
+    except (openai.APIError, openai.APITimeoutError, openai.RateLimitError) as err:
+        logger.exception(
+            f"Error calling LLM for session group patterns extraction, sessions {sessions_identifier} by user {user_id}: {err}",
+            signals_type="session-summaries",
+        )
+        raise ExceptionToRetry() from err
 
 
 async def get_llm_session_group_patterns_assignment(
@@ -165,23 +179,37 @@ async def get_llm_session_group_patterns_assignment(
 ) -> RawSessionGroupPatternAssignmentsList:
     """Call LLM to assign events to extracted patterns."""
     sessions_identifier = generate_state_id_from_session_ids(session_ids)
-    result = await call_llm(
-        input_prompt=prompt.patterns_prompt,
-        session_id=sessions_identifier,
-        system_prompt=prompt.system_prompt,
-        model=model_to_use,
-        trace_id=trace_id,
-        user_id=user_id,
-        user_distinct_id=user_distinct_id,
-        trigger_session_id=trigger_session_id,
-    )
-    raw_content = get_raw_content(result)
-    if not raw_content:
-        msg = f"No content consumed when calling LLM for session group patterns assignment, sessions {sessions_identifier}"
-        logger.error(msg, signals_type="session-summaries")
-        raise ValueError(msg)
-    patterns = load_pattern_assignments_from_llm_content(raw_content, sessions_identifier)
-    return patterns
+    try:
+        result = await call_llm(
+            input_prompt=prompt.patterns_prompt,
+            session_id=sessions_identifier,
+            system_prompt=prompt.system_prompt,
+            model=model_to_use,
+            trace_id=trace_id,
+            user_id=user_id,
+            user_distinct_id=user_distinct_id,
+            trigger_session_id=trigger_session_id,
+        )
+        raw_content = get_raw_content(result)
+        if not raw_content:
+            msg = f"No content consumed when calling LLM for session group patterns assignment, sessions {sessions_identifier}"
+            logger.error(msg, signals_type="session-summaries")
+            raise ValueError(msg)
+        patterns = load_pattern_assignments_from_llm_content(raw_content, sessions_identifier)
+        return patterns
+    except (SummaryValidationError, ValueError) as err:
+        # Hallucinations or parsing inconsistencies: retry as early as possible to reduce latency.
+        logger.exception(
+            f"Hallucinated data or inconsistencies in session group patterns assignment for sessions {sessions_identifier}: {err}",
+            signals_type="session-summaries",
+        )
+        raise ExceptionToRetry() from err
+    except (openai.APIError, openai.APITimeoutError, openai.RateLimitError) as err:
+        logger.exception(
+            f"Error calling LLM for session group patterns assignment, sessions {sessions_identifier} by user {user_id}: {err}",
+            signals_type="session-summaries",
+        )
+        raise ExceptionToRetry() from err
 
 
 async def get_llm_session_group_patterns_combination(
@@ -194,23 +222,37 @@ async def get_llm_session_group_patterns_combination(
 ) -> RawSessionGroupSummaryPatternsList:
     """Call LLM to combine patterns from multiple chunks."""
     sessions_identifier = generate_state_id_from_session_ids(session_ids)
-    result = await call_llm(
-        input_prompt=prompt.patterns_prompt,
-        session_id=sessions_identifier,
-        system_prompt=prompt.system_prompt,
-        model=SESSION_SUMMARIES_MODEL,
-        trace_id=trace_id,
-        user_id=user_id,
-        user_distinct_id=user_distinct_id,
-        trigger_session_id=trigger_session_id,
-    )
-    raw_content = get_raw_content(result)
-    if not raw_content:
-        msg = f"No content consumed when calling LLM for session group patterns chunks combination, sessions {sessions_identifier}"
-        logger.error(msg, signals_type="session-summaries")
-        raise ValueError(msg)
-    patterns = load_patterns_from_llm_content(raw_content, sessions_identifier)
-    return patterns
+    try:
+        result = await call_llm(
+            input_prompt=prompt.patterns_prompt,
+            session_id=sessions_identifier,
+            system_prompt=prompt.system_prompt,
+            model=SESSION_SUMMARIES_MODEL,
+            trace_id=trace_id,
+            user_id=user_id,
+            user_distinct_id=user_distinct_id,
+            trigger_session_id=trigger_session_id,
+        )
+        raw_content = get_raw_content(result)
+        if not raw_content:
+            msg = f"No content consumed when calling LLM for session group patterns chunks combination, sessions {sessions_identifier}"
+            logger.error(msg, signals_type="session-summaries")
+            raise ValueError(msg)
+        patterns = load_patterns_from_llm_content(raw_content, sessions_identifier)
+        return patterns
+    except (SummaryValidationError, ValueError) as err:
+        # Hallucinations or parsing inconsistencies: retry as early as possible to reduce latency.
+        logger.exception(
+            f"Hallucinated data or inconsistencies in session group patterns combination for sessions {sessions_identifier}: {err}",
+            signals_type="session-summaries",
+        )
+        raise ExceptionToRetry() from err
+    except (openai.APIError, openai.APITimeoutError, openai.RateLimitError) as err:
+        logger.exception(
+            f"Error calling LLM for session group patterns chunks combination, sessions {sessions_identifier} by user {user_id}: {err}",
+            signals_type="session-summaries",
+        )
+        raise ExceptionToRetry() from err
 
 
 async def get_llm_single_session_summary(

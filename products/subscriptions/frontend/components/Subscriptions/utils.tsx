@@ -3,6 +3,7 @@ import { RRule } from 'rrule'
 import { IconLetter } from '@posthog/icons'
 import { LemonSelectOption, LemonSelectOptionLeaf, LemonSelectOptions } from '@posthog/lemon-ui'
 
+import { dayjs } from 'lib/dayjs'
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { range } from 'lib/utils/arrays'
 import { urls } from 'scenes/urls'
@@ -17,6 +18,12 @@ export interface SubscriptionBaseProps {
     insightShortId?: InsightShortId
 }
 
+export type SubscriptionsLogicProps = SubscriptionBaseProps
+
+export function formatNextDeliveryDate(date: string | Date): string {
+    return dayjs(date).format('ddd, MMM D [at] HH:mm')
+}
+
 export const urlForSubscriptions = ({ dashboardId, insightShortId }: SubscriptionBaseProps): string => {
     if (insightShortId) {
         return urls.insightSubcriptions(insightShortId)
@@ -26,6 +33,20 @@ export const urlForSubscriptions = ({ dashboardId, insightShortId }: Subscriptio
     // Parent-less (e.g. AI prompt) subscriptions live at the top-level list.
     return urls.subscriptions()
 }
+
+/**
+ * Deep-link params the subscribe-nudge uses to open the new-subscription form prefilled.
+ * Single source of truth shared by the producer (dashboard toast) and the consumer (this
+ * logic's urlToAction). The backend notification's source_url must mirror these — see the
+ * comment on source_url in products/dashboards/backend/api/dashboard.py.
+ */
+export const SUBSCRIPTION_PREFILL_PARAMS = {
+    param: 'prefill',
+    nudge: 'nudge',
+    viaParam: 'via',
+    viaToast: 'toast',
+    viaNotification: 'notification',
+} as const
 
 export const urlForSubscription = (
     id: number | 'new',

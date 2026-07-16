@@ -1,0 +1,5 @@
+version = 1
+name = "posthog"
+
+[setup]
+script = "bash .codex/with-flox --prepare true"

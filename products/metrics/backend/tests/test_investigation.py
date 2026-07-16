@@ -7,8 +7,8 @@ from django.utils import timezone
 
 from posthog.clickhouse.client import sync_execute
 
-from products.metrics.backend.facade.api import investigate
-from products.metrics.backend.facade.contracts import CompanionMetric, CompanionVerdict
+from products.metrics.backend.facade.api import investigate, investigate_incident
+from products.metrics.backend.facade.contracts import CompanionMetric, CompanionVerdict, IncidentContext
 from products.metrics.backend.tests._seeder import seed_metric
 
 
@@ -127,3 +127,58 @@ class TestInvestigate(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result.symptom.direction, "flat")
         self.assertEqual(result.confidence, "low")
         self.assertIn("held flat", result.narrative)
+
+    def test_incident_derives_window_from_fire_time(self):
+        # No timestamp math on the caller: the window comes from fired_at alone.
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="ingestion_lag",
+            points=self._spike(10.0, 100.0),
+            service_name="logs-ingestion",
+        )
+
+        result = investigate_incident(
+            team=self.team,
+            context=IncidentContext(
+                metric_name="ingestion_lag",
+                fired_at=self.start + dt.timedelta(minutes=20),
+                lookback=dt.timedelta(minutes=10),
+                leadout=dt.timedelta(minutes=5),
+            ),
+        )
+
+        self.assertEqual(result.symptom.anomaly_from, (self.start + dt.timedelta(minutes=10)).isoformat())
+        self.assertEqual(result.symptom.anomaly_to, (self.start + dt.timedelta(minutes=25)).isoformat())
+        self.assertEqual(result.symptom.direction, "up")
+
+    def test_incident_scopes_to_the_implicated_service(self):
+        # svc-a is flat, svc-b spikes; scoping to svc-a must hide svc-b's spike.
+        seed_metric(team_id=self.team.id, metric_name="ingestion_lag", points=self._flat(10.0), service_name="svc-a")
+        seed_metric(
+            team_id=self.team.id, metric_name="ingestion_lag", points=self._spike(10.0, 100.0), service_name="svc-b"
+        )
+
+        result = investigate_incident(
+            team=self.team,
+            context=IncidentContext(
+                metric_name="ingestion_lag",
+                fired_at=self.start + dt.timedelta(minutes=20),
+                lookback=dt.timedelta(minutes=10),
+                leadout=dt.timedelta(0),
+                service_name="svc-a",
+            ),
+        )
+
+        self.assertEqual(result.symptom.direction, "flat")
+
+    def test_incident_context_normalizes_fired_at_to_utc(self):
+        # fired_at must be an explicit instant: naive datetimes are rejected at
+        # construction rather than silently mis-bucketed as UTC, and aware
+        # non-UTC instants are normalized so window math always runs in UTC.
+        with self.assertRaises(ValueError):
+            IncidentContext(metric_name="ingestion_lag", fired_at=dt.datetime(2026, 1, 1, 12, 0))
+
+        ist = dt.timezone(dt.timedelta(hours=5, minutes=30))
+        context = IncidentContext(metric_name="ingestion_lag", fired_at=dt.datetime(2026, 1, 1, 17, 30, tzinfo=ist))
+        self.assertEqual(context.fired_at, dt.datetime(2026, 1, 1, 12, 0, tzinfo=dt.UTC))
+        self.assertEqual(context.fired_at.tzinfo, dt.UTC)

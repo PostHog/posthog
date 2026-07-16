@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Optional
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 
 from django.test import override_settings
 
@@ -93,6 +93,37 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
         assert response.status_code == 201, response.json()
         return response.json()["id"]
+
+    def test_mcp_list_is_metadata_only_and_hides_action_secrets(self):
+        # A webhook action whose headers carry a bearer token — the kind of credential-like value
+        # that must not leak from a workflow *listing*.
+        secret = "Bearer super-secret-token-abc123"
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {
+                "template_id": "template-webhook",
+                "inputs": {
+                    "url": {"value": "https://example.com"},
+                    "headers": {"value": {"Authorization": secret}},
+                },
+            }
+        )
+        create_response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert create_response.status_code == 201, create_response.json()
+
+        mcp_response = self.client.get(f"/api/projects/{self.team.id}/hog_flows", HTTP_X_POSTHOG_CLIENT="mcp")
+        assert mcp_response.status_code == 200, mcp_response.json()
+        result = mcp_response.json()["results"][0]
+        assert "actions" not in result
+        assert "edges" not in result
+        assert secret not in mcp_response.content.decode()
+
+        # The web app / raw API still get the full graph they rely on (e.g. client-side duplication) —
+        # and it does carry the secret, proving the MCP omission above is the summary serializer at
+        # work, not validation quietly dropping the header.
+        web_response = self.client.get(f"/api/projects/{self.team.id}/hog_flows")
+        assert web_response.status_code == 200, web_response.json()
+        assert "actions" in web_response.json()["results"][0]
+        assert secret in web_response.content.decode()
 
     def test_stale_update_is_rejected_with_409(self):
         flow_id = self._create_simple_flow()
@@ -2009,7 +2040,7 @@ class TestHogFlowAPI(APIBaseTest):
             response = self.client.post(f"/api/projects/{self.team.id}/hog_flows/user_blast_radius", {})
 
         assert response.status_code == 400, response.json()
-        assert "Missing filters" in response.json().get("detail", "")
+        assert response.json().get("attr") == "filters"
         mock_get_user_blast_radius.assert_not_called()
 
     def test_hog_flow_user_blast_radius_returns_counts(self):
@@ -2160,6 +2191,107 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert "Feature flags can't be used as a batch audience condition" in response.json().get("error", "")
         mock_get_user_blast_radius_persons.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("flag_on_uses_workflows_query", True),
+            ("flag_off_uses_legacy_query", False),
+        ]
+    )
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    def test_internal_user_blast_radius_persons_query_selection(self, _name, flag_enabled):
+        with (
+            patch(
+                "products.workflows.backend.api.hog_flow.use_workflows_batch_audience_query",
+                return_value=flag_enabled,
+            ),
+            patch(
+                "products.workflows.backend.api.hog_flow.get_batch_audience_person_ids", return_value=["id-1"]
+            ) as mock_workflows_query,
+            patch(
+                "products.workflows.backend.api.hog_flow.get_user_blast_radius_persons", return_value=["id-1"]
+            ) as mock_legacy_query,
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/internal/hog_flows/user_blast_radius_persons",
+                {"filters": {"properties": []}, "dedupe_key": "email"},
+                format="json",
+                headers={"x-internal-api-secret": "test-secret-123"},
+            )
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["users_affected"] == ["id-1"]
+        if flag_enabled:
+            mock_workflows_query.assert_called_once_with(self.team, {"properties": []}, None, None, dedupe_key="email")
+            mock_legacy_query.assert_not_called()
+        else:
+            mock_legacy_query.assert_called_once_with(self.team, {"properties": []}, None, None)
+            mock_workflows_query.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("flag_on_uses_deduped_count", True, 3),
+            ("flag_off_keeps_person_count", False, 5),
+        ]
+    )
+    def test_user_blast_radius_dedupe_key_affects_count(self, _name, flag_enabled, expected_affected):
+        from products.feature_flags.backend.user_blast_radius import BlastRadiusResult  # noqa: PLC0415
+
+        with (
+            patch(
+                "products.workflows.backend.api.hog_flow.use_workflows_batch_audience_query",
+                return_value=flag_enabled,
+            ),
+            patch(
+                "products.workflows.backend.api.hog_flow.get_user_blast_radius",
+                return_value=BlastRadiusResult(affected=5, total=10),
+            ) as mock_legacy_count,
+            patch(
+                "products.workflows.backend.api.hog_flow.get_batch_audience_count", return_value=3
+            ) as mock_deduped_count,
+            patch(
+                "posthog.models.team.team.Team.persons_seen_so_far",
+                new_callable=PropertyMock,
+                return_value=10,
+            ),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+                {"filters": {"properties": []}, "dedupe_key": "email"},
+            )
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["affected"] == expected_affected
+        assert response.json()["total"] == 10
+        # The applied key is echoed so the frontend can label the count correctly
+        assert response.json()["dedupe_key"] == ("email" if flag_enabled else None)
+        if flag_enabled:
+            # The legacy person-count query is skipped — only the deduped count runs
+            mock_deduped_count.assert_called_once_with(self.team, {"properties": []}, "email")
+            mock_legacy_count.assert_not_called()
+        else:
+            mock_deduped_count.assert_not_called()
+            mock_legacy_count.assert_called_once()
+
+    def test_user_blast_radius_rejects_unsupported_dedupe_key(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+            {"filters": {"properties": []}, "dedupe_key": "phone"},
+        )
+
+        assert response.status_code == 400, response.json()
+
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    def test_internal_user_blast_radius_persons_rejects_unsupported_dedupe_key(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/internal/hog_flows/user_blast_radius_persons",
+            {"filters": {"properties": []}, "dedupe_key": "phone"},
+            format="json",
+            headers={"x-internal-api-secret": "test-secret-123"},
+        )
+
+        assert response.status_code == 400, response.json()
+        assert "Unsupported dedupe_key" in response.json().get("error", "")
 
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
     @patch(

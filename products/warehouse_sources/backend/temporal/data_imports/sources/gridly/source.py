@@ -33,6 +33,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class GridlySource(ResumableSource[GridlySourceConfig, GridlyResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://www.gridly.com/docs/api/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -45,7 +46,6 @@ class GridlySource(ResumableSource[GridlySourceConfig, GridlyResumeConfig]):
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Gridly",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Gridly API key and a View ID to pull that view's records into the PostHog Data warehouse.
 
 Create an API key in your Gridly company settings under **Settings → API keys** (Owner or Admin access is required). Use a **Full Access** or **Read-only** key.

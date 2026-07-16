@@ -74,6 +74,7 @@ export const getStorybookAppContext = (): AppContext => ({
     resource_access_control: {
         action: 'manager',
         feature_flag: 'manager',
+        hog_flow: 'manager',
         dashboard: 'manager',
         dashboard_template: 'manager',
         insight: 'manager',
@@ -89,5 +90,7 @@ export const getStorybookAppContext = (): AppContext => ({
         activity_log: 'viewer',
         customer_analytics: 'manager',
         llm_analytics: 'manager',
+        error_tracking: 'manager',
+        metrics: 'manager',
     },
 })

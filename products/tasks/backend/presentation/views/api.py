@@ -36,9 +36,10 @@ from posthog.renderers import ServerSentEventRenderer
 from products.tasks.backend.facade import (
     access as tasks_access,
     api as tasks_facade,
+    cancellation as tasks_cancellation,
     contracts as tasks_contracts,
 )
-from products.tasks.backend.facade.access import cloud_usage_limit_response
+from products.tasks.backend.facade.access import cloud_usage_limit_response, code_access_required_response
 from products.tasks.backend.facade.metrics import (
     StreamConnectionOutcome,
     observe_stream_connection_closed,
@@ -85,6 +86,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunArtifactsUploadRequestSerializer,
     TaskRunArtifactsUploadResponseSerializer,
     TaskRunBootstrapCreateRequestSerializer,
+    TaskRunCancelRequestSerializer,
     TaskRunCommandRequestSerializer,
     TaskRunCommandResponseSerializer,
     TaskRunCreateRequestSchemaSerializer,
@@ -112,6 +114,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskWriteSerializer,
     WarmTaskRequestSerializer,
     WarmTaskResponseSerializer,
+    WizardCloudRunSerializer,
 )
 
 from ee.hogai.utils.aio import async_to_sync
@@ -146,6 +149,19 @@ def _is_internal_debug_team(team_id: int | None) -> bool:
     if settings.DEBUG and not settings.TEST:
         return team_id == 1
     return team_id == 2 and settings.CLOUD_DEPLOYMENT == "US"
+
+
+def _can_bypass_visibility(request, team_id: int | None) -> bool:
+    """Whether this request may READ tasks/runs it doesn't own (never write — control stays creator-scoped).
+
+    - Staff users: unconditionally, on any team (support/debugging). No opt-in needed, so staff don't hit
+      the per-creator 404 when opening a task by URL or streaming its run logs — the frontend can't reliably
+      thread a query param through every read (the SSE stream doesn't carry one).
+    - Internal-debug teams: keep the narrower, explicit ``?ph_debug=true`` opt-in (dev/debug workflow).
+    """
+    if bool(getattr(request.user, "is_staff", False)):
+        return True
+    return _is_internal_debug_team(team_id) and request.query_params.get("ph_debug") == "true"
 
 
 class _SchemaAwareLimitOffsetPagination(LimitOffsetPagination):
@@ -233,7 +249,13 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         filters["internal"] = getattr(request, "validated_query_data", {}).get("internal")
         filters["archived"] = getattr(request, "validated_query_data", {}).get("archived")
         filters["channel"] = getattr(request, "validated_query_data", {}).get("channel")
-        tasks = tasks_facade._list_tasks_queryset(self.team_id, self._user_id(), filters=filters)
+        # Staff can opt into seeing every team task; re-check server-side so a client can't
+        # forge the flag to bypass the per-user visibility gate.
+        all_team_tasks = bool(getattr(request, "validated_query_data", {}).get("all_team_tasks"))
+        bypass_visibility = all_team_tasks and _can_bypass_visibility(request, self.team_id)
+        tasks = tasks_facade._list_tasks_queryset(
+            self.team_id, self._user_id(), filters=filters, bypass_visibility=bypass_visibility
+        )
         page = self.paginate_queryset(tasks)
         assert page is not None, "TaskViewSet list requires an active paginator"
         return self.get_paginated_response(
@@ -246,7 +268,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         description="Retrieve a single task by ID.",
     )
     def retrieve(self, request, pk=None, **kwargs):
-        bypass_visibility = _is_internal_debug_team(self.team_id) and request.query_params.get("ph_debug") == "true"
+        bypass_visibility = _can_bypass_visibility(request, self.team_id)
         task = tasks_facade.get_task_detail(pk, self.team_id, self._user_id(), bypass_visibility=bypass_visibility)
         if task is None:
             raise NotFound()
@@ -300,6 +322,35 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         repositories = tasks_facade.list_task_repositories(self.team_id, self._user_id())
         serializer = TaskRepositoriesResponseSerializer({"repositories": repositories})
         return Response(serializer.data)
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=WizardCloudRunSerializer,
+                description="The team's active onboarding wizard cloud run.",
+            ),
+            204: OpenApiResponse(description="No active onboarding wizard cloud run for this project."),
+        },
+        summary="Get the team's active onboarding wizard cloud run",
+        description=(
+            "Returns the most recent onboarding wizard cloud run for the current project when it is "
+            "still running (or completed within the last day), so the setup-progress FAB can rehydrate "
+            "after a drop-flow signup that started the run server-side. Returns 204 when there is none."
+        ),
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="active_wizard_run",
+        required_scopes=["task:read"],
+        pagination_class=None,
+        filter_backends=[],
+    )
+    def active_wizard_run(self, request, **kwargs):
+        run = tasks_facade.get_active_wizard_cloud_run(self.team_id)
+        if run is None:
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        return Response(WizardCloudRunSerializer(run).data)
 
     @validated_request(
         request_serializer=TaskSummariesRequestSerializer,
@@ -581,6 +632,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if not self._warm_enabled():
             return Response(status=status.HTTP_200_OK)
 
+        if access_response := code_access_required_response(request.user):
+            return access_response
+
         user_id = self._user_id()
         if user_id is None:
             return Response(status=status.HTTP_200_OK)
@@ -697,6 +751,8 @@ class TaskAutomationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @extend_schema(request=TaskAutomationWriteSerializer, responses={201: TaskAutomationSerializer})
     def create(self, request, **kwargs):
+        if access_response := code_access_required_response(request.user):
+            return access_response
         serializer = self._write_serializer(request.data)
         automation = tasks_facade.create_task_automation(
             self.team_id, getattr(request.user, "id", None), **self._facade_kwargs(serializer.validated_data)
@@ -706,6 +762,9 @@ class TaskAutomationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(request=TaskAutomationWriteSerializer, responses={200: TaskAutomationSerializer})
     def partial_update(self, request, pk=None, **kwargs):
         serializer = self._write_serializer(request.data, partial=True)
+        if serializer.validated_data.get("enabled") is True:
+            if access_response := code_access_required_response(request.user):
+                return access_response
         automation = tasks_facade.update_task_automation(
             pk, self.team_id, getattr(request.user, "id", None), **self._facade_kwargs(serializer.validated_data)
         )
@@ -722,6 +781,8 @@ class TaskAutomationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(request=None, responses={200: TaskAutomationSerializer})
     @action(detail=True, methods=["post"], url_path="run", required_scopes=["task:write"])
     def run(self, request, pk=None, **kwargs):
+        if access_response := code_access_required_response(request.user):
+            return access_response
         automation = tasks_facade.run_task_automation_now(pk, self.team_id, getattr(request.user, "id", None))
         if automation is None:
             raise NotFound()
@@ -781,29 +842,17 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def _ensure_task_accessible(self) -> str:
         """Gate access to the parent task, mirroring the old ``safely_get_queryset``.
 
-        ``?ph_debug=true`` lets internal-debug teams read other members' runs through read-only
-        actions.
+        Staff users (and internal-debug teams via ``?ph_debug=true``) may read another member's runs
+        through the read-only actions; the bypass never applies to control actions.
         """
         task_id = self._task_id()
         is_read_only = self.action in self._READ_ONLY_ACTIONS
-        is_internal_debug_read = (
-            _is_internal_debug_team(self.team_id)
-            and self.action
-            in (
-                "list",
-                "retrieve",
-                "logs",
-                "session_logs",
-                "stream",
-                "stream_token",
-            )
-            and self.request.query_params.get("ph_debug") == "true"
-        )
+        bypass_visibility = is_read_only and _can_bypass_visibility(self.request, self.team_id)
         if not tasks_facade.task_accessible_for_run_view(
             task_id,
             self.team_id,
             self._user_id(),
-            bypass_visibility=is_internal_debug_read,
+            bypass_visibility=bypass_visibility,
             for_control=not is_read_only,
         ):
             raise NotFound("Task not found")
@@ -942,6 +991,54 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if task_dto is None:
             raise NotFound()
         return Response(TaskSerializer(task_dto).data)
+
+    @validated_request(
+        request_serializer=TaskRunCancelRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=TaskRunDetailSerializer, description="Run already finished; returned unchanged"
+            ),
+            202: OpenApiResponse(response=TaskRunDetailSerializer, description="Cancellation accepted"),
+            400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Run is not a cloud run"),
+            404: OpenApiResponse(description="Task run not found"),
+            503: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="Cancellation could not be delivered; safe to retry",
+            ),
+        },
+        summary="Cancel task run",
+        description="Stop an active cloud run. Interrupts the agent, snapshots interactive sessions for "
+        "later resume, tears down the sandbox, and marks the run cancelled. Idempotent: cancelling a "
+        "finished run returns it unchanged.",
+        strict_request_validation=True,
+    )
+    @action(detail=True, methods=["post"], url_path="cancel", required_scopes=["task:write"])
+    def cancel(self, request, pk=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        outcome, run = tasks_cancellation.cancel_task_run(
+            pk,
+            task_id,
+            self.team_id,
+            reason=request.validated_data.get("reason"),
+            source="api",
+            requested_by_user_id=request.user.id,
+            requested_by_distinct_id=request.user.distinct_id,
+        )
+        if outcome == "not_found" or run is None:
+            raise NotFound()
+        if outcome == "already_terminal":
+            return Response(TaskRunDetailSerializer(run).data)
+        if outcome == "not_cloud":
+            return Response(
+                TaskRunErrorResponseSerializer({"error": "Only cloud runs can be cancelled via this endpoint"}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if outcome == "unavailable":
+            return Response(
+                TaskRunErrorResponseSerializer({"error": "Could not reach the run's workflow; try again"}).data,
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        return Response(TaskRunDetailSerializer(run).data, status=status.HTTP_202_ACCEPTED)
 
     @validated_request(
         request_serializer=TaskRunUpdateSerializer,
@@ -1098,11 +1195,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def artifacts(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
-        manifest = tasks_facade.upload_task_run_artifacts(
+        result = tasks_facade.upload_task_run_artifacts(
             pk, task_id, self.team_id, artifacts=request.validated_data["artifacts"]
         )
-        if manifest is None:
+        if result is None:
             raise NotFound()
+        _uploaded, manifest = result
         serializer = TaskRunArtifactsUploadResponseSerializer({"artifacts": manifest})
         return Response(serializer.data)
 
@@ -1378,7 +1476,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         summary="Send command to task run",
         description="Queue user_message JSON-RPC commands through the task workflow and forward sandbox control "
         "commands to the agent server. Supports user_message, cancel, close, permission_response, "
-        "and set_config_option commands.",
+        "set_config_option, and mcp_response commands.",
         strict_request_validation=True,
     )
     @action(
@@ -1394,6 +1492,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         params = request.validated_data.get("params")
 
         if method == "user_message":
+            if access_response := code_access_required_response(request.user):
+                return access_response
             command_params = dict(params or {})
             artifact_ids = command_params.pop("artifact_ids", [])
             if artifact_ids:
@@ -1979,13 +2079,10 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
     def _ensure_task_accessible(self) -> str:
         """Gate access to the parent task, mirroring ``TaskRunViewSet._ensure_task_accessible``."""
         task_id = self._task_id()
-        is_internal_debug_read = (
-            _is_internal_debug_team(self.team_id)
-            and self.action in ("list", "retrieve")
-            and self.request.query_params.get("ph_debug") == "true"
-        )
+        is_read = self.action in ("list", "retrieve")
+        bypass_visibility = is_read and _can_bypass_visibility(self.request, self.team_id)
         if not tasks_facade.task_accessible_for_run_view(
-            task_id, self.team_id, getattr(self.request.user, "id", None), bypass_visibility=is_internal_debug_read
+            task_id, self.team_id, getattr(self.request.user, "id", None), bypass_visibility=bypass_visibility
         ):
             raise NotFound("Task not found")
         return task_id

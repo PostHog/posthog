@@ -37,6 +37,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class ShopWiredSource(ResumableSource[ShopWiredSourceConfig, ShopWiredResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://help.shopwired.co.uk/api/api-home"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -76,7 +77,6 @@ You can create an API key and secret under **Account > API keys** in your [ShopW
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

@@ -11,11 +11,8 @@ attributing bounce to sessions that entered on the path.
 """
 
 import time
-import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Optional
-
-from django.conf import settings
 
 import structlog
 from prometheus_client import Counter, Histogram
@@ -31,18 +28,13 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.preaggregation.web_stats_paths_preaggregated_sql import (
-    DISTRIBUTED_WEB_STATS_PATHS_PREAGGREGATED_PATHKEY_TABLE,
-    DISTRIBUTED_WEB_STATS_PATHS_PREAGGREGATED_TABLE,
-)
-from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
-from posthog.settings import DEBUG, TEST
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
     LazyComputationTable,
 )
+from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import is_constant_true
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     LAZY_TTL_SECONDS,
     SESSION_FORWARD_PAD_MINUTES,
@@ -50,7 +42,9 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     ceil_utc_day,
     check_common_eligibility,
     floor_utc_day,
+    handle_stale_served,
     host_filter_expr,
+    is_background_warming_request,
     log_eligibility_outcome,
     test_account_filter_expr,
     web_ensure_precomputed,
@@ -60,6 +54,8 @@ if TYPE_CHECKING:
     from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
 
 logger = structlog.get_logger(__name__)
+
+_FAMILY = "web_stats_paths"
 
 
 # Allowlist of exception class names we expect on the lazy path. Anything
@@ -99,15 +95,6 @@ WEB_STATS_PATHS_LAZY_ROWS = Histogram(
     "web_stats_paths_lazy_precompute_rows",
     "Distinct `breakdown_value` rows returned by the lazy precompute read (post-LIMIT cap).",
     buckets=(1, 10, 100, 500, 1000, 2500, 5000, 7500, 10000, float("inf")),
-)
-
-# Best-effort mirror of the precomputed rows into the colocated `_pathkey` table
-# variant (PR #64948) so its read layout can be A/B-compared. Failures here never
-# affect the primary read, so we only count them.
-WEB_STATS_PATHS_PATHKEY_MIRROR_FAILED = Counter(
-    "web_stats_paths_pathkey_mirror_failed_total",
-    "Best-effort copies into web_stats_paths_preaggregated_pathkey that failed, by error class.",
-    ["error_type"],
 )
 
 
@@ -249,6 +236,16 @@ def _entry_breakdown_value_expr(runner: "WebStatsTableQueryRunner") -> ast.Expr:
     return runner._apply_path_cleaning(path)
 
 
+def _entry_breakdown_value_sessions_expr(runner: "WebStatsTableQueryRunner") -> ast.Expr:
+    """`_entry_breakdown_value_expr` with chains resolving against a direct
+    `FROM sessions` scope — used by the no-join insert, whose bounce side reads
+    the sessions table without the events join."""
+    path: ast.Expr = ast.Field(chain=["sessions", "$entry_pathname"])
+    if runner.query.includeHost:
+        path = _prepend_host_nullif_empty(ast.Field(chain=["sessions", "$entry_hostname"]), path)
+    return runner._apply_path_cleaning(path)
+
+
 # Cap on stored breakdown rows: only the top-K paths PER DAY by the query's sort
 # metric. The PATHS tile shows a paginated top-N and the read's `LIMIT` can't prune
 # the scan (it must aggregate every path to find the top), so the long tail — paths
@@ -314,8 +311,62 @@ FROM (
 GROUP BY time_window_start, breakdown_value
 """
 
+# No-join variant for unfiltered PAGE cache keys: counts/persons come from events
+# self-attributed to the session-start hour via the UUIDv7 timestamp in the session
+# id; bounce-per-entry-path comes straight from the sessions table. Paths that are
+# never entry paths get an empty avg state via arrayReduce. INITIAL_PAGE and any
+# filtered key keep the join shape (persons-per-entry-path and filter evaluation
+# both need the events↔sessions association).
+_NO_JOIN_PER_WINDOW_AGG_SQL = """
+SELECT
+    e.time_window_start AS time_window_start,
+    e.breakdown_value AS breakdown_value,
+    e.uniq_users_state AS uniq_users_state,
+    e.sum_pageviews_state AS sum_pageviews_state,
+    ifNull(s.avg_bounce_state, arrayReduce('avgState', arrayFilter(x -> 0 != 0, [toFloat(0)]))) AS avg_bounce_state
+FROM (
+    SELECT
+        toStartOfHour(fromUnixTimestamp(intDiv(toInt(bitShiftRight(_toUInt128(toUUID({events_session_id})), 80)), 1000))) AS time_window_start,
+        {breakdown_value_expr} AS breakdown_value,
+        uniqState(events.person_id) AS uniq_users_state,
+        sumState(assumeNotNull(toInt(1))) AS sum_pageviews_state
+    FROM events
+    WHERE and(
+        {events_session_id} IS NOT NULL,
+        events.$session_id_uuid IS NOT NULL,
+        equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7),
+        {event_type_filter},
+        timestamp >= {time_window_min},
+        timestamp < ({time_window_max} + toIntervalMinute({pad_minutes})),
+        {user_filter},
+        {test_account_filter}
+    )
+    GROUP BY time_window_start, breakdown_value
+    HAVING and(
+        breakdown_value IS NOT NULL,
+        time_window_start >= {time_window_min},
+        time_window_start < {time_window_max}
+    )
+) AS e
+LEFT JOIN (
+    SELECT
+        toStartOfHour(sessions.$start_timestamp) AS time_window_start,
+        {entry_breakdown_value_sessions_expr} AS breakdown_value,
+        avgState(toFloat(sessions.$is_bounce)) AS avg_bounce_state
+    FROM sessions
+    WHERE and(
+        sessions.$start_timestamp >= {time_window_min},
+        sessions.$start_timestamp < {time_window_max},
+        equals(bitAnd(bitShiftRight(sessions.session_id_v7, 76), 15), 7),
+        or(sessions.$pageview_count > 0, sessions.$screen_count > 0),
+    )
+    GROUP BY time_window_start, breakdown_value
+) AS s ON e.time_window_start = s.time_window_start AND e.breakdown_value = s.breakdown_value
+"""
+
 # Uncapped insert — current behaviour, used for ASC sorts (see `_top_k_ranking_expr`).
 INSERT_QUERY_TEMPLATE = _PER_WINDOW_AGG_SQL
+NO_JOIN_INSERT_QUERY_TEMPLATE = _NO_JOIN_PER_WINDOW_AGG_SQL
 
 # Capped insert — keep the top-K `breakdown_value`s by `{top_k_metric}` (the query's
 # sort metric) computed PER DAY, then store all per-hour rows of any path that reaches
@@ -338,10 +389,7 @@ INSERT_QUERY_TEMPLATE = _PER_WINDOW_AGG_SQL
 # `<= PATHS_TOP_K` keeps the union of daily top-Ks. (HogQL parses `LIMIT n BY` but the
 # printer can't emit it, so the cap ranks with window functions.) The metric stays in the
 # AST, so each sort variant gets its own job.
-INSERT_QUERY_TEMPLATE_CAPPED = (
-    "WITH per_window AS ("
-    + _PER_WINDOW_AGG_SQL
-    + """)
+_CAPPED_WRAPPER = """)
 SELECT
     time_window_start AS time_window_start,
     breakdown_value AS breakdown_value,
@@ -371,9 +419,10 @@ FROM (
         FROM per_window
     )
 )
-WHERE breakdown_rank <= """
-    + str(PATHS_TOP_K)
-)
+WHERE breakdown_rank <= """ + str(PATHS_TOP_K)
+
+INSERT_QUERY_TEMPLATE_CAPPED = "WITH per_window AS (" + _PER_WINDOW_AGG_SQL + _CAPPED_WRAPPER
+NO_JOIN_INSERT_QUERY_TEMPLATE_CAPPED = "WITH per_window AS (" + _NO_JOIN_PER_WINDOW_AGG_SQL + _CAPPED_WRAPPER
 
 
 def _top_k_ranking_expr(runner: "WebStatsTableQueryRunner") -> ast.Expr | None:
@@ -418,10 +467,22 @@ def _top_k_ranking_expr(runner: "WebStatsTableQueryRunner") -> ast.Expr | None:
     )
 
 
+# Wall-clock budget for a *user-facing* request's whole ensure phase (current period plus
+# the compare period, which shares whatever remains). The executor checks the budget before
+# starting each inline INSERT, so completed windows always persist as READY jobs and later
+# requests (or the hourly warmer) converge to warm. Timing out here only means this request
+# serves the v2/raw fallback instead of blocking on a long rebuild. 10s admits one or two
+# typical window inserts (2-8s each on the largest teams), so the common one-stale-window
+# case still completes inline; what it bounds is the pile-up case (many stale windows after
+# a hash rotation), which previously held requests for 30s+.
+PATHS_USER_ENSURE_WAIT_SECONDS = 10
+
+
 def ensure_web_stats_paths_precomputed(
     runner: "WebStatsTableQueryRunner",
     time_range_start: datetime,
     time_range_end: datetime,
+    wait_budget_seconds: float | None = None,
 ) -> LazyComputationResult:
     placeholders: dict[str, ast.Expr] = {
         "events_session_id": _events_session_id_expr(runner),
@@ -435,15 +496,33 @@ def ensure_web_stats_paths_precomputed(
         "pad_minutes": ast.Constant(value=SESSION_FORWARD_PAD_MINUTES),
     }
 
+    # Unfiltered PAGE keys use the no-join shape (events self-attribute to the
+    # session-start hour via the UUIDv7 session id; bounce comes from the sessions
+    # table). INITIAL_PAGE needs the join for persons-per-entry-path, and filtered
+    # keys need it because the sessions side can't evaluate event/person filters.
+    use_no_join = runner.query.breakdownBy == WebStatsBreakdown.PAGE and all(
+        is_constant_true(placeholders[key]) for key in ("user_filter", "test_account_filter")
+    )
+    if use_no_join:
+        placeholders["entry_breakdown_value_sessions_expr"] = _entry_breakdown_value_sessions_expr(runner)
+
     # Cap to the displayable top-K for descending sorts; store the full set otherwise.
     # The metric goes into the INSERT AST, so the sort dimension joins the job hash.
     ranking_expr = _top_k_ranking_expr(runner)
     if ranking_expr is not None:
-        insert_query = INSERT_QUERY_TEMPLATE_CAPPED
+        insert_query = NO_JOIN_INSERT_QUERY_TEMPLATE_CAPPED if use_no_join else INSERT_QUERY_TEMPLATE_CAPPED
         placeholders["top_k_metric"] = ranking_expr
     else:
-        insert_query = INSERT_QUERY_TEMPLATE
+        insert_query = NO_JOIN_INSERT_QUERY_TEMPLATE if use_no_join else INSERT_QUERY_TEMPLATE
 
+    # Warmers keep the framework default; user-facing calls get the 10s budget, or the
+    # caller-provided remainder of it when this is the second (compare-period) ensure.
+    if is_background_warming_request():
+        wait_timeout: float | None = None
+    elif wait_budget_seconds is not None:
+        wait_timeout = wait_budget_seconds
+    else:
+        wait_timeout = PATHS_USER_ENSURE_WAIT_SECONDS
     return web_ensure_precomputed(
         team=runner.team,
         insert_query=insert_query,
@@ -454,60 +533,8 @@ def ensure_web_stats_paths_precomputed(
         placeholders=placeholders,
         query_type="web_stats_paths_lazy_insert",
         spill_to_disk=True,  # high-cardinality path breakdown GROUP BY; can build a large hash table
+        wait_timeout_seconds=wait_timeout,
     )
-
-
-# Columns shared by both tables, in declaration order. The pathkey table mirrors
-# the original schema exactly, so the copy is a straight column-for-column INSERT.
-_PATHKEY_MIRROR_COLUMNS = (
-    "team_id, job_id, time_window_start, breakdown_value, "
-    "uniq_users_state, sum_pageviews_state, avg_bounce_state, computed_at, expires_at"
-)
-
-# Mirror the primary insert's durability settings (quorum + synchronous
-# distribution), disabled on single-node TEST/DEBUG like the executor does.
-_PATHKEY_MIRROR_SETTINGS: dict = {
-    "insert_distributed_sync": 1,
-    "insert_quorum": 0 if TEST or DEBUG else "auto",
-    "load_balancing": "in_order",
-}
-
-
-def mirror_jobs_to_pathkey(*, team_id: int, job_ids: list[str]) -> None:
-    """Best-effort copy of precomputed PATHS rows for `job_ids` into the colocated
-    pathkey table (PR #64948). Idempotent (ReplacingMergeTree) and never raises —
-    a failed mirror must not affect the primary read."""
-    if not job_ids:
-        return
-
-    primary = DISTRIBUTED_WEB_STATS_PATHS_PREAGGREGATED_TABLE()
-    pathkey = DISTRIBUTED_WEB_STATS_PATHS_PREAGGREGATED_PATHKEY_TABLE()
-    sql = f"""
-        INSERT INTO {pathkey} ({_PATHKEY_MIRROR_COLUMNS})
-        SELECT {_PATHKEY_MIRROR_COLUMNS}
-        FROM {primary}
-        WHERE team_id = %(team_id)s AND job_id IN %(job_ids)s
-    """
-    try:
-        with tags_context(
-            team_id=team_id,
-            product=Product.WEB_ANALYTICS,
-            feature=Feature.QUERY,
-            query_type="web_stats_paths_pathkey_mirror_insert",
-        ):
-            sync_execute(
-                sql,
-                {"team_id": team_id, "job_ids": [uuid.UUID(jid) for jid in job_ids]},
-                settings=_PATHKEY_MIRROR_SETTINGS,
-            )
-    except Exception as exc:
-        WEB_STATS_PATHS_PATHKEY_MIRROR_FAILED.labels(error_type=_bucket_error_label(exc)).inc()
-        logger.warning(
-            "web_stats_paths_pathkey_mirror_failed",
-            team_id=team_id,
-            job_count=len(job_ids),
-            error_type=type(exc).__name__,
-        )
 
 
 # Returns one row per breakdown_value with (current, previous) period pairs
@@ -586,7 +613,12 @@ FROM (
         avgMergeIf(avg_bounce_state, and(time_window_start >= {cur_start}, time_window_start < {cur_end})) AS raw_bounce,
         avgMergeIf(avg_bounce_state, and(time_window_start >= {prev_start}, time_window_start < {prev_end})) AS raw_prev_bounce
     FROM posthog.web_stats_paths_preaggregated
-    WHERE and(team_id = {team_id}, job_id IN {job_ids})
+    WHERE and(
+        team_id = {team_id},
+        job_id IN {job_ids},
+        time_window_start >= {window_min},
+        time_window_start < {window_max}
+    )
     GROUP BY {breakdown_expr}
     HAVING or(visitors > 0, previous_visitors > 0)
 )
@@ -660,6 +692,15 @@ def execute_read_query(
     prev_start = previous_start_utc if previous_start_utc is not None else datetime(1970, 1, 1, tzinfo=UTC)
     prev_end = previous_end_utc if previous_end_utc is not None else datetime(1970, 1, 1, tzinfo=UTC)
 
+    # Prune the scan to the union of the two requested windows. Covering jobs can be
+    # much wider than the request (a 7d read served by a 31d-warm job set), and without
+    # this bound every stored row of every covering job is scanned and state-merged only
+    # to be discarded by the *MergeIf conditions. Computed in Python (not `least()` in
+    # SQL) because the no-compare sentinel above would otherwise widen the lower bound
+    # to 1970 and defeat the pruning.
+    window_min = min(current_start_utc, previous_start_utc) if previous_start_utc else current_start_utc
+    window_max = max(current_end_utc, previous_end_utc) if previous_end_utc else current_end_utc
+
     placeholders: dict[str, ast.Expr] = {
         "team_id": ast.Constant(value=runner.team.pk),
         "job_ids": ast.Constant(value=[str(jid) for jid in job_ids]),
@@ -667,6 +708,8 @@ def execute_read_query(
         "cur_end": ast.Constant(value=current_end_utc),
         "prev_start": ast.Constant(value=prev_start),
         "prev_end": ast.Constant(value=prev_end),
+        "window_min": ast.Constant(value=window_min),
+        "window_max": ast.Constant(value=window_max),
         "breakdown_expr": ast.Field(chain=["breakdown_value"]),
         "fill_fraction_expr": _fill_fraction_expr(sort_column),
     }
@@ -757,7 +800,10 @@ def execute_lazy_precomputed_read(
             team_id=team_id,
             job_count=len(result.job_ids),
             ensure_duration_ms=ensure_duration_ms,
+            stale=result.stale,
         )
+        if result.stale:
+            handle_stale_served(runner=runner, family=_FAMILY)
 
         if not result.job_ids:
             return None
@@ -784,11 +830,12 @@ def execute_lazy_precomputed_read(
                 prev_range_start = floor_utc_day(previous_start_utc)
                 prev_range_end = ceil_utc_day(previous_end_utc)
                 if prev_range_start < prev_range_end:
-                    # Cold-start budget: the framework's per-call wait is 180 s,
-                    # and a 90-day compare on fresh data can do both periods
-                    # back-to-back. If the current-period call already burned
-                    # most of that, give up on the compare so we don't tie up
-                    # the request handler past `DEFAULT_WAIT_TIMEOUT_SECONDS`.
+                    # The compare ensure spends whatever the current-period ensure left of
+                    # the budget, so a request with both periods stale cannot block for
+                    # 2x the intended time. Warmers keep the framework's 180s per call
+                    # (their gate is the wider ENSURE_BUDGET_MS); user-facing requests
+                    # share the single PATHS_USER_ENSURE_WAIT_SECONDS across both calls.
+                    is_background = is_background_warming_request()
                     if ensure_duration_ms >= ENSURE_BUDGET_MS:
                         logger.info(
                             "web_stats_paths_lazy_precompute_compare_budget_exceeded",
@@ -797,13 +844,30 @@ def execute_lazy_precomputed_read(
                             budget_ms=ENSURE_BUDGET_MS,
                         )
                         return None
+                    remaining_budget: Optional[float] = None
+                    if not is_background:
+                        remaining_budget = PATHS_USER_ENSURE_WAIT_SECONDS - ensure_duration_ms / 1000
+                        if remaining_budget <= 1:
+                            logger.info(
+                                "web_stats_paths_lazy_precompute_compare_budget_exceeded",
+                                team_id=team_id,
+                                elapsed_ms=ensure_duration_ms,
+                                budget_ms=PATHS_USER_ENSURE_WAIT_SECONDS * 1000,
+                            )
+                            return None
                     prev_ensure_started = time.perf_counter()
                     prev_result = ensure_web_stats_paths_precomputed(
                         runner=runner,
                         time_range_start=prev_range_start,
                         time_range_end=prev_range_end,
+                        wait_budget_seconds=remaining_budget,
                     )
                     ensure_duration_ms += int((time.perf_counter() - prev_ensure_started) * 1000)
+
+                    if prev_result.stale:
+                        # handle_stale_served enqueues at most once per request; one
+                        # revalidation re-runs the whole query, covering both periods.
+                        handle_stale_served(runner=runner, family=_FAMILY)
 
                     if not prev_result.ready:
                         logger.info(
@@ -829,13 +893,6 @@ def execute_lazy_precomputed_read(
             offset=offset,
         )
         read_duration_ms = int((time.perf_counter() - read_started) * 1000)
-
-        # Best-effort dual-write: mirror these jobs' rows into the colocated pathkey
-        # table for A/B read comparison. Narrowly scoped to the allowlisted teams
-        # (default: Cloud project 2) so only they pay the extra mirror write. After
-        # the read so it never adds latency to the user's response; swallows errors.
-        if team_id in settings.WEB_STATS_PATHS_PREAGG_MIRROR_PATHKEY_TEAM_IDS:
-            mirror_jobs_to_pathkey(team_id=team_id, job_ids=job_ids)
 
         total_duration_ms = int((time.perf_counter() - overall_started) * 1000)
 
