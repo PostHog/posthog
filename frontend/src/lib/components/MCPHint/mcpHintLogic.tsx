@@ -68,7 +68,7 @@ export interface mcpHintLogicActions {
     } // eventUsageLogic
     updateUser: (
         user: Partial<UserType>,
-        successCallback?: () => void
+        successCallback?: (() => void) | undefined
     ) => {
         successCallback: (() => void) | undefined
         user: Partial<UserType>
