@@ -31,7 +31,6 @@ class TestEnrichmentBridge(BaseTest):
             group_properties={
                 "icp_est_revenue": 25_000_000,
                 "icp_company_type": "private",
-                "icp_github_profile_url": "https://github.com/someone",
                 "icp_employees": 750,
             }
         )
@@ -40,7 +39,6 @@ class TestEnrichmentBridge(BaseTest):
         assert inputs == ClayBridgeInputs(
             est_revenue=25_000_000.0,
             company_type="private",
-            github_profile_url="https://github.com/someone",
         )
         assert get_group.call_args.kwargs["group_type_index"] == 3
         assert get_group.call_args.kwargs["group_key"] == "org-1"

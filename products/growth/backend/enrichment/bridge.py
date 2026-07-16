@@ -1,8 +1,13 @@
 """Read the scoring inputs Clay still owns, off the organization group it writes.
 
-Three of the ICP score's inputs have no first-party source yet, so while Clay runs in parallel
+Two of the ICP score's inputs have no first-party source yet, so while Clay runs in parallel
 we read its own group properties back and score on them. That keeps `clay-parity-1` scores
 bit-comparable with Clay's on the orgs it also scores.
+
+The formula's third Clay-owned input, its GitHub profile lookup, is deliberately NOT read
+here: Clay never projects that column into PostHog at all (verified against live group and
+person writes), so product-role orgs score 3 rather than 6 until v-next substitutes a
+first-party signal.
 
 Every read is best-effort in coverage but strict about failure: an org Clay never processed
 simply has no properties (a real null, and Clay scored nothing for it either), whereas an
@@ -25,11 +30,6 @@ INTERNAL_TEAM_ID = 2
 
 CLAY_EST_REVENUE_PROPERTY = "icp_est_revenue"
 CLAY_COMPANY_TYPE_PROPERTY = "icp_company_type"
-# UNVERIFIED — confirm against the live group properties before this leaves draft. Clay's other
-# score inputs are `icp_*` columns projected onto the organization group, but its GitHub lookup
-# is a person-level column ("GitHub Profile URL") with no confirmed group-property counterpart.
-# If it turns out never to be projected, product-role orgs cannot reach 6 and score 3 instead.
-CLAY_GITHUB_PROFILE_PROPERTY = "icp_github_profile_url"
 
 
 class OrganizationGroupTypeMissing(Exception):
@@ -42,7 +42,6 @@ class ClayBridgeInputs:
 
     est_revenue: Optional[float] = None
     company_type: Optional[str] = None
-    github_profile_url: Optional[str] = None
 
 
 def _numeric(value: Any) -> Optional[float]:
@@ -88,5 +87,4 @@ def read_clay_bridge_inputs(*, organization_id: str) -> ClayBridgeInputs:
     return ClayBridgeInputs(
         est_revenue=_numeric(properties.get(CLAY_EST_REVENUE_PROPERTY)),
         company_type=_text(properties.get(CLAY_COMPANY_TYPE_PROPERTY)),
-        github_profile_url=_text(properties.get(CLAY_GITHUB_PROFILE_PROPERTY)),
     )

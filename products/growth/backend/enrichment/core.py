@@ -29,7 +29,10 @@ def _icp_score(*, organization_id: str, fields: EnrichmentFields, role: Optional
             employees=fields.headcount,
             est_revenue=clay.est_revenue,
             role=role,
-            github_profile_url=clay.github_profile_url,
+            # Clay never projects its GitHub column into PostHog, so this input is always
+            # absent here — product-role orgs score 3, not 6, until v-next substitutes the
+            # signup's own GitHub auth. Kept on IcpScoreInputs for formula fidelity.
+            github_profile_url=None,
             # Clay's own vocabulary ("private"/"public"), which our Harmonic `company_type`
             # (raw enum, e.g. "STARTUP") does not share — so this stays a bridge read for now.
             company_type=clay.company_type,
