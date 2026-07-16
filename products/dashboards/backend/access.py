@@ -8,6 +8,7 @@ from posthog.event_usage import EventSource, get_event_source
 
 class DashboardAccessMethod(StrEnum):
     HUMAN = "human"
+    SHARED = "shared"
     EMBEDDED = "embedded"
     API = "api"
 
@@ -24,9 +25,13 @@ DASHBOARD_CACHE_OUTCOME_COUNTER = Counter(
 )
 
 
-def dashboard_access_method(request: Request, *, is_embedded: bool = False) -> DashboardAccessMethod:
+def dashboard_access_method(
+    request: Request, *, is_shared: bool = False, is_embedded: bool = False
+) -> DashboardAccessMethod:
     if is_embedded:
         return DashboardAccessMethod.EMBEDDED
+    if is_shared:
+        return DashboardAccessMethod.SHARED
     if get_event_source(request) == EventSource.WEB:
         return DashboardAccessMethod.HUMAN
     return DashboardAccessMethod.API

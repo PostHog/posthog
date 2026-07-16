@@ -135,7 +135,11 @@ from posthog.utils import (
 
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.cohorts.backend.models.cohort import Cohort
-from products.dashboards.backend.access import dashboard_access_method, record_dashboard_cache_outcome
+from products.dashboards.backend.access import (
+    DashboardAccessMethod,
+    dashboard_access_method,
+    record_dashboard_cache_outcome,
+)
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.api.insight_metadata import (
@@ -1197,9 +1201,13 @@ class InsightSerializer(InsightBasicSerializer):
                         analytics_props=get_request_analytics_properties(self.context["request"]),
                         allow_raw_results=allow_raw_results,
                     )
-                    if dashboard is not None:
+                    access_method: DashboardAccessMethod | None = self.context.get("dashboard_access_method")
+                    if access_method is not None and execution_mode not in {
+                        ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                        ExecutionMode.CALCULATE_ASYNC_ALWAYS,
+                    }:
                         record_dashboard_cache_outcome(
-                            dashboard_access_method(self.context["request"], is_embedded=is_shared),
+                            access_method,
                             is_cached=insight_result.is_cached,
                         )
                     return insight_result
@@ -1998,7 +2006,14 @@ When set, the specified dashboard's filters and date range override will be appl
 
         if dashboard_tile is not None:
             # context is used in the to_representation method to report filters used
-            serializer_context.update({"dashboard": dashboard_tile.dashboard})
+            serializer_context.update(
+                {
+                    "dashboard": dashboard_tile.dashboard,
+                    "dashboard_access_method": dashboard_access_method(
+                        request, is_shared=serializer_context["is_shared"]
+                    ),
+                }
+            )
 
         try:
             serialized_data = self.get_serializer(instance, context=serializer_context).data

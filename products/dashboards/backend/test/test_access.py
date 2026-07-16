@@ -18,14 +18,16 @@ from products.dashboards.backend.access import (
 class TestDashboardAccessMetrics:
     @parameterized.expand(
         [
-            (False, EventSource.WEB, DashboardAccessMethod.HUMAN),
-            (False, EventSource.API, DashboardAccessMethod.API),
-            (True, EventSource.WEB, DashboardAccessMethod.EMBEDDED),
+            (False, False, EventSource.WEB, DashboardAccessMethod.HUMAN),
+            (False, False, EventSource.API, DashboardAccessMethod.API),
+            (True, False, EventSource.WEB, DashboardAccessMethod.SHARED),
+            (True, True, EventSource.WEB, DashboardAccessMethod.EMBEDDED),
         ]
     )
     @patch("products.dashboards.backend.access.get_event_source")
     def test_classifies_dashboard_access(
         self,
+        is_shared: bool,
         is_embedded: bool,
         event_source: EventSource,
         expected: DashboardAccessMethod,
@@ -34,7 +36,7 @@ class TestDashboardAccessMetrics:
         request = Request(APIRequestFactory().get("/"))
         mock_get_event_source.return_value = event_source
 
-        assert dashboard_access_method(request, is_embedded=is_embedded) == expected
+        assert dashboard_access_method(request, is_shared=is_shared, is_embedded=is_embedded) == expected
 
     @parameterized.expand([(access_method,) for access_method in DashboardAccessMethod])
     def test_records_dashboard_access(self, access_method: DashboardAccessMethod) -> None:
@@ -48,6 +50,7 @@ class TestDashboardAccessMetrics:
     @parameterized.expand(
         [
             (DashboardAccessMethod.HUMAN, True, "hit"),
+            (DashboardAccessMethod.SHARED, False, "miss"),
             (DashboardAccessMethod.EMBEDDED, False, "miss"),
             (DashboardAccessMethod.API, True, "hit"),
         ]

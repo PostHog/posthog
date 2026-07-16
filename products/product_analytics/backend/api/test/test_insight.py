@@ -496,13 +496,21 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         self.assertNotEqual(insight_in_isolation["filters_hash"], insight_on_dashboard["filters_hash"])
 
-    @parameterized.expand([("hit", True), ("miss", False)])
+    @parameterized.expand(
+        [
+            ("hit", True, None, True),
+            ("miss", False, None, True),
+            ("forced_refresh", False, "force_blocking", False),
+        ]
+    )
     @patch("products.product_analytics.backend.api.insight.record_dashboard_cache_outcome")
     @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
     def test_dashboard_insight_records_cache_outcome(
         self,
         _name: str,
         is_cached: bool,
+        refresh: str | None,
+        expect_recorded: bool,
         mock_calculate: mock.MagicMock,
         mock_record_outcome: mock.MagicMock,
     ) -> None:
@@ -521,13 +529,16 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             timezone=self.team.timezone,
         )
 
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/insights/{insight.id}/",
-            {"from_dashboard": str(dashboard.id)},
-        )
+        query_params = {"from_dashboard": str(dashboard.id)}
+        if refresh is not None:
+            query_params["refresh"] = refresh
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight.id}/", query_params)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        mock_record_outcome.assert_called_once_with(DashboardAccessMethod.HUMAN, is_cached=is_cached)
+        if expect_recorded:
+            mock_record_outcome.assert_called_once_with(DashboardAccessMethod.HUMAN, is_cached=is_cached)
+        else:
+            mock_record_outcome.assert_not_called()
 
     def test_get_insight_in_shared_context(self) -> None:
         filter_dict = {

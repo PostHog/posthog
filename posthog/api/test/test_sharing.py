@@ -30,6 +30,7 @@ from posthog.models.share_password import SharePassword
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 
+from products.dashboards.backend.access import DashboardAccessMethod
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
@@ -149,6 +150,28 @@ class TestSharing(APIBaseTest):
             "settings": None,
             "share_passwords": [],
         }
+
+    @parameterized.expand(
+        [
+            ("shared", "/shared/{token}", DashboardAccessMethod.SHARED),
+            ("embedded", "/embedded/{token}", DashboardAccessMethod.EMBEDDED),
+        ]
+    )
+    @patch("posthog.api.sharing.record_dashboard_access")
+    @mock_exporter_template
+    def test_shared_dashboard_records_access_method(
+        self,
+        _name: str,
+        path: str,
+        expected_access_method: DashboardAccessMethod,
+        mock_record_access: Mock,
+    ) -> None:
+        config = SharingConfiguration.objects.create(team=self.team, dashboard=self.dashboard, enabled=True)
+
+        response = self.client.get(path.format(token=config.access_token))
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_record_access.assert_called_once_with(expected_access_method)
 
     @freeze_time("2022-01-01")
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
