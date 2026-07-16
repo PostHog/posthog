@@ -146,8 +146,8 @@ are common LLM mistakes that HogQL rejects:
   use `JSONExtractKeys(properties)` — see the property-keys audit pattern below.
 - Use `arrayFlatten(...)`; `flatten(...)` is not a HogQL function and fails validation.
 - Never nest aggregate functions (e.g. `max(count())`, `sum(uniq(…))`). Compute each aggregate once
-  and derive ratios from sibling aggregates in the same SELECT
-  (e.g. `countIf(cond) / count() AS share`).
+  and derive ratios from sibling aggregates in the same SELECT, guarding zero denominators
+  (e.g. `countIf(cond) / nullIf(count(), 0) AS share`).
 - Window filter: write the placeholder token `{{date_range}}` verbatim where the window predicate goes.
   Never write `timestamp >= toDateTime('…')`, `now()`, `now() - INTERVAL …`, or `today()` for the window.
 - Time bucketing (for sub-windows WITHIN the range): `toStartOfHour(timestamp)`,
@@ -370,7 +370,8 @@ rewrite MUST follow the same HogQL syntax constraints used by the planner:
   `arrayJoin(JSONExtractKeys(properties))`).
 - `flatten(...)` is not a HogQL function; replace it with `arrayFlatten(...)`.
 - Never nest aggregate functions (e.g. `max(count())`, `sum(uniq(…))`). Compute each aggregate once
-  and derive ratios from sibling aggregates in the same SELECT.
+  and derive ratios from sibling aggregates in the same SELECT, guarding zero denominators
+  (e.g. `countIf(cond) / nullIf(count(), 0)`).
 - Schema note for "Field not found: group_<index>": to count or aggregate a group/account, the raw
   group-key column is `$group_<index>` with a leading `$` (e.g. `uniq($group_2)`,
   `uniqIf($group_2, cond)`). A bare `group_<index>` is only valid as `group_<index>.properties.<name>`;
