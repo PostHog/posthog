@@ -111,6 +111,8 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
         toggleListItemAccordion: (key: string) => ({ key }),
         setZenMode: (zenMode: boolean, trigger: ZenModeTrigger) => ({ zenMode, trigger }),
         toggleZenMode: (trigger: ZenModeTrigger) => ({ trigger }),
+        // Embedded mode (PostHog Code iframe): the host provides all chrome
+        setEmbedMode: (embed: boolean) => ({ embed }),
     }),
     reducers({
         isSidebarShown: [
@@ -244,6 +246,12 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 setZenMode: (_, { zenMode }) => zenMode,
             },
         ],
+        embedMode: [
+            typeof window !== 'undefined' && !!window.__POSTHOG_EMBED__,
+            {
+                setEmbedMode: (_, { embed }) => embed,
+            },
+        ],
     }),
     listeners(({ actions, values }) => ({
         setZenMode: ({ zenMode, trigger }) => {
@@ -369,14 +377,20 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 s.zenMode,
                 s.activeSceneId,
                 featureFlagLogic.selectors.featureFlags,
+                s.embedMode,
             ],
             (
                 sceneConfig,
                 isCurrentOrganizationUnavailable,
                 zenMode,
                 activeSceneId,
-                featureFlags
+                featureFlags,
+                embedMode
             ): Navigation3000Mode => {
+                if (embedMode) {
+                    // Embedded in PostHog Code: no chrome, the host wraps the scene
+                    return 'none'
+                }
                 if (zenMode) {
                     return 'zen'
                 }
