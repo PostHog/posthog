@@ -38,6 +38,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class PrefectCloudSource(ResumableSource[PrefectCloudSourceConfig, PrefectCloudResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
+    api_docs_url = "https://docs.prefect.io/v3/api-ref/rest-api"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.PREFECTCLOUD

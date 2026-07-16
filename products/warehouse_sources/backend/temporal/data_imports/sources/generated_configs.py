@@ -4061,7 +4061,10 @@ class StytchSourceConfig(config.Config):
 
 @config.config
 class SumoLogicSourceConfig(config.Config):
-    pass
+    access_id: str
+    access_key: str
+    deployment: Literal["us1", "us2", "au", "ca", "de", "eu", "fed", "in", "jp", "kr"] = config.value(default="us1")
+    search_query: str | None = None
 
 
 @config.config
@@ -4220,7 +4223,8 @@ class TerraApiSourceConfig(config.Config):
 
 @config.config
 class TerraformCloudSourceConfig(config.Config):
-    pass
+    api_token: str
+    organization: str
 
 
 @config.config
