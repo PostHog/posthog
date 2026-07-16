@@ -125,8 +125,10 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
     def test_estimate_treats_denied_scanner_as_not_found(self) -> None:
         # A scanner_id the caller can't view must be rejected the same way as one that doesn't exist —
         # otherwise comparing responses (with/without the id) leaks whether it exists and its credit usage.
+        # A resource-wide "none" default would block the whole `estimate` action at the permission layer
+        # before this object-level check ever runs, so deny only this one scanner instead.
         blocked_scanner = self._create_scanner(name="blocked")
-        self._set_resource_default("replay_scanner", "none")
+        self._grant_object_access(self.other_user, "replay_scanner", str(blocked_scanner.id), "none")
 
         self.client.force_login(self.other_user)
         resp = self.client.post(
