@@ -15,8 +15,10 @@ class TestSelectSentimentLabel:
             ("clear_positive", {"negative": 0.05, "neutral": 0.15, "positive": 0.8}, "positive"),
             # Neutral winner is always neutral.
             ("neutral_winner", {"negative": 0.2, "neutral": 0.7, "positive": 0.1}, "neutral"),
-            # Exactly at the margin is not enough to promote (strict beat required).
-            ("exactly_at_margin", {"negative": 0.5, "neutral": 0.4, "positive": 0.1}, "neutral"),
+            # A gap exactly at the margin is not enough to promote (must beat it).
+            ("exactly_at_margin", {"negative": 0.55, "neutral": 0.4, "positive": 0.05}, "neutral"),
+            # A gap just past the margin promotes the polar label.
+            ("just_past_margin", {"negative": 0.57, "neutral": 0.4, "positive": 0.03}, "negative"),
         ]
     )
     def test_select_sentiment_label(self, _name: str, scores: dict[str, float], expected: str):

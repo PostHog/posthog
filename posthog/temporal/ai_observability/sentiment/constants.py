@@ -25,7 +25,7 @@ ONNX_INTER_OP_NUM_THREADS = _positive_int_env("POSTHOG_SENTIMENT_ONNX_INTER_OP_N
 # assigned; otherwise the message is treated as neutral. Short, task-focused messages
 # often split near-evenly between neutral and a polar label, and promoting those
 # coin-flips to negative/positive is the main source of false polar labels.
-SENTIMENT_NEUTRAL_MARGIN = 0.10
+SENTIMENT_NEUTRAL_MARGIN = 0.15
 
 # Extraction bounds
 MAX_USER_MESSAGES = 50
