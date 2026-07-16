@@ -4,7 +4,7 @@
  * mounted at root in domain mode.
  */
 
-import express, { Express, Request, Response } from 'express'
+import express, { Express, Request, RequestHandler, Response } from 'express'
 import { z } from 'zod'
 
 import type {
@@ -382,7 +382,41 @@ export function buildApp(opts: BuildAppOpts): Express {
         envEncryption: opts.envEncryption,
         posthogApiBaseUrl: opts.posthogApiBaseUrl,
     } as const
-    const mount = opts.routingMode === 'path' ? `${opts.pathPrefix ?? '/agents'}/:slug` : ''
+    const pathMount = `${opts.pathPrefix ?? '/agents'}/:slug`
+    // In path mode (dev) agent routes live only under the path mount. In
+    // domain mode (prod) they mount at root, with the slug riding in the Host
+    // header, and the path mount stays registered as an alias: in-cluster
+    // callers that address the ingress Service directly (the Django
+    // preview-proxy and IngressClient) cannot present a public
+    // *.domainSuffix Host, so without the alias every /agents/<slug>/...
+    // call from Django 404s before resolution runs. `resolveAgent` prefers
+    // the mount's `:slug` param over Host parsing, so the alias needs no
+    // resolver changes.
+    //
+    // The alias is for in-cluster callers only: requests arriving with a
+    // public *.domainSuffix Host must keep using host routing, so the public
+    // URL contract stays single-shape per agent.
+    const publicHostGuard: RequestHandler = (req, res, next) => {
+        const host = (req.headers.host ?? '').split(':')[0]
+        if (opts.domainSuffix && host.endsWith(opts.domainSuffix)) {
+            res.status(404).json({ error: 'use_host_routing' })
+            return
+        }
+        next()
+    }
+    const mounts: { mount: string; guards: RequestHandler[] }[] =
+        opts.routingMode === 'path'
+            ? [{ mount: pathMount, guards: [] }]
+            : [
+                  { mount: '', guards: [] },
+                  { mount: pathMount, guards: [publicHostGuard] },
+              ]
+    // Register one handler (or trigger router) at every active mount.
+    const agentRoute = (method: 'get' | 'post', suffix: string, handler: RequestHandler): void => {
+        for (const { mount, guards } of mounts) {
+            app[method](`${mount}${suffix}`, ...guards, handler)
+        }
+    }
 
     // Principal tool-approval decisions — the lightweight, identity-matched
     // counterpart to the Slack interactivity handler, for posthog (PostHog Code)
@@ -399,9 +433,10 @@ export function buildApp(opts: BuildAppOpts): Express {
     // same per-agent ingress base it uses for `/send` (PostHog Code does). The
     // `:slug` is unused — the row is resolved from the approval id, not the
     // slug — but keeping the path under the mount matches how clients address
-    // the ingress. In domain mode `mount` is '' so it's `/approvals/:id/decide`.
-    app.post(
-        `${mount}/approvals/:id/decide`,
+    // the ingress. In domain mode the root mount makes it `/approvals/:id/decide`.
+    agentRoute(
+        'post',
+        '/approvals/:id/decide',
         asyncHandler(async (req: Request, res: Response) => {
             if (!opts.approvals) {
                 res.status(500).json({ error: 'approvals_not_configured' })
@@ -507,7 +542,7 @@ export function buildApp(opts: BuildAppOpts): Express {
         }
         res.json(serializeApprovalRequest(row))
     }
-    app.get(`${mount}/approvals/:id`, asyncHandler(respondWithApproval))
+    agentRoute('get', '/approvals/:id', asyncHandler(respondWithApproval))
 
     // Transcript reload, principal-authed: "prove you own the session" lets a
     // client rehydrate a session's conversation from any project (the dock on
@@ -554,7 +589,7 @@ export function buildApp(opts: BuildAppOpts): Express {
         }
         res.json({ ...session, conversation_trimmed: false })
     }
-    app.get(`${mount}/sessions/:id`, asyncHandler(respondWithSession))
+    agentRoute('get', '/sessions/:id', asyncHandler(respondWithSession))
 
     // Internal-only session digest — backs the `agent-applications-listen` MCP tool via the
     // Django bridge. NOT a per-agent public surface: it is a root-level route
@@ -634,8 +669,9 @@ export function buildApp(opts: BuildAppOpts): Express {
     // appear, and each route is rendered with its auth concretely resolved
     // against the agent's `spec.auth`. There is no hand-maintained map of
     // "which triggers have schemas" — it falls out of the module registry.
-    app.get(
-        `${mount}/schemas`,
+    agentRoute(
+        'get',
+        '/schemas',
         asyncHandler(async (req: Request, res: Response) => {
             const resolved = await resolveAgent(resolver, req, res)
             if (!resolved) {
@@ -675,7 +711,10 @@ export function buildApp(opts: BuildAppOpts): Express {
     )
 
     for (const m of TRIGGER_MODULES) {
-        app.use(mount, mountTrigger(triggerDeps, m))
+        const router = mountTrigger(triggerDeps, m)
+        for (const { mount, guards } of mounts) {
+            app.use(mount, ...guards, router)
+        }
     }
 
     // Last in the chain. Catches rejections from `asyncHandler`-wrapped
