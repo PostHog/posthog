@@ -36,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class KoyebSource(ResumableSource[KoyebSourceConfig, KoyebResumeConfig]):
+    api_docs_url = "https://www.koyeb.com/docs/reference/api"
+
     # `get_schemas` iterates the static endpoint catalog with no I/O, so the public docs can
     # render the table list without credentials.
     lists_tables_without_credentials = True

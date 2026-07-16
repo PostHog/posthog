@@ -34,6 +34,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OpenWeatherSource(SimpleSource[OpenWeatherSourceConfig]):
+    supported_versions = ("2.5",)
+    default_version = "2.5"
+    api_docs_url = "https://openweathermap.org/api"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.OPENWEATHER
