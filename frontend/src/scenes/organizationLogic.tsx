@@ -237,10 +237,9 @@ export const organizationLogic = kea<organizationLogicType>([
                     }
                 },
                 createOrganization: async (name: string) => {
-                    const reauthenticated = await timeSensitiveAuthenticationLogic
-                        .findMounted()
-                        ?.asyncActions.checkReauthentication()
-                    if (reauthenticated === false) {
+                    const reauthLogic = timeSensitiveAuthenticationLogic.findMounted()
+                    await reauthLogic?.asyncActions.checkReauthentication()
+                    if (reauthLogic?.values.reauthenticationSucceeded === false) {
                         // User dismissed or failed re-auth — abort quietly rather than firing a request
                         // that would only hit the same 403.
                         throw new DOMException('Re-authentication was not completed', 'AbortError')
@@ -252,10 +251,9 @@ export const organizationLogic = kea<organizationLogicType>([
                         throw new Error('Current organization has not been loaded yet.')
                     }
                     // Check if re-authentication is required, if so, await its completion (or failure)
-                    const reauthenticated = await timeSensitiveAuthenticationLogic
-                        .findMounted()
-                        ?.asyncActions.checkReauthentication()
-                    if (reauthenticated === false) {
+                    const reauthLogic = timeSensitiveAuthenticationLogic.findMounted()
+                    await reauthLogic?.asyncActions.checkReauthentication()
+                    if (reauthLogic?.values.reauthenticationSucceeded === false) {
                         // User dismissed or failed re-auth — abort quietly rather than firing a request
                         // that would only hit the same 403.
                         throw new DOMException('Re-authentication was not completed', 'AbortError')

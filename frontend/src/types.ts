@@ -357,7 +357,7 @@ export interface UserType extends UserBaseType {
     is_impersonated_until?: string
     is_impersonated_read_only?: boolean
     is_impersonated_reason?: string | null
-    sensitive_session_expires_at: string
+    sensitive_session_expires_at: string | null
     organization: OrganizationType | null
     team: TeamBasicType | null
     organizations: OrganizationBasicType[]

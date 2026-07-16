@@ -151,7 +151,7 @@ describe('timeSensitiveAuthenticationLogic', () => {
             })
         })
 
-        it('should resolve a pending checkReauthentication with false when the modal is dismissed', async () => {
+        it('should record a dismissed re-auth as not succeeded so callers abort', async () => {
             userLogic.actions.loadUserSuccess({
                 ...MOCK_DEFAULT_USER,
                 sensitive_session_expires_at: dayjs().add(4, 'minutes').toISOString(),
@@ -161,12 +161,16 @@ describe('timeSensitiveAuthenticationLogic', () => {
             expect(logic.values.showAuthenticationModal).toBe(true) // guard: the check is actually pending on the modal
             logic.actions.setDismissedReauthentication(true)
 
-            // Must resolve `false` (not reject, not resolve truthy): callers key off this to abort
-            // the blocked action instead of re-firing it into the same 403. A regression here brings
+            // The promise must settle (never hang or reject — the mount-time dispatch is
+            // fire-and-forget), and the outcome must read as not-succeeded so callers abort the
+            // blocked action instead of re-firing it into the same 403. A regression here brings
             // back the "re-authenticate, still blocked" loop.
-            await expect(pending).resolves.toBe(false)
+            await pending
 
-            await expectLogic(logic).toMatchValues({ showAuthenticationModal: false })
+            await expectLogic(logic).toMatchValues({
+                showAuthenticationModal: false,
+                reauthenticationSucceeded: false,
+            })
         })
     })
 })
