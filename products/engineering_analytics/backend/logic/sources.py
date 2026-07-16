@@ -222,14 +222,15 @@ def _repo_candidates(*, team: Team, sources: QuerySet[ExternalDataSource]) -> It
     for source in sources:
         display = _source_repository(source)
         legacy_key = display.casefold()
-        # Follow the source's configured repo order so the default (first) repo matches what the picker
-        # labels as githubSources[0] — an alphabetical sort would query one repo while the UI names
-        # another. Legacy/bare repo still leads; unknown leftovers trail in name order.
+        # Order strictly by the source's configured repo order, so the default (first) repo matches what
+        # the picker labels as githubSources[0]. The legacy/bare repo gets no priority here — if the
+        # `repositories` multi-select puts another repo first, that repo is the default on both sides;
+        # legacy_key is only used below to map the bare row's display name. Unknown leftovers trail.
         configured = [repo.casefold() for repo in _configured_repositories(source)]
 
-        def order_key(repo_key: str, *, configured: list[str] = configured, legacy_key: str = legacy_key) -> tuple:
+        def order_key(repo_key: str, *, configured: list[str] = configured) -> tuple:
             position = configured.index(repo_key) if repo_key in configured else len(configured)
-            return (repo_key != legacy_key, position, repo_key)
+            return (position, repo_key)
 
         by_repo = _synced_tables_by_repo(team=team, source=source)
         for repo_key in sorted(by_repo, key=order_key):

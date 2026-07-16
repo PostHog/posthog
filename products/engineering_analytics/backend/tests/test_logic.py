@@ -845,6 +845,21 @@ class TestMultiRepoGitHubResolution(BaseTest):
         # _multi_repo_source stores repositories in dict order (z/org, a/org), so z/org is configured first.
         assert resolve_github_tables(team=self.team).repository == "z/org"
 
+    def test_default_follows_configured_order_even_over_the_legacy_repo(self) -> None:
+        # A legacy source (bare `repository`) whose `repositories` multi-select puts another repo first:
+        # the default must resolve that configured-first repo, matching the picker's first entry — the
+        # legacy repo gets no priority, or the UI would label repo A while the backend queried the legacy.
+        self._multi_repo_source(
+            prefix="legacyorder",
+            legacy_repository="PostHog/posthog",
+            repos={
+                # posthog.com configured first (qualified); the legacy posthog repo second (bare names).
+                "posthog/posthog.com": [(PULL_REQUESTS_SCHEMA, True), (WORKFLOW_RUNS_SCHEMA, True)],
+                "PostHog/posthog": [(PULL_REQUESTS_SCHEMA, True), (WORKFLOW_RUNS_SCHEMA, True)],
+            },
+        )
+        assert resolve_github_tables(team=self.team).repository == "posthog/posthog.com"
+
     def test_explicit_repo_does_not_fall_through_to_a_sibling_repo(self) -> None:
         # The picker lists a repo before it finishes syncing. Selecting one whose pull_requests/
         # workflow_runs pair is incomplete must surface not-connected — never silently resolve the

@@ -1631,9 +1631,16 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                         // while the loaders read repo B.
                         return githubSources.find((source) => source.synced) ?? githubSources[0] ?? null
                     }
-                    const byRepo =
-                        scopeRepo && githubSources.find((source) => source.id === sourceId && source.repo === scopeRepo)
-                    return byRepo || githubSources.find((source) => source.id === sourceId) || null
+                    const ofSource = githubSources.filter((source) => source.id === sourceId)
+                    // Explicit repo wins; otherwise (a bookmarked `?source=` with no `?repo`) prefer the
+                    // first synced repo of this source, matching the repo the backend resolves by default —
+                    // else the header names an unsynced repo the loaders never read.
+                    return (
+                        (scopeRepo && ofSource.find((source) => source.repo === scopeRepo)) ||
+                        ofSource.find((source) => source.synced) ||
+                        ofSource[0] ||
+                        null
+                    )
                 },
             ],
             // One option per selectable (source, repo). The value encodes both so a multi-repo source's
