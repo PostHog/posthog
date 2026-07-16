@@ -42,6 +42,12 @@ class CodacySource(SimpleSource[CodacySourceConfig]):
         return ExternalDataSourceType.CODACY
 
     @property
+    def connection_host_fields(self) -> list[str]:
+        # The token is sent to api.codacy.com against <provider>/<organization>, so retargeting
+        # either segment must force re-entry of the token rather than reusing the preserved one.
+        return ["provider", "organization"]
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.CODACY,

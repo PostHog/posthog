@@ -40,6 +40,12 @@ class TestCodacySource:
         assert isinstance(provider, SourceFieldSelectConfig)
         assert [option.value for option in provider.options] == ["gh", "gl", "bb"]
 
+    def test_connection_host_fields_force_token_reentry_on_target_change(self) -> None:
+        # provider and organization pick the Codacy tenant the stored token queries; listing them
+        # forces the update serializer to require the token again when the target changes, instead
+        # of silently reusing the preserved secret against a different organization.
+        assert self.source.connection_host_fields == ["provider", "organization"]
+
     def test_get_schemas_lists_every_endpoint_as_full_refresh(self) -> None:
         schemas = self.source.get_schemas(_config(), team_id=1)
         assert [schema.name for schema in schemas] == list(ENDPOINTS)
