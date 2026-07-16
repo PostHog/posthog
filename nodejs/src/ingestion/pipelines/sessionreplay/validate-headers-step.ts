@@ -21,7 +21,7 @@ export function createValidateSessionReplayHeadersStep<
     T extends ValidateSessionReplayHeadersStepInput,
 >(): ProcessingStep<T, Omit<T, 'headers'> & { headers: SessionReplayHeaders }> {
     return async function validateReplayHeadersStep(input) {
-        const { token, session_id, distinct_id } = input.headers
+        const { token, session_id, distinct_id, snapshot_host } = input.headers
 
         if (!token) {
             return dlq('no_token_in_header')
@@ -34,7 +34,10 @@ export function createValidateSessionReplayHeadersStep<
         }
 
         return Promise.resolve(
-            ok({ ...input, headers: { token, session_id: normalizeSessionId(session_id), distinct_id } })
+            ok({
+                ...input,
+                headers: { token, session_id: normalizeSessionId(session_id), distinct_id, snapshot_host },
+            })
         )
     }
 }

@@ -20,6 +20,7 @@ export interface SessionReplayHeaders {
     token: string
     session_id: string
     distinct_id: string
+    snapshot_host?: string
 }
 
 /** Tags an element with whether its session is being seen for the first time in this batch. */

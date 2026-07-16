@@ -366,16 +366,21 @@ impl Rng {
 fn assert_stream_matches_tree(allow: &AllowLists, inner_json: &str, label: &str) {
     let payload = serde_json::to_string(&json!({"distinct_id": "d", "data": inner_json})).unwrap();
     // Hosts that appear across the fixture corpus, so first-party collapsing is differentially
-    // pinned alongside the no-hosts configuration.
-    let host_configs: &[&[&str]] = &[&[], &["example.com", "example-vendor.co"]];
-    for hosts in host_configs {
+    // pinned alongside the no-hosts configuration. The stamp gates classification, so both the
+    // stamped and unstamped regimes are covered for each config.
+    let configs: &[(&[&str], Option<&str>)] = &[
+        (&[], None),
+        (
+            &["example.com", "example-vendor.co"],
+            Some("app.example.com"),
+        ),
+    ];
+    for (hosts, stamp) in configs {
         let hosts: Vec<String> = hosts.iter().map(|h| h.to_string()).collect();
-        // The tree reference gets its patterns through the same `$snapshot_host` gate the payload
-        // entry applies, so the differential pins engine mechanics, not the gating.
-        let ctx = Ctx::with_first_party_hosts(
-            allow,
-            message_first_party_hosts(inner_json.as_bytes(), hosts.clone()).0,
-        );
+        // The tree reference gets its patterns through the same stamp gate the payload entry
+        // applies, so the differential pins engine mechanics, not the gating.
+        let ctx =
+            Ctx::with_first_party_hosts(allow, message_first_party_hosts(*stamp, hosts.clone()).0);
         let tree = anonymize_via_tree(&ctx, "d", inner_json.as_bytes());
 
         // Both scrub engines are pinned: the parse-free byte walk (with its per-event fallbacks)
@@ -388,6 +393,7 @@ fn assert_stream_matches_tree(allow: &AllowLists, inner_json: &str, label: &str)
                 &mut bytes,
                 AnonymizeOpts { byte_walk },
                 hosts.clone(),
+                stamp.map(String::from),
             );
             match (&stream, &tree) {
                 (Ok(s), Ok(t)) => {
@@ -485,11 +491,6 @@ fn differential_stream_vs_tree() {
             }
             let mut message = snapshot_message(Value::Array(events));
             message["properties"]["$window_id"] = json!(*rng.pick(window_ids));
-            if rng.chance(2) {
-                // A stamped host activates the first-party patterns (the unstamped rounds pin the
-                // collapse-all regime), so both engines are differentially covered in both regimes.
-                message["properties"]["$snapshot_host"] = json!("app.example.com");
-            }
             if rng.chance(3) {
                 message["properties"]["extra"] = json!(*rng.pick(junk_strings));
             }
@@ -733,13 +734,18 @@ fn snapshot_host_gates_and_seeds_first_party_classification() {
     ]))
     .unwrap();
     let inner = format!(
-        r#"{{"event":"$snapshot_items","properties":{{"$session_id":"s-1","$window_id":"w-1","$snapshot_host":"app.acme-site.test","$snapshot_items":{events}}}}}"#
+        r#"{{"event":"$snapshot_items","properties":{{"$session_id":"s-1","$window_id":"w-1","$snapshot_items":{events}}}}}"#
     );
     let payload = serde_json::to_string(&json!({ "distinct_id": "d-1", "data": inner })).unwrap();
     let mut bytes = payload.into_bytes();
-    let msg =
-        anonymize_kafka_payload_opts(&allow, &mut bytes, AnonymizeOpts::default(), Vec::new())
-            .expect("message should anonymize");
+    let msg = anonymize_kafka_payload_opts(
+        &allow,
+        &mut bytes,
+        AnonymizeOpts::default(),
+        Vec::new(),
+        Some("app.acme-site.test".to_string()),
+    )
+    .expect("message should anonymize");
     assert_eq!(msg.host_scan, HostScanOutcome::StampedOk);
     let lines = parse_lines(&msg.lines);
     assert_eq!(
@@ -775,36 +781,6 @@ fn snapshot_host_gates_and_seeds_first_party_classification() {
 }
 
 #[test]
-fn a_stamp_after_the_items_is_ignored_and_counted() {
-    // The fused walk scrubs events inline when it reaches `$snapshot_items`, so a stamp behind
-    // the array cannot apply; it must degrade to uniform collapse-all with the distinct outcome
-    // that would surface a capture ordering regression.
-    let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
-    let events = serde_json::to_string(&json!([{
-        "type": 2, "timestamp": TS0,
-        "data": { "node": { "type": 0, "childNodes": [
-            { "type": 2, "tagName": "a", "attributes": { "href": "https://partner-vendor.test/docs" }, "childNodes": [] }
-        ]}, "initialOffset": { "top": 0, "left": 0 } }
-    }]))
-    .unwrap();
-    let inner = format!(
-        r#"{{"event":"$snapshot_items","properties":{{"$session_id":"s-1","$snapshot_items":{events},"$snapshot_host":"app.acme-site.test"}}}}"#
-    );
-    let payload = serde_json::to_string(&json!({ "distinct_id": "d-1", "data": inner })).unwrap();
-    let mut bytes = payload.into_bytes();
-    let msg =
-        anonymize_kafka_payload_opts(&allow, &mut bytes, AnonymizeOpts::default(), Vec::new())
-            .expect("a late stamp must not fail the message");
-    assert_eq!(msg.host_scan, HostScanOutcome::StampLate);
-    let lines = parse_lines(&msg.lines);
-    assert_eq!(
-        lines[0][1]["data"]["node"]["childNodes"][0]["attributes"]["href"],
-        "https://example.com/[redacted]",
-        "a late stamp must leave the whole message collapse-all"
-    );
-}
-
-#[test]
 fn without_a_usable_snapshot_host_every_source_of_patterns_is_ignored() {
     // The stamp gates classification: absent or unusable, the configured team patterns must NOT
     // be used — only the recording runtime can vouch for which host the events came from, so
@@ -812,15 +788,14 @@ fn without_a_usable_snapshot_host_every_source_of_patterns_is_ignored() {
     let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
     let configured = vec!["partner-vendor.test".to_string()];
     // `"masked"` is the placeholder shape: a single unknown label must not become a trust anchor.
-    let stamp_json: [Option<&str>; 6] = [
+    let stamps: [Option<&str>; 5] = [
         None,
-        Some(r#"42"#),
-        Some(r#""""#),
-        Some(r#""not a host!""#),
-        Some(r#""masked""#),
-        Some(r#"{"nested":true}"#),
+        Some(""),
+        Some("42"),
+        Some("not a host!"),
+        Some("masked"),
     ];
-    for host_json in stamp_json {
+    for stamp in stamps {
         let events = serde_json::to_string(&json!([{
             "type": 2, "timestamp": TS0,
             "data": { "node": { "type": 0, "childNodes": [
@@ -828,11 +803,8 @@ fn without_a_usable_snapshot_host_every_source_of_patterns_is_ignored() {
             ]}, "initialOffset": { "top": 0, "left": 0 } }
         }]))
         .unwrap();
-        let host_prop = host_json
-            .map(|h| format!(r#","$snapshot_host":{h}"#))
-            .unwrap_or_default();
         let inner = format!(
-            r#"{{"event":"$snapshot_items","properties":{{"$session_id":"s-1"{host_prop},"$snapshot_items":{events}}}}}"#
+            r#"{{"event":"$snapshot_items","properties":{{"$session_id":"s-1","$snapshot_items":{events}}}}}"#
         );
         let payload =
             serde_json::to_string(&json!({ "distinct_id": "d-1", "data": inner })).unwrap();
@@ -842,18 +814,19 @@ fn without_a_usable_snapshot_host_every_source_of_patterns_is_ignored() {
             &mut bytes,
             AnonymizeOpts::default(),
             configured.clone(),
+            stamp.map(String::from),
         )
-        .expect("an unusable $snapshot_host must not fail the message");
+        .expect("an unusable snapshot_host header must not fail the message");
         assert_ne!(
             msg.host_scan,
             HostScanOutcome::StampedOk,
-            "outcome must record that classification did not activate (stamp={host_json:?})"
+            "outcome must record that classification did not activate (stamp={stamp:?})"
         );
         let lines = parse_lines(&msg.lines);
         assert_eq!(
             lines[0][1]["data"]["node"]["childNodes"][0]["attributes"]["href"],
             "https://example.com/[redacted]",
-            "collapse-all must hold even with configured patterns (stamp={host_json:?})"
+            "collapse-all must hold even with configured patterns (stamp={stamp:?})"
         );
     }
 }

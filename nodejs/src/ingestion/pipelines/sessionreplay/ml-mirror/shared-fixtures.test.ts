@@ -48,7 +48,7 @@ describeAddon('native rust addon matches the shared fixtures', () => {
     const TS0 = 1_700_000_000_000
 
     // Wrap fixture events in the Kafka payload shape
-    function payloadOf(windowId: string, events: unknown[], snapshotHost?: string): Buffer {
+    function payloadOf(windowId: string, events: unknown[]): Buffer {
         const items = structuredClone(events)
         items.forEach((ev, i) => {
             if (isRecord(ev)) {
@@ -57,14 +57,7 @@ describeAddon('native rust addon matches the shared fixtures', () => {
         })
         const inner = JSON.stringify({
             event: '$snapshot_items',
-            properties: {
-                $session_id: 's-1',
-                $window_id: windowId,
-                // Before $snapshot_items, matching capture's serialization order — a later stamp
-                // is deliberately ignored (the walk has already scrubbed the events).
-                ...(snapshotHost ? { $snapshot_host: snapshotHost } : {}),
-                $snapshot_items: items,
-            },
+            properties: { $session_id: 's-1', $window_id: windowId, $snapshot_items: items },
         })
         return Buffer.from(JSON.stringify({ distinct_id: 'd-1', data: inner }))
     }
@@ -141,7 +134,7 @@ describeAddon('native rust addon matches the shared fixtures', () => {
             return line[1].data.node.childNodes.map((n) => n.attributes.href)
         }
 
-        it('collapses every host when the message has no $snapshot_host, ignoring per-call patterns', async () => {
+        it('collapses every host without a snapshot_host header, ignoring per-call patterns', async () => {
             rustAddon!.initAnonymizer({ text: [], url: [] })
             const result = await rustAddon!.anonymizeKafkaPayload(
                 payloadOf('w', [linkEvent(['https://app.customer-site.test/settings', 'https://vendor.test/docs'])]),
@@ -149,28 +142,27 @@ describeAddon('native rust addon matches the shared fixtures', () => {
                 ['vendor.test']
             )
             expect(result.failed).toBe(false)
+            expect(result.hostScan).toBe('no_stamp')
             expect(hrefsOf(result.lines!)).toEqual(['https://example.com/[redacted]', 'https://example.com/[redacted]'])
         })
 
-        it('classifies hosts when $snapshot_host is stamped: first-party collapses, external survives', async () => {
+        it('classifies hosts when the snapshot_host header is present: first-party collapses, external survives', async () => {
             rustAddon!.initAnonymizer({ text: [], url: [] })
             const result = await rustAddon!.anonymizeKafkaPayload(
-                payloadOf(
-                    'w',
-                    [
-                        linkEvent([
-                            'https://www.customer-site.test/settings',
-                            'https://docs.second-site.test/intro',
-                            'https://vendor.test/docs',
-                        ]),
-                    ],
-                    'app.customer-site.test'
-                ),
+                payloadOf('w', [
+                    linkEvent([
+                        'https://www.customer-site.test/settings',
+                        'https://docs.second-site.test/intro',
+                        'https://vendor.test/docs',
+                    ]),
+                ]),
                 undefined,
                 // Raw app-URL shape: the addon owns the reduction to a root-domain pattern.
-                ['https://app.second-site.test/welcome']
+                ['https://app.second-site.test/welcome'],
+                'app.customer-site.test'
             )
             expect(result.failed).toBe(false)
+            expect(result.hostScan).toBe('stamped_ok')
             expect(hrefsOf(result.lines!)).toEqual([
                 'https://example.com/[redacted]',
                 'https://example.com/[redacted]',

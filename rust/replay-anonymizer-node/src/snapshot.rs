@@ -221,7 +221,7 @@ pub fn anonymize_kafka_payload(
     allow: &AllowLists,
     payload: &mut [u8],
 ) -> SResult<AnonymizedMessage> {
-    anonymize_kafka_payload_opts(allow, payload, AnonymizeOpts::default(), Vec::new())
+    anonymize_kafka_payload_opts(allow, payload, AnonymizeOpts::default(), Vec::new(), None)
 }
 
 pub fn anonymize_kafka_payload_opts(
@@ -229,6 +229,7 @@ pub fn anonymize_kafka_payload_opts(
     payload: &mut [u8],
     opts: AnonymizeOpts,
     first_party_url_entries: Vec<String>,
+    snapshot_host: Option<String>,
 ) -> SResult<AnonymizedMessage> {
     if let Some((distinct_id_span, data_span)) = scan_outer_envelope(payload) {
         // Resolve distinct_id to an owned string first — the unescape below rewrites the buffer.
@@ -238,6 +239,7 @@ pub fn anonymize_kafka_payload_opts(
                 payload,
                 opts,
                 first_party_url_entries,
+                snapshot_host,
             );
         };
         let distinct_id = distinct_id.into_owned();
@@ -262,9 +264,10 @@ pub fn anonymize_kafka_payload_opts(
             inner,
             opts,
             first_party_url_entries,
+            snapshot_host,
         );
     }
-    anonymize_kafka_payload_via_parse(allow, payload, opts, first_party_url_entries)
+    anonymize_kafka_payload_via_parse(allow, payload, opts, first_party_url_entries, snapshot_host)
 }
 
 /// Locate the `distinct_id` + `data` string spans by scanning the outer object. `None` means "let
@@ -340,6 +343,7 @@ fn anonymize_kafka_payload_via_parse(
     payload: &mut [u8],
     opts: AnonymizeOpts,
     first_party_url_entries: Vec<String>,
+    snapshot_host: Option<String>,
 ) -> SResult<AnonymizedMessage> {
     reject_if_too_deep(payload, "kafka payload")
         .map_err(|e| Failure::new(FailKind::InvalidJson, e.to_string()))?;
@@ -371,6 +375,7 @@ fn anonymize_kafka_payload_via_parse(
         &mut data_bytes,
         opts,
         first_party_url_entries,
+        snapshot_host,
     )
 }
 
@@ -388,6 +393,7 @@ pub fn anonymize_snapshot_data(
         inner,
         AnonymizeOpts::default(),
         Vec::new(),
+        None,
     )
 }
 
@@ -397,8 +403,10 @@ pub fn anonymize_snapshot_data_opts(
     inner: &mut [u8],
     opts: AnonymizeOpts,
     first_party_url_entries: Vec<String>,
+    snapshot_host: Option<String>,
 ) -> SResult<AnonymizedMessage> {
-    let (first_party_hosts, host_scan) = message_first_party_hosts(inner, first_party_url_entries);
+    let (first_party_hosts, host_scan) =
+        message_first_party_hosts(snapshot_host.as_deref(), first_party_url_entries);
     // No whole-message depth pre-pass here: the byte walk bounds its own recursion and declines
     // past its limit, and every recursive parse below is preceded by a span-local
     // reject_if_too_deep — so the common all-walked path never pays a depth scan at all.
@@ -424,12 +432,9 @@ pub fn anonymize_snapshot_data_opts(
 /// (a `host[:port]` form is tolerated), or the property must be omitted entirely — never a
 /// placeholder. As defense the reduction rejects single-label values other than `localhost`/IPs,
 /// so a masking placeholder (`masked`, `redacted`) cannot activate classification. Capture must
-/// serialize the property before `$snapshot_items` (a capture test pins this); a later stamp is
-/// ignored and the message collapses every host.
+/// capture forwards the property out of the event body as a `snapshot_host` Kafka header, which
+/// the TS consumer hands the addon alongside the payload.
 pub const SNAPSHOT_HOST_PROPERTY: &str = "$snapshot_host";
-
-// `"` + SNAPSHOT_HOST_PROPERTY + `"`; a test pins the equality (no const string concat).
-const SNAPSHOT_HOST_NEEDLE: &[u8] = b"\"$snapshot_host\"";
 
 /// At most this many configured root-domain patterns per message (counted after reduction and
 /// dedup, so subdomain entries of one root cannot exhaust it), keeping the per-URL pattern scan
@@ -448,11 +453,6 @@ pub enum HostScanOutcome {
     StampedOk,
     /// Stamp present but not reducible to a first-party pattern (junk, placeholder, bare suffix).
     StampUnusable,
-    /// The stamp probe hit but the structural pre-scan declined (anomalous envelope).
-    ScanBail,
-    /// A `$snapshot_host` byte sequence exists but not before `$snapshot_items` — an envelope
-    /// ordering regression upstream (or the needle inside recorded content).
-    StampLate,
 }
 
 impl HostScanOutcome {
@@ -461,37 +461,23 @@ impl HostScanOutcome {
             HostScanOutcome::NoStamp => "no_stamp",
             HostScanOutcome::StampedOk => "stamped_ok",
             HostScanOutcome::StampUnusable => "stamp_unusable",
-            HostScanOutcome::ScanBail => "scan_bail",
-            HostScanOutcome::StampLate => "stamp_late",
         }
     }
 }
 
 /// The scrub context's first-party patterns for one message, plus the outcome that produced them.
-/// `$snapshot_host` gates everything: absent or unusable means no patterns — every host collapses.
-/// When present, its registrable domain seeds the set, enriched with the team's configured URL
-/// entries (raw recording domains + app URLs, reduced here so one public-suffix implementation
-/// governs the whole feature).
+/// The `snapshot_host` Kafka header gates everything: absent or unusable means no patterns —
+/// every host collapses. When present, its registrable domain seeds the set, enriched with the
+/// team's configured URL entries (raw recording domains + app URLs, reduced here so one
+/// public-suffix implementation governs the whole feature).
 pub fn message_first_party_hosts(
-    inner: &[u8],
+    stamp: Option<&str>,
     configured_url_entries: Vec<String>,
 ) -> (Vec<String>, HostScanOutcome) {
-    let stamp = match scan_stamp_before_items(inner) {
-        StampScan::Anomaly => return (Vec::new(), HostScanOutcome::ScanBail),
-        StampScan::NotBeforeItems => {
-            // Distinguish a genuinely unstamped message from an ordering regression (or, rarely,
-            // the needle appearing inside recorded content) — the counter is how a capture change
-            // that reorders the envelope gets noticed. Only stamp-less messages pay this pass.
-            let outcome = if memchr::memmem::find(inner, SNAPSHOT_HOST_NEEDLE).is_some() {
-                HostScanOutcome::StampLate
-            } else {
-                HostScanOutcome::NoStamp
-            };
-            return (Vec::new(), outcome);
-        }
-        StampScan::Stamp(s) => s,
+    let Some(stamp) = stamp else {
+        return (Vec::new(), HostScanOutcome::NoStamp);
     };
-    let Some(stamp_pattern) = stamp_host_pattern(&stamp) else {
+    let Some(stamp_pattern) = stamp_host_pattern(stamp) else {
         return (Vec::new(), HostScanOutcome::StampUnusable);
     };
     let mut patterns: Vec<String> = Vec::new();
@@ -534,108 +520,6 @@ fn url_entry_host_pattern(entry: &str) -> Option<String> {
         return None;
     }
     host_pattern(host_port)
-}
-
-enum StampScan {
-    Stamp(String),
-    /// No `$snapshot_host` key before `$snapshot_items` (or before the properties object ended).
-    NotBeforeItems,
-    /// Structural anomaly (including any escaped key): fail closed, collapse every host.
-    Anomaly,
-}
-
-/// Read `properties.$snapshot_host` from the envelope prefix, stopping at `$snapshot_items`
-/// without traversing it — the ordering contract (pinned by a capture test) keeps the stamp
-/// before the multi-MB items array, so this touches a few hundred bytes per message. The scan
-/// runs before the fused walk consumes the buffer (the walk emits scrubbed events inline the
-/// moment it reaches the items, so the pattern set must be complete first); a stamp after the
-/// items is deliberately ignored — every event was scrubbed with empty patterns by then, so
-/// honoring it is impossible and ignoring it is uniform collapse-all, fail-closed.
-fn scan_stamp_before_items(inner: &[u8]) -> StampScan {
-    scan_stamp_impl(inner).unwrap_or(StampScan::Anomaly)
-}
-
-fn scan_stamp_impl(inner: &[u8]) -> Option<StampScan> {
-    let mut pos = scan::skip_ws(inner, 0);
-    if inner.get(pos) != Some(&b'{') {
-        return None;
-    }
-    pos += 1;
-    let mut first = true;
-    loop {
-        pos = scan::skip_ws(inner, pos);
-        if inner.get(pos) == Some(&b'}') {
-            return Some(StampScan::NotBeforeItems);
-        }
-        if !first {
-            if inner.get(pos) != Some(&b',') {
-                return None;
-            }
-            pos = scan::skip_ws(inner, pos + 1);
-        }
-        first = false;
-        if inner.get(pos) != Some(&b'"') {
-            return None;
-        }
-        let key_end = scan::skip_string(inner, pos).ok()?;
-        let key = &inner[pos + 1..key_end - 1];
-        if key.contains(&b'\\') {
-            return None;
-        }
-        pos = scan::skip_ws(inner, key_end);
-        if inner.get(pos) != Some(&b':') {
-            return None;
-        }
-        let vstart = scan::skip_ws(inner, pos + 1);
-        if key != b"properties" {
-            pos = scan::locate_value(inner, vstart).ok()?.1;
-            continue;
-        }
-        if inner.get(vstart) != Some(&b'{') {
-            return None;
-        }
-        let mut ppos = vstart + 1;
-        let mut pfirst = true;
-        loop {
-            ppos = scan::skip_ws(inner, ppos);
-            if inner.get(ppos) == Some(&b'}') {
-                return Some(StampScan::NotBeforeItems);
-            }
-            if !pfirst {
-                if inner.get(ppos) != Some(&b',') {
-                    return None;
-                }
-                ppos = scan::skip_ws(inner, ppos + 1);
-            }
-            pfirst = false;
-            if inner.get(ppos) != Some(&b'"') {
-                return None;
-            }
-            let pkey_end = scan::skip_string(inner, ppos).ok()?;
-            let pkey = &inner[ppos + 1..pkey_end - 1];
-            if pkey.contains(&b'\\') {
-                return None;
-            }
-            let is_host = pkey == SNAPSHOT_HOST_PROPERTY.as_bytes();
-            if pkey == b"$snapshot_items" {
-                return Some(StampScan::NotBeforeItems);
-            }
-            ppos = scan::skip_ws(inner, pkey_end);
-            if inner.get(ppos) != Some(&b':') {
-                return None;
-            }
-            let pvstart = scan::skip_ws(inner, ppos + 1);
-            let vspan = scan::locate_value(inner, pvstart).ok()?;
-            if is_host {
-                if !scan::is_string(inner, vspan) {
-                    return None;
-                }
-                let stamp = scan::unescape(inner, vspan).ok()?.into_owned();
-                return Some(StampScan::Stamp(stamp));
-            }
-            ppos = vspan.1;
-        }
-    }
 }
 
 /// Reduce a page hostname (`host[:port]` tolerated) to a first-party pattern, mirroring the TS
@@ -1660,15 +1544,7 @@ fn anonymize_via_tree_mut(
 
 #[cfg(test)]
 mod tests {
-    use super::{stamp_host_pattern, SNAPSHOT_HOST_NEEDLE, SNAPSHOT_HOST_PROPERTY};
-
-    #[test]
-    fn snapshot_host_needle_matches_the_property() {
-        assert_eq!(
-            SNAPSHOT_HOST_NEEDLE,
-            format!("\"{SNAPSHOT_HOST_PROPERTY}\"").as_bytes()
-        );
-    }
+    use super::stamp_host_pattern;
 
     #[test]
     fn url_entry_reduction_cases() {
@@ -1717,19 +1593,19 @@ mod tests {
     fn configured_pattern_cap_counts_root_domains_not_entries() {
         // Subdomain entries reduce and dedupe into their root before counting toward the cap;
         // counting entries instead would let one root's subdomains push real domains out.
-        let inner = br#"{"event":"$snapshot_items","properties":{"$session_id":"s","$snapshot_host":"app.stamped.test","$snapshot_items":[]}}"#;
+        let stamp = Some("app.stamped.test");
         let mut entries: Vec<String> = (0..150)
             .map(|i| format!("https://tenant-{i}.one-root.example"))
             .collect();
         entries.push("https://other-root.example".to_string());
-        let (patterns, outcome) = super::message_first_party_hosts(inner, entries);
+        let (patterns, outcome) = super::message_first_party_hosts(stamp, entries);
         assert_eq!(outcome, super::HostScanOutcome::StampedOk);
         assert!(patterns.contains(&"one-root.example".to_string()));
         assert!(patterns.contains(&"other-root.example".to_string()));
         assert!(patterns.contains(&"stamped.test".to_string()));
 
         let many_roots: Vec<String> = (0..150).map(|i| format!("root-{i}.example")).collect();
-        let (patterns, _) = super::message_first_party_hosts(inner, many_roots);
+        let (patterns, _) = super::message_first_party_hosts(stamp, many_roots);
         // The cap plus the stamp pattern appended after it.
         assert_eq!(patterns.len(), 101);
     }

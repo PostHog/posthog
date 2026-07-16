@@ -885,6 +885,8 @@ export const parseEventHeaders = (headers?: MessageHeader[]): EventHeaders => {
                 result.distinct_id = sanitizeString(value)
             } else if (key === 'session_id') {
                 result.session_id = normalizeSessionId(sanitizeString(value))
+            } else if (key === 'snapshot_host') {
+                result.snapshot_host = sanitizeString(value)
             } else if (key === 'timestamp') {
                 result.timestamp = value
             } else if (key === 'event') {

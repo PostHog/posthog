@@ -61,9 +61,9 @@ export interface AnonymizeKafkaPayloadResult {
     /**
      * Which host-classification regime applied: everything but `stamped_ok` collapses every
      * hostname, so the consumer must count outcomes — a `$snapshot_host` regression upstream
-     * (SDK rename, capture stripping the property) would otherwise degrade silently.
+     * (SDK rename, capture dropping the header) would otherwise degrade silently.
      */
-    hostScan: 'no_stamp' | 'stamped_ok' | 'stamp_unusable' | 'scan_bail' | 'stamp_late' | null
+    hostScan: 'no_stamp' | 'stamped_ok' | 'stamp_unusable' | null
 }
 
 /** Initialize the process-wide allow lists. Call once at startup before {@link anonymizeKafkaPayload}. */
@@ -81,17 +81,20 @@ export function initAnonymizer(allow: AllowListsInput): void {
  *
  * `firstPartyUrlEntries` (the team's raw recording-domain and app-URL entries) is reduced to
  * root-domain patterns inside the addon — the psl crate is the feature's single public-suffix
- * implementation — and only consulted when the message carries an SDK-stamped `$snapshot_host`
- * property; without that trust anchor every hostname in the recording collapses to a placeholder.
+ * implementation — and only consulted when `snapshotHost` (the recorded page's hostname, from the
+ * message's `snapshot_host` Kafka header) is present and usable; without that trust anchor every
+ * hostname in the recording collapses to a placeholder.
  */
 export function anonymizeKafkaPayload(
     payload: Buffer,
     contentEncoding?: string | null,
-    firstPartyUrlEntries?: string[] | null
+    firstPartyUrlEntries?: string[] | null,
+    snapshotHost?: string | null
 ): Promise<AnonymizeKafkaPayloadResult> {
     return native.anonymizeKafkaPayload(
         payload,
         contentEncoding ?? undefined,
-        firstPartyUrlEntries && firstPartyUrlEntries.length > 0 ? JSON.stringify(firstPartyUrlEntries) : undefined
+        firstPartyUrlEntries && firstPartyUrlEntries.length > 0 ? JSON.stringify(firstPartyUrlEntries) : undefined,
+        snapshotHost ?? undefined
     )
 }

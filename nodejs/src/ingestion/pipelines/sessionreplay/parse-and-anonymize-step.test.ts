@@ -14,8 +14,12 @@ const compressWithGzip = promisify(gzip)
 // assembly — not the scrub itself (that's covered by the Rust suite + shared fixtures).
 const mockAnonymizeKafkaPayload = jest.fn()
 jest.mock('@posthog/replay-anonymizer', () => ({
-    anonymizeKafkaPayload: (payload: Buffer, contentEncoding?: string | null, firstPartyUrlEntries?: string[] | null) =>
-        mockAnonymizeKafkaPayload(payload, contentEncoding, firstPartyUrlEntries),
+    anonymizeKafkaPayload: (
+        payload: Buffer,
+        contentEncoding?: string | null,
+        firstPartyUrlEntries?: string[] | null,
+        snapshotHost?: string | null
+    ) => mockAnonymizeKafkaPayload(payload, contentEncoding, firstPartyUrlEntries, snapshotHost),
 }))
 
 describe('createParseAndAnonymizeMessageStep', () => {
@@ -33,6 +37,7 @@ describe('createParseAndAnonymizeMessageStep', () => {
         token: 'token-1',
         distinct_id: 'user-1',
         session_id: 'session-1',
+        snapshot_host: 'app.customer-site.test',
     } as SessionReplayHeaders
 
     function kafkaMessage(value: Buffer | null = Buffer.from('{}')): Message {
@@ -110,14 +115,24 @@ describe('createParseAndAnonymizeMessageStep', () => {
         const raw = Buffer.from(JSON.stringify({ distinct_id: 'user-1', data: '{}' }))
         const zipped = await compressWithGzip(raw)
         await step({ message: kafkaMessage(zipped), headers, team })
-        expect(mockAnonymizeKafkaPayload).toHaveBeenCalledWith(zipped, null, team.firstPartyUrlEntries)
+        expect(mockAnonymizeKafkaPayload).toHaveBeenCalledWith(
+            zipped,
+            null,
+            team.firstPartyUrlEntries,
+            headers.snapshot_host
+        )
 
         mockAnonymizeKafkaPayload.mockClear()
         addonSuccess()
         const lz4Message = kafkaMessage(raw)
         lz4Message.headers = [{ 'content-encoding': Buffer.from('lz4') }]
         await step({ message: lz4Message, headers, team })
-        expect(mockAnonymizeKafkaPayload).toHaveBeenCalledWith(raw, 'lz4', team.firstPartyUrlEntries)
+        expect(mockAnonymizeKafkaPayload).toHaveBeenCalledWith(
+            raw,
+            'lz4',
+            team.firstPartyUrlEntries,
+            headers.snapshot_host
+        )
     })
 
     test.each([

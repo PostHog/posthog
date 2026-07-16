@@ -67,7 +67,8 @@ export function createParseAndAnonymizeMessageStep<
             result = await getRustAnonymizer().anonymizeKafkaPayload(
                 message.value,
                 contentEncoding,
-                input.team.firstPartyUrlEntries
+                input.team.firstPartyUrlEntries,
+                headers.snapshot_host
             )
         } catch (error) {
             // A rejected promise (native panic, addon load failure) must fail closed.

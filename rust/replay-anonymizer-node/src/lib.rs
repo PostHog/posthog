@@ -126,6 +126,13 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
         Some(v) => Some(v.downcast_or_throw::<JsString, _>(&mut cx)?.value(&mut cx)),
         None => None,
     };
+    // The `snapshot_host` Kafka header: the recorded page's hostname, the trust anchor for host
+    // classification. Same fail-loud rule for a present-but-non-string argument.
+    let snapshot_host: Option<String> = match cx.argument_opt(3) {
+        Some(v) if v.is_a::<JsUndefined, _>(&mut cx) || v.is_a::<JsNull, _>(&mut cx) => None,
+        Some(v) => Some(v.downcast_or_throw::<JsString, _>(&mut cx)?.value(&mut cx)),
+        None => None,
+    };
     let promise = cx
         .task(move || -> TaskOutcome {
             // Contain any panic on untrusted input so it fails closed (the caller drops the message)
@@ -160,6 +167,7 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
                     &mut payload,
                     snapshot::AnonymizeOpts::default(),
                     first_party_hosts,
+                    snapshot_host,
                 ) {
                     Ok(out) => {
                         let meta = serde_json::to_string(&out.meta)

@@ -863,6 +863,8 @@ export interface EventHeaders {
     token?: string
     distinct_id?: string
     session_id?: string
+    /** The recorded page's hostname on replay snapshot messages, stamped by the browser SDK. */
+    snapshot_host?: string
     timestamp?: string
     event?: string
     uuid?: string
