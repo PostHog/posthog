@@ -300,8 +300,11 @@ def get_rows(
     base_url = get_base_url(subdomain)
     headers = _get_headers(api_token)
     # One session reused across every page so urllib3 keeps the connection alive.
-    # Redirects stay off as defense-in-depth for host pinning.
-    session = make_tracked_session(redact_values=(api_token,), allow_redirects=False)
+    # Redirects stay off as defense-in-depth for host pinning. `capture=False` keeps
+    # response bodies out of HTTP sample capture: these endpoints return free-text
+    # customer content (review comments, CSAT feedback, conversations) the name-based
+    # scrubbers can't reliably remove; requests stay metered and logged.
+    session = make_tracked_session(redact_values=(api_token,), allow_redirects=False, capture=False)
 
     params = _build_params(config, should_use_incremental_field, db_incremental_field_last_value)
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
@@ -366,7 +369,8 @@ def validate_credentials(subdomain: str, api_token: str) -> tuple[bool, str | No
         return False, str(e)
 
     try:
-        response = make_tracked_session(redact_values=(api_token,), allow_redirects=False).get(
+        # `capture=False` keeps the user listing (names, emails) out of HTTP sample capture.
+        response = make_tracked_session(redact_values=(api_token,), allow_redirects=False, capture=False).get(
             f"{base_url}/api/export/users",
             headers=_get_headers(api_token),
             timeout=30,
