@@ -326,6 +326,7 @@ the row lists both.
 | openai                    | HTTP                        | requests                                                        | ✅                          |
 | opinion_stage             | HTTP                        | requests                                                        | ✅                          |
 | orb                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| orca_security             | HTTP (POST query DSL)       | requests                                                        | ✅                          |
 | openaq                    | HTTP                        | requests                                                        | ✅                          |
 | openfda                   | HTTP                        | requests                                                        | ✅                          |
 | openrouter                | HTTP                        | requests                                                        | ✅                          |
@@ -793,7 +794,6 @@ doesn't conflict with concurrent PRs.
 - oracle_ebs
 - oracle_fusion
 - orbit
-- orca_security
 - outlook
 - outreach
 - oveit
