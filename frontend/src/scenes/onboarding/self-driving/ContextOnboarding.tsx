@@ -1,6 +1,6 @@
 import { useActions, useAsyncActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { type ReactNode, useEffect, useState } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 
 import { IconArrowLeft, IconArrowRight, IconCheckCircle, IconGithub } from '@posthog/icons'
 import { LemonButton, LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
@@ -521,7 +521,7 @@ const CARD_CLASSES =
     'relative w-full flex flex-col gap-5 overflow-hidden p-0 transition-[max-width] duration-300 sm:max-h-[calc(100dvh-7rem)] sm:p-8 md:p-10 sm:bg-surface-primary sm:rounded-xl sm:shadow-md sm:border sm:border-primary'
 
 export function ContextOnboarding(): JSX.Element {
-    const { completeContextOnboarding } = useActions(onboardingLogic)
+    const { completeContextOnboarding, skipContextOnboarding } = useActions(onboardingLogic)
     const { isCompleting } = useValues(onboardingLogic)
     const {
         reportContextOnboardingStarted,
@@ -540,6 +540,12 @@ export function ContextOnboarding(): JSX.Element {
     const isFirst = stepIndex === 0
     const isLast = stepIndex === STEPS.length - 1
 
+    // Track completion and the current step across renders so the unmount safety net (below) knows
+    // whether the user finished and which step they left from, without re-subscribing that effect.
+    const completedRef = useRef(false)
+    const currentStepIdRef = useRef(step.id)
+    currentStepIdRef.current = step.id
+
     // Funnel (GROW-89): `started` fires once per fresh entry — a ?step= resume (refresh, OAuth
     // callback) is a continuation, not a new start. `step viewed` fires for every step shown,
     // including the one this mounts on.
@@ -548,6 +554,18 @@ export function ContextOnboarding(): JSX.Element {
             reportContextOnboardingStarted()
         }
     })
+
+    // Persist a "skipped for later" marker if the user leaves the flow by navigating away (sidebar,
+    // browser back, logout) rather than finishing — otherwise sceneLogic bounces them back into
+    // onboarding on their next visit. The Finish path calls `completeContextOnboarding` instead, so
+    // skip the marker when the user actually completed.
+    useEffect(() => {
+        return () => {
+            if (!completedRef.current) {
+                skipContextOnboarding(currentStepIdRef.current)
+            }
+        }
+    }, [skipContextOnboarding])
     useEffect(() => {
         reportContextOnboardingStepViewed(STEPS[stepIndex].id)
     }, [stepIndex, reportContextOnboardingStepViewed])
@@ -565,7 +583,9 @@ export function ContextOnboarding(): JSX.Element {
     const advance = (): void => {
         if (isLast) {
             // Marks onboarding complete (credits the sources turned on) and navigates out, so
-            // sceneLogic doesn't bounce the user back into onboarding.
+            // sceneLogic doesn't bounce the user back into onboarding. Flag it so the unmount
+            // safety net doesn't also persist a skip marker for a flow the user actually finished.
+            completedRef.current = true
             completeContextOnboarding()
             return
         }
@@ -580,6 +600,12 @@ export function ContextOnboarding(): JSX.Element {
     }
     const skipStep = (): void => {
         reportContextOnboardingStepSkipped(step.id)
+        // Persist that the user stepped out of onboarding as soon as they skip, so a subsequent
+        // logout/leave doesn't force them back in. The final step completes via `advance` instead,
+        // and the call is idempotent, so don't fire it there.
+        if (!isLast) {
+            skipContextOnboarding(step.id)
+        }
         advance()
     }
     const goBack = (): void => goToStep(Math.max(0, stepIndex - 1))

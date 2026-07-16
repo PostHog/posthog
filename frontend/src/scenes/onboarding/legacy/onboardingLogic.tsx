@@ -21,6 +21,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { usersOnboardingSkipCreate } from '~/generated/core/api'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { Breadcrumb, OnboardingProduct, OnboardingStepKey } from '~/types'
@@ -163,6 +164,9 @@ export interface onboardingLogicActions {
     setSubscribedDuringOnboarding: (subscribedDuringOnboarding: boolean) => {
         subscribedDuringOnboarding: boolean
     }
+    skipContextOnboarding: (stepId?: string | undefined) => {
+        stepId: string | undefined
+    }
     setTeamPropertiesForProduct: (productKey: ProductKey) => {
         productKey: ProductKey
     }
@@ -274,6 +278,10 @@ export const onboardingLogic = kea<onboardingLogicType>([
         // Completion for the context-first flow, which has no selected product. Marks onboarding done
         // (so sceneLogic stops redirecting here) and credits the sources the user turned on.
         completeContextOnboarding: true,
+        // Exit for the context-first flow without finishing: persist a "skipped for later" marker so
+        // sceneLogic doesn't bounce the user back into onboarding on their next visit. `stepId` is the
+        // step they left from, recorded for analytics only.
+        skipContextOnboarding: (stepId?: string) => ({ stepId }),
         setSubscribedDuringOnboarding: (subscribedDuringOnboarding: boolean) => ({ subscribedDuringOnboarding }),
         setTeamPropertiesForProduct: (productKey: ProductKey) => ({ productKey }),
         setWaitForBilling: (waitForBilling: boolean) => ({ waitForBilling }),
@@ -831,6 +839,32 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 // Always reset: the context flow has no productKey, so the updateCurrentTeam
                 // success/failure listeners below (gated on productKey) never clear it for us.
                 actions.setIsCompleting(false)
+            }
+        },
+        skipContextOnboarding: async ({ stepId }) => {
+            const user = values.user
+            if (!user?.uuid) {
+                return
+            }
+            // Nothing to do if the user already exited onboarding (skipped for later) or has completed
+            // a product — both already suppress the sceneLogic redirect, and the skip endpoint is
+            // idempotent, so this avoids redundant round-trips on repeated skips / re-entry.
+            if (user.onboarding_skipped_at || teamLogic.values.hasOnboardedAnyProduct) {
+                return
+            }
+            try {
+                const freshUser = await usersOnboardingSkipCreate(user.uuid, {
+                    reason: 'later',
+                    step_at_skip: stepId ?? '',
+                })
+                // Seed the freshest user into userLogic so `isOnboardingRedirectSuppressed` reads the
+                // new `onboarding_skipped_at` immediately — otherwise a later navigation could race
+                // stale state and bounce the user back into onboarding. Mirrors onboardingExitLogic's
+                // delegation path.
+                userLogic.actions.loadUserSuccess(freshUser as unknown as UserType)
+            } catch {
+                // Background-load so the app still converges on the skipped state if the seed fails.
+                userLogic.actions.loadUser()
             }
         },
         skipOnboarding: () => {
