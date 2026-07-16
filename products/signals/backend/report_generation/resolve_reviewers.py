@@ -194,6 +194,41 @@ def resolve_suggested_reviewers(
     touched_paths = [path for info in author_results.values() if info is not None for path in info.file_paths]
     activity_by_login = _relevant_area_activity(team_id, repository, touched_paths)
 
+    return _rank_scored_candidates(login_weights, activity_by_login, login_commits, login_names)
+
+
+def rank_assignee_candidates(
+    team_id: int,
+    repository: str,
+    candidate_logins: list[str],
+    touched_paths: list[str],
+) -> list[_ResolvedReviewer]:
+    """Rank agent-proposed assignees through the area-activity system.
+
+    The ordered candidate list is position-weighted like blame commits, blended with
+    cached recent activity for the touched paths, and topped up with active-in-area
+    fallbacks — the same scoring the deterministic reviewer path uses. Returns an empty
+    list when nothing is known (no candidates and no activity data), so callers keep
+    their own ordering as the fallback.
+    """
+    deduped = list(dict.fromkeys(login.strip().lower() for login in candidate_logins if login.strip()))
+    login_weights: Counter[str] = Counter()
+    total = len(deduped)
+    for i, login in enumerate(deduped):
+        login_weights[login] = total - i
+
+    activity_by_login = _relevant_area_activity(team_id, repository, touched_paths)
+    if not activity_by_login and not login_weights:
+        return []
+    return _rank_scored_candidates(login_weights, activity_by_login, login_commits={}, login_names={})
+
+
+def _rank_scored_candidates(
+    login_weights: Counter[str],
+    activity_by_login: dict[str, _AreaContributor],
+    login_commits: dict[str, list[RelevantCommit]],
+    login_names: dict[str, str | None],
+) -> list[_ResolvedReviewer]:
     scores = _score_candidates(login_weights, activity_by_login)
 
     def rank_key(item: tuple[str, float]) -> tuple[float, int, str]:
@@ -205,8 +240,8 @@ def resolve_suggested_reviewers(
     reviewers: list[_ResolvedReviewer] = []
     for login, score in ranked:
         commits = list(login_commits.get(login, []))
-        if not commits:
-            activity = activity_by_login[login]
+        activity = activity_by_login.get(login)
+        if not commits and activity is not None:
             commits = [
                 RelevantCommit(
                     sha=activity.last_commit_sha,
@@ -218,8 +253,8 @@ def resolve_suggested_reviewers(
                 )
             ]
         name = login_names.get(login)
-        if name is None and login in activity_by_login:
-            name = activity_by_login[login].name
+        if name is None and activity is not None:
+            name = activity.name
         reviewers.append(_ResolvedReviewer(login=login, name=name, commits=commits, weight=score))
     return reviewers
 

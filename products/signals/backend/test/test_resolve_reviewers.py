@@ -25,6 +25,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     _recency_multiplier,
     _relevant_area_activity,
     _score_candidates,
+    rank_assignee_candidates,
     resolve_org_github_login_to_users,
     resolve_suggested_reviewers,
 )
@@ -264,6 +265,68 @@ class TestAreaWalkUp:
             merged = _relevant_area_activity(team.id, "acme/app", ["products/dead/models.py"])
 
         assert set(merged) == {"repo-regular"}
+
+
+@pytest.mark.django_db
+class TestRankAssigneeCandidates:
+    def _seed_area(self, team, area: str, entries: list[tuple[str, int, int]]) -> None:
+        with team_scope(team.id, canonical=True):
+            SignalRepositoryAreaActivity.objects.create(
+                team=team,
+                repository="acme/app",
+                area=area,
+                contributors=[
+                    {
+                        "login": login,
+                        "name": login.title(),
+                        "commit_count": count,
+                        "last_commit_at": (timezone.now() - timedelta(days=days_ago)).isoformat(),
+                        "last_commit_sha": "a" * 7,
+                        "last_commit_url": "https://github.com/acme/app/commit/aaaaaaa",
+                    }
+                    for login, count, days_ago in entries
+                ],
+                refreshed_at=timezone.now(),
+            )
+
+    def test_stale_agent_candidate_demoted_below_active_area_owner(self, team):
+        self._seed_area(team, "products/signals", [("active-owner", 12, 2)])
+
+        with patch("products.signals.backend.report_generation.resolve_reviewers._schedule_activity_rebuild"):
+            ranked = rank_assignee_candidates(
+                team.id, "acme/app", ["old-timer"], ["products/signals/backend/models.py"]
+            )
+
+        assert [candidate.login for candidate in ranked] == ["active-owner", "old-timer"]
+        # activity-only candidate carries generated evidence; the agent candidate keeps none
+        assert "Recently active in `products/signals`" in ranked[0].commits[0].reason
+        assert ranked[1].commits == []
+
+    def test_active_agent_candidate_keeps_top_spot(self, team):
+        self._seed_area(team, "products/signals", [("agent-pick", 5, 3), ("bystander", 12, 1)])
+
+        with patch("products.signals.backend.report_generation.resolve_reviewers._schedule_activity_rebuild"):
+            ranked = rank_assignee_candidates(
+                team.id, "acme/app", ["agent-pick"], ["products/signals/backend/models.py"]
+            )
+
+        assert ranked[0].login == "agent-pick"
+
+    def test_paths_alone_yield_activity_candidates(self, team):
+        self._seed_area(team, "products/signals", [("area-owner", 8, 1)])
+
+        with patch("products.signals.backend.report_generation.resolve_reviewers._schedule_activity_rebuild"):
+            ranked = rank_assignee_candidates(team.id, "acme/app", [], ["products/signals/backend/models.py"])
+
+        assert [candidate.login for candidate in ranked] == ["area-owner"]
+
+    def test_no_activity_data_returns_agent_order(self, team):
+        with patch("products.signals.backend.report_generation.resolve_reviewers._schedule_activity_rebuild"):
+            ranked = rank_assignee_candidates(
+                team.id, "acme/app", ["first-pick", "second-pick"], ["products/signals/backend/models.py"]
+            )
+
+        assert [candidate.login for candidate in ranked] == ["first-pick", "second-pick"]
 
 
 @pytest.mark.django_db
