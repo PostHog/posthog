@@ -243,12 +243,20 @@ export const onboardingErrorTrackingAlertsLogic = kea<onboardingErrorTrackingAle
                 if (values.integration === 'microsoft-teams') {
                     configuration.inputs = {
                         webhookUrl: { value: formValues.microsoftTeamsWebhookUrl },
-                        text: { value: '**🔴 {event.properties.name} created:** {event.properties.description}' },
+                        text: {
+                            value: `**🔴 {event.properties.name} created:** {event.properties.description} (View in [PostHog](${errorTrackingIssueLinkHogTemplate(
+                                'microsoft_teams'
+                            )}))`,
+                        },
                     }
                 } else if (values.integration === 'discord') {
                     configuration.inputs = {
                         webhookUrl: { value: formValues.discordWebhookUrl },
-                        content: { value: '**🔴 {event.properties.name} created:** {event.properties.description}' },
+                        content: {
+                            value: `**🔴 {event.properties.name} created:** {event.properties.description} (View in [PostHog](${errorTrackingIssueLinkHogTemplate(
+                                'discord'
+                            )}))`,
+                        },
                     }
                 } else if (values.integration === 'slack') {
                     configuration.inputs = {

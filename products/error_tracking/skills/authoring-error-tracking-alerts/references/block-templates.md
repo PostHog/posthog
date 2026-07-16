@@ -87,7 +87,7 @@ time against the live event — leave the curly-braced segments as-is.
 ```json
 "inputs": {
   "content": {
-    "value": "**🔴 {event.properties.name} created:** {event.properties.description}"
+    "value": "**🔴 {event.properties.name} created:** {event.properties.description} (View in [PostHog]({project.url}/error_tracking/fingerprint/{encodeURLComponent(event.properties.fingerprint)}?timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=discord))"
   }
 }
 ```
