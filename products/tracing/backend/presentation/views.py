@@ -990,7 +990,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     @action(detail=False, methods=["POST"], url_path="latency-heatmap", required_scopes=["tracing:read"])
     def latency_heatmap(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
-        query_data = request.data.get("query", {})
+        query_data = request.data.get("query", {}) or {}
         date_range = self.get_model(normalize_tracing_date_range(query_data.get("dateRange")), DateRange)
 
         try:
