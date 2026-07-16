@@ -397,6 +397,9 @@ class QueryTags(BaseModel):
     exported_asset_id: Optional[int] = None
     export_format: Optional[str] = None
     chargeable: Optional[int] = None
+    # Set while the api_queries_read_bytes quota runs observe-only: marks queries that
+    # enforcement would have rejected, so the would-be-limited fleet can be reviewed.
+    api_queries_over_quota: Optional[int] = None
     request_name: Optional[str] = None
     name: Optional[str] = None
     endpoint_version: Optional[int] = None  # Endpoints, the product

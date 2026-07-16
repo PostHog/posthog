@@ -64,6 +64,7 @@ from posthog.tasks.usage_report import (
     capture_report,
     get_all_event_metrics_in_period,
     get_instance_metadata,
+    get_teams_with_api_queries_metrics,
     get_teams_with_billable_event_count_in_period,
     get_teams_with_query_metric,
     has_non_zero_usage,
@@ -1376,6 +1377,24 @@ class TestHogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTa
 
 
 class TestQueryUsageReportSQL:
+    @patch("posthog.tasks.usage_report.sync_execute", return_value=[(1, 2, 300)])
+    def test_get_teams_with_api_queries_metrics_meters_failed_chargeable_queries(
+        self, mock_sync_execute: MagicMock
+    ) -> None:
+        begin = datetime(2026, 6, 15, tzinfo=tzutc())
+        end = begin + timedelta(days=1)
+
+        result = get_teams_with_api_queries_metrics(begin=begin, end=end)
+
+        assert result == {"count": [(1, 2)], "read_bytes": [(1, 300)]}
+        query = mock_sync_execute.call_args.args[0]
+        # Failed queries consume bytes and must be metered; ExceptionBeforeStart (validation and
+        # syntax errors, ~0 bytes read) stays free.
+        assert "type IN ('QueryFinish', 'ExceptionWhileProcessing')" in query
+        assert "ExceptionBeforeStart" not in query
+        # Only customer-initiated API access is metered, never PostHog-initiated background work.
+        assert "JSONExtractBool(log_comment, 'chargeable')" in query
+
     @patch("posthog.tasks.usage_report.sync_execute", return_value=[(1, 100)])
     def test_get_teams_with_query_metric_uses_event_time_pruning_window(self, mock_sync_execute: MagicMock) -> None:
         begin = datetime(2026, 6, 15, tzinfo=tzutc())

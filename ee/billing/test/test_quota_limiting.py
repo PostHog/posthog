@@ -33,6 +33,7 @@ from ee.billing.quota_limiting import (
     org_quota_limited_until,
     replace_limited_team_tokens,
     set_org_usage_summary,
+    team_quota_limited_until,
     update_all_orgs_billing_quotas,
     update_org_billing_quotas,
     update_organization_usage_fields,
@@ -2844,3 +2845,31 @@ class TestSignalsRefundQuotaOffset(BaseTest):
         with patch("ee.billing.quota_limiting.get_signals_credited_refund_credits_for_org") as mock_offset:
             org_quota_limited_until(self.organization, QuotaResource.EVENTS, [], [])
         mock_offset.assert_not_called()
+
+
+class TestTeamQuotaLimitedUntil(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        get_client().delete(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY.value}{QuotaResource.API_QUERIES.value}")
+
+    @parameterized.expand(
+        [
+            # name, score offset from now, whether the limit is still active
+            ("active_limit_returns_reset_timestamp", 3600, True),
+            ("expired_limit_reads_as_not_limited", -3600, False),
+        ]
+    )
+    def test_score_semantics(self, _name: str, offset: int, expect_limited: bool) -> None:
+        score = int(timezone.now().timestamp()) + offset
+        add_limited_team_tokens(
+            QuotaResource.API_QUERIES, {self.team.api_token: score}, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        )
+
+        result = team_quota_limited_until(self.team.api_token, QuotaResource.API_QUERIES)
+
+        assert result == (score if expect_limited else None)
+        assert team_quota_limited_until("phc_token_of_an_unlimited_team", QuotaResource.API_QUERIES) is None
+
+    def test_fails_open_when_redis_unavailable(self) -> None:
+        with patch("ee.billing.quota_limiting.get_client", side_effect=ConnectionError("redis down")):
+            assert team_quota_limited_until(self.team.api_token, QuotaResource.API_QUERIES) is None

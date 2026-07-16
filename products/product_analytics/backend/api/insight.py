@@ -1150,9 +1150,10 @@ class InsightSerializer(InsightBasicSerializer):
                     self.context["request"], dashboard_tile, is_shared=is_shared
                 )
 
+                team = self.context["get_team"]()
                 shared_cache_age_seconds: int | None = None
                 if is_shared:
-                    execution_mode, shared_cache_age_seconds = shared_insights_execution_mode(execution_mode)
+                    execution_mode, shared_cache_age_seconds = shared_insights_execution_mode(execution_mode, team)
 
                 # Shared rendering bypasses the FE scene-tag flow, so set product/feature
                 # tags here. No-op overwrite for authenticated paths (same values).
@@ -1184,7 +1185,7 @@ class InsightSerializer(InsightBasicSerializer):
                 with tags_context(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.INSIGHT, **shared_tags):
                     return calculate_for_query_based_insight(
                         insight,
-                        team=self.context["get_team"](),
+                        team=team,
                         dashboard=dashboard,
                         execution_mode=execution_mode,
                         user=request_user,

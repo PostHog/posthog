@@ -223,6 +223,27 @@ def is_team_limited(team_api_token: str, resource: QuotaResource, cache_key: Quo
     return team_api_token in limited_team_attributes
 
 
+def team_quota_limited_until(team_api_token: str, resource: QuotaResource) -> Optional[int]:
+    """
+    Returns the unix timestamp until which the team is quota-limited for `resource` (the
+    zset score, i.e. the end of the org's billing period), or None when not limited.
+
+    Fails open: any Redis or cache error is treated as "not limited". The slow loop that
+    writes these entries stays authoritative — a cache outage must never block queries.
+    """
+    try:
+        if not is_team_limited(team_api_token, resource, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY):
+            return None
+        score = get_client().zscore(
+            f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY.value}{resource.value}", team_api_token
+        )
+        # The entry can vanish between the membership check and the score read - fail open.
+        return int(score) if score is not None else None
+    except Exception as e:
+        capture_exception(e)
+        return None
+
+
 def dispatch_recordings_remote_config_sync(team_ids: Iterable[int]) -> None:
     """
     Triggers a `RemoteConfig` rebuild for each team after its recordings quota-limit state

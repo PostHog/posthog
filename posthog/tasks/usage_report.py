@@ -1077,10 +1077,13 @@ def get_teams_with_api_queries_metrics(
 ) -> dict[str, list[tuple[int, int]]]:
     # Intentionally uses event_time not query_start_time, the difference between values is on avg 1.5s,
     # the former is part of primary key, the latter not.
+    # Failed queries count too: bytes are consumed regardless of exit status, so
+    # ExceptionWhileProcessing is included. ExceptionBeforeStart is not — validation and
+    # syntax errors read ~0 bytes, keeping mistakes free.
     query = f"""
         SELECT JSONExtractInt(log_comment, 'team_id') team_id, count(1) cnt, sum(read_bytes) read_bytes
         FROM clusterAllReplicas({CLICKHOUSE_CLUSTER}, system.query_log)
-        WHERE type = 'QueryFinish'
+        WHERE type IN ('QueryFinish', 'ExceptionWhileProcessing')
         AND is_initial_query
         AND event_time >= %(begin)s AND event_time < %(end)s
         AND team_id > 0

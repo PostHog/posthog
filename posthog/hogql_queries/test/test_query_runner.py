@@ -46,6 +46,7 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.errors import QueryError, ResolutionError
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.clickhouse.query_tagging import get_query_tags, reset_query_tags
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
@@ -63,8 +64,10 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team, WeekStartDay
 from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlError
+from posthog.redis import get_client
 
 try:
+    from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, add_limited_team_tokens
     from ee.models.rbac.access_control import AccessControl
 except ImportError:
     pass
@@ -93,6 +96,37 @@ class TheTestQuery(BaseModel):
     tags: QueryLogTags | None = None
 
 
+def make_test_query_runner_class(base: type[QueryRunner] = QueryRunner):
+    """Setup required methods and attributes of the abstract base class."""
+
+    class TestQueryRunner(base):  # type: ignore[misc, valid-type]
+        query: TheTestQuery
+        cached_response: TheTestCachedBasicQueryResponse
+
+        def _calculate(self):
+            return TheTestBasicQueryResponse(
+                results=[
+                    ["row", 1, 2, 3],
+                    (i for i in range(10)),  # Test support of cache.set with iterators
+                ]
+            )
+
+        def _refresh_frequency(self) -> timedelta:
+            return timedelta(minutes=4)
+
+        def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False, *args, **kwargs) -> bool:
+            if not last_refresh:
+                raise ValueError("Cached results require a last_refresh")
+
+            if lazy:
+                return last_refresh + timedelta(days=1) <= datetime.now(tz=ZoneInfo("UTC"))
+            return last_refresh + timedelta(minutes=10) <= datetime.now(tz=ZoneInfo("UTC"))
+
+    TestQueryRunner.__abstractmethods__ = frozenset()
+
+    return TestQueryRunner
+
+
 class TestQueryRunner(BaseTest):
     maxDiff = None
 
@@ -101,34 +135,7 @@ class TestQueryRunner(BaseTest):
         cache.clear()
 
     def setup_test_query_runner_class(self, base: type[QueryRunner] = QueryRunner):
-        """Setup required methods and attributes of the abstract base class."""
-
-        class TestQueryRunner(base):  # type: ignore[misc, valid-type]
-            query: TheTestQuery
-            cached_response: TheTestCachedBasicQueryResponse
-
-            def _calculate(self):
-                return TheTestBasicQueryResponse(
-                    results=[
-                        ["row", 1, 2, 3],
-                        (i for i in range(10)),  # Test support of cache.set with iterators
-                    ]
-                )
-
-            def _refresh_frequency(self) -> timedelta:
-                return timedelta(minutes=4)
-
-            def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False, *args, **kwargs) -> bool:
-                if not last_refresh:
-                    raise ValueError("Cached results require a last_refresh")
-
-                if lazy:
-                    return last_refresh + timedelta(days=1) <= datetime.now(tz=ZoneInfo("UTC"))
-                return last_refresh + timedelta(minutes=10) <= datetime.now(tz=ZoneInfo("UTC"))
-
-        TestQueryRunner.__abstractmethods__ = frozenset()
-
-        return TestQueryRunner
+        return make_test_query_runner_class(base)
 
     def test_sync_warning_attach_preserves_other_warning_kinds(self):
         # The accumulator attach replaces the response's warnings with the collected sync warnings.
@@ -1329,6 +1336,67 @@ class TestSharedInsightsExecutionMode(BaseTest):
         result_mode, cache_age_seconds = shared_insights_execution_mode(execution_mode)
         self.assertEqual(result_mode, expected_mode)
         self.assertEqual(cache_age_seconds, expected_cache_age_seconds)
+
+
+@pytest.mark.ee
+class TestAPIQueriesQuotaLimiting(BaseTest):
+    def setUp(self):
+        super().setUp()
+        reset_query_tags()
+        get_client().delete(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY.value}{QuotaResource.API_QUERIES.value}")
+
+    def _limit_team(self) -> int:
+        limited_until = int(datetime.now(UTC).timestamp()) + 3600
+        add_limited_team_tokens(
+            QuotaResource.API_QUERIES,
+            {self.team.api_token: limited_until},
+            QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+        )
+        return limited_until
+
+    def _make_runner(self, is_query_service: bool) -> QueryRunner:
+        runner_class = make_test_query_runner_class()
+        runner = runner_class(query={"some_attr": "bla"}, team=self.team)
+        runner.is_query_service = is_query_service
+        return runner
+
+    @parameterized.expand(
+        [
+            # name, is_query_service, team_limited, expect_breadcrumb
+            ("over_quota_api_query_observed", True, True, True),
+            ("in_app_query_not_observed", False, True, False),
+            ("unlimited_team_not_observed", True, False, False),
+        ]
+    )
+    def test_over_quota_queries_run_and_leave_review_breadcrumb(
+        self, _name: str, is_query_service: bool, team_limited: bool, expect_breadcrumb: bool
+    ) -> None:
+        if team_limited:
+            self._limit_team()
+        runner = self._make_runner(is_query_service=is_query_service)
+
+        response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        assert isinstance(response, TheTestCachedBasicQueryResponse)
+        assert response.results
+        assert (get_query_tags().api_queries_over_quota == 1) is expect_breadcrumb
+
+    def test_fails_open_when_redis_unavailable(self) -> None:
+        self._limit_team()
+        runner = self._make_runner(is_query_service=True)
+
+        with mock.patch("ee.billing.quota_limiting.get_client", side_effect=ConnectionError("redis down")):
+            response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        assert isinstance(response, TheTestCachedBasicQueryResponse)
+        assert response.results
+
+    def test_shared_surfaces_keep_their_mapping_while_observing(self) -> None:
+        self._limit_team()
+
+        result_mode, _cache_age = shared_insights_execution_mode(ExecutionMode.CALCULATE_BLOCKING_ALWAYS, self.team)
+
+        assert result_mode == ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
 
 
 @pytest.mark.ee

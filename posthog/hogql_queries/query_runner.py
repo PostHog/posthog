@@ -298,7 +298,34 @@ class SharedExecutionSettings(NamedTuple):
     cache_age_seconds: int | None
 
 
-def shared_insights_execution_mode(execution_mode: ExecutionMode) -> SharedExecutionSettings:
+API_QUERIES_QUOTA_LIMITED_COUNTER = Counter(
+    "posthog_api_queries_quota_limited_total",
+    "Query executions for teams whose organization is over its api_queries_read_bytes quota.",
+    labelnames=["surface", "outcome"],  # surface: api | shared; outcome: enforced | observed
+)
+
+
+def get_api_queries_quota_limited_until(team: Team) -> Optional[datetime]:
+    """When the team's organization is over its API queries (bytes read) quota, returns the
+    moment the limit lifts (the end of the org's billing period); otherwise None.
+
+    Reads the Redis decision cache written by the quota-limiting loop. Fails open: any
+    error reads as "not limited", so an unavailable cache never blocks queries.
+    """
+    if not settings.EE_AVAILABLE:
+        return None
+
+    from ee.billing.quota_limiting import QuotaResource, team_quota_limited_until
+
+    limited_until = team_quota_limited_until(team.api_token, QuotaResource.API_QUERIES)
+    if limited_until is None:
+        return None
+    return datetime.fromtimestamp(limited_until, tz=UTC)
+
+
+def shared_insights_execution_mode(
+    execution_mode: ExecutionMode, team: Optional[Team] = None
+) -> SharedExecutionSettings:
     """Map a requested execution mode to the one allowed on shared/embedded resources.
 
     Returns the mode plus an optional `cache_age_seconds` override for the query runner.
@@ -306,7 +333,14 @@ def shared_insights_execution_mode(execution_mode: ExecutionMode) -> SharedExecu
     staleness threshold: a cached result younger than the window is served as-is, anything
     older (or missing) recomputes synchronously — throttling forced recomputes without a
     separate clock.
+
+    Pass `team` to record when an over-quota organization's shared or embedded resources
+    trigger calculation: shared links are public, so this surface needs its own review
+    metrics before any enforcement decision.
     """
+    if team is not None and get_api_queries_quota_limited_until(team) is not None:
+        API_QUERIES_QUOTA_LIMITED_COUNTER.labels(surface="shared", outcome="observed").inc()
+
     if execution_mode == ExecutionMode.CALCULATE_BLOCKING_ALWAYS:
         return SharedExecutionSettings(
             ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
@@ -1625,6 +1659,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         if self.is_query_service:
             tag_queries(chargeable=1)
+            self._check_api_queries_quota()
 
         with (
             get_materialized_endpoints_rate_limiter().run(
@@ -2051,6 +2086,22 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         feature = self.team.organization.get_available_feature(AvailableFeature.API_QUERIES_CONCURRENCY)
         return feature.get("limit") if feature else None
+
+    def _check_api_queries_quota(self) -> None:
+        """Observe chargeable API queries while the organization is over its
+        api_queries_read_bytes quota.
+
+        Observe-only: the over-quota calculation is counted and tagged in the query log so
+        the would-be-limited fleet can be reviewed; nothing is blocked. Runs at calculation
+        time only, so cached results are never counted — the quota is about ClickHouse reads.
+        """
+        limited_until = get_api_queries_quota_limited_until(self.team)
+        if limited_until is None:
+            return
+
+        # Breadcrumb in the query log so the would-be-limited fleet is reviewable.
+        tag_queries(api_queries_over_quota=1)
+        API_QUERIES_QUOTA_LIMITED_COUNTER.labels(surface="api", outcome="observed").inc()
 
     @abstractmethod
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:

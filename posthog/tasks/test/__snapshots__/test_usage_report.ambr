@@ -396,7 +396,8 @@
          count(1) cnt,
          sum(read_bytes) read_bytes
   FROM clusterAllReplicas(posthog, system.query_log)
-  WHERE type = 'QueryFinish'
+  WHERE type IN ('QueryFinish',
+                 'ExceptionWhileProcessing')
     AND is_initial_query
     AND event_time >= 'today 00:00:00'
     AND event_time < '2022-01-10 23:59:59'
