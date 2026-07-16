@@ -70,6 +70,16 @@ describe('sceneLogic', () => {
         })
     })
 
+    it('redirects the hyphenated /feature-flags path to the underscore scene route', async () => {
+        router.actions.push('/feature-flags')
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.featureFlags())
+
+        router.actions.push('/feature-flags/123')
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.featureFlag('123'))
+    })
+
     it('persists the loaded scenes', async () => {
         const expectedAnnotation = partial({
             component: expect.any(Function),

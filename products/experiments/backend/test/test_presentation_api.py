@@ -4876,6 +4876,9 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["status"], "draft")
+        # False counterpart to the wiring guard in test_launching_experiment_sets_status_running,
+        # proving the field tracks the property value rather than being hardcoded truthy.
+        self.assertFalse(response.json()["can_freeze_exposure"])
 
     def test_launching_experiment_sets_status_running(self):
         response = self.client.post(
@@ -4889,6 +4892,9 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["status"], "running")
+        # Wiring guard for the serializer-computed field; the case matrix lives on the
+        # model property test (test_can_freeze_exposure_property).
+        self.assertTrue(response.json()["can_freeze_exposure"])
 
     def test_ending_experiment_sets_status_stopped(self):
         response = self.client.post(

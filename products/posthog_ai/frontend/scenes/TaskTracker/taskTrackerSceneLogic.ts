@@ -13,7 +13,7 @@ import {
     TaskExecutionModeEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
-import { runStreamLogic } from '../../api/logics'
+import { attachedContextItemKey, attachedContextLogic, runStreamLogic } from '../../api/logics'
 import type { SuggestionGroup, SuggestionItem } from '../../api/primitives'
 import { DEFAULT_HEADLINES, pickHeadline } from '../../api/primitives'
 import { runnerPanelLogic } from '../../logics/runnerPanelLogic'
@@ -21,6 +21,7 @@ import { tasksLogic } from '../../logics/tasksLogic'
 import type { RepositoryConfig, Task } from '../../types/taskTypes'
 import { OriginProduct, TaskUpsertProps } from '../../types/taskTypes'
 import { DEFAULT_COMPOSER_EFFORT, DEFAULT_COMPOSER_MODEL, resolveEffortForModel } from '../../utils/composerModels'
+import { wrapWithPosthogContext } from '../../utils/posthogContextBlock'
 import type { taskTrackerSceneLogicType } from './taskTrackerSceneLogicType'
 
 export type { ActiveCreation } from '../../logics/runnerPanelLogic'
@@ -72,6 +73,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             ['tasks', 'repositories', 'taskListParams'],
             integrationsLogic,
             ['integrations'],
+            attachedContextLogic,
+            ['contextItems'],
         ],
         actions: [
             runnerPanelLogic(props),
@@ -80,6 +83,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             ['loadTasks', 'loadRepositories', 'deleteTask'],
             integrationsLogic,
             ['loadIntegrationsSuccess'],
+            attachedContextLogic,
+            ['markContextSent'],
         ],
     })),
 
@@ -235,6 +240,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 // Auto-run the task after creation; the detail scene shows the latest run by default. The
                 // run checks out the chosen branch (server falls back to the repo's default branch if unset)
                 // and launches with the picked model / reasoning effort (clamped to one the model supports).
+                // Snapshot the context here so the keys marked sent below match exactly what got wrapped.
+                const seededContext = values.contextItems
                 const runResponse = await api.tasks.run(newTask.id, {
                     branch: repositoryConfig.branch ?? null,
                     runtime_adapter: ClaudeRuntimeAdapterEnumApi.Claude,
@@ -246,8 +253,17 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     // pending_user_message from run state (the workflow doesn't forward it), so seed the
                     // typed message as turn 1 — otherwise the first prompt is lost and the run idles.
                     mode: TaskExecutionModeEnumApi.Interactive,
-                    pending_user_message: description,
+                    // Wrap only the message sent to the agent with the on-screen context block; the task
+                    // `description` field and the optimistic seed (`startOptimisticRun`) stay raw.
+                    pending_user_message: wrapWithPosthogContext(description, seededContext),
                 })
+
+                // Mark the seeded non-text refs sent under the created task, so the run's first follow-up
+                // (sent via `runInteractionLogic`) doesn't re-wrap them. Text items always resend.
+                const seededKeys = seededContext.filter((item) => item.type !== 'text').map(attachedContextItemKey)
+                if (seededKeys.length > 0) {
+                    actions.markContextSent(newTask.id, seededKeys)
+                }
 
                 // Attach the real ids to the optimistic creation so the detail page adopts this seeded stream
                 // (same `streamKey` + real `runId`) instead of cold-bootstrapping a fresh, skeleton-flashing one.

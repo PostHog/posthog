@@ -13497,3 +13497,39 @@ class TestFeatureFlagEvaluationReasons(APIBaseTest, ClickhouseTestMixin):
         data = response.json()
         self.assertIn(flag.key, data)
         self.assertEqual(data[flag.key]["evaluation"]["reason"], "condition_match")
+
+    @parameterized.expand(
+        [
+            ("repeated_params", {"flag_keys": ["wanted-active", "wanted-disabled"]}),
+            ("mcp_json_array_string", {"flag_keys": '["wanted-active", "wanted-disabled"]'}),
+        ]
+    )
+    @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
+    def test_evaluation_reasons_scopes_to_flag_keys(self, _name, query_flag_keys, mock_get_flags):
+        # flag_keys must be forwarded to the flags service and also scope the disabled-flag
+        # rows appended afterwards, otherwise the response still lists every flag in the project.
+        # MCP clients JSON-stringify array query params into a single value, so that encoding
+        # must scope the response exactly like repeated query params do.
+        FeatureFlag.objects.create(team=self.team, key="wanted-disabled", active=False)
+        FeatureFlag.objects.create(team=self.team, key="other-disabled", active=False)
+        mock_get_flags.return_value = {
+            "flags": {
+                "wanted-active": {
+                    "enabled": True,
+                    "variant": None,
+                    "reason": {"code": "condition_match", "condition_index": 0},
+                },
+            }
+        }
+
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/feature_flags/evaluation_reasons/",
+            {"distinct_id": "user-1", **query_flag_keys},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(mock_get_flags.call_args.kwargs["flag_keys"], ["wanted-active", "wanted-disabled"])
+        data = response.json()
+        self.assertIn("wanted-active", data)
+        self.assertIn("wanted-disabled", data)
+        self.assertNotIn("other-disabled", data)

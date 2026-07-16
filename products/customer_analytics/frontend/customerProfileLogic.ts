@@ -288,7 +288,7 @@ export const customerProfileLogic = kea<customerProfileLogicType>([
             const currentContent = values.profileLocalContent || values.content
             const filteredContent = currentContent.filter((node) => node.type !== nodeType)
             actions.setProfileLocalContent(filteredContent)
-            actions.setLocalContent(filteredContent, true)
+            actions.setLocalContent(filteredContent)
         },
         addNode: ({ nodeType }) => {
             const currentContent = values.profileLocalContent || values.content
@@ -303,11 +303,11 @@ export const customerProfileLogic = kea<customerProfileLogicType>([
                 return indexA - indexB
             })
             actions.setProfileLocalContent(updatedContent)
-            actions.setLocalContent(updatedContent, true)
+            actions.setLocalContent(updatedContent)
         },
         resetToDefaults: () => {
             actions.setProfileLocalContent(null)
-            actions.setLocalContent(values.content, true)
+            actions.setLocalContent(values.content)
         },
         saveChanges: async () => {
             if (!values.profileLocalContent || !values.changed) {
@@ -331,27 +331,27 @@ export const customerProfileLogic = kea<customerProfileLogicType>([
             }
         },
         createConfigSuccess: () => {
-            actions.setLocalContent(values.content, true)
+            actions.setLocalContent(values.content)
             actions.resetToDefaults()
         },
         updateConfigSuccess: () => {
-            actions.setLocalContent(values.content, true)
+            actions.setLocalContent(values.content)
             actions.resetToDefaults()
         },
         loadConfigsSuccess: () => {
-            actions.setLocalContent(values.content, true)
+            actions.setLocalContent(values.content)
         },
         // The source list loads asynchronously, so the initial mount sync can run before we
         // know whether a Zendesk source exists. Re-sync once it resolves so the Zendesk and
         // Support panels appear/disappear to match the actual source and support state.
         loadSourcesSuccess: () => {
-            actions.setLocalContent(values.content, true)
+            actions.setLocalContent(values.content)
         },
     })),
 
     afterMount(({ actions, values }) => {
         if (values.content) {
-            actions.setLocalContent(values.content, true)
+            actions.setLocalContent(values.content)
         }
     }),
 ])

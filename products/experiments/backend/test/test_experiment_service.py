@@ -3536,6 +3536,50 @@ class TestExperimentService(APIBaseTest):
         experiment.refresh_from_db()
         assert experiment.is_exposure_frozen is expected
 
+    @parameterized.expand(
+        [
+            ("running", "running", None, True),
+            ("draft", "draft", None, False),
+            ("stopped", "stopped", None, False),
+            ("paused", "paused", None, False),
+            ("frozen", "frozen", None, False),
+            ("holdout_linked", "holdout_linked", None, False),
+            ("group_aggregated", "running", {"aggregation_group_type_index": 0}, False),
+            ("flag_super_groups", "running", {"super_groups": [{"properties": [], "rollout_percentage": 100}]}, False),
+            ("no_groups", "running", {"groups": []}, False),
+        ]
+    )
+    def test_can_freeze_exposure_property(self, _name: str, state: str, extra_filters: dict | None, expected: bool):
+        if state == "draft":
+            experiment = self._create_launchable_experiment(name="CF Draft", feature_flag_key=f"cf-{_name}")
+        elif state == "stopped":
+            experiment = self._create_ended_experiment(name="CF Stopped", feature_flag_key=f"cf-{_name}")
+        else:
+            experiment = self._create_running_experiment(name="CF Running", feature_flag_key=f"cf-{_name}")
+
+        if state == "paused":
+            flag = experiment.feature_flag
+            flag.active = False
+            flag.save()
+        elif state == "frozen":
+            self._stamp_exposure_frozen_marker(experiment.feature_flag)
+        elif state == "holdout_linked":
+            holdout = ExperimentHoldout.objects.create(
+                team=self.team,
+                name="CF Holdout",
+                filters=[{"properties": [], "rollout_percentage": 10, "variant": "holdout"}],
+                created_by=self.user,
+            )
+            experiment.holdout = holdout
+            experiment.save()
+        if extra_filters:
+            flag = experiment.feature_flag
+            flag.filters = {**flag.filters, **extra_filters}
+            flag.save()
+
+        experiment.refresh_from_db()
+        assert experiment.can_freeze_exposure is expected
+
     def test_freeze_exposure_success(self):
         experiment = self._create_running_experiment(name="Freeze Exposure", feature_flag_key="freeze-exposure-flag")
         original_variants = deepcopy(experiment.feature_flag.filters["multivariate"])

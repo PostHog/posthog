@@ -80,6 +80,7 @@ import { QueryContext } from '~/queries/types'
 
 import { AlertType } from 'products/alerts/frontend/types'
 import type { ExperimentFeatureFlagInputApi } from 'products/experiments/frontend/generated/api.schemas'
+import type { InsightFilterOverrideContextApi } from 'products/product_analytics/frontend/generated/api.schemas'
 import type { AIPromptConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
 import { CyclotronInputType } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 import type { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
@@ -288,6 +289,7 @@ export enum AccessControlResourceType {
     RevenueAnalytics = 'revenue_analytics',
     Survey = 'survey',
     Logs = 'logs',
+    Metrics = 'metrics',
     Endpoint = 'endpoint',
     Workflow = 'hog_flow',
     EarlyAccessFeature = 'early_access_feature',
@@ -336,7 +338,7 @@ export type UserShortcutPosition = 'above' | 'below' | 'hidden'
 // Mirrors posthog.models.user.OnboardingSkippedReason. Kept as a union here to avoid a
 // hard dependency on generated types; when adopting generated `UserApi`, switch to
 // `OnboardingSkippedReasonEnumApi` from `~/generated/core/api.schemas`.
-export type OnboardingSkippedReason = 'delegated' | 'later' | 'other' | null
+export type OnboardingSkippedReason = 'delegated' | 'later' | 'other' | 'provisioned' | null
 
 /** Full User model. */
 export interface UserType extends UserBaseType {
@@ -2525,9 +2527,12 @@ export interface InsightModel extends Cacheable, WithAccessControl {
     query?: Node | null
     query_status?: QueryStatus
     is_cached?: boolean
+    filter_override_context?: InsightFilterOverrideContextApi | null
     /** Only used when creating objects */
     _create_in_folder?: string | null
 }
+
+export type InsightFilterOverrideContext = InsightFilterOverrideContextApi
 
 export interface QueryBasedInsightModel<R extends Node<Record<string, any>> = Node<Record<string, any>>> extends Omit<
     InsightModel,
@@ -5709,6 +5714,7 @@ export const API_SCOPE_OBJECTS = [
     'insight',
     'insight_variable',
     'integration',
+    'internal_run',
     'legal_document',
     'link',
     'live_debugger',
@@ -6159,12 +6165,6 @@ export interface ExternalDataSourceConnectionMetadata {
     available_functions?: string[]
 }
 
-export interface ExternalDataSourceConnectionOption {
-    id: string
-    prefix: string | null
-    engine?: 'duckdb' | 'postgres' | 'mysql' | 'snowflake' | 'redshift' | null
-}
-
 export interface ExternalDataSource {
     id: string
     source_id: string
@@ -6185,6 +6185,17 @@ export interface ExternalDataSource {
     user_access_level: AccessControlLevel
     supports_webhooks?: boolean
     supports_column_selection?: boolean
+    api_version?: string | null
+    api_version_deprecation?: ExternalDataSourceApiVersionDeprecation | null
+}
+
+export interface ExternalDataSourceApiVersionDeprecation {
+    /** The deprecated vendor API version this source is pinned to */
+    version: string
+    /** ISO date the vendor stops serving this version; null if not announced */
+    sunset_at: string | null
+    /** The source type's current default vendor API version — the migration target */
+    default_version: string
 }
 
 export interface WebhookExternalStatus {
@@ -6359,6 +6370,10 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
      * `null` means "sync all rows". Applied on the next sync — not retroactive.
      */
     row_filters?: RowFilter[] | null
+    /** User-managed vendor API version override; null syncs on the source's pinned version */
+    api_version?: string | null
+    /** Set when this schema's version override is deprecated by the vendor */
+    api_version_deprecation?: ExternalDataSourceApiVersionDeprecation | null
 }
 
 /** Lightweight parent-source summary embedded in the single-schema retrieve endpoint. */
@@ -6368,6 +6383,10 @@ export interface ExternalDataSchemaSourceSummary {
     supports_column_selection?: boolean
     supports_row_filters?: boolean
     user_access_level: AccessControlLevel | null
+    /** The source's effective vendor API version — what schemas without an override sync on */
+    api_version?: string | null
+    /** Vendor API versions the source type supports — the schema override picker's options */
+    supported_api_versions?: string[]
 }
 
 export interface ExternalDataSchemaWithSource extends ExternalDataSourceSchema {
