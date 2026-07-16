@@ -37,8 +37,9 @@ class TestDoItGet:
     """`_doit_get` backs off on transient 429/5xx responses instead of failing the sync."""
 
     def setup_method(self):
-        # Disable tenacity's real backoff so the retry loop runs instantly.
-        _doit_get.retry.sleep = lambda *args, **kwargs: None
+        # Disable tenacity's real backoff so the retry loop runs instantly. tenacity attaches
+        # the controlling `Retrying` instance as `.retry` at decoration time (runtime-only).
+        _doit_get.retry.sleep = lambda *args, **kwargs: None  # type: ignore[attr-defined]
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.doit.doit.make_tracked_session")
     def test_retries_then_succeeds_on_transient_429(self, mock_session):
