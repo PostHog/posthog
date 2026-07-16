@@ -17,7 +17,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.llama_cloud.llama_cloud import (
     LlamaCloudResumeConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.llama_cloud.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.llama_cloud.settings import (
+    ENDPOINTS,
+    LLAMA_CLOUD_ENDPOINTS,
+    LlamaCloudEndpointConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.llama_cloud.source import LlamaCloudSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -113,6 +117,15 @@ class TestLlamaCloudSource:
         schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
         assert schemas["parse_jobs"].default_incremental_lookback_seconds == 24 * 60 * 60
         assert schemas["projects"].default_incremental_lookback_seconds is None
+
+    def test_http_sample_capture_is_fail_closed(self) -> None:
+        # A new endpoint config must default to no HTTP sample capture; only endpoints whose
+        # response is limited to safe metadata opt in. Guards against a job/config endpoint
+        # (which can carry customer document content or embedded credentials) silently
+        # sampling raw responses into object storage.
+        assert LlamaCloudEndpointConfig(name="x", path="/y").capture_http_samples is False
+        capturing = {name for name, config in LLAMA_CLOUD_ENDPOINTS.items() if config.capture_http_samples}
+        assert capturing == {"projects", "usage_metrics"}
 
     def test_documented_tables_render_without_credentials(self) -> None:
         assert self.source.lists_tables_without_credentials is True

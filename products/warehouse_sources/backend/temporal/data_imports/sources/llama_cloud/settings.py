@@ -62,9 +62,12 @@ class LlamaCloudEndpointConfig:
     # payloads embed third-party credentials in nested config objects — projecting onto the
     # documented, non-sensitive fields keeps secrets out of the warehouse. None imports every field.
     output_fields: frozenset[str] | None = None
-    # Whether raw HTTP responses may be captured as anonymized samples. Off for endpoints
-    # whose responses carry secrets the name-based sample scrubbers can't fully catch.
-    capture_http_samples: bool = True
+    # Whether raw HTTP responses may be captured as anonymized samples. Fail-closed: job and
+    # config endpoints can carry customer document content (e.g. `user_metadata`,
+    # `extract_result`) or embedded credentials that the name-based sample scrubbers can't
+    # catch, so capture is opt-in and only enabled for endpoints whose response schema is
+    # limited to safe metadata.
+    capture_http_samples: bool = False
 
 
 LLAMA_CLOUD_ENDPOINTS: dict[str, LlamaCloudEndpointConfig] = {
@@ -123,7 +126,7 @@ LLAMA_CLOUD_ENDPOINTS: dict[str, LlamaCloudEndpointConfig] = {
         default_incremental_lookback_seconds=JOB_STATUS_LOOKBACK_SECONDS,
         # Sheets jobs embed webhook credentials (signing secrets, auth headers) under nested
         # `parameters.webhook_configurations`, so import only the documented job metadata
-        # (matches canonical_descriptions) and skip sampling.
+        # (matches canonical_descriptions). Sampling stays off (the fail-closed default).
         output_fields=frozenset(
             {
                 "id",
@@ -139,12 +142,14 @@ LLAMA_CLOUD_ENDPOINTS: dict[str, LlamaCloudEndpointConfig] = {
                 "errors",
             }
         ),
-        capture_http_samples=False,
     ),
     "projects": LlamaCloudEndpointConfig(
         name="projects",
         path="/api/v2/projects",
         # The projects listing has no timestamp filter, so full refresh only.
+        # Response is limited to project metadata (no customer content or credentials), so
+        # HTTP sample capture is safe to enable.
+        capture_http_samples=True,
     ),
     "pipelines": LlamaCloudEndpointConfig(
         name="pipelines",
@@ -152,9 +157,9 @@ LLAMA_CLOUD_ENDPOINTS: dict[str, LlamaCloudEndpointConfig] = {
         # Returns a bare JSON array with neither pagination nor timestamp filters.
         paginated=False,
         # Pipeline definitions embed nested embedding-provider and data-sink credentials, so
-        # import only the documented metadata (matches canonical_descriptions) and skip sampling.
+        # import only the documented metadata (matches canonical_descriptions). Sampling stays
+        # off (the fail-closed default).
         output_fields=frozenset({"id", "created_at", "updated_at", "name", "project_id", "pipeline_type"}),
-        capture_http_samples=False,
     ),
     "files": LlamaCloudEndpointConfig(
         name="files",
@@ -163,7 +168,7 @@ LLAMA_CLOUD_ENDPOINTS: dict[str, LlamaCloudEndpointConfig] = {
         # so full refresh only.
         # Each file row carries a presigned `download_url` (and form fields) granting access to
         # the private source document, so import only the documented metadata (matches
-        # canonical_descriptions) and skip sampling.
+        # canonical_descriptions). Sampling stays off (the fail-closed default).
         output_fields=frozenset(
             {
                 "id",
@@ -176,7 +181,6 @@ LLAMA_CLOUD_ENDPOINTS: dict[str, LlamaCloudEndpointConfig] = {
                 "purpose",
             }
         ),
-        capture_http_samples=False,
     ),
     "usage_metrics": LlamaCloudEndpointConfig(
         name="usage_metrics",
@@ -187,6 +191,9 @@ LLAMA_CLOUD_ENDPOINTS: dict[str, LlamaCloudEndpointConfig] = {
         # `day_on_or_after` is inclusive, so the boundary day is re-read each run and its
         # still-accumulating totals are updated via merge on the primary key.
         description="Per-day usage and credit consumption aggregates",
+        # Response is limited to per-day usage aggregates (no customer content or credentials),
+        # so HTTP sample capture is safe to enable.
+        capture_http_samples=True,
     ),
 }
 
