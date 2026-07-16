@@ -8351,7 +8351,7 @@
         }
     },
     "skill-get": {
-        "description": "Get a specific agent skill by name, including its full body content, metadata, and file manifest. Follows the Agent Skills specification (agentskills.io). To link a user to this skill in the PostHog app, build the URL from the skill `name`, not its `id`: `/llm-analytics/skills/<name>` (e.g. `/llm-analytics/skills/pr-shepherd`). The `id` (UUID) is not a valid route segment and will 404.",
+        "description": "Get a specific agent skill by name, including its full body content, metadata, and file manifest. Follows the Agent Skills specification (agentskills.io). The response always includes body_total_length (the full body length in characters) — if the body you received is shorter than that, it was truncated in transit, so page through it with body_offset and body_length and continue from body_next_offset until it is null. To link a user to this skill in the PostHog app, build the URL from the skill `name`, not its `id`: `/llm-analytics/skills/<name>` (e.g. `/llm-analytics/skills/pr-shepherd`). The `id` (UUID) is not a valid route segment and will 404.",
         "category": "Skills",
         "feature": "skills",
         "summary": "Get skill",

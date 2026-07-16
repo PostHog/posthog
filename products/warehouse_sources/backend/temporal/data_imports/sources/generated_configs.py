@@ -4214,7 +4214,9 @@ class TemporalIOSourceConfig(config.Config):
 
 @config.config
 class TenableVulnerabilityManagementSourceConfig(config.Config):
-    pass
+    access_key: str
+    secret_key: str
+    region: Literal["standard", "fedramp"] = config.value(default="standard")
 
 
 @config.config

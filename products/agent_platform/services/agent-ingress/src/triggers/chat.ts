@@ -9,13 +9,26 @@
  * modes before the handler, so each handler receives an authenticated
  * `principal`. The write/stream paths additionally enforce session ownership
  * (ACL) on the principal the guard produced.
+ *
+ * Edge admission: when the agent declares an `authoritative_provider`, EVERY
+ * session-touching route (`/run`, `/send`, `/cancel`, `/listen`,
+ * `/client_tool_result`) must additionally resolve a verified canonical
+ * identity for the principal before touching the session — unauthenticated
+ * callers get `401 { auth_required }` with a link (see `admitChatPrincipal`).
+ * Admission also stamps `canonical_agent_user_id` on the principal, which the
+ * ACL's canonical match requires, so skipping it on any route would 403 the
+ * legitimate owner of an admitted session.
  */
 
 import { z } from 'zod'
 
-import { buildClientToolResultMarker, TRIGGER_ROUTES } from '@posthog/agent-shared'
+import { buildClientToolResultMarker, createLogger, TRIGGER_ROUTES, type SessionPrincipal } from '@posthog/agent-shared'
+
+const log = createLogger('chat-trigger')
 
 import { buildElevationResponse, principalDisplay, recordElevationRequest, requireAclAccess } from '../enqueue/acl'
+import { buildAdmission, httpTransportClaim } from '../enqueue/admission-gate'
+import { readBearer } from '../enqueue/auth'
 import { enqueueOrResume } from '../enqueue/enqueue'
 import { activeStreams } from '../metrics'
 import {
@@ -28,10 +41,69 @@ import {
 import { getOwnedSession } from './session-access'
 import { defineRoute, type AuthedRouteCtx, type TriggerModule } from './types'
 
+/**
+ * Edge admission for the HTTP/chat transport (mirrors the Slack trigger): if
+ * the agent declares an authoritative provider, the claim must resolve a
+ * verified identity BEFORE any session work. Unauthenticated → respond
+ * `401 { auth_required, provider, authorize_url }`; a principal that cannot
+ * carry a per-user claim (anonymous/machine) → 403; provider/config error →
+ * fail closed with a 500. Returns the principal to use downstream — stamped
+ * with `canonical_agent_user_id` when admitted — or null when the response
+ * has already been written.
+ */
+async function admitChatPrincipal(ctx: AuthedRouteCtx<unknown>): Promise<SessionPrincipal | null> {
+    const { req, res, deps, resolved } = ctx
+    const admission = buildAdmission(deps, resolved.revision, resolved.application.slug)
+    if (!admission) {
+        return ctx.principal
+    }
+    const claim = httpTransportClaim(ctx.principal, readBearer(req), resolved.revision)
+    if (!claim) {
+        // Machine principals and the public opt-in anonymous principal carry no
+        // per-sender human identity to verify (see `httpTransportClaim`), and
+        // the authoritative gate is absolute: fail closed rather than let a
+        // coexisting public/shared-secret/internal auth mode silently void it.
+        // An agent that wants machine or anonymous callers must not declare an
+        // authoritative_provider.
+        res.status(403).json({ error: 'admission_unsupported_principal', principal_kind: ctx.principal.kind })
+        return null
+    }
+    const result = await admission.resolve(claim, {
+        application: resolved.application,
+        revision: resolved.revision,
+    })
+    if (result.kind === 'auth_required') {
+        // Unlike Slack (which must 200 to stop retries and delivers the link
+        // out-of-band), HTTP callers get the auth block in the response itself.
+        res.status(401).json({
+            error: 'auth_required',
+            auth_required: true,
+            provider: result.provider,
+            authorize_url: result.authorizeUrl,
+        })
+        return null
+    }
+    if (result.kind === 'error') {
+        log.warn({ slug: resolved.application.slug, reason: result.reason }, 'chat_admission_error')
+        // Provider unavailability (userinfo down/timeout) is retryable — the
+        // caller's token may be perfectly valid — so answer 503, not 500.
+        const status = result.reason === 'authoritative_provider_unavailable' ? 503 : 500
+        res.status(status).json({ error: 'admission_failed', reason: result.reason })
+        return null
+    }
+    if (result.kind === 'admitted' && (ctx.principal.kind === 'posthog' || ctx.principal.kind === 'jwt')) {
+        return { ...ctx.principal, canonical_agent_user_id: result.identity.canonicalId }
+    }
+    return ctx.principal
+}
+
 async function runHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatRunBodySchema>>): Promise<void> {
     const { res, deps, resolved } = ctx
     const { message, external_key: externalKey = null, supported_client_tools: supportedClientTools } = ctx.parsed
-    const sessionPrincipal = ctx.principal
+    const sessionPrincipal = await admitChatPrincipal(ctx)
+    if (!sessionPrincipal) {
+        return
+    }
     const outcome = await enqueueOrResume(
         { queue: deps.queue },
         {
@@ -65,13 +137,20 @@ async function runHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatRunBodySchema>>
         ok: true,
         session_id: outcome.sessionId,
         resumed: outcome.isResume,
-        principal: ctx.principal,
+        principal: sessionPrincipal,
     })
 }
 
 async function sendHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatSendBodySchema>>): Promise<void> {
     const { res, deps, resolved } = ctx
     const { session_id: sessionId, message, client_tool_result } = ctx.parsed
+    // Admission runs per message (like the Slack path) and before the session
+    // lookup, so a revoked binding stops advancing a session — and an
+    // unadmitted caller can't probe session ids through the 404.
+    const incomingPrincipal = await admitChatPrincipal(ctx)
+    if (!incomingPrincipal) {
+        return
+    }
     const existing = await getOwnedSession(ctx, sessionId)
     if (!existing) {
         res.status(404).json({ error: 'session_not_found' })
@@ -79,7 +158,6 @@ async function sendHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatSendBodySchema
     }
     // Strict principal match: the guard authenticated the caller; compare to
     // the principal stored at /run time.
-    const incomingPrincipal = ctx.principal
     const aclCheck = requireAclAccess(existing, incomingPrincipal)
     if (aclCheck.kind === 'denied') {
         const proposed: string =
@@ -149,12 +227,20 @@ async function sendHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatSendBodySchema
 async function cancelHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatCancelBodySchema>>): Promise<void> {
     const { res, deps } = ctx
     const { session_id: sessionId } = ctx.parsed
+    // Admission first (mirrors /send): an admitted session's stored principal
+    // carries canonical_agent_user_id, so ACL only recognises the owner once
+    // the incoming principal is stamped too — and a revoked binding loses
+    // control of the session, not just the ability to advance it.
+    const incomingPrincipal = await admitChatPrincipal(ctx)
+    if (!incomingPrincipal) {
+        return
+    }
     const existing = await getOwnedSession(ctx, sessionId)
     if (!existing) {
         res.status(404).json({ error: 'session_not_found' })
         return
     }
-    if (requireAclAccess(existing, ctx.principal).kind === 'denied') {
+    if (requireAclAccess(existing, incomingPrincipal).kind === 'denied') {
         res.status(403).json({ error: 'forbidden' })
         return
     }
@@ -193,6 +279,13 @@ async function cancelHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatCancelBodySc
 async function listenHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatListenQuerySchema>>): Promise<void> {
     const { req, res, deps, resolved } = ctx
     const { session_id: sessionId } = ctx.parsed
+    // Admission first (mirrors /send): stamps canonical_agent_user_id so ACL
+    // recognises the admitted owner, and a revoked binding can no longer
+    // replay the conversation.
+    const incomingPrincipal = await admitChatPrincipal(ctx)
+    if (!incomingPrincipal) {
+        return
+    }
     const existing = await getOwnedSession(ctx, sessionId)
     if (!existing) {
         res.status(404).json({ error: 'session_not_found' })
@@ -201,7 +294,7 @@ async function listenHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatListenQueryS
     // The stream replays the whole conversation, so gate it the same as the
     // write paths. EventSource can't set headers, so the bearer rides in
     // `?token=` (handled in readBearer, which the guard already consumed).
-    if (requireAclAccess(existing, ctx.principal).kind === 'denied') {
+    if (requireAclAccess(existing, incomingPrincipal).kind === 'denied') {
         res.status(403).json({ error: 'forbidden' })
         return
     }
@@ -289,6 +382,12 @@ async function clientToolResultHandler(
 ): Promise<void> {
     const { res, deps } = ctx
     const { session_id: sessionId, call_id, result, error } = ctx.parsed
+    // Admission first (mirrors /send): stamps canonical_agent_user_id so ACL
+    // recognises the admitted owner of the running turn.
+    const incomingPrincipal = await admitChatPrincipal(ctx)
+    if (!incomingPrincipal) {
+        return
+    }
     const existing = await getOwnedSession(ctx, sessionId)
     if (!existing) {
         res.status(404).json({ error: 'no_session' })
@@ -296,7 +395,7 @@ async function clientToolResultHandler(
     }
     // A tool result feeds straight into the running turn — confirm session
     // ownership before publishing it.
-    if (requireAclAccess(existing, ctx.principal).kind === 'denied') {
+    if (requireAclAccess(existing, incomingPrincipal).kind === 'denied') {
         res.status(403).json({ error: 'forbidden' })
         return
     }
