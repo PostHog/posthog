@@ -3,7 +3,7 @@ from typing import Any
 
 import pytest
 
-from requests import Request, Response
+from requests import PreparedRequest, Request, Response, Session
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     HeaderLinkPaginator,
@@ -70,6 +70,40 @@ class TestJSONResponsePaginator:
 
     def test_json_link_paginator_is_alias(self) -> None:
         assert JSONLinkPaginator is JSONResponsePaginator
+
+    def test_clears_original_params_when_following_next_url(self) -> None:
+        # The initial request carries query params (e.g. per_page + an incremental
+        # filter). Once the paginator switches to the server's self-contained next
+        # URL, those params must be dropped — otherwise prepare_request re-appends
+        # them to the already-complete URL, and an API that echoes the query back
+        # into its next link compounds a duplicate every page (observed: an Intercom
+        # activity_logs URL grew hundreds of `created_at_after=0` copies until 500).
+        p = JSONResponsePaginator(next_url_path="pages.next")
+        next_url = "https://api.example.com/logs?per_page=150&created_at_after=0&page=2"
+        p.update_state(_make_response({"pages": {"next": next_url}, "activity_logs": []}))
+        req = Request(
+            method="GET",
+            url="https://api.example.com/logs",
+            params={"per_page": 150, "created_at_after": 0},
+        )
+        p.update_request(req)
+
+        prepared: PreparedRequest = Session().prepare_request(req)
+        assert prepared.url is not None
+        assert prepared.url.count("created_at_after") == 1
+        assert prepared.url.count("per_page") == 1
+
+    def test_header_link_paginator_clears_original_params(self) -> None:
+        p = HeaderLinkPaginator()
+        resp = _make_response()
+        resp.headers["Link"] = '<https://api.example.com/page2?per_page=150>; rel="next"'
+        p.update_state(resp)
+        req = Request(method="GET", url="https://api.example.com/page1", params={"per_page": 150})
+        p.update_request(req)
+
+        prepared: PreparedRequest = Session().prepare_request(req)
+        assert prepared.url is not None
+        assert prepared.url.count("per_page") == 1
 
 
 class TestJSONResponseCursorPaginator:

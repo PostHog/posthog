@@ -38,6 +38,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class HyperspellSource(ResumableSource[HyperspellSourceConfig, HyperspellResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://docs.hyperspell.com/api-reference/introduction"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

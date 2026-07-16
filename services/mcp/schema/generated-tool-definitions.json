@@ -2171,7 +2171,7 @@
         }
     },
     "data-warehouse-source-connect-link": {
-        "description": "Return a secure browser link to connect a data warehouse source WITHOUT the user pasting secrets into the chat. The link opens a minimal page rendering the source's full connection form — the user authorizes via OAuth or enters credentials there, whichever the source offers — and the page stores the connection details encrypted and temporarily; it does NOT create the source. This is the preferred, secure way to collect credentials: share the returned connect_url with the user, wait for them to confirm they're done, then find the stored credential via 'data-warehouse-stored-credentials-list' (filter by source_type, newest first) and call 'data-warehouse-source-setup' with {'credential_id': '<uuid>'} in the payload. Stored credentials are single-use and expire after 24 hours. Never ask the user to paste raw database passwords, API keys, or OAuth tokens into the chat.",
+        "description": "Return a secure browser link to connect a data warehouse source WITHOUT the user pasting secrets into the chat. The link opens a minimal page rendering the source's full connection form — the user authorizes via OAuth or enters credentials there, whichever the source offers — and the page stores the connection details encrypted and temporarily; it does NOT create the source. This is the preferred, secure way to collect credentials: share the returned connect_url with the user, wait for them to confirm they're done, then find the stored credential via 'data-warehouse-stored-credentials-list' (filter by source_type, newest first) and call 'data-warehouse-source-setup' with {'credential_id': '<uuid>'} in the payload. Stored credentials are single-use, expire after 24 hours, and are only visible to the PostHog user who entered them — the page must be filled by the same user this session authenticates as. Never ask the user to paste raw database passwords, API keys, or OAuth tokens into the chat.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "Get a secure connect link for a source",
@@ -2199,7 +2199,7 @@
         }
     },
     "data-warehouse-stored-credentials-list": {
-        "description": "List credentials the user stored via the 'data-warehouse-source-connect-link' page that haven't been consumed yet. Returns metadata only (credential_id, source_type, created_at, expires_at) — never the secrets themselves. Newest first; filter by source_type. After the user confirms they've finished the connect page, take the newest credential_id for the source type and call 'data-warehouse-source-setup' with {'credential_id': '<uuid>'} in the payload. Stored credentials are single-use — they are deleted as soon as setup consumes them — and expire after 24 hours if never used.",
+        "description": "List credentials the authenticated user stored via the 'data-warehouse-source-connect-link' page that haven't been consumed yet. Only credentials this user created are visible — a teammate's stored credentials cannot be listed or consumed. Returns metadata only (credential_id, source_type, created_at, expires_at) — never the secrets themselves. Newest first; filter by source_type. After the user confirms they've finished the connect page, take the newest credential_id for the source type and call 'data-warehouse-source-setup' with {'credential_id': '<uuid>'} in the payload. Stored credentials are single-use — they are deleted as soon as setup consumes them — and expire after 24 hours if never used.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "List stored source credentials awaiting setup",
@@ -2687,6 +2687,21 @@
         "feature": "engineering_analytics",
         "summary": "List connected GitHub sources",
         "title": "List connected GitHub sources",
+        "required_scopes": ["engineering_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "engineering-analytics"
+    },
+    "engineering-analytics-team-ci-health": {
+        "description": "Per-owning-team rollup of the CI test surfaces each team owns, over a window (date_from default -14d, maximum 30 days): flaky-test count (same qualification bar as the flaky-test leaderboard), failed/error span count, and pass-on-retry count, each with an equal-length previous-window twin (*_prior) for honest deltas. Use this for \"which team owns the flakiest surfaces right now\" and to route a flaky-test or CI Signal to its owning team. Ownership is stamped on the spans at CI emission time from the repo's ownership map (products/*/product.yaml + CODEOWNERS); spans without a stamp aggregate under the literal team 'unowned' (a nonempty 'unowned' row means ownership gaps, not a real team). Teams are organizational owners of code surfaces, never authors. Read all counts as absolute signal, never rates: fast passing runs are not emitted, so there is no honest denominator.",
+        "category": "Engineering analytics",
+        "feature": "engineering_analytics",
+        "summary": "Team CI health roster",
+        "title": "Team CI health roster",
         "required_scopes": ["engineering_analytics:read"],
         "annotations": {
             "destructiveHint": false,
@@ -3596,7 +3611,7 @@
         }
     },
     "external-data-sources-connections-list": {
-        "description": "List external data sources that can be used as a connectionId when running execute-sql against an external source (direct-query Postgres and MySQL connections). Returns a lightweight id, prefix, and engine for each — unlike external-data-sources-list, it does not include warehouse import sources or table schemas. Use this to discover valid connectionId values.",
+        "description": "List external data sources that can be used as a connectionId when running execute-sql against an external source: pure direct-query connections (Postgres, MySQL, Snowflake, Redshift) plus synced warehouse sources that have live queries enabled (direct_query_enabled). Returns a lightweight id, prefix, engine, source_type, access_method ('direct' for pure live-query sources, 'warehouse' for synced sources with live queries on), and supports_hogql for each; when supports_hogql is false, only raw SQL (sendRawQuery) works. Unlike external-data-sources-list, it does not include table schemas or sources that cannot be live-queried. Use this to discover valid connectionId values.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "List direct-query connections",
@@ -5034,6 +5049,34 @@
             "readOnlyHint": true
         }
     },
+    "llma-prompt-label-delete": {
+        "description": "Remove a label from an LLM prompt. The label stops pointing at any version; recreate it with the set-label tool if needed. Confirm nothing depends on the label before removing it.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Delete prompt label",
+        "title": "Delete prompt label",
+        "required_scopes": ["llm_prompt:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-prompt-label-set": {
+        "description": "Point a label (for example 'production') at a specific version of an LLM prompt. A label is a movable pointer to exactly one version: if the label already exists on another version of this prompt, it is moved there. Use labels to mark a version as released ('production', 'staging') or roll back by pointing the label at an earlier version. Label names use lowercase letters, numbers, dots, hyphens and underscores; 'latest' is reserved and numbers-only names are not allowed. Each prompt can have at most 50 labels.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Set prompt label",
+        "title": "Set prompt label",
+        "required_scopes": ["llm_prompt:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "llma-prompt-list": {
         "description": "List all LLM prompts stored for the current team. Optionally filter by name. Returns paginated prompt summaries. By default, only prompt metadata is returned, not full prompt content. Every result also includes `outline`, a flat list of markdown headings parsed from the prompt — use it as a lightweight table of contents, and pair with `content=none` to keep responses small.",
         "category": "AI observability",
@@ -6345,7 +6388,7 @@
         "system_prompt_hint": "Error issue details and impact (error-tracking category)"
     },
     "query-error-tracking-issue-events": {
-        "description": "Fetch sampled `$exception` events for one Error tracking issue.\n\nUse this when the user asks for concrete examples, stack traces, affected URLs, browser/OS/library context, or Session replay links for a specific issue.\n\nReturns sampled events with plural exception fields (`$exception_types`, `$exception_values`), normalized `$exception_list`, `$exception_fingerprint`, `$exception_issue_id`, `$session_id`, `$lib`, browser/OS fields, and `$current_url`.\n\n# Parameters\n\n- `issueId`: required Error tracking issue UUID.\n- `dateRange`: time range for sampled events. Defaults to last 7 days.\n- `searchQuery`: search exception types, values, and current URL.\n- `filterGroup`: advanced flat AND property filters applied to sampled events.\n- `verbosity`: `summary` (default), `stack`, or `raw`. Use `raw` only when exact untruncated exception payloads are needed.\n- `onlyAppFrames`: defaults to true to reduce vendor-frame noise.\n- `limit`: defaults to 1 and maxes at 20. Keep low unless the user asks for multiple examples.\n\n# Session recordings\n\nWhen `$session_id` is present and the user asks what happened before the error, call `query-session-recordings-list` with `session_ids` to fetch matching recordings. Use multiple `$session_id` values in one call when available.",
+        "description": "Fetch sampled `$exception` events for one Error tracking issue.\n\nUse this when the user asks for concrete examples, stack traces, code variables, affected URLs, browser/OS/library context, release details, diagnostics, or Session replay links for a specific issue.\n\nReturns sampled events with plural exception fields (`$exception_types`, `$exception_values`), normalized `$exception_list`, `$exception_fingerprint`, `$exception_level`, `$exception_handled`, `$session_id`, OpenTelemetry and AI trace/span IDs, `$lib`, browser/OS fields, and `$current_url`.\n\n# Parameters\n\n- `issueId`: required Error tracking issue UUID.\n- `dateRange`: time range for sampled events. Defaults to last 7 days.\n- `searchQuery`: search exception types, values, and current URL.\n- `filterGroup`: advanced flat AND property filters applied to sampled events.\n- `include`: context groups to return. Defaults to compact exception, environment, navigation, and correlation context. Add `stacktrace`, `code_variables`, `release`, or `diagnostics` only when needed. `code_variables` implies stack frames and may contain SDK-masked sensitive values.\n- `onlyAppFrames`: defaults to true to reduce vendor-frame noise.\n- `limit`: defaults to 1 and maxes at 20. Keep low unless the user asks for multiple examples.\n\n# Session recordings\n\nWhen `$session_id` is present and the user asks what happened before the error, call `query-session-recordings-list` with `session_ids` to fetch matching recordings. Use multiple `$session_id` values in one call when available.",
         "category": "Error tracking",
         "feature": "error_tracking",
         "summary": "Query error tracking issue events",
@@ -6357,7 +6400,7 @@
             "openWorldHint": true,
             "readOnlyHint": true
         },
-        "system_prompt_hint": "Error event samples, stack traces, and session IDs (error-tracking category)"
+        "system_prompt_hint": "Error event samples, stack traces, code variables, and session IDs (error-tracking category)"
     },
     "query-error-tracking-issues-list": {
         "description": "List and filter Error tracking issues. Returns compact issue rows with aggregate impact counts (`occurrences`, `users`, `sessions`) and optional volume buckets.\n\nUse this first when the user asks which errors are happening, which errors are most common, or wants to narrow issues by status, release, library, fingerprint, URL, user, person, or properties.\n\nDefaults are intentionally useful: active issues, last 7 days, sorted by occurrences, test accounts filtered out, and compact aggregate counts.\n\nBe minimalist. Only add filters needed to answer the user’s question. Do not add \"is set\" filters unless the user explicitly asks for them.\n\n# Common filters\n\n- `status`: `active`, `resolved`, `suppressed`, `pending_release`, `archived`, or `all`. Defaults to `active`.\n- `searchQuery`: free-text search for exception names, values, stack frames, and email text.\n- `library`: exact `$lib` match, for example `posthog-js`.\n- `release`: exact release ID, release version, or git commit ID captured in `$exception_releases`. This intentionally does not match project name, branch, or timestamp fragments.\n- `fingerprint`: exact `$exception_fingerprint` match.\n- `url`: substring match on `$current_url`.\n- `personId`: exact PostHog person UUID.\n- `user`: user/email text search.\n- `filePath`: stack-frame file/source text search.\n- `filterGroup`: advanced flat AND property filters. Prefer typed fields above when they fit.\n\nUse `dateRange` for time, not property filters. Omit `date_to` for now.\n\n# Next steps\n\n- Use `query-error-tracking-issue` with `issueId` to inspect one issue.\n- Use `query-error-tracking-issue-events` with `issueId` to fetch sampled exception events, stack traces, URLs, and `$session_id` values.\n- If the user asks what people were doing before the error, use `$session_id` values from issue events with `query-session-recordings-list` and its `session_ids` parameter.",
@@ -7293,7 +7336,7 @@
         }
     },
     "session-recording-get": {
-        "description": "Get a specific session recording by ID. Returns full recording metadata including duration, interaction counts, console log counts, person info, and viewing status. Session recordings are reachable from events, errors, and persons via the `$session_id` property on events. Any `$session_id` value from an event can be passed as the `id` parameter to this tool. Note: a `$session_id` on an event does not guarantee a recording exists — session replay may not be enabled for that project or session. A 404 means no recording was captured. If the user wants to understand what happened without watching the recording, check `vision-observations-list` for an existing Replay Vision AI summary, or run a summarizer scanner via `vision-scanners-scan-session` (see the investigating-replay skill; scanning is slow). If a recording is missing (404) or the user asks why recordings aren't being captured, diagnose with `execute-sql`: query `$recording_status`, `$session_recording_start_reason`, `$replay_sample_rate`, and `$sdk_debug_recording_script_not_loaded` from the events table (filter by `$session_id` for a specific session, or sample recent events for project-wide issues).",
+        "description": "Get a specific session recording by ID. Returns full recording metadata including duration, interaction counts, console log counts, viewing status, and a compact person summary (id, name, distinct IDs). The person's full property bag is not included — use `persons-retrieve` when you need a person's properties. Session recordings are reachable from events, errors, and persons via the `$session_id` property on events. Any `$session_id` value from an event can be passed as the `id` parameter to this tool. Note: a `$session_id` on an event does not guarantee a recording exists — session replay may not be enabled for that project or session. A 404 means no recording was captured. If the user wants to understand what happened without watching the recording, check `vision-observations-list` for an existing Replay Vision AI summary, or run a summarizer scanner via `vision-scanners-scan-session` (see the investigating-replay skill; scanning is slow). If a recording is missing (404) or the user asks why recordings aren't being captured, diagnose with `execute-sql`: query `$recording_status`, `$session_recording_start_reason`, `$replay_sample_rate`, and `$sdk_debug_recording_script_not_loaded` from the events table (filter by `$session_id` for a specific session, or sample recent events for project-wide issues).",
         "category": "Session replays",
         "feature": "replay",
         "summary": "Get session recording",
@@ -7851,6 +7894,171 @@
             "openWorldHint": true,
             "readOnlyHint": false
         }
+    },
+    "stamphog-digest-channels-create": {
+        "description": "Route an audience's daily merged-PR digest to a Slack channel. Requires `audience_key`, `slack_integration_id` (must be a Slack integration belonging to this team), and `slack_channel_id`.",
+        "category": "Stamphog",
+        "feature": "stamphog",
+        "summary": "Create stamphog digest channel",
+        "title": "Create stamphog digest channel",
+        "required_scopes": ["stamphog:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "stamphog"
+    },
+    "stamphog-digest-channels-delete": {
+        "description": "Disable a digest channel by id. This keeps the row as a disabled tombstone (so auto-provisioning can't recreate and re-post it) rather than hard-deleting it — equivalent to `stamphog-digest-channels-update` with `enabled: false`.",
+        "category": "Stamphog",
+        "feature": "stamphog",
+        "summary": "Delete stamphog digest channel",
+        "title": "Delete stamphog digest channel",
+        "required_scopes": ["stamphog:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "stamphog"
+    },
+    "stamphog-digest-channels-list": {
+        "description": "List Slack destinations for the daily merged-PR digest in this project. Each channel is keyed by `audience_key` (e.g. a repo or team bucket) and reports how it was resolved (manual, name match, repo policy config) and whether it's currently enabled.",
+        "category": "Stamphog",
+        "feature": "stamphog",
+        "summary": "List stamphog digest channels",
+        "title": "List stamphog digest channels",
+        "required_scopes": ["stamphog:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "stamphog"
+    },
+    "stamphog-digest-runs-list": {
+        "description": "List posted (or attempted) daily digest runs, newest first. Filter by `digest_channel` to see a single channel's history. Each run reports its status, how many merged PRs it summarized, and the Slack message timestamp it posted to. The rendered summary text itself lives only in the Slack post.",
+        "category": "Stamphog",
+        "feature": "stamphog",
+        "summary": "List stamphog digest runs",
+        "title": "List stamphog digest runs",
+        "required_scopes": ["stamphog:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "stamphog"
+    },
+    "stamphog-pull-requests-get": {
+        "description": "Get a single pull request by id, including its repository, title, author, head branch, and merge details.",
+        "category": "Stamphog",
+        "feature": "stamphog",
+        "summary": "Get stamphog pull request",
+        "title": "Get stamphog pull request",
+        "required_scopes": ["stamphog:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "stamphog"
+    },
+    "stamphog-pull-requests-list": {
+        "description": "List pull requests stamphog has seen in this project, newest first. Filter by `pr_number` for a specific PR, or by `merged` (true/false) to separate open work from merged history. Each entry includes the repository, author, head branch, merge state, and diff size (additions/deletions/changed_files) once merged.",
+        "category": "Stamphog",
+        "feature": "stamphog",
+        "summary": "List stamphog pull requests",
+        "title": "List stamphog pull requests",
+        "required_scopes": ["stamphog:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "stamphog"
+    },
+    "stamphog-repo-configs-delete": {
+        "description": "Delete a repo config by id. This removes stamphog's review and digest configuration for the repo entirely — prefer `stamphog-repo-configs-update` with `enabled: false` if you only want to pause review temporarily.",
+        "category": "Stamphog",
+        "feature": "stamphog",
+        "summary": "Delete stamphog repo config",
+        "title": "Delete stamphog repo config",
+        "required_scopes": ["stamphog:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "stamphog"
+    },
+    "stamphog-repo-configs-get": {
+        "description": "Get a single repo config by id. Returns the provider, repository full name, installation id, and the enabled / digest_enabled flags.",
+        "category": "Stamphog",
+        "feature": "stamphog",
+        "summary": "Get stamphog repo config",
+        "title": "Get stamphog repo config",
+        "required_scopes": ["stamphog:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "stamphog"
+    },
+    "stamphog-repo-configs-list": {
+        "description": "List repos stamphog is configured for in this project. Each config controls whether stamphog reviews pull requests for a repo (`enabled`), whether merged PRs feed the daily digest (`digest_enabled`), and which GitHub App installation authorizes the calls. Use this to check whether a repo is already onboarded before creating a new config.",
+        "category": "Stamphog",
+        "feature": "stamphog",
+        "summary": "List stamphog repo configs",
+        "title": "List stamphog repo configs",
+        "required_scopes": ["stamphog:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "stamphog"
+    },
+    "stamphog-review-runs-get": {
+        "description": "Get a single review run by id — the record of one automated review pass over a pull request. Returns the lifecycle `status`, final `verdict`, and an allowlisted `gate_result` (gate_blocked, final_verdict). The raw reviewer transcript, PR payload, and policy contents are deliberately not exposed — they carry repository content a project member without repo access must not read.",
+        "category": "Stamphog",
+        "feature": "stamphog",
+        "summary": "Get stamphog review run",
+        "title": "Get stamphog review run",
+        "required_scopes": ["stamphog:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "stamphog"
+    },
+    "stamphog-review-runs-list": {
+        "description": "List stamphog's automated review runs for pull requests in this project, newest first. Filter by `repository`, `pr_number`, or `status` to find why a specific PR got its verdict. Each run reports its lifecycle `status`, final `verdict`, and the deterministic gate outcome (`gate_result`) computed before the reviewer ran. The raw reviewer output (full reasoning transcript) is omitted from list results — use `stamphog-review-runs-get` for the full detail.",
+        "category": "Stamphog",
+        "feature": "stamphog",
+        "summary": "List stamphog review runs",
+        "title": "List stamphog review runs",
+        "required_scopes": ["stamphog:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "stamphog"
     },
     "subscriptions-create": {
         "description": "Create a recurring subscription. The kind is inferred from which field you populate and returned as the read-only `resource_type`:\n(1) set `insight` — schedule periodic snapshots of one insight (`resource_type: \"insight\"`).\n(2) set `dashboard` and `dashboard_export_insights` (the subset of the dashboard's insights to include, max 6) — schedule periodic snapshots of one dashboard (`resource_type: \"dashboard\"`).\n(3) set `prompt` (≤4000 chars, with no insight or dashboard) — schedule a recurring LLM-generated report (`resource_type: \"ai_prompt\"`). Available on PostHog Cloud (self-hosted production is not eligible) once the organization has approved AI data processing and prompt subscriptions are enabled for it; otherwise create is rejected with a 400. Creating a prompt subscription also requires the `query:read` scope — the report runs LLM-generated HogQL over your data — so a `subscription:write`-only token is rejected for this kind.\nDelivery is set by `target_type` — `email` or `slack`.\nThe kind is fixed at create time — a PATCH that would change the populated relation to a different kind is rejected.\nFor insight and dashboard subscriptions you can attach an AI-generated summary to each delivery by setting `summary_enabled: true` (optionally steered by `summary_prompt_guide`). This requires the organization to have approved AI data processing and to be within its active-summary cap and AI credit budget; otherwise the create is rejected. Prompt subscriptions are themselves AI-generated, so these fields do not apply to them.\nIMPORTANT — when creating an insight (or dashboard) subscription, always ask the user whether to enable the AI-generated summary before creating it. Present it as their choice: they can turn it on (`summary_enabled: true`) or leave it off, and if they turn it on, offer them the option to add a custom prompt to steer the summary (`summary_prompt_guide`). Do not enable the summary on your own without asking. (Prompt subscriptions are themselves AI-generated, so this does not apply to them.)",

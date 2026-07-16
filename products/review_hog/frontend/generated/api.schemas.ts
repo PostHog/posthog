@@ -172,6 +172,13 @@ export interface ReviewRecentReviewApi {
     blind_spot_issue_count: number | null
 }
 
+export interface ReviewRecentReviewsPageApi {
+    /** The scoped reviews: in-progress runs first, then completed newest first. */
+    results: ReviewRecentReviewApi[]
+    /** Whether reviews exist beyond this page — drives the list's "Show more" button. */
+    has_more: boolean
+}
+
 export interface ReviewSelectionChunkApi {
     /** The chunk this row describes, as numbered by the chunker. */
     chunk_id: number
@@ -427,7 +434,7 @@ export interface ReviewUserSettingsApi {
     review_inbox_prs?: boolean
     /** Review the user's pull requests when the trigger label is added on GitHub. On by default; turning it off makes the label trigger skip PRs this user authored. */
     review_labeled_prs?: boolean
-    /** Minimum priority a validated finding needs to be published: 'consider' publishes everything, 'should_fix' (default) drops consider-level findings, 'must_fix' publishes only blocking issues.
+    /** Minimum priority a validated finding needs to be published: 'consider' (default) publishes everything, 'should_fix' drops consider-level findings, 'must_fix' publishes only blocking issues.
      *
      * * `consider` - Consider
      * * `should_fix` - Should Fix
@@ -440,7 +447,7 @@ export interface PatchedReviewUserSettingsApi {
     review_inbox_prs?: boolean
     /** Review the user's pull requests when the trigger label is added on GitHub. On by default; turning it off makes the label trigger skip PRs this user authored. */
     review_labeled_prs?: boolean
-    /** Minimum priority a validated finding needs to be published: 'consider' publishes everything, 'should_fix' (default) drops consider-level findings, 'must_fix' publishes only blocking issues.
+    /** Minimum priority a validated finding needs to be published: 'consider' (default) publishes everything, 'should_fix' drops consider-level findings, 'must_fix' publishes only blocking issues.
      *
      * * `consider` - Consider
      * * `should_fix` - Should Fix
@@ -465,6 +472,12 @@ export interface PatchedReviewValidatorConfigSelectApi {
 }
 
 export type ReviewHogReviewsListParams = {
+    /**
+     * Maximum rows to return. The list grows this instead of paging by offset — in-progress rows reorder the list between refreshes, so offset pages would shift under the reader.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
     /**
      * Whose reviews to list: `mine` for reviews of the requesting user's pull requests (the default), `everyone` for every review on this project.
      *
