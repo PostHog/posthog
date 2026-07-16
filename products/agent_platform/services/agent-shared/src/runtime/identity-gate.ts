@@ -168,7 +168,7 @@ export interface ToolIdentityDeps {
 }
 
 export function createToolIdentity(deps: ToolIdentityDeps): {
-    resolve(provider: string, scopes?: string[]): Promise<IdentityResolution>
+    resolve(provider: string, scopes?: string[], options?: { initiate?: boolean }): Promise<IdentityResolution>
     relink(provider: string): Promise<string | null>
 } {
     return {
@@ -207,7 +207,7 @@ export function createToolIdentity(deps: ToolIdentityDeps): {
                 return null
             }
         },
-        async resolve(providerId, scopes = []): Promise<IdentityResolution> {
+        async resolve(providerId, scopes = [], options = {}): Promise<IdentityResolution> {
             // One session-log line per resolution: the credential source + decision, never the token.
             const emit = (res: IdentityResolution, source: string, binding?: string): IdentityResolution => {
                 deps.log?.('info', 'identity.resolved', {
@@ -267,6 +267,13 @@ export function createToolIdentity(deps: ToolIdentityDeps): {
                     return emit(
                         { kind: 'ok', credential, allowedHosts: provider.allowedHosts() },
                         'linked_store',
+                        provider.binding
+                    )
+                }
+                if (options.initiate === false) {
+                    return emit(
+                        { kind: 'unavailable', provider: providerId, reason: 'identity_not_connected' },
+                        'unavailable',
                         provider.binding
                     )
                 }

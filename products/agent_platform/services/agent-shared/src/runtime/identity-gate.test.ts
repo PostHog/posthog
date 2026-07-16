@@ -100,6 +100,16 @@ describe('createToolIdentity.resolve', () => {
         })
     })
 
+    it('does not initiate authorization when resolution is lookup-only', async () => {
+        const provider = fakeProvider()
+        const { toolIdentity } = deps({ provider })
+
+        const res = await toolIdentity.resolve('posthog', [], { initiate: false })
+
+        expect(res).toEqual({ kind: 'unavailable', provider: 'posthog', reason: 'identity_not_connected' })
+        expect(provider.initiate).not.toHaveBeenCalled()
+    })
+
     it('fails closed in a shared session WITHOUT consulting the seed (T1 confused-deputy guard)', async () => {
         const provider = fakeProvider()
         const seed = { resolve: vi.fn(async () => OK_CRED) }
