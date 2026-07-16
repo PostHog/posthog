@@ -82,11 +82,13 @@ from products.data_warehouse.backend.facade.api import (
     get_postgres_source_location,
     get_redshift_source_location,
     get_webhook_url,
+    github_repositories_for_job_inputs,
     is_any_external_data_schema_paused,
     is_cdc_enabled_for_team,
     is_custom_source_ai_builder_enabled_for_team,
     is_multi_schema_capable_sql_source,
     is_xmin_enabled_for_team,
+    reconcile_github_repositories,
     reconcile_mysql_schemas,
     reconcile_postgres_schemas,
     reconcile_redshift_schemas,
@@ -1027,6 +1029,18 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             else:
                 new_job_inputs.pop(key, None)
 
+        # GitHub's legacy `repository` is a server-managed marker once the multi-repo field is in
+        # play: it defines which repo's schema rows keep bare (unqualified) names, so an edit can
+        # never rename or re-point it. Legacy-only PATCHes (no `repositories` anywhere) keep the
+        # original single-repo swap semantics.
+        if source_type_model == ExternalDataSourceType.GITHUB and (
+            "repositories" in incoming_job_inputs or "repositories" in existing_job_inputs
+        ):
+            if existing_job_inputs.get("repository"):
+                new_job_inputs["repository"] = existing_job_inputs["repository"]
+            else:
+                new_job_inputs.pop("repository", None)
+
         # The OAuth2 integration row pointer is server-managed: pin it to the stored value so an
         # editor can't repoint the source at a different row (and through it, different credentials).
         # Re-entered auth_oauth2_* secrets flow into the pinned row during credential validation.
@@ -1233,7 +1247,21 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                     validated_job_inputs[key] = existing_job_inputs[key]
             validated_data["job_inputs"] = validated_job_inputs
 
+        github_old_repositories: list[str] = []
+        if source_type_model == ExternalDataSourceType.GITHUB and job_inputs_were_submitted:
+            github_old_repositories = github_repositories_for_job_inputs(existing_job_inputs)
+
         updated_source: ExternalDataSource = super().update(instance, validated_data)
+
+        if source_type_model == ExternalDataSourceType.GITHUB and job_inputs_were_submitted:
+            # Adds schema rows for added repos, retires removed repos' rows, and reconciles the
+            # per-repo webhooks. No-op when the effective repo list didn't change.
+            reconcile_github_repositories(
+                source_model=updated_source,
+                team=instance.team,
+                old_repositories=github_old_repositories,
+                new_config=source_config,
+            )
 
         if updated_source.is_direct_query and discovered_schemas is not None:
             schema_names = {schema.name: schema.label for schema in discovered_schemas}
@@ -2386,6 +2414,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 if source.supports_column_selection
                 else {}
             )
+            # Sources that namespace tables outside SQL schemas (e.g. GitHub repos) attach their
+            # own location keys on the discovered schema; persist them so sync-time resolution
+            # never depends on parsing the row name.
+            if source_schema is not None and source_schema.schema_metadata:
+                schema_metadata = {**schema_metadata, **source_schema.schema_metadata}
 
             if row_filters is not None:
                 # Only sources that push filters into their query (SQL WHERE) can honor them — a
@@ -2969,11 +3002,19 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 descriptions = {
                     name_substitutions.get(name, name): description for name, description in descriptions.items()
                 }
+            # GitHub keeps its legacy repo's rows bare alongside qualified rows for added repos, so
+            # bare↔qualified tail matching would wrongly collapse them; match names exactly and seed
+            # the per-repo location metadata on newly created rows.
+            is_github = instance.source_type == ExternalDataSourceType.GITHUB
             schemas_created, schemas_deleted = sync_old_schemas_with_new_schemas(
                 schema_names,
                 source_id=str(instance.id),
                 team_id=self.team_id,
                 descriptions=descriptions,
+                strict_name_match=is_github,
+                schema_metadata_by_name={s.name: s.schema_metadata for s in schemas if s.schema_metadata}
+                if is_github
+                else None,
             )
 
             if instance.source_type == ExternalDataSourceType.POSTGRES:
@@ -3422,6 +3463,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 source=source,
                 source_id=str(instance.pk),
                 eligible_schemas=eligible_schemas,
+                config=source_config,
             )
             if hog_fn_result.error or hog_fn_result.hog_function is None:
                 return failure(hog_fn_result.error)
@@ -4539,6 +4581,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             source=source,
             source_id=str(instance.pk),
             eligible_schemas=eligible_schemas,
+            config=config,
         )
 
         if hog_fn_result.error:
