@@ -76,14 +76,17 @@ export type ResultRows = unknown[][]
 
 // Gap-fill the per-day rows into a continuous day axis (ClickHouse only returns days with data).
 // Counts fill with 0; latency fills with NaN so the chart skips the point instead of dipping to 0.
-export function buildDailyChartData(rows: DailyToolStat[]): DailyChartData {
+// `range` spans the axis over the full selected window so the sparklines and trend charts match the
+// chosen range — and always have enough points to draw a line — even when the tool has data on only a
+// day or two; without it the axis spans just the days that have data (a single day draws no line).
+export function buildDailyChartData(rows: DailyToolStat[], range?: { start: string; end: string }): DailyChartData {
     if (rows.length === 0) {
         return EMPTY_CHART_DATA
     }
     const byDay = new Map(rows.map((r) => [r.day, r]))
-    const end = dayjs(rows[rows.length - 1].day)
+    const end = dayjs(range?.end ?? rows[rows.length - 1].day)
     const labels: string[] = []
-    for (let day = dayjs(rows[0].day); !day.isAfter(end); day = day.add(1, 'day')) {
+    for (let day = dayjs(range?.start ?? rows[0].day); !day.isAfter(end); day = day.add(1, 'day')) {
         labels.push(day.format('YYYY-MM-DD'))
     }
     const at = labels.map((day) => byDay.get(day))
@@ -314,8 +317,18 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
         toolName: [() => [(_, props) => props.toolName], (toolName: string) => toolName],
 
         dailyChartData: [
-            (s) => [s.dailyStats],
-            (dailyStats: DailyToolStat[]): DailyChartData => buildDailyChartData(dailyStats),
+            (s) => [s.dailyStats, s.dateFilter, teamLogic.selectors.timezone],
+            (dailyStats: DailyToolStat[], dateFilter: DateFilter, timezone: string): DailyChartData => {
+                const start =
+                    dateStringToDayJs(dateFilter.dateFrom, timezone) ?? dayjs().tz(timezone).subtract(30, 'day')
+                const end =
+                    (dateFilter.dateTo ? dateStringToDayJs(dateFilter.dateTo, timezone) : dayjs().tz(timezone)) ??
+                    dayjs().tz(timezone)
+                return buildDailyChartData(dailyStats, {
+                    start: start.format('YYYY-MM-DD'),
+                    end: end.format('YYYY-MM-DD'),
+                })
+            },
         ],
 
         // Resolve the `dateFilter` state (camelCase, nullable, may be relative like '-30d') into the
