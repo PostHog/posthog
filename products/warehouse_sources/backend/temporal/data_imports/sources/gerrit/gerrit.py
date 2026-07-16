@@ -1,6 +1,6 @@
 import re
 import json
-import time
+import threading
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
@@ -99,26 +99,48 @@ def parse_gerrit_response(text: str) -> Any:
 def _read_capped_text(response: requests.Response) -> str:
     """Drain a streamed response body under a byte cap and a wall-clock deadline, then decode to text.
 
-    The request is issued with ``stream=True`` so nothing is buffered until this read. We pull the
-    body in chunks and abort — closing the connection — the moment it exceeds ``MAX_RESPONSE_BYTES``
-    or ``MAX_DOWNLOAD_SECONDS``, so a hostile customer-supplied host can neither OOM nor indefinitely
-    tie up a shared worker with an oversized or slow-drip body.
+    The request is issued with ``stream=True`` so nothing is buffered until this read. Two limits
+    protect a shared worker from a hostile customer-supplied host: a byte cap (``MAX_RESPONSE_BYTES``)
+    checked as chunks arrive, and a hard wall-clock deadline (``MAX_DOWNLOAD_SECONDS``) enforced by a
+    watchdog that closes the connection when it elapses. The watchdog — rather than a between-chunks
+    time check — is load-bearing: the socket read timeout only bounds *idle* gaps, so a slow-drip host
+    that sends a byte before each timeout could otherwise keep a single blocking read alive far past
+    the deadline. Closing the socket underneath that read forces it to raise, which we surface as a
+    ``GerritResponseTooLargeError``.
     """
-    deadline = time.monotonic() + MAX_DOWNLOAD_SECONDS
     chunks: list[bytes] = []
     total = 0
+    aborted = threading.Event()
+
+    def _abort() -> None:
+        aborted.set()
+        response.close()
+
+    watchdog = threading.Timer(MAX_DOWNLOAD_SECONDS, _abort)
+    watchdog.start()
     try:
         for chunk in response.iter_content(chunk_size=DOWNLOAD_CHUNK_BYTES):
+            if aborted.is_set():
+                break
             if not chunk:
                 continue
             total += len(chunk)
             if total > MAX_RESPONSE_BYTES:
                 raise GerritResponseTooLargeError("Gerrit returned an oversized response body")
-            if time.monotonic() > deadline:
-                raise GerritResponseTooLargeError("Gerrit response body took too long to download")
             chunks.append(chunk)
+    except GerritResponseTooLargeError:
+        raise
+    except Exception:
+        # A read that raises after the watchdog fired is the deadline hitting: we closed the socket
+        # out from under the blocking read. Anything else is a genuine transport error — re-raise it.
+        if aborted.is_set():
+            raise GerritResponseTooLargeError("Gerrit response body took too long to download")
+        raise
     finally:
+        watchdog.cancel()
         response.close()
+    if aborted.is_set():
+        raise GerritResponseTooLargeError("Gerrit response body took too long to download")
     return b"".join(chunks).decode(response.encoding or "utf-8", errors="replace")
 
 

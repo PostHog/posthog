@@ -1,3 +1,4 @@
+import threading
 from datetime import UTC, datetime, timedelta, timezone
 from typing import Any, Optional
 
@@ -275,6 +276,27 @@ class TestGetRows:
             pytest.raises(gerrit_module.GerritResponseTooLargeError),
         ):
             _get_all_rows("changes", [_response(text=body)])
+
+    def test_slow_body_is_aborted_at_the_download_deadline(self):
+        # A drip host keeps a single read blocked past the deadline; the watchdog closes the socket,
+        # which raises inside the read. Wire the mock so close() releases the blocked iter_content,
+        # standing in for a real socket raising when closed underneath the read.
+        response = _response(text=")]}'\n[]")
+        released = threading.Event()
+
+        def _blocking_iter(chunk_size=None):
+            # Woken by response.close(); a closed socket read then raises.
+            released.wait(timeout=5)
+            raise OSError("connection closed")
+
+        response.iter_content.side_effect = _blocking_iter
+        response.close.side_effect = lambda: released.set()
+
+        with (
+            mock.patch.object(gerrit_module, "MAX_DOWNLOAD_SECONDS", 0.05),
+            pytest.raises(gerrit_module.GerritResponseTooLargeError),
+        ):
+            _get_all_rows("changes", [response])
 
     def test_unsafe_host_is_rejected_before_any_request(self):
         session, session_patcher = _patch_session([])
