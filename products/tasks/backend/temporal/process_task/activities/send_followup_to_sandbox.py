@@ -27,6 +27,7 @@ from products.tasks.backend.redis import get_tasks_stream_redis_sync, run_uses_d
 from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run
 from products.tasks.backend.temporal.process_task.utils import (
     get_actor_distinct_id,
+    get_imported_mcp_server_configs,
     get_sandbox_ph_mcp_configs,
     get_task_run_credential_user,
     get_user_mcp_server_configs,
@@ -258,6 +259,12 @@ def _refresh_sandbox_mcp(
         )
         if user_mcp_configs:
             mcp_configs = mcp_configs + user_mcp_configs
+
+    # refresh_session replaces the session's server list wholesale, so the
+    # run's imported servers must ride along or they vanish mid-run.
+    imported_mcp_configs = get_imported_mcp_server_configs(task_run, {config.name for config in mcp_configs})
+    if imported_mcp_configs:
+        mcp_configs = mcp_configs + imported_mcp_configs
 
     if not mcp_configs:
         logger.info("refresh_mcp_skipped_no_configs", run_id=run_id)

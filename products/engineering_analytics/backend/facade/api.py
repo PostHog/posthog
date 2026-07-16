@@ -25,6 +25,7 @@ from posthog.models.team import Team
 from products.engineering_analytics.backend import logic
 from products.engineering_analytics.backend.facade.contracts import (
     BranchPRMatch,
+    BrokenTestsResult,
     CICardSummary,
     CIFailureLogs,
     CurrentBranchHealth,
@@ -39,6 +40,9 @@ from products.engineering_analytics.backend.facade.contracts import (
     QuarantineRequestResult,
     RepoOverview,
     RunFailureLogs,
+    TeamCIActivity,
+    TeamCIHealthList,
+    TeamMergeTrend,
     WorkflowCost,
     WorkflowHealthItem,
     WorkflowJob,
@@ -309,6 +313,72 @@ def list_flaky_tests(
         min_failed_prs=min_failed_prs,
         limit=limit,
     )
+
+
+def list_team_ci_health(
+    *,
+    team: Team,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    min_rerun_passes: int | None = None,
+    min_failed_prs: int | None = None,
+    limit: int | None = None,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> TeamCIHealthList:
+    return logic.build_team_ci_health(
+        curated=_authorized_source(team, source_id, user_access_control),
+        date_from=date_from,
+        date_to=date_to,
+        min_rerun_passes=min_rerun_passes,
+        min_failed_prs=min_failed_prs,
+        limit=limit,
+    )
+
+
+def get_team_ci_activity(
+    *,
+    team: Team,
+    owner_team: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    test_limit: int | None = None,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> TeamCIActivity:
+    return logic.build_team_ci_activity(
+        curated=_authorized_source(team, source_id, user_access_control),
+        owner_team=owner_team,
+        date_from=date_from,
+        date_to=date_to,
+        test_limit=test_limit,
+    )
+
+
+def get_team_merge_trend(
+    *,
+    team: Team,
+    owner_team: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> TeamMergeTrend:
+    return logic.build_team_merge_trend(
+        curated=_authorized_source(team, source_id, user_access_control),
+        owner_team=owner_team,
+        date_from=date_from,
+        date_to=date_to,
+    )
+
+
+def get_broken_tests(
+    *,
+    team: Team,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> BrokenTestsResult:
+    return logic.build_broken_tests(curated=_authorized_source(team, source_id, user_access_control))
 
 
 def list_github_sources(*, team: Team, user_access_control: "UserAccessControl | None" = None) -> list[GitHubSource]:

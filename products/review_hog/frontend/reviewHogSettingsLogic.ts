@@ -1,6 +1,6 @@
 import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -31,9 +31,11 @@ import type {
     ReviewPerspectiveConfigApi,
     ReviewPerspectiveStatsApi,
     ReviewRecentReviewApi,
+    ReviewRecentReviewsPageApi,
     ReviewUserSettingsApi,
     ReviewValidatorConfigApi,
 } from 'products/review_hog/frontend/generated/api.schemas'
+import { ReviewHogReviewsListScope } from 'products/review_hog/frontend/generated/api.schemas'
 
 import type { reviewHogSettingsLogicType } from './reviewHogSettingsLogicType'
 
@@ -49,6 +51,12 @@ export const REVIEW_PRIORITY_RANK: Record<ReviewIssuePriorityEnumApi, number> = 
 
 // While a review is running, the list refreshes on this cadence so the stage/progress row is live.
 const IN_PROGRESS_POLL_INTERVAL_MS = 10_000
+
+/** The review list's initial depth, the step each "Show more" adds, and what "Show fewer" collapses to. */
+export const REVIEWS_PAGE_SIZE = 5
+
+/** Mirrors MAX_REVIEWS_LIMIT in reviews.py — the API 400s above this, so growth must stop here. */
+export const MAX_REVIEWS_LIMIT = 100
 
 /** The detail's valid findings split by the user's urgency threshold: on the PR vs. kept back. */
 export interface ReviewFindingsSplit {
@@ -138,11 +146,17 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
         closeReviewDrawer: true,
         setReviewDrawerTab: (tab: ReviewDrawerTab) => ({ tab }),
         toggleReviewRowExpanded: (reviewId: string) => ({ reviewId }),
+        setReviewsScope: (scope: ReviewHogReviewsListScope) => ({ scope }),
+        showMoreReviews: true,
+        showFewerReviews: true,
+        // Auto-select a default scope (Entire project when the user has no reviews of their own)
+        // without marking it as an explicit user choice, so a later real choice still wins.
+        applyDefaultReviewsScope: (scope: ReviewHogReviewsListScope) => ({ scope }),
         startSkillAuthorTask: (kind: ReviewSkillKind) => ({ kind }),
         startSkillAuthorTaskFinished: true,
     }),
 
-    loaders(() => ({
+    loaders(({ values }) => ({
         settings: [
             null as ReviewUserSettingsApi | null,
             {
@@ -173,10 +187,17 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                 loadValidators: async () => await reviewHogValidatorsList(currentProjectId()),
             },
         ],
-        recentReviews: [
-            null as ReviewRecentReviewApi[] | null,
+        recentReviewsPage: [
+            null as ReviewRecentReviewsPageApi | null,
             {
-                loadRecentReviews: async () => await reviewHogReviewsList(currentProjectId()),
+                // The default param keeps the action zero-arg in the generated logic type.
+                loadRecentReviews: async (_ = null, breakpoint) => {
+                    const { reviewsScope: scope, reviewsLimit: limit } = values
+                    const response = await reviewHogReviewsList(currentProjectId(), { scope, limit })
+                    // A scope or limit change mid-flight dispatched a newer load — drop this stale response.
+                    breakpoint()
+                    return response
+                },
             },
         ],
         reviewDetail: [
@@ -266,6 +287,60 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                     state.includes(reviewId) ? state.filter((id) => id !== reviewId) : [...state, reviewId],
             },
         ],
+        recentReviewsPage: {
+            // "Show fewer" collapses instantly from data already loaded; the listener's refetch
+            // reconciles silently and breakpoint-drops any wider in-flight response (e.g. a poll).
+            showFewerReviews: (state: ReviewRecentReviewsPageApi | null) =>
+                state
+                    ? {
+                          ...state,
+                          results: state.results.slice(0, REVIEWS_PAGE_SIZE),
+                          has_more: state.has_more || state.results.length > REVIEWS_PAGE_SIZE,
+                      }
+                    : state,
+        },
+        // How many rows the review list asks for — grows by a page per "Show more".
+        reviewsLimit: [
+            REVIEWS_PAGE_SIZE as number,
+            {
+                showMoreReviews: (state) => Math.min(state + REVIEWS_PAGE_SIZE, MAX_REVIEWS_LIMIT),
+                showFewerReviews: () => REVIEWS_PAGE_SIZE,
+                // A different scope is a different list — start it compact again.
+                setReviewsScope: () => REVIEWS_PAGE_SIZE,
+                applyDefaultReviewsScope: () => REVIEWS_PAGE_SIZE,
+            },
+        ],
+        // Drives the "Show more" button's loading state — the loader's own `loading` would also
+        // flash on every 10s in-progress poll.
+        reviewsExpanding: [
+            false,
+            {
+                showMoreReviews: () => true,
+                showFewerReviews: () => false,
+                loadRecentReviewsSuccess: () => false,
+                loadRecentReviewsFailure: () => false,
+            },
+        ],
+        // Whose reviews the "recent reviews" block lists — mirrors the inbox's
+        // "For you / Entire project" switch.
+        reviewsScope: [
+            ReviewHogReviewsListScope.Mine as ReviewHogReviewsListScope,
+            { persist: true },
+            {
+                setReviewsScope: (_, { scope }) => scope,
+                applyDefaultReviewsScope: (_, { scope }) => scope,
+            },
+        ],
+        // Whether the user has explicitly picked a scope. Once true, the empty-list auto-default
+        // no longer fires, so a deliberate choice of "For you" is respected even with zero reviews.
+        // A shared link is an explicit choice too, so URL hydration goes through setReviewsScope.
+        hasUserChosenReviewsScope: [
+            false,
+            { persist: true },
+            {
+                setReviewsScope: () => true,
+            },
+        ],
         initialLoadFailed: [
             false,
             {
@@ -291,6 +366,17 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
     }),
 
     selectors({
+        recentReviews: [
+            (s) => [s.recentReviewsPage],
+            (recentReviewsPage): ReviewRecentReviewApi[] | null => recentReviewsPage?.results ?? null,
+        ],
+        moreReviewsAvailable: [
+            (s) => [s.recentReviewsPage, s.reviewsLimit],
+            (recentReviewsPage, reviewsLimit): boolean =>
+                // At the API's ceiling the button must go away even though more rows exist —
+                // offering it would send a limit the server rejects.
+                (recentReviewsPage?.has_more ?? false) && reviewsLimit < MAX_REVIEWS_LIMIT,
+        ],
         // Splits the detail's valid findings by the CURRENT threshold — a close-enough proxy for
         // what the run published (the run's own threshold snapshot isn't stored).
         reviewFindingsSplit: [
@@ -299,7 +385,7 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                 if (!reviewDetail) {
                     return null
                 }
-                const thresholdRank = REVIEW_PRIORITY_RANK[settings?.urgency_threshold ?? 'should_fix']
+                const thresholdRank = REVIEW_PRIORITY_RANK[settings?.urgency_threshold ?? 'consider']
                 return {
                     published: reviewDetail.findings.filter(
                         (f) => REVIEW_PRIORITY_RANK[f.effective_priority] >= thresholdRank
@@ -343,7 +429,20 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
             } else {
                 cache.disposables.dispose('inProgressPoll')
             }
+            // No reviews of the user's own PRs: default to the whole project so the block isn't
+            // empty — only until the user picks a scope themselves.
+            if (
+                !values.recentReviews?.length &&
+                values.reviewsScope === ReviewHogReviewsListScope.Mine &&
+                !values.hasUserChosenReviewsScope
+            ) {
+                actions.applyDefaultReviewsScope(ReviewHogReviewsListScope.Everyone)
+            }
         },
+        setReviewsScope: () => actions.loadRecentReviews(),
+        applyDefaultReviewsScope: () => actions.loadRecentReviews(),
+        showMoreReviews: () => actions.loadRecentReviews(),
+        showFewerReviews: () => actions.loadRecentReviews(),
         loadAll: () => {
             actions.loadSettings()
             actions.loadPerspectives()
@@ -432,6 +531,34 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                 lemonToast.error(error?.detail || error?.message || `Failed to start "${title}"`)
             } finally {
                 actions.startSkillAuthorTaskFinished()
+            }
+        },
+    })),
+
+    // An explicit scope pick is mirrored to the URL (`?reviews_scope=everyone`) so a specific view
+    // can be shared via a link; the default scope keeps the URL clean. The auto-default deliberately
+    // does NOT write the URL: hydrating from a link marks the scope as chosen (below), so mirroring
+    // the fallback would silently upgrade it into a permanent explicit choice on reload.
+    actionToUrl(({ values }) => ({
+        setReviewsScope: (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] => [
+            router.values.location.pathname,
+            {
+                ...router.values.searchParams,
+                reviews_scope: values.reviewsScope === ReviewHogReviewsListScope.Mine ? undefined : values.reviewsScope,
+            },
+            router.values.hashParams,
+            { replace: true },
+        ],
+    })),
+
+    urlToAction(({ actions, values }) => ({
+        [urls.codeReview()]: (_, searchParams) => {
+            const parsed = searchParams.reviews_scope
+            if (
+                (parsed === ReviewHogReviewsListScope.Mine || parsed === ReviewHogReviewsListScope.Everyone) &&
+                parsed !== values.reviewsScope
+            ) {
+                actions.setReviewsScope(parsed)
             }
         },
     })),

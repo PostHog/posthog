@@ -38,7 +38,7 @@ LEASE_TTL_SECONDS = 300
 
 # Partition pruning hint: only scan partitions within this window.
 # Set to 2x the retention period so the planner can skip dropped
-# partitions. Not a correctness filter — older partitions are already
+# partitions. Not a correctness filter -- older partitions are already
 # gone by the time this matters.
 PARTITION_PRUNING_INTERVAL = "14 days"
 

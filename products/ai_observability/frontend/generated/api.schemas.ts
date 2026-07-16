@@ -1225,8 +1225,98 @@ export interface PatchedEvaluationReportUpdateApi {
     readonly created_at?: string
 }
 
+export interface EvaluationReportSectionApi {
+    /** Agent-generated section heading. */
+    title?: string
+    /** Markdown narrative for this section. */
+    content?: string
+}
+
+export interface EvaluationReportCitationApi {
+    /** Generation UUID referenced by this citation. */
+    generation_id?: string
+    /** Trace identifier containing the referenced generation. */
+    trace_id?: string
+    /** Short explanation of why the generation is cited. */
+    reason?: string
+}
+
+/**
+ * Count by output-specific result label, such as pass/fail/N/A or positive/neutral/negative.
+ */
+export type EvaluationReportMetricsApiResultCounts = { [key: string]: number }
+
+/**
+ * Percentage by output-specific result label, from 0 to 100.
+ */
+export type EvaluationReportMetricsApiResultRates = { [key: string]: number }
+
+/**
+ * Count by result label for the previous period, or null when unavailable.
+ * @nullable
+ */
+export type EvaluationReportMetricsApiPreviousResultCounts = { [key: string]: number } | null
+
+/**
+ * Percentage by result label for the previous period, or null when unavailable.
+ * @nullable
+ */
+export type EvaluationReportMetricsApiPreviousResultRates = { [key: string]: number } | null
+
+export interface EvaluationReportMetricsApi {
+    /** Evaluation result type. Stored metrics without this field represent boolean evaluations.
+     *
+     * * `boolean` - Boolean (Pass/Fail)
+     * * `sentiment` - Sentiment */
+    output_type?: OutputTypeEnumApi
+    /** Number of evaluation results in the report period. */
+    total_runs?: number
+    /** Count by output-specific result label, such as pass/fail/N/A or positive/neutral/negative. */
+    result_counts?: EvaluationReportMetricsApiResultCounts
+    /** Percentage by output-specific result label, from 0 to 100. */
+    result_rates?: EvaluationReportMetricsApiResultRates
+    /** ISO 8601 start of the evaluation window represented by these metrics. */
+    period_start?: string
+    /** ISO 8601 end of the evaluation window represented by these metrics. */
+    period_end?: string
+    /**
+     * Number of evaluation results in the previous comparison period, or null when unavailable.
+     * @nullable
+     */
+    previous_total_runs?: number | null
+    /**
+     * Count by result label for the previous period, or null when unavailable.
+     * @nullable
+     */
+    previous_result_counts?: EvaluationReportMetricsApiPreviousResultCounts
+    /**
+     * Percentage by result label for the previous period, or null when unavailable.
+     * @nullable
+     */
+    previous_result_rates?: EvaluationReportMetricsApiPreviousResultRates
+    /** Boolean pass percentage, excluding results marked not applicable. */
+    pass_rate?: number
+    /**
+     * Boolean pass percentage for the previous period, or null when unavailable.
+     * @nullable
+     */
+    previous_pass_rate?: number | null
+}
+
+export interface EvaluationReportRunContentApi {
+    /** Agent-generated report headline. */
+    title?: string
+    /** Ordered narrative sections in the report. */
+    sections?: EvaluationReportSectionApi[]
+    /** Trace references grounding findings in the report. */
+    citations?: EvaluationReportCitationApi[]
+    /** Structured metrics computed for the report period. */
+    metrics?: EvaluationReportMetricsApi | null
+}
+
 /**
  * * `pending` - Pending
+ * * `generated` - Generated
  * * `delivered` - Delivered
  * * `partial_failure` - Partial Failure
  * * `failed` - Failed
@@ -1235,6 +1325,7 @@ export type DeliveryStatusEnumApi = (typeof DeliveryStatusEnumApi)[keyof typeof 
 
 export const DeliveryStatusEnumApi = {
     Pending: 'pending',
+    Generated: 'generated',
     Delivered: 'delivered',
     PartialFailure: 'partial_failure',
     Failed: 'failed',
@@ -1245,23 +1336,25 @@ export interface EvaluationReportRunApi {
     readonly id: string
     /** UUID of the report config that generated this run. */
     readonly report: string
-    /** Generated report content (markdown or structured text). */
-    readonly content: unknown
-    /** Run metadata including model used, token counts, and generation stats. */
-    readonly metadata: unknown
+    /** Structured report narrative, citations, and metrics. Legacy runs may contain only some fields. */
+    readonly content: EvaluationReportRunContentApi
+    /** Legacy mirror of content.metrics. May contain partial boolean metrics on older runs. */
+    readonly metadata: EvaluationReportMetricsApi | null
     /** Start of the evaluation window covered by this report. */
     readonly period_start: string
     /** End of the evaluation window covered by this report. */
     readonly period_end: string
-    /** 'pending', 'delivered', or 'failed'.
+    /** Delivery result: 'pending', 'generated', 'delivered', 'partial_failure', or 'failed'.
      *
      * * `pending` - Pending
+     * * `generated` - Generated
      * * `delivered` - Delivered
      * * `partial_failure` - Partial Failure
      * * `failed` - Failed */
     readonly delivery_status: DeliveryStatusEnumApi
-    /** List of delivery error messages if delivery failed. */
-    readonly delivery_errors: unknown
+    /** Delivery error messages. Empty when all configured deliveries succeeded. */
+    readonly delivery_errors: readonly string[]
+    /** When this report run was created. */
     readonly created_at: string
 }
 
@@ -2066,6 +2159,8 @@ export interface LLMPromptListApi {
     readonly version_count: number
     readonly first_version_created_at: string
     readonly outline: readonly LLMPromptOutlineEntryApi[]
+    /** Names of the labels currently pointing at this version. */
+    readonly labels: readonly string[]
     readonly prompt_preview: string
     readonly prompt_size_bytes: number
 }
@@ -2104,6 +2199,8 @@ export interface LLMPromptApi {
     readonly version_count: number
     readonly first_version_created_at: string
     readonly outline: readonly LLMPromptOutlineEntryApi[]
+    /** Names of the labels currently pointing at this version. */
+    readonly labels: readonly string[]
 }
 
 export interface LLMPromptPublicApi {
@@ -2157,6 +2254,26 @@ export interface LLMPromptDuplicateApi {
     new_name: string
 }
 
+export interface LLMPromptSetLabelApi {
+    /**
+     * Prompt version this label should point to. If the label already exists on another version of the prompt, it is moved there.
+     * @minimum 1
+     */
+    version: number
+}
+
+export interface LLMPromptLabelApi {
+    readonly id: string
+    /** Label name, e.g. 'production'. Points to exactly one version of the prompt. */
+    readonly name: string
+    /** Name of the prompt this label belongs to. */
+    readonly prompt_name: string
+    readonly version: number
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    readonly updated_at: string
+}
+
 export interface LLMPromptVersionSummaryApi {
     readonly id: string
     readonly version: number
@@ -2165,6 +2282,8 @@ export interface LLMPromptVersionSummaryApi {
     readonly created_by: UserBasicApi
     readonly created_at: string
     readonly is_latest: boolean
+    /** Names of the labels currently pointing at this version. */
+    readonly labels: readonly string[]
 }
 
 export interface LLMPromptResolveResponseApi {

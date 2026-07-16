@@ -87,6 +87,20 @@ class TestKernelSessionRunNode(SimpleTestCase):
         self.assertEqual(envelope["columns"], ["id", "v"])
         self.assertEqual(envelope["first_page"], [[2, 20], [3, 30]])
 
+    def test_binary_column_degrades_the_preview_instead_of_failing_the_run(self):
+        # ClickHouse's native Arrow output emits UUID/FixedString columns as fixed-size
+        # binary, so a materialized frame can hold raw bytes. pandas' ujson preview encoder
+        # raises OverflowError on them — that must degrade the display cell, not fail a run
+        # whose compute succeeded (the incident: "kernel did not return a result").
+        binary_column = pa.array([b"\x01" * 16, b"\xff" * 16], type=pa.binary(16))
+        self._write_frame("df1", pa.table({"uid": binary_column, "v": [1, 2]}))
+        path = os.path.join(self._dir.name, "frames", "df1.arrow")
+        envelope = self._run("df1", inputs=[{"name": "df1", "kind": "hogql", "path": path}])
+        self.assertEqual(envelope["status"], "ok")
+        self.assertEqual(envelope["row_count"], 2)
+        self.assertEqual(envelope["first_page"][0][1], 1)
+        self.assertIsInstance(envelope["first_page"][0][0], str)  # degraded, JSON-safe cell
+
     def test_missing_local_input_produces_a_clear_error(self):
         envelope = self._run("1 + 1", inputs=[{"name": "never_made", "kind": "local"}])
         self.assertEqual(envelope["status"], "error")
@@ -114,6 +128,23 @@ class TestKernelSessionRunNode(SimpleTestCase):
         second = self._run("events_df.head(10)", output_name="top_events_df")
         self.assertEqual(first["row_count"], 1)
         self.assertEqual(second["row_count"], 3)
+
+    def test_missed_save_names_the_created_frame_and_leaves_the_output_unbound(self):
+        # The silent-miss footgun: the cell assigns `top50` while its output name says
+        # `top50_people` — the run must say so instead of succeeding with an empty preview.
+        envelope = self._run("import pandas as pd\ntop50 = pd.DataFrame({'id': [1, 2]})", output_name="top50_people")
+        self.assertEqual(envelope["status"], "ok")
+        self.assertIn("nothing was saved as 'top50_people'", envelope["stderr"])
+        self.assertIn("'top50'", envelope["stderr"])
+        self.assertNotIn("top50_people", self.session.shell.user_ns)
+
+    def test_frameless_run_does_not_warn_about_a_missed_save(self):
+        # Every cell carries a default output name, so a print-only cell warning on each
+        # run would flag ordinary side-effect cells as failures (stderr renders red).
+        self._run("import pandas as pd\ntop50 = pd.DataFrame({'id': [1, 2]})", output_name="top50")
+        envelope = self._run("print(top50)", output_name="df")
+        self.assertEqual(envelope["status"], "ok")
+        self.assertNotIn("nothing was saved", envelope["stderr"])
 
     def test_oversized_stdout_is_truncated(self):
         envelope = self._run("print('x' * 100_000)")

@@ -1010,15 +1010,15 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         assert ci.success_rate == 1.0
         assert ci.success_rate_prev == 1.0
 
-    def test_workflow_health_duration_percentiles_exclude_cancelled_and_failed_runs(self) -> None:
+    def test_workflow_health_duration_percentiles_exclude_cancelled_failed_and_noop_runs(self) -> None:
         self._create_table(
             "github_pull_requests",
             _PULL_REQUESTS_COLUMNS,
             [_pr_row(90, "alice", "open", 0, _ago(1), head_sha="sha90")],
         )
-        # Every success shares one duration, so success-only p50/p95 are exactly 100; any leaked
-        # cancel (1s) or failure (1000s) in the percentile population moves them off 100.
-        conclusions = [("success", 100)] * 2 + [("cancelled", 1)] * 3 + [("failure", 1000)]
+        # Every real success shares one duration, so the percentile population is exactly 100; any
+        # leaked cancel (1s), failure (1000s), or no-op gate success (4s) moves p50/p95 off 100.
+        conclusions = [("success", 100)] * 2 + [("success", 4)] * 3 + [("cancelled", 1)] * 3 + [("failure", 1000)]
         self._create_table(
             "github_workflow_runs",
             _WORKFLOW_RUNS_COLUMNS,
@@ -1034,18 +1034,26 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
                     head_branch="feature/ci",
                 )
                 for index, (conclusion, duration_seconds) in enumerate(conclusions)
+            ]
+            # An all-fast workflow has no real successes — its percentiles fall back to every
+            # successful run instead of reading as missing.
+            + [
+                _run_row(9100, "Guard", "guard-1", "completed", "success", *_ago_with_duration(1, 4)),
+                _run_row(9101, "Guard", "guard-2", "completed", "success", *_ago_with_duration(2, 4)),
             ],
         )
 
-        ci = next(
-            item for item in api.list_workflow_health(team=self.team, date_from="-30d") if item.workflow_name == "CI"
-        )
+        health = api.list_workflow_health(team=self.team, date_from="-30d")
+        ci = next(item for item in health if item.workflow_name == "CI")
 
         # Counts and rate stay over all/completed runs; only the duration population narrows.
-        assert ci.run_count == 6
-        assert ci.success_rate == pytest.approx(2 / 6)
+        assert ci.run_count == 9
+        assert ci.success_rate == pytest.approx(5 / 9)
         assert ci.p50_seconds == pytest.approx(100)
         assert ci.p95_seconds == pytest.approx(100)
+
+        guard = next(item for item in health if item.workflow_name == "Guard")
+        assert guard.p50_seconds == pytest.approx(4)
 
     def test_workflow_health_pull_request_scope_excludes_default_branch_and_unattributed_runs(self) -> None:
         self._create_table(
@@ -1251,6 +1259,9 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
     def test_workflow_run_activity_projects_and_windows(self) -> None:
         # The chart endpoint returns compact per-run points over the window, newest first, with the
         # projection mapped in the right column order and an explicit (untruncated) cap signal.
+        # No-op gate runs (benign conclusion, settled in seconds) are hidden by the endpoint — real
+        # runs fill the cap first — while fast failures and in-flight runs stay, and an all-fast
+        # workflow falls back to showing everything.
         self._create_table(
             "github_pull_requests",
             _PULL_REQUESTS_COLUMNS,
@@ -1260,23 +1271,52 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
             "github_workflow_runs",
             _WORKFLOW_RUNS_COLUMNS,
             [
+                # A fast failure is signal (broken config fails in seconds) — never filtered as no-op.
                 _run_row(
-                    8101, "CI", "sha-a", "completed", "failure", _ago(2), _ago(2), pr_number=80, head_branch="feat"
+                    8101,
+                    "CI",
+                    "sha-a",
+                    "completed",
+                    "failure",
+                    *_ago_with_duration(2, 4),
+                    pr_number=80,
+                    head_branch="feat",
                 ),
-                _run_row(8102, "CI", "sha-b", "completed", "success", _ago(1), _ago(1)),
-                _run_row(8103, "Deploy", "sha-c", "completed", "success", _ago(1), _ago(1)),
+                _run_row(8102, "CI", "sha-b", "completed", "success", *_ago_with_duration(1, 300)),
+                _run_row(8103, "Deploy", "sha-c", "completed", "success", *_ago_with_duration(1, 300)),
                 # Older than the default -30d window — excluded unless the caller widens it.
-                _run_row(8104, "CI", "sha-d", "completed", "success", _ago(60), _ago(60)),
+                _run_row(8104, "CI", "sha-d", "completed", "success", *_ago_with_duration(60, 120)),
+                # A no-op gate run: succeeded in seconds without doing real work — off the chart.
+                _run_row(8105, "CI", "sha-e", "completed", "success", *_ago_with_duration(1, 4)),
+                # Still running: no duration yet, but it must stay (it feeds the in-flight band).
+                _run_row(8106, "CI", "sha-f", "in_progress", None, _ago(3), _ago(3)),
+                # Completed fast but with a NULL conclusion (conclusions can lag the sync) — undecided,
+                # so it must stay; a non-NULL-safe no-op flag would silently drop it.
+                _run_row(8107, "CI", "sha-g", "completed", None, *_ago_with_duration(4, 4)),
+                # A legitimately fast workflow: every run finishes in seconds. Duration alone can't
+                # tell it from a gate no-op, so with no real runs to show the filter must stand down.
+                _run_row(8110, "Guard", "sha-h", "completed", "success", *_ago_with_duration(2, 3)),
+                _run_row(8111, "Guard", "sha-i", "completed", "success", *_ago_with_duration(1, 4)),
+                # A sparse workflow: one real execution, one in flight, one fast no-op. The in-flight
+                # run has no duration to plot, so dropping the no-op would leave the scatter below its
+                # 2-point minimum — the fallback must count duration-bearing runs, not kept rows.
+                _run_row(8120, "Sparse", "sha-j", "completed", "success", *_ago_with_duration(3, 300)),
+                _run_row(8121, "Sparse", "sha-k", "in_progress", None, _ago(2), _ago(2)),
+                _run_row(8122, "Sparse", "sha-l", "completed", "success", *_ago_with_duration(1, 4)),
             ],
         )
         activity = api.get_workflow_run_activity(team=self.team, repo="PostHog/posthog", workflow_name="CI")
-        assert [p.run_id for p in activity.points] == [8102, 8101]  # only CI runs in window, newest first
+        # Only CI runs in window, newest first; the no-op 8105 is excluded, the in-flight 8106 and the
+        # fast-but-undecided 8107 are kept.
+        assert [p.run_id for p in activity.points] == [8102, 8101, 8106, 8107]
         assert activity.truncated is False
         assert activity.limit == 2000
         # Each field maps to the right column — guards a wrong unpack order in _to_point.
-        newest, failed = activity.points
+        newest, failed, in_flight, undecided = activity.points
         assert (newest.run_id, newest.conclusion, newest.pr_number) == (8102, "success", 0)
         assert (failed.conclusion, failed.head_branch, failed.pr_number) == ("failure", "feat", 80)
+        assert (in_flight.conclusion, in_flight.duration_seconds) == (None, None)
+        assert (undecided.conclusion, undecided.duration_seconds) == (None, 4)
         # run_started_at is non-null on this endpoint — the window filter excludes unparseable-start runs.
         assert all(p.run_started_at is not None for p in activity.points)
 
@@ -1284,7 +1324,16 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         wide = api.get_workflow_run_activity(
             team=self.team, repo="PostHog/posthog", workflow_name="CI", date_from="-90d"
         )
-        assert [p.run_id for p in wide.points] == [8102, 8101, 8104]
+        assert [p.run_id for p in wide.points] == [8102, 8101, 8106, 8107, 8104]
+
+        # An all-fast workflow keeps its history: with no real runs left to show, hiding the no-ops
+        # would blank the chart, so the filter stands down and both runs come back.
+        guard = api.get_workflow_run_activity(team=self.team, repo="PostHog/posthog", workflow_name="Guard")
+        assert [p.run_id for p in guard.points] == [8111, 8110]
+
+        # One plottable real run isn't enough for the scatter either — the no-op stays visible too.
+        sparse = api.get_workflow_run_activity(team=self.team, repo="PostHog/posthog", workflow_name="Sparse")
+        assert [p.run_id for p in sparse.points] == [8122, 8121, 8120]
 
     def test_repo_run_activity_collapses_workflows_per_commit(self) -> None:
         # The repo-health chart folds every workflow run of a default-branch commit into ONE point: the
@@ -1342,9 +1391,11 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
             "github_workflow_runs",
             _WORKFLOW_RUNS_COLUMNS,
             [
-                _run_row(8501, "CI", "sha-m1", "completed", "success", _ago(2), _ago(2), head_branch="main"),
-                _run_row(8502, "CI", "sha-m2", "completed", "failure", _ago(1), _ago(1), head_branch="main"),
-                _run_row(8503, "CI", "sha-r1", "completed", "success", _ago(1), _ago(1), head_branch="release"),
+                _run_row(8501, "CI", "sha-m1", "completed", "success", *_ago_with_duration(2, 60), head_branch="main"),
+                _run_row(8502, "CI", "sha-m2", "completed", "failure", *_ago_with_duration(1, 60), head_branch="main"),
+                _run_row(
+                    8503, "CI", "sha-r1", "completed", "success", *_ago_with_duration(1, 60), head_branch="release"
+                ),
             ],
         )
         self._create_table(
