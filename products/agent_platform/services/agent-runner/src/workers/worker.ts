@@ -52,6 +52,7 @@ import {
     SecretBroker,
     SessionEventBus,
     SessionQueue,
+    specGrantsCrossAgentRead,
     userFacingMessage,
 } from '@posthog/agent-shared'
 
@@ -586,12 +587,20 @@ export class Worker {
             // to address the agent's ingress directly.
             const buildApprovalUrl = this.deps.buildApprovalUrl
             // Team-blanket memory read: same-team apps whose owner opted their
-            // memory into team-wide sharing. Loaded once per session; the
-            // memory/table READ tools honour an `owner` arg only for these ids.
-            // Fail-safe to self-only (empty set) if the lookup errors.
-            const memoryReadableAppIds = new Set(
-                await this.deps.revisions.listMemorySharedAppIds(session.team_id).catch(() => [])
-            )
+            // memory into team-wide sharing. The memory/table READ tools honour
+            // an `owner` arg only for these ids — so skip the lookup entirely for
+            // agents that grant none of those tools (the common case) rather than
+            // pay a Postgres round-trip per session for a set nothing reads.
+            // Fail-safe to self-only (empty set) if the lookup errors — logged so
+            // the degradation is observable rather than silent.
+            const memoryReadableAppIds = specGrantsCrossAgentRead(rev.spec)
+                ? new Set(
+                      await this.deps.revisions.listMemorySharedAppIds(session.team_id).catch((e) => {
+                          log.warn({ team_id: session.team_id, err: String(e) }, 'memory.shared_apps_load_failed')
+                          return []
+                      })
+                  )
+                : new Set<string>()
             const outcome = await runSession(rev, session, {
                 models,
                 apiKey,

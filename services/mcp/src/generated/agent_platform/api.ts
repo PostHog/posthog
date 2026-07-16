@@ -81,7 +81,7 @@ export const AgentApplicationsCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .optional()
         .describe(
-            "When true, any other agent in the same team may READ this application's memory and tabular tables by passing this application's id as the `owner` argument on the memory/table read tools (memory-list/search/read, table-query/count/membership). Owner opt-in; writes are never shared and cross-team access is never possible. Default false."
+            "When true, any other agent in the same team may READ this application's memory and tabular tables by passing this application's id as the `owner` argument on the memory/table read tools (memory-list/search/read, table-query/count/membership). Any team member with write access to this application can set it. Takes effect on new sessions — an in-flight reader session keeps its grant until it ends. Writes are never shared and cross-team access is never possible. Default false."
         ),
 })
 
@@ -170,7 +170,7 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .default(agentApplicationsRevisionsCreateBodyBundleUriDefault)
         .describe(
-            'Storage-prefix metadata for the bundle, e.g. `fs:/\/my-agent/`. Optional — leave blank and the server fills `fs:/\/<application-slug>/`. Bundles are addressed by revision id regardless, so this is only a prefix hint.'
+            'Storage-prefix metadata for the bundle, e.g. `fs://my-agent/`. Optional — leave blank and the server fills `fs://<application-slug>/`. Bundles are addressed by revision id regardless, so this is only a prefix hint.'
         ),
     spec: zod.unknown().optional(),
 })
@@ -255,7 +255,7 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
         .string()
         .optional()
         .describe(
-            'Storage-prefix metadata for the bundle, e.g. `fs:/\/my-agent/`. Optional — leave blank and the server fills `fs:/\/<application-slug>/`. Bundles are addressed by revision id regardless, so this is only a prefix hint.'
+            'Storage-prefix metadata for the bundle, e.g. `fs://my-agent/`. Optional — leave blank and the server fills `fs://<application-slug>/`. Bundles are addressed by revision id regardless, so this is only a prefix hint.'
         ),
     spec: zod.unknown().optional(),
 })
@@ -910,7 +910,7 @@ export const AgentApplicationsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .optional()
         .describe(
-            "When true, any other agent in the same team may READ this application's memory and tabular tables by passing this application's id as the `owner` argument on the memory/table read tools (memory-list/search/read, table-query/count/membership). Owner opt-in; writes are never shared and cross-team access is never possible. Default false."
+            "When true, any other agent in the same team may READ this application's memory and tabular tables by passing this application's id as the `owner` argument on the memory/table read tools (memory-list/search/read, table-query/count/membership). Any team member with write access to this application can set it. Takes effect on new sessions — an in-flight reader session keeps its grant until it ends. Writes are never shared and cross-team access is never possible. Default false."
         ),
 })
 

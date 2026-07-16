@@ -46,7 +46,7 @@ export const AgentApplicationsCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .optional()
         .describe(
-            "When true, any other agent in the same team may READ this application's memory and tabular tables by passing this application's id as the `owner` argument on the memory\/table read tools (memory-list\/search\/read, table-query\/count\/membership). Owner opt-in; writes are never shared and cross-team access is never possible. Default false."
+            "When true, any other agent in the same team may READ this application's memory and tabular tables by passing this application's id as the `owner` argument on the memory\/table read tools (memory-list\/search\/read, table-query\/count\/membership). Any team member with write access to this application can set it. Takes effect on new sessions — an in-flight reader session keeps its grant until it ends. Writes are never shared and cross-team access is never possible. Default false."
         ),
 })
 
@@ -578,7 +578,7 @@ export const AgentApplicationsUpdateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .optional()
         .describe(
-            "When true, any other agent in the same team may READ this application's memory and tabular tables by passing this application's id as the `owner` argument on the memory\/table read tools (memory-list\/search\/read, table-query\/count\/membership). Owner opt-in; writes are never shared and cross-team access is never possible. Default false."
+            "When true, any other agent in the same team may READ this application's memory and tabular tables by passing this application's id as the `owner` argument on the memory\/table read tools (memory-list\/search\/read, table-query\/count\/membership). Any team member with write access to this application can set it. Takes effect on new sessions — an in-flight reader session keeps its grant until it ends. Writes are never shared and cross-team access is never possible. Default false."
         ),
 })
 
@@ -619,7 +619,7 @@ export const AgentApplicationsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .optional()
         .describe(
-            "When true, any other agent in the same team may READ this application's memory and tabular tables by passing this application's id as the `owner` argument on the memory\/table read tools (memory-list\/search\/read, table-query\/count\/membership). Owner opt-in; writes are never shared and cross-team access is never possible. Default false."
+            "When true, any other agent in the same team may READ this application's memory and tabular tables by passing this application's id as the `owner` argument on the memory\/table read tools (memory-list\/search\/read, table-query\/count\/membership). Any team member with write access to this application can set it. Takes effect on new sessions — an in-flight reader session keeps its grant until it ends. Writes are never shared and cross-team access is never possible. Default false."
         ),
 })
 

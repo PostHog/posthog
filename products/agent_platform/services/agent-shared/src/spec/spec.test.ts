@@ -7,6 +7,7 @@ import {
     modelPolicyToList,
     principalsMatch,
     secretHostMatches,
+    specGrantsCrossAgentRead,
 } from './spec'
 
 describe('AgentSpecSchema', () => {
@@ -1069,6 +1070,30 @@ describe('models.optimize_for', () => {
         expect(() =>
             AgentSpecSchema.parse({ models: { mode: 'auto', level: 'high', optimize_for: 'latency' } })
         ).toThrow()
+    })
+
+    describe('specGrantsCrossAgentRead — gates the per-session sharing lookup', () => {
+        it.each([
+            '@posthog/memory-read',
+            '@posthog/memory-list',
+            '@posthog/memory-search',
+            '@posthog/table-query',
+            '@posthog/table-count',
+            '@posthog/table-membership',
+        ])('is true when the spec grants the cross-agent read tool %s', (id) => {
+            expect(specGrantsCrossAgentRead(AgentSpecSchema.parse({ tools: [{ kind: 'native', id }] }))).toBe(true)
+        })
+
+        it('is false when the spec grants no read tool (append-only / no memory tools)', () => {
+            // A wrong `false` here would empty memoryReadableAppIds and break every
+            // cross-agent read, so this guards the gating optimization.
+            expect(
+                specGrantsCrossAgentRead(
+                    AgentSpecSchema.parse({ tools: [{ kind: 'native', id: '@posthog/table-append' }] })
+                )
+            ).toBe(false)
+            expect(specGrantsCrossAgentRead(AgentSpecSchema.parse({}))).toBe(false)
+        })
     })
 
     describe('authenticated audience constraints', () => {

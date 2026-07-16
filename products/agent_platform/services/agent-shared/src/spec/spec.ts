@@ -1142,6 +1142,26 @@ export function specHasAuthenticatedAudience(spec: z.infer<typeof AgentSpecObjec
     )
 }
 
+/**
+ * Native tools that honour the cross-agent `owner` arg — i.e. consume
+ * `ToolContext.memoryReadableAppIds`. The runner uses this to skip the
+ * per-session team-wide-sharing lookup entirely for agents that grant none of
+ * them (the overwhelming majority), rather than pay a Postgres round-trip on
+ * every session start for a set nothing will read.
+ */
+export const CROSS_AGENT_READ_TOOL_IDS: ReadonlySet<string> = new Set([
+    '@posthog/memory-list',
+    '@posthog/memory-search',
+    '@posthog/memory-read',
+    '@posthog/table-query',
+    '@posthog/table-count',
+    '@posthog/table-membership',
+])
+
+export function specGrantsCrossAgentRead(spec: z.infer<typeof AgentSpecObjectSchema>): boolean {
+    return spec.tools.some((t) => t.kind === 'native' && CROSS_AGENT_READ_TOOL_IDS.has(t.id))
+}
+
 export const AgentSpecSchema = AgentSpecObjectSchema.superRefine((spec, ctx) => {
     // A posthog `authenticated` audience opens the agent to EVERY PostHog user
     // (see AuthModeSchema). Such an agent must hold no ambient shared authority
