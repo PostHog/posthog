@@ -4,6 +4,8 @@ from typing import Any
 import pytest
 from unittest import mock
 
+import requests
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.plausible import plausible as plausible_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.plausible.plausible import (
     PlausibleResumeConfig,
@@ -224,15 +226,20 @@ class TestGetRows:
         assert body["date_range"] == ["2024-01-01", "2024-01-31"]
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_http_error_raises(self, mock_session, mock_sleep):
-        error_response = _response({"error": "bad query"}, status_code=400)
-        error_response.raise_for_status.side_effect = Exception("400 Client Error")
+    def test_http_error_reraises_with_response_body_attached(self, mock_session, mock_sleep):
+        error_response = _response({"error": "metric bounce_rate not available"}, status_code=400)
+        error_response.raise_for_status.side_effect = requests.HTTPError("400 Client Error: Bad Request for url")
         mock_session.return_value.post.return_value = error_response
 
-        with pytest.raises(Exception, match="400 Client Error"):
+        # The status prefix stays so it can be classified non-retryable, and the body is attached so
+        # the raised error (not just the log line) says what Plausible actually rejected.
+        with pytest.raises(requests.HTTPError) as exc_info:
             list(
                 get_rows("https://plausible.io", "example.com", "key", "timeseries", mock.MagicMock(), _make_manager())
             )
+        message = str(exc_info.value)
+        assert "400 Client Error" in message
+        assert "metric bounce_rate not available" in message
 
 
 class TestPlausibleSourceResponse:

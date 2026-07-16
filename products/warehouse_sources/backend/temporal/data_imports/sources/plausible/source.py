@@ -53,6 +53,7 @@ class PlausibleSource(ResumableSource[PlausibleSourceConfig, PlausibleResumeConf
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
+            "400 Client Error": "Plausible rejected the query as invalid (400 Bad Request). Check that the site domain is correct and that the metrics and dimensions are supported for this site, then reconnect. The Plausible response with the exact reason is attached to the error.",
             "401 Client Error": "Your Plausible API key is invalid or has been revoked. Create a new key in your Plausible account settings, then reconnect.",
             "403 Client Error": "Your Plausible API key is missing the stats read scope needed to sync this data. Grant it in your Plausible account settings, then reconnect.",
         }

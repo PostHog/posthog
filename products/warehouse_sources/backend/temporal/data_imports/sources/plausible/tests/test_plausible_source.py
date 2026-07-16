@@ -63,8 +63,10 @@ class TestSourceConfig:
         # The API key is sent to `host`, so retargeting it must re-require secrets.
         assert PlausibleSource().connection_host_fields == ["host"]
 
-    def test_non_retryable_errors_cover_auth(self):
+    def test_non_retryable_errors_cover_auth_and_bad_request(self):
         errors = PlausibleSource().get_non_retryable_errors()
+        # A 400 is deterministic, so it must stop the job instead of triggering a retry storm.
+        assert "400 Client Error" in errors
         assert "401 Client Error" in errors
         assert "403 Client Error" in errors
 
