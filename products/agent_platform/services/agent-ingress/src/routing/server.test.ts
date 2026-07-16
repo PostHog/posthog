@@ -276,6 +276,33 @@ describe('ingress HTTP server (path mode)', () => {
         expect(send.status).toBe(200)
     })
 
+    it('restores prior credentials when a send fails before requeue', async () => {
+        const { revisions, queue, credentialBroker, app } = mk(undefined, { withAuth: true })
+        await seedPosthogApp(revisions, 'credential-rollback')
+
+        const run = await request(app)
+            .post('/agents/credential-rollback/run')
+            .set('Authorization', `Bearer ${OWNER_TOKEN}`)
+            .send({ message: 'first' })
+        expect(run.status).toBe(200)
+        const sessionId = run.body.session_id
+        await credentialBroker.write(sessionId, {
+            posthog_api: { kind: 'posthog_bearer', token: 'prior-token' },
+        })
+
+        vi.spyOn(queue, 'update').mockRejectedValueOnce(new Error('queue update failed'))
+        const send = await request(app)
+            .post('/agents/credential-rollback/send')
+            .set('Authorization', `Bearer ${OWNER_TOKEN}`)
+            .send({ session_id: sessionId, message: 'second' })
+
+        expect(send.status).toBe(500)
+        await expect(credentialBroker.resolve(sessionId, 'posthog_api')).resolves.toEqual({
+            kind: 'posthog_bearer',
+            token: 'prior-token',
+        })
+    })
+
     it('POST /send buffers into pending_inputs (drained by runner at next turn)', async () => {
         const { revisions, queue, app } = mk()
         await seedApp(revisions, 'x')

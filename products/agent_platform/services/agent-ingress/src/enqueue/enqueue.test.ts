@@ -384,6 +384,40 @@ describe('enqueueOrResume', () => {
             expect((session!.conversation[0] as { content: string }).content).toBe('first')
         })
 
+        it('does not prepare an existing session for a different principal', async () => {
+            const queue = new PgSessionQueue(pool)
+            const { app, rev } = makePair()
+            const first = await enqueueOrResume(
+                { queue },
+                {
+                    application: app,
+                    revision: rev,
+                    externalKey: null,
+                    idempotencyKey: 'principal-bound',
+                    principal: ALICE,
+                    seed: { role: 'user', content: 'first', timestamp: 1, sender: ALICE },
+                }
+            )
+            const prepareSession = vi.fn(async () => ({ rollback: async (): Promise<void> => undefined }))
+
+            const replay = await enqueueOrResume(
+                { queue },
+                {
+                    application: app,
+                    revision: rev,
+                    externalKey: null,
+                    idempotencyKey: 'principal-bound',
+                    principal: BOB,
+                    seed: { role: 'user', content: 'replay', timestamp: 2, sender: BOB },
+                    prepareSession,
+                }
+            )
+
+            expect(replay.kind).toBe('elevation_required')
+            expect(replay.sessionId).toBe(first.sessionId)
+            expect(prepareSession).not.toHaveBeenCalled()
+        })
+
         it('stamps trigger_metadata on the session row when supplied', async () => {
             const queue = new PgSessionQueue(pool)
             const { app, rev } = makePair()

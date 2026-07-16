@@ -161,7 +161,7 @@ describe('PostHog tools: act as the calling user, not the agent team', () => {
         const firstClaimFinished = deferred<boolean>()
         const credentialResolveFinished = deferred<void>()
         const originalClaim = c.queue.claim.bind(c.queue)
-        const originalWrite = c.credentialBroker.write.bind(c.credentialBroker)
+        const originalWrite = c.credentialBroker.writeWithRollback.bind(c.credentialBroker)
         const originalResolve = c.credentialBroker.resolve.bind(c.credentialBroker)
 
         vi.spyOn(c.queue, 'claim').mockImplementationOnce(async (timeoutMs) => {
@@ -170,12 +170,12 @@ describe('PostHog tools: act as the calling user, not the agent team', () => {
             firstClaimFinished.resolve(session !== null)
             return session
         })
-        vi.spyOn(c.credentialBroker, 'write').mockImplementationOnce(async (...args) => {
+        vi.spyOn(c.credentialBroker, 'writeWithRollback').mockImplementationOnce(async (...args) => {
             credentialWriteStarted.resolve()
             if (await firstClaimFinished.promise) {
                 await credentialResolveFinished.promise
             }
-            await originalWrite(...args)
+            return originalWrite(...args)
         })
         vi.spyOn(c.credentialBroker, 'resolve').mockImplementationOnce(async (...args) => {
             const credential = await originalResolve(...args)
