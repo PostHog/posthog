@@ -1657,9 +1657,10 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
         previous_widget_filters = extract_widget_filters(widget.widget_type, widget.config)
         if "config" in widget_data:
+            config_patch = widget_data["config"]
             widget.config = validate_widget_config(
                 widget.widget_type,
-                widget_data["config"],
+                {**widget.config, **config_patch},
             )
         if "name" in widget_data:
             widget.name = widget_data["name"] or None

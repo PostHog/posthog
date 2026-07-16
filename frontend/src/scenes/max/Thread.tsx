@@ -302,6 +302,7 @@ function LegacyThread({ showTrailers }: { showTrailers: boolean }): JSX.Element 
                                         conversationId={conversationId}
                                         traceId={traceId}
                                         summary={ticketSummaryData.summary}
+                                        targetArea={ticketSummaryData.targetArea}
                                     />
                                 ))}
                         </React.Fragment>

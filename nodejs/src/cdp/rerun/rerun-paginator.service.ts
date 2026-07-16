@@ -663,6 +663,16 @@ export class RerunPaginatorService {
                 event: eventForFilter,
                 actionStepCount: persistedState.actionStepCount ?? 0,
                 variables: persistedState.variables ?? {},
+                // Restore where the flow had progressed to. The executor resumes
+                // from `currentAction` (via ensureCurrentAction); without it the
+                // flow restarts from the trigger and re-runs already-completed
+                // actions — re-sending emails that already went out. Carrying it
+                // forward makes replay of a partially-run flow (e.g. a poisoned
+                // wait_until_condition the janitor gave up on) resume safely.
+                // `personId` is carried for the same reason — the worker needs it
+                // to reload person data for batch/manual triggers on resume.
+                currentAction: persistedState.currentAction,
+                personId: persistedState.personId,
                 // Sticky rerun counter — mirror the hog function path so the
                 // lifecycle row producer can derive `attempts` / `is_retry`
                 // for flows too, and the `max_attempts` guard actually trips.

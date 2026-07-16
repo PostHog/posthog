@@ -23364,7 +23364,14 @@
                 "ConfluentCloud",
                 "KongKonnect",
                 "Kandji",
-                "Automox"
+                "Automox",
+                "Autumn",
+                "GetStream",
+                "Octolens",
+                "Kajabi",
+                "Shopware",
+                "Dubsado",
+                "Campfire"
             ],
             "type": "string"
         },
@@ -45133,6 +45140,9 @@
         "SourceFieldSelectConfig": {
             "additionalProperties": false,
             "properties": {
+                "caption": {
+                    "type": "string"
+                },
                 "converter": {
                     "$ref": "#/definitions/SourceFieldSelectConfigConverter"
                 },
