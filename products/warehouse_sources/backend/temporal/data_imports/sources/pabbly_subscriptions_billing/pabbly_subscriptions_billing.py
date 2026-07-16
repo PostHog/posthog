@@ -171,11 +171,8 @@ def _iter_fan_out(
             session, parent_config.path, parent_page, PAGE_SIZE, logger, parent_config.ignore_no_data_errors
         )
         for parent in parents:
-            parent_id = parent.get("id")
-            if not parent_id:
-                logger.warning(f"Pabbly: skipping {config.parent} row without an id while syncing {config.name}")
-                continue
-            yield from _iter_children_of_parent(session, config, str(parent_id), logger)
+            parent_id = str(parent["id"])
+            yield from _iter_children_of_parent(session, config, parent_id, logger)
 
         if len(parents) < PAGE_SIZE:
             break
