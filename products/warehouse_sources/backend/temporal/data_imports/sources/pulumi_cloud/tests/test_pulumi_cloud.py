@@ -122,6 +122,8 @@ class TestFlattenUpdate:
             "version": 3,
             "latestVersion": 5,
             "requestedBy": {"githubLogin": "alice"},
+            # A live access token the API returns on the outer update object — must never persist.
+            "requestedByToken": "pul-secret-token",
             "info": {
                 "kind": "update",
                 "startTime": 1750000000,

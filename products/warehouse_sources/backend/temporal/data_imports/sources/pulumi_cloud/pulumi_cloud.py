@@ -207,6 +207,9 @@ def _flatten_update(item: dict[str, Any], org: str, project: str, stack: str) ->
         merged.pop("deployment", None)
         merged.update(row)
         row = merged
+    # `requestedByToken` is the access token that requested the update — a live credential that
+    # would let anyone with warehouse read access act as the token owner. Never persist it.
+    row.pop("requestedByToken", None)
     if "config" in row:
         row["config"] = _redact_secret_config(row["config"])
     row["orgName"] = org
