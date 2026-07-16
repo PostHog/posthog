@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+# coherence-precommit — lint-staged command for agent_platform changes.
+#
+# For each coherence root (a dir with coherence.config.json) whose files are
+# staged, runs two cheap gates (no DB, no test runner):
+#   - `verify --fast`  — structural claims + boundary anchoring + meta-oracle.
+#                        Blocks on a red: a declared claim that isn't honest.
+#   - `log --strict`   — the loss-ratchet. Blocks when the commit DROPS an
+#                        invariant/boundary/parity. Without this, the cheapest
+#                        way to green a failing verify is to delete the claim,
+#                        and nothing would notice. A dropped claim must be
+#                        deliberate (re-add it, or `--no-verify` knowingly).
+#                        (The novelty advisory it also prints is advisory only —
+#                        it never fails the commit.)
+#
+# Scoped: lint-staged only invokes this for products/agent_platform/** files.
+# Graceful: if a staged file touches no coherence root it does nothing; if the
+# tool isn't installed it self-bootstraps (see coherence-install), and if that
+# fails (e.g. offline) it skips this commit rather than blocking.
+# Bypass any commit with `git commit --no-verify`.
+#
+# bash 3.2 compatible on purpose (stock macOS ships 3.2): no associative arrays.
+set -uo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+CLI="$REPO_ROOT/products/agent_platform/.coherence-tool/repo/dist/cli.js"
+
+# Map each staged file (passed by lint-staged) to its coherence root: the
+# nearest ancestor dir holding a coherence.config.json. Accumulate newline-
+# delimited, then `sort -u` to dedup — no `declare -A` (needs bash >= 4 and
+# hard-errors on macOS's bash 3.2).
+roots=""
+for f in "$@"; do
+    d="$(cd "$(dirname "$f")" 2>/dev/null && pwd)" || continue
+    while [ -n "$d" ] && [ "$d" != "/" ]; do
+        if [ -f "$d/coherence.config.json" ]; then
+            roots="$roots$d
+"
+            break
+        fi
+        [ "$d" = "$REPO_ROOT" ] && break
+        d="$(dirname "$d")"
+    done
+done
+roots="$(printf '%s' "$roots" | sort -u | sed '/^$/d')"
+
+# Nothing under a coherence root (a doc, the hook itself) → no-op, and in
+# particular don't trigger the install.
+[ -n "$roots" ] || exit 0
+
+# Auto-bootstrap on first use, now that we know a root is actually affected.
+if [ ! -f "$CLI" ]; then
+    printf '\033[36m[coherence] first-time setup: installing the eval tool (one-time clone + build)...\033[0m\n' >&2
+    "$REPO_ROOT/products/agent_platform/bin/coherence-install" >&2 || true
+fi
+if [ ! -f "$CLI" ]; then
+    printf '\033[33m[coherence] tool unavailable (offline?) — skipping this commit; will retry next time.\033[0m\n' >&2
+    exit 0
+fi
+
+status=0
+OLDIFS="$IFS"
+IFS='
+'
+for root in $roots; do
+    rel="${root#$REPO_ROOT/}"
+    printf '\033[36m[coherence] verify --fast: %s\033[0m\n' "$rel" >&2
+    if ! (cd "$root" && node "$CLI" verify --fast >&2); then
+        status=1
+    fi
+    # Loss-ratchet: fail if this commit drops a claim (HEAD -> working tree).
+    printf '\033[36m[coherence] log --strict: %s\033[0m\n' "$rel" >&2
+    if ! (cd "$root" && node "$CLI" log --strict >&2); then
+        status=1
+    fi
+done
+IFS="$OLDIFS"
+exit "$status"

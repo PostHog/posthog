@@ -2021,6 +2021,100 @@ export interface CredentialApi {
  * * `RudderStack` - RudderStack
  * * `DodoPayments` - DodoPayments
  * * `Salestrics` - Salestrics
+ * * `Doppler` - Doppler
+ * * `Usersnap` - Usersnap
+ * * `Asknicely` - Asknicely
+ * * `Featurebase` - Featurebase
+ * * `Frill` - Frill
+ * * `Bettermode` - Bettermode
+ * * `Dynatrace` - Dynatrace
+ * * `Honeycomb` - Honeycomb
+ * * `SumoLogic` - SumoLogic
+ * * `LogzIO` - LogzIO
+ * * `Coralogix` - Coralogix
+ * * `BetterStack` - BetterStack
+ * * `Raygun` - Raygun
+ * * `Honeybadger` - Honeybadger
+ * * `Airbrake` - Airbrake
+ * * `Appsignal` - Appsignal
+ * * `Appdynamics` - Appdynamics
+ * * `Instana` - Instana
+ * * `SplunkObservabilityCloud` - SplunkObservabilityCloud
+ * * `Uptimerobot` - Uptimerobot
+ * * `Statuscake` - Statuscake
+ * * `Tailscale` - Tailscale
+ * * `Flagsmith` - Flagsmith
+ * * `Xmatters` - Xmatters
+ * * `Squadcast` - Squadcast
+ * * `Zenduty` - Zenduty
+ * * `Cronitor` - Cronitor
+ * * `Jenkins` - Jenkins
+ * * `Bitbucket` - Bitbucket
+ * * `Gitea` - Gitea
+ * * `Teamcity` - Teamcity
+ * * `TravisCI` - TravisCI
+ * * `Semaphore` - Semaphore
+ * * `CircleciInsights` - CircleciInsights
+ * * `OctopusDeploy` - OctopusDeploy
+ * * `Sourcegraph` - Sourcegraph
+ * * `Bitrise` - Bitrise
+ * * `Gerrit` - Gerrit
+ * * `TerraformCloud` - TerraformCloud
+ * * `PulumiCloud` - PulumiCloud
+ * * `Spacelift` - Spacelift
+ * * `Railway` - Railway
+ * * `Argocd` - Argocd
+ * * `PrefectCloud` - PrefectCloud
+ * * `DagsterCloud` - DagsterCloud
+ * * `Env0` - Env0
+ * * `Kubecost` - Kubecost
+ * * `Snyk` - Snyk
+ * * `Semgrep` - Semgrep
+ * * `Veracode` - Veracode
+ * * `Checkmarx` - Checkmarx
+ * * `Gitguardian` - Gitguardian
+ * * `QualysVmdr` - QualysVmdr
+ * * `Rapid7Insightvm` - Rapid7Insightvm
+ * * `TenableVulnerabilityManagement` - TenableVulnerabilityManagement
+ * * `Sentinelone` - Sentinelone
+ * * `Lacework` - Lacework
+ * * `OrcaSecurity` - OrcaSecurity
+ * * `Drata` - Drata
+ * * `Secureframe` - Secureframe
+ * * `CiscoDuo` - CiscoDuo
+ * * `Jumpcloud` - Jumpcloud
+ * * `OnePassword` - OnePassword
+ * * `Stytch` - Stytch
+ * * `Sonarqube` - Sonarqube
+ * * `Codecov` - Codecov
+ * * `Coveralls` - Coveralls
+ * * `Codacy` - Codacy
+ * * `Deepsource` - Deepsource
+ * * `Linearb` - Linearb
+ * * `Jellyfish` - Jellyfish
+ * * `Swarmia` - Swarmia
+ * * `Packagist` - Packagist
+ * * `Nuget` - Nuget
+ * * `CratesIO` - CratesIO
+ * * `SonatypeNexus` - SonatypeNexus
+ * * `JfrogArtifactory` - JfrogArtifactory
+ * * `Snowplow` - Snowplow
+ * * `WeightsAndBiases` - WeightsAndBiases
+ * * `MonteCarlo` - MonteCarlo
+ * * `Metaplane` - Metaplane
+ * * `Datahub` - Datahub
+ * * `ClickhouseCloud` - ClickhouseCloud
+ * * `ConfluentCloud` - ConfluentCloud
+ * * `KongKonnect` - KongKonnect
+ * * `Kandji` - Kandji
+ * * `Automox` - Automox
+ * * `Autumn` - Autumn
+ * * `GetStream` - GetStream
+ * * `Octolens` - Octolens
+ * * `Kajabi` - Kajabi
+ * * `Shopware` - Shopware
+ * * `Dubsado` - Dubsado
+ * * `Campfire` - Campfire
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -2789,6 +2883,100 @@ export const ExternalDataSourceTypeEnumApi = {
     RudderStack: 'RudderStack',
     DodoPayments: 'DodoPayments',
     Salestrics: 'Salestrics',
+    Doppler: 'Doppler',
+    Usersnap: 'Usersnap',
+    Asknicely: 'Asknicely',
+    Featurebase: 'Featurebase',
+    Frill: 'Frill',
+    Bettermode: 'Bettermode',
+    Dynatrace: 'Dynatrace',
+    Honeycomb: 'Honeycomb',
+    SumoLogic: 'SumoLogic',
+    LogzIO: 'LogzIO',
+    Coralogix: 'Coralogix',
+    BetterStack: 'BetterStack',
+    Raygun: 'Raygun',
+    Honeybadger: 'Honeybadger',
+    Airbrake: 'Airbrake',
+    Appsignal: 'Appsignal',
+    Appdynamics: 'Appdynamics',
+    Instana: 'Instana',
+    SplunkObservabilityCloud: 'SplunkObservabilityCloud',
+    Uptimerobot: 'Uptimerobot',
+    Statuscake: 'Statuscake',
+    Tailscale: 'Tailscale',
+    Flagsmith: 'Flagsmith',
+    Xmatters: 'Xmatters',
+    Squadcast: 'Squadcast',
+    Zenduty: 'Zenduty',
+    Cronitor: 'Cronitor',
+    Jenkins: 'Jenkins',
+    Bitbucket: 'Bitbucket',
+    Gitea: 'Gitea',
+    Teamcity: 'Teamcity',
+    TravisCI: 'TravisCI',
+    Semaphore: 'Semaphore',
+    CircleciInsights: 'CircleciInsights',
+    OctopusDeploy: 'OctopusDeploy',
+    Sourcegraph: 'Sourcegraph',
+    Bitrise: 'Bitrise',
+    Gerrit: 'Gerrit',
+    TerraformCloud: 'TerraformCloud',
+    PulumiCloud: 'PulumiCloud',
+    Spacelift: 'Spacelift',
+    Railway: 'Railway',
+    Argocd: 'Argocd',
+    PrefectCloud: 'PrefectCloud',
+    DagsterCloud: 'DagsterCloud',
+    Env0: 'Env0',
+    Kubecost: 'Kubecost',
+    Snyk: 'Snyk',
+    Semgrep: 'Semgrep',
+    Veracode: 'Veracode',
+    Checkmarx: 'Checkmarx',
+    Gitguardian: 'Gitguardian',
+    QualysVmdr: 'QualysVmdr',
+    Rapid7Insightvm: 'Rapid7Insightvm',
+    TenableVulnerabilityManagement: 'TenableVulnerabilityManagement',
+    Sentinelone: 'Sentinelone',
+    Lacework: 'Lacework',
+    OrcaSecurity: 'OrcaSecurity',
+    Drata: 'Drata',
+    Secureframe: 'Secureframe',
+    CiscoDuo: 'CiscoDuo',
+    Jumpcloud: 'Jumpcloud',
+    OnePassword: 'OnePassword',
+    Stytch: 'Stytch',
+    Sonarqube: 'Sonarqube',
+    Codecov: 'Codecov',
+    Coveralls: 'Coveralls',
+    Codacy: 'Codacy',
+    Deepsource: 'Deepsource',
+    Linearb: 'Linearb',
+    Jellyfish: 'Jellyfish',
+    Swarmia: 'Swarmia',
+    Packagist: 'Packagist',
+    Nuget: 'Nuget',
+    CratesIO: 'CratesIO',
+    SonatypeNexus: 'SonatypeNexus',
+    JfrogArtifactory: 'JfrogArtifactory',
+    Snowplow: 'Snowplow',
+    WeightsAndBiases: 'WeightsAndBiases',
+    MonteCarlo: 'MonteCarlo',
+    Metaplane: 'Metaplane',
+    Datahub: 'Datahub',
+    ClickhouseCloud: 'ClickhouseCloud',
+    ConfluentCloud: 'ConfluentCloud',
+    KongKonnect: 'KongKonnect',
+    Kandji: 'Kandji',
+    Automox: 'Automox',
+    Autumn: 'Autumn',
+    GetStream: 'GetStream',
+    Octolens: 'Octolens',
+    Kajabi: 'Kajabi',
+    Shopware: 'Shopware',
+    Dubsado: 'Dubsado',
+    Campfire: 'Campfire',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

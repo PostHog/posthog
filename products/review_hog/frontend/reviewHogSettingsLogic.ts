@@ -1,6 +1,6 @@
 import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -34,6 +34,7 @@ import type {
     ReviewUserSettingsApi,
     ReviewValidatorConfigApi,
 } from 'products/review_hog/frontend/generated/api.schemas'
+import { ReviewHogReviewsListScope } from 'products/review_hog/frontend/generated/api.schemas'
 
 import type { reviewHogSettingsLogicType } from './reviewHogSettingsLogicType'
 
@@ -138,11 +139,15 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
         closeReviewDrawer: true,
         setReviewDrawerTab: (tab: ReviewDrawerTab) => ({ tab }),
         toggleReviewRowExpanded: (reviewId: string) => ({ reviewId }),
+        setReviewsScope: (scope: ReviewHogReviewsListScope) => ({ scope }),
+        // Auto-select a default scope (Entire project when the user has no reviews of their own)
+        // without marking it as an explicit user choice, so a later real choice still wins.
+        applyDefaultReviewsScope: (scope: ReviewHogReviewsListScope) => ({ scope }),
         startSkillAuthorTask: (kind: ReviewSkillKind) => ({ kind }),
         startSkillAuthorTaskFinished: true,
     }),
 
-    loaders(() => ({
+    loaders(({ values }) => ({
         settings: [
             null as ReviewUserSettingsApi | null,
             {
@@ -176,7 +181,14 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
         recentReviews: [
             null as ReviewRecentReviewApi[] | null,
             {
-                loadRecentReviews: async () => await reviewHogReviewsList(currentProjectId()),
+                // The default param keeps the action zero-arg in the generated logic type.
+                loadRecentReviews: async (_ = null, breakpoint) => {
+                    const scope = values.reviewsScope
+                    const response = await reviewHogReviewsList(currentProjectId(), { scope })
+                    // A scope switch mid-flight dispatched a newer load — drop this stale response.
+                    breakpoint()
+                    return response
+                },
             },
         ],
         reviewDetail: [
@@ -266,6 +278,26 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                     state.includes(reviewId) ? state.filter((id) => id !== reviewId) : [...state, reviewId],
             },
         ],
+        // Whose reviews the "recent reviews" block lists — mirrors the inbox's
+        // "For you / Entire project" switch.
+        reviewsScope: [
+            ReviewHogReviewsListScope.Mine as ReviewHogReviewsListScope,
+            { persist: true },
+            {
+                setReviewsScope: (_, { scope }) => scope,
+                applyDefaultReviewsScope: (_, { scope }) => scope,
+            },
+        ],
+        // Whether the user has explicitly picked a scope. Once true, the empty-list auto-default
+        // no longer fires, so a deliberate choice of "For you" is respected even with zero reviews.
+        // A shared link is an explicit choice too, so URL hydration goes through setReviewsScope.
+        hasUserChosenReviewsScope: [
+            false,
+            { persist: true },
+            {
+                setReviewsScope: () => true,
+            },
+        ],
         initialLoadFailed: [
             false,
             {
@@ -343,7 +375,18 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
             } else {
                 cache.disposables.dispose('inProgressPoll')
             }
+            // No reviews of the user's own PRs: default to the whole project so the block isn't
+            // empty — only until the user picks a scope themselves.
+            if (
+                !values.recentReviews?.length &&
+                values.reviewsScope === ReviewHogReviewsListScope.Mine &&
+                !values.hasUserChosenReviewsScope
+            ) {
+                actions.applyDefaultReviewsScope(ReviewHogReviewsListScope.Everyone)
+            }
         },
+        setReviewsScope: () => actions.loadRecentReviews(),
+        applyDefaultReviewsScope: () => actions.loadRecentReviews(),
         loadAll: () => {
             actions.loadSettings()
             actions.loadPerspectives()
@@ -432,6 +475,34 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                 lemonToast.error(error?.detail || error?.message || `Failed to start "${title}"`)
             } finally {
                 actions.startSkillAuthorTaskFinished()
+            }
+        },
+    })),
+
+    // An explicit scope pick is mirrored to the URL (`?reviews_scope=everyone`) so a specific view
+    // can be shared via a link; the default scope keeps the URL clean. The auto-default deliberately
+    // does NOT write the URL: hydrating from a link marks the scope as chosen (below), so mirroring
+    // the fallback would silently upgrade it into a permanent explicit choice on reload.
+    actionToUrl(({ values }) => ({
+        setReviewsScope: (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] => [
+            router.values.location.pathname,
+            {
+                ...router.values.searchParams,
+                reviews_scope: values.reviewsScope === ReviewHogReviewsListScope.Mine ? undefined : values.reviewsScope,
+            },
+            router.values.hashParams,
+            { replace: true },
+        ],
+    })),
+
+    urlToAction(({ actions, values }) => ({
+        [urls.codeReview()]: (_, searchParams) => {
+            const parsed = searchParams.reviews_scope
+            if (
+                (parsed === ReviewHogReviewsListScope.Mine || parsed === ReviewHogReviewsListScope.Everyone) &&
+                parsed !== values.reviewsScope
+            ) {
+                actions.setReviewsScope(parsed)
             }
         },
     })),
