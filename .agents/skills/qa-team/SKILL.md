@@ -39,8 +39,9 @@ git log <base>...HEAD --oneline > "$RUN_DIR/commits.txt"
 git diff <base>...HEAD > "$RUN_DIR/diff.patch"
 ```
 
-Review agents read the diff from these files by absolute path — do NOT paste the diff into
-agent prompts (see the launch protocol in Step 3 for why).
+The run directory holds the persona queue and claim script (Step 3); the diff itself is
+embedded into the shared agent prompt by the workflow script, composed once (see Step 3
+for why). Keep `diff.patch` on disk anyway — it is the fallback path.
 
 If there are no changes, inform the user and stop.
 
@@ -75,19 +76,26 @@ file classification. They review all changes.
 prompt, tools, project context, and the user prompt) that is prompt-cached **only when the
 prompt is byte-identical across agents**. Prompt caching is strict-prefix based: one
 divergent character anywhere in the prompt forces the entire prefix — tens of thousands of
-tokens — to be re-ingested at full price by every agent. Three rules follow:
+tokens — to be re-ingested at full price by every agent. Four rules follow:
 
-1. **Every agent gets the same prompt, byte for byte.** Build the prompt string once and
-   reuse it exactly. Do not customize, reorder, or re-type any part of it per agent.
-2. **Per-agent divergence (the persona) arrives via a tool result, not the prompt.** Each
+1. **Every agent gets the same prompt, byte for byte — including the full diff.** The
+   diff inside the identical prompt is part of the shared cached prefix, so followers
+   ingest it at cache-read prices instead of each re-paying write prices for a
+   file-read tool result.
+2. **The prompt is composed once, by a Workflow script, not re-typed per agent.** The
+   orchestrator emits the diff a single time (into the workflow `args`); the script
+   string-builds the identical prompt for every agent. Hand-typing the diff into N
+   Agent-tool prompts pays N× output-token prices and risks a stray byte difference
+   silently killing the cache.
+3. **Per-agent divergence (the persona) arrives via a tool result, not the prompt.** Each
    agent's first action is to run a claim script that atomically assigns it a persona.
    Tool results come after the shared prefix, so they don't break the cache. Never deliver
    the persona as a follow-up message to a completed agent — resuming a finished agent
    rebuilds its request from scratch and misses the cache entirely.
-3. **Stagger the launch.** Run the first agent alone until it claims its persona (the
-   claim is the signal that its first request finished and the shared prefix is cached),
-   then launch all remaining agents in parallel. A simultaneous cold launch makes every
-   agent write the prefix instead of reading it.
+4. **Stagger the launch.** A dedicated warm-up agent (first persona in the queue: reply
+   OK and stop) runs to completion first, writing the shared prefix to cache in one cheap
+   turn; then all reviewers launch in parallel and read it. A simultaneous cold launch
+   makes every agent write the prefix instead of reading it.
 
 **CRITICAL — Agent independence:** Each agent must operate in total isolation. Do NOT
 include any of the following in the shared prompt or in any persona file:
@@ -106,9 +114,18 @@ practice.)
 #### 3a. Write the persona files
 
 Write one file per selected agent to `$RUN_DIR/personas/`, named with a numeric prefix so
-claim order is deterministic (`01-security.md`, `02-database.md`, ..., `09-generalist-a.md`,
-`10-generalist-b.md`). The number of persona files must equal the number of agents you
-will launch.
+claim order is deterministic (`00-warmup.md`, `01-security.md`, `02-database.md`, ...,
+`09-generalist-a.md`, `10-generalist-b.md`). The number of persona files must equal the
+number of agents you will launch (reviewers + the warm-up agent).
+
+Always write `00-warmup.md` first — it is claimed by the cache warm-up agent:
+
+```text
+Your assigned review focus: none (calibration slot)
+
+This run slot is a calibration pass only. Do NOT review the code, do NOT use any further
+tools, and do NOT produce the review format. Reply with exactly: OK
+```
 
 For each **specialist** (security, database, reliability, performance, frontend,
 compatibility, data-integrity, copy), the file contains:
@@ -187,10 +204,10 @@ chmod +x "$RUN_DIR/claim.sh"
 
 `mv` is atomic, so concurrent agents each claim a distinct persona.
 
-#### 3c. Build the ONE shared prompt
+#### 3c. The ONE shared prompt
 
-Substitute the absolute `$RUN_DIR` path once, then reuse the resulting string verbatim for
-every agent:
+The prompt is assembled by the workflow script in 3d — `{RUN_DIR}`, `{FILE_LIST}`,
+`{COMMIT_LOG}`, and `{FULL_DIFF}` are filled in from `args`, identically for every agent:
 
 ```text
 You are a code reviewer. Your specific review focus is pre-assigned. Follow these steps
@@ -201,14 +218,20 @@ exactly:
    bash {RUN_DIR}/claim.sh
 
    It prints your assigned focus, expertise, checklist, and known failure patterns.
-   Conduct your entire review through that lens. Do not read, list, or otherwise inspect
-   anything inside {RUN_DIR} other than running this command and reading the three files
-   listed below.
+   Conduct your entire review through that lens, and follow any stop instruction it
+   contains. Do not read, list, or otherwise inspect anything inside {RUN_DIR} other
+   than running this command.
 
-2. Read the code changes to review:
-   - {RUN_DIR}/files.txt — changed files
-   - {RUN_DIR}/commits.txt — commit messages
-   - {RUN_DIR}/diff.patch — the full diff
+2. The code changes to review:
+
+   ### Changed files
+   {FILE_LIST}
+
+   ### Commit messages
+   {COMMIT_LOG}
+
+   ### Full diff
+   {FULL_DIFF}
 
 3. Read the full diff carefully. For each changed file, also read the surrounding code
    context using the Read tool (at least 50 lines above and below each change) to
@@ -238,16 +261,53 @@ List each checklist item and mark it [x] reviewed or [-] not applicable.
 One paragraph summarizing your overall assessment.
 ```
 
-#### 3d. Launch order
+#### 3d. Launch via the Workflow tool
 
-1. Launch the **first agent** with the shared prompt (background is fine).
-2. Wait until it has claimed its persona — poll for a file to appear in
-   `$RUN_DIR/claimed/` (e.g. `timeout 90 bash -c 'until [ -n "$(ls -A '"$RUN_DIR"'/claimed)" ]; do sleep 1; done'`).
-   If the poll times out, launch the rest anyway — a cache miss costs money, not
-   correctness.
-3. Launch **all remaining agents in a single message** with multiple Agent tool calls so
-   they run in parallel — each with the byte-identical shared prompt.
-4. Collect every agent's report as it completes.
+Invoke the Workflow tool with the script below, passing the diff material through `args`
+(actual JSON values, emitted once):
+
+```js
+export const meta = {
+  name: 'qa-team-review',
+  description: 'Launch QA review agents with a shared cached prompt prefix',
+  phases: [{ title: 'Warm cache' }, { title: 'Review' }],
+}
+// args: { runDir, fileList, commitLog, diff, reviewerCount }
+const PROMPT = `You are a code reviewer. Your specific review focus is pre-assigned. Follow these steps exactly:
+...the full shared prompt from 3c, with ${args.runDir}, ${args.fileList},
+${args.commitLog}, ${args.diff} interpolated...`
+
+phase('Warm cache')
+// Claims 00-warmup.md, replies OK, and — critically — writes the shared prompt
+// prefix (diff included) to the prompt cache in one cheap turn.
+await agent(PROMPT, { label: 'warmup', phase: 'Warm cache' })
+
+phase('Review')
+const reviews = await parallel(
+  Array.from(
+    { length: args.reviewerCount },
+    (_, i) => () => agent(PROMPT, { label: `reviewer-${i + 1}`, phase: 'Review' })
+  )
+)
+return reviews.filter(Boolean)
+```
+
+`reviewerCount` must equal the number of persona files minus the warm-up. Every `agent()`
+call uses the same `PROMPT` constant — never build per-agent variants. The workflow's
+return value is the list of reviews for Step 4.
+
+**Fallbacks:**
+
+- If the Workflow tool is unavailable, launch agents directly with the Agent tool: build
+  one shared prompt that references the run-dir files instead of embedding the diff
+  (`Read {RUN_DIR}/diff.patch` etc. — hand-typing the diff N times costs more than the
+  cache saves), launch the first agent, poll `$RUN_DIR/claimed/` until its claim appears
+  (`timeout 90 bash -c 'until [ -n "$(ls -A '"$RUN_DIR"'/claimed)" ]; do sleep 1; done'`),
+  then launch the rest in a single message in parallel. If the poll times out, launch
+  anyway — a cache miss costs money, not correctness.
+- For very large diffs (roughly >200 KB), don't embed the diff in the prompt — use the
+  same file-reference prompt as above inside the workflow script, keeping everything else
+  identical.
 
 ### Step 4: Synthesize the report
 
