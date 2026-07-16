@@ -111,6 +111,10 @@ export type McpFailureCategory = 'connection_dead' | 'auth' | 'network' | 'not_f
 export interface McpOpenFailure {
     ref: McpRef
     category: McpFailureCategory
+    /** Identity provider that can repair an auth failure through an explicit
+     *  `@posthog/identity-connect` call. Metadata only: startup never initiates
+     *  authorization or mints a link. */
+    provider?: string
     /** The raw error message. Server-side observability only — never to be
      *  forwarded to the chat UI or the model's view of the world. The agent
      *  owner reads this via `log_entries` on the session detail page. */
@@ -295,7 +299,12 @@ export async function openMcpClients(
         const err = r.reason instanceof Error ? r.reason : new Error(String(r.reason))
         const ref = refs[i]
         const category = categorizeMcpOpenError(err)
-        failures.push({ ref, category, devReason: err.message })
+        failures.push({
+            ref,
+            category,
+            devReason: err.message,
+            provider: category === 'auth' ? ref.auth?.provider : undefined,
+        })
         log('warn', 'mcp.open.failed', { prefix: ref.id, category, devReason: err.message })
     }
 

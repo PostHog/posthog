@@ -294,6 +294,7 @@ describe('openMcpClients', () => {
         })
         expect(clients).toEqual([])
         expect(failures[0].category).toBe('auth')
+        expect(failures[0].provider).toBe('github')
         expect(failures[0].devReason).toMatch(/mcp_identity_unavailable: github \(identity_not_connected\)/)
         expect(failures[0]).not.toHaveProperty('authorizeUrl')
         expect(resolve).toHaveBeenCalledWith('github', [], { initiate: false })
@@ -335,6 +336,7 @@ describe('openMcpClients', () => {
         })
         expect(clients).toEqual([])
         expect(failures[0].category).toBe('auth')
+        expect(failures[0].provider).toBe('posthog')
         expect(failures[0]).not.toHaveProperty('authorizeUrl')
     })
 

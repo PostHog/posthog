@@ -103,6 +103,11 @@ points map to the same effective auth:
 
 The Agent Builder holds no fallback credential.
 
+Mode order is load-bearing. `posthog` must remain first so a request carrying
+the signed-in user's bearer resolves the user-scoped `posthog_api` credential.
+`posthog_internal` is only the trusted service fallback and does not supply a
+user credential for MCP calls.
+
 The PostHog MCP is a first-party implementation detail of the builder, not a
 connection the user configures. MCP startup only reuses an existing trigger or
 linked credential; it never starts OAuth or reconnects automatically. The

@@ -31,6 +31,9 @@ export interface UnavailableMcp {
     /** Spec ref id — same string the model sees as the tool-name prefix. */
     id: string
     category: UnavailableMcpCategory
+    /** Identity provider to pass to `@posthog/identity-connect` after the user
+     *  explicitly asks to use or connect this capability. */
+    provider?: string
 }
 
 export interface BuildSystemPromptOpts {
@@ -92,10 +95,14 @@ export async function buildSystemPrompt(
     }
 
     const unavailable = opts.unavailableMcps ?? []
-    // Shared connections need an owner/admin to reconnect them. Other MCP
-    // failures are unavailable for this session; startup never initiates OAuth.
+    // Shared connections need an owner/admin to reconnect them. Principal auth
+    // failures retain provider metadata for a later explicit connect action;
+    // startup itself never initiates OAuth.
     const dead = unavailable.filter((u) => u.category === 'connection_dead')
-    const broken = unavailable.filter((u) => u.category !== 'connection_dead')
+    const connectable = unavailable.filter(
+        (u): u is UnavailableMcp & { provider: string } => u.category === 'auth' && !!u.provider
+    )
+    const broken = unavailable.filter((u) => u.category !== 'connection_dead' && !(u.category === 'auth' && u.provider))
     if (dead.length > 0) {
         const lines = ['\n\n---\n\n## Disconnected integrations', '']
         lines.push(
@@ -104,6 +111,19 @@ export async function buildSystemPrompt(
         lines.push('')
         for (const u of dead) {
             lines.push(`- \`${u.id}\``)
+        }
+        lines.push('')
+        lines.push('Do NOT paste raw error messages, transport URLs, or stack traces into the conversation.')
+        parts.push(lines.join('\n'))
+    }
+    if (connectable.length > 0) {
+        const lines = ['\n\n---\n\n## Connections available on request', '']
+        lines.push(
+            'These MCP servers need the asking user to connect or reconnect an account. Do not start authorization merely because session startup found them disconnected. If the user asks to use or connect one of these capabilities, call `@posthog/identity-connect` with the listed provider, relay its `authorize_url` as a markdown link, and ask the user to continue after completing authorization:'
+        )
+        lines.push('')
+        for (const u of connectable) {
+            lines.push(`- \`${u.id}\`: provider \`${u.provider}\``)
         }
         lines.push('')
         lines.push('Do NOT paste raw error messages, transport URLs, or stack traces into the conversation.')

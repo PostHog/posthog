@@ -121,15 +121,15 @@ describe('example: agent-builder bundle', () => {
         ])
     })
 
-    it('accepts posthog + posthog_internal auth on its chat and mcp triggers', async () => {
+    it('tries the user PostHog bearer before the internal fallback', async () => {
         const { spec } = await loadBundle()
         const parsed = AgentSpecSchema.parse(spec)
         const modesFor = (type: string): string[] => {
             const t = parsed.triggers.find((x) => x.type === type)
             return t && 'auth' in t && t.auth ? (t.auth.modes?.map((m) => m.type) ?? []) : []
         }
-        expect(modesFor('chat')).toEqual(expect.arrayContaining(['posthog', 'posthog_internal']))
-        expect(modesFor('mcp')).toEqual(expect.arrayContaining(['posthog', 'posthog_internal']))
+        expect(modesFor('chat')).toEqual(['posthog', 'posthog_internal'])
+        expect(modesFor('mcp')).toEqual(['posthog', 'posthog_internal'])
     })
 
     it('enables resume so multi-step flows can span days', async () => {

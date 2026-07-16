@@ -192,6 +192,21 @@ describe('buildSystemPrompt', () => {
         expect(prompt).not.toMatch(/Bearer|http/)
     })
 
+    it('keeps auth failures passive until the user explicitly asks to connect', async () => {
+        await bundle.write('rev1', 'agent.md', 'x')
+        const spec = AgentSpecSchema.parse({ model: 'test/x' })
+        const prompt = await buildSystemPrompt(makeRev(spec), bundle, {
+            unavailableMcps: [{ id: 'github', category: 'auth', provider: 'github-user' }],
+        })
+
+        expect(prompt).toContain('Connections available on request')
+        expect(prompt).toContain('`github`: provider `github-user`')
+        expect(prompt).toContain('@posthog/identity-connect')
+        expect(prompt).toMatch(/Do not start authorization merely because session startup/i)
+        expect(prompt).toMatch(/If the user asks to use or connect/i)
+        expect(prompt).not.toMatch(/https?:\/\//)
+    })
+
     it('reasoning hint only fires for high / xhigh', async () => {
         await bundle.write('rev1', 'agent.md', 'x')
 
