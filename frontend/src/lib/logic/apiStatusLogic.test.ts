@@ -80,6 +80,32 @@ describe('apiStatusLogic', () => {
         })
     })
 
+    describe('connection issue self-healing', () => {
+        it('clears the connection banner once a recovery probe reaches the server', async () => {
+            useMocks({
+                get: {
+                    '/_preflight/': () => [200, { django: true }],
+                },
+            })
+            // Don't mount the common logics — their own boot requests would incidentally clear the
+            // banner, hiding whether the recovery probe itself is doing the healing.
+            initKeaTests(false)
+            logic = apiStatusLogic()
+            logic.mount()
+
+            // A network-level failure raises the banner; the recovery probe then heals it
+            // without the user having to reload or make another request themselves.
+            await expectLogic(logic, () => {
+                logic.actions.setInternetConnectionIssue(true)
+            }).toDispatchActions([
+                'setInternetConnectionIssue',
+                (action) => action.type === logic.actionTypes.setInternetConnectionIssue && !action.payload.issue,
+            ])
+
+            expect(logic.values.internetConnectionIssue).toBe(false)
+        })
+    })
+
     describe('read-only impersonation 403 handling', () => {
         const READ_ONLY_DETAIL = 'This action is not allowed during read-only user impersonation.'
 

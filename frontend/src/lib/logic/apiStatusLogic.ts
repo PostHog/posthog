@@ -8,6 +8,9 @@ import { userLogic } from 'scenes/userLogic'
 
 import type { apiStatusLogicType } from './apiStatusLogicType'
 
+// How often to probe connectivity while the "trouble connecting" banner is showing.
+const CONNECTION_RECOVERY_POLL_MS = 5000
+
 export const apiStatusLogic = kea<apiStatusLogicType>([
     path(['lib', 'apiStatusLogic']),
     actions({
@@ -47,6 +50,34 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
         ],
     }),
     listeners(({ cache, actions, values }) => ({
+        setInternetConnectionIssue: ({ issue }) => {
+            // Once the banner is up, don't wait for an incidental successful request to clear it —
+            // actively probe connectivity and heal as soon as it's back. Any successful api response
+            // (including this probe) flips internetConnectionIssue back to false via onApiResponse.
+            if (issue && !cache.connectionRecoveryActive) {
+                cache.connectionRecoveryActive = true
+                cache.disposables.add(() => {
+                    const probe = (): void => {
+                        // _preflight is cheap and unauthenticated; ignore the outcome — onApiResponse
+                        // observes the underlying fetch and clears the flag on any ok response.
+                        void api.get('_preflight/').catch(() => {})
+                    }
+                    const pollTimer = window.setInterval(probe, CONNECTION_RECOVERY_POLL_MS)
+                    // The browser fires `online` the instant connectivity returns — probe immediately.
+                    const onOnline = (): void => probe()
+                    window.addEventListener('online', onOnline)
+                    // Probe once right away (also re-runs when a hidden tab is shown again).
+                    probe()
+                    return () => {
+                        clearInterval(pollTimer)
+                        window.removeEventListener('online', onOnline)
+                    }
+                }, 'connectionRecovery')
+            } else if (!issue && cache.connectionRecoveryActive) {
+                cache.connectionRecoveryActive = false
+                cache.disposables.dispose('connectionRecovery')
+            }
+        },
         onApiResponse: async ({ response, error }, breakpoint) => {
             if (error || !response?.status) {
                 await breakpoint(50)
