@@ -275,7 +275,7 @@ class TestErrorBodyLogging:
         resp.status_code = 400
         resp.ok = False
         resp.iter_content.return_value = iter([oversized])
-        resp.raise_for_status.side_effect = requests.HTTPError("400")
+        resp.raise_for_status.side_effect = requests.HTTPError("400", response=resp)
 
         session = mock.MagicMock()
         session.get.return_value = resp
