@@ -4907,6 +4907,8 @@ export interface Experiment {
     _create_in_folder?: string | null
     conclusion?: ExperimentConclusion | null
     conclusion_comment?: string | null
+    /** Code task opened to remove the experiment's flag code, when requested on end/ship. */
+    flag_cleanup_task_id?: string | null
     user_access_level: AccessControlLevel
 }
 
@@ -5747,6 +5749,7 @@ export const API_SCOPE_OBJECTS = [
     'signal_scout',
     'signal_scout_internal',
     'signal_scout_report',
+    'stamphog',
     'streamlit_app',
     'subscription',
     'survey',
@@ -5997,7 +6000,8 @@ export interface DataWarehouseTable {
     name: string
     format: DataWarehouseTableTypes
     url_pattern: string
-    credential: DataWarehouseCredential
+    /** Null for tables without user-provided credentials, e.g. created by a managed pipeline. */
+    credential: DataWarehouseCredential | null
     external_data_source?: ExternalDataSource
     external_schema?: SimpleExternalDataSourceSchema
     options?: { csv_allow_double_quotes?: boolean | null }
@@ -6185,6 +6189,17 @@ export interface ExternalDataSource {
     user_access_level: AccessControlLevel
     supports_webhooks?: boolean
     supports_column_selection?: boolean
+    api_version?: string | null
+    api_version_deprecation?: ExternalDataSourceApiVersionDeprecation | null
+}
+
+export interface ExternalDataSourceApiVersionDeprecation {
+    /** The deprecated vendor API version this source is pinned to */
+    version: string
+    /** ISO date the vendor stops serving this version; null if not announced */
+    sunset_at: string | null
+    /** The source type's current default vendor API version — the migration target */
+    default_version: string
 }
 
 export interface WebhookExternalStatus {
@@ -6359,6 +6374,10 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
      * `null` means "sync all rows". Applied on the next sync — not retroactive.
      */
     row_filters?: RowFilter[] | null
+    /** User-managed vendor API version override; null syncs on the source's pinned version */
+    api_version?: string | null
+    /** Set when this schema's version override is deprecated by the vendor */
+    api_version_deprecation?: ExternalDataSourceApiVersionDeprecation | null
 }
 
 /** Lightweight parent-source summary embedded in the single-schema retrieve endpoint. */
@@ -6368,6 +6387,10 @@ export interface ExternalDataSchemaSourceSummary {
     supports_column_selection?: boolean
     supports_row_filters?: boolean
     user_access_level: AccessControlLevel | null
+    /** The source's effective vendor API version — what schemas without an override sync on */
+    api_version?: string | null
+    /** Vendor API versions the source type supports — the schema override picker's options */
+    supported_api_versions?: string[]
 }
 
 export interface ExternalDataSchemaWithSource extends ExternalDataSourceSchema {

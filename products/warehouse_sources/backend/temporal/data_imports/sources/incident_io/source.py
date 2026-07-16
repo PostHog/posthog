@@ -35,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class IncidentIoSource(ResumableSource[IncidentIoSourceConfig, IncidentIoResumeConfig]):
+    api_docs_url = "https://api-docs.incident.io"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
