@@ -3091,6 +3091,10 @@ SELECT
   mapSort(mapApply((k, v) -> (concat(k, '__str'), JSONExtractString(v)), attributes)) AS attributes_map_str,
   mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)) AS resource_attributes,
   toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
+  observed_timestamp
+  + toIntervalDay(
+    toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32(15))
+  ) AS original_expiry_timestamp,
   _partition,
   _topic,
   _offset,
@@ -3165,6 +3169,9 @@ SQL
     }
     column "team_id" {
       type = "Int32"
+    }
+    column "original_expiry_timestamp" {
+      type = "DateTime64(6)"
     }
   }
   materialized_view "trace_spans_to_kafka_metrics_mv" {

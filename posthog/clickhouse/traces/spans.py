@@ -345,7 +345,8 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{KAFKA_TABLE_NAME}_mv TO {db}.{TABLE
     `links` Array(String),
     `dropped_links_count` UInt32,
     `status_code` Int16,
-    `team_id` Int32
+    `team_id` Int32,
+    `original_expiry_timestamp` DateTime64(6)
 )
 AS SELECT
     * EXCEPT (attributes, resource_attributes, kind, flags, dropped_attributes_count, dropped_events_count, dropped_links_count, status_code),
@@ -358,6 +359,7 @@ AS SELECT
     mapSort(mapApply((k, v) -> (concat(k, '__str'), JSONExtractString(v)), attributes)) AS attributes_map_str,
     mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)) AS resource_attributes,
     toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
+    observed_timestamp + toIntervalDay(toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32(15))) AS original_expiry_timestamp,
     _partition,
     _topic,
     _offset,
