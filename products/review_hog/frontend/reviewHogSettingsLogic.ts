@@ -708,10 +708,10 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
         // down on unmount.
         loadRecentReviewsSuccess: () => {
             const anyInProgress = values.recentReviews?.some((review) => review.in_progress) ?? false
-            if (anyInProgress && values.awaitingTriggeredReview) {
-                // The triggered review landed — the regular in-progress polling takes over.
-                actions.stopTriggeredReviewWatch()
-            }
+            // The watch deliberately runs its full bounded window instead of stopping when an
+            // in-progress row shows up: an unrelated already-running review would satisfy that check
+            // and could finish before the triggered row appears, killing the poll too early. The
+            // cost is at most the watch window of idle 10s polls after a fast run completes.
             if (anyInProgress || values.awaitingTriggeredReview) {
                 cache.disposables.add(() => {
                     const pollTimer = window.setInterval(
