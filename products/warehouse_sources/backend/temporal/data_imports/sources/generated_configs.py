@@ -2048,7 +2048,10 @@ class IncidentIoSourceConfig(config.Config):
 
 @config.config
 class InfisicalSourceConfig(config.Config):
-    pass
+    base_url: str
+    organization_id: str
+    client_id: str
+    client_secret: str
 
 
 @config.config
