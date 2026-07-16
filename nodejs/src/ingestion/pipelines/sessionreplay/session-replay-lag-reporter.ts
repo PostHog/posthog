@@ -15,9 +15,14 @@ export type LagReportableMessage = Pick<Message, 'partition' | 'headers'>
  * are retained per partition; the messages themselves are never held.
  *
  * Only OK results are sampled — dropped, DLQ'd, and redirected messages are excluded — matching the
- * per-event `record-ingestion-lag` step's ingested-only semantics. On a flush failure with batch
- * redelivery, retried messages can be sampled twice, consistent with the consumer's existing batch-retry
- * behavior.
+ * per-event `record-ingestion-lag` step's ingested-only semantics.
+ *
+ * A failed poll-batch flush crashes the process (eachBatch errors are uncaught), so its pending samples
+ * die unreported and are re-read from the uncommitted offsets on restart. The one path that retains and
+ * later reports is a failed or timed-out revoke-hook flush: it is swallowed and the partitions are given
+ * up without committed offsets, so this still-running process can report its retained samples while the
+ * new owner reprocesses the same messages — a bounded duplicate consistent with the at-least-once
+ * delivery both owners already provide for the data itself.
  */
 export class SessionReplayLagReporter {
     private pendingByPartition: Map<number, number[]> = new Map()
@@ -59,17 +64,24 @@ export class SessionReplayLagReporter {
  * Parses just the `now` header to epoch ms, mirroring the capture-time parse in `parseEventHeaders`.
  * The pipeline already ran the full header parse (and its header-status metrics) on these messages, so
  * re-running it here would double-count those metrics; reading the one header we need avoids that.
+ *
+ * Kafka allows duplicate header keys, so this iterates every header and keeps the last valid `now` —
+ * matching `parseEventHeaders`, so lag is reported from the same timestamp the message was processed
+ * with. An invalid value does not clear a valid one seen earlier.
  */
 function captureTimestampMs(headers: MessageHeader[] | undefined): number | undefined {
     if (headers === undefined) {
         return undefined
     }
+    let capturedAtMs: number | undefined
     for (const header of headers) {
         const value = header['now']
         if (value !== undefined) {
             const parsedMs = new Date(value.toString()).getTime()
-            return isNaN(parsedMs) ? undefined : parsedMs
+            if (!isNaN(parsedMs)) {
+                capturedAtMs = parsedMs
+            }
         }
     }
-    return undefined
+    return capturedAtMs
 }

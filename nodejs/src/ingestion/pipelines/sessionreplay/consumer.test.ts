@@ -225,21 +225,24 @@ describe('SessionRecordingIngester', () => {
         expect(await lagHistogramCount('0')).toBeUndefined()
     })
 
-    it('retains pending lag samples when a flush fails, reporting them on the next successful flush', async () => {
+    it('keeps pending lag samples across a failed flush so a later successful flush still reports them', async () => {
         ingestionLagHistogram.reset()
         createIngester({ SESSION_RECORDING_MAX_BATCH_AGE_MS: 0 })
 
-        // The first flush fails at the offset-store step, after the batch's capture timestamp was buffered.
+        // A flush that fails after the capture timestamp was buffered must not observe or drop the pending
+        // sample. Poll-batch flush failures crash the process; the retain-and-report path that matters is a
+        // swallowed revoke-hook flush, after which this still-running process flushes successfully and
+        // reports the samples it kept. The failure is simulated here at the offset-store step.
         jest.mocked(ingester.kafkaConsumer).offsetsStore.mockImplementationOnce(() => {
             throw new Error('offset store failed')
         })
         const firstMessage = kafkaMessage(0, 42, Date.now() - 5000)
         runPipelineMock.mockResolvedValue(progress(new Map([[0, 42]]), [firstMessage]))
         await expect(ingester.handleEachBatch([firstMessage])).rejects.toThrow('offset store failed')
-        // The flush threw, so nothing is observed and the sample stays pending for the next flush.
+        // The flush threw, so nothing is observed and the sample stays pending.
         expect(await lagHistogramCount('0')).toBeUndefined()
 
-        // The next batch flushes cleanly and reports both the retained and the new sample.
+        // A later successful flush reports the retained sample alongside the new one.
         const secondMessage = kafkaMessage(0, 43, Date.now() - 5000)
         runPipelineMock.mockResolvedValue(progress(new Map([[0, 43]]), [secondMessage]))
         await ingester.handleEachBatch([secondMessage])

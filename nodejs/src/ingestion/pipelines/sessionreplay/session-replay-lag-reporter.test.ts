@@ -82,6 +82,21 @@ describe('SessionReplayLagReporter', () => {
         expect(await getHistogramCountAndSum('0')).toBeNull()
     })
 
+    it('uses the last valid now header when a message carries duplicates, matching parseEventHeaders', async () => {
+        // Kafka permits duplicate header keys and parseEventHeaders lets the last valid `now` win, so the
+        // lag sample must come from the same timestamp the message was processed with.
+        reporter.record([
+            message(0, [
+                { now: Buffer.from(new Date(FAKE_NOW_MS - 9000).toISOString()) },
+                { now: Buffer.from(new Date(FAKE_NOW_MS - 4000).toISOString()) },
+            ]),
+        ])
+        reporter.flush()
+
+        expect(await getGaugeValue('0')).toBe(4000)
+        expect(await getHistogramCountAndSum('0')).toEqual({ count: 1, sum: 4000 })
+    })
+
     it.each<{ name: string; headers?: MessageHeader[] }>([
         { name: 'no headers at all', headers: undefined },
         { name: 'no now header', headers: [{ token: Buffer.from('t') }] },
