@@ -254,9 +254,11 @@ class TestMakeSession:
 class TestHttpSampleCapture:
     @parameterized.expand(
         [
-            # licenses bodies carry raw redeemable license_codes, so their raw responses must stay
-            # out of captured HTTP samples; ordinary endpoints keep capture on for diagnostics.
+            # licenses and coupons bodies carry raw redeemable secrets (license_codes, coupon_code),
+            # so their raw responses must stay out of captured HTTP samples; ordinary endpoints keep
+            # capture on for diagnostics.
             ("licenses", False),
+            ("coupons", False),
             ("customers", True),
         ]
     )

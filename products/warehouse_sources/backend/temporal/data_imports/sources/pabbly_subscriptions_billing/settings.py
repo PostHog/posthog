@@ -65,6 +65,8 @@ PABBLY_ENDPOINTS: dict[str, PabblyEndpointConfig] = {
         parent="products",
         parent_field="product_id",
         ignore_no_data_errors=True,
+        # coupon_code values are redeemable discounts; keep raw bodies out of captured HTTP samples.
+        capture_http_samples=False,
     ),
     "licenses": PabblyEndpointConfig(
         name="licenses",
