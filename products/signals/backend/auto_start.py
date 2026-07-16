@@ -88,9 +88,6 @@ def _build_autostart_task_description(
     *, report_id: str, team_id: int, summary: str, repository: str, priority: PriorityAssessment | None
 ) -> str:
     priority_line = f"Priority: {priority.priority.value}\nReason: {priority.explanation}\n\n" if priority else ""
-    # Web URL to the report (same shape as the Slack "Open in PostHog" button), not the
-    # `posthog-code://` desktop deep link — GitHub markdown strips custom URL schemes, so a
-    # deep-link footer renders as dead plain text in the PR description.
     report_link = f"{settings.SITE_URL}/project/{team_id}/inbox/reports/{report_id}"
     return (
         f"{summary}\n\n"
