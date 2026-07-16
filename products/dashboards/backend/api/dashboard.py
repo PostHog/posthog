@@ -29,7 +29,7 @@ from django.db.models import (
     Value,
 )
 from django.db.models.functions import Cast
-from django.http import StreamingHttpResponse
+from django.http.response import HttpResponseBase
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 
@@ -2328,7 +2328,7 @@ class DashboardsViewSet(
         ],
     )
     @action(methods=["GET"], detail=True, url_path="stream_tiles")
-    def stream_tiles(self, request: Request, *args: Any, **kwargs: Any) -> StreamingHttpResponse:
+    def stream_tiles(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponseBase:
         """Stream dashboard metadata and tiles via Server-Sent Events. Sends metadata first, then tiles as they are rendered."""
         dashboard = self.get_object()  # This will raise 404 if not found - let it bubble up normally
 
