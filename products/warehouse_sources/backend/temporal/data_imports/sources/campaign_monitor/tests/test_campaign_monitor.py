@@ -2,25 +2,29 @@ import json
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest import mock
 
+import requests
 from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.campaign_monitor.campaign_monitor import (
     FULL_REFRESH_SINCE_DATE,
     CampaignMonitorResumeConfig,
-    _page_params,
     campaign_monitor_source,
-    get_rows,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.campaign_monitor.settings import (
     CAMPAIGN_MONITOR_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the campaign_monitor module.
+CM_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.campaign_monitor.campaign_monitor.make_tracked_session"
 
 
-def _make_response(body: Any, status_code: int = 200) -> Response:
+def _response(body: Any, status_code: int = 200) -> Response:
     resp = Response()
     resp.status_code = status_code
     resp._content = json.dumps(body).encode()
@@ -28,250 +32,397 @@ def _make_response(body: Any, status_code: int = 200) -> Response:
     return resp
 
 
-class _FakeSession:
-    """Records request URLs and returns queued responses in order."""
-
-    def __init__(self, responses: list[Response]) -> None:
-        self._responses = iter(responses)
-        self.urls: list[str] = []
-
-    def get(self, url: str, *_args: Any, **_kwargs: Any) -> Response:
-        self.urls.append(url)
-        return next(self._responses)
+def _envelope(items: list[dict[str, Any]], number_of_pages: int = 1, page_number: int = 1) -> Response:
+    return _response({"Results": items, "NumberOfPages": number_of_pages, "PageNumber": page_number})
 
 
-def _patch_session(session: _FakeSession):
-    return patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.campaign_monitor.campaign_monitor.make_tracked_session",
-        return_value=session,
-    )
-
-
-def _manager(can_resume: bool = False, state: CampaignMonitorResumeConfig | None = None) -> MagicMock:
-    manager = MagicMock(spec=ResumableSourceManager)
-    manager.can_resume.return_value = can_resume
-    manager.load_state.return_value = state
+def _make_manager(resume_state: CampaignMonitorResumeConfig | None = None) -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = resume_state is not None
+    manager.load_state.return_value = resume_state
     return manager
 
 
-def _drive(endpoint: str, responses: list[Response], manager: MagicMock) -> tuple[_FakeSession, list[list[dict]]]:
-    session = _FakeSession(responses)
-    with _patch_session(session):
-        batches = list(
-            get_rows(
-                api_key="test-key",
-                client_id="client-abc",
-                endpoint=endpoint,
-                logger=MagicMock(),
-                resumable_source_manager=manager,
-            )
-        )
-    return session, batches
+def _wire(session: mock.MagicMock, responses: list[Response]) -> list[tuple[str, dict[str, Any]]]:
+    """Wire a mock session and return (url, params) snapshots captured AT SEND TIME.
+
+    ``request.params`` is a single dict mutated in place across pages, so inspecting it after the
+    run shows only the final state — snapshot a copy when each request is prepared instead.
+    """
+    session.headers = {}
+    snapshots: list[tuple[str, dict[str, Any]]] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        snapshots.append((request.url, dict(request.params or {})))
+        return mock.MagicMock()
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return snapshots
+
+
+def _source(endpoint: str, manager: mock.MagicMock | None = None) -> SourceResponse:
+    return campaign_monitor_source(
+        api_key="test-key",
+        client_id="client-abc",
+        endpoint=endpoint,
+        team_id=1,
+        job_id="job-1",
+        resumable_source_manager=manager if manager is not None else _make_manager(),
+    )
+
+
+def _rows(source_response: SourceResponse) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize(
-        "status_code, expected",
-        [(200, True), (401, False), (403, False), (500, False)],
-    )
-    def test_validate_credentials_status_mapping(self, status_code: int, expected: bool) -> None:
-        session = _FakeSession([_make_response({}, status_code=status_code)])
-        with _patch_session(session):
-            assert validate_credentials("test-key") is expected
-        assert session.urls[0].endswith("/clients.json")
+    @pytest.mark.parametrize("status_code, expected", [(200, True), (401, False), (403, False), (500, False)])
+    @mock.patch(CM_SESSION_PATCH)
+    def test_status_mapping(self, mock_session, status_code: int, expected: bool) -> None:
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
+        assert validate_credentials("test-key") is expected
+        url = mock_session.return_value.get.call_args.args[0]
+        assert url.endswith("/clients.json")
 
-    def test_validate_credentials_swallows_exceptions(self) -> None:
-        session = MagicMock()
-        session.get.side_effect = ConnectionError("boom")
-        with _patch_session(session):
-            assert validate_credentials("test-key") is False
+    @mock.patch(CM_SESSION_PATCH)
+    def test_swallows_exceptions(self, mock_session) -> None:
+        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
+        assert validate_credentials("test-key") is False
 
 
-class TestPageParams:
-    def test_date_filter_endpoint_includes_full_history_date(self) -> None:
-        params = _page_params(CAMPAIGN_MONITOR_ENDPOINTS["active_subscribers"], page=1)
-
-        assert params["date"] == FULL_REFRESH_SINCE_DATE
-        assert params["orderfield"] == "date"
-        assert params["orderdirection"] == "asc"
-        assert params["page"] == 1
-        assert params["pagesize"] == 1000
-
-    def test_non_date_filter_endpoint_omits_date(self) -> None:
-        params = _page_params(CAMPAIGN_MONITOR_ENDPOINTS["suppression_list"], page=2)
-
-        assert "date" not in params
-        assert params["page"] == 2
-        assert params["orderfield"] == "date"
-
-
-class TestGetRowsNonPaginated:
-    def test_array_endpoint_yields_once_and_does_not_save_state(self) -> None:
-        manager = _manager()
+class TestNonPaginatedEndpoints:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_array_endpoint_yields_once_and_does_not_save_state(self, MockSession) -> None:
+        session = MockSession.return_value
         rows = [{"ClientID": "c1"}, {"ClientID": "c2"}]
-        session, batches = _drive("clients", [_make_response(rows)], manager)
+        snapshots = _wire(session, [_response(rows)])
 
-        assert batches == [rows]
-        assert session.urls == ["https://api.createsend.com/api/v3.3/clients.json"]
+        manager = _make_manager()
+        assert _rows(_source("clients", manager)) == rows
+        assert snapshots[0][0] == "https://api.createsend.com/api/v3.3/clients.json"
+        assert session.send.call_count == 1
         manager.save_state.assert_not_called()
 
-    def test_empty_array_yields_nothing(self) -> None:
-        manager = _manager()
-        _, batches = _drive("lists", [_make_response([])], manager)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_array_yields_nothing(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response([])])
 
-        assert batches == []
+        assert _rows(_source("lists")) == []
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_non_list_body_raises_loudly(self, MockSession) -> None:
+        # A 200 body that isn't a JSON array means the response shape changed — fail loud rather
+        # than syncing a stray object as a row.
+        session = MockSession.return_value
+        _wire(session, [_response({"error": "unexpected"})])
+
+        with pytest.raises(ValueError, match="list response body"):
+            _rows(_source("clients"))
 
 
-class TestGetRowsPaginated:
-    def test_multi_page_saves_state_between_pages_only(self) -> None:
-        manager = _manager()
-        responses = [
-            _make_response({"Results": [{"EmailAddress": "a@x.com"}], "NumberOfPages": 2, "PageNumber": 1}),
-            _make_response({"Results": [{"EmailAddress": "b@x.com"}], "NumberOfPages": 2, "PageNumber": 2}),
-        ]
-        session, batches = _drive("suppression_list", responses, manager)
+class TestPaginatedEndpoints:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_multi_page_saves_state_between_pages_only(self, MockSession) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _envelope([{"EmailAddress": "a@x.com"}], number_of_pages=2, page_number=1),
+                _envelope([{"EmailAddress": "b@x.com"}], number_of_pages=2, page_number=2),
+            ],
+        )
 
-        assert batches == [[{"EmailAddress": "a@x.com"}], [{"EmailAddress": "b@x.com"}]]
+        manager = _make_manager()
+        rows = _rows(_source("suppression_list", manager))
+
+        assert rows == [{"EmailAddress": "a@x.com"}, {"EmailAddress": "b@x.com"}]
+        assert snapshots[0][1]["page"] == 1
+        assert snapshots[1][1]["page"] == 2
         # First page is not terminal -> save next page; second page is terminal -> no save.
+        manager.save_state.assert_called_once()
+        assert manager.save_state.call_args.args[0] == CampaignMonitorResumeConfig(page=2)
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_stops_at_number_of_pages_without_extra_request(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_envelope([{"EmailAddress": "a@x.com"}], number_of_pages=1, page_number=1)])
+
+        rows = _rows(_source("suppression_list"))
+
+        assert rows == [{"EmailAddress": "a@x.com"}]
+        assert session.send.call_count == 1
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_page_params_omit_date_for_non_date_filter_endpoint(self, MockSession) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(session, [_envelope([{"EmailAddress": "a@x.com"}])])
+
+        _rows(_source("suppression_list"))
+
+        _url, params = snapshots[0]
+        assert "date" not in params
+        assert params["pagesize"] == 1000
+        assert params["orderfield"] == "date"
+        assert params["orderdirection"] == "asc"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resume_starts_from_saved_page(self, MockSession) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(session, [_envelope([{"EmailAddress": "b@x.com"}], number_of_pages=2, page_number=2)])
+
+        manager = _make_manager(CampaignMonitorResumeConfig(page=2))
+        rows = _rows(_source("suppression_list", manager))
+
+        assert rows == [{"EmailAddress": "b@x.com"}]
+        assert session.send.call_count == 1
+        assert snapshots[0][1]["page"] == 2
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_missing_results_key_yields_nothing(self, MockSession) -> None:
+        # Campaign Monitor's paged envelope without Results is treated as a zero-row page.
+        session = MockSession.return_value
+        _wire(session, [_response({"NumberOfPages": 1, "PageNumber": 1})])
+
+        assert _rows(_source("suppression_list")) == []
+
+
+class TestListFanOut:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_iterates_every_list_and_injects_list_id(self, MockSession) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response([{"ListID": "l1"}, {"ListID": "l2"}]),  # lists.json
+                _envelope([{"EmailAddress": "a@x.com"}]),  # l1
+                _envelope([{"EmailAddress": "b@x.com"}]),  # l2
+            ],
+        )
+
+        rows = _rows(_source("active_subscribers"))
+
+        # the injected id must be the plain `ListID` column, not the prefixed parent key
+        assert rows == [
+            {"EmailAddress": "a@x.com", "ListID": "l1"},
+            {"EmailAddress": "b@x.com", "ListID": "l2"},
+        ]
+        assert snapshots[0][0].endswith("clients/client-abc/lists.json")
+        assert snapshots[1][0].endswith("lists/l1/active.json")
+        assert snapshots[2][0].endswith("lists/l2/active.json")
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_date_filter_endpoint_requests_full_history(self, MockSession) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response([{"ListID": "l1"}]),
+                _envelope([{"EmailAddress": "a@x.com"}]),
+            ],
+        )
+
+        _rows(_source("active_subscribers"))
+
+        _url, params = snapshots[1]
+        assert params["date"] == FULL_REFRESH_SINCE_DATE
+        assert params["page"] == 1
+        assert params["pagesize"] == 1000
+        assert params["orderfield"] == "date"
+        assert params["orderdirection"] == "asc"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_paginates_within_a_list(self, MockSession) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response([{"ListID": "l1"}]),
+                _envelope([{"EmailAddress": "a@x.com"}], number_of_pages=2, page_number=1),
+                _envelope([{"EmailAddress": "b@x.com"}], number_of_pages=2, page_number=2),
+            ],
+        )
+
+        rows = _rows(_source("active_subscribers"))
+
+        assert [r["EmailAddress"] for r in rows] == ["a@x.com", "b@x.com"]
+        assert snapshots[2][0].endswith("lists/l1/active.json")
+        assert snapshots[2][1]["page"] == 2
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_checkpoints_completed_lists(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response([{"ListID": "l1"}, {"ListID": "l2"}]),
+                _envelope([{"EmailAddress": "a@x.com"}]),
+                _envelope([{"EmailAddress": "b@x.com"}]),
+            ],
+        )
+
+        manager = _make_manager()
+        _rows(_source("active_subscribers", manager))
+
+        # after finishing l1 a checkpoint marks it completed, so a crash resumes on l2, not l1
         saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [CampaignMonitorResumeConfig(list_id=None, page=2)]
-        assert "page=1" in session.urls[0]
-        assert "page=2" in session.urls[1]
+        assert any(
+            state.fanout_state is not None and "lists/l1/active.json" in state.fanout_state["completed"]
+            for state in saved
+        )
 
-    def test_resume_starts_from_saved_page(self) -> None:
-        manager = _manager(can_resume=True, state=CampaignMonitorResumeConfig(list_id=None, page=2))
-        responses = [
-            _make_response({"Results": [{"EmailAddress": "b@x.com"}], "NumberOfPages": 2, "PageNumber": 2}),
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resume_skips_completed_lists_and_resumes_page(self, MockSession) -> None:
+        # Resuming mid-fan-out must not re-request lists completed before the crash, and must start
+        # the in-progress list from its saved page.
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response([{"ListID": "l1"}, {"ListID": "l2"}, {"ListID": "l3"}]),  # lists.json re-fetched
+                _envelope([{"EmailAddress": "b@x.com"}], number_of_pages=2, page_number=2),  # l2 resumed
+                _envelope([{"EmailAddress": "c@x.com"}]),  # l3 fresh
+            ],
+        )
+
+        manager = _make_manager(
+            CampaignMonitorResumeConfig(
+                fanout_state={
+                    "completed": ["lists/l1/active.json"],
+                    "current": "lists/l2/active.json",
+                    "child_state": {"page": 2},
+                }
+            )
+        )
+        rows = _rows(_source("active_subscribers", manager))
+
+        urls = [url for url, _params in snapshots]
+        assert not any("lists/l1/active.json" in url for url in urls)
+        assert snapshots[1][0].endswith("lists/l2/active.json")
+        assert snapshots[1][1]["page"] == 2
+        assert snapshots[2][0].endswith("lists/l3/active.json")
+        assert snapshots[2][1]["page"] == 1
+        assert [(r["EmailAddress"], r["ListID"]) for r in rows] == [("b@x.com", "l2"), ("c@x.com", "l3")]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_pre_migration_resume_state_starts_fresh(self, MockSession) -> None:
+        # An old-shape bookmark (list_id + page, no fanout_state) can't be translated into the
+        # framework's completed/current map — the fan-out restarts from the first list instead.
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response([{"ListID": "l1"}, {"ListID": "l2"}]),
+                _envelope([{"EmailAddress": "a@x.com"}]),
+                _envelope([{"EmailAddress": "b@x.com"}]),
+            ],
+        )
+
+        manager = _make_manager(CampaignMonitorResumeConfig(list_id="l2", page=3))
+        rows = _rows(_source("active_subscribers", manager))
+
+        assert [(r["EmailAddress"], r["ListID"]) for r in rows] == [("a@x.com", "l1"), ("b@x.com", "l2")]
+        assert snapshots[1][0].endswith("lists/l1/active.json")
+        assert snapshots[1][1]["page"] == 1
+
+
+class TestCampaignFanOut:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_iterates_every_campaign_and_injects_campaign_id(self, MockSession) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response([{"CampaignID": "c1"}, {"CampaignID": "c2"}]),  # campaigns.json
+                _envelope([{"EmailAddress": "a@x.com"}]),  # c1
+                _envelope([{"EmailAddress": "b@x.com"}]),  # c2
+            ],
+        )
+
+        rows = _rows(_source("campaign_opens"))
+
+        assert rows == [
+            {"EmailAddress": "a@x.com", "CampaignID": "c1"},
+            {"EmailAddress": "b@x.com", "CampaignID": "c2"},
         ]
-        session, batches = _drive("suppression_list", responses, manager)
+        assert snapshots[0][0].endswith("clients/client-abc/campaigns.json")
+        assert snapshots[1][0].endswith("campaigns/c1/opens.json")
+        assert snapshots[2][0].endswith("campaigns/c2/opens.json")
 
-        assert batches == [[{"EmailAddress": "b@x.com"}]]
-        assert len(session.urls) == 1
-        assert "page=2" in session.urls[0]
-        manager.load_state.assert_called_once()
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_campaign_summary_yields_object_per_campaign_and_checkpoints(self, MockSession) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response([{"CampaignID": "c1"}, {"CampaignID": "c2"}]),
+                _response({"Name": "Newsletter", "Recipients": 100, "UniqueOpened": 40}),  # c1 summary
+                _response({"Name": "Promo", "Recipients": 50, "UniqueOpened": 10}),  # c2 summary
+            ],
+        )
 
+        manager = _make_manager()
+        rows = _rows(_source("campaign_summary", manager))
 
-class TestGetRowsFanOut:
-    def test_fan_out_over_lists_injects_list_id(self) -> None:
-        manager = _manager()
-        responses = [
-            _make_response([{"ListID": "l1"}, {"ListID": "l2"}]),  # lists.json
-            _make_response({"Results": [{"EmailAddress": "a@x.com"}], "NumberOfPages": 1, "PageNumber": 1}),  # l1
-            _make_response({"Results": [{"EmailAddress": "b@x.com"}], "NumberOfPages": 1, "PageNumber": 1}),  # l2
+        assert rows == [
+            {"Name": "Newsletter", "Recipients": 100, "UniqueOpened": 40, "CampaignID": "c1"},
+            {"Name": "Promo", "Recipients": 50, "UniqueOpened": 10, "CampaignID": "c2"},
         ]
-        session, batches = _drive("active_subscribers", responses, manager)
-
-        assert batches == [
-            [{"EmailAddress": "a@x.com", "ListID": "l1"}],
-            [{"EmailAddress": "b@x.com", "ListID": "l2"}],
-        ]
-        assert session.urls[0].endswith("clients/client-abc/lists.json")
-        assert "lists/l1/active.json" in session.urls[1]
-        assert "lists/l2/active.json" in session.urls[2]
-
-    def test_fan_out_advances_bookmark_to_next_list(self) -> None:
-        manager = _manager()
-        responses = [
-            _make_response([{"ListID": "l1"}, {"ListID": "l2"}]),
-            _make_response({"Results": [{"EmailAddress": "a@x.com"}], "NumberOfPages": 1, "PageNumber": 1}),
-            _make_response({"Results": [{"EmailAddress": "b@x.com"}], "NumberOfPages": 1, "PageNumber": 1}),
-        ]
-        _drive("active_subscribers", responses, manager)
-
+        assert snapshots[1][0].endswith("campaigns/c1/summary.json")
+        assert snapshots[2][0].endswith("campaigns/c2/summary.json")
+        # after finishing c1 a checkpoint marks it completed, so a crash resumes on c2, not c1
         saved = [call.args[0] for call in manager.save_state.call_args_list]
-        # Each list finishes on a single (terminal) page, so the only save is the cross-list
-        # advance written after the first list. No save after the last list (nothing follows).
-        assert saved == [CampaignMonitorResumeConfig(list_id="l2", page=1)]
+        assert any(
+            state.fanout_state is not None and "campaigns/c1/summary.json" in state.fanout_state["completed"]
+            for state in saved
+        )
 
-    def test_fan_out_resumes_into_correct_list_and_page(self) -> None:
-        manager = _manager(can_resume=True, state=CampaignMonitorResumeConfig(list_id="l2", page=1))
-        responses = [
-            _make_response([{"ListID": "l1"}, {"ListID": "l2"}]),
-            _make_response({"Results": [{"EmailAddress": "b@x.com"}], "NumberOfPages": 1, "PageNumber": 1}),  # l2 only
-        ]
-        session, batches = _drive("active_subscribers", responses, manager)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_summary_object_yields_no_row(self, MockSession) -> None:
+        # An empty summary body is not a row — no record carrying only the injected CampaignID.
+        session = MockSession.return_value
+        _wire(session, [_response([{"CampaignID": "c1"}]), _response({})])
 
-        assert batches == [[{"EmailAddress": "b@x.com", "ListID": "l2"}]]
-        # lists.json is re-fetched to rebuild the ordering, then we skip straight to l2.
-        assert "lists/l2/active.json" in session.urls[1]
+        assert _rows(_source("campaign_summary")) == []
 
-    def test_fan_out_resume_restarts_when_bookmarked_list_is_gone(self) -> None:
-        # The bookmarked list was deleted between runs: fall back to the first list rather than
-        # resuming into the wrong one (the index-based bookmark would have silently mis-resumed).
-        manager = _manager(can_resume=True, state=CampaignMonitorResumeConfig(list_id="deleted", page=3))
-        responses = [
-            _make_response([{"ListID": "l1"}, {"ListID": "l2"}]),
-            _make_response({"Results": [{"EmailAddress": "a@x.com"}], "NumberOfPages": 1, "PageNumber": 1}),
-            _make_response({"Results": [{"EmailAddress": "b@x.com"}], "NumberOfPages": 1, "PageNumber": 1}),
-        ]
-        session, batches = _drive("active_subscribers", responses, manager)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resume_skips_completed_campaigns(self, MockSession) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response([{"CampaignID": "c1"}, {"CampaignID": "c2"}]),  # campaigns.json re-fetched
+                _envelope([{"EmailAddress": "b@x.com"}]),  # c2 only
+            ],
+        )
 
-        assert batches == [
-            [{"EmailAddress": "a@x.com", "ListID": "l1"}],
-            [{"EmailAddress": "b@x.com", "ListID": "l2"}],
-        ]
-        assert "lists/l1/active.json" in session.urls[1]
-        assert "page=1" in session.urls[1]
+        manager = _make_manager(
+            CampaignMonitorResumeConfig(
+                fanout_state={"completed": ["campaigns/c1/opens.json"], "current": None, "child_state": None}
+            )
+        )
+        rows = _rows(_source("campaign_opens", manager))
+
+        assert rows == [{"EmailAddress": "b@x.com", "CampaignID": "c2"}]
+        assert snapshots[1][0].endswith("campaigns/c2/opens.json")
 
 
-class TestGetRowsCampaignFanOut:
-    def test_fan_out_over_campaigns_injects_campaign_id(self) -> None:
-        manager = _manager()
-        responses = [
-            _make_response([{"CampaignID": "c1"}, {"CampaignID": "c2"}]),  # campaigns.json
-            _make_response({"Results": [{"EmailAddress": "a@x.com"}], "NumberOfPages": 1, "PageNumber": 1}),  # c1
-            _make_response({"Results": [{"EmailAddress": "b@x.com"}], "NumberOfPages": 1, "PageNumber": 1}),  # c2
-        ]
-        session, batches = _drive("campaign_opens", responses, manager)
-
-        assert batches == [
-            [{"EmailAddress": "a@x.com", "CampaignID": "c1"}],
-            [{"EmailAddress": "b@x.com", "CampaignID": "c2"}],
-        ]
-        assert session.urls[0].endswith("clients/client-abc/campaigns.json")
-        assert "campaigns/c1/opens.json" in session.urls[1]
-        assert "campaigns/c2/opens.json" in session.urls[2]
-
-    def test_campaign_summary_yields_object_per_campaign_and_advances_bookmark(self) -> None:
-        manager = _manager()
-        responses = [
-            _make_response([{"CampaignID": "c1"}, {"CampaignID": "c2"}]),
-            _make_response({"Name": "Newsletter", "Recipients": 100, "UniqueOpened": 40}),  # c1 summary
-            _make_response({"Name": "Promo", "Recipients": 50, "UniqueOpened": 10}),  # c2 summary
-        ]
-        session, batches = _drive("campaign_summary", responses, manager)
-
-        assert batches == [
-            [{"Name": "Newsletter", "Recipients": 100, "UniqueOpened": 40, "CampaignID": "c1"}],
-            [{"Name": "Promo", "Recipients": 50, "UniqueOpened": 10, "CampaignID": "c2"}],
-        ]
-        assert "campaigns/c1/summary.json" in session.urls[1]
-        assert "campaigns/c2/summary.json" in session.urls[2]
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [CampaignMonitorResumeConfig(campaign_id="c2", page=1)]
-
-    def test_fan_out_resumes_into_correct_campaign(self) -> None:
-        manager = _manager(can_resume=True, state=CampaignMonitorResumeConfig(campaign_id="c2", page=1))
-        responses = [
-            _make_response([{"CampaignID": "c1"}, {"CampaignID": "c2"}]),
-            _make_response({"Results": [{"EmailAddress": "b@x.com"}], "NumberOfPages": 1, "PageNumber": 1}),  # c2 only
-        ]
-        session, batches = _drive("campaign_opens", responses, manager)
-
-        assert batches == [[{"EmailAddress": "b@x.com", "CampaignID": "c2"}]]
-        assert "campaigns/c2/opens.json" in session.urls[1]
+class TestResumeConfigCompatibility:
+    def test_old_saved_state_still_parses(self) -> None:
+        # ResumableSourceManager._load_json does dataclass(**saved) — state saved by the
+        # pre-framework implementation must keep loading after the migration.
+        state = CampaignMonitorResumeConfig(**{"list_id": "l1", "campaign_id": None, "page": 3})
+        assert state.list_id == "l1"
+        assert state.campaign_id is None
+        assert state.page == 3
+        assert state.fanout_state is None
 
 
 class TestCampaignMonitorSourceResponse:
     @pytest.mark.parametrize("endpoint", list(CAMPAIGN_MONITOR_ENDPOINTS.keys()))
     def test_source_response_primary_keys_match_settings(self, endpoint: str) -> None:
-        response = campaign_monitor_source(
-            api_key="test-key",
-            client_id="client-abc",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
+        response = _source(endpoint)
 
         config = CAMPAIGN_MONITOR_ENDPOINTS[endpoint]
         assert response.name == endpoint
@@ -291,13 +442,7 @@ class TestCampaignMonitorSourceResponse:
         ],
     )
     def test_source_response_partition_keys(self, endpoint: str, expected_partition_key: str | None) -> None:
-        response = campaign_monitor_source(
-            api_key="test-key",
-            client_id="client-abc",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
+        response = _source(endpoint)
 
         if expected_partition_key is None:
             assert response.partition_keys is None

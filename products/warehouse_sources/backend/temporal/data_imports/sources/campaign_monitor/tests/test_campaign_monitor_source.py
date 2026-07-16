@@ -125,6 +125,7 @@ class TestCampaignMonitorSource:
             api_key="test-key",
             client_id="client-abc",
             endpoint="campaigns",
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=manager,
         )
