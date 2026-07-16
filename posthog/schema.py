@@ -899,6 +899,23 @@ class ConditionalFormattingRule(BaseModel):
     templateId: str
 
 
+class ConversionGoalWarning(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    message: str = Field(
+        ...,
+        description=(
+            "Human-readable warning shown to the user, e.g. a conversion goal skipped"
+            " because its table is missing columns"
+        ),
+    )
+    type: Literal["conversion_goal"] = Field(
+        default="conversion_goal",
+        description="Tells warning kinds apart in the shared `warnings` list",
+    )
+
+
 class CustomEventConversionGoal(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -11202,17 +11219,13 @@ class CachedMarketingAnalyticsAggregatedQueryResponse(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | ConversionGoalWarning] | None = Field(
         default=None,
         description=(
-            "Warnings about data warehouse sources referenced by the query whose"
-            " latest sync failed, is paused, hit a billing limit, or is otherwise"
-            " stale. Results may not reflect current source data. Accumulated"
-            " across every HogQL execution that contributes to this response — so"
-            " insights backed by warehouse tables (Trends, Funnels, etc.) receive"
-            " the same warnings as raw HogQL queries. Also carries access control"
-            " warnings when a system-table query filters out objects the user can't"
-            " access."
+            "Data warehouse and access-control warnings, plus non-fatal conversion goal"
+            " warnings (e.g. a goal skipped because its table is missing columns)."
+            " Skipped-goal messages live here rather than in `error`, so the CSV"
+            " exporter treats them as soft and still exports the computed rows."
         ),
     )
 
@@ -11262,17 +11275,13 @@ class CachedMarketingAnalyticsTableQueryResponse(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = None
-    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | ConversionGoalWarning] | None = Field(
         default=None,
         description=(
-            "Warnings about data warehouse sources referenced by the query whose"
-            " latest sync failed, is paused, hit a billing limit, or is otherwise"
-            " stale. Results may not reflect current source data. Accumulated"
-            " across every HogQL execution that contributes to this response — so"
-            " insights backed by warehouse tables (Trends, Funnels, etc.) receive"
-            " the same warnings as raw HogQL queries. Also carries access control"
-            " warnings when a system-table query filters out objects the user can't"
-            " access."
+            "Data warehouse and access-control warnings, plus non-fatal conversion goal"
+            " warnings (e.g. a goal skipped because its table is missing columns)."
+            " Skipped-goal messages live here rather than in `error`, so the CSV"
+            " exporter treats them as soft and still exports the computed rows."
         ),
     )
 
@@ -11376,17 +11385,13 @@ class CachedNonIntegratedConversionsTableQueryResponse(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = None
-    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | ConversionGoalWarning] | None = Field(
         default=None,
         description=(
-            "Warnings about data warehouse sources referenced by the query whose"
-            " latest sync failed, is paused, hit a billing limit, or is otherwise"
-            " stale. Results may not reflect current source data. Accumulated"
-            " across every HogQL execution that contributes to this response — so"
-            " insights backed by warehouse tables (Trends, Funnels, etc.) receive"
-            " the same warnings as raw HogQL queries. Also carries access control"
-            " warnings when a system-table query filters out objects the user can't"
-            " access."
+            "Data warehouse and access-control warnings, plus non-fatal conversion goal"
+            " warnings (e.g. a goal skipped because its table is missing columns)."
+            " Skipped-goal messages live here rather than in `error`, so the CSV"
+            " exporter treats them as soft and still exports the computed rows."
         ),
     )
 
@@ -14663,17 +14668,13 @@ class Response18(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = None
-    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | ConversionGoalWarning] | None = Field(
         default=None,
         description=(
-            "Warnings about data warehouse sources referenced by the query whose"
-            " latest sync failed, is paused, hit a billing limit, or is otherwise"
-            " stale. Results may not reflect current source data. Accumulated"
-            " across every HogQL execution that contributes to this response — so"
-            " insights backed by warehouse tables (Trends, Funnels, etc.) receive"
-            " the same warnings as raw HogQL queries. Also carries access control"
-            " warnings when a system-table query filters out objects the user can't"
-            " access."
+            "Data warehouse and access-control warnings, plus non-fatal conversion goal"
+            " warnings (e.g. a goal skipped because its table is missing columns)."
+            " Skipped-goal messages live here rather than in `error`, so the CSV"
+            " exporter treats them as soft and still exports the computed rows."
         ),
     )
 
@@ -14707,17 +14708,13 @@ class Response19(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | ConversionGoalWarning] | None = Field(
         default=None,
         description=(
-            "Warnings about data warehouse sources referenced by the query whose"
-            " latest sync failed, is paused, hit a billing limit, or is otherwise"
-            " stale. Results may not reflect current source data. Accumulated"
-            " across every HogQL execution that contributes to this response — so"
-            " insights backed by warehouse tables (Trends, Funnels, etc.) receive"
-            " the same warnings as raw HogQL queries. Also carries access control"
-            " warnings when a system-table query filters out objects the user can't"
-            " access."
+            "Data warehouse and access-control warnings, plus non-fatal conversion goal"
+            " warnings (e.g. a goal skipped because its table is missing columns)."
+            " Skipped-goal messages live here rather than in `error`, so the CSV"
+            " exporter treats them as soft and still exports the computed rows."
         ),
     )
 
@@ -14756,17 +14753,13 @@ class Response20(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = None
-    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | ConversionGoalWarning] | None = Field(
         default=None,
         description=(
-            "Warnings about data warehouse sources referenced by the query whose"
-            " latest sync failed, is paused, hit a billing limit, or is otherwise"
-            " stale. Results may not reflect current source data. Accumulated"
-            " across every HogQL execution that contributes to this response — so"
-            " insights backed by warehouse tables (Trends, Funnels, etc.) receive"
-            " the same warnings as raw HogQL queries. Also carries access control"
-            " warnings when a system-table query filters out objects the user can't"
-            " access."
+            "Data warehouse and access-control warnings, plus non-fatal conversion goal"
+            " warnings (e.g. a goal skipped because its table is missing columns)."
+            " Skipped-goal messages live here rather than in `error`, so the CSV"
+            " exporter treats them as soft and still exports the computed rows."
         ),
     )
 
@@ -17400,17 +17393,13 @@ class MarketingAnalyticsAggregatedQueryResponse(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | ConversionGoalWarning] | None = Field(
         default=None,
         description=(
-            "Warnings about data warehouse sources referenced by the query whose"
-            " latest sync failed, is paused, hit a billing limit, or is otherwise"
-            " stale. Results may not reflect current source data. Accumulated"
-            " across every HogQL execution that contributes to this response — so"
-            " insights backed by warehouse tables (Trends, Funnels, etc.) receive"
-            " the same warnings as raw HogQL queries. Also carries access control"
-            " warnings when a system-table query filters out objects the user can't"
-            " access."
+            "Data warehouse and access-control warnings, plus non-fatal conversion goal"
+            " warnings (e.g. a goal skipped because its table is missing columns)."
+            " Skipped-goal messages live here rather than in `error`, so the CSV"
+            " exporter treats them as soft and still exports the computed rows."
         ),
     )
 
@@ -17462,17 +17451,13 @@ class MarketingAnalyticsTableQueryResponse(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = None
-    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | ConversionGoalWarning] | None = Field(
         default=None,
         description=(
-            "Warnings about data warehouse sources referenced by the query whose"
-            " latest sync failed, is paused, hit a billing limit, or is otherwise"
-            " stale. Results may not reflect current source data. Accumulated"
-            " across every HogQL execution that contributes to this response — so"
-            " insights backed by warehouse tables (Trends, Funnels, etc.) receive"
-            " the same warnings as raw HogQL queries. Also carries access control"
-            " warnings when a system-table query filters out objects the user can't"
-            " access."
+            "Data warehouse and access-control warnings, plus non-fatal conversion goal"
+            " warnings (e.g. a goal skipped because its table is missing columns)."
+            " Skipped-goal messages live here rather than in `error`, so the CSV"
+            " exporter treats them as soft and still exports the computed rows."
         ),
     )
 
@@ -17610,17 +17595,13 @@ class NonIntegratedConversionsTableQueryResponse(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = None
-    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | ConversionGoalWarning] | None = Field(
         default=None,
         description=(
-            "Warnings about data warehouse sources referenced by the query whose"
-            " latest sync failed, is paused, hit a billing limit, or is otherwise"
-            " stale. Results may not reflect current source data. Accumulated"
-            " across every HogQL execution that contributes to this response — so"
-            " insights backed by warehouse tables (Trends, Funnels, etc.) receive"
-            " the same warnings as raw HogQL queries. Also carries access control"
-            " warnings when a system-table query filters out objects the user can't"
-            " access."
+            "Data warehouse and access-control warnings, plus non-fatal conversion goal"
+            " warnings (e.g. a goal skipped because its table is missing columns)."
+            " Skipped-goal messages live here rather than in `error`, so the CSV"
+            " exporter treats them as soft and still exports the computed rows."
         ),
     )
 
@@ -18991,17 +18972,13 @@ class QueryResponseAlternative36(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = None
-    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | ConversionGoalWarning] | None = Field(
         default=None,
         description=(
-            "Warnings about data warehouse sources referenced by the query whose"
-            " latest sync failed, is paused, hit a billing limit, or is otherwise"
-            " stale. Results may not reflect current source data. Accumulated"
-            " across every HogQL execution that contributes to this response — so"
-            " insights backed by warehouse tables (Trends, Funnels, etc.) receive"
-            " the same warnings as raw HogQL queries. Also carries access control"
-            " warnings when a system-table query filters out objects the user can't"
-            " access."
+            "Data warehouse and access-control warnings, plus non-fatal conversion goal"
+            " warnings (e.g. a goal skipped because its table is missing columns)."
+            " Skipped-goal messages live here rather than in `error`, so the CSV"
+            " exporter treats them as soft and still exports the computed rows."
         ),
     )
 
@@ -19035,17 +19012,13 @@ class QueryResponseAlternative37(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | ConversionGoalWarning] | None = Field(
         default=None,
         description=(
-            "Warnings about data warehouse sources referenced by the query whose"
-            " latest sync failed, is paused, hit a billing limit, or is otherwise"
-            " stale. Results may not reflect current source data. Accumulated"
-            " across every HogQL execution that contributes to this response — so"
-            " insights backed by warehouse tables (Trends, Funnels, etc.) receive"
-            " the same warnings as raw HogQL queries. Also carries access control"
-            " warnings when a system-table query filters out objects the user can't"
-            " access."
+            "Data warehouse and access-control warnings, plus non-fatal conversion goal"
+            " warnings (e.g. a goal skipped because its table is missing columns)."
+            " Skipped-goal messages live here rather than in `error`, so the CSV"
+            " exporter treats them as soft and still exports the computed rows."
         ),
     )
 
@@ -19084,17 +19057,13 @@ class QueryResponseAlternative38(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = None
-    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | ConversionGoalWarning] | None = Field(
         default=None,
         description=(
-            "Warnings about data warehouse sources referenced by the query whose"
-            " latest sync failed, is paused, hit a billing limit, or is otherwise"
-            " stale. Results may not reflect current source data. Accumulated"
-            " across every HogQL execution that contributes to this response — so"
-            " insights backed by warehouse tables (Trends, Funnels, etc.) receive"
-            " the same warnings as raw HogQL queries. Also carries access control"
-            " warnings when a system-table query filters out objects the user can't"
-            " access."
+            "Data warehouse and access-control warnings, plus non-fatal conversion goal"
+            " warnings (e.g. a goal skipped because its table is missing columns)."
+            " Skipped-goal messages live here rather than in `error`, so the CSV"
+            " exporter treats them as soft and still exports the computed rows."
         ),
     )
 
@@ -19939,17 +19908,13 @@ class QueryResponseAlternative57(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = None
-    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | ConversionGoalWarning] | None = Field(
         default=None,
         description=(
-            "Warnings about data warehouse sources referenced by the query whose"
-            " latest sync failed, is paused, hit a billing limit, or is otherwise"
-            " stale. Results may not reflect current source data. Accumulated"
-            " across every HogQL execution that contributes to this response — so"
-            " insights backed by warehouse tables (Trends, Funnels, etc.) receive"
-            " the same warnings as raw HogQL queries. Also carries access control"
-            " warnings when a system-table query filters out objects the user can't"
-            " access."
+            "Data warehouse and access-control warnings, plus non-fatal conversion goal"
+            " warnings (e.g. a goal skipped because its table is missing columns)."
+            " Skipped-goal messages live here rather than in `error`, so the CSV"
+            " exporter treats them as soft and still exports the computed rows."
         ),
     )
 
@@ -19983,17 +19948,13 @@ class QueryResponseAlternative58(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | ConversionGoalWarning] | None = Field(
         default=None,
         description=(
-            "Warnings about data warehouse sources referenced by the query whose"
-            " latest sync failed, is paused, hit a billing limit, or is otherwise"
-            " stale. Results may not reflect current source data. Accumulated"
-            " across every HogQL execution that contributes to this response — so"
-            " insights backed by warehouse tables (Trends, Funnels, etc.) receive"
-            " the same warnings as raw HogQL queries. Also carries access control"
-            " warnings when a system-table query filters out objects the user can't"
-            " access."
+            "Data warehouse and access-control warnings, plus non-fatal conversion goal"
+            " warnings (e.g. a goal skipped because its table is missing columns)."
+            " Skipped-goal messages live here rather than in `error`, so the CSV"
+            " exporter treats them as soft and still exports the computed rows."
         ),
     )
 
@@ -20032,17 +19993,13 @@ class QueryResponseAlternative59(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = None
-    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | ConversionGoalWarning] | None = Field(
         default=None,
         description=(
-            "Warnings about data warehouse sources referenced by the query whose"
-            " latest sync failed, is paused, hit a billing limit, or is otherwise"
-            " stale. Results may not reflect current source data. Accumulated"
-            " across every HogQL execution that contributes to this response — so"
-            " insights backed by warehouse tables (Trends, Funnels, etc.) receive"
-            " the same warnings as raw HogQL queries. Also carries access control"
-            " warnings when a system-table query filters out objects the user can't"
-            " access."
+            "Data warehouse and access-control warnings, plus non-fatal conversion goal"
+            " warnings (e.g. a goal skipped because its table is missing columns)."
+            " Skipped-goal messages live here rather than in `error`, so the CSV"
+            " exporter treats them as soft and still exports the computed rows."
         ),
     )
 

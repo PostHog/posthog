@@ -235,6 +235,43 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
         assert result.hogql is not None
         assert result.modifiers is not None
 
+    def test_skipped_conversion_goal_surfaces_as_warning_not_error(self):
+        # A misconfigured DW conversion goal is skipped, not fatal: the query still runs and returns
+        # rows. The skip message must land in `warnings`, never `error`, because the CSV exporter aborts
+        # the whole export on any non-empty `error`, discarding the rows that computed fine.
+        DataWarehouseTable.raw_objects.create(
+            name="dw_conversions",
+            team=self.team,
+            columns={
+                "id": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True},
+                "timestamp": {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime", "valid": True},
+            },
+            format="Parquet",
+            url_pattern="https://example.com/data",
+        )
+        self.team.marketing_analytics_config.conversion_goals = [
+            {
+                "kind": NodeKind.DATA_WAREHOUSE_NODE,
+                "table_name": "dw_conversions",
+                "id": "dw_conversions",
+                "id_field": "id",
+                "distinct_id_field": "distinct_id",
+                "timestamp_field": "timestamp",
+                "conversion_goal_id": "dw_goal",
+                "conversion_goal_name": "Purchases",
+                "math": BaseMathType.TOTAL,
+                "schema_map": {"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+            }
+        ]
+        self.team.save()
+
+        result = self._create_query_runner().calculate()
+
+        assert result.error is None
+        assert result.warnings is not None
+        conversion_goal_messages = [w.message for w in result.warnings if getattr(w, "type", None) == "conversion_goal"]
+        assert any("Purchases" in message for message in conversion_goal_messages)
+
     def test_dw_goal_with_missing_table_filtered_out(self):
         """DataWarehouseNode goals referencing non-existent tables are filtered out with a warning"""
         dw_goal = ConversionGoalFilter3(

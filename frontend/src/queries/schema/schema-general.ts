@@ -548,6 +548,13 @@ export interface AccessControlFilterWarning {
     message: string
 }
 
+export interface ConversionGoalWarning {
+    /** Tells warning kinds apart in the shared `warnings` list */
+    type: 'conversion_goal'
+    /** Human-readable warning shown to the user, e.g. a conversion goal skipped because its table is missing columns */
+    message: string
+}
+
 export interface HogQLQueryResponse<T = any[]> extends AnalyticsQueryResponseBase {
     results: T
     /** Input query string */
@@ -6244,7 +6251,7 @@ export interface MarketingAnalyticsItem extends WebAnalyticsItemBase<number | st
     hasComparison?: boolean
 }
 
-export interface MarketingAnalyticsTableQueryResponse extends AnalyticsQueryResponseBase {
+export interface MarketingAnalyticsTableQueryResponse extends Omit<AnalyticsQueryResponseBase, 'warnings'> {
     results: MarketingAnalyticsItem[][]
     types?: unknown[]
     columns?: unknown[]
@@ -6253,14 +6260,18 @@ export interface MarketingAnalyticsTableQueryResponse extends AnalyticsQueryResp
     hasMore?: boolean
     limit?: integer
     offset?: integer
+    /** Data warehouse and access-control warnings, plus non-fatal conversion goal warnings (e.g. a goal skipped because its table is missing columns). Skipped-goal messages live here rather than in `error`, so the CSV exporter treats them as soft and still exports the computed rows. */
+    warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | ConversionGoalWarning)[]
 }
 
 export type CachedMarketingAnalyticsTableQueryResponse = CachedQueryResponse<MarketingAnalyticsTableQueryResponse>
 
-export interface MarketingAnalyticsAggregatedQueryResponse extends AnalyticsQueryResponseBase {
+export interface MarketingAnalyticsAggregatedQueryResponse extends Omit<AnalyticsQueryResponseBase, 'warnings'> {
     results: Record<string, MarketingAnalyticsItem>
     hogql?: string
     samplingRate?: SamplingRate
+    /** Data warehouse and access-control warnings, plus non-fatal conversion goal warnings (e.g. a goal skipped because its table is missing columns). Skipped-goal messages live here rather than in `error`, so the CSV exporter treats them as soft and still exports the computed rows. */
+    warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | ConversionGoalWarning)[]
 }
 
 export type CachedMarketingAnalyticsAggregatedQueryResponse =
@@ -6308,7 +6319,7 @@ export interface NonIntegratedConversionsTableQuery extends Omit<
     draftConversionGoal?: ConversionGoalFilter | null
 }
 
-export interface NonIntegratedConversionsTableQueryResponse extends AnalyticsQueryResponseBase {
+export interface NonIntegratedConversionsTableQueryResponse extends Omit<AnalyticsQueryResponseBase, 'warnings'> {
     results: MarketingAnalyticsItem[][]
     types?: unknown[]
     columns?: unknown[]
@@ -6317,6 +6328,8 @@ export interface NonIntegratedConversionsTableQueryResponse extends AnalyticsQue
     hasMore?: boolean
     limit?: integer
     offset?: integer
+    /** Data warehouse and access-control warnings, plus non-fatal conversion goal warnings (e.g. a goal skipped because its table is missing columns). Skipped-goal messages live here rather than in `error`, so the CSV exporter treats them as soft and still exports the computed rows. */
+    warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | ConversionGoalWarning)[]
 }
 
 export type CachedNonIntegratedConversionsTableQueryResponse =

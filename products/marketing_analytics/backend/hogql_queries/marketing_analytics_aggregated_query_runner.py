@@ -179,7 +179,7 @@ class MarketingAnalyticsAggregatedQueryRunner(
             hogql=response.hogql,
             timings=response.timings,
             modifiers=self.modifiers,
-            error="; ".join(self._conversion_goal_warnings) if self._conversion_goal_warnings else None,
+            warnings=self._build_response_warnings(getattr(response, "warnings", None)),
         )
 
     def calculate_without_compare(self) -> ast.SelectQuery:
