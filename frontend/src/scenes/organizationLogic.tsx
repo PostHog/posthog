@@ -333,9 +333,12 @@ export const organizationLogic = kea<organizationLogicType>([
             }
         },
         locationChanged: ({ pathname }) => {
-            // Redirect to pending deletion page if organization deletion is in progress
-            if (values.currentOrganization?.is_pending_deletion && pathname !== urls.organizationPendingDeletion()) {
-                router.actions.replace(urls.organizationPendingDeletion())
+            // Pending deletion takes priority: keep these guards mutually exclusive so a deactivated
+            // org that's also pending deletion doesn't ping-pong between the two pages (stack overflow).
+            if (values.currentOrganization?.is_pending_deletion) {
+                if (pathname !== urls.organizationPendingDeletion()) {
+                    router.actions.replace(urls.organizationPendingDeletion())
+                }
                 return
             }
             // Redirect to deactivated page if organization is inactive (client-side navigation)
