@@ -382,7 +382,8 @@ class AshbySourceConfig(config.Config):
 
 @config.config
 class AsknicelySourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_key: str
 
 
 @config.config
