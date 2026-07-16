@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from functools import cache
@@ -7,7 +7,10 @@ from time import perf_counter
 from types import UnionType
 from typing import Any, Generic, NamedTuple, Optional, Protocol, TypeGuard, TypeVar, Union, cast, get_args, get_origin
 
+from django.db import OperationalError
+
 import orjson
+import structlog
 import posthoganalytics
 from prometheus_client import Counter, Histogram
 from pydantic import BaseModel, ConfigDict
@@ -133,6 +136,8 @@ from posthog.slo.context import JsonValue, SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation, SloOutcome
 from posthog.synthetic_user import SyntheticUser
 from posthog.utils import generate_cache_key, get_from_dict_or_attr, to_json
+
+logger = structlog.get_logger(__name__)
 
 QUERY_EXECUTION_TOTAL = Counter(
     "posthog_query_execution_total",
@@ -2085,11 +2090,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             "query": query,
             "team_id": self.team.pk,
             "hogql_modifiers": to_dict(self.modifiers),
-            "products_modifiers": {
-                "revenue_analytics": self.team.revenue_analytics_config.to_cache_key_dict(),
-                "marketing_analytics": self.team.marketing_analytics_config.to_cache_key_dict(),
-                "customer_analytics": self.team.customer_analytics_config.to_cache_key_dict(),
-            },
+            "products_modifiers": self._products_modifiers_for_cache(),
             "limit_context": self._limit_context_aliased_for_cache,
             "timezone": self.team.timezone,
             "week_start_day": self.team.week_start_day or WeekStartDay.SUNDAY,
@@ -2110,6 +2111,24 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             payload["events_retention_floor_months"] = retention_months
 
         return payload
+
+    def _products_modifiers_for_cache(self) -> dict:
+        # The team-extension configs are loaded lazily and can hit the DB. Under connection-pool
+        # saturation these reads can time out (OperationalError); degrade to a stable "unavailable"
+        # marker instead of 500-ing the whole query. Failures then share one cache namespace,
+        # separate from the successfully-loaded key.
+        def read(name: str, fn: Callable[[], Any]) -> dict | str:
+            try:
+                return fn().to_cache_key_dict()
+            except OperationalError:
+                logger.warning("Failed to read %s for cache key, degrading gracefully", name, exc_info=True)
+                return "unavailable"
+
+        return {
+            "revenue_analytics": read("revenue_analytics_config", lambda: self.team.revenue_analytics_config),
+            "marketing_analytics": read("marketing_analytics_config", lambda: self.team.marketing_analytics_config),
+            "customer_analytics": read("customer_analytics_config", lambda: self.team.customer_analytics_config),
+        }
 
     def _get_property_access_restrictions(self) -> list[tuple[str, int]] | None:
         """Returns a sorted list of restricted (property_name, type) pairs for the current user, or None if no restrictions.
