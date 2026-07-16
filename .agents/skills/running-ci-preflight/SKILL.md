@@ -24,7 +24,7 @@ hogli ci:preflight --fix
 ```
 
 1. Run with `--fix` — it formats, lints, and auto-fixes what is safe.
-2. Read each line: `✓ pass`, `✗ fail`, `→ advisory` (do it yourself), `· skipped` (capability absent). Python changes trigger an advisory repo-wide mypy run, the same check CI blocks on; `ty` already runs earlier through lint-staged.
+2. Read each line: `✓ pass`, `✗ fail`, `→ advisory` (do it yourself), `· skipped` (capability absent).
 3. Resolve every `✗ fail` — these are what `--fix` could not (real lint error, broken lockfile, migration conflict). These block the push.
 4. Act on every `→ advisory` — e.g. `openapi` advisory → run `hogli build:openapi` and commit the drift; `staleness` advisory → `git merge origin/master`. Advisories never block, but ignoring them ships the failure to CI. **Resolve them before pushing, including drift you didn't introduce — you own the branch state you push.**
 5. Re-run until clean, then push.
@@ -32,7 +32,7 @@ hogli ci:preflight --fix
 ## Notes
 
 - **Strict = failures only.** `--strict` (what the hook runs) exits non-zero only on `✗ fail` — advisories are unverifiable-locally classes, so they warn without blocking. A clean exit means "nothing left to fix", not "CI will pass" — CI stays the authoritative gate. Non-blocking is a mechanism limit, not permission to skip.
-- **Mypy is advisory.** Type errors are real unpushed CI failures (CI runs the identical repo-wide `mypy --cache-fine-grained .` and blocks on it), but they never reject a push: a local venv that has drifted from `uv.lock` produces errors CI won't, so blocking would false-block. The check only runs when `uv sync --check` passes; otherwise it's `· skipped (venv out of sync with uv.lock)` — run `uv sync` to re-enable it. First run per checkout builds `.mypy_cache` (under a minute on Apple Silicon; ~10-25s incremental after).
+- **`type-check` is a nudge, not a run.** Only a repo-wide mypy run matches CI (mypy follows imports, so a changed-file subset misses reverse-dependency breakage), and that costs minutes cold — too much to tax every push with. So preflight names the command instead of running it: judge whether your change is type-risky and run it yourself. CI blocks on the same command, so a type error you skip here comes back as a full re-run.
 - **Staleness is risk-based.** It fires when merging master _now_ would actually break something — textual merge conflicts (computed via `git merge-tree`, working tree untouched), migrations added on both sides, generated-file inputs changed on both sides, or CI workflows changed on master — plus a behind/age backstop, aggressive by default (5 commits / 2 days; env-tunable via `HOGLI_PREFLIGHT_STALE_COMMITS`/`HOGLI_PREFLIGHT_STALE_DAYS`) so we over-warn to start and tune down from telemetry. Merge master in when it fires. Advisory only, never auto-merged.
 - **`· skipped (needs stack/node)`** is expected on a bare checkout or sandbox. Start the stack with `hogli start` to run those, or let CI cover them. No hooks in your environment (no `node_modules`)? Run the loop yourself before pushing.
 - **Flags.** `--against <ref>` diffs against an explicit base; `--json` emits a machine-readable summary.

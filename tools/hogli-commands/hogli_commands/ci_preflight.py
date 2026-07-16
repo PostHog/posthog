@@ -59,11 +59,9 @@ class DiffCheck:
     triggers: list[str]  # fnmatch globs against changed paths (`*` spans `/`, as in build.py)
     verify: list[str] | None  # advisory command; None = guidance only (no runnable local check)
     fix: list[str] | None = None  # remediation for --fix
+    advice: str | None = None  # nudge-only: preflight never runs this check, it just says what to run
     requires: tuple[Requirement, ...] = ()  # capabilities the check needs, else it skips
     takes_files: bool = False  # append matched files to the command
-    advisory: bool = False  # failures predict a CI failure but must never block the push
-    gate: tuple[list[str], str] | None = None  # (precondition command, skip reason when it exits non-zero)
-    env: dict[str, str] | None = None  # extra environment for the command
     matched: list[str] = field(default_factory=list)
 
 
@@ -106,6 +104,16 @@ DIFF_CHECKS: list[DiffCheck] = [
         takes_files=True,
     ),
     DiffCheck(
+        key="type-check",
+        label="Python type checking (mypy)",
+        triggers=["*.py", "*.pyi"],
+        # A nudge, not a run: mypy is only meaningful repo-wide (it follows imports, so a
+        # changed-file subset both blames files outside the diff and misses reverse-dependency
+        # breakage), and that costs minutes cold. Naming the command lets the agent judge.
+        verify=None,
+        advice="a type error costs a full CI re-run — consider `uv run mypy --cache-fine-grained .` (what CI runs)",
+    ),
+    DiffCheck(
         key="markdown-format",
         label="markdown formatting (oxfmt)",
         triggers=["*.md", "*.mdx"],
@@ -129,19 +137,6 @@ DIFF_CHECKS: list[DiffCheck] = [
         label="workflow-convention failure in .github/workflows",
         triggers=[".github/workflows/*.yml", ".github/workflows/*.yaml"],
         verify=["hogli", "lint:workflows"],
-    ),
-    DiffCheck(
-        key="type-check",
-        label="Python type checking (mypy)",
-        triggers=["*.py", "*.pyi", "pyproject.toml", "uv.lock"],
-        # Exactly what CI runs. Explicit file lists diverge from CI: mypy follows imports
-        # (blaming files outside the diff), misses reverse dependencies, and bypasses
-        # [tool.mypy].exclude. Advisory because a drifted local venv produces errors CI
-        # won't (the gate catches most drift, not e.g. darwin-vs-linux typeshed).
-        verify=["uv", "run", "--no-sync", "mypy", "--cache-fine-grained", "."],
-        env={"MYPY_NUM_WORKERS": str(min(8, os.cpu_count() or 1))},
-        advisory=True,
-        gate=(["uv", "sync", "--check"], "venv out of sync with uv.lock (run `uv sync`)"),
     ),
     DiffCheck(
         key="openapi",
@@ -197,6 +192,9 @@ _CHECK_TIMEOUT_SECONDS = 600
 
 
 def _run_diff_check(chk: DiffCheck, do_fix: bool) -> tuple[Status, str]:
+    if chk.advice is not None:
+        # Nudge-only: nothing to run, nothing to auto-fix — the advisory *is* the check.
+        return "advisory", chk.advice
     unmet = _unmet(chk)
     if do_fix and chk.fix is not None and not unmet:
         cmd = list(chk.fix)
@@ -217,29 +215,13 @@ def _run_diff_check(chk: DiffCheck, do_fix: bool) -> tuple[Status, str]:
         cmd += present
     if shutil.which(cmd[0]) is None:
         return "skipped", f"{cmd[0]} not found"
-    if chk.gate is not None:
-        gate_cmd, gate_skip_reason = chk.gate
-        try:
-            gate = subprocess.run(gate_cmd, cwd=REPO_ROOT, capture_output=True, text=True, timeout=60)
-        except subprocess.TimeoutExpired:
-            return "skipped", f"`{' '.join(gate_cmd)}` timed out"
-        if gate.returncode != 0:
-            return "skipped", gate_skip_reason
-    env = {**os.environ, **chk.env} if chk.env else None
     try:
-        result = subprocess.run(
-            cmd, cwd=REPO_ROOT, env=env, capture_output=True, text=True, timeout=_CHECK_TIMEOUT_SECONDS
-        )
+        result = subprocess.run(cmd, cwd=REPO_ROOT, capture_output=True, text=True, timeout=_CHECK_TIMEOUT_SECONDS)
     except subprocess.TimeoutExpired:
-        timeout_msg = f"`{cmd[0]}` timed out after {_CHECK_TIMEOUT_SECONDS}s"
-        # An advisory check that can't finish has nothing to advise on; CI stays the gate.
-        return ("skipped", timeout_msg) if chk.advisory else ("fail", timeout_msg)
+        return "fail", f"`{cmd[0]}` timed out after {_CHECK_TIMEOUT_SECONDS}s"
     if result.returncode == 0:
         return "pass", "fixed" if do_fix else "ok"
     lines = (result.stdout or result.stderr).strip().splitlines()
-    if chk.advisory:
-        # Tail, not head: mypy prints per-worker preamble first and the error summary last.
-        return "advisory", " · ".join(lines[-3:]) if lines else f"exit {result.returncode}"
     return "fail", " · ".join(lines[:3]) if lines else f"exit {result.returncode}"
 
 
@@ -487,7 +469,9 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
     for chk in triggered:
         status, detail = _run_diff_check(chk, do_fix)
         failures += status == "fail"
-        advisories += status == "advisory"
+        # Nudges say "consider this", not "this is drift" — counting them would cry wolf in
+        # the footer on every matching push and cost the detected advisories their weight.
+        advisories += status == "advisory" and chk.advice is None
         results.append({"check": chk.key, "status": status, "files": len(chk.matched), "detail": detail})
         if not as_json:
             click.secho(f"   {_ICON[status]} [{chk.key}] {chk.label}", fg=_COLOR[status])

@@ -27,7 +27,7 @@ uv run ty check posthog ee         # Check directories
 - More mature and comprehensive
 - Slower but thorough
 - Final source of truth (runs in CI and blocks on errors)
-- Runs locally as a non-blocking `hogli ci:preflight` advisory (repo-wide, skipped unless your venv matches `uv.lock`)
+- Recommended for local deep checks
 
 This trial helps us evaluate whether ty should become a blocking check in the future.
 

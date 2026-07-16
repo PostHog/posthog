@@ -35,7 +35,7 @@ class TestStrictAndFixContracts:
     @patch("hogli_commands.ci_preflight._emit_telemetry")
     @patch("hogli_commands.ci_preflight._staleness", return_value=("pass", "even with master", {}))
     @patch("hogli_commands.ci_preflight._fetch_master")
-    @patch("hogli_commands.ci_preflight.changed_files", return_value=["products/example/mcp/tools.yaml"])
+    @patch("hogli_commands.ci_preflight.changed_files", return_value=["posthog/api/does_not_exist.py"])
     def test_strict_never_blocks_on_advisory(
         self, mock_changed: MagicMock, mock_fetch: MagicMock, mock_stale: MagicMock, mock_emit: MagicMock
     ) -> None:
@@ -66,7 +66,7 @@ class TestStrictAndFixContracts:
     @patch("hogli_commands.ci_preflight._capability_met", return_value=False)
     @patch("hogli_commands.ci_preflight._staleness", return_value=("pass", "even with master", {}))
     @patch("hogli_commands.ci_preflight._fetch_master")
-    @patch("hogli_commands.ci_preflight.changed_files", return_value=["products/example/mcp/tools.yaml"])
+    @patch("hogli_commands.ci_preflight.changed_files", return_value=["posthog/api/does_not_exist.py"])
     def test_fix_without_stack_still_advises_openapi(
         self,
         mock_changed: MagicMock,
@@ -82,62 +82,21 @@ class TestStrictAndFixContracts:
     @patch("hogli_commands.ci_preflight._emit_telemetry")
     @patch("hogli_commands.ci_preflight._staleness", return_value=("pass", "even with master", {}))
     @patch("hogli_commands.ci_preflight._fetch_master")
-    @patch("hogli_commands.ci_preflight.shutil.which", return_value="/usr/bin/tool")
     @patch("hogli_commands.ci_preflight.subprocess.run")
-    @patch("hogli_commands.ci_preflight.changed_files", return_value=["posthog/api/team.py"])
-    def test_mypy_errors_are_advisory_and_never_block_strict(
+    @patch("hogli_commands.ci_preflight.changed_files", return_value=["posthog/api/does_not_exist.py"])
+    def test_type_check_names_the_mypy_command_without_running_it(
         self,
         mock_changed: MagicMock,
         mock_run: MagicMock,
-        mock_which: MagicMock,
         mock_fetch: MagicMock,
         mock_stale: MagicMock,
         mock_emit: MagicMock,
     ) -> None:
-        def fake_run(cmd: list[str], **kwargs: object) -> MagicMock:
-            if "mypy" in cmd:
-                return MagicMock(
-                    returncode=1,
-                    stdout="posthog/api/team.py:1: error: bad type\nFound 1 error in 1 file (checked 14008 source files)\n",
-                    stderr="",
-                )
-            return MagicMock(returncode=0, stdout="", stderr="")
-
-        mock_run.side_effect = fake_run
-
         result = runner.invoke(cli, ["ci:preflight", "--strict"])
 
         assert result.exit_code == 0
-        assert "Found 1 error" in result.output
-        mypy_calls = [call.args[0] for call in mock_run.call_args_list if "mypy" in call.args[0]]
-        assert mypy_calls == [["uv", "run", "--no-sync", "mypy", "--cache-fine-grained", "."]]
-
-    @patch("hogli_commands.ci_preflight._emit_telemetry")
-    @patch("hogli_commands.ci_preflight._staleness", return_value=("pass", "even with master", {}))
-    @patch("hogli_commands.ci_preflight._fetch_master")
-    @patch("hogli_commands.ci_preflight.shutil.which", return_value="/usr/bin/tool")
-    @patch("hogli_commands.ci_preflight.subprocess.run")
-    @patch("hogli_commands.ci_preflight.changed_files", return_value=["posthog/api/team.py"])
-    def test_mypy_skipped_when_venv_out_of_sync(
-        self,
-        mock_changed: MagicMock,
-        mock_run: MagicMock,
-        mock_which: MagicMock,
-        mock_fetch: MagicMock,
-        mock_stale: MagicMock,
-        mock_emit: MagicMock,
-    ) -> None:
-        def fake_run(cmd: list[str], **kwargs: object) -> MagicMock:
-            if cmd[:3] == ["uv", "sync", "--check"]:
-                return MagicMock(returncode=1, stdout="", stderr="The environment is outdated\n")
-            return MagicMock(returncode=0, stdout="", stderr="")
-
-        mock_run.side_effect = fake_run
-
-        result = runner.invoke(cli, ["ci:preflight", "--strict"])
-
-        assert result.exit_code == 0
-        assert "venv out of sync with uv.lock" in result.output
+        assert "uv run mypy --cache-fine-grained ." in result.output
+        # Giving this check a `verify` would tax every Python push with a repo-wide run.
         assert not any("mypy" in call.args[0] for call in mock_run.call_args_list)
 
 
