@@ -617,8 +617,12 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
             properties={
                 "$lib": "posthog-js",
                 "$current_url": "https://example.test/checkout",
+                "$exception_level": "error",
+                "$exception_handled": False,
                 "$exception_releases": {"release-id": {"version": "2026.04.24"}},
                 "$cymbal_errors": ["source map unavailable"],
+                "$ai_trace_id": "ai-trace-id",
+                "$ai_span_id": "ai-span-id",
                 "$exception_list": [
                     {
                         "type": "TypeError",
@@ -654,7 +658,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
             data={
                 "issueId": self.issue_id,
                 "dateRange": {"date_from": "-1d", "date_to": "2026-04-25T00:00:00Z"},
-                "include": ["code_variables", "release", "diagnostics"],
+                "include": ["exception", "code_variables", "release", "correlation", "diagnostics"],
             },
             format="json",
         )
@@ -667,7 +671,12 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         variables_frame = variables_properties["$exception_list"][0]["stacktrace"]["frames"][0]
         assert "code_variables" not in stack_frame
         assert variables_frame["code_variables"] == {"order": {"customer": None}}
+        assert variables_properties["$exception_level"] == "error"
+        assert variables_properties["$exception_handled"] is False
         assert variables_properties["$exception_releases"] == {"release-id": {"version": "2026.04.24"}}
         assert variables_properties["$cymbal_errors"] == ["source map unavailable"]
+        assert variables_properties["$ai_trace_id"] == "ai-trace-id"
+        assert variables_properties["$ai_span_id"] == "ai-span-id"
+        assert "$exception_issue_id" not in variables_properties
         assert "$lib" not in variables_properties
         assert "$current_url" not in variables_properties

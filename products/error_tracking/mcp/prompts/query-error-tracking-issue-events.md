@@ -2,7 +2,7 @@ Fetch sampled `$exception` events for one Error tracking issue.
 
 Use this when the user asks for concrete examples, stack traces, code variables, affected URLs, browser/OS/library context, release details, diagnostics, or Session replay links for a specific issue.
 
-Returns sampled events with plural exception fields (`$exception_types`, `$exception_values`), normalized `$exception_list`, `$exception_fingerprint`, `$exception_issue_id`, `$session_id`, `$lib`, browser/OS fields, and `$current_url`.
+Returns sampled events with plural exception fields (`$exception_types`, `$exception_values`), normalized `$exception_list`, `$exception_fingerprint`, `$exception_level`, `$exception_handled`, `$session_id`, AI trace/span IDs, `$lib`, browser/OS fields, and `$current_url`.
 
 # Parameters
 

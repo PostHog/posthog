@@ -49,7 +49,8 @@ EVENT_CONTEXT_PROPERTY_SELECTS = {
         "properties.$exception_values",
         "properties.$exception_list",
         "properties.$exception_fingerprint",
-        "properties.$exception_issue_id",
+        "properties.$exception_level",
+        "properties.$exception_handled",
     ],
     "stacktrace": ["properties.$exception_list"],
     "code_variables": ["properties.$exception_list"],
@@ -68,9 +69,8 @@ EVENT_CONTEXT_PROPERTY_SELECTS = {
     "navigation": ["properties.$current_url", "properties.$screen_name", "properties.$referrer"],
     "correlation": [
         "properties.$session_id",
-        "properties.$trace_id",
         "properties.$ai_trace_id",
-        "properties.$span_id",
+        "properties.$ai_span_id",
     ],
     "diagnostics": ["properties.$cymbal_errors"],
 }
@@ -314,7 +314,7 @@ def normalize_error_property(
 ) -> object:
     if name == "$exception_list":
         return normalize_exception_list(value, include_stacktrace, only_app_frames, include_code_variables)
-    if name == "$exception_releases":
+    if name in {"$exception_releases", "$cymbal_errors"}:
         return parse_jsonish(value)
     if name == "$exception_types":
         return normalize_string_array(value)
