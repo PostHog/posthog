@@ -68,6 +68,25 @@ def parse_delay_duration_seconds(value: Any) -> Optional[float]:
     return min(float(amount), _UNIT_MAX[unit]) * _UNIT_SECONDS[unit]
 
 
+def get_all_timing_action_ids(actions: Optional[list[dict]]) -> list[str]:
+    """Every timing step's id — used when a flow is re-enabled. Runs parked during a prior active
+    period survive a disable (they're only cancelled lazily, at wake, while the flow is inactive),
+    and timing edits made while inactive never sweep, so there is no trustworthy diff base at
+    enable time. Sweeping every timing step converges them all: early wake is a no-op re-park for
+    unchanged steps."""
+    action_ids = {
+        a["id"] for a in actions or [] if isinstance(a, dict) and a.get("id") and a.get("type") in TIMING_ACTION_TYPES
+    }
+    if len(action_ids) > MAX_RESCHEDULE_ACTION_IDS:
+        logger.warning(
+            "workflows.timing_reschedule.too_many_timing_actions",
+            changed=len(action_ids),
+            cap=MAX_RESCHEDULE_ACTION_IDS,
+        )
+        return []
+    return sorted(action_ids)
+
+
 def get_timing_reschedule_action_ids(
     before_actions: Optional[list[dict]], after_actions: Optional[list[dict]]
 ) -> list[str]:

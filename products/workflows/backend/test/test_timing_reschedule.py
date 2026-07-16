@@ -1,13 +1,18 @@
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
 from django.test import SimpleTestCase
 
+import jwt
 import requests
 from parameterized import parameterized
 
+from posthog.plugins.plugin_server_api import reschedule_hog_flow_parked_jobs
+
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.services.timing_reschedule import (
+    get_all_timing_action_ids,
     get_timing_reschedule_action_ids,
     parse_delay_duration_seconds,
     use_workflows_timing_reschedule,
@@ -108,6 +113,19 @@ class TestTimingRescheduleDiff(SimpleTestCase):
         after = [_delay(f"delay_{i}", "1d") for i in range(101)]
         assert get_timing_reschedule_action_ids(before, after) == []
 
+    def test_all_timing_action_ids_returns_only_timing_steps(self):
+        actions = [
+            _delay("delay_b"),
+            _window("wait_a"),
+            {"id": "fn_1", "type": "function", "config": {}},
+            {"id": "cond_1", "type": "wait_until_condition", "config": {}},
+        ]
+        assert get_all_timing_action_ids(actions) == ["delay_b", "wait_a"]
+        assert get_all_timing_action_ids(None) == []
+
+    def test_all_timing_action_ids_over_cap_sweeps_nothing(self):
+        assert get_all_timing_action_ids([_delay(f"delay_{i}") for i in range(101)]) == []
+
 
 class TestTimingRescheduleFlag(SimpleTestCase):
     def _team(self) -> MagicMock:
@@ -123,6 +141,34 @@ class TestTimingRescheduleFlag(SimpleTestCase):
             assert use_workflows_timing_reschedule(self._team()) is False
 
 
+class TestRescheduleParkedJobsClient(BaseTest):
+    @patch("posthog.plugins.plugin_server_api.internal_requests.post")
+    def test_call_carries_a_scoped_jwt_and_timeout(self, mock_post):
+        reschedule_hog_flow_parked_jobs(team_id=self.team.id, hog_flow_id="flow-uuid", action_ids=["delay_1"])
+
+        kwargs = mock_post.call_args.kwargs
+        # A hung plugin server must not pin the calling Celery worker indefinitely
+        assert kwargs["timeout"] == 30
+        # Auth is a scoped per-call JWT, never the fleet-wide internal secret
+        assert "x-internal-api-secret" not in {k.lower() for k in kwargs["headers"]}
+        token = kwargs["headers"]["Authorization"].removeprefix("Bearer ")
+        claims = jwt.decode(
+            token,
+            settings.WORKFLOWS_RESCHEDULE_JWT_SECRETS[0],
+            audience="posthog:workflows:reschedule_parked",
+            algorithms=["HS256"],
+        )
+        assert claims["team_id"] == self.team.id
+        assert claims["hog_flow_id"] == "flow-uuid"
+
+    @patch("posthog.plugins.plugin_server_api.internal_requests.post")
+    def test_call_fails_closed_when_key_unprovisioned(self, mock_post):
+        with self.settings(WORKFLOWS_RESCHEDULE_JWT_SECRETS=[]):
+            with self.assertRaises(RuntimeError):
+                reschedule_hog_flow_parked_jobs(team_id=self.team.id, hog_flow_id="flow-uuid", action_ids=["delay_1"])
+        mock_post.assert_not_called()
+
+
 class TestRescheduleHogFlowTimingTask(BaseTest):
     def _create_flow(self, status: str = "active") -> HogFlow:
         return HogFlow.objects.create(name="Test Flow", team=self.team, status=status)
@@ -131,7 +177,7 @@ class TestRescheduleHogFlowTimingTask(BaseTest):
         response = MagicMock(status_code=status_code)
         response.json.return_value = payload
         if status_code >= 400:
-            response.raise_for_status.side_effect = requests.HTTPError(f"{status_code} error")
+            response.raise_for_status.side_effect = requests.HTTPError(f"{status_code} error", response=response)
         else:
             response.raise_for_status.return_value = None
         return response

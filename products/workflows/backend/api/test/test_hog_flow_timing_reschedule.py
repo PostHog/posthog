@@ -145,6 +145,24 @@ class TestHogFlowTimingRescheduleTrigger(APIBaseTest):
 
     @patch(TASK_PATH)
     @patch(TIMING_FLAG_PATH, return_value=True)
+    def test_re_enable_sweeps_all_timing_steps(self, _flag, mock_task):
+        # Runs parked during a prior active period survive a disable, and timing edits made while
+        # disabled never sweep - so the enable transition converges every timing step.
+        flow_id = self._create_flow()
+        disable = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "draft"})
+        assert disable.status_code == 200, disable.json()
+        edit = self._patch_actions(flow_id, delay_duration="1d")
+        assert edit.status_code == 200, edit.json()
+        mock_task.delay.assert_not_called()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            enable = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "active"})
+
+        assert enable.status_code == 200, enable.json()
+        mock_task.delay.assert_called_once_with(team_id=self.team.id, hog_flow_id=flow_id, action_ids=["delay_1"])
+
+    @patch(TASK_PATH)
+    @patch(TIMING_FLAG_PATH, return_value=True)
     def test_graph_operation_shortening_delay_enqueues_sweep(self, _flag, mock_task):
         flow_id = self._create_flow()
 
