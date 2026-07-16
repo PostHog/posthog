@@ -518,16 +518,6 @@ export type LlmSkillsNameRetrieveParams = {
 
 export type LlmSkillsNameExportRetrieveParams = {
     /**
-     * Maximum number of characters of the body to return starting at body_offset. Omit to return the whole body from the offset onwards. When the slice stops before the end, body_next_offset is the offset to request next.
-     * @minimum 1
-     */
-    body_length?: number
-    /**
-     * Zero-based character offset to start the returned body from. Use with body_length to page through a large body that a client would otherwise truncate. Compare the returned body length against body_total_length to detect truncation, then re-fetch from body_next_offset. Defaults to 0 (start of body).
-     * @minimum 0
-     */
-    body_offset?: number
-    /**
      * Specific skill version to fetch. If omitted, the latest version is returned.
      * @minimum 1
      */
@@ -535,16 +525,6 @@ export type LlmSkillsNameExportRetrieveParams = {
 }
 
 export type LlmSkillsNameFilesRetrieveParams = {
-    /**
-     * Maximum number of characters of the body to return starting at body_offset. Omit to return the whole body from the offset onwards. When the slice stops before the end, body_next_offset is the offset to request next.
-     * @minimum 1
-     */
-    body_length?: number
-    /**
-     * Zero-based character offset to start the returned body from. Use with body_length to page through a large body that a client would otherwise truncate. Compare the returned body length against body_total_length to detect truncation, then re-fetch from body_next_offset. Defaults to 0 (start of body).
-     * @minimum 0
-     */
-    body_offset?: number
     /**
      * Specific skill version to fetch. If omitted, the latest version is returned.
      * @minimum 1
@@ -566,16 +546,6 @@ export type LlmSkillsResolveNameRetrieveParams = {
      * @minimum 1
      */
     before_version?: number
-    /**
-     * Maximum number of characters of the body to return starting at body_offset. Omit to return the whole body from the offset onwards. When the slice stops before the end, body_next_offset is the offset to request next.
-     * @minimum 1
-     */
-    body_length?: number
-    /**
-     * Zero-based character offset to start the returned body from. Use with body_length to page through a large body that a client would otherwise truncate. Compare the returned body length against body_total_length to detect truncation, then re-fetch from body_next_offset. Defaults to 0 (start of body).
-     * @minimum 0
-     */
-    body_offset?: number
     /**
      * Maximum number of versions to return per page (1-100).
      * @minimum 1
