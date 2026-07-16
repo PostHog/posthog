@@ -129,16 +129,13 @@ def get_session_experiment_context(
             "id", "feature_flag__key", "feature_flag__filters", "exposure_criteria"
         )
     )
-    if not any(_variant_keys_from_filters(filters) for _, _, filters, _ in flag_meta):
-        # No overlapping experiment defines variants, so nothing could surface a variant seen.
-        return []
-
     # Each experiment's exposure criteria resolve (through the shared helpers) to what counts
     # as its exposure event and which property carries the variant. Experiments with the plain
     # default shape take their exposure moment straight from the shared flag-evaluations query;
     # the rest get one union branch each. Everything is keyed by experiment id, since two
     # experiments can share a flag with different criteria.
     flag_key_by_id: dict[int, str] = {}
+    variant_keys_by_id: dict[int, set[str]] = {}
     batchable_ids: set[int] = set()
     all_variant_keys: set[str] = set()
     branch_meta: list[tuple[int, _ResolvedExposure, set[str]]] = []
@@ -147,12 +144,16 @@ def get_session_experiment_context(
         if not variant_keys:
             continue
         flag_key_by_id[experiment_id] = flag_key
+        variant_keys_by_id[experiment_id] = variant_keys
         all_variant_keys |= variant_keys
         resolution = _resolve_exposure(flag_key, exposure_criteria)
         if resolution.batchable:
             batchable_ids.add(experiment_id)
         else:
             branch_meta.append((experiment_id, resolution, variant_keys))
+    if not flag_key_by_id:
+        # No overlapping experiment defines variants, so nothing could surface a variant seen.
+        return []
 
     # Flag evaluations are variant evidence for every experiment — the replay shows exactly
     # what the session was served, whatever the exposure criteria say — and double as the
@@ -194,7 +195,7 @@ def get_session_experiment_context(
         # Only the flag's defined variant keys count, mirroring the `variant IN variants` filter in
         # build_common_exposure_conditions: a non-enrolled user's flag evaluation captures
         # `$feature_flag_response: false`, which must not surface as a variant named "false".
-        defined_variants = _defined_variant_keys(experiment)
+        defined_variants = variant_keys_by_id.get(experiment.pk, set())
         exposure_rows = [row for row in exposures.get(experiment.pk, []) if row[0] in defined_variants]
         flag_rows = [row for row in flag_evaluations.get(flag_key, []) if row[0] in defined_variants]
         stamped_values = [value for value in stamped.get(flag_key, []) if value in defined_variants]
@@ -260,10 +261,6 @@ def _resolve_exposure(flag_key: str, exposure_criteria: Optional[dict]) -> _Reso
 def _variant_keys_from_filters(filters: Optional[dict]) -> set[str]:
     multivariate = (filters or {}).get("multivariate") or {}
     return {variant["key"] for variant in multivariate.get("variants", []) if variant.get("key")}
-
-
-def _defined_variant_keys(experiment: Experiment) -> set[str]:
-    return _variant_keys_from_filters(experiment.feature_flag.filters)
 
 
 def _query_flag_evaluations(
