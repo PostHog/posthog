@@ -31,6 +31,7 @@ pub mod hogvm;
 pub mod leaf_state;
 pub mod metrics;
 pub mod partitioner;
+pub mod seed;
 pub mod timestamp;
 
 pub use bucket_tz::{
