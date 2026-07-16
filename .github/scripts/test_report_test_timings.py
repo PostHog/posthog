@@ -424,9 +424,8 @@ def test_emit_shard_span_emits_setup_span_when_setup_seconds_positive(monkeypatc
     assert tracer.spans[0].attributes["shard.setup_seconds"] == pytest.approx(3.5)
 
 
-# `test.owner_team` is the whole contract the team CI health rollup reads: an unstamped span
-# aggregates as `unowned`. An unowned file must stay unstamped rather than carry an empty
-# attribute, so the reader's coalesce sees a missing key either way.
+# `test.owner_team` is the contract the team CI health rollup reads: an unstamped span
+# aggregates as `unowned`, so an unowned file must stay unstamped rather than carry an empty one.
 def test_emit_shard_span_stamps_owner_team_only_for_owned_files(monkeypatch: pytest.MonkeyPatch) -> None:
     start = datetime(2026, 5, 4, 10, 0, 0, tzinfo=UTC)
     shard = report_test_timings.Shard(

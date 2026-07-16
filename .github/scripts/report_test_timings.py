@@ -447,13 +447,9 @@ def job_trace_name(workflow: str, info: ArtifactInfo) -> str:
 def owner_team_lookup() -> Callable[[str], str]:
     """Repo-relative test file -> primary owning team slug, '' when unowned.
 
-    Ownership is the repo's own `owners.yaml` tree, read through the shared resolver rather
-    than re-parsed here — one resolver owns the semantics, everything else calls it (see
-    `docs/internal/ownership-model-proposal.md` §5). Resolution is capture-time on purpose:
-    a test is attributed to whoever owned it when it ran.
-
-    A resolver that can't load (an older base checkout predating `tools/owners`) degrades to
-    no stamp, so spans still carry timings and land in the reader's `unowned` bucket.
+    Resolution is capture-time on purpose: a test is attributed to whoever owned it when it
+    ran. A resolver that can't load (a base checkout predating `tools/owners`) degrades to no
+    stamp, leaving those spans in the reader's `unowned` bucket rather than losing the emit.
     """
     try:
         resolver = OwnersResolver()
@@ -463,7 +459,9 @@ def owner_team_lookup() -> Callable[[str], str]:
 
     @cache
     def lookup(file: str) -> str:
-        owners = resolver.resolve(file).owners if file else None
+        if not file:
+            return ""
+        owners = resolver.resolve(file).owners
         return owners[0] if owners else ""
 
     return lookup
