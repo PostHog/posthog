@@ -574,37 +574,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertFalse(query_status.get("error"), query_status)
         self.assertIsNotNone(exported["insight"]["result"])
 
-    @override_settings(
-        EE_AVAILABLE=True,
-        API_QUERIES_ENABLED=True,
-        QUERY_QUOTA_ENFORCEMENT_ENABLED=True,
-    )
-    @patch("ee.billing.quota_limiting.is_team_limited", return_value=True)
-    def test_shared_dashboard_refresh_returns_payment_required_when_query_quota_limited(
-        self, mock_is_team_limited: mock.MagicMock
-    ) -> None:
-        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "shared dashboard"})
-        self.dashboard_api.create_insight(
-            {
-                "filters": {"events": [{"id": "$pageview"}]},
-                "name": "shared insight",
-                "dashboards": [dashboard_id],
-            }
-        )
-        sharing_config = SharingConfiguration.objects.create(team=self.team, dashboard_id=dashboard_id, enabled=True)
-        organization = self.team.organization
-        organization.usage = {"period": ["2026-07-01T00:00:00Z", "2026-08-01T00:00:00Z"]}
-        organization.save(update_fields=["usage"])
-
-        response = self.client.get(
-            f"{settings.SITE_URL}/shared/{sharing_config.access_token}.json",
-            data={"refresh": "force_blocking"},
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
-        self.assertEqual(response.json()["code"], "quota_limit_exceeded")
-        mock_is_team_limited.assert_called_once()
-
     def test_shared_force_refresh_ignores_client_filter_overrides(self) -> None:
         # Regression: the /shared/<token> page load runs without an authenticator, so the serializer
         # must rely on the is_shared context flag to drop client-supplied overrides. Without the flag

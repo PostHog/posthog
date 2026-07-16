@@ -46,7 +46,6 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.openapi_parameters import make_filters_override_param, make_variables_override_param
 from posthog.api.query_coalescer import QueryCoalescingMixin
-from posthog.api.query_quota import QueryQuotaLimitResponseSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.services.query import process_query_dict, process_query_model
@@ -61,7 +60,6 @@ from posthog.clickhouse.query_tagging import AccessMethod, tags_context
 from posthog.constants import INSIGHT
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import EventSource, get_event_source, get_request_analytics_properties, report_user_action
-from posthog.exceptions import QueryQuotaLimitExceeded
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
@@ -1224,8 +1222,6 @@ class InsightSerializer(InsightBasicSerializer):
                     has_more=None,
                     timezone=self.context["get_team"]().timezone,
                 )
-            except QueryQuotaLimitExceeded:
-                raise
             except Exception as e:
                 # Capture unexpected crashes so the API list doesn't fail
                 logger.exception("insight_calculation_error", insight_id=insight.id, team_id=insight.team_id)
@@ -1963,13 +1959,6 @@ When set, the specified dashboard's filters and date range override will be appl
             make_variables_override_param(subject_label="the insight's HogQL", tool_name="insight-get"),
             make_filters_override_param(subject_label="the insight's"),
         ],
-        responses={
-            200: InsightSerializer,
-            402: OpenApiResponse(
-                response=QueryQuotaLimitResponseSerializer,
-                description="A shared insight refresh was blocked by the organization's query usage limit.",
-            ),
-        },
     )
     @monitor(feature=Feature.INSIGHT, endpoint="insight", method="GET")
     def retrieve(self, request, *args, **kwargs):

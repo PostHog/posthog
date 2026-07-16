@@ -1,5 +1,4 @@
 import json
-from datetime import UTC, datetime
 
 from freezegun import freeze_time
 from posthog.test.base import (
@@ -43,7 +42,6 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Product, QueryTags
 from posthog.event_usage import EventSource
-from posthog.exceptions import QueryQuotaLimitExceeded
 from posthog.models.utils import UUIDT
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
@@ -66,20 +64,6 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         detail = response.json()["detail"]
         self.assertEqual(detail, CONCURRENCY_LIMIT_USER_MESSAGE)
         self.assertNotIn("app:query:per-org", detail)
-
-    def test_query_quota_limit_returns_payment_required(self) -> None:
-        billing_period_end = datetime(2026, 8, 1, tzinfo=UTC)
-        with patch(
-            "posthog.api.query.process_query_model",
-            side_effect=QueryQuotaLimitExceeded(billing_period_end=billing_period_end),
-        ):
-            response = self.client.post(
-                f"/api/environments/{self.team.id}/query/",
-                {"query": HogQLQuery(query="select 1").model_dump()},
-            )
-
-        self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
-        self.assertEqual(response.json()["code"], "quota_limit_exceeded")
 
     @snapshot_clickhouse_queries
     def test_select_hogql_expressions(self):

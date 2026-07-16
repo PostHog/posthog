@@ -51547,27 +51547,6 @@ export namespace Schemas {
       branch: string;
     }
 
-    export interface QueryQuotaLimitExtra {
-      /** ISO 8601 timestamp when query access resets for the current billing period. */
-      billing_period_end: string;
-    }
-
-    export interface QueryQuotaLimitResponse {
-      /** Stable error category. Always `quota_limited` for this response. */
-      type: string;
-      /** Stable error code. Always `quota_limit_exceeded` for this response. */
-      code: string;
-      /** Customer-facing explanation of the query usage limit. */
-      detail: string;
-      /**
-         * Always null because the error is not tied to an input field.
-         * @nullable
-         */
-      attr: string | null;
-      /** Billing-period metadata. Omitted when the reset timestamp is unavailable. */
-      extra?: QueryQuotaLimitExtra;
-    }
-
     export type QueryRequestVariablesOverride = {[key: string]: { [key: string]: unknown }} | null;
 
     export interface SavedInsightNode {

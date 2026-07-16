@@ -1,169 +1,211 @@
-# API and shared query quotas
+# Free organization query quota rollout plan
 
-## Purpose
+## Status
 
-Query quotas limit the ClickHouse read cost created by personal API key requests and public shared dashboard or insight views.
-The first rollout is configured for free organizations only.
-Application code remains plan-agnostic so an existing finite allowance on another plan continues to work, but this change does not add or lower a paid-plan allowance.
+This is a design and rollout plan only.
+It does not add an allowance, return HTTP 402, or change what customers can query.
 
-The quota is a cost control, not a concurrency control.
-Concurrency limits protect the service from simultaneous work and return HTTP 429.
-Query quotas protect billing-period usage and return HTTP 402.
+The change is intentionally split into independently deployable stages.
+Each stage must be observed and accepted before work starts on the next one.
 
-## Responsibilities
+## Goal
 
-- The usage-report pipeline measures chargeable ClickHouse reads and reports `api_queries_read_bytes` usage per team to Billing.
-- The existing Billing sync stores the returned usage and limit, billing period, and trust scores in PostHog. Billing must configure a finite `api_queries_read_bytes` allowance for the plans covered by the rollout; that live plan configuration is outside this repository.
-- The billing quota task decides which organizations are limited and writes their team tokens to Redis with the billing-period end as the expiry.
-- The query layer checks the Redis decision before starting new ClickHouse work and returns the customer-facing quota response.
-- The launch owner coordinates pricing documentation, support guidance, customer communication, dashboards, and alerting before enabling a finite free-plan allowance.
+Limit the ClickHouse read cost created by free organizations without unexpectedly blocking valid customer queries.
 
-## Metering
+The intended scope is:
 
-The resource key is `api_queries_read_bytes`.
-Usage is the sum of ClickHouse `read_bytes` for query-log rows tagged `chargeable`.
-Personal API key calculations and shared dashboard or insight calculations set that tag.
+- query-service calculations authenticated with a personal API key
+- calculations required to render a public shared dashboard or insight
 
-Failed queries count when ClickHouse reports bytes read.
-Validation failures that do not start execution contribute no meaningful read bytes.
-The aggregation intentionally does not filter to successful `QueryFinish` rows.
+Session-authenticated product usage, OAuth requests, and paid-plan limits are out of scope.
 
-The usage report and quota decision are asynchronous.
-A newly over-limit organization can continue querying until the next quota update reaches Redis.
-The query path uses the existing 30-second process cache for Redis quota membership.
+## Existing architecture
 
-## Rollout mode and kill switch
+PostHog already calculates `api_queries_read_bytes` from ClickHouse query logs and includes it in the periodic usage report sent to Billing.
+Billing can return resource usage, limits, billing-period dates, and trust scores, and PostHog stores that data on the organization.
 
-`QUERY_QUOTA_ENFORCEMENT_ENABLED` controls whether a limited query is blocked.
-It defaults to `false` so the first release is dry-run only:
+The existing quota Redis data is a decision cache, not a live usage ledger.
+Quota tasks decide that an organization is limited from billing usage data, then write its team tokens to a Redis sorted set.
+Request paths read that set to decide whether to allow work.
 
-- `false`: check the Redis quota decision, emit the would-block metric and structured log, then allow the query to continue.
-- `true`: emit the same observability signals and return HTTP 402 before new ClickHouse work starts.
+Billing does not currently define the proposed free-plan query allowance.
+We should not add that allowance or rely on a limited-team Redis decision until we have a faster, observable usage signal that we trust.
 
-Set the variable consistently on web and async query-worker processes.
-Changing it requires the affected processes to restart or redeploy.
-Setting it back to `false` is the operational kill switch if enforcement produces unexpected customer impact; metering and dry-run observability continue while 402 responses stop.
+## Safety principles
 
-Dry-run decisions emit `posthog_external_query_quota_decision_total` with `plan_tier`, `access_method`, and `enforcement_mode="dry_run"` labels.
-The `query_quota_decision` structured log includes team, organization, client query, query type, dashboard or insight identifiers, access method, plan tier, enforcement mode, and billing-period end.
-Use the counter for aggregate rates and the logs for organization-level investigation without adding high-cardinality Prometheus labels.
-Async requests can produce decisions when they are enqueued and when a worker picks them up; use the client query identifier when deduplicating logs for request-level analysis.
+- Do not return HTTP 402 until the measured and would-limit stages have been reviewed.
+- Use actual ClickHouse `read_bytes`, including bytes read by queries that fail during execution.
+- Do not count validation failures that never start ClickHouse work.
+- Attribute usage to the owning organization, including public shared dashboard and insight traffic.
+- Keep personal API key eligibility restricted to query-service work.
+- Do not charge for serving an existing cached result when no new ClickHouse work runs.
+- Keep paid organizations out of the proposed free-plan decision.
+- Fail open when usage storage or lookup is unavailable.
+- Keep measurement active after enforcement so observed and blocked behavior remain comparable.
+- Make enforcement removable through one environment setting without disabling measurement.
 
-## Enforcement timing decision
+## Stage 1: Redis usage ledger
 
-The first version is intentionally an eventual billing-period limit, not a real-time hard cap.
-The usage-report pipeline, billing quota task, and Redis decision cache remain the authoritative enforcement loop.
-A request that crosses the allowance is allowed to finish, and later requests can continue until that loop marks the organization as limited.
-Once the decision is visible to the query process and enforcement is enabled, new uncached personal API key queries and shared dashboard or insight refreshes return HTTP 402.
+Add an organization-level Redis ledger for query read bytes.
+This stage records usage only and has no allowance or query-path decision.
 
-This delay is an accepted simplicity tradeoff for the first rollout.
-The query path will not maintain a second per-query byte accumulator or synchronously fetch current billing usage.
-Avoiding those mechanisms keeps one source of truth, removes a write or remote lookup from every query, and avoids reconciliation between live estimates and finalized ClickHouse usage.
-Observed usage beyond the allowance should be monitored to validate the reporting interval, but the existence of reporting lag does not by itself block launch.
+The ledger must:
 
-## Request scope
+- use actual finalized ClickHouse `read_bytes`
+- include completed and execution-failed chargeable queries
+- cover personal API key query-service traffic and sharing-token traffic
+- aggregate across every team in an organization
+- separate billing periods so a reset cannot mix old and new usage
+- expire data after the period plus a recovery window
+- update atomically
+- avoid double counting retries, duplicate query-log rows, and distributed query entries
+- tolerate delayed query-log data
+- fail open without affecting query execution
 
-The first rollout covers requests to the query API authenticated with a personal API key and query calculations made while rendering shared dashboards or insights.
-Session-authenticated product usage, OAuth requests, and other in-app queries are not included.
-Materialized endpoints have separate concurrency controls but remain chargeable when run through the personal API key query service.
-For personal API keys, the query runner must also be explicitly marked as query-service work; authentication method alone does not make an in-app or unrelated endpoint quota eligible.
-Sharing-token renders are the deliberate exception because shared resources create external query work without using the query-service flag.
+Before implementation, choose and document the writer:
 
-Shared traffic is attributed to the organization that owns the shared resource.
-Anonymous viewers do not receive a separate allowance, and rotating a sharing token does not reset usage.
+1. A query-completion writer can update Redis with low latency, but only if the execution boundary exposes authoritative read bytes and guarantees one update per ClickHouse query.
+2. A query-log collector uses the billing source of truth, but needs an incremental watermark and idempotency strategy before it can safely increment Redis.
 
-The quota check applies only when a request would start new ClickHouse work:
+Do not infer bytes from the requested query or estimate them before execution.
 
-| Request state                                    | Result while limited                         |
-| ------------------------------------------------ | -------------------------------------------- |
-| Fresh cached API or shared result                | Return the cached result                     |
-| Stale or missing cache with blocking calculation | HTTP 402                                     |
-| A request that would enqueue async calculation   | HTTP 402 without enqueueing work             |
-| Session or OAuth in-app calculation              | Existing behavior; this quota does not apply |
+### Stage 1 acceptance gate
 
-This distinction keeps no-cost cache reads available while preventing new billable reads.
-Quota activation does not cancel a query that is already running or an async task that was enqueued before the organization became limited.
+- Redis totals reconcile with the existing usage-report totals over complete periods within an agreed tolerance.
+- Retries, async execution, failed queries, shared resources, and cache hits have documented test cases.
+- Redis failures do not fail customer queries.
+- The key count, memory use, update rate, and expiry behavior are understood.
 
-Shared dashboards can therefore remain available from cache after the organization becomes limited.
-Once a tile needs new ClickHouse work, the shared dashboard or insight request returns HTTP 402 instead of refreshing the tile.
+## Stage 2: PostHog measurement
 
-## Customer response contract
+Emit PostHog events from the ledger so the rollout can be evaluated with a PostHog dashboard.
+Prometheus and logs can support operations, but they are not the primary product-impact measurement.
 
-When enforcement is enabled, the query API and shared dashboard or insight endpoints return HTTP 402 with a stable error type and code:
+Prefer periodic organization snapshots over one analytics event per query.
+The snapshot event should include:
 
-```json
-{
-  "type": "quota_limited",
-  "code": "quota_limit_exceeded",
-  "detail": "Your organization has reached its query usage limit for this billing period. New API queries and shared dashboard or insight refreshes are unavailable. Ask an organization admin to review Billing settings, or try again after the billing period resets.",
-  "attr": null,
-  "extra": {
-    "billing_period_end": "2026-08-01T00:00:00+00:00"
-  }
-}
-```
+- organization and team grouping information
+- billing-period start and end
+- accumulated read bytes
+- measurement timestamp and source
+- plan tier
+- whether personal API key, shared-resource, or both kinds of traffic contributed
+- reconciliation status against the existing usage report
 
-`extra.billing_period_end` is omitted when billing-period metadata is unavailable.
-Clients should branch on `code`, not the human-readable detail.
-HTTP 429 remains reserved for temporary concurrency limits and callers can retry it after backoff.
-HTTP 402 should not be retried repeatedly before the billing period resets or an organization admin changes the plan or limit.
+If the snapshot is emitted from a Celery task, use `ph_scoped_capture` rather than `posthoganalytics.capture`.
 
-## Billing configuration requirements
+Build a PostHog dashboard that shows:
 
-The free-only boundary is owned by billing configuration.
-Before launch, confirm that the free plan has the intended finite `api_queries_read_bytes` allowance and that paid plans are unchanged unless they already define an allowance.
+- usage distribution for free organizations
+- usage over time within a billing period
+- personal API key and shared-resource contribution
+- failed-query contribution
+- organizations approaching candidate thresholds
+- reconciliation differences and missing snapshots
+- Redis write, read, and expiry failures
 
-Separate from the accepted reporting delay, the existing quota framework can add grace or bypass enforcement:
+This stage still has no allowance and no would-limit decision.
 
-- Customer trust scores can add a grace period before hard limiting.
-- `never_drop_data` bypasses query limiting because this resource is not in `GRACE_PERIOD_EXEMPT_RESOURCES`.
-- The `retain-data-past-quota-limit` feature flag can bypass a new limit before the organization is already limited.
+### Stage 2 acceptance gate
 
-These behaviors must be reviewed explicitly for the free-plan rollout because they can extend access beyond the normal reporting delay.
+- The dashboard has enough history to cover an agreed observation window, including billing-period boundaries.
+- The measured population matches the intended free-organization scope.
+- The team responsible for Billing agrees that the unit and period semantics can support a future allowance.
+- Product, Billing, Query, Infrastructure, Support, and Customer Success owners agree on the candidate threshold and expected customer impact.
 
-## Reliability and operations
+## Stage 3: Would-limit reporting
 
-The query path reuses the existing Redis quota decision cache rather than maintaining a live usage counter.
-This is the chosen enforcement model, not a fallback for the first rollout.
-It keeps the billing usage report authoritative and avoids adding a request-time dependency on billing or a write on every query.
-Enforcement therefore depends on the existing usage-report schedule, billing quota task, Redis quota infrastructure, and query-process cache.
+Add a candidate free-plan threshold without blocking queries.
+The query path reads the Redis ledger and records when it would have returned HTTP 402, then continues normally.
 
-Quota membership is keyed by the team's project token, not the caller's personal API key or sharing token.
-Rotating a project token can delay enforcement until the quota task refreshes Redis.
-The organization usage record remains the source for billing-period reset metadata.
+Use one environment-controlled mode with explicit values:
 
-Monitor at least:
+- `off`: keep the ledger and usage snapshots, but do not make query-path decisions
+- `observe`: record would-limit decisions and allow the query
+- `enforce`: record the same decision and return HTTP 402
 
-- HTTP 402 responses from query and shared-resource endpoints
-- `posthog_external_query_quota_decision_total` split by plan tier, access method, and enforcement mode
-- distinct organizations and teams in `query_quota_decision` logs, with an alert if paid or enterprise organizations appear unexpectedly
-- organizations entering and leaving `api_queries_read_bytes` quota limiting
-- usage beyond the configured allowance before enforcement
-- Redis quota lookup failures
-- repeated client retries after HTTP 402
+The setting should default to `off` until this stage and to `observe` when would-limit reporting is intentionally enabled.
 
-## Rollout checklist
+Capture a PostHog decision event when a query is over the candidate threshold.
+It should include:
 
-1. Confirm the free-plan allowance and verify paid-plan configuration is unchanged.
-2. Decide whether trust-score grace, `never_drop_data`, and the retention feature flag are acceptable for this resource.
-3. Verify `API_QUERIES_ENABLED` in every cloud region.
-4. Deploy with `QUERY_QUOTA_ENFORCEMENT_ENABLED=false` on web and async query workers.
-5. Build the dry-run dashboard from `posthog_external_query_quota_decision_total` and `query_quota_decision` logs.
-6. Review would-block rates, affected organizations, access-method mix, reporting lag, and any unexpected paid-plan decisions.
-7. Test blocking and async personal API key and sharing-token requests with enforcement enabled in a non-production environment.
-8. Test that fresh cached API and shared results remain available and no async task is enqueued while enforced.
-9. Publish that shared dashboard and insight traffic consumes the allowance and can return HTTP 402 after it is exhausted.
-10. Publish the allowance and eventual enforcement timing in customer API and pricing documentation.
-11. Give Support the response shape, shared-dashboard behavior, reset behavior, expected enforcement delay, kill switch, and escalation path.
-12. Enable enforcement gradually, monitor blocked decisions, and set `QUERY_QUOTA_ENFORCEMENT_ENABLED=false` immediately if impact differs materially from dry-run observations.
+- `decision_mode` as `observe` or `enforce`
+- access method
+- organization and team grouping information
+- accumulated bytes and candidate threshold
+- billing-period end
+- query type
+- shared dashboard or insight identifiers when applicable
+- a client query identifier for deduplication
 
-## Out of scope
+Async requests can reach the query runner more than once.
+The event contract must define which boundary emits the decision or how the dashboard deduplicates it.
 
-- A limit for session-authenticated or OAuth queries
-- A live Redis byte counter updated after each query
-- CPU-based accounting
-- Per-query byte ceilings
-- New paid-plan limits
+### Stage 3 acceptance gate
 
-A later version can widen the meter to other customer-initiated query paths.
-A reconciled live counter should only be considered if observed usage beyond the allowance materially undermines the cost-control goal.
+- No request returns HTTP 402 in `observe` mode.
+- The PostHog dashboard shows distinct affected organizations and queries, not only event volume.
+- Paid organizations do not appear in would-limit decisions.
+- Shared dashboard and insight impact is reviewed separately from personal API key impact.
+- Support and customer-facing copy have been reviewed against real would-limit examples.
+- The candidate threshold and expected reporting lag are accepted by the rollout owners.
+
+## Stage 4: Enforcement
+
+Enable `enforce` only after the would-limit gate is complete.
+
+When a free organization is over the threshold:
+
+- allow an existing cached result that requires no new ClickHouse work
+- prevent new eligible ClickHouse work from starting
+- return HTTP 402 with a stable error code and the billing-period reset time when available
+- keep emitting the same PostHog decision event with `decision_mode="enforce"`
+- include public shared dashboard and insight calculations
+
+Changing the environment mode from `enforce` to `observe` or `off` must stop new HTTP 402 responses after the affected processes restart or redeploy.
+The Redis ledger and PostHog usage snapshots must continue so the incident can be compared with previous behavior.
+
+### Stage 4 acceptance gate
+
+- Enforcement has been tested for blocking, async, shared-resource, failed-query, and fresh-cache paths.
+- Customer pricing and API documentation state the allowance, reset semantics, and shared-resource behavior.
+- Support has the error contract, dashboard, kill-switch instructions, and escalation owner.
+- Alerts cover paid-plan decisions, Redis failures, unexpected retry volume, and a material difference from would-limit forecasts.
+- The rollout begins with a limited exposure and has a named go or no-go owner.
+
+## Delivery sequence
+
+Use separate pull requests so each stage can deploy and be reviewed independently:
+
+1. Agree on this plan and the Redis ledger design.
+2. Implement the Redis ledger without query-path decisions.
+3. Add PostHog snapshots and build the measurement dashboard.
+4. Add `observe` mode and review would-limit impact.
+5. Add the HTTP 402 contract and enable `enforce` only after the rollout gates pass.
+
+Do not combine the Redis ledger, candidate threshold, would-limit reporting, and enforcement in one release.
+
+## Open decisions
+
+- Where authoritative per-query read bytes should be written to Redis
+- The idempotency key and reconciliation strategy
+- The billing-period source when local billing metadata is missing or stale
+- The Redis key shape, expiry window, and memory budget
+- Snapshot cadence and PostHog event schema
+- Candidate threshold and whether it is one value for every free organization
+- Treatment of trust scores, `never_drop_data`, and existing quota-retention flags
+- Whether stale cached results should remain available after enforcement
+- Ownership of the dashboard, alerts, customer communication, and emergency rollback
+
+## Customer communication
+
+Do not announce a limit during the ledger or measurement stages because customer behavior does not change.
+
+Before enforcement, explain in plain language:
+
+- which API and shared-resource queries count
+- that the allowance is based on data read, not request count
+- when usage resets
+- what remains available after the allowance is reached
+- how organization admins can see usage and change plans
+- that HTTP 402 is not a temporary concurrency error and should not be retried repeatedly

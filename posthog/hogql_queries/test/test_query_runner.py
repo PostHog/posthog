@@ -10,7 +10,6 @@ from unittest import mock
 from django.conf import settings
 from django.core.cache import cache
 from django.db import connection
-from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
@@ -47,10 +46,8 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.errors import QueryError, ResolutionError
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.clickhouse.query_tagging import AccessMethod, get_query_tag_value, tags_context
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError
-from posthog.exceptions import QueryQuotaLimitExceeded
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import (
@@ -181,155 +178,6 @@ class TestQueryRunner(BaseTest):
         self.assertIn("Validation failed", str(context.exception))
         validation_rule.validate.assert_called_once_with(runner.validation_context)
         mock_calculate.assert_not_called()
-
-    @parameterized.expand(
-        [
-            (
-                "blocking_personal_api_key",
-                AccessMethod.PERSONAL_API_KEY,
-                True,
-                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-                True,
-            ),
-            (
-                "async_personal_api_key",
-                AccessMethod.PERSONAL_API_KEY,
-                True,
-                ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
-                True,
-            ),
-            (
-                "blocking_shared_dashboard",
-                AccessMethod.SHARING_TOKEN,
-                False,
-                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-                True,
-            ),
-            (
-                "async_shared_dashboard",
-                AccessMethod.SHARING_TOKEN,
-                False,
-                ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
-                True,
-            ),
-            (
-                "personal_api_key_outside_query_service",
-                AccessMethod.PERSONAL_API_KEY,
-                False,
-                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-                False,
-            ),
-            ("blocking_in_app", None, False, ExecutionMode.CALCULATE_BLOCKING_ALWAYS, False),
-        ]
-    )
-    @override_settings(
-        EE_AVAILABLE=True,
-        API_QUERIES_ENABLED=True,
-        QUERY_QUOTA_ENFORCEMENT_ENABLED=True,
-    )
-    @mock.patch("ee.billing.quota_limiting.is_team_limited")
-    def test_query_quota_only_blocks_eligible_external_calculations(
-        self,
-        _name: str,
-        access_method: AccessMethod | None,
-        is_query_service: bool,
-        execution_mode: ExecutionMode,
-        should_block: bool,
-        mock_is_team_limited: mock.MagicMock,
-    ) -> None:
-        TestQueryRunner = self.setup_test_query_runner_class()
-        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
-        runner.is_query_service = is_query_service
-        runner.team.organization.usage = {
-            "period": ["2026-07-01T00:00:00Z", "2026-08-01T00:00:00Z"],
-        }
-        mock_is_team_limited.return_value = True
-
-        with (
-            tags_context(access_method=access_method),
-            mock.patch.object(runner, "enqueue_async_calculation") as mock_enqueue_async_calculation,
-        ):
-            if should_block:
-                with self.assertRaises(QueryQuotaLimitExceeded) as context:
-                    runner.run(execution_mode=execution_mode)
-
-                self.assertEqual(context.exception.extra, {"billing_period_end": "2026-08-01T00:00:00+00:00"})
-                mock_is_team_limited.assert_called_once()
-                mock_enqueue_async_calculation.assert_not_called()
-            else:
-                response = runner.run(execution_mode=execution_mode)
-                self.assertEqual(response.results[0], ["row", 1, 2, 3])
-                mock_is_team_limited.assert_not_called()
-
-    @override_settings(
-        EE_AVAILABLE=True,
-        API_QUERIES_ENABLED=True,
-        QUERY_QUOTA_ENFORCEMENT_ENABLED=False,
-    )
-    @mock.patch("posthog.hogql_queries.query_runner.logger")
-    @mock.patch("posthog.hogql_queries.query_runner.QUERY_QUOTA_DECISION_TOTAL")
-    @mock.patch("ee.billing.quota_limiting.is_team_limited", return_value=True)
-    def test_query_quota_dry_run_records_decision_without_blocking(
-        self,
-        mock_is_team_limited: mock.MagicMock,
-        mock_decision_total: mock.MagicMock,
-        mock_logger: mock.MagicMock,
-    ) -> None:
-        TestQueryRunner = self.setup_test_query_runner_class()
-        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
-        runner.is_query_service = True
-        runner.team.organization.usage = {
-            "period": ["2026-07-01T00:00:00Z", "2026-08-01T00:00:00Z"],
-        }
-
-        with tags_context(access_method=AccessMethod.PERSONAL_API_KEY):
-            response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
-
-        self.assertEqual(response.results[0], ["row", 1, 2, 3])
-        mock_is_team_limited.assert_called_once()
-        mock_decision_total.labels.assert_called_once_with(
-            plan_tier=mock.ANY,
-            access_method=AccessMethod.PERSONAL_API_KEY.value,
-            enforcement_mode="dry_run",
-        )
-        mock_decision_total.labels.return_value.inc.assert_called_once_with()
-        mock_logger.info.assert_called_once_with(
-            "query_quota_decision",
-            team_id=self.team.pk,
-            organization_id=str(self.team.organization_id),
-            query_type="TestQuery",
-            client_query_id=None,
-            insight_id=None,
-            dashboard_id=None,
-            access_method=AccessMethod.PERSONAL_API_KEY.value,
-            plan_tier=mock.ANY,
-            enforcement_mode="dry_run",
-            billing_period_end="2026-08-01T00:00:00+00:00",
-        )
-
-    @parameterized.expand(
-        [
-            ("personal_api_key_query_service", AccessMethod.PERSONAL_API_KEY, True, True),
-            ("shared_dashboard", AccessMethod.SHARING_TOKEN, False, True),
-            ("personal_api_key_outside_query_service", AccessMethod.PERSONAL_API_KEY, False, False),
-        ]
-    )
-    @override_settings(API_QUERIES_ENABLED=False)
-    def test_only_query_quota_eligible_calculations_are_chargeable(
-        self,
-        _name: str,
-        access_method: AccessMethod,
-        is_query_service: bool,
-        should_be_chargeable: bool,
-    ) -> None:
-        TestQueryRunner = self.setup_test_query_runner_class()
-        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
-        runner.is_query_service = is_query_service
-
-        with tags_context(access_method=access_method):
-            runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
-
-            self.assertEqual(bool(get_query_tag_value("chargeable")), should_be_chargeable)
 
     def test_init_with_query_instance(self):
         TestQueryRunner = self.setup_test_query_runner_class()

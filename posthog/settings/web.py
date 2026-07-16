@@ -942,9 +942,6 @@ KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS = int(os.getenv("KAFKA_PRODUCE_ACK_TIMEOUT_SEC
 
 # if `true` we highly increase the rate limit on /query endpoint and limit the number of concurrent queries
 API_QUERIES_ENABLED = get_from_env("API_QUERIES_ENABLED", False, type_cast=str_to_bool)
-# Defaults to dry-run: limited external queries are measured and logged but still execute.
-# Set to true to return HTTP 402, or false as an emergency kill switch without disabling observability.
-QUERY_QUOTA_ENFORCEMENT_ENABLED = get_from_env("QUERY_QUOTA_ENFORCEMENT_ENABLED", False, type_cast=str_to_bool)
 
 ####
 # /api/environments deprecation

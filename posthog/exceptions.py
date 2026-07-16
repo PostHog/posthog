@@ -1,4 +1,3 @@
-from datetime import datetime
 from typing import Any, Optional, TypedDict
 
 from django.http.request import HttpRequest
@@ -28,20 +27,6 @@ class QuotaLimitExceeded(APIException):
     status_code = status.HTTP_402_PAYMENT_REQUIRED
     default_code = "quota_limit_exceeded"
     default_detail = "Your organization reached its billing limit for this resource. Increase the limits in Billing settings, or ask an org admin to do so."
-
-
-class QueryQuotaLimitExceeded(QuotaLimitExceeded):
-    default_type = "quota_limited"
-    default_detail = (
-        "Your organization has reached its query usage limit for this billing period. "
-        "New API queries and shared dashboard or insight refreshes are unavailable. "
-        "Ask an organization admin to review Billing settings, or try again after the billing period resets."
-    )
-
-    def __init__(self, billing_period_end: datetime | None = None) -> None:
-        super().__init__()
-        if billing_period_end is not None:
-            self.extra = {"billing_period_end": billing_period_end.isoformat()}
 
 
 class EnterpriseFeatureException(APIException):

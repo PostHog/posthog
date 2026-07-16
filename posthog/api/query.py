@@ -42,7 +42,6 @@ from posthog.api.monitoring import (
     monitor,
 )
 from posthog.api.query_coalescer import QueryCoalescingMixin
-from posthog.api.query_quota import QueryQuotaLimitResponseSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
 from posthog.api.streaming import sse_streaming_response
@@ -81,7 +80,6 @@ tracer = trace.get_tracer(__name__)
 # exception embeds an internal Redis key + task id, so we log that for debugging and surface this
 # friendly message instead of leaking implementation details into the UI.
 CONCURRENCY_LIMIT_USER_MESSAGE = "Too many queries are running right now — please try again in a moment."
-
 
 QUERY_VALIDATION_ERROR_TOTAL = Counter(
     "posthog_query_validation_error_total",
@@ -217,17 +215,9 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
         raise Throttled(detail=CONCURRENCY_LIMIT_USER_MESSAGE)
 
     @extend_schema(
-        description=(
-            "Run a query for an environment. Personal API key requests that would start new query work can return "
-            "HTTP 402 after the organization reaches its API query usage limit for the billing period."
-        ),
         request=QueryRequest,
         responses={
             200: QueryResponseAlternative,
-            402: OpenApiResponse(
-                response=QueryQuotaLimitResponseSerializer,
-                description="The organization has reached its API query usage limit for the billing period.",
-            ),
         },
     )
     @monitor(feature=MonitoringFeature.QUERY, endpoint="query", method="POST")
