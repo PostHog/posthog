@@ -41,6 +41,18 @@ class QuotaResourceLimitSerializer(serializers.Serializer):
     )
 
 
+def _resource_usage(summary: dict[str, Any]) -> float | None:
+    """usage + todays_usage, the sum the quota limiter compares against the limit.
+
+    None rather than 0 when billing has never synced the resource, so clients read
+    it as unknown, not "$0 spent". The `limited` boolean stays authoritative for
+    gating; grace periods and refund offsets live only in that limiting decision.
+    """
+    if not summary:
+        return None
+    return (summary.get("usage") or 0) + (summary.get("todays_usage") or 0)
+
+
 class QuotaLimitsResponseSerializer(serializers.Serializer):
     limited = serializers.DictField(
         child=QuotaResourceLimitSerializer(),
@@ -84,10 +96,7 @@ class QuotaLimitsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     resource,
                     QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
                 ),
-                # usage + todays_usage is the sum the limiter compares against the limit
-                # (org_quota_limited_until); the boolean stays authoritative for gating —
-                # grace periods and refund offsets live only in the limiting decision.
-                "usage": (summary.get("usage") or 0) + (summary.get("todays_usage") or 0) if summary else None,
+                "usage": _resource_usage(summary),
                 "limit": summary.get("limit"),
             }
         return Response(
