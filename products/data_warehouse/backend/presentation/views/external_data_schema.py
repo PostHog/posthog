@@ -34,7 +34,6 @@ from products.data_warehouse.backend.facade.api import (
     hide_direct_snowflake_table,
     is_any_external_data_schema_paused,
     is_cdc_enabled_for_team,
-    is_xmin_enabled_for_team,
     pause_external_data_schedule,
     reconcile_webhook_events,
     reproject_direct_mysql_table,
@@ -724,17 +723,12 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 raise ValidationError("CDC is not enabled for this team")
 
         # Close the enum-exposure window: `XMIN` is a valid `SyncType` choice, so the field accepts
-        # "xmin" the moment the foundation lands. Reject it unless the source is Postgres, the flag is
-        # on for the team, and the table actually advertises xmin support — otherwise a raw PATCH would
-        # persist an xmin schema that silently degrades to full_refresh.
+        # "xmin" the moment the foundation lands. Reject it unless the source is Postgres and the table
+        # actually advertises xmin support — otherwise a raw PATCH would persist an xmin schema that
+        # silently degrades to full_refresh.
         if sync_type == ExternalDataSchema.SyncType.XMIN:
-            from posthog.models import Team
-
             if instance.source.source_type != ExternalDataSourceType.POSTGRES:
                 raise ValidationError("xmin replication is only available for Postgres sources.")
-            team = Team.objects.get(id=self.context["team_id"])
-            if not is_xmin_enabled_for_team(team):
-                raise ValidationError("xmin replication is not enabled for this team")
             if not self._xmin_available_for_schema(instance):
                 raise ValidationError(
                     f"xmin replication is not available for table '{instance.name}'. "
@@ -1624,12 +1618,8 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # strings, so bool(...) would treat "False" as truthy. str_to_bool decodes both.
         source_cdc_enabled = str_to_bool(source.job_inputs.get("cdc_enabled"))
         cdc_available = schema.supports_cdc if is_cdc_enabled_for_team(self.team) and source_cdc_enabled else None
-        # xmin is Postgres-only AND flag-gated, mirroring the database_schema endpoint.
-        xmin_available = (
-            schema.supports_xmin
-            if (source.source_type == ExternalDataSourceType.POSTGRES and is_xmin_enabled_for_team(self.team))
-            else None
-        )
+        # xmin is Postgres-only, mirroring the database_schema endpoint.
+        xmin_available = schema.supports_xmin if source.source_type == ExternalDataSourceType.POSTGRES else None
 
         data = {
             "incremental_fields": schema.incremental_fields,
