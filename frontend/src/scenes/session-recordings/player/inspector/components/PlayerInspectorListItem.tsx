@@ -284,9 +284,16 @@ const ListItemTitle = memo(function ListItemTitle({
 
     const isExpanded = expandedItems.includes(index)
 
+    // Rows with a detail view expand on click; the seek action lives on the timestamp instead.
+    // offline-status and browser-visibility have no detail, so clicking their body still seeks.
+    const hasDetailView = item.type !== 'offline-status' && item.type !== 'browser-visibility'
+    const isExpandable = !notExpandable.includes(item.type) && hasDetailView
+
     // NOTE: We offset by 1 second so that the playback starts just before the event occurs.
     // Ceiling second is used since this is what's displayed to the user.
     const seekToEvent = (): void => seekToTime(ceilMsToClosestSecond(item.timeInRecording) - 1000)
+
+    const onRowClick = (): void => (isExpandable ? setItemExpanded(index, !isExpanded) : seekToEvent())
 
     let TypeIcon = typeToIconAndDescription[item.type].Icon
     if (TypeIcon === undefined && item.type === 'events') {
@@ -299,7 +306,7 @@ const ListItemTitle = memo(function ListItemTitle({
             <div
                 className="flex flex-row flex-1 items-center overflow-hidden cursor-pointer"
                 ref={hoverRef}
-                onClick={() => seekToEvent()}
+                onClick={onRowClick}
             >
                 {/*TODO this tooltip doesn't trigger whether its inside or outside of this hover container */}
                 {item.windowNumber ? (
@@ -332,7 +339,25 @@ const ListItemTitle = memo(function ListItemTitle({
                 ) : null}
 
                 {item.type !== 'inspector-summary' && item.type !== 'inactivity' && (
-                    <ItemTimeDisplay timestamp={item.timestamp} timeInRecording={item.timeInRecording} />
+                    <Tooltip title="Jump to this point in the recording" placement="left">
+                        <div
+                            className="cursor-pointer"
+                            onClick={(e) => {
+                                // Only expandable rows toggle on body click, so keep seek here to avoid
+                                // re-toggling; for non-expandable rows this matches the body's seek anyway.
+                                if (isExpandable) {
+                                    e.stopPropagation()
+                                }
+                                seekToEvent()
+                            }}
+                        >
+                            <ItemTimeDisplay
+                                timestamp={item.timestamp}
+                                timeInRecording={item.timeInRecording}
+                                className="rounded hover:bg-surface-primary hover:text-accent"
+                            />
+                        </div>
+                    </Tooltip>
                 )}
 
                 <IconWithOptionalBadge TypeIcon={TypeIcon} showBadge={item.type === 'comment'} />
@@ -361,6 +386,7 @@ const ListItemTitle = memo(function ListItemTitle({
                     noPadding
                     onClick={() => setItemExpanded(index, !isExpanded)}
                     data-attr="expand-inspector-row"
+                    tooltip={isExpanded ? 'Hide details' : 'Show details'}
                     disabledReason={
                         item.type === 'offline-status' || item.type === 'browser-visibility'
                             ? 'This event type does not have a detail view'
