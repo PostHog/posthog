@@ -14,6 +14,7 @@ import type { IdentityLinkStateStore } from './identity-link-state-store'
 import type {
     IdentityCompleteInput,
     IdentityCompleteResult,
+    IdentityExchangeResult,
     IdentityInitiateInput,
     IdentityInitiateResult,
     IdentityProvider,
@@ -112,7 +113,12 @@ export class Oauth2AuthProvider implements IdentityProvider {
         return { authorizeUrl: u.toString(), stateId }
     }
 
-    async complete(input: IdentityCompleteInput): Promise<IdentityCompleteResult> {
+    /**
+     * Exchange the authorization code for a token and derive the subject, but do
+     * NOT persist. Both `complete()` (per-asker linking) and the admission engine
+     * build on this — they differ only in WHERE the credential lands.
+     */
+    async exchange(input: IdentityCompleteInput): Promise<IdentityExchangeResult> {
         if (input.query.error) {
             throw new Error(`oauth_error: ${input.query.error}`)
         }
@@ -131,27 +137,52 @@ export class Oauth2AuthProvider implements IdentityProvider {
             redirect_uri: state.redirectUri,
             code_verifier: state.codeVerifier,
         })
-        const subject = await this.deriveSubject(token.access_token)
+        return {
+            state,
+            stored: this.toStored(token),
+            // The discoverable subject (for admission/canonical identity), regardless
+            // of `establishesIdentity` — which only gates secondary-credential stamping.
+            subject: await this.fetchSubject(token.access_token),
+            scopes: token.scope ? token.scope.split(' ') : state.scopes,
+        }
+    }
+
+    async complete(input: IdentityCompleteInput): Promise<IdentityCompleteResult> {
+        const { state, stored, subject, scopes } = await this.exchange(input)
         await this.deps.credentials.put({
             teamId: state.teamId,
             applicationId: state.applicationId,
             agentUserId: state.agentUserId,
             provider: this.id,
-            credential: this.toStored(token),
-            scopes: token.scope ? token.scope.split(' ') : state.scopes,
-            subject,
+            credential: stored,
+            scopes,
+            // A capability-only link makes no identity claim — stamp a subject only
+            // when this provider establishes identity.
+            subject: this.establishesIdentity ? subject : undefined,
         })
         return { agentUserId: state.agentUserId, provider: this.id }
     }
 
-    /**
-     * The external subject this link proves, if any. Base provider establishes
-     * no identity → undefined. An identity-establishing subclass overrides this
-     * (e.g. PostHog reads /oauth/userinfo `sub`) so `complete()` stamps it on
-     * the stored credential. Runs once, at link time, with a fresh access token.
-     */
-    protected async deriveSubject(_accessToken: string): Promise<string | undefined> {
-        return undefined
+    /** Read the provider's stable subject from userinfo, if configured. Best-effort:
+     *  a hiccup just yields no subject, never blocks the link. */
+    protected async fetchSubject(accessToken: string): Promise<string | undefined> {
+        const url = this.deps.config.userinfoUrl
+        if (!url) {
+            return undefined
+        }
+        try {
+            const res = await this.deps.http.fetch(url, {
+                method: 'GET',
+                headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' },
+            })
+            if (!res.ok) {
+                return undefined
+            }
+            const json = (await res.json()) as { sub?: string }
+            return typeof json.sub === 'string' && json.sub.length > 0 ? json.sub : undefined
+        } catch {
+            return undefined
+        }
     }
 
     async resolve(input: IdentityResolveInput): Promise<Credential | null> {

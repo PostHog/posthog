@@ -1,5 +1,11 @@
 # AI observability event and property reference
 
+## Contents
+
+- Event types
+- Where heavy content lives: `events` vs `ai_events`
+- Common patterns
+
 ## Event types
 
 ### `$ai_trace`

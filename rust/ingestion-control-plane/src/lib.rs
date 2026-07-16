@@ -1,4 +1,5 @@
 pub mod api;
+pub mod cache;
 pub mod config;
 pub mod jobs;
 pub mod k8s;

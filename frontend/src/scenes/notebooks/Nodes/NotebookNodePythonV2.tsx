@@ -3,12 +3,15 @@ import { useMemo, useRef } from 'react'
 
 import { IconCornerDownRight, IconPlayFilled } from '@posthog/icons'
 
+import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import { NotebookDataframeTable } from './components/NotebookDataframeTable'
+import { NotebookRunDownstreamBanner } from './components/NotebookRunDownstreamBanner'
+import { NotebookStaleCellBanner } from './components/NotebookStaleCellBanner'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import type { NotebookNodeSQLV2Result } from './NotebookNodeSQLV2'
 import { SQL_V2_DEFAULT_PAGE_SIZE, collectSqlV2Refs, notebookNodeSQLV2Logic } from './notebookNodeSQLV2Logic'
@@ -50,9 +53,21 @@ const Component = ({
         updateAttributes,
         runId: attributes.runId ?? null,
         hasResult: !!attributes.result,
+        getContent: () => notebookLogic.values.content ?? null,
     })
-    const { isRunning, runError, page, pageSize, pageResult, pageLoading, operationBlockReason } = useValues(dataLogic)
-    const { setPage, setPageSize } = useActions(dataLogic)
+    const {
+        isRunning,
+        runError,
+        page,
+        pageSize,
+        pageResult,
+        pageLoading,
+        operationBlockReason,
+        isStale,
+        isChainRunning,
+        staleDownstreamCount,
+    } = useValues(dataLogic)
+    const { setPage, setPageSize, runStaleChain } = useActions(dataLogic)
 
     const result = attributes.result ?? null
     const dataframeResult = useMemo(() => {
@@ -82,6 +97,19 @@ const Component = ({
                 onMouseDown={(event) => event.stopPropagation()}
                 onDragStart={(event) => event.stopPropagation()}
             >
+                {isStale ? (
+                    <div className="shrink-0" onClick={(event) => event.stopPropagation()}>
+                        <NotebookStaleCellBanner />
+                    </div>
+                ) : staleDownstreamCount > 0 && !isChainRunning ? (
+                    <div className="shrink-0" onClick={(event) => event.stopPropagation()}>
+                        <NotebookRunDownstreamBanner
+                            count={staleDownstreamCount}
+                            onRun={() => runStaleChain(notebookLogic.values.content ?? null, nodeId)}
+                            disabledReason={isRunning ? 'This cell is running' : (operationBlockReason ?? undefined)}
+                        />
+                    </div>
+                ) : null}
                 {hasStreamOutput ? (
                     <div className="shrink-0 space-y-2 px-2 pt-1" onClick={(event) => event.stopPropagation()}>
                         {result?.stdout ? (
@@ -168,9 +196,10 @@ const Settings = ({
         updateAttributes,
         runId: attributes.runId ?? null,
         hasResult: !!attributes.result,
+        getContent: () => notebookLogic.values.content ?? null,
     })
-    const { isRunning, operationBlockReason } = useValues(dataLogic)
-    const { runQuery } = useActions(dataLogic)
+    const { isRunning, isInterrupting, operationBlockReason } = useValues(dataLogic)
+    const { runQuery, interruptRun } = useActions(dataLogic)
 
     const run = (): void => {
         // Guard here (not just on the button) so Cmd+Enter can't fire a second run mid-flight —
@@ -197,17 +226,26 @@ const Settings = ({
                 className="flex w-full shrink-0 flex-row items-center gap-2 border-t border-b bg-white py-1 pl-2 pr-2 dark:bg-black"
                 onClick={(event) => event.stopPropagation()}
             >
+                {/* Run flips to Cancel while the cell runs, mirroring the SQL editor's affordance. */}
                 <LemonButton
                     data-attr="notebook-python-v2-run-button"
                     size="small"
                     type="primary"
-                    icon={<IconPlayFilled color="var(--success)" />}
-                    onClick={() => run()}
-                    loading={isRunning}
+                    icon={isRunning ? <IconCancel /> : <IconPlayFilled color="var(--success)" />}
+                    onClick={() => {
+                        if (isRunning) {
+                            if (!isInterrupting) {
+                                interruptRun()
+                            }
+                        } else {
+                            run()
+                        }
+                    }}
+                    loading={isInterrupting}
                     disabledReason={operationBlockReason ?? undefined}
-                    tooltip="Run Python (⌘⏎)"
+                    tooltip={isRunning ? 'Stop the running cell' : 'Run Python (⌘⏎)'}
                 >
-                    Run
+                    {isRunning ? 'Cancel' : 'Run'}
                 </LemonButton>
             </div>
             <div className="min-h-0 flex-1">

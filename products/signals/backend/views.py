@@ -772,10 +772,31 @@ class SignalReportViewSet(
         # (e.g. `state` reopens a dismissed report, `retrieve`/`signals` back the
         # inbox's Dismissed-tab detail view). Everywhere else — including the list and
         # mutating-by-ID actions like delete/reingest — suppressed reports stay hidden
-        # unless an explicit `status` filter asks for them.
+        # unless an explicit `status` filter asks for them, or the caller opts out of
+        # the default exclusions with `include_all_statuses=true` (agents deduping
+        # against the full inbox state, human dismissals included, without enumerating
+        # every status — and without breaking if the status set evolves).
         if self.action in self._SUPPRESSED_VISIBLE_ACTIONS:
             return queryset
+        if self._include_all_statuses_requested():
+            return queryset
         return queryset.exclude(status=SignalReport.Status.SUPPRESSED)
+
+    def _include_all_statuses_requested(self) -> bool:
+        # List-only: the flag widens the *list* for full-inbox-state scans (agent dedup). By-ID
+        # actions ignore it entirely, so mutating actions like delete/reingest keep their existing
+        # contract of 404ing on suppressed reports.
+        if self.action != "list":
+            return False
+        raw = self.request.query_params.get("include_all_statuses")
+        if raw is None or not raw.strip():
+            return False
+        value = raw.strip().lower()
+        if value in ("1", "true", "yes"):
+            return True
+        if value in ("0", "false", "no"):
+            return False
+        raise serializers.ValidationError({"include_all_statuses": f"Invalid value: {raw!r}. Allowed: true, false."})
 
     def _apply_signal_report_search_filter(self, queryset):
         search = self.request.query_params.get("search")
@@ -1210,6 +1231,21 @@ class SignalReportViewSet(
                     "Comma-separated list of statuses to include. "
                     "Valid values: potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed. "
                     "Defaults to all statuses except suppressed."
+                ),
+            ),
+            OpenApiParameter(
+                name="include_all_statuses",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "When true, the list includes reports in every status with no default exclusions applied — "
+                    "currently that adds suppressed (dismissed) reports, which are otherwise hidden. Use it to "
+                    "see the full inbox state (e.g. deduplicating before creating a report) and read each row's "
+                    "status (plus dismissal_reason/dismissal_note on dismissed rows) before acting. Deleted "
+                    "reports are terminal and never returned. Defaults to false, which keeps the existing "
+                    "default exclusions. Ignored when an explicit 'status' filter is set — that filter alone "
+                    "decides which statuses are returned."
                 ),
             ),
             OpenApiParameter(

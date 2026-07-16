@@ -36,6 +36,7 @@ from products.replay_vision.backend.temporal.gemini import gemini_api_key
 from products.replay_vision.backend.temporal.metrics import record_provider_call
 from products.replay_vision.backend.temporal.scanners import scanner_from_snapshot
 from products.replay_vision.backend.temporal.scanners.base import (
+    TIMESTAMP_CITATION_RE,
     BaseScanner,
     BaseScannerOutput,
     ChipSegment,
@@ -57,8 +58,6 @@ logger = structlog.get_logger(__name__)
 _MAX_LLM_ATTEMPTS = 2  # one initial call + one re-prompt with the validation error appended per step
 # Cache TTL: a scan is a handful of turns and finishes in minutes; well under this.
 _VIDEO_CACHE_TTL = "900s"
-# `(t <seconds>)` with optional leading whitespace, so we eat the space when stripping the paren.
-_TIMESTAMP_CITATION_RE = re.compile(r"\s*\(t (\d+)\)")
 
 _OutputT = TypeVar("_OutputT", bound=BaseModel)
 
@@ -128,16 +127,18 @@ def _extract_segments(text: str, duration_ms: int) -> tuple[str, list[Segment]]:
     plain_parts: list[str] = []
     segments: list[Segment] = []
     last_end = 0
-    for match in _TIMESTAMP_CITATION_RE.finditer(text):
+    for match in TIMESTAMP_CITATION_RE.finditer(text):
         chunk = text[last_end : match.start()]
         plain_parts.append(chunk)
         if chunk:
             segments.append(TextSegment(value=chunk))
-        timestamp_ms = int(match.group(1)) * 1000
-        # Drop citations past the recording end (a misread footer value); 1s slack spares a genuine final-second
-        # citation from a sub-second start-time skew. The marker is stripped either way.
-        if timestamp_ms <= duration_ms + 1000:
-            segments.append(ChipSegment(timestamp_ms=timestamp_ms))
+        # A leaked comma-joined marker like `(t 12, 34)` carries several moments, one chip each.
+        for raw_seconds in re.findall(r"\d+", match.group(1)):
+            timestamp_ms = int(raw_seconds) * 1000
+            # Drop citations past the recording end (a misread footer value). 1s slack spares a genuine
+            # final-second citation from a sub-second start-time skew. The marker is stripped either way.
+            if timestamp_ms <= duration_ms + 1000:
+                segments.append(ChipSegment(timestamp_ms=timestamp_ms))
         last_end = match.end()
     trailing = text[last_end:]
     plain_parts.append(trailing)

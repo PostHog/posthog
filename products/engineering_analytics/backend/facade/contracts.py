@@ -92,6 +92,30 @@ class WorkflowHealthRunScope(StrEnum):
     PULL_REQUEST = "pull_request"
 
 
+class BrokenTestState(StrEnum):
+    """How a live CI-failure fingerprint is behaving right now — the broken-tests classifier's
+    verdict, ordered by triage urgency (``breaking_master`` on top, ``pr_only`` last). Inferred
+    from the failure fingerprints and the latest default-branch job status; see
+    ``logic/queries/broken_tests.py`` for the thresholds.
+
+    - ``breaking_master``: has failed on the default branch and that job's latest completed run
+      is still red — trunk is broken by this right now.
+    - ``novel_burst``: first seen within the last day and already spreading across several PR
+      branches, not on the default branch yet — a new failure catching on.
+    - ``potentially_resolved``: hit the default branch but that job's latest run is green again —
+      probably already fixed.
+    - ``flaky``: sporadic across two or more branches over more than a day, never on the default
+      branch — a recurring flake, not a trunk break.
+    - ``pr_only``: confined to a single branch — one PR's own problem, the lowest signal.
+    """
+
+    BREAKING_MASTER = "breaking_master"
+    NOVEL_BURST = "novel_burst"
+    POTENTIALLY_RESOLVED = "potentially_resolved"
+    FLAKY = "flaky"
+    PR_ONLY = "pr_only"
+
+
 class PRLifecycleEventKind(StrEnum):
     OPENED = "opened"
     CI_STARTED = "ci_started"
@@ -346,6 +370,23 @@ class RunCost:
 
 
 @dataclass(frozen=True)
+class PRLLMSpend:
+    """Agent LLM token spend attributed to one PR, summed over the ``$ai_generation`` events stamped
+    with the PR's git branch (``$ai_git_branch``).
+
+    Attribution is by branch, not head SHA: a coding agent stamps the branch at capture time — before
+    the PR exists — and the ``github_pull_requests`` snapshot keeps only the latest head, so a SHA join
+    would drop every push but the last. Surfaced as ``PRCostSummary.llm_spend``, and None there when no
+    generation matched (so the UI hides the row rather than showing a $0 line).
+    """
+
+    cost_usd: float
+    input_tokens: int
+    output_tokens: int
+    generations: int
+
+
+@dataclass(frozen=True)
 class PRCostSummary:
     """Estimated CI spend for one PR, summed over the jobs of all its workflow runs.
 
@@ -375,6 +416,10 @@ class PRCostSummary:
     # Same spend broken down per workflow run, keyed by (run_id, run_attempt), so the expanded runs
     # table under a workflow can show a per-run cost column (rolling up to the per-workflow figure).
     by_run: list[RunCost]
+    # Agent LLM token spend attributed to this PR by git branch ($ai_git_branch), or None when no
+    # $ai_generation matched — independent of the CI cost figures above, so it can be present even when
+    # jobs_available is False (the two spend sources sync separately).
+    llm_spend: PRLLMSpend | None = None
 
 
 @dataclass(frozen=True)
@@ -476,6 +521,9 @@ class FlakyTestItem:
     failed_count: int
     # Distinct PRs among the failed/error spans; master/branch failures carry no PR and don't count.
     failed_pr_count: int
+    # Failed/error spans on the default branch (master/main approximation — the source doesn't record
+    # the default branch); the "matters right now" signal.
+    master_failed_count: int
     # Distinct git branches across all of the test's signal spans in the window.
     branch_count: int
     # Spans where the test failed while quarantined (xfail) — already masked, still flaky.
@@ -495,6 +543,99 @@ class FlakyTestList:
     items: list[FlakyTestItem]
     truncated: bool
     limit: int
+
+
+@dataclass(frozen=True)
+class TeamCIHealthItem:
+    """One owning team's rollup of the CI test surfaces it owns, with equal-length
+    previous-window twins so a caller can render honest deltas.
+
+    Ownership rides on the spans themselves (the CI emitter stamps ``test.owner_team``
+    from the repo's ownership map at emission time); spans with no stamp aggregate
+    under the literal team ``'unowned'``. See ``FLAKY_TEST_SIGNAL_CAVEAT`` for why
+    every figure is an absolute count, never a rate.
+    """
+
+    # Owning team slug (CODEOWNERS handle minus '@PostHog/'), or 'unowned' for unstamped spans.
+    owner_team: str
+    # Owned tests meeting the flaky-leaderboard bar in the window (rerun passes OR distinct failed PRs).
+    flaky_test_count: int
+    flaky_test_count_prior: int
+    # Signal spans on owned tests with outcome 'failed' or 'error' in the window.
+    failed_count: int
+    failed_count_prior: int
+    # Spans on owned tests that failed first, then passed on an automatic retry.
+    rerun_passed_count: int
+    rerun_passed_count_prior: int
+    # Spans on owned tests that failed while quarantined (xfail): already masked, still flaky.
+    xfailed_count: int
+    xfailed_count_prior: int
+    # Most recent signal span across the team's owned tests, either window.
+    last_seen_at: datetime
+
+
+@dataclass(frozen=True)
+class TeamCIHealthList:
+    """The per-team CI health roster over a window (same {items, truncated, limit} shape as
+    ``FlakyTestList``). Teams compare as organizational owners of code surfaces; this list
+    never aggregates by author.
+    """
+
+    items: list[TeamCIHealthItem]
+    truncated: bool
+    limit: int
+
+
+@dataclass(frozen=True)
+class TeamTestSignal:
+    """One owned test's flaky signal across the current window and its equal-length prior
+    window, the pair behind a before-vs-after slope reading. Signal = failed + error +
+    pass-on-retry spans (xfail excluded: already-quarantined noise).
+    """
+
+    nodeid: str
+    selector: str
+    signal_count: int
+    signal_count_prior: int
+    last_seen_at: datetime
+
+
+@dataclass(frozen=True)
+class TeamCIActivity:
+    """One team's detail assembly: the per-test current-vs-prior signal pairs over the
+    window and its equal-length prior twin, capped at the test limit.
+    """
+
+    owner_team: str
+    tests: list[TeamTestSignal]
+    truncated_tests: bool
+
+
+@dataclass(frozen=True)
+class TeamMergeTrendPoint:
+    """One day of the team's merged-PR timing: the median and average open→merge over the
+    PRs the team's members merged that day. Both are None on a day the team merged nothing;
+    ``merged_count`` says how many merges back them.
+    """
+
+    day: datetime
+    median_seconds: float | None
+    average_seconds: float | None
+    merged_count: int
+
+
+@dataclass(frozen=True)
+class TeamMergeTrend:
+    """A team's time-to-merge trend over the window. Attribution is PR author login →
+    GitHub org team membership (the ``team_members`` snapshot); only team-level medians
+    are surfaced, never per-member figures or cross-team rankings (SPEC §2/§7).
+    """
+
+    owner_team: str
+    # False when the source has no team_members snapshot synced: the chart has no honest
+    # team attribution, as opposed to "synced but this team merged nothing".
+    has_membership_data: bool
+    points: list[TeamMergeTrendPoint]
 
 
 @dataclass(frozen=True)
@@ -574,6 +715,19 @@ class PullRequestList:
     items: list[PullRequestListItem]
     truncated: bool
     limit: int
+
+
+@dataclass(frozen=True)
+class BranchPRMatch:
+    """A pull request a git branch resolves to — the cross-product link seam so a caller
+    (e.g. the LLM analytics UI) can turn a git branch into a PR detail link. ``repo`` is 'owner/name'.
+    ``title`` / ``state`` are null only when the snapshot carries no value for them.
+    """
+
+    repo: str
+    number: int
+    title: str | None
+    state: str | None
 
 
 @dataclass(frozen=True)
@@ -865,6 +1019,62 @@ class MasterFailureGroup:
     last_seen: datetime
     # The most recent failing run in the group — the drill-down anchor.
     latest_run_id: int
+
+
+# The sparkline is a fixed-width hourly histogram; the width is the contract so a caller can render
+# it without inspecting the array length. 24 slots = the last 24 hours, oldest first.
+BROKEN_TEST_SPARKLINE_HOURS = 24
+
+
+@dataclass(frozen=True)
+class BrokenTestRow:
+    """One classified CI-failure fingerprint — a distinct failing test/error, with its recent
+    behavior and the classifier's verdict. Aggregated from the fingerprinted failure lines
+    (``engineering_analytics_ci_failures``) over the analysis window, joined to the latest
+    default-branch job status for the ``state``.
+
+    ``trend_24h`` is a ``BROKEN_TEST_SPARKLINE_HOURS``-slot hourly failure count (oldest first)
+    for the row sparkline — all zeros when nothing failed in the last day. ``latest_run_id`` is the
+    most recent failing run, the anchor a drill-down passes to ``run_failure_logs`` for the log lines.
+    """
+
+    fingerprint: str
+    # The pytest node id from the FAILED line (the failing test's identity).
+    test_id: str
+    # The normalized trailing failure detail shared across runs of the same failure; '' when none.
+    error_signature: str
+    # The CI job the failure most recently came from — the key joined to default-branch job status.
+    job_name: str
+    # 'owner/name' the failure belongs to.
+    repo: str
+    state: BrokenTestState
+    first_seen: datetime
+    last_seen: datetime
+    # Total failure lines for this fingerprint in the window (absolute count, never a rate).
+    occurrences: int
+    # Distinct branches the failure appeared on.
+    branches: int
+    # Failure lines on the default branch (master/main) — 0 means it never hit trunk.
+    master_hits: int
+    latest_run_id: int
+    latest_branch: str
+    trend_24h: list[int] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class BrokenTestsResult:
+    """The broken-tests panel payload: classified failure fingerprints ranked by triage urgency
+    (breaking trunk first), plus the default-branch jobs whose latest completed run is red — the
+    "what's on fire right now" summary. ``rows`` is capped at ``limit`` with a ``truncated`` flag,
+    same shape as ``FlakyTestList``. ``window_days`` is the analysis window the counts cover.
+    """
+
+    rows: list[BrokenTestRow]
+    # Default-branch job names whose latest completed run is failing — drives the summary banner.
+    breaking_master_jobs: list[str]
+    window_days: int
+    truncated: bool
+    limit: int
 
 
 @dataclass(frozen=True)

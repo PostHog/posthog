@@ -147,6 +147,16 @@ async def maybe_flag_for_repartition(
     omitted it is evaluated lazily, only once the table is confirmed over budget.
     """
     try:
+        # A table pending a corruption revive must heal before it's rewritten — flagging it here would
+        # re-arm the revive loop after the heal clears the marker. Skip; the healed table is evaluated
+        # normally on a later run.
+        if schema.delta_revive_required is not None:
+            await logger.adebug(
+                f"repartition: skipped detection, table pending corruption revive schema_id={schema.id}",
+                schema_id=str(schema.id),
+            )
+            return
+
         partition_bytes = await asyncio.to_thread(measure_partition_bytes, delta_table)
         if not partition_bytes:
             await logger.adebug(
@@ -208,9 +218,11 @@ async def maybe_flag_for_repartition(
 
         if schema.repartition_pending is not None:
             await logger.adebug(
-                f"repartition: over budget but already queued for the next run schema_id={schema.id} "
-                f"max_partition_bytes={max_bytes} budget_bytes={budget} repartition_pending={schema.repartition_pending}",
+                f"repartition: needs repartition (trigger_reason={trigger_reason}) but already queued for the next "
+                f"run schema_id={schema.id} max_partition_bytes={max_bytes} budget_bytes={budget} "
+                f"repartition_pending={schema.repartition_pending}",
                 schema_id=str(schema.id),
+                trigger_reason=trigger_reason,
                 max_partition_bytes=max_bytes,
                 budget_bytes=budget,
                 repartition_pending=schema.repartition_pending,
@@ -220,10 +232,11 @@ async def maybe_flag_for_repartition(
         cooldown_remaining = _cooldown_seconds_remaining(schema)
         if cooldown_remaining > 0:
             await logger.adebug(
-                f"repartition: over budget but skipped, in post-repartition cooldown schema_id={schema.id} "
-                f"max_partition_bytes={max_bytes} budget_bytes={budget} last_repartition_at={schema.last_repartition_at} "
-                f"cooldown_seconds_remaining={int(cooldown_remaining)}",
+                f"repartition: needs repartition (trigger_reason={trigger_reason}) but skipped, in post-repartition "
+                f"cooldown schema_id={schema.id} max_partition_bytes={max_bytes} budget_bytes={budget} "
+                f"last_repartition_at={schema.last_repartition_at} cooldown_seconds_remaining={int(cooldown_remaining)}",
                 schema_id=str(schema.id),
+                trigger_reason=trigger_reason,
                 max_partition_bytes=max_bytes,
                 budget_bytes=budget,
                 last_repartition_at=schema.last_repartition_at,
@@ -275,7 +288,11 @@ async def maybe_flag_for_repartition(
                 "max_partition_bytes_before": max_bytes,
                 "trigger_reason": trigger_reason,
                 "recent_oom_count": oom_count,
-                "partition_mode_after": target.partition_mode,
+                # An unpartitioned table's target has mode None ("enable partitioning, auto-detect
+                # the scheme on the first rewrite batch"). Emit an explicit "auto" so dashboards can
+                # render the target scheme instead of a null — half of all flagged events are this
+                # case, and a null here NULL-poisons any string built from the scheme properties.
+                "partition_mode_after": target.partition_mode or "auto",
                 "partition_format_after": target.partition_format,
                 "partition_count_after": target.partition_count,
                 "partition_size_after": target.partition_size,
