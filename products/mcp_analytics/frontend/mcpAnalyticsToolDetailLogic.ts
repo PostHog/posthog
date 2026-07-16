@@ -1,10 +1,15 @@
-import { afterMount, kea, key, path, props, selectors } from 'kea'
+import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { dateFilterToText, dateStringToDayJs, getDefaultInterval } from 'lib/utils/dateFilters'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import {
+    DateRange,
     MCPHarnessBreakdownItem,
     MCPToolDailyStatItem,
     MCPToolDescriptionItem,
@@ -15,8 +20,10 @@ import {
     MCPToolTopUserItem,
     NodeKind,
 } from '~/queries/schema/schema-general'
+import { IntervalType } from '~/types'
 
 import type { mcpAnalyticsToolDetailLogicType } from './mcpAnalyticsToolDetailLogicType'
+import { buildBucketKeys, normalizeBucket } from './timeBuckets'
 
 export interface ToolSummary {
     calls: number
@@ -69,21 +76,20 @@ const EMPTY_CHART_DATA: DailyChartData = {
 
 export type ResultRows = unknown[][]
 
-// Gap-fill the per-day rows into a continuous day axis (ClickHouse only returns days with data).
-// Counts fill with 0; latency fills with NaN so the chart skips the point instead of dipping to 0.
-export function buildDailyChartData(rows: DailyToolStat[]): DailyChartData {
+// Project the per-bucket rows onto the full set of interval buckets spanning the selected window
+// (ClickHouse only returns buckets with data). `bucketKeys` covers the whole window at the active
+// interval so the sparklines and trend charts match the chosen range — and always have enough points
+// to draw a line — even when the tool has data on only a bucket or two. Counts fill with 0; latency
+// fills with NaN so the chart skips the point instead of dipping to 0. Rows match by normalized
+// bucket key, so day, hour, and minute intervals all line up. No rows at all keeps the empty state.
+export function buildDailyChartData(rows: DailyToolStat[], bucketKeys: string[]): DailyChartData {
     if (rows.length === 0) {
         return EMPTY_CHART_DATA
     }
-    const byDay = new Map(rows.map((r) => [r.day, r]))
-    const end = dayjs(rows[rows.length - 1].day)
-    const labels: string[] = []
-    for (let day = dayjs(rows[0].day); !day.isAfter(end); day = day.add(1, 'day')) {
-        labels.push(day.format('YYYY-MM-DD'))
-    }
-    const at = labels.map((day) => byDay.get(day))
+    const byBucket = new Map(rows.map((r) => [normalizeBucket(r.day), r]))
+    const at = bucketKeys.map((k) => byBucket.get(k))
     return {
-        labels,
+        labels: bucketKeys,
         calls: at.map((r) => r?.calls ?? 0),
         errors: at.map((r) => r?.errors ?? 0),
         p50: at.map((r) => (r ? r.p50 : NaN)),
@@ -97,20 +103,27 @@ export interface MCPAnalyticsToolDetailLogicProps {
     toolName: string
 }
 
-// Absolute from/to for an exact N*24h window. A relative '-Nd' would be rounded to the start
-// of the day by the backend's QueryDateRange, widening the window and letting per-section
-// counts drift apart after midnight; the sections must share one window to stay consistent.
-function windowDays(days: number): { date_from: string; date_to: string } {
-    return { date_from: dayjs().subtract(days, 'day').toISOString(), date_to: dayjs().toISOString() }
+export interface DateFilter {
+    dateFrom: string | null
+    dateTo: string | null
 }
 
+// The window carries over from the Tool quality tab via date_from / date_to search params
+// (see mcpAnalyticsToolQualityLogic). Without them — e.g. opening a tool page directly — we
+// default to the last 30 days.
+const DEFAULT_DATE_FILTER: DateFilter = { dateFrom: '-30d', dateTo: null }
+
 // Tools most often called immediately before/after this one within the same conversation.
-async function neighborRows(toolName: string, direction: 'before' | 'after'): Promise<ResultRows> {
+async function neighborRows(
+    toolName: string,
+    direction: 'before' | 'after',
+    dateRange: DateRange
+): Promise<ResultRows> {
     const response = (await api.query({
         kind: NodeKind.MCPToolNeighborsQuery,
         toolName,
         neighborDirection: direction,
-        dateRange: windowDays(7),
+        dateRange,
     })) as { results?: MCPToolNeighborItem[] }
     return (response?.results ?? []).map((r) => [r.neighbor_tool, r.co_occurrences])
 }
@@ -120,7 +133,21 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
     key((props: MCPAnalyticsToolDetailLogicProps) => props.toolName),
     props({} as MCPAnalyticsToolDetailLogicProps),
 
-    loaders(({ props }) => ({
+    actions({
+        setDateFilter: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
+        loadAllSections: true,
+    }),
+
+    reducers({
+        dateFilter: [
+            DEFAULT_DATE_FILTER,
+            {
+                setDateFilter: (_, { dateFrom, dateTo }): DateFilter => ({ dateFrom, dateTo }),
+            },
+        ],
+    }),
+
+    loaders(({ props, values }) => ({
         summary: [
             null as ToolSummary | null,
             {
@@ -128,7 +155,7 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
                     const response = (await api.query({
                         kind: NodeKind.MCPToolStatsQuery,
                         toolName: props.toolName,
-                        dateRange: windowDays(7),
+                        dateRange: values.dateRange,
                     })) as { results?: MCPToolStatsItem[] }
                     const row = response?.results?.[0]
                     if (!row) {
@@ -152,7 +179,7 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
                     const response = (await api.query({
                         kind: NodeKind.MCPToolDescriptionsQuery,
                         toolName: props.toolName,
-                        dateRange: windowDays(30),
+                        dateRange: values.dateRange,
                     })) as { results?: MCPToolDescriptionItem[] }
                     return (response?.results ?? []).map((r) => ({
                         description: r.description,
@@ -169,7 +196,7 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
                     const response = (await api.query({
                         kind: NodeKind.MCPToolStatsQuery,
                         toolName: props.toolName,
-                        dateRange: windowDays(7),
+                        dateRange: values.dateRange,
                     })) as { results?: MCPToolStatsItem[] }
                     const row = response?.results?.[0]
                     if (!row) {
@@ -182,12 +209,17 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
         dailyStats: [
             [] as DailyToolStat[],
             {
-                loadDailyStats: async (): Promise<DailyToolStat[]> => {
+                // Guarded with breakpoint: dailyChartData builds its bucket keys from the *live* interval,
+                // so a superseded response fetched at a different interval (e.g. day → hour on a fast
+                // back/forward) would otherwise land and collapse a day's rows into one hourly bucket.
+                loadDailyStats: async (_: void, breakpoint): Promise<DailyToolStat[]> => {
                     const response = (await api.query({
                         kind: NodeKind.MCPToolDailyStatsQuery,
                         toolName: props.toolName,
-                        dateRange: windowDays(30),
+                        dateRange: values.dateRange,
+                        interval: values.interval,
                     })) as { results?: MCPToolDailyStatItem[] }
+                    breakpoint()
                     return (response?.results ?? []).map((r) => ({
                         day: r.day,
                         calls: r.calls,
@@ -207,7 +239,7 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
                     const response = (await api.query({
                         kind: NodeKind.MCPToolFailuresQuery,
                         toolName: props.toolName,
-                        dateRange: windowDays(7),
+                        dateRange: values.dateRange,
                     })) as { results?: MCPToolFailureItem[] }
                     return (response?.results ?? []).map((r) => [r.message, r.occurrences, r.last_seen, r.harnesses])
                 },
@@ -220,7 +252,7 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
                     const response = (await api.query({
                         kind: NodeKind.MCPToolSampleIntentsQuery,
                         toolName: props.toolName,
-                        dateRange: windowDays(7),
+                        dateRange: values.dateRange,
                     })) as { results?: MCPToolSampleIntentItem[] }
                     return (response?.results ?? []).map((r) => [r.timestamp, r.intent, r.intent_source, r.harness])
                 },
@@ -229,13 +261,15 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
         neighborsBeforeRows: [
             [] as ResultRows,
             {
-                loadNeighborsBeforeRows: async (): Promise<ResultRows> => neighborRows(props.toolName, 'before'),
+                loadNeighborsBeforeRows: async (): Promise<ResultRows> =>
+                    neighborRows(props.toolName, 'before', values.dateRange),
             },
         ],
         neighborsAfterRows: [
             [] as ResultRows,
             {
-                loadNeighborsAfterRows: async (): Promise<ResultRows> => neighborRows(props.toolName, 'after'),
+                loadNeighborsAfterRows: async (): Promise<ResultRows> =>
+                    neighborRows(props.toolName, 'after', values.dateRange),
             },
         ],
         byHarnessRows: [
@@ -247,7 +281,7 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
                     const response = (await api.query({
                         kind: NodeKind.MCPHarnessBreakdownQuery,
                         toolName: props.toolName,
-                        dateRange: windowDays(7),
+                        dateRange: values.dateRange,
                     })) as { results?: MCPHarnessBreakdownItem[] }
                     return (response?.results ?? []).map((r) => [
                         r.harness,
@@ -267,7 +301,7 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
                     const response = (await api.query({
                         kind: NodeKind.MCPToolTopUsersQuery,
                         toolName: props.toolName,
-                        dateRange: windowDays(7),
+                        dateRange: values.dateRange,
                     })) as { results?: MCPToolTopUserItem[] }
                     return (response?.results ?? []).map((r) => [
                         [r.distinct_id, '', r.person_properties],
@@ -286,21 +320,76 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
         toolName: [() => [(_, props) => props.toolName], (toolName: string) => toolName],
 
         dailyChartData: [
-            (s) => [s.dailyStats],
-            (dailyStats: DailyToolStat[]): DailyChartData => buildDailyChartData(dailyStats),
+            (s) => [s.dailyStats, s.dateFilter, s.interval, teamLogic.selectors.timezone],
+            (
+                dailyStats: DailyToolStat[],
+                dateFilter: DateFilter,
+                interval: IntervalType,
+                timezone: string
+            ): DailyChartData => {
+                const bucketKeys = buildBucketKeys(dateFilter.dateFrom, dateFilter.dateTo, timezone, interval)
+                return buildDailyChartData(dailyStats, bucketKeys)
+            },
+        ],
+
+        // Grouping interval for the daily series — PostHog's standard auto-choice, matching the query's
+        // dateTrunc so a sub-day window buckets by hour/minute instead of collapsing to one day point.
+        interval: [
+            (s) => [s.dateFilter],
+            (dateFilter: DateFilter): IntervalType => getDefaultInterval(dateFilter.dateFrom, dateFilter.dateTo),
+        ],
+
+        // Resolve the `dateFilter` state (camelCase, nullable, may be relative like '-30d') into the
+        // absolute snake_case `DateRange` the query API takes. Done once so every section queries the
+        // exact same window — a relative '-Nd' would re-resolve per section and drift after midnight.
+        dateRange: [
+            (s) => [s.dateFilter, teamLogic.selectors.timezone],
+            (dateFilter: DateFilter, timezone: string): DateRange => {
+                const to = dateStringToDayJs(dateFilter.dateTo, timezone) ?? dayjs().tz(timezone)
+                const from =
+                    dateStringToDayJs(dateFilter.dateFrom, timezone) ?? dayjs().tz(timezone).subtract(30, 'day')
+                return { date_from: from.toISOString(), date_to: to.toISOString() }
+            },
+        ],
+
+        dateRangeLabel: [
+            (s) => [s.dateFilter],
+            (dateFilter: DateFilter): string =>
+                dateFilterToText(dateFilter.dateFrom, dateFilter.dateTo, 'the selected range') ?? 'the selected range',
         ],
     }),
 
-    afterMount(({ actions }) => {
-        actions.loadSummary()
-        actions.loadDescriptions()
-        actions.loadIntentCoverage()
-        actions.loadDailyStats()
-        actions.loadFailureRows()
-        actions.loadSampleIntentRows()
-        actions.loadNeighborsBeforeRows()
-        actions.loadNeighborsAfterRows()
-        actions.loadByHarnessRows()
-        actions.loadTopUserRows()
-    }),
+    listeners(({ actions }) => ({
+        loadAllSections: () => {
+            actions.loadSummary()
+            actions.loadDescriptions()
+            actions.loadIntentCoverage()
+            actions.loadDailyStats()
+            actions.loadFailureRows()
+            actions.loadSampleIntentRows()
+            actions.loadNeighborsBeforeRows()
+            actions.loadNeighborsAfterRows()
+            actions.loadByHarnessRows()
+            actions.loadTopUserRows()
+        },
+    })),
+
+    // The window rides along in the URL from the Tool quality tab. Reading it here (rather than once
+    // in afterMount) keeps the page in sync when only date_from / date_to change for the same tool —
+    // e.g. browser back/forward — since the logic is keyed by toolName and wouldn't remount.
+    urlToAction(({ actions, values, cache }) => ({
+        [`${urls.mcpAnalyticsToolQuality()}/:toolName`]: (_, searchParams) => {
+            const dateFrom =
+                typeof searchParams.date_from === 'string' ? searchParams.date_from : DEFAULT_DATE_FILTER.dateFrom
+            const dateTo = typeof searchParams.date_to === 'string' ? searchParams.date_to : null
+            const dateChanged = dateFrom !== values.dateFilter.dateFrom || dateTo !== values.dateFilter.dateTo
+            if (dateChanged) {
+                actions.setDateFilter(dateFrom, dateTo)
+            }
+            if (dateChanged || !cache.hasLoaded) {
+                actions.loadAllSections()
+            }
+            cache.hasLoaded = true
+        },
+    })),
 ])

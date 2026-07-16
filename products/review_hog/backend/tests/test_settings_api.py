@@ -20,7 +20,7 @@ class TestReviewUserSettingsAPI(APIBaseTest):
         assert res.json() == {
             "review_inbox_prs": False,
             "review_labeled_prs": True,
-            "urgency_threshold": "should_fix",
+            "urgency_threshold": "consider",
         }
         assert ReviewUserSettings.objects.for_team(self.team.id).filter(user_id=self.user.id).count() == 1
 

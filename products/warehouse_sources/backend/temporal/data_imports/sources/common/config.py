@@ -689,6 +689,32 @@ def str_to_optional_int(s: str | int | float | None) -> int | None:
         return int(s)
 
 
+def str_to_optional_list(s: str | list[typing.Any] | None) -> list[str] | None:
+    """A converter to return an optional list of strings from a list, a JSON-array string,
+    or a comma-separated string. Empty inputs normalize to None."""
+    if s is None:
+        return None
+    if isinstance(s, list):
+        values = [str(item).strip() for item in s]
+    else:
+        stripped = s.strip()
+        if stripped == "":
+            return None
+        if stripped.startswith("["):
+            try:
+                parsed = json.loads(stripped)
+            except json.JSONDecodeError:
+                parsed = None
+            if isinstance(parsed, list):
+                values = [str(item).strip() for item in parsed]
+            else:
+                values = [stripped]
+        else:
+            values = [item.strip() for item in stripped.split(",")]
+    values = [value for value in values if value]
+    return values or None
+
+
 _DefaultType = typing.TypeVar("_DefaultType")
 
 

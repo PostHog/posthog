@@ -490,7 +490,7 @@ class BeamerSourceConfig(config.Config):
 
 @config.config
 class BetterStackSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -1037,12 +1037,14 @@ class CoupaSourceConfig(config.Config):
 
 @config.config
 class CoverallsSourceConfig(config.Config):
-    pass
+    repositories: str
+    service: Literal["github", "gitlab", "bitbucket"] = config.value(default="github")
+    api_token: str | None = None
 
 
 @config.config
 class CratesIOSourceConfig(config.Config):
-    pass
+    crates: str
 
 
 @config.config
@@ -1096,7 +1098,7 @@ class CustomerIOSourceConfig(config.Config):
 
 @config.config
 class CustomerlySourceConfig(config.Config):
-    pass
+    access_token: str
 
 
 @config.config
@@ -1602,7 +1604,7 @@ class FreshserviceSourceConfig(config.Config):
 
 @config.config
 class FrillSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1678,7 +1680,8 @@ class GitguardianSourceConfig(config.Config):
 @config.config
 class GithubSourceConfig(config.Config):
     auth_method: GithubAuthMethodConfig
-    repository: str
+    repositories: list[str] | None = config.value(converter=config.str_to_optional_list, default_factory=lambda: None)
+    repository: str | None = None
 
 
 @config.config
@@ -1968,7 +1971,8 @@ class HoneybadgerSourceConfig(config.Config):
 
 @config.config
 class HoneycombSourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config
@@ -2216,7 +2220,9 @@ class KajabiSourceConfig(config.Config):
 
 @config.config
 class KandjiSourceConfig(config.Config):
-    pass
+    api_token: str
+    subdomain: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config
@@ -2276,7 +2282,9 @@ class KnockSourceConfig(config.Config):
 
 @config.config
 class KongKonnectSourceConfig(config.Config):
-    pass
+    api_token: str
+    lookback_days: int | None = config.value(converter=config.str_to_optional_int, default_factory=lambda: None)
+    region: Literal["us", "eu", "au", "me", "in", "sg"] = config.value(default="us")
 
 
 @config.config
@@ -2286,7 +2294,8 @@ class KoyebSourceConfig(config.Config):
 
 @config.config
 class KubecostSourceConfig(config.Config):
-    pass
+    host: str
+    api_key: str | None = None
 
 
 @config.config
@@ -3018,7 +3027,7 @@ class PabblySubscriptionsBillingSourceConfig(config.Config):
 
 @config.config
 class PackagistSourceConfig(config.Config):
-    pass
+    packages: str
 
 
 @config.config
@@ -3277,7 +3286,9 @@ class PostmarkSourceConfig(config.Config):
 
 @config.config
 class PrefectCloudSourceConfig(config.Config):
-    pass
+    account_id: str
+    workspace_id: str
+    api_key: str
 
 
 @config.config
@@ -3355,7 +3366,9 @@ class QualtricsSourceConfig(config.Config):
 
 @config.config
 class QualysVmdrSourceConfig(config.Config):
-    pass
+    api_server: str
+    username: str
+    password: str
 
 
 @config.config
@@ -3397,12 +3410,13 @@ class RampSourceConfig(config.Config):
 
 @config.config
 class Rapid7InsightvmSourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "eu", "ca", "au", "ap", "jp"] = config.value(default="us")
 
 
 @config.config
 class RaygunSourceConfig(config.Config):
-    pass
+    personal_access_token: str
 
 
 @config.config
@@ -3574,7 +3588,7 @@ class RuddrSourceConfig(config.Config):
 
 @config.config
 class RunPodSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -4363,6 +4377,7 @@ class TypeformSourceConfig(config.Config):
     api_base_url: (
         Literal["https://api.typeform.com", "https://api.eu.typeform.com", "https://api.typeform.eu"] | None
     ) = config.value(default="https://api.typeform.com")
+    response_types: Literal["completed", "completed,partial,started"] | None = config.value(default="completed")
 
 
 @config.config
@@ -4587,7 +4602,9 @@ class XeroSourceConfig(config.Config):
 
 @config.config
 class XmattersSourceConfig(config.Config):
-    pass
+    subdomain: str
+    username: str
+    password: str
 
 
 @config.config
@@ -4669,7 +4686,7 @@ class ZendeskSunshineSourceConfig(config.Config):
 
 @config.config
 class ZendutySourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
