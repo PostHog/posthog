@@ -396,6 +396,9 @@ export interface llmProviderKeysLogicActions {
             api_version?: string
         }
     }
+    setActiveKey: (id: string) => {
+        id: string
+    }
     setEditingKey: (key: LLMProviderKey | null) => {
         key: LLMProviderKey | null
     }
@@ -407,9 +410,6 @@ export interface llmProviderKeysLogicActions {
     }
     setNewlyCreatedKey: (key: LLMProviderKey | null) => {
         key: LLMProviderKey | null
-    }
-    setActiveKey: (id: string) => {
-        id: string
     }
     updateProviderKey: ({ id, payload }: { id: string; payload: UpdateLLMProviderKeyPayload }) => {
         id: string
