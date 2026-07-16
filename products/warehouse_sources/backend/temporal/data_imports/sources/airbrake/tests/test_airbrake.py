@@ -163,21 +163,31 @@ class TestFetchPageRetries:
         assert result == {"projects": []}
         assert session.get.call_count == 2
 
-    def test_auth_error_raises_immediately(self) -> None:
-        # 401 must surface as HTTPError on the first attempt so get_non_retryable_errors can stop the sync.
+    def test_auth_error_raises_immediately_without_leaking_key(self) -> None:
+        # 401 must surface as HTTPError on the first attempt so get_non_retryable_errors can stop
+        # the sync — and its message must not carry the ?key= credential, since it is persisted
+        # into job errors and logs.
         response = MagicMock()
         response.status_code = 401
         response.ok = False
-        response.raise_for_status.side_effect = requests.HTTPError(
-            "401 Client Error: Unauthorized for url: https://api.airbrake.io/api/v4/projects"
-        )
+        response.reason = "Unauthorized"
+        response.text = '{"code":401,"type":"Unauthorized"}'
         session = MagicMock()
         session.get.return_value = response
 
-        with pytest.raises(requests.HTTPError):
-            airbrake._fetch_page(session, "https://api.airbrake.io/api/v4/projects", {}, MagicMock())
+        with pytest.raises(requests.HTTPError) as exc_info:
+            airbrake._fetch_page(
+                session,
+                "https://api.airbrake.io/api/v4/projects",
+                {"key": "SECRET-KEY", "limit": PAGE_LIMIT, "page": 1},
+                MagicMock(),
+            )
 
         assert session.get.call_count == 1
+        assert "401 Client Error: Unauthorized for url: https://api.airbrake.io/api/v4/projects" in str(exc_info.value)
+        assert "SECRET-KEY" not in str(exc_info.value)
+        # `response` must ride along so fan-out callers can distinguish 404s.
+        assert exc_info.value.response is response
 
 
 class TestGroupsFanOut:

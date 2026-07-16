@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import SourceFieldInputConfigType
+from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.airbrake.airbrake import AirbrakeResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.airbrake.source import AirbrakeSource
@@ -23,6 +23,7 @@ class TestAirbrakeSource:
         assert config.fields is not None
         field_by_name = {f.name: f for f in config.fields}
         api_key = field_by_name["api_key"]
+        assert isinstance(api_key, SourceFieldInputConfig)
         assert api_key.type == SourceFieldInputConfigType.PASSWORD
         assert api_key.secret is True
         assert api_key.required is True

@@ -75,7 +75,11 @@ def _fetch_page(
         # 404 is expected during fan-out (a project/group deleted mid-sync) and handled by callers.
         log = logger.warning if response.status_code == 404 else logger.error
         log(f"Airbrake API error: status={response.status_code}, body={response.text}, url={url}")
-        response.raise_for_status()
+        # Not raise_for_status(): its message embeds response.url, which carries the ?key=
+        # credential, and the message is persisted into job errors and logs. `url` is query-free.
+        raise requests.HTTPError(
+            f"{response.status_code} Client Error: {response.reason} for url: {url}", response=response
+        )
 
     return response.json()
 
@@ -352,7 +356,7 @@ def validate_credentials(api_key: str) -> bool:
     try:
         response = make_tracked_session().get(
             f"{AIRBRAKE_BASE_URL}/api/v4/projects",
-            params={"key": api_key, "limit": 1},
+            params={"key": api_key, "limit": "1"},
             timeout=10,
         )
         return response.status_code == 200
