@@ -3024,7 +3024,8 @@ class OveitSourceConfig(config.Config):
 
 @config.config
 class PabblySubscriptionsBillingSourceConfig(config.Config):
-    pass
+    api_key: str
+    secret_key: str
 
 
 @config.config

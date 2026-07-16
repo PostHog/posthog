@@ -335,6 +335,7 @@ the row lists both.
 | ortto                            | HTTP                        | requests                                                        | ✅                          |
 | oura                             | HTTP                        | requests                                                        | ✅                          |
 | outbrain                         | HTTP                        | requests                                                        | ✅                          |
+| pabbly_subscriptions_billing     | HTTP                        | requests                                                        | ✅                          |
 | packagist                        | HTTP                        | requests                                                        | ✅                          |
 | paddle                           | HTTP                        | requests                                                        | ✅                          |
 | optimizely                       | HTTP                        | requests                                                        | ✅                          |
@@ -798,7 +799,6 @@ doesn't conflict with concurrent PRs.
 - outlook
 - outreach
 - oveit
-- pabbly_subscriptions_billing
 - pagerduty
 - pardot
 - paylocity
