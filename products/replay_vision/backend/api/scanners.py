@@ -333,14 +333,15 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.IntegerField())
     def get_credits_this_month(self, scanner: ReplayScanner) -> int:
-        # One grouped query per request: memoize the whole page's totals on the serializer root.
-        root = self.root
-        totals = getattr(root, "_scanner_credits_used", None)
+        # One grouped query per request: the context dict is shared across the list's children,
+        # so the whole page's totals are computed once and read by every row.
+        totals = self.context.get("_scanner_credits_used")
         if totals is None:
+            root = self.root
             instance = root.instance if isinstance(root, serializers.ListSerializer) else None
             scanner_ids = [s.id for s in instance] if instance is not None else [scanner.id]
             totals = credits_used_by_scanner(self.context["get_team"]().organization_id, scanner_ids)
-            root._scanner_credits_used = totals
+            self.context["_scanner_credits_used"] = totals
         return totals.get(scanner.id, 0)
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
