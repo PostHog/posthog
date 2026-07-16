@@ -319,6 +319,50 @@ class TestLlamaCloudTransport:
             ]
         ]
 
+    def test_get_rows_files_projects_to_documented_fields(self) -> None:
+        # Each file row carries a presigned `download_url` (and form fields) granting access to
+        # the private source document; only the documented metadata reaches the warehouse.
+        session = FakeSession(
+            [
+                _page(
+                    [
+                        {
+                            "id": "file-1",
+                            "name": "invoice.pdf",
+                            "external_file_id": "ext-1",
+                            "file_type": "pdf",
+                            "project_id": "proj-1",
+                            "last_modified_at": "2026-01-02T00:00:00Z",
+                            "expires_at": "2026-02-01T00:00:00Z",
+                            "purpose": "parse",
+                            "download_url": "https://s3.example.com/private?X-Amz-Signature=secret",
+                            "download_form_fields": {"key": "value", "policy": "secret"},
+                        }
+                    ],
+                    next_page_token=None,
+                )
+            ]
+        )
+        manager = _make_manager()
+
+        with patch(f"{TRANSPORT_MODULE}.make_tracked_session", return_value=session):
+            batches = list(get_rows("llx-test", "eu", "files", MagicMock(), manager))
+
+        assert batches == [
+            [
+                {
+                    "id": "file-1",
+                    "name": "invoice.pdf",
+                    "external_file_id": "ext-1",
+                    "file_type": "pdf",
+                    "project_id": "proj-1",
+                    "last_modified_at": "2026-01-02T00:00:00Z",
+                    "expires_at": "2026-02-01T00:00:00Z",
+                    "purpose": "parse",
+                }
+            ]
+        ]
+
     @parameterized.expand([(429,), (500,), (503,)])
     def test_fetch_page_raises_retryable_error(self, status_code: int) -> None:
         session = MagicMock()

@@ -161,6 +161,22 @@ LLAMA_CLOUD_ENDPOINTS: dict[str, LlamaCloudEndpointConfig] = {
         path="/api/v1/beta/files",
         # The files listing has no timestamp filter (last_modified_at is not filterable),
         # so full refresh only.
+        # Each file row carries a presigned `download_url` (and form fields) granting access to
+        # the private source document, so import only the documented metadata (matches
+        # canonical_descriptions) and skip sampling.
+        output_fields=frozenset(
+            {
+                "id",
+                "name",
+                "external_file_id",
+                "file_type",
+                "project_id",
+                "last_modified_at",
+                "expires_at",
+                "purpose",
+            }
+        ),
+        capture_http_samples=False,
     ),
     "usage_metrics": LlamaCloudEndpointConfig(
         name="usage_metrics",
