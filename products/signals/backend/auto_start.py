@@ -117,7 +117,7 @@ def _build_autostart_task_description(
         "social faux pas in someone else's project.\n\n"
         "When opening the PR, include this report link in the description footer, "
         "making the footer '*Created with [PostHog Code](https://posthog.com/code?ref=pr) "
-        f"from [an inbox report]({report_link}).' - "
+        f"from [this inbox report]({report_link}).' - "
         "so the human reviewer can jump straight to it."
     )
 
