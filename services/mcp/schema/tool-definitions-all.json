@@ -5321,7 +5321,7 @@
         "title": "Set prompt label",
         "required_scopes": ["llm_prompt:write"],
         "annotations": {
-            "destructiveHint": false,
+            "destructiveHint": true,
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false

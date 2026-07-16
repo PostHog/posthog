@@ -52,7 +52,9 @@ tools:
             - llm_prompt:write
         annotations:
             readOnly: false
-            destructive: false
+            # Moving a label is a release/rollback of live prompt behavior — clients
+            # should route it through their destructive-action confirmation.
+            destructive: true
             idempotent: true
         title: Set prompt label
         description: >
