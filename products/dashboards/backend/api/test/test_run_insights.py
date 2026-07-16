@@ -1,13 +1,18 @@
 import json
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest import mock
 
+from django.utils import timezone
+
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.schema import DateRange, EventsNode, InsightVizNode, TrendsFilter, TrendsQuery
 
 from posthog.api.test.dashboards import DashboardAPI
+from posthog.caching.fetch_from_cache import InsightResult
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 
@@ -44,13 +49,61 @@ class TestDashboardRunInsights(APIBaseTest):
     def test_records_dashboard_access(self) -> None:
         dashboard = Dashboard.objects.create(team=self.team, name="dash")
 
-        with patch("products.dashboards.backend.api.dashboard.record_dashboard_access") as record_access:
+        with mock.patch("products.dashboards.backend.api.dashboard.record_dashboard_access") as record_access:
             body = self._run(dashboard.id, output_format="json")
 
         self.assertEqual(body["results"], [])
-        record_access.assert_called_once_with(DashboardAccessMethod.HUMAN)
+        record_access.assert_called_once_with(dashboard, DashboardAccessMethod.HUMAN)
         dashboard.refresh_from_db()
         self.assertIsNone(dashboard.last_accessed_at)
+
+    @parameterized.expand(
+        [
+            (
+                "default",
+                None,
+                ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
+            ),
+            ("force_cache", "force_cache", ExecutionMode.CACHE_ONLY_NEVER_CALCULATE),
+            (
+                "async_except_on_cache_miss",
+                "async_except_on_cache_miss",
+                ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
+            ),
+            ("blocking", "blocking", ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE),
+            ("force_async", "force_async", ExecutionMode.CALCULATE_ASYNC_ALWAYS),
+            ("force_blocking", "force_blocking", ExecutionMode.CALCULATE_BLOCKING_ALWAYS),
+        ]
+    )
+    @mock.patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    def test_uses_expected_execution_mode(
+        self,
+        _name: str,
+        refresh: str | None,
+        expected_execution_mode: ExecutionMode,
+        mock_calculate: mock.MagicMock,
+    ) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="dash")
+        insight = Insight.objects.create(
+            team=self.team,
+            name="insight",
+            query=_trends_query_dict(),
+        )
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+        mock_calculate.return_value = InsightResult(
+            result=[],
+            last_refresh=timezone.now(),
+            cache_key="cache-key",
+            is_cached=True,
+            timezone=self.team.timezone,
+        )
+        query_params = {"output_format": "json"}
+        if refresh is not None:
+            query_params["refresh"] = refresh
+
+        self._run(dashboard.id, **query_params)
+
+        self.assertEqual(mock_calculate.call_args.kwargs["execution_mode"], expected_execution_mode)
 
     def test_returns_one_result_per_insight_tile(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})

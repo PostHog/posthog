@@ -69,6 +69,7 @@ from posthog.helpers.trigram_search import (
     apply_trigram_search,
     drop_similar_when_exact_exists,
 )
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.file_system.constants import DEFAULT_SURFACE, surface_q
 from posthog.models.file_system.file_system import FileSystem, create_or_update_file, delete_file, join_path, split_path
 from posthog.models.quick_filter import QuickFilter
@@ -2783,10 +2784,12 @@ class DashboardsViewSet(
             OpenApiParameter(
                 "refresh",
                 OpenApiTypes.STR,
-                enum=["force_cache", "blocking", "force_blocking"],
+                enum=["force_cache", "async_except_on_cache_miss", "blocking", "force_async", "force_blocking"],
                 description=(
-                    "Cache behavior. 'force_cache' (default) serves from cache even if stale. "
+                    "Cache behavior. By default, stale results are returned while refreshing asynchronously, "
+                    "but a cache miss is calculated synchronously. 'force_cache' serves only cached results. "
                     "'blocking' uses cache if fresh, otherwise recalculates. "
+                    "'force_async' always recalculates in the background. "
                     "'force_blocking' always recalculates."
                 ),
             ),
@@ -2816,6 +2819,7 @@ class DashboardsViewSet(
         context = self.get_serializer_context()
         context["dashboard"] = dashboard
         context["dashboard_access_method"] = access_method
+        context["default_execution_mode"] = ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
         # _format_insight_for_llm consumes results as Python data, so raw cached
         # result bytes (orjson.Fragment) must not be used here.
         context["require_parsed_results"] = True

@@ -1049,10 +1049,10 @@ export const DashboardsRunInsightsRetrieveQueryParams = /* @__PURE__ */ zod.obje
             "'optimized' (default) returns LLM-friendly formatted text per insight. 'json' returns the raw query result objects."
         ),
     refresh: zod
-        .enum(['blocking', 'force_blocking', 'force_cache'])
+        .enum(['async_except_on_cache_miss', 'blocking', 'force_async', 'force_blocking', 'force_cache'])
         .optional()
         .describe(
-            "Cache behavior. 'force_cache' (default) serves from cache even if stale. 'blocking' uses cache if fresh, otherwise recalculates. 'force_blocking' always recalculates."
+            "Cache behavior. By default, stale results are returned while refreshing asynchronously, but a cache miss is calculated synchronously. 'force_cache' serves only cached results. 'blocking' uses cache if fresh, otherwise recalculates. 'force_async' always recalculates in the background. 'force_blocking' always recalculates."
         ),
     variables_override: zod
         .string()

@@ -823,10 +823,11 @@ class TestShouldRefresh(TestCase):
         drf_request._full_data = {"refresh": False}  # type: ignore
         self.assertFalse(refresh_requested_by_client(drf_request))
 
-    def test_should_refresh_with_data_async(self):
+    @parameterized.expand(["async", "async_except_on_cache_miss"])
+    def test_should_refresh_with_data_execution_mode(self, execution_mode: str) -> None:
         drf_request = Request(HttpRequest())
-        drf_request._full_data = {"refresh": "async"}  # type: ignore
-        assert refresh_requested_by_client(drf_request) == "async"
+        drf_request._full_data = {"refresh": execution_mode}  # type: ignore
+        assert refresh_requested_by_client(drf_request) == execution_mode
 
     def test_can_get_period_to_compare_when_interval_is_day(self) -> None:
         assert get_compare_period_dates(

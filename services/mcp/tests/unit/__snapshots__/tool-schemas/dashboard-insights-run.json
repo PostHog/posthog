@@ -26,8 +26,8 @@
             "type": "string"
         },
         "refresh": {
-            "description": "Cache behavior. 'force_cache' (default) serves from cache even if stale. 'blocking' uses cache if fresh, otherwise recalculates. 'force_blocking' always recalculates.",
-            "enum": ["blocking", "force_blocking", "force_cache"],
+            "description": "Cache behavior. By default, stale results are returned while refreshing asynchronously, but a cache miss is calculated synchronously. 'force_cache' serves only cached results. 'blocking' uses cache if fresh, otherwise recalculates. 'force_async' always recalculates in the background. 'force_blocking' always recalculates.",
+            "enum": ["async_except_on_cache_miss", "blocking", "force_async", "force_blocking", "force_cache"],
             "type": "string"
         },
         "variables_override": {

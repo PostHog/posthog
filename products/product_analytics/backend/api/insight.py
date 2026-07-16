@@ -1142,7 +1142,11 @@ class InsightSerializer(InsightBasicSerializer):
             try:
                 is_shared = self.context.get("is_shared", False)
                 refresh_requested = refresh_requested_by_client(self.context["request"])
-                execution_mode = execution_mode_from_refresh(refresh_requested)
+                execution_mode = (
+                    execution_mode_from_refresh(refresh_requested)
+                    if refresh_requested
+                    else self.context.get("default_execution_mode", ExecutionMode.CACHE_ONLY_NEVER_CALCULATE)
+                )
                 filters_override = filters_override_requested_by_client(
                     self.context["request"], dashboard, is_shared=is_shared
                 )
