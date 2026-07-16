@@ -25,8 +25,10 @@ const NOTIFICATIONS_FETCH_BATCH_TIMEOUT: Duration = Duration::from_millis(250);
 /// sequential, so per-issue ordering is preserved. Offsets are stored per
 /// partition only up to the first failure and committed after each batch, so a
 /// crash never skips an unhandled message. Serde and empty failures are
-/// auto-stored as poison pills inside `json_recv_batch`, so this loop also
-/// commits those stored offsets.
+/// auto-stored as poison pills inside `json_recv_batch`; clean batches commit
+/// those stored offsets too, but a failed batch commits only the explicit
+/// success prefix — a pill's fetch-time store can sit past the failed message
+/// and must not be committed ahead of it.
 pub async fn consume_loop(
     consumer: SingleTopicConsumer,
     context: NotificationsContext,
@@ -67,7 +69,7 @@ async fn handle_notification_batch(
     max_concurrency: usize,
 ) {
     // Poison pills already had their offsets stored inside `json_recv_batch`;
-    // count them so they get committed even when nothing else succeeds.
+    // count them so clean batches commit them even when nothing else succeeds.
     let mut stored = 0usize;
     let mut messages = Vec::new();
 
@@ -140,6 +142,9 @@ async fn handle_notification_batch(
     );
 
     let mut first_error = None;
+    // Per-partition next-offsets of the stored successes; offsets ascend per
+    // partition, so the last insert holds the max.
+    let mut committable: HashMap<i32, i64> = HashMap::new();
     for (outcome, store) in outcomes.into_iter().zip(storable) {
         if let Some(error) = outcome.error {
             first_error.get_or_insert(error);
@@ -148,23 +153,44 @@ async fn handle_notification_batch(
         if !store {
             continue;
         }
+        let (partition, next_offset) = (outcome.offset.partition(), outcome.offset.get_value() + 1);
         // `commit_consumer_state` only commits offsets explicitly stored on the consumer.
         if let Err(e) = outcome.offset.store() {
             panic!("failed to store notification offset: {e}");
         }
+        committable.insert(partition, next_offset);
         stored += 1;
     }
 
-    if stored > 0 {
-        if let Err(e) = consumer.commit() {
+    let Some(error) = first_error else {
+        // `stored` may be poison pills alone; guard the commit — committing with
+        // nothing stored fails with NO_OFFSET.
+        if stored > 0 {
+            if let Err(e) = consumer.commit() {
+                panic!("failed to commit notification offsets: {e}");
+            }
+            debug!(count = stored, "committed notification offsets");
+        }
+        return;
+    };
+
+    // A state-wide commit here would also publish poison-pill offsets auto-stored
+    // at fetch time inside `json_recv_batch`, which can sit past the failed
+    // message on the same partition and permanently skip it. Commit only the
+    // explicit success prefix; pill stores die with the panic and the pills are
+    // redelivered, re-skipped, and committed by a later clean batch.
+    let offsets: Vec<(i32, i64)> = committable.into_iter().collect();
+    if !offsets.is_empty() {
+        if let Err(e) = consumer.commit_partition_offsets(&offsets) {
             panic!("failed to commit notification offsets: {e}");
         }
-        debug!(count = stored, "committed notification offsets");
+        debug!(
+            count = offsets.len(),
+            "committed notification success-prefix offsets before panic"
+        );
     }
 
-    if let Some(error) = first_error {
-        panic!("failed to handle notification: {error}");
-    }
+    panic!("failed to handle notification: {error}");
 }
 
 /// Group items by key, preserving each group's original item order. Group
