@@ -80,6 +80,14 @@ const insight800 = (): QueryBasedInsightModel => ({
     last_refresh: now().toISOString(),
 })
 
+const representativeDashboardInsight = (id: number): QueryBasedInsightModel => ({
+    ...insightOnDashboard(id, [12]),
+    id,
+    short_id: String(id) as InsightShortId,
+    last_refresh: now().toISOString(),
+    cache_target_age: now().add(5, 'minutes').toISOString(),
+})
+
 describe('dashboardLogic', () => {
     let logic: ReturnType<typeof dashboardLogic.build>
 
@@ -143,6 +151,11 @@ describe('dashboardLogic', () => {
                 last_refresh: now().toISOString(),
             },
             800: insight800(),
+            1200: representativeDashboardInsight(1200),
+            1201: representativeDashboardInsight(1201),
+            1202: representativeDashboardInsight(1202),
+            1203: representativeDashboardInsight(1203),
+            1204: representativeDashboardInsight(1204),
         }
         dashboards = {
             5: {
@@ -168,6 +181,18 @@ describe('dashboardLogic', () => {
             11: {
                 ...dashboardResult(11, [], { date_from: '-24h' }),
             },
+            12: {
+                ...dashboardResult(12, [
+                    tileFromInsight(insights['1200']),
+                    tileFromInsight(insights['1201']),
+                    tileFromInsight(insights['1202']),
+                    tileFromInsight(insights['1203']),
+                    tileFromInsight(insights['1204']),
+                    TEXT_TILE,
+                    WIDGET_TILE,
+                    WIDGET_TILE_WITH_CUSTOM_NAME,
+                ]),
+            },
         }
         useMocks({
             get: {
@@ -186,6 +211,7 @@ describe('dashboardLogic', () => {
                 '/api/environments/:team_id/dashboards/9/': { ...dashboards[9] },
                 '/api/environments/:team_id/dashboards/10/': { ...dashboards[10] },
                 '/api/environments/:team_id/dashboards/11/': { ...dashboards[11] },
+                '/api/environments/:team_id/dashboards/12/': { ...dashboards[12] },
                 '/api/environments/:team_id/dashboards/': {
                     count: 6,
                     next: null,
@@ -1406,6 +1432,27 @@ describe('dashboardLogic', () => {
                     .toDispatchActions(['setPageVisibility'])
                     .toNotHaveDispatchedActions(['resetInterval'])
             })
+        })
+    })
+
+    describe('when loading a representative dashboard', () => {
+        it('requests cached data immediately and loads every tile type', async () => {
+            const getResponseSpy = jest.spyOn(api, 'getResponse')
+            logic = dashboardLogic({ id: 12 })
+            logic.mount()
+
+            expect(getResponseSpy).toHaveBeenCalledTimes(1)
+
+            await expectLogic(logic)
+                .toFinishAllListeners()
+                .toMatchValues({
+                    tiles: truth((tiles) => tiles.length === 8),
+                    insightTiles: truth((tiles) => tiles.length === 5),
+                    textTiles: truth((tiles) => tiles.length === 1),
+                    widgetTiles: truth((tiles) => tiles.length === 2),
+                })
+
+            getResponseSpy.mockRestore()
         })
     })
 
