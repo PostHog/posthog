@@ -136,6 +136,7 @@ const featureFlagGetAll = (): ToolBase<
                 active: params.active,
                 archived: params.archived,
                 created_by_id: params.created_by_id,
+                eligible_for_experiment: params.eligible_for_experiment,
                 evaluation_runtime: params.evaluation_runtime,
                 excluded_properties: params.excluded_properties,
                 excluded_tags: params.excluded_tags,

@@ -1,4 +1,4 @@
-import { actions, events, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, connect, events, kea, key, listeners, path, props, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router, urlToAction } from 'kea-router'
@@ -8,8 +8,11 @@ import api, { ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { recordRecentSlackChannel, slackChannelId } from 'lib/integrations/slackChannel'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { objectsEqual } from 'lib/utils/objects'
 import { isEmail } from 'lib/utils/url'
 import { getInsightId } from 'scenes/insights/utils'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { ExportedAssetType, ExporterFormat, SubscriptionResourceTypes, SubscriptionType } from '~/types'
 
@@ -17,7 +20,7 @@ import type { AIWindowConfigApi } from 'products/subscriptions/frontend/generate
 
 import type { subscriptionLogicType } from './subscriptionLogicType'
 import { subscriptionsLogic } from './subscriptionsLogic'
-import { AI_PROMPT_MAX_LENGTH, SubscriptionBaseProps, urlForSubscription } from './utils'
+import { AI_PROMPT_MAX_LENGTH, SUBSCRIPTION_PREFILL_PARAMS, SubscriptionBaseProps, urlForSubscription } from './utils'
 
 function validatePrompt(
     resource_type: SubscriptionType['resource_type'],
@@ -126,11 +129,14 @@ const NEW_SUBSCRIPTION: Partial<SubscriptionType> = {
 
 export interface SubscriptionLogicProps extends SubscriptionBaseProps {
     id: number | 'new'
+    /** Used to build the prefilled title when the form is opened via the subscribe-nudge notification. */
+    dashboardName?: string | null
 }
 export const subscriptionLogic = kea<subscriptionLogicType>([
     path(['lib', 'components', 'Subscriptions', 'subscriptionLogic']),
     props({} as SubscriptionLogicProps),
     key(({ id, insightShortId, dashboardId }) => `${insightShortId || dashboardId}-${id ?? 'new'}`),
+    connect(() => ({ values: [userLogic, ['user'], organizationLogic, ['currentOrganization']] })),
 
     actions({
         generatePreview: true,
@@ -138,6 +144,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         setPreviewLoading: (loading: boolean) => ({ loading }),
         setPreviewError: (error: string | null) => ({ error }),
         setPreviewImageUrl: (url: string | null) => ({ url }),
+        applyInsightSelectionDefaults: (selectedIds: number[]) => ({ selectedIds }),
         selectAiExamplePrompt: (prompt: string, label: string, window?: AIWindowConfigApi) => ({
             prompt,
             label,
@@ -205,7 +212,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         },
     })),
 
-    forms(({ props, actions }) => ({
+    forms(({ props, actions, cache }) => ({
         subscription: {
             defaults: { enabled: NEW_SUBSCRIPTION.enabled } as unknown as SubscriptionType,
             errors: (subscription) => ({
@@ -255,6 +262,8 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                         insight_short_id: props.insightShortId,
                         subscription_id: updatedSub.id,
                         target_type: updatedSub.target_type,
+                        // True when the nudge flow's deferred AI-summary default was applied to this form.
+                        ai_summary_prefilled: cache.prefillBaseline?.summary_enabled === true,
                     })
                 }
 
@@ -271,11 +280,46 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         },
     })),
 
-    listeners(({ actions, values, props, selectors }) => ({
+    listeners(({ actions, values, props, selectors, cache }) => ({
         submitSubscriptionSuccess: ({ subscription }) => {
             if (subscription?.target_type === 'slack' && subscription.target_value && subscription.integration_id) {
                 recordRecentSlackChannel(subscription.integration_id, slackChannelId(subscription.target_value))
             }
+        },
+        applyInsightSelectionDefaults: ({ selectedIds }) => {
+            if (cache.prefillBaseline) {
+                // Prefilled form: the auto-selection joins the programmatic baseline. A reset here
+                // would wipe the "changed" flag the prefill deliberately set (disabling Create), so
+                // set the value instead and fold the ids into the baseline, keeping the untouched-form
+                // navigation suppression matching.
+                actions.setSubscriptionValue('dashboard_export_insights', selectedIds)
+                cache.prefillBaseline = { ...cache.prefillBaseline, dashboard_export_insights: selectedIds }
+                return
+            }
+            // Reset the form's "changed" state after auto-selecting defaults so it doesn't trip the
+            // unsaved-changes warning; merge the IDs into the subscription to preserve them.
+            actions.resetSubscription({ ...values.subscription, dashboard_export_insights: selectedIds })
+        },
+        loadSummaryQuotaSuccess: ({ summaryQuota }) => {
+            // Nudge upsell, deferred until the quota answer exists: default the AI summary on for a
+            // nudge-prefilled create. Never for a non-consented org (the server rejects the create
+            // and the consent popover must not appear uninvited) and never at the quota limit —
+            // both gates mirror the server-side create validation. Applied at most once, so a
+            // user toggling it back off is respected on later quota reloads.
+            if (
+                props.id !== 'new' ||
+                !cache.prefillBaseline ||
+                cache.prefillBaseline.summary_enabled === true ||
+                summaryQuota?.at_limit ||
+                !values.currentOrganization?.is_ai_data_processing_approved ||
+                values.subscription?.summary_enabled
+            ) {
+                return
+            }
+            actions.setSubscriptionValue('summary_enabled', true)
+            // Folding the default into the baseline both keeps the untouched-form navigation
+            // suppression matching and serves as the applied-once guard on later quota reloads.
+            cache.prefillBaseline = { ...cache.prefillBaseline, summary_enabled: true }
         },
         selectAiExamplePrompt: ({ prompt, label, window }) => {
             posthog.capture('subscription_ai_example_prompt_selected', { label })
@@ -419,17 +463,55 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         },
     })),
 
-    beforeUnload(({ actions, values }) => ({
-        enabled: () => values.subscriptionChanged,
+    beforeUnload(({ actions, values, cache }) => ({
+        // A form whose only "changes" are the programmatic prefill was never touched by the user —
+        // navigating away from it must not prompt to discard. Any real edit diverges from the
+        // captured baseline and re-arms the prompt.
+        enabled: () =>
+            values.subscriptionChanged &&
+            !(cache.prefillBaseline && objectsEqual(values.subscription, cache.prefillBaseline)),
         message: 'Changes you made will be discarded.',
         onConfirm: () => {
             actions.resetSubscription()
         },
     })),
 
-    urlToAction(({ actions }) => ({
+    urlToAction(({ actions, props, cache, values }) => ({
         '/*/*/subscriptions/new': (_, searchParams) => {
             actions.loadSubscriptionSuccess({ ...NEW_SUBSCRIPTION })
+            // ?prefill=nudge is set by the subscribe-nudge notification / toast, possibly opened in a
+            // fresh session days later — the prefill is built here from URL + context, not kea state.
+            if (
+                searchParams[SUBSCRIPTION_PREFILL_PARAMS.param] === SUBSCRIPTION_PREFILL_PARAMS.nudge &&
+                props.dashboardId
+            ) {
+                // Consume the params before applying: the replace synchronously re-enters this
+                // handler (resetting the form to plain defaults), and it also makes a later refresh
+                // of the URL neither re-capture the click nor re-apply a stale prefill.
+                const {
+                    [SUBSCRIPTION_PREFILL_PARAMS.param]: _prefill,
+                    [SUBSCRIPTION_PREFILL_PARAMS.viaParam]: _via,
+                    ...restSearchParams
+                } = router.values.searchParams
+                router.actions.replace(router.values.location.pathname, restSearchParams, router.values.hashParams)
+                const prefill: Partial<SubscriptionType> = {
+                    title: `${props.dashboardName || 'Dashboard'} weekly digest`,
+                    ...(values.user?.email ? { target_value: values.user.email } : {}),
+                }
+                // Goes through setSubscriptionValues (not the loaded baseline) so the form is marked
+                // dirty immediately — the prefilled fields are a deliberate change, not the pristine
+                // default, so "Create subscription" doesn't require an extra no-op edit to enable.
+                actions.setSubscriptionValues(prefill)
+                cache.prefillBaseline = { ...NEW_SUBSCRIPTION, ...prefill }
+                posthog.capture('dashboard subscribe nudge clicked', {
+                    dashboard_id: props.dashboardId,
+                    prefilled: !!values.user?.email,
+                    via:
+                        searchParams[SUBSCRIPTION_PREFILL_PARAMS.viaParam] === SUBSCRIPTION_PREFILL_PARAMS.viaToast
+                            ? SUBSCRIPTION_PREFILL_PARAMS.viaToast
+                            : SUBSCRIPTION_PREFILL_PARAMS.viaNotification,
+                })
+            }
             if (searchParams.target_type) {
                 actions.setSubscriptionValue('target_type', searchParams.target_type)
             }

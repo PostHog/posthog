@@ -1204,6 +1204,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 source=source_impl,
                 source_id=str(source.pk),
                 eligible_schemas=[schema],
+                config=config,
             )
 
             if hog_fn_result.error or not hog_fn_result.hog_function:

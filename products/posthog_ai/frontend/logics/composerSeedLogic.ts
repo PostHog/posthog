@@ -1,0 +1,46 @@
+import { actions, kea, key, path, props, reducers } from 'kea'
+
+import type { composerSeedLogicType } from './composerSeedLogicType'
+
+// A prompt to prefill into the composer, plus whether to submit it straight away. Kept deliberately
+// generic — the Max-specific `!`/`mode=` command-string parsing happens in the consuming app before the
+// seed reaches this surface, so this seam never learns the side-panel option format.
+export interface ComposerSeed {
+    prompt: string
+    autoSubmit: boolean
+}
+
+// `panelId` keys the seed to a specific embedded composer (e.g. Max's side panel runner), matching the
+// `taskTrackerSceneLogic`/`runnerPanelLogic` keying so the paired instances stay aligned. No `panelId`
+// resolves to the same `'scene'` key those logics fall back to.
+export interface ComposerSeedLogicProps {
+    panelId?: string
+}
+
+/**
+ * A tiny hand-off store that lets a host seed a not-yet-mounted composer with an initial prompt. A producer
+ * (a main-app consumer of this surface) dispatches `setSeed`; the paired `taskTrackerSceneLogic` picks it up
+ * either on its own mount (the producer fired first — the common case, a CTA opening the panel) or via the
+ * `setSeed` action when the composer is already mounted. Consume-once: the consumer clears it with
+ * `consumeSeed` after applying, so reopening the panel later never re-seeds.
+ */
+export const composerSeedLogic = kea<composerSeedLogicType>([
+    path(['products', 'posthog_ai', 'frontend', 'logics', 'composerSeedLogic']),
+    props({} as ComposerSeedLogicProps),
+    key((props) => props.panelId ?? 'scene'),
+
+    actions({
+        setSeed: (seed: ComposerSeed) => ({ seed }),
+        consumeSeed: true,
+    }),
+
+    reducers({
+        seed: [
+            null as ComposerSeed | null,
+            {
+                setSeed: (_, { seed }) => seed,
+                consumeSeed: () => null,
+            },
+        ],
+    }),
+])

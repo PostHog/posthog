@@ -2039,6 +2039,7 @@ class ExternalDataSourceType(StrEnum):
     KAJABI = "Kajabi"
     SHOPWARE = "Shopware"
     DUBSADO = "Dubsado"
+    CAMPFIRE = "Campfire"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -2124,6 +2125,7 @@ class FileSystemIconType(StrEnum):
     TOOLBAR = "toolbar"
     VISUAL_REVIEW = "visual_review"
     CODE_REVIEW = "code_review"
+    STAMPHOG = "stamphog"
     SETTINGS = "settings"
     HEALTH = "health"
     INBOX = "inbox"

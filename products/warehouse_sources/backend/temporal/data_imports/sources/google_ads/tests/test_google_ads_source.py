@@ -1,3 +1,5 @@
+import typing
+import collections.abc
 from types import SimpleNamespace
 
 import pytest
@@ -215,14 +217,28 @@ class TestGoogleAdsNonRetryableErrors:
                 "token, login cookie or other valid authentication credential. See "
                 "https://developers.google.com/identity/sign-in/web/devconsole-project."
             ),
+            # The other gapic-wrapped Unauthenticated message, seen on the sync path when the OAuth
+            # access token is rejected — same "401 {message}" shape, no bare UNAUTHENTICATED token.
+            (
+                "401 Request had invalid authentication credentials. Expected OAuth 2 access "
+                "token, login cookie or other valid authentication credential. See "
+                "https://developers.google.com/identity/sign-in/web/devconsole-project."
+            ),
         ],
     )
     def test_missing_auth_credential_is_non_retryable(self, error_msg):
         is_non_retryable = any(pattern in error_msg for pattern in self.non_retryable.keys())
         assert is_non_retryable, f"Expected error to be non-retryable: {error_msg}"
 
-    def test_missing_auth_credential_has_friendly_message(self):
-        friendly = self.non_retryable["Request is missing required authentication credential"]
+    @pytest.mark.parametrize(
+        "pattern",
+        [
+            "Request is missing required authentication credential",
+            "Request had invalid authentication credentials",
+        ],
+    )
+    def test_auth_credential_patterns_have_friendly_message(self, pattern):
+        friendly = self.non_retryable[pattern]
         assert friendly is not None
         assert "reconnect" in friendly.lower()
 
@@ -261,6 +277,7 @@ class TestGoogleAdsNonRetryableErrors:
             "invalid_grant",
             "access_not_configured",
             "Request is missing required authentication credential",
+            "Request had invalid authentication credentials",
         ],
     )
     def test_documented_patterns_present(self, pattern):
@@ -1114,3 +1131,80 @@ class TestOverviewStatsSchemas:
         assert overview["field_names"] == [f for f in stats["field_names"] if f != "segments.click_type"]
         assert overview["primary_key"] == [k for k in stats["primary_key"] if k != "segments.click_type"]
         assert overview["filter_field_names"] == [("segments.date", IncrementalFieldType.Date)]
+
+
+class TestGoogleAdsQueryConstruction:
+    _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads"
+
+    def _stats_table(self) -> GoogleAdsTable:
+        return GoogleAdsTable(
+            name="campaign_stats",
+            alias="campaign_stats",
+            columns=[_string_column("campaign.id"), _string_column("segments.date")],
+            parents=None,
+            requires_filter=True,
+            primary_key=["campaign_id", "segments_date"],
+            should_sync_default=True,
+            description=None,
+        )
+
+    def _run_source(self, table: GoogleAdsTable, **source_kwargs):
+        from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads import (
+            google_ads_source,
+        )
+
+        captured: dict = {}
+
+        def fake_search(*, service, customer_id, query, table, resumable_source_manager):
+            captured["query"] = query
+            return iter([])
+
+        assert table.alias is not None
+        config = GoogleAdsSourceConfig(customer_id="1234567890", google_ads_integration_id=1)
+        with (
+            mock.patch(f"{self._MODULE}.get_schemas", return_value={table.alias: table}),
+            mock.patch(f"{self._MODULE}.google_ads_client"),
+            mock.patch(f"{self._MODULE}._search_as_arrow_tables", side_effect=fake_search),
+        ):
+            response = google_ads_source(
+                config,
+                table.alias,
+                team_id=1,
+                resumable_source_manager=mock.Mock(),
+                **source_kwargs,
+            )
+            list(typing.cast(collections.abc.Iterable, response.items()))
+        return response, captured["query"]
+
+    def test_incremental_query_is_bounded_and_ordered_by_cursor(self):
+        import datetime as dt
+
+        response, query = self._run_source(
+            self._stats_table(),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=dt.date(2026, 4, 2),
+            incremental_field="segments.date",
+            incremental_field_type=IncrementalFieldType.Date,
+        )
+
+        assert "WHERE segments.date >= '2026-04-02'" in query
+        # Ascending order is load-bearing: the pipeline advances the incremental watermark after
+        # every durably written chunk under sort_mode "asc". Unordered pages would let the
+        # watermark skip past unfetched older rows, and make every chunk's Delta merge touch the
+        # whole date window instead of a narrow band — the stuck-cursor OOM spiral.
+        assert query.endswith("ORDER BY segments.date ASC")
+        assert response.sort_mode == "asc"
+
+    def test_stats_table_forces_incremental_and_still_orders(self):
+        # requires_filter tables force segments.date filtering even when the caller didn't pass
+        # incremental args (e.g. first backfill) — the ordering must apply on that path too.
+        _response, query = self._run_source(self._stats_table())
+
+        assert "WHERE segments.date >=" in query
+        assert query.endswith("ORDER BY segments.date ASC")
+
+    def test_dimension_table_query_has_no_order_clause(self):
+        _response, query = self._run_source(_single_row_table())
+
+        assert "WHERE" not in query
+        assert "ORDER BY" not in query

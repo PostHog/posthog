@@ -2159,6 +2159,8 @@ export interface LLMPromptListApi {
     readonly version_count: number
     readonly first_version_created_at: string
     readonly outline: readonly LLMPromptOutlineEntryApi[]
+    /** Names of the labels currently pointing at this version. */
+    readonly labels: readonly string[]
     readonly prompt_preview: string
     readonly prompt_size_bytes: number
 }
@@ -2197,6 +2199,8 @@ export interface LLMPromptApi {
     readonly version_count: number
     readonly first_version_created_at: string
     readonly outline: readonly LLMPromptOutlineEntryApi[]
+    /** Names of the labels currently pointing at this version. */
+    readonly labels: readonly string[]
 }
 
 export interface LLMPromptPublicApi {
@@ -2250,6 +2254,26 @@ export interface LLMPromptDuplicateApi {
     new_name: string
 }
 
+export interface LLMPromptSetLabelApi {
+    /**
+     * Prompt version this label should point to. If the label already exists on another version of the prompt, it is moved there.
+     * @minimum 1
+     */
+    version: number
+}
+
+export interface LLMPromptLabelApi {
+    readonly id: string
+    /** Label name, e.g. 'production'. Points to exactly one version of the prompt. */
+    readonly name: string
+    /** Name of the prompt this label belongs to. */
+    readonly prompt_name: string
+    readonly version: number
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    readonly updated_at: string
+}
+
 export interface LLMPromptVersionSummaryApi {
     readonly id: string
     readonly version: number
@@ -2258,6 +2282,8 @@ export interface LLMPromptVersionSummaryApi {
     readonly created_by: UserBasicApi
     readonly created_at: string
     readonly is_latest: boolean
+    /** Names of the labels currently pointing at this version. */
+    readonly labels: readonly string[]
 }
 
 export interface LLMPromptResolveResponseApi {
