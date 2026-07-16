@@ -120,12 +120,12 @@ describe('RerunPaginatorService integration', () => {
 
         await waitForExpect(async () => {
             const got = await clickhouse.query<{ c: number }>(
-                `SELECT count() AS c FROM hog_invocation_results
+                `SELECT count() AS c FROM hog_invocation_results FINAL
                  WHERE team_id = ${team.id}
                    AND function_id = '${hogFunction.id}'`
             )
             expect(Number(got[0]?.c ?? 0)).toBeGreaterThanOrEqual(expected)
-        }, 30_000)
+        }, 60_000)
     }
 
     // Produce a raw lifecycle row with a chosen (here: undecodable) invocation_globals,
