@@ -23,6 +23,9 @@ REEXPORT_WINDOW_DAYS = SCORE_LOOKBACK_DAYS + 1
 # `cityHash64(session_id) % OF_CHUNKS` partitioning, same scheme as the scoring sweep.
 DEFAULT_OF_CHUNKS = 8
 
+# Keep this background export within a small share of the shared ClickHouse query capacity.
+MAX_CONCURRENT_EXPORT_PARTITIONS = 4
+
 SCORE_EXPORT_PREFIX_ENV_VAR = "SESSION_RECORDING_ML_SCORE_EXPORT_PREFIX"
 DEFAULT_SCORE_EXPORT_PREFIX = "score"
 
@@ -36,7 +39,17 @@ EXPORT_PAGE_MAX_ROWS = 500_000
 
 LIST_PARTITIONS_ACTIVITY_TIMEOUT = timedelta(seconds=30)
 EXPORT_PARTITION_ACTIVITY_TIMEOUT = timedelta(minutes=20)
+EXPORT_PARTITION_MAX_ATTEMPTS = 3
+
 # > CH_EXPORT_QUERY_TIMEOUT_S — heartbeats fire between page fetches, not during a SELECT.
 EXPORT_PARTITION_HEARTBEAT_TIMEOUT = timedelta(minutes=3)
 
-WORKFLOW_EXECUTION_TIMEOUT = timedelta(hours=1)
+# Leave enough time for every bounded wave to exhaust its activity retry budget,
+# plus headroom for planning, retry backoff, and workflow task scheduling.
+_MAX_PARTITIONS_PER_SWEEP = REEXPORT_WINDOW_DAYS * DEFAULT_OF_CHUNKS
+_MAX_PARTITION_WAVES = (
+    _MAX_PARTITIONS_PER_SWEEP + MAX_CONCURRENT_EXPORT_PARTITIONS - 1
+) // MAX_CONCURRENT_EXPORT_PARTITIONS
+WORKFLOW_EXECUTION_TIMEOUT = (
+    _MAX_PARTITION_WAVES * EXPORT_PARTITION_ACTIVITY_TIMEOUT * EXPORT_PARTITION_MAX_ATTEMPTS + timedelta(hours=1)
+)

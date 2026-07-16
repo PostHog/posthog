@@ -1,5 +1,7 @@
 ### Discovery workflow (mandatory)
 
+#### Regular schema discovery
+
 1. **Table & column schema** — discover the data model with HogQL against `system.information_schema.*`. Do not guess table or column names; they differ per entity and drift over time.
    - List available tables: `SELECT table_name, table_type, description FROM system.information_schema.tables`.
    - Inspect a table's columns: `SELECT column_name, data_type, is_nullable, description FROM system.information_schema.columns WHERE table_name = 'events'`.

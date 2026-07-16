@@ -26,6 +26,8 @@ import { SceneTitlePanelButton } from '~/layout/scenes/components/SceneTitleSect
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+
 import { FixErrorButton } from './components/FixErrorButton'
 import { ConnectionSelector } from './ConnectionSelector'
 import { editorSizingLogic } from './editorSizingLogic'
@@ -88,6 +90,7 @@ export function QueryWindow({
         activeQueryOffset,
         selectedConnectionId,
         sendRawQueryEnabled,
+        selectedConnectionSupportsHogQL,
     } = useValues(logic)
 
     const {
@@ -107,7 +110,8 @@ export function QueryWindow({
     const { editorVimModeEnabled } = useValues(userPreferencesLogic)
     const { setEditorVimModeEnabled } = useActions(userPreferencesLogic)
     const { isDatabaseTreeCollapsed } = useValues(editorSizingLogic)
-    const canSendRawQuery = !!selectedConnectionId
+    // Raw-only connections are forced to raw SQL mode — no toggle to show.
+    const canSendRawQuery = !!selectedConnectionId && selectedConnectionSupportsHogQL
     const debouncedMaxToolQueryInput = useDebouncedValue(queryInput, EMBEDDED_MAX_TOOL_CONTEXT_DEBOUNCE_MS)
     const debouncedMaxToolSourceQuery = useDebouncedValue(sourceQuery, EMBEDDED_MAX_TOOL_CONTEXT_DEBOUNCE_MS)
     const executeSqlToolStateRef = useRef({ queryInput, sourceQuery })
@@ -116,6 +120,12 @@ export function QueryWindow({
         () => getExecuteSqlToolContext(debouncedMaxToolQueryInput, debouncedMaxToolSourceQuery),
         [debouncedMaxToolQueryInput, debouncedMaxToolSourceQuery]
     )
+
+    useAttachedContext(
+        [{ type: 'sql_editor_state', value: JSON.stringify(executeSqlToolContext), label: 'Current query' }],
+        { active: mode === SQLEditorMode.Embedded && showQueryPanel }
+    )
+
     const executeSqlToolContextDescription = useMemo(
         () => ({
             text: 'Current query',

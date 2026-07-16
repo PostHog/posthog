@@ -8,6 +8,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
+import { ScoutLink } from 'lib/signals/ScoutLink'
 import { scoutDisplayName } from 'lib/signals/signalCardSourceLine'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
@@ -84,13 +85,13 @@ function ReportDetailMeta({
     report,
     evidenceCount,
     actionabilityExplanation,
-    scoutName,
+    scoutSkillName,
 }: {
     report: SignalReport
     evidenceCount: number
     actionabilityExplanation?: string | null
-    /** Authoring scout's display name, when the report was scout-authored — appended to the "Scout" chip. */
-    scoutName?: string | null
+    /** Authoring scout's raw skill slug, when scout-authored — its name links to the scout off the "Scout" chip. */
+    scoutSkillName?: string | null
 }): JSX.Element {
     const hasSource = hasKnownSourceProduct(report.source_products)
     // "Ready" is the default terminal state; surface the status chip only until actionability is known.
@@ -120,7 +121,7 @@ function ReportDetailMeta({
         </span>
     )
     if (hasSource) {
-        stats.push(<MetaSourceStack sourceProducts={report.source_products} scoutName={scoutName} />)
+        stats.push(<MetaSourceStack sourceProducts={report.source_products} scoutSkillName={scoutSkillName} />)
     }
 
     return (
@@ -146,27 +147,33 @@ function ReportDetailMeta({
 /** Source-product icon stack reused inside the detail meta row. */
 function MetaSourceStack({
     sourceProducts,
-    scoutName,
+    scoutSkillName,
 }: {
     sourceProducts?: string[] | null
-    scoutName?: string | null
+    scoutSkillName?: string | null
 }): JSX.Element | null {
     const entries = knownSourceProductEntries(sourceProducts)
     const [primary, ...overflow] = entries
     if (!primary) {
         return null
     }
-    // Name the authoring scout on a scout-authored report so it's clear at a glance who wrote it.
-    const primaryLabel =
-        primary.key === SignalSourceProduct.SignalsScout && scoutName
-            ? `${primary.meta.label} · ${scoutName}`
-            : primary.meta.label
+    // Name the authoring scout on a scout-authored report so it's clear at a glance who wrote it,
+    // and link the name straight to the scout's detail page. The scout may not sort first among mixed
+    // sources, so key off whether any source is a scout rather than just the primary.
+    const scoutName = scoutDisplayName(scoutSkillName)
+    const showScout = entries.some(({ key }) => key === SignalSourceProduct.SignalsScout) && !!scoutName
     return (
         <Tooltip title={sourceProductsTooltipTitle(entries)}>
             <span className="inline-flex items-center gap-1.5 min-w-0 cursor-help">
                 <SourceProductIconRow entries={entries} className="inline-flex items-center gap-1 shrink-0" />
                 <span>
-                    {primaryLabel}
+                    {primary.meta.label}
+                    {showScout && scoutSkillName ? (
+                        <>
+                            {' · '}
+                            <ScoutLink skillName={scoutSkillName} className="text-tertiary" />
+                        </>
+                    ) : null}
                     {overflow.length > 0 ? ` + ${overflow.length}` : null}
                 </span>
             </span>
@@ -278,9 +285,6 @@ export function InboxDetailFrame({
     const signals = reportSignals ?? []
     const evidenceCount = reportSignals !== null ? signals.length : report.signal_count
     const hasEvidence = evidenceCount > 0
-
-    // Which scout authored this report — the serializer resolves the skill_name off the backing signals.
-    const scoutName = scoutDisplayName(report.scout_name)
 
     const summaryPending =
         report.status === SignalReportStatus.IN_PROGRESS || report.status === SignalReportStatus.CANDIDATE
@@ -401,7 +405,7 @@ export function InboxDetailFrame({
                                 report={report}
                                 evidenceCount={evidenceCount}
                                 actionabilityExplanation={actionabilityExplanation}
-                                scoutName={scoutName}
+                                scoutSkillName={report.scout_name}
                             />
                         </div>
                     </div>

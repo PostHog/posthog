@@ -304,6 +304,12 @@ def check_common_eligible(runner: LazyPrecomputeRunner, *, require_integer_timez
         raise DateRangeOverMax(days)
 
 
+def is_constant_true(expr: ast.Expr) -> bool:
+    """True when a substituted filter placeholder is the trivial `Constant(True)` —
+    i.e. the cache key carries no user or test-account filter."""
+    return isinstance(expr, ast.Constant) and expr.value is True
+
+
 def user_filter_expr(runner: LazyPrecomputeRunner) -> ast.Expr:
     """Build the AST expression that gets substituted into the INSERT's WHERE clause.
 
