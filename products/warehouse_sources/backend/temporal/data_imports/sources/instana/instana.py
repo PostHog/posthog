@@ -32,6 +32,9 @@ MAX_RETRY_ATTEMPTS = 5
 # for any real Instana page, anything past it is refused.
 MAX_RESPONSE_BYTES = 256 * 1024 * 1024
 RESPONSE_CHUNK_BYTES = 256 * 1024
+# Error bodies are customer-controlled and can be as large as the response cap, so never
+# interpolate the whole thing into a log event — log a small decoded preview plus the byte length.
+ERROR_BODY_LOG_PREVIEW_BYTES = 8 * 1024
 # Wall-clock budget for downloading one response body. The per-read timeout can't stop a host that
 # dribbles the body slowly enough to stay under it while holding a shared worker open. 256 MiB in
 # 300s is a ~0.85 MiB/s floor — far below any real API response, far above a slow-drip stall.
@@ -203,8 +206,10 @@ def _fetch(
         body = _read_capped_body(response)
 
         if not response.ok:
+            preview = body[:ERROR_BODY_LOG_PREVIEW_BYTES].decode(errors="replace")
             logger.error(
-                f"Instana API error: status={response.status_code}, body={body.decode(errors='replace')}, url={url}"
+                f"Instana API error: status={response.status_code}, body_bytes={len(body)}, "
+                f"body_preview={preview}, url={url}"
             )
             response.raise_for_status()
 

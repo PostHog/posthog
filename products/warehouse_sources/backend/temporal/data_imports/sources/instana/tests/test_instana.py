@@ -266,6 +266,30 @@ class TestListRows:
         assert rows == [[{"snapshotId": "s1", "plugin": "host"}]]
 
 
+class TestErrorBodyLogging:
+    def test_large_error_body_is_bounded_in_log(self) -> None:
+        # A customer-controlled host can return a huge 4xx body; the log must carry only a bounded
+        # preview plus the byte length, never interpolate the whole body (log-flooding guard).
+        oversized = b"x" * (inst.ERROR_BODY_LOG_PREVIEW_BYTES + 5000)
+        resp = mock.MagicMock()
+        resp.status_code = 400
+        resp.ok = False
+        resp.iter_content.return_value = iter([oversized])
+        resp.raise_for_status.side_effect = requests.HTTPError("400")
+
+        session = mock.MagicMock()
+        session.get.return_value = resp
+        logger = mock.MagicMock()
+
+        with pytest.raises(requests.HTTPError):
+            inst._fetch(session, f"{BASE_URL}/api/events", logger)
+
+        logged = logger.error.call_args[0][0]
+        assert f"body_bytes={len(oversized)}" in logged
+        # Only the preview is interpolated, not the full body.
+        assert logged.count("x") == inst.ERROR_BODY_LOG_PREVIEW_BYTES
+
+
 class TestValidateCredentials:
     @pytest.mark.parametrize(
         ("status_code", "expected"),
