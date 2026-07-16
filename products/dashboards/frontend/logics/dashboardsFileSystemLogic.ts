@@ -342,7 +342,7 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
         // shared move path). A dashboard move changes its own path; a folder move re-parents the dashboards
         // beneath it (and the folder rows). Other item types (insights, notebooks) don't affect this view,
         // so skip the refetch for them.
-        [projectTreeDataLogic.actionTypes.movedItem]: ({ item }) => {
+        [projectTreeDataLogic.actionTypes.movedItem]: ({ item }: { item: FileSystemEntry }) => {
             if (item.type === 'dashboard' || item.type === 'folder') {
                 actions.loadDashboardFileSystemEntries()
             }
@@ -416,7 +416,7 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
             // The follow-up refetch happens in the deleteSavedItem listener below.
             actions.deleteItem(entry, DASHBOARDS_TREE_PROJECT_LOGIC_KEY)
         },
-        [projectTreeDataLogic.actionTypes.deleteSavedItem]: ({ savedItem }) => {
+        [projectTreeDataLogic.actionTypes.deleteSavedItem]: ({ savedItem }: { savedItem: FileSystemEntry }) => {
             // Only dashboards/folders affect this view — ignore unrelated sidebar deletes (insights, notebooks),
             // matching the movedItem listener's type-gate.
             if (savedItem.type !== 'dashboard' && savedItem.type !== 'folder') {

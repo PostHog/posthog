@@ -223,7 +223,7 @@ export interface navigation3000LogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         zenModeFromUrl: (searchParams: Record<string, any>) => boolean
         mode: (
-            sceneConfig: null | import('scenes/sceneTypes').SceneConfig,
+            sceneConfig: SceneConfig | null,
             isCurrentOrganizationUnavailable: boolean,
             zenMode: boolean,
             activeSceneId: string | null,
@@ -240,7 +240,7 @@ export interface navigation3000LogicMeta {
                       import('~/types').QueryBasedInsightModel<import('../../queries/schema').Node<Record<string, any>>>
                   >
             )[],
-            savedFilters: import('~/types').SavedSessionRecordingPlaylistsResult,
+            savedFilters: SavedSessionRecordingPlaylistsResult,
             savedFiltersLoading: boolean
         ) => NavbarItem[][]
         navbarItemIdMapping: (navbarItems: NavbarItem[][]) => Record<string, NavbarItem>

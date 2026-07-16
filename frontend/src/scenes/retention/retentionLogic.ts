@@ -89,7 +89,7 @@ export interface retentionLogicActions {
     } // insightVizDataLogic
     updateDateRange: (
         dateRange: DateRange,
-        ignoreDebounce?: boolean
+        ignoreDebounce?: boolean | undefined
     ) => {
         dateRange: DateRange
         ignoreDebounce: boolean

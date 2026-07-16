@@ -363,7 +363,7 @@ export interface notebookLogicActions {
     } // notebooksModel
     openSidePanel: (
         tab: SidePanelTab,
-        options?: string
+        options?: string | undefined
     ) => {
         options: string | undefined
         tab: SidePanelTab

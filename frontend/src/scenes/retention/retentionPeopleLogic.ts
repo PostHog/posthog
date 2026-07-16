@@ -75,12 +75,14 @@ export interface retentionPeopleLogicActions {
             | TraceSpansQueryResponse
             | null
             | undefined,
-        payload?: {
-            overrideQuery: DataNode<Record<string, any>> | undefined
-            pollOnly: boolean
-            queryId: string
-            refresh: RefreshType | undefined
-        }
+        payload?:
+            | {
+                  overrideQuery: DataNode<Record<string, any>> | undefined
+                  pollOnly: boolean
+                  queryId: string
+                  refresh: RefreshType | undefined
+              }
+            | undefined
     ) => {
         payload?: {
             overrideQuery: DataNode<Record<string, any>> | undefined

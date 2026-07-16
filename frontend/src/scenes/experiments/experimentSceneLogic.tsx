@@ -23,8 +23,13 @@ import { ActivityScope, Breadcrumb, Experiment, ProjectTreeRef } from '~/types'
 
 import type { ExperimentIdType } from '../../types'
 import { NEW_EXPERIMENT } from './constants'
-import { type ExperimentLogicProps, FORM_MODES, type FormModes, experimentLogic } from './experimentLogic'
-import type { experimentLogicType } from './experimentLogicType'
+import {
+    type ExperimentLogicProps,
+    type experimentLogicType,
+    FORM_MODES,
+    type FormModes,
+    experimentLogic,
+} from './experimentLogic'
 import { stepStorageKey } from './ExperimentWizard/experimentWizardLogic'
 
 export interface ExperimentSceneLogicProps extends ExperimentLogicProps {}
@@ -41,11 +46,11 @@ export interface experimentSceneLogicValues {
         unmount: () => void
     } | null
     experimentMissing: boolean
-    experimentMissingSelector: any
-    experimentSelector: any
+    experimentMissingSelector: ((state: any, props?: ExperimentLogicProps | undefined) => boolean) | undefined
+    experimentSelector: ((state: any, props?: ExperimentLogicProps | undefined) => Experiment) | undefined
     formMode: FormModes
     isExperimentLaunched: boolean
-    isExperimentLaunchedSelector: any
+    isExperimentLaunchedSelector: ((state: any, props?: ExperimentLogicProps | undefined) => boolean) | undefined
     projectTreeRef: ProjectTreeRef
     sidePanelContext: SidePanelSceneContext | null
 }
@@ -66,7 +71,7 @@ export interface experimentSceneLogicActions {
         unmount: (() => void) | null,
         logicProps: ExperimentLogicProps | null
     ) => {
-        logic: any
+        logic: BuiltLogic<experimentLogicType> | null
         logicProps: ExperimentLogicProps | null
         unmount: (() => void) | null
     }
@@ -99,24 +104,24 @@ export interface experimentSceneLogicMeta {
                 props: ExperimentLogicProps
                 unmount: () => void
             } | null
-        ) => any
-        experiment: (arg: any) => Experiment
+        ) => ((state: any, props?: ExperimentLogicProps | undefined) => Experiment) | undefined
+        experiment: (arg: Experiment | null | undefined) => Experiment
         experimentMissingSelector: (
             experimentLogicRef: {
                 logic: BuiltLogic<experimentLogicType>
                 props: ExperimentLogicProps
                 unmount: () => void
             } | null
-        ) => any
-        experimentMissing: (arg: any) => boolean
+        ) => ((state: any, props?: ExperimentLogicProps | undefined) => boolean) | undefined
+        experimentMissing: (arg: boolean | undefined) => boolean
         isExperimentLaunchedSelector: (
             experimentLogicRef: {
                 logic: BuiltLogic<experimentLogicType>
                 props: ExperimentLogicProps
                 unmount: () => void
             } | null
-        ) => any
-        isExperimentLaunched: (arg: any) => boolean
+        ) => ((state: any, props?: ExperimentLogicProps | undefined) => boolean) | undefined
+        isExperimentLaunched: (arg: boolean | undefined) => boolean
         breadcrumbs: (experiment: Experiment, experimentId: ExperimentIdType) => Breadcrumb[]
         sidePanelContext: (experimentId: ExperimentIdType) => SidePanelSceneContext | null
         projectTreeRef: (experimentId: ExperimentIdType) => ProjectTreeRef

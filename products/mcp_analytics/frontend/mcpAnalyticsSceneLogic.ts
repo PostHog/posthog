@@ -10,7 +10,7 @@ import { OnboardingStepKey } from '~/types'
 
 import type { TeamPublicType, TeamType } from '../../../frontend/src/types'
 import { mcpAnalyticsOnboardingLogic } from './mcpAnalyticsOnboardingLogic'
-import type { MCPOnboardingSignals, MCPOnboardingState } from './mcpAnalyticsOnboardingLogic'
+import type { MCPOnboardingState } from './mcpAnalyticsOnboardingLogic'
 
 export type MCPAnalyticsTab = 'activity' | 'dashboard' | 'sessions' | 'tool-quality' | 'intent-clustering'
 
