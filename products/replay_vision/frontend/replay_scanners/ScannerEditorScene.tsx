@@ -6,7 +6,16 @@ import * as construction2Png from '@posthog/brand/hoggies/png/construction-2'
 import * as imTheDriverPng from '@posthog/brand/hoggies/png/im-the-driver'
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
 import * as xRayPng from '@posthog/brand/hoggies/png/x-ray'
-import { LemonButton, LemonInput, LemonSelect, LemonSwitch, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonInput,
+    LemonSelect,
+    LemonSwitch,
+    LemonTag,
+    LemonTextArea,
+    Link,
+    SpinnerOverlay,
+} from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { NotFound } from 'lib/components/NotFound'
@@ -84,9 +93,13 @@ export function ScannerEditorSceneComponent(): JSX.Element {
         durationValidationError,
     } = useValues(scannerLogic)
     const { submitScanner, setSubmitIntent } = useActions(scannerLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
 
     if (!featureFlags[FEATURE_FLAGS.REPLAY_VISION]) {
+        // Flags load asynchronously, so wait for them before deciding the page doesn't exist.
+        if (!receivedFeatureFlags) {
+            return <SpinnerOverlay sceneLevel />
+        }
         return <NotFound object="page" />
     }
 
