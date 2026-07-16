@@ -159,7 +159,7 @@ async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(mocker
     )
     mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.TaskRun.objects.filter",
-    ).return_value.first.return_value = mocker.Mock(imported_mcp_servers=None)
+    ).return_value.first.return_value = mocker.Mock(state={}, imported_mcp_servers=None)
     create_event_ingest_token = mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.create_sandbox_event_ingest_token",
         return_value="event-ingest-token",
@@ -254,7 +254,7 @@ async def test_start_agent_server_passes_initial_permission_mode(mocker) -> None
     )
     mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.TaskRun.objects.filter"
-    ).return_value.first.return_value = mocker.Mock(imported_mcp_servers=None)
+    ).return_value.first.return_value = mocker.Mock(state={}, imported_mcp_servers=None)
 
     await start_agent_server(
         StartAgentServerInput(
