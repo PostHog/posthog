@@ -12,6 +12,7 @@ from django.contrib.admin.sites import site as admin_site
 from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required as base_login_required
+from django.core.cache import cache
 from django.db import DEFAULT_DB_ALIAS, connections
 from django.db.migrations.executor import MigrationExecutor
 from django.db.models import Q
@@ -81,6 +82,26 @@ except ImportError:
     get_licensed_users_available = noop  # ty: ignore[invalid-assignment]
 
 
+_ANY_USERS_EXIST_CACHE_KEY = "posthog_any_users_exist"
+# Once an instance has any users the answer never reverts, so caching for a day is safe and
+# keeps a Postgres round-trip off the hottest request path even if Redis loses the key.
+_ANY_USERS_EXIST_CACHE_TTL = 60 * 60 * 24
+
+
+def any_users_exist() -> bool:
+    """Whether the instance has any users. Guards the initial redirect to /preflight, which
+    runs on every authenticated render via the catch-all frontend route. The check is cached
+    because it's one of the hottest DB round-trips in the app, yet once true it never flips
+    back. Only the positive result is cached, so a brand-new instance still redirects to
+    preflight until its first user is created."""
+    if cache.get(_ANY_USERS_EXIST_CACHE_KEY):
+        return True
+    exists = User.objects.exists()
+    if exists:
+        cache.set(_ANY_USERS_EXIST_CACHE_KEY, True, _ANY_USERS_EXIST_CACHE_TTL)
+    return exists
+
+
 def login_required(view):
     base_handler = base_login_required(view)
 
@@ -90,7 +111,7 @@ def login_required(view):
         # (the SPA uses its bearer token). DEBUG-gated, so prod gating is unchanged.
         if settings.DEBUG and request.COOKIES.get("ph_oauth_mode"):
             return view(request, *args, **kwargs)
-        if not User.objects.exists():
+        if not any_users_exist():
             return redirect("/preflight")
         elif not request.user.is_authenticated and settings.AUTO_LOGIN:
             user = User.objects.filter(is_active=True).first()

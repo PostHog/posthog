@@ -33,6 +33,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.temporal.tests.delete_teams.inline import execute_deletion_workflows_inline
+from posthog.views import any_users_exist
 
 from products.dashboards.backend.models.dashboard import Dashboard
 
@@ -2204,8 +2205,28 @@ class TestSessionAuthEndpoints(APIBaseTest):
 class TestLoginViews(APIBaseTest):
     def test_redirect_to_preflight_when_no_users(self):
         User.objects.all().delete()
+        cache.clear()
         response = self.client.get("/", follow=True)
         self.assertRedirects(response, "/preflight")
+
+    def test_any_users_exist_is_cached_after_first_query(self):
+        # The check runs on every authenticated render, so once users exist it must be served
+        # from cache rather than hitting Postgres on every request.
+        cache.clear()
+        with self.assertNumQueries(1):
+            self.assertTrue(any_users_exist())
+        with self.assertNumQueries(0):
+            self.assertTrue(any_users_exist())
+
+    def test_any_users_exist_does_not_cache_negative_result(self):
+        # A brand-new instance must keep hitting /preflight until its first user exists, so a
+        # "no users" answer is never cached.
+        User.objects.all().delete()
+        cache.clear()
+        self.assertFalse(any_users_exist())
+
+        create_user("first@posthog.com", self.CONFIG_PASSWORD, self.organization)
+        self.assertTrue(any_users_exist())
 
 
 class TestStaffUserAPI(APIBaseTest):
