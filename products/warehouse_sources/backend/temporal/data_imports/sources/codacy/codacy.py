@@ -151,8 +151,10 @@ def get_rows(
     endpoint_config = CODACY_ENDPOINTS[endpoint]
     headers = _get_headers(api_token)
     # One session reused across every page (and repository) so urllib3 keeps the connection
-    # alive instead of re-handshaking per request.
-    session = make_tracked_session()
+    # alive instead of re-handshaking per request. The token rides the custom `api-token`
+    # header, which the capture pipeline's name-based denylist doesn't know, so redact it
+    # by value.
+    session = make_tracked_session(redact_values=(api_token,))
 
     if not endpoint_config.fan_out_per_repository:
         path = endpoint_config.path.format(provider=provider, organization=organization)
@@ -213,7 +215,9 @@ def codacy_source(
 def validate_credentials(api_token: str) -> bool:
     url = _build_url("/user/organizations", {"limit": 1})
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_token), timeout=10)
+        response = make_tracked_session(redact_values=(api_token,)).get(
+            url, headers=_get_headers(api_token), timeout=10
+        )
         return response.status_code == 200
     except Exception:
         return False

@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceFieldInputConfig,
+    SourceFieldSelectConfig,
 )
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.codacy.settings import ENDPOINTS
@@ -36,6 +37,7 @@ class TestCodacySource:
         assert api_token.secret is True
 
         provider = fields[1]
+        assert isinstance(provider, SourceFieldSelectConfig)
         assert [option.value for option in provider.options] == ["gh", "gl", "bb"]
 
     def test_get_schemas_lists_every_endpoint_as_full_refresh(self) -> None:

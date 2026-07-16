@@ -72,7 +72,7 @@ class TestPagination:
 
         files_base = f"{BASE}/organizations/gh/acme/repositories/repo-a/files"
         # Every page advertises another cursor; without the cap this would page forever.
-        pages = {
+        pages: dict[str, dict[str, Any]] = {
             REPOS_URL: {"data": [{"name": "repo-a"}], "pagination": {}},
             f"{files_base}?limit=100": {"data": [{"path": "a.py"}], "pagination": {"cursor": "c2"}},
             f"{files_base}?limit=100&cursor=c2": {"data": [{"path": "b.py"}], "pagination": {"cursor": "c3"}},
