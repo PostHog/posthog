@@ -99,6 +99,17 @@ testing buttons) to `https://<tunnel-host>/api/conversations/v1/slack/events` (a
 Slack sends a synchronous `url_verification` challenge on save, so the backend must be up; the handler
 echoes it back automatically.
 
+The Request URL alone only passes verification; it delivers nothing until you subscribe to events. Under
+**Event Subscriptions → Subscribe to bot events**, add the events the backend handles (`SUPPORT_EVENT_TYPES`
+in `products/conversations/backend/api/slack_events.py`):
+
+- `app_mention`
+- `message.channels` (and `message.groups` for private channels), both arriving as the inner `message` event
+- `reaction_added`
+- `member_joined_channel`, `member_left_channel`
+
+Reinstall the app after changing scopes/events so the new grants take effect.
+
 ## Step 4 — connect and test
 
 Browse the app at `http://localhost:8010`, log in, go to Support settings, and connect Slack. The OAuth
