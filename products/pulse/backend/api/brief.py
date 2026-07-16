@@ -398,7 +398,7 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
                             },
                         ),
                     ),
-                    id=f"pulse-brief-{self.team_id}",
+                    id=f"pulse-brief-{self.team_id}-{config.id if config else 'default'}",
                     task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
                     execution_timeout=WORKFLOW_EXECUTION_TIMEOUT,
                 )

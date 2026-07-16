@@ -70,7 +70,20 @@ class TestPulseAPI(APIBaseTest):
         assert workflow_input.slo is not None
         assert workflow_input.slo.operation == SloOperation.PULSE_BRIEF_GENERATION
         assert workflow_input.slo.resource_id == str(brief.id)
-        assert client.start_workflow.call_args.kwargs["id"] == f"pulse-brief-{self.team.id}"
+        assert client.start_workflow.call_args.kwargs["id"] == f"pulse-brief-{self.team.id}-default"
+
+    def test_generate_scopes_workflow_to_config(self, mock_connect: MagicMock, _mock_flag: MagicMock) -> None:
+        client = _temporal_client()
+        mock_connect.return_value = client
+        with team_scope(self.team.pk, canonical=True):
+            config = BriefConfig.objects.create(team=self.team, created_by=self.user, name="Configured")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/pulse/briefs/generate/", {"config_id": str(config.id)}
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert client.start_workflow.call_args.kwargs["id"] == f"pulse-brief-{self.team.id}-{config.id}"
 
     def test_generate_uses_ai_throttles(self, _mock_connect: MagicMock, _mock_flag: MagicMock) -> None:
         view = ProductBriefViewSet()
