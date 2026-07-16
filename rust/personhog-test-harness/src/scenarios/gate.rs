@@ -295,13 +295,20 @@ pub async fn run(args: GateArgs) -> Result<()> {
     let prober_violations = probers.await.context("prober task panicked")??;
 
     // Verification asserts data visibility on a converged topology, not
-    // recovery speed: chaos legitimately leaves handoffs to re-drive, and
-    // the protocol's convergence is bounded (worst known case ~40s via the
-    // drained pod's lifecycle timeout). An already-settled run waits zero
-    // time; a run that cannot converge fails here with the stuck state.
+    // recovery speed: chaos legitimately leaves handoffs to re-drive. The
+    // slowest legitimate recoveries are the slow-crash router TTL chain
+    // (election TTL + campaign retry + registration TTL, ~16s) and a
+    // leader kill with --kill-fast false, which is blind until the leader
+    // lease expires — so the floor is 30s and the deadline stretches with
+    // the configured leader TTL. A regression toward the old
+    // multi-tens-of-seconds wedges still fails loudly. An already-settled
+    // run waits zero time; a run that cannot converge fails here with the
+    // stuck state.
     if let Some(stack) = stack.as_mut() {
+        let convergence_deadline =
+            Duration::from_secs(30).max(Duration::from_secs(args.leader_lease_ttl as u64 + 15));
         let settled = stack
-            .wait_converged(Duration::from_secs(90))
+            .wait_converged(convergence_deadline)
             .await
             .context("coordination must converge before verification")?;
         println!(

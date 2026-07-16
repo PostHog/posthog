@@ -3,7 +3,7 @@
 Load, consistency, and e2e correctness harness for the personhog leader path.
 Revived from the original personhog-cannon draft (#55581) and extended with stack orchestration, Postgres seeding, and an acked-write journal so it can gate CI, not just generate load.
 
-The core invariant it checks: **every write acked by the leader path is visible afterwards** — in strong reads once coordination has converged (post-chaos handoffs re-driven; an already-settled run waits zero time, and failing to converge within 90s fails the gate), and in Postgres (at or above the highest acked version) once the writer drains.
+The core invariant it checks: **every write acked by the leader path is visible afterwards** — in strong reads once coordination has converged (post-chaos handoffs re-driven; an already-settled run waits zero time, and failing to converge within 30s fails the gate), and in Postgres (at or above the highest acked version) once the writer drains.
 Every acked update is journaled under a unique property key, so the final state must contain all of them regardless of how concurrent writers interleaved.
 Version assignment is asserted throughout: the leader assigns each version of a person to at most one acked write, so a duplicated acked version (two writes served from the same base state), or a strong read observing a version below the highest ack, is a violation.
 Read-your-write recency is asserted live: `--probers` (default 2) workers run write-then-strong-read cycles alongside the blast traffic, so a staleness window during a chaos event trips a probe even if it heals before the end-of-run verification.
@@ -143,8 +143,8 @@ target/debug/personhog-test-harness gate --routers 3 --leaders 3 --duration 18s 
   --router-kill-after 4s --shutdown-after 8s --kill-handoff-target
 ```
 
-Verification still waits for convergence (bounded at 90s) before asserting strong reads; red here means convergence itself failed.
-Remaining scope: draining pods should be excluded as rebalance targets (now mere churn rather than a black hole — a mid-drain rebalance can hand partitions to a pod that immediately re-drains them), and one stuck handoff should not defer all rebalancing.
+Verification still waits for convergence (bounded at 30s — 2x the slow-crash TTL chain, the slowest legitimate recovery) before asserting strong reads; red here means convergence itself failed.
+The two follow-ups once listed here are resolved: draining pods were never actually rebalance targets (`active_pod_names` has filtered to `Ready` pods since the original PoC — the earlier claim misread the wedge, whose real mechanism was the shutdown ordering fixed above), and a stuck handoff now defers only its own partition (the coordinator pins in-flight partitions and rebalances the rest — see `plan_partial_rebalance`).
 
 ## `seed` / `cleanup` — manage traffic targets
 

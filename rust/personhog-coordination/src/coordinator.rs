@@ -10,7 +10,7 @@ use k8s_awareness::types::ControllerKind;
 use k8s_awareness::{DepartureReason, K8sAwareness};
 
 use crate::error::{Error, Result};
-use crate::protocol::{drain_satisfied, freeze_quorum_met, plan_rebalance, warm_satisfied};
+use crate::protocol::{drain_satisfied, freeze_quorum_met, plan_partial_rebalance, warm_satisfied};
 use crate::store::{self, PersonhogStore};
 use crate::strategy::AssignmentStrategy;
 use crate::types::{
@@ -352,8 +352,10 @@ impl Coordinator {
                     }
 
                     // After processing all events in this batch, check if all
-                    // handoffs have completed. If so, re-trigger rebalancing to
-                    // pick up any pod changes that were deferred.
+                    // handoffs have completed. If so, re-trigger rebalancing as
+                    // the final sweep for moves that were pinned while these
+                    // handoffs were in flight (pod changes themselves are never
+                    // deferred; they plan around the in-flight set).
                     if store.list_handoffs().await?.is_empty() {
                         Self::handle_pod_change_static(
                             &store,
@@ -585,16 +587,16 @@ impl Coordinator {
         // be stuck forever otherwise.
         Self::cleanup_stale_handoffs(store).await?;
 
-        // Skip rebalancing while handoffs are in flight to prevent overlapping
-        // rebalances from overwriting each other. The watch_handoffs_loop will
-        // re-trigger rebalancing once all handoffs complete.
-        let remaining_handoffs = store.list_handoffs().await?;
-        if !remaining_handoffs.is_empty() {
+        // In-flight handoffs pin their partitions: the plan excludes them
+        // (no second handoff, no assignment write) and attributes them to
+        // their target for the balance math, so a stuck handoff defers
+        // only its own partition instead of all rebalancing.
+        let in_flight = store.list_handoffs().await?;
+        if !in_flight.is_empty() {
             tracing::info!(
-                in_flight = remaining_handoffs.len(),
-                "handoffs in progress, deferring rebalance"
+                pinned = in_flight.len(),
+                "planning around in-flight handoffs"
             );
-            return Ok(());
         }
 
         let current_assignments = store.list_assignments().await?;
@@ -606,8 +608,15 @@ impl Coordinator {
 
         // Placement and diff semantics (moves carry the prior owner, fresh
         // partitions carry none, everything goes through Freezing) live in
-        // `protocol::plan_rebalance`, shared with the stateright model.
-        let plan = plan_rebalance(strategy, &current_map, &active_pods, total_partitions);
+        // `protocol::plan_partial_rebalance`, shared with the stateright
+        // model.
+        let plan = plan_partial_rebalance(
+            strategy,
+            &current_map,
+            &in_flight,
+            &active_pods,
+            total_partitions,
+        );
 
         if plan.handoffs.is_empty() {
             tracing::debug!("no handoffs needed");

@@ -2661,3 +2661,89 @@ async fn routing_table_deregisters_router_on_graceful_exit() {
     })
     .await;
 }
+
+/// A stuck handoff must defer only its own partition. One pod's handoffs
+/// wedge at Warming (its handler never acks); a healthy pod that joins
+/// afterwards must still receive partitions from the unpinned remainder
+/// while the wedged handoffs stay in flight — and those handoffs must
+/// never be re-planned. Before per-partition pinning, any in-flight
+/// handoff deferred all rebalancing, so the healthy pod owned nothing
+/// until the wedge resolved.
+#[tokio::test]
+async fn stuck_handoff_defers_only_its_own_partition() {
+    let store = test_store("stuck_handoff_defers_only_its_own_partition").await;
+    let cancel = CancellationToken::new();
+    store.set_total_partitions(NUM_PARTITIONS).await.unwrap();
+
+    let _coord = start_coordinator(
+        Arc::clone(&store),
+        Arc::new(StickyBalancedStrategy),
+        cancel.clone(),
+    );
+    let _pod0 = start_pod(Arc::clone(&store), "writer-0", cancel.clone());
+
+    let check_store = Arc::clone(&store);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move {
+            let assignments = store.list_assignments().await.unwrap_or_default();
+            let handoffs = store.list_handoffs().await.unwrap_or_default();
+            assignments.len() == NUM_PARTITIONS as usize && handoffs.is_empty()
+        }
+    })
+    .await;
+
+    // The blocking pod joins: the rebalance moves partitions toward it and
+    // every one of those handoffs wedges at Warming.
+    let _blocked = start_pod_blocking(Arc::clone(&store), "writer-blocked", 30, cancel.clone());
+    let check_store = Arc::clone(&store);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move {
+            store
+                .list_handoffs()
+                .await
+                .unwrap_or_default()
+                .iter()
+                .any(|h| h.new_owner == "writer-blocked")
+        }
+    })
+    .await;
+
+    let stuck: Vec<(u32, String)> = store
+        .list_handoffs()
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|h| h.new_owner == "writer-blocked")
+        .map(|h| (h.partition, h.handoff_id))
+        .collect();
+    assert!(!stuck.is_empty());
+
+    // A healthy pod joins while those handoffs are wedged: it must own
+    // partitions while they are still in flight.
+    let _pod2 = start_pod(Arc::clone(&store), "writer-2", cancel.clone());
+    let check_store = Arc::clone(&store);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move {
+            let assignments = store.list_assignments().await.unwrap_or_default();
+            let handoffs = store.list_handoffs().await.unwrap_or_default();
+            assignments.iter().any(|a| a.owner == "writer-2")
+                && handoffs.iter().any(|h| h.new_owner == "writer-blocked")
+        }
+    })
+    .await;
+
+    // The wedged handoffs were pinned, never re-planned: each survives
+    // with its original identity.
+    let handoffs = store.list_handoffs().await.unwrap();
+    for (partition, handoff_id) in &stuck {
+        assert!(
+            handoffs
+                .iter()
+                .any(|h| h.partition == *partition && h.handoff_id == *handoff_id),
+            "pinned handoff for partition {partition} was replanned or destroyed"
+        );
+    }
+}

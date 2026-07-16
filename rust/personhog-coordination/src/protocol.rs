@@ -46,10 +46,13 @@ pub struct RebalancePlan {
 /// at Freezing — including fresh assignments — so routers never route to
 /// a pod whose cache hasn't been warmed.
 ///
-/// Callers must not rebalance while any handoff is in flight
-/// (overlapping rebalances would overwrite each other); the coordinator
-/// defers until the in-flight set is empty, and the model gates its
-/// rebalance action the same way.
+/// Callers with handoffs in flight must plan through
+/// `plan_partial_rebalance`, which pins those partitions — planning a
+/// mid-move partition twice would create overlapping handoffs and
+/// conflicting assignment writes. The coordinator and the stateright
+/// model both plan through the partial variant; the model's
+/// `no_double_planned_handoff` property verifies the pinning across
+/// every interleaving of rebalances with in-flight handoffs.
 pub fn plan_rebalance<S: AssignmentStrategy + ?Sized>(
     strategy: &S,
     current: &HashMap<u32, String>,
@@ -78,6 +81,35 @@ pub fn plan_rebalance<S: AssignmentStrategy + ?Sized>(
         }
     }
     RebalancePlan { desired, handoffs }
+}
+
+/// Plan a rebalance around in-flight handoffs. Their partitions are
+/// pinned: excluded from the planned handoffs and from `desired` (whose
+/// entries the coordinator writes as stable assignments), so the two
+/// overlap hazards — a second handoff for a mid-move partition, and an
+/// assignment write for one — are impossible by construction, and a
+/// stuck handoff defers only its own partition instead of the topology.
+/// For the placement computation each pinned partition is attributed to
+/// its handoff's new owner, so the balance math agrees with the imminent
+/// state and a sticky strategy plans around the in-flight moves instead
+/// of fighting them.
+pub fn plan_partial_rebalance<S: AssignmentStrategy + ?Sized>(
+    strategy: &S,
+    current: &HashMap<u32, String>,
+    in_flight: &[HandoffState],
+    active_pods: &[String],
+    total_partitions: u32,
+) -> RebalancePlan {
+    let pinned: HashSet<u32> = in_flight.iter().map(|h| h.partition).collect();
+    let mut effective = current.clone();
+    for handoff in in_flight {
+        effective.insert(handoff.partition, handoff.new_owner.clone());
+    }
+    let mut plan = plan_rebalance(strategy, &effective, active_pods, total_partitions);
+    plan.handoffs.retain(|h| !pinned.contains(&h.partition));
+    plan.desired
+        .retain(|partition, _| !pinned.contains(partition));
+    plan
 }
 
 /// Whether the freeze quorum for `handoff` is met.
@@ -144,4 +176,73 @@ pub fn warm_satisfied(warmed_acks: &[PodWarmedAck], handoff: &HandoffState) -> b
     warmed_acks
         .iter()
         .any(|a| a.pod_name == handoff.new_owner && a.handoff_id == handoff.handoff_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::strategy::StickyBalancedStrategy;
+
+    fn handoff(partition: u32, old_owner: Option<&str>, new_owner: &str) -> HandoffState {
+        HandoffState {
+            partition,
+            old_owner: old_owner.map(str::to_string),
+            new_owner: new_owner.to_string(),
+            phase: crate::types::HandoffPhase::Warming,
+            started_at: 0,
+            handoff_id: String::new(),
+        }
+    }
+
+    #[test]
+    fn pinned_partitions_are_never_planned() {
+        let current: HashMap<u32, String> = (0..4).map(|p| (p, "pod-a".to_string())).collect();
+        let in_flight = [handoff(0, Some("pod-a"), "pod-b")];
+        let active = [
+            "pod-a".to_string(),
+            "pod-b".to_string(),
+            "pod-c".to_string(),
+        ];
+
+        let plan =
+            plan_partial_rebalance(&StickyBalancedStrategy, &current, &in_flight, &active, 4);
+
+        assert!(
+            plan.handoffs.iter().all(|h| h.partition != 0),
+            "a pinned partition must never get a second handoff"
+        );
+        assert!(
+            !plan.desired.contains_key(&0),
+            "a pinned partition must never get an assignment write"
+        );
+        // A stuck handoff defers only itself: the new pod still receives
+        // partitions from the unpinned remainder.
+        assert!(
+            plan.handoffs.iter().any(|h| h.new_owner == "pod-c"),
+            "unpinned partitions must still rebalance toward the new pod"
+        );
+    }
+
+    #[test]
+    fn pinned_partitions_count_against_their_target() {
+        // Two of pod-a's four partitions are mid-move to pod-b. Attributed
+        // to their target, the placement is already balanced — a plan that
+        // read the raw current map would see 4-vs-0 and churn the other
+        // two partitions to pod-b right behind the in-flight moves.
+        let current: HashMap<u32, String> = (0..4).map(|p| (p, "pod-a".to_string())).collect();
+        let in_flight = [
+            handoff(0, Some("pod-a"), "pod-b"),
+            handoff(1, Some("pod-a"), "pod-b"),
+        ];
+        let active = ["pod-a".to_string(), "pod-b".to_string()];
+
+        let plan =
+            plan_partial_rebalance(&StickyBalancedStrategy, &current, &in_flight, &active, 4);
+
+        assert!(
+            plan.handoffs.is_empty(),
+            "in-flight moves already balance the placement; planning more is churn: {:?}",
+            plan.handoffs
+        );
+    }
 }

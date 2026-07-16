@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use personhog_coordination::pod::{desired_state, DesiredState};
 use personhog_coordination::protocol::{
-    drain_satisfied, freeze_quorum_met, plan_rebalance, warm_satisfied,
+    drain_satisfied, freeze_quorum_met, plan_partial_rebalance, warm_satisfied,
 };
 use personhog_coordination::strategy::{AssignmentStrategy, StickyBalancedStrategy};
 use personhog_coordination::types::{
@@ -310,6 +310,7 @@ impl Model for HandoffModel {
             next_write_id: 0,
             reads_served: 0,
             lost_acked_write: false,
+            double_planned_handoff: false,
             stale_strong_read: false,
         }]
     }
@@ -375,41 +376,50 @@ impl Model for HandoffModel {
             }
 
             // The rebalance half: create Freezing handoffs for every
-            // assignment diff in one transaction, only while no handoffs
-            // are in flight. Placement and diff semantics are the
-            // production `protocol::plan_rebalance` (strategy + move/fresh
-            // diff, old_owner from the current assignment); only the etcd
-            // writes are applied model-side, and assignments for
-            // moved/fresh partitions are deferred until Complete
-            // (`create_assignments_and_handoffs`).
+            // assignment diff in one transaction. In-flight handoffs pin
+            // their partitions — the production
+            // `protocol::plan_partial_rebalance` excludes them from the
+            // plan and attributes each to its target for the placement
+            // computation — so rebalancing is enabled in every state and
+            // the checker explores a rebalance racing every handoff
+            // phase. Only the etcd writes are applied model-side, and
+            // assignments for moved/fresh partitions are deferred until
+            // Complete (`create_assignments_and_handoffs`).
             Action::Rebalance => {
-                if state.handoffs.is_empty() {
-                    let current: HashMap<u32, String> = state
-                        .assignments
-                        .iter()
-                        .map(|(p, owner)| (*p as u32, pod_name(*owner)))
-                        .collect();
-                    let mut active: Vec<String> = state
-                        .pods
-                        .iter()
-                        .filter(|(_, p)| p.registered)
-                        .map(|(id, _)| pod_name(*id))
-                        .collect();
-                    active.sort();
-                    let mut plan = plan_rebalance(
-                        &StickyBalancedStrategy,
-                        &current,
-                        &active,
-                        self.partitions as u32,
-                    );
-                    // The plan's order follows HashMap iteration; sort so
-                    // sequential handoff-id assignment is deterministic
-                    // (next_state must be a pure function of its inputs).
-                    plan.handoffs.sort_by_key(|h| h.partition);
-                    for planned in plan.handoffs {
-                        let id = state.next_handoff_id;
-                        state.next_handoff_id += 1;
-                        state.handoffs.insert(
+                let current: HashMap<u32, String> = state
+                    .assignments
+                    .iter()
+                    .map(|(p, owner)| (*p as u32, pod_name(*owner)))
+                    .collect();
+                let in_flight: Vec<HandoffState> = state
+                    .handoffs
+                    .iter()
+                    .map(|(p, h)| production_handoff(*p, h))
+                    .collect();
+                let mut active: Vec<String> = state
+                    .pods
+                    .iter()
+                    .filter(|(_, p)| p.registered)
+                    .map(|(id, _)| pod_name(*id))
+                    .collect();
+                active.sort();
+                let mut plan = plan_partial_rebalance(
+                    &StickyBalancedStrategy,
+                    &current,
+                    &in_flight,
+                    &active,
+                    self.partitions as u32,
+                );
+                // The plan's order follows HashMap iteration; sort so
+                // sequential handoff-id assignment is deterministic
+                // (next_state must be a pure function of its inputs).
+                plan.handoffs.sort_by_key(|h| h.partition);
+                for planned in plan.handoffs {
+                    let id = state.next_handoff_id;
+                    state.next_handoff_id += 1;
+                    let clobbered = state
+                        .handoffs
+                        .insert(
                             planned.partition as Partition,
                             Handoff {
                                 id,
@@ -417,7 +427,14 @@ impl Model for HandoffModel {
                                 new_owner: pod_id(&planned.new_owner),
                                 phase: Phase::Freezing,
                             },
-                        );
+                        )
+                        .is_some();
+                    if clobbered {
+                        // Planning a pinned partition would destroy its
+                        // in-flight handoff (and orphan its acks); the
+                        // always-property flags any interleaving where
+                        // the exclusion fails to prevent that.
+                        state.double_planned_handoff = true;
                     }
                 }
             }
@@ -859,6 +876,12 @@ impl Model for HandoffModel {
             // Variant::Current with a zombie window (the documented
             // residual) and PASS under Variant::EpochFenced.
             Property::<Self>::always("no_lost_acked_write", |_, s| !s.lost_acked_write),
+            // Rebalancing is enabled concurrently with in-flight handoffs;
+            // pinning must keep it from ever planning one of their
+            // partitions a second time.
+            Property::<Self>::always("no_double_planned_handoff", |_, s| {
+                !s.double_planned_handoff
+            }),
             // The split-brain condition: two distinct pods each capable
             // of accepting a write for the same partition AND each
             // reachable by some live, non-stashing router. Capability
@@ -950,20 +973,21 @@ impl Model for HandoffModel {
         ];
         if self.probes {
             // Two or more handoffs in flight at once (one rebalance txn
-            // creates them all; the deferral gate prevents a second
-            // rebalance from adding more).
+            // creates them all; concurrent rebalances only add handoffs
+            // for unpinned partitions).
             props.push(Property::<Self>::sometimes(
                 "concurrent_handoffs",
                 |_, s| s.handoffs.len() >= 2,
             ));
             // A pod that is old owner of one in-flight handoff and new
             // owner of another — simultaneously drain-side and warm-side.
-            // Believed unreachable under the shipped protocol: within one
-            // plan the sticky strategy only takes partitions from pods
-            // above their target and gives to pods below it (never both),
-            // and the deferral gate keeps handoffs from different plans
-            // from coexisting. The probe lets the checker confirm that
-            // instead of us assuming it.
+            // Reachable since partial rebalancing let handoffs from
+            // different plans coexist (within one plan the sticky
+            // strategy never takes from and gives to the same pod). Safe
+            // because every protocol mechanism the two roles touch —
+            // fences, inflight counts, cache partitions, acks — is
+            // partition-scoped; the probe makes the checker explore the
+            // dual-role interleavings the safety properties then judge.
             props.push(Property::<Self>::sometimes(
                 "pod_holds_both_roles",
                 |_, s| {
