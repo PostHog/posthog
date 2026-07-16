@@ -945,10 +945,14 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         detail=True,
         methods=["get"],
         url_path="impact",
-        required_scopes=["replay_scanner:read"],
+        required_scopes=["replay_scanner:read", "session_recording:read"],
     )
     def impact(self, request: Request, **kwargs: Any) -> Response:
         """Affected sessions and users for this scanner over the trailing window."""
+        # Impact counts are derived from recording observations; without this gate a member denied
+        # session_recording access could read verdict/tag/score aggregates the observations endpoint blocks.
+        if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
+            raise PermissionDenied("Reading scanner impact requires session_recording read access.")
         scanner = self.get_object()
         params = ScannerImpactQuerySerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
@@ -972,10 +976,18 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         detail=True,
         methods=["post"],
         url_path="affected_cohort",
-        required_scopes=["replay_scanner:read", "cohort:write"],
+        required_scopes=["replay_scanner:read", "session_recording:read", "cohort:write"],
     )
     def affected_cohort(self, request: Request, **kwargs: Any) -> Response:
         """Save the users this scanner matched as a static cohort, for surveys, funnels, and retention analysis."""
+        # The cohort materializes recording-derived identities; require the same recording access
+        # the observations endpoint enforces before exposing per-session results.
+        if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
+            raise PermissionDenied("Saving an affected cohort requires session_recording read access.")
+        # `cohort:write` in required_scopes only constrains API keys; session RBAC evaluates against this
+        # viewset's replay_scanner scope object, so the caller's cohort access must be checked explicitly.
+        if not self.user_access_control.check_access_level_for_resource("cohort", required_level="editor"):
+            raise PermissionDenied("Saving an affected cohort requires cohort edit access.")
         scanner = self.get_object()
         body = AffectedCohortRequestSerializer(data=request.data)
         body.is_valid(raise_exception=True)
