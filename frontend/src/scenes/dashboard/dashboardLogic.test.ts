@@ -1474,6 +1474,42 @@ describe('dashboardLogic', () => {
             hydrateDashboardSpy.mockRestore()
             getResponseSpy.mockRestore()
         })
+
+        it('keeps cached tiles visible while streamed tiles replace them', async () => {
+            logic = dashboardLogic({ id: 12, dashboard: dashboards[12] })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            const freshDashboard = {
+                ...dashboards[12],
+                tiles: dashboards[12].tiles.slice(0, 7),
+            }
+            const streamTilesSpy = jest.spyOn(api.dashboards, 'streamTiles').mockImplementation(
+                async (_id, _params, onMessage, onComplete) => {
+                    onMessage({
+                        type: 'metadata',
+                        dashboard: { ...freshDashboard, tiles: freshDashboard.tiles.slice(0, 2) },
+                    })
+                    expect(logic.values.dashboard?.tiles).toHaveLength(8)
+
+                    freshDashboard.tiles.slice(2).forEach((tile, order) => {
+                        onMessage({ type: 'tile', tile, order: order + 2 })
+                    })
+                    onComplete()
+                    return () => {}
+                }
+            )
+
+            await expectLogic(logic, () => {
+                logic.actions.loadDashboardStreaming({ action: DashboardLoadAction.Update })
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    tiles: truth((tiles) => tiles.length === 7 && new Set(tiles.map((tile) => tile.id)).size === 7),
+                })
+
+            streamTilesSpy.mockRestore()
+        })
     })
 
     describe('dashboard variables', () => {

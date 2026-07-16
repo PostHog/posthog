@@ -464,6 +464,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 loadDashboardStreaming: async ({ action }) => {
                     actions.loadingDashboardItemsStarted(action)
                     actions.resetIntermittentFilters()
+                    const streamedDashboardTileIds = new Set<number>()
+                    cache.streamedDashboardTileIds = streamedDashboardTileIds
 
                     // Start unified streaming - metadata followed by tiles
                     api.dashboards.streamTiles(
@@ -476,10 +478,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         // onMessage callback - handles both metadata and tiles
                         (data) => {
                             if (data.type === 'metadata') {
+                                for (const tile of data.dashboard.tiles) {
+                                    streamedDashboardTileIds.add(tile.id)
+                                }
                                 actions.loadDashboardMetadataSuccess(
                                     getQueryBasedDashboard(data.dashboard as DashboardType<InsightModel>)
                                 )
                             } else if (data.type === 'tile') {
+                                streamedDashboardTileIds.add(data.tile.id)
                                 actions.receiveTileFromStream(data)
                             }
                         },
@@ -775,7 +781,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
     })),
-    reducers(({ props }) => ({
+    reducers(({ props, cache }) => ({
         dashboardLoading: [
             false,
             {
@@ -993,7 +999,21 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     if (!dashboard) {
                         return state
                     }
-                    return dashboard
+
+                    if (!state?.tiles.length) {
+                        return dashboard
+                    }
+
+                    const freshTilesById = new Map(dashboard.tiles.map((tile) => [tile.id, tile]))
+                    const cachedTileIds = new Set(state.tiles.map((tile) => tile.id))
+
+                    return {
+                        ...dashboard,
+                        tiles: [
+                            ...state.tiles.map((tile) => freshTilesById.get(tile.id) ?? tile),
+                            ...dashboard.tiles.filter((tile) => !cachedTileIds.has(tile.id)),
+                        ],
+                    }
                 },
                 receiveTileFromStream: (state, { tile }) => {
                     if (!state || !state.tiles) {
@@ -1005,12 +1025,30 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         ...(tile.insight != null ? { insight: getQueryBasedInsightModel(tile.insight) } : {}),
                     }
 
-                    let newTiles = [...state.tiles, transformedTile]
+                    const existingTileIndex = state.tiles.findIndex((existingTile) => existingTile.id === tile.id)
+                    const newTiles = [...state.tiles]
+
+                    if (existingTileIndex === -1) {
+                        newTiles.push(transformedTile)
+                    } else {
+                        newTiles[existingTileIndex] = transformedTile
+                    }
 
                     return {
                         ...state,
                         tiles: newTiles,
                     } as DashboardType<QueryBasedInsightModel>
+                },
+                tileStreamingComplete: (state) => {
+                    const streamedDashboardTileIds = cache.streamedDashboardTileIds
+                    if (!state || !streamedDashboardTileIds) {
+                        return state
+                    }
+
+                    return {
+                        ...state,
+                        tiles: state.tiles.filter((tile) => streamedDashboardTileIds.has(tile.id)),
+                    }
                 },
             },
         ],
@@ -2921,6 +2959,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     cachedDashboardTeams.set(values.dashboard, values.currentTeamId)
                     dashboardsModel.actions.updateDashboardSuccess(values.dashboard)
                 }
+                cache.streamedDashboardTileIds = undefined
             },
             sharedListeners.handleDashboardLoadComplete,
         ],
