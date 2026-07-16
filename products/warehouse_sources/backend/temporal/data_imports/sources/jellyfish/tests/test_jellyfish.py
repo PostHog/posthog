@@ -9,12 +9,15 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.jellyfish import jellyfish
 from products.warehouse_sources.backend.temporal.data_imports.sources.jellyfish.jellyfish import (
+    MAX_RETRY_AFTER_SECONDS,
     JellyfishRateLimitError,
     JellyfishResumeConfig,
     _build_url,
     _extract_rows,
     _get_headers,
     _month_windows,
+    _parse_retry_after,
+    _retry_wait,
     get_rows,
     jellyfish_source,
     validate_credentials,
@@ -260,3 +263,21 @@ class TestFetch:
         with pytest.raises(JellyfishRateLimitError) as exc:
             jellyfish._fetch.__wrapped__(session, _build_url("metrics/company_metrics", {}), {}, MagicMock())  # type: ignore[attr-defined]
         assert exc.value.retry_after == 12.0
+
+
+class TestRetryWait:
+    @parameterized.expand([("missing", None, None), ("non_numeric", "soon", None), ("negative", "-5", None)])
+    def test_parse_retry_after_falls_back(self, _name: str, header: str | None, expected: float | None) -> None:
+        # None means "no honored delay" so the caller falls back to exponential backoff.
+        assert _parse_retry_after(header) == expected
+
+    def test_wait_honors_retry_after_when_reasonable(self) -> None:
+        state = MagicMock()
+        state.outcome.exception.return_value = JellyfishRateLimitError("rate limited", retry_after=12.0)
+        assert _retry_wait(state) == 12.0
+
+    def test_wait_clamps_pathological_retry_after(self) -> None:
+        # A huge Retry-After must not pin an import worker for its whole duration.
+        state = MagicMock()
+        state.outcome.exception.return_value = JellyfishRateLimitError("rate limited", retry_after=6000.0)
+        assert _retry_wait(state) == MAX_RETRY_AFTER_SECONDS

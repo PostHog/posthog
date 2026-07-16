@@ -7,6 +7,7 @@ from urllib.parse import urlencode
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -22,6 +23,13 @@ JELLYFISH_BASE_URL = "https://app.jellyfish.co/endpoints/export/v0"
 # time to build.
 REQUEST_TIMEOUT = 120
 MAX_RETRIES = 5
+# Cap the honored `Retry-After` so a pathological header can't pin an import worker for its whole
+# duration; the pipeline retries the activity above us if the window is genuinely longer.
+MAX_RETRY_AFTER_SECONDS = 60
+# The tenacity loop below is the single retry authority — it translates 429/5xx into typed
+# exceptions and backs off (honoring `Retry-After`). Adapter-level retries would nest beneath it and
+# multiply the waits, so opt out of them.
+_NO_ADAPTER_RETRIES = Retry(total=0)
 
 
 class JellyfishRetryableError(Exception):
@@ -114,16 +122,18 @@ def _parse_retry_after(value: str | None) -> float | None:
     if not value:
         return None
     try:
-        return float(value)
+        seconds = float(value)
     except ValueError:
         return None
+    # A negative (or non-numeric) value is meaningless as a wait, so fall back to exponential backoff.
+    return seconds if seconds >= 0 else None
 
 
 def _retry_wait(retry_state: Any) -> float:
-    """Honor a 429's Retry-After header when present, else fall back to exponential backoff."""
+    """Honor a 429's Retry-After header when present (capped), else fall back to exponential backoff."""
     exc = retry_state.outcome.exception() if retry_state.outcome else None
     if isinstance(exc, JellyfishRateLimitError) and exc.retry_after is not None:
-        return exc.retry_after
+        return min(exc.retry_after, MAX_RETRY_AFTER_SECONDS)
     return wait_exponential_jitter(initial=1, max=30)(retry_state)
 
 
@@ -160,7 +170,7 @@ def validate_credentials(api_token: str) -> bool:
     # so any non-200 means the token isn't usable.
     url = _build_url("delivery/work_categories", {"format": "json"})
     try:
-        session = make_tracked_session()
+        session = make_tracked_session(retry=_NO_ADAPTER_RETRIES)
         response = session.get(url, headers=_get_headers(api_token), timeout=30)
         return response.status_code == 200
     except Exception:
@@ -192,7 +202,7 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     config = JELLYFISH_ENDPOINTS[endpoint]
     headers = _get_headers(api_token)
-    session = make_tracked_session()
+    session = make_tracked_session(retry=_NO_ADAPTER_RETRIES)
 
     # The export API returns CSV unless asked otherwise, so `format=json` goes on every request.
     base_params: dict[str, Any] = {"format": "json", **config.params}
