@@ -20,6 +20,7 @@ import { notebooksModel } from '~/models/notebooksModel'
 import { notebookLogic } from './Notebook/notebookLogic'
 import { notebookSettingsLogic } from './Notebook/notebookSettingsLogic'
 import { notebookPanelLogic } from './NotebookPanel/notebookPanelLogic'
+import { isKernelUiEnabled } from './utils'
 
 const RESOURCE_TYPE = 'notebook'
 
@@ -40,7 +41,7 @@ function NotebookSceneMenuBarInner({ shortId }: { shortId: string }): JSX.Elemen
     const { setIsMarkdownExpanded, setShowKernelInfo } = useActions(notebookSettingsLogic)
     const { selectNotebook } = useActions(notebookPanelLogic)
     const canDelete = !isLocalOnly && !notebook?.is_template
-    const showKernelToggle = !!featureFlags[FEATURE_FLAGS.NOTEBOOK_PYTHON]
+    const showKernelToggle = isKernelUiEnabled(featureFlags)
 
     return (
         <SceneMenuBar>
