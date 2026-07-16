@@ -6,6 +6,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { uuid } from 'lib/utils/dom'
+import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 
 import {
     ClaudeRuntimeAdapterEnumApi,
@@ -13,14 +14,16 @@ import {
     TaskExecutionModeEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
-import { runStreamLogic } from '../../api/logics'
+import { attachedContextItemKey, attachedContextLogic, runStreamLogic } from '../../api/logics'
 import type { SuggestionGroup, SuggestionItem } from '../../api/primitives'
 import { DEFAULT_HEADLINES, pickHeadline } from '../../api/primitives'
+import { composerSeedLogic } from '../../logics/composerSeedLogic'
 import { runnerPanelLogic } from '../../logics/runnerPanelLogic'
 import { tasksLogic } from '../../logics/tasksLogic'
 import type { RepositoryConfig, Task } from '../../types/taskTypes'
 import { OriginProduct, TaskUpsertProps } from '../../types/taskTypes'
 import { DEFAULT_COMPOSER_EFFORT, DEFAULT_COMPOSER_MODEL, resolveEffortForModel } from '../../utils/composerModels'
+import { wrapWithPosthogContext } from '../../utils/posthogContextBlock'
 import type { taskTrackerSceneLogicType } from './taskTrackerSceneLogicType'
 
 export type { ActiveCreation } from '../../logics/runnerPanelLogic'
@@ -72,6 +75,12 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             ['tasks', 'repositories', 'taskListParams'],
             integrationsLogic,
             ['integrations'],
+            attachedContextLogic,
+            ['contextItems'],
+            aiConsentLogic,
+            ['dataProcessingAccepted'],
+            composerSeedLogic(props),
+            ['seed'],
         ],
         actions: [
             runnerPanelLogic(props),
@@ -80,6 +89,10 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             ['loadTasks', 'loadRepositories', 'deleteTask'],
             integrationsLogic,
             ['loadIntegrationsSuccess'],
+            attachedContextLogic,
+            ['markContextSent'],
+            composerSeedLogic(props),
+            ['consumeSeed', 'setSeed'],
         ],
     })),
 
@@ -98,6 +111,10 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         // Re-points the panel at a fresh run started from the composer on a reopened terminal task
         // (the run surface's own re-pointing targets the detail scene, which the panel doesn't render).
         updateActiveCreationRun: (runId: string) => ({ runId }),
+        blockOnConsent: true,
+        clearConsentBlock: true,
+        // Pulls any pending `composerSeedLogic` seed into the composer (prefill + optional auto-submit).
+        applyComposerSeed: true,
     }),
 
     reducers({
@@ -114,6 +131,15 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 submitNewTask: () => true,
                 submitNewTaskSuccess: () => false,
                 submitNewTaskFailure: () => false,
+                blockOnConsent: () => false,
+            },
+        ],
+        consentBlocked: [
+            false,
+            {
+                blockOnConsent: () => true,
+                clearConsentBlock: () => false,
+                submitNewTask: () => false,
             },
         ],
         // Last repo/integration the user picked, persisted to localStorage so the composer comes back pre-filled.
@@ -199,6 +225,11 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             }
         },
         submitNewTask: async () => {
+            if (!values.dataProcessingAccepted) {
+                actions.blockOnConsent()
+                return
+            }
+
             const { description, repositoryConfig, model, reasoningEffort } = values.newTaskData
 
             if (!description.trim()) {
@@ -235,6 +266,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 // Auto-run the task after creation; the detail scene shows the latest run by default. The
                 // run checks out the chosen branch (server falls back to the repo's default branch if unset)
                 // and launches with the picked model / reasoning effort (clamped to one the model supports).
+                // Snapshot the context here so the keys marked sent below match exactly what got wrapped.
+                const seededContext = values.contextItems
                 const runResponse = await api.tasks.run(newTask.id, {
                     branch: repositoryConfig.branch ?? null,
                     runtime_adapter: ClaudeRuntimeAdapterEnumApi.Claude,
@@ -246,8 +279,17 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     // pending_user_message from run state (the workflow doesn't forward it), so seed the
                     // typed message as turn 1 — otherwise the first prompt is lost and the run idles.
                     mode: TaskExecutionModeEnumApi.Interactive,
-                    pending_user_message: description,
+                    // Wrap only the message sent to the agent with the on-screen context block; the task
+                    // `description` field and the optimistic seed (`startOptimisticRun`) stay raw.
+                    pending_user_message: wrapWithPosthogContext(description, seededContext),
                 })
+
+                // Mark the seeded non-text refs sent under the created task, so the run's first follow-up
+                // (sent via `runInteractionLogic`) doesn't re-wrap them. Text items always resend.
+                const seededKeys = seededContext.filter((item) => item.type !== 'text').map(attachedContextItemKey)
+                if (seededKeys.length > 0) {
+                    actions.markContextSent(newTask.id, seededKeys)
+                }
 
                 // Attach the real ids to the optimistic creation so the detail page adopts this seeded stream
                 // (same `streamKey` + real `runId`) instead of cold-bootstrapping a fresh, skeleton-flashing one.
@@ -259,8 +301,10 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     router.actions.push(`/tasks/${newTask.id}`)
                 }
 
-                actions.submitNewTaskSuccess()
+                // Reset before signaling success: the success listener applies any seed held during this
+                // submission, and resetting afterwards would wipe that seed's prefill.
                 actions.resetNewTaskData()
+                actions.submitNewTaskSuccess()
                 actions.loadTasks(values.taskListParams)
                 actions.loadRepositories()
             } catch (error) {
@@ -288,6 +332,40 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             }
             actions.setActiveCreation({ streamKey: runId, taskId: values.activeCreation.taskId, runId })
         },
+        // A seed arriving while this composer is already mounted (the panel was open when the host set it).
+        // `setSeed` is connected from this instance's props-keyed seed logic — the bare `composerSeedLogic`
+        // resolves to the default 'scene' key and would leave every embedded (panelId) instance deaf to its
+        // own seeds. (A computed `composerSeedLogic(props).actionTypes.setSeed` key would work too, but the
+        // call expression crashes kea-typegen once the seed logic's type file exists.)
+        setSeed: () => {
+            actions.applyComposerSeed()
+        },
+        applyComposerSeed: () => {
+            const seed = values.seed
+            if (!seed) {
+                return
+            }
+            // A seed applied while a submit is in flight would start a second concurrent create/run (both
+            // fighting over the composer and `activeCreation`), and the in-flight submit's success reset
+            // would wipe a prefill. Leave it pending; the `submitNewTaskSuccess`/`Failure` listeners
+            // re-apply it once the submission resolves, so the newest CTA still lands.
+            if (values.isSubmittingTask) {
+                return
+            }
+            // Consume-once: clear before applying so a re-entrant dispatch can't double-apply/submit.
+            actions.consumeSeed()
+            actions.setNewTaskData({ description: seed.prompt })
+            if (seed.autoSubmit) {
+                actions.submitNewTask()
+            }
+        },
+        // Pick up a seed that was deliberately held while a submission was in flight (see `applyComposerSeed`).
+        submitNewTaskSuccess: () => {
+            actions.applyComposerSeed()
+        },
+        submitNewTaskFailure: () => {
+            actions.applyComposerSeed()
+        },
     })),
 
     events(({ actions, values, cache }) => ({
@@ -300,6 +378,9 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             // loadIntegrations ourselves. loadIntegrationsSuccess covers that first load; this call covers
             // integrations already cached by an earlier mount.
             actions.maybeAutoSelectIntegration()
+            // A host commonly seeds the composer before this logic mounts (a CTA opens the panel, then the
+            // panel mounts us), so pick up any pending seed now; the `setSeed` listener covers the reverse order.
+            actions.applyComposerSeed()
         },
         beforeUnmount: () => {
             // Release the manually-mounted optimistic stream if the whole scene unmounts mid-create — the

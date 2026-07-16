@@ -1,10 +1,8 @@
-import { afterMount, connect, kea, listeners, path, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
+import { ApiConfig } from 'lib/api'
 import { urls } from 'scenes/urls'
-
-import type { ExternalDataSourceConnectionOption } from '~/types'
 
 import IconPostHog from 'public/posthog-icon.svg'
 import IconDuckDB from 'public/services/duckdb.svg'
@@ -14,6 +12,8 @@ import IconRedshift from 'public/services/redshift.png'
 import IconSnowflake from 'public/services/snowflake.png'
 
 import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
+import { externalDataSourcesConnectionsList } from 'products/warehouse_sources/frontend/generated/api'
+import type { ExternalDataSourceConnectionOptionApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import type { connectionSelectorLogicType } from './connectionSelectorLogicType'
 
@@ -57,7 +57,9 @@ const ENGINE_ICONS: Record<ConnectionEngine, string> = {
     redshift: IconRedshift,
 }
 
-function getConnectionEngine(source: Pick<ExternalDataSourceConnectionOption, 'engine'>): ConnectionEngine {
+function getConnectionEngine(
+    source: Pick<ExternalDataSourceConnectionOptionApi, 'engine' | 'source_type'>
+): ConnectionEngine {
     if (
         source.engine === 'duckdb' ||
         source.engine === 'mysql' ||
@@ -66,11 +68,16 @@ function getConnectionEngine(source: Pick<ExternalDataSourceConnectionOption, 'e
     ) {
         return source.engine
     }
+    // Synced sources have no detected connection engine — derive it from the source type.
+    const sourceTypeEngine = source.source_type?.toLowerCase()
+    if (sourceTypeEngine && sourceTypeEngine in ENGINE_LABELS) {
+        return sourceTypeEngine as ConnectionEngine
+    }
     return 'postgres'
 }
 
 export function getConnectionSelectorValue(
-    connectionOptions: ExternalDataSourceConnectionOption[] | null,
+    connectionOptions: ExternalDataSourceConnectionOptionApi[] | null,
     connectionOptionsLoading: boolean,
     selectedConnectionId: string | undefined
 ): string {
@@ -90,13 +97,18 @@ export const connectionSelectorLogic = kea<connectionSelectorLogicType>([
     connect(() => ({
         actions: [sourcesDataLogic, ['loadSourcesSuccess']],
     })),
+    actions({
+        maybeLoadConnectionOptions: true,
+    }),
     loaders(() => ({
         connectionOptions: [
-            null as ExternalDataSourceConnectionOption[] | null,
+            null as ExternalDataSourceConnectionOptionApi[] | null,
             {
-                loadConnectionOptions: async (): Promise<ExternalDataSourceConnectionOption[]> => {
+                loadConnectionOptions: async (): Promise<ExternalDataSourceConnectionOptionApi[]> => {
                     try {
-                        return await api.externalDataSources.connections()
+                        // The projects route treats the path param as a team id (environments transition),
+                        // so pass the current team id to keep per-environment scoping.
+                        return await externalDataSourcesConnectionsList(String(ApiConfig.getCurrentTeamId()))
                     } catch (error: any) {
                         if (error?.status === 403) {
                             return []
@@ -112,17 +124,20 @@ export const connectionSelectorLogic = kea<connectionSelectorLogicType>([
         connectionSelectOptions: [
             (s) => [s.connectionOptions, s.connectionOptionsLoading],
             (
-                connectionOptions: ExternalDataSourceConnectionOption[] | null,
+                connectionOptions: ExternalDataSourceConnectionOptionApi[] | null,
                 connectionOptionsLoading: boolean
             ): ConnectionSelectOptionGroup[] => {
                 const sourceOptions = connectionOptionsLoading
                     ? [{ value: LOADING_CONNECTIONS, label: 'Loading...', disabled: true }]
                     : (connectionOptions ?? []).map((source) => {
                           const engine = getConnectionEngine(source)
+                          const isSynced = source.access_method === 'warehouse'
 
                           return {
                               value: source.id,
-                              label: `${source.prefix ? source.prefix : source.id} (${ENGINE_LABELS[engine]})`,
+                              label: `${source.prefix ? source.prefix : source.id} (${ENGINE_LABELS[engine]}${
+                                  isSynced ? ' · synced' : ''
+                              })`,
                               iconSrc: ENGINE_ICONS[engine],
                               managementUrl: urls.dataWarehouseSource(`managed-${source.id}`),
                           }
@@ -169,14 +184,20 @@ export const connectionSelectorLogic = kea<connectionSelectorLogicType>([
             },
         ],
     }),
-    afterMount(({ actions, values }) => {
-        if (values.connectionOptions === null && !values.connectionOptionsLoading) {
-            actions.loadConnectionOptions()
-        }
-    }),
-    listeners(({ actions }) => ({
+    // No afterMount auto-load: sqlEditorLogic connects this logic, so it mounts with every
+    // embedded SQL editor (notebooks, logs, endpoints). Only surfaces that render the
+    // connection selector should pay for the fetch — they call maybeLoadConnectionOptions.
+    listeners(({ actions, values }) => ({
+        maybeLoadConnectionOptions: () => {
+            if (values.connectionOptions === null && !values.connectionOptionsLoading) {
+                actions.loadConnectionOptions()
+            }
+        },
         loadSourcesSuccess: () => {
-            actions.loadConnectionOptions()
+            // Refresh only where the options were fetched in the first place.
+            if (values.connectionOptions !== null) {
+                actions.loadConnectionOptions()
+            }
         },
     })),
 ])

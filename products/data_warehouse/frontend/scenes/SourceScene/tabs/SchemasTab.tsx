@@ -36,7 +36,10 @@ import {
     ExternalDataSourceSchema,
 } from '~/types'
 
-import { splitQualifiedTableName } from 'products/data_warehouse/frontend/shared/components/forms/schemaGroupingUtils'
+import {
+    splitQualifiedTableName,
+    supportsDirectQuery,
+} from 'products/data_warehouse/frontend/shared/components/forms/schemaGroupingUtils'
 import { DATA_WAREHOUSE_APP_SOURCE } from 'products/data_warehouse/frontend/shared/components/metrics/DataWarehouseMetrics'
 import {
     SourceEditorAction,
@@ -185,6 +188,16 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
                     <span className="text-muted text-sm">{pluralize(filteredSchemas.length, 'schema', 'schemas')}</span>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
+                    {source?.direct_query_enabled && supportsDirectQuery(source.source_type) && (
+                        <LemonButton
+                            type="secondary"
+                            to={urls.sqlEditor({ connectionId: id })}
+                            tooltip="Open the SQL editor with this source selected as a live connection"
+                            data-attr="schemas-tab-query-directly"
+                        >
+                            Query directly
+                        </LemonButton>
+                    )}
                     <SourceEditorAction source={source}>
                         <LemonButton
                             type="secondary"
