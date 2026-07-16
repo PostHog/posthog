@@ -8,7 +8,7 @@ export interface ApiUser {
     first_name?: string
     last_name?: string
     email: string
-    // Gates discovery of staff-only tools (those requiring an OAUTH_HIDDEN_SCOPES
+    // Gates discovery of staff-only tools (those requiring an OAUTH_SCOPES_HIDDEN
     // scope). Optional because some tests construct partial users; treat absence
     // as not staff.
     is_staff?: boolean

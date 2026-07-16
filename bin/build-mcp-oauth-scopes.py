@@ -10,7 +10,7 @@ Emits two constants into `services/mcp/src/lib/oauth-scopes.generated.ts`:
   authorization server's `/oauth/authorize`. If the resource list contains a
   scope the AS does not recognize, sign-in fails with `?error=invalid_scope`,
   so this list must stay a subset of the AS's.
-- OAUTH_HIDDEN_SCOPES: PAT-grantable scopes deliberately excluded from the
+- OAUTH_SCOPES_HIDDEN: PAT-grantable scopes deliberately excluded from the
   list above (staff-only surfaces like `batch_import_support`). The MCP server
   uses this at runtime to gate tool discovery (`src/lib/staff-only-tools.ts`)
   and in tests to allow tools to require a non-advertised scope on purpose.
@@ -41,7 +41,7 @@ def main() -> int:
     # from stdlib will raise ImportError here, failing the build loudly.
     scopes_globals = runpy.run_path(str(SCOPES_PY))
     all_scopes: list[str] = scopes_globals["get_oauth_scopes_supported"]()
-    hidden_scopes: list[str] = sorted(scopes_globals["OAUTH_HIDDEN_SCOPES"])
+    hidden_scopes: list[str] = sorted(scopes_globals["OAUTH_SCOPES_HIDDEN"])
 
     # oxfmt enforces single quotes; format manually rather than json.dumps so
     # the generator output is byte-stable regardless of formatter rules. Scope
@@ -69,10 +69,10 @@ def main() -> int:
         "export type OAuthScope = (typeof OAUTH_SCOPES_SUPPORTED)[number]\n"
         "\n"
         "// PAT-grantable but deliberately absent from OAUTH_SCOPES_SUPPORTED, so OAuth\n"
-        "// clients can never request them (mirrors OAUTH_HIDDEN_SCOPES in posthog/scopes.py).\n"
+        "// clients can never request them (mirrors OAUTH_SCOPES_HIDDEN in posthog/scopes.py).\n"
         "// Tools requiring one of these only surface for staff users whose personal API key\n"
         "// explicitly carries it (plus `user:read` for the staff lookup); `*` does not match.\n"
-        "export const OAUTH_HIDDEN_SCOPES = [\n"
+        "export const OAUTH_SCOPES_HIDDEN = [\n"
         f"{hidden_body},\n"
         "] as const\n"
     )

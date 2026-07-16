@@ -210,10 +210,10 @@ export const OAUTH_SCOPES_SUPPORTED = [
 export type OAuthScope = (typeof OAUTH_SCOPES_SUPPORTED)[number]
 
 // PAT-grantable but deliberately absent from OAUTH_SCOPES_SUPPORTED, so OAuth
-// clients can never request them (mirrors OAUTH_HIDDEN_SCOPES in posthog/scopes.py).
+// clients can never request them (mirrors OAUTH_SCOPES_HIDDEN in posthog/scopes.py).
 // Tools requiring one of these only surface for staff users whose personal API key
 // explicitly carries it (plus `user:read` for the staff lookup); `*` does not match.
-export const OAUTH_HIDDEN_SCOPES = [
+export const OAUTH_SCOPES_HIDDEN = [
     'batch_import_support:read',
     'batch_import_support:write',
     'query_performance:read',

@@ -1,9 +1,9 @@
 // Imported from the generated file rather than `@/lib/oauth-constants` (which
 // re-exports it) so this module stays importable from plain Node — the constants
 // module reaches `cloudflare:workers` via `@/lib/env`.
-import { OAUTH_HIDDEN_SCOPES } from '@/lib/oauth-scopes.generated'
+import { OAUTH_SCOPES_HIDDEN } from '@/lib/oauth-scopes.generated'
 
-const HIDDEN_SCOPES = new Set<string>(OAUTH_HIDDEN_SCOPES)
+const HIDDEN_SCOPES = new Set<string>(OAUTH_SCOPES_HIDDEN)
 
 /** A tool requiring an OAuth-hidden scope is a staff-only surface. */
 export const isStaffOnlyTool = (requiredScopes: string[]): boolean =>
