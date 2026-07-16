@@ -24,7 +24,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CampaynSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -103,19 +106,7 @@ Your subdomain is the first part of your account host — for `acme.campayn.com`
     ) -> list[SourceSchema]:
         # Campayn's API exposes no pagination, cursors, or timestamp filters, so every table is full
         # refresh only.
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=[],
-            )
-            for endpoint in ENDPOINTS
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        return build_endpoint_schemas(ENDPOINTS, {}, names)
 
     def validate_credentials(
         self, config: CampaynSourceConfig, team_id: int, schema_name: Optional[str] = None
@@ -133,5 +124,6 @@ Your subdomain is the first part of your account host — for `acme.campayn.com`
             subdomain=config.subdomain,
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
         )
