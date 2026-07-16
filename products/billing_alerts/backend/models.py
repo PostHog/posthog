@@ -32,11 +32,12 @@ class BillingAlertConfiguration(UUIDModel):
         BROKEN = "broken", "Broken"
 
     organization_id = models.UUIDField(db_index=True)
+    # Team deletion is handled by the billing-alert re-home flow so an organization-scoped alert is preserved.
     team = models.ForeignKey(
         "posthog.Team",
         db_column="execution_team_id",
         db_constraint=False,
-        on_delete=models.CASCADE,
+        on_delete=models.DO_NOTHING,
         related_name="+",
     )
     created_by_id = models.BigIntegerField(null=True, blank=True)
@@ -126,7 +127,8 @@ class BillingAlertEvent(UUIDModel):
         BROKEN_CONFIG = "broken_config", "Broken config"
 
     alert = models.ForeignKey(BillingAlertConfiguration, on_delete=models.CASCADE, related_name="events")
-    team = models.ForeignKey("posthog.Team", db_constraint=False, on_delete=models.CASCADE, related_name="+")
+    # Preserve the original execution team ID as audit history after that team is deleted.
+    team = models.ForeignKey("posthog.Team", db_constraint=False, on_delete=models.DO_NOTHING, related_name="+")
     kind = models.CharField(max_length=32, choices=Kind.choices, default=Kind.CHECK)
 
     created_at = models.DateTimeField(auto_now_add=True)
