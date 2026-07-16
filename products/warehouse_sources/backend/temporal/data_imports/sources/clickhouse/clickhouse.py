@@ -899,6 +899,24 @@ def _get_incremental_row_count(
     return int(count) if count is not None else None
 
 
+# clickhouse-connect surfaces a non-2xx HTTP status from the server (or a
+# proxy/LB in front of it) as `HTTPDriver for <url> returned response code <N>`.
+# 429 (rate limited) and the transient gateway codes mean the endpoint can't
+# serve us right now, not that anything we sent was wrong — they clear on their
+# own. A real ClickHouse query error carries a `Code: NNN` instead. We match
+# only these transient statuses so genuine failures still surface.
+_TRANSIENT_HTTP_RESPONSE_SUBSTRINGS: tuple[str, ...] = (
+    "returned response code 429",
+    "returned response code 502",
+    "returned response code 503",
+    "returned response code 504",
+)
+
+
+def _is_transient_http_response(message: str) -> bool:
+    return any(substring in message for substring in _TRANSIENT_HTTP_RESPONSE_SUBSTRINGS)
+
+
 def _get_partition_settings(
     client: ClickHouseClient, database: str, table_name: str, logger: FilteringBoundLogger
 ) -> PartitionSettings | None:
@@ -920,7 +938,12 @@ def _get_partition_settings(
             parameters={"database": database, "table": table_name},
         )
     except ClickHouseError as e:
-        capture_exception(e)
+        # Partitioning is a best-effort optimization; any failure here degrades
+        # to default partitioning. A transient rate-limit/gateway response from
+        # the source isn't actionable on our side, so don't add error-tracking
+        # noise for it — genuine errors are still captured.
+        if not _is_transient_http_response(str(e)):
+            capture_exception(e)
         logger.debug(f"_get_partition_settings: failed: {e}")
         return None
 
