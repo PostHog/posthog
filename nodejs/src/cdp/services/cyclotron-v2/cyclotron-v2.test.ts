@@ -1,7 +1,10 @@
 import { Pool } from 'pg'
 import { v7 as uuidv7 } from 'uuid'
 
-import { CyclotronV2Janitor } from './janitor'
+import { parseJSON } from '~/common/utils/json-parse'
+
+import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
+import { CyclotronV2Janitor, JANITOR_POISON_PILL_ERROR_KIND } from './janitor'
 import { CyclotronV2Manager } from './manager'
 import { CyclotronV2BatchLimit, CyclotronV2DequeuedJob, CyclotronV2JobInit } from './types'
 import { CyclotronV2Worker } from './worker'
@@ -34,14 +37,42 @@ function createWorker(queueName = QUEUE, overrides?: Record<string, unknown>): C
     })
 }
 
-function createJanitor(overrides?: Record<string, unknown>): CyclotronV2Janitor {
-    return new CyclotronV2Janitor({
-        pool: { dbUrl: DB_URL },
-        cleanupGraceMs: 0,
-        stallTimeoutMs: 0,
-        maxTouchCount: 2,
-        ...overrides,
-    })
+function createMockResults(ok = true): {
+    service: HogInvocationResultsService
+    recordTerminalFailureDurably: jest.Mock
+} {
+    const recordTerminalFailureDurably = jest.fn().mockResolvedValue(ok)
+    return {
+        service: { recordTerminalFailureDurably } as unknown as HogInvocationResultsService,
+        recordTerminalFailureDurably,
+    }
+}
+
+// A real HogInvocationResultsService over a fake producer — exercises the actual
+// give-up row build (buildLifecycleRow + serialization), which the mock skips.
+// This is the Postgres-rung guard for the invalid-date RangeError class.
+function createRealResults(): { service: HogInvocationResultsService; produce: jest.Mock } {
+    const produce = jest.fn().mockResolvedValue(undefined)
+    const service = new HogInvocationResultsService({ produce } as any, { HOG_INVOCATION_RESULTS_ENABLED: true })
+    return { service, produce }
+}
+
+function parseProducedResult(produce: jest.Mock): Record<string, any> {
+    const value = produce.mock.calls[0][1].value as Buffer
+    return parseJSON(value.toString('utf-8'))
+}
+
+function createJanitor(overrides?: Record<string, unknown>, results?: HogInvocationResultsService): CyclotronV2Janitor {
+    return new CyclotronV2Janitor(
+        {
+            pool: { dbUrl: DB_URL },
+            cleanupGraceMs: 0,
+            stallTimeoutMs: 0,
+            maxTouchCount: 2,
+            ...overrides,
+        },
+        results
+    )
 }
 
 interface RawJobRow {
@@ -578,6 +609,26 @@ describe('Cyclotron V2', () => {
                 expect((await queryJob(parentId)).status).toBe('completed')
             })
 
+            it.each(['ack', 'fail', 'reschedule'] as const)(
+                'checks self in via %s and zeros janitor_touch_count (consecutive-stall counting)',
+                async (kind) => {
+                    const { id: parentId, job } = await seedAndDequeue()
+                    // Simulate prior stalls the janitor had counted.
+                    await assertPool.query('UPDATE cyclotron_jobs SET janitor_touch_count = 2 WHERE id = $1', [
+                        parentId,
+                    ])
+
+                    await job.bulkCreateAndCheckIn({
+                        newJobs: [],
+                        selfDisposition:
+                            kind === 'reschedule' ? { kind: 'reschedule', scheduledAt: new Date() } : { kind },
+                    })
+
+                    // A deliberate self-checkin is a healthy release — the count resets.
+                    expect((await queryJob(parentId)).janitor_touch_count).toBe(0)
+                }
+            )
+
             it('rolls back both writes if the insert fails (atomicity)', async () => {
                 const { id: parentId, job } = await seedAndDequeue()
 
@@ -836,6 +887,28 @@ describe('Cyclotron V2', () => {
             expect(row.status).toBe(expectedStatus)
             expect(row.lock_id).toBeNull()
             expect(row.last_heartbeat).toBeNull()
+        })
+
+        it.each(['ack', 'fail', 'cancel'] as const)(
+            '%s() resets janitor_touch_count to 0 on a deliberate release',
+            async (method) => {
+                const { id, job } = await seedAndDequeue()
+                // Simulate prior stalls the janitor had counted.
+                await assertPool.query('UPDATE cyclotron_jobs SET janitor_touch_count = 2 WHERE id = $1', [id])
+
+                await job[method]()
+
+                expect((await queryJob(id)).janitor_touch_count).toBe(0)
+            }
+        )
+
+        it('reschedule() resets janitor_touch_count to 0 so the poison budget counts consecutive stalls', async () => {
+            const { id, job } = await seedAndDequeue()
+            await assertPool.query('UPDATE cyclotron_jobs SET janitor_touch_count = 2 WHERE id = $1', [id])
+
+            await job.reschedule()
+
+            expect((await queryJob(id)).janitor_touch_count).toBe(0)
         })
 
         it('reschedule() returns job to available', async () => {
@@ -1518,7 +1591,59 @@ describe('Cyclotron V2', () => {
             expect(row.janitor_touch_count).toBe(1)
         })
 
-        it('failPoisonPills fails jobs exceeding maxTouchCount', async () => {
+        it('records a poison pill as a failed result and deletes it once recorded', async () => {
+            const staleHeartbeat = new Date(Date.now() - 60_000)
+            const jobId = uuidv7()
+            await insertRawJob({
+                id: jobId,
+                function_id: uuidv7(),
+                status: 'running',
+                lock_id: uuidv7(),
+                last_heartbeat: staleHeartbeat,
+                janitor_touch_count: 3,
+            })
+
+            const { service, recordTerminalFailureDurably } = createMockResults(true)
+            const janitor = createJanitor({ stallTimeoutMs: 1_000, maxTouchCount: 2 }, service)
+            const result = await janitor.runOnce()
+            await janitor.stop()
+
+            expect(result.poisoned).toBe(1)
+            expect(result.poisonedIds).toEqual([jobId])
+            // Recorded as a failed, replayable invocation result first...
+            expect(recordTerminalFailureDurably).toHaveBeenCalledTimes(1)
+            expect(recordTerminalFailureDurably).toHaveBeenCalledWith(
+                expect.objectContaining({ id: jobId }),
+                expect.objectContaining({ errorKind: JANITOR_POISON_PILL_ERROR_KIND })
+            )
+            // ...then the cyclotron row is gone (no silent delete, no leftover).
+            expect(await totalJobCount()).toBe(0)
+        })
+
+        it('keeps a poison pill (does not delete) when the recovery record cannot be produced', async () => {
+            const staleHeartbeat = new Date(Date.now() - 60_000)
+            const jobId = uuidv7()
+            await insertRawJob({
+                id: jobId,
+                status: 'running',
+                lock_id: uuidv7(),
+                last_heartbeat: staleHeartbeat,
+                janitor_touch_count: 3,
+            })
+
+            // produce fails → never delete, so the job is never silently dropped.
+            const { service } = createMockResults(false)
+            const janitor = createJanitor({ stallTimeoutMs: 1_000, maxTouchCount: 2 }, service)
+            const result = await janitor.runOnce()
+            await janitor.stop()
+
+            expect(result.poisoned).toBe(0)
+            expect(await totalJobCount()).toBe(1)
+            // It is still reset to available so a recovered worker retries it.
+            expect((await queryJob(jobId)).status).toBe('available')
+        })
+
+        it('keeps poison pills (never deletes) when no results service is wired', async () => {
             const staleHeartbeat = new Date(Date.now() - 60_000)
             const jobId = uuidv7()
             await insertRawJob({
@@ -1533,18 +1658,43 @@ describe('Cyclotron V2', () => {
             const result = await janitor.runOnce()
             await janitor.stop()
 
-            expect(result.poisoned).toBe(1)
-            const row = await queryJob(jobId)
-            expect(row.status).toBe('failed')
+            expect(result.poisoned).toBe(0)
+            expect(await totalJobCount()).toBe(1)
         })
 
-        it('poison pills are failed before stalled jobs are reset', async () => {
+        it('marks poison pills failed (legacy behavior, no record) when recovery is disabled (kill-switch)', async () => {
+            const staleHeartbeat = new Date(Date.now() - 60_000)
+            const jobId = uuidv7()
+            await insertRawJob({
+                id: jobId,
+                status: 'running',
+                lock_id: uuidv7(),
+                last_heartbeat: staleHeartbeat,
+                janitor_touch_count: 3,
+            })
+
+            // A results service is wired, but the kill-switch reverts to master's
+            // pre-recovery path: mark the pill failed, never record a replay row.
+            const { service, recordTerminalFailureDurably } = createMockResults(true)
+            const janitor = createJanitor(
+                { stallTimeoutMs: 1_000, maxTouchCount: 2, poisonRecoveryEnabled: false },
+                service
+            )
+            const result = await janitor.runOnce()
+            await janitor.stop()
+
+            expect(result.poisoned).toBe(1)
+            expect(recordTerminalFailureDurably).not.toHaveBeenCalled()
+            expect((await queryJob(jobId)).status).toBe('failed')
+        })
+
+        it('gives up on poison pills before stalled jobs are reset', async () => {
             const staleHeartbeat = new Date(Date.now() - 60_000)
 
-            // This job has been touched enough times to be a poison pill
             const poisonId = uuidv7()
             await insertRawJob({
                 id: poisonId,
+                function_id: uuidv7(),
                 status: 'running',
                 lock_id: uuidv7(),
                 last_heartbeat: staleHeartbeat,
@@ -1561,19 +1711,70 @@ describe('Cyclotron V2', () => {
                 janitor_touch_count: 0,
             })
 
-            const janitor = createJanitor({ stallTimeoutMs: 1_000, maxTouchCount: 2 })
+            const { service } = createMockResults(true)
+            const janitor = createJanitor({ stallTimeoutMs: 1_000, maxTouchCount: 2 }, service)
             const result = await janitor.runOnce()
             await janitor.stop()
 
             expect(result.poisoned).toBe(1)
             expect(result.stalled).toBe(1)
 
-            const poison = await queryJob(poisonId)
-            expect(poison.status).toBe('failed')
-
+            // Poison pill recorded + deleted; the merely-stalled job survives, reset.
+            await expect(queryJob(poisonId)).rejects.toThrow()
             const stalled = await queryJob(stalledId)
             expect(stalled.status).toBe('available')
         })
+
+        it.each(['hogflow', 'email'])(
+            'builds and produces a valid failed hog_flow result for a poisoned %s-queue job',
+            async (queueName) => {
+                // Realistic parked-mid-flow state; the scheduled/created columns come
+                // back from pg as ISO strings — the give-up row build must parse them
+                // without throwing (the RangeError this guards against).
+                const id = uuidv7()
+                const functionId = uuidv7()
+                const state = Buffer.from(
+                    JSON.stringify({
+                        state: {
+                            event: { uuid: uuidv7(), distinct_id: 'd1' },
+                            actionStepCount: 1,
+                            variables: { foo: 'bar' },
+                            currentAction: { id: 'wait_1', startedAtTimestamp: 1 },
+                        },
+                    })
+                )
+                await insertRawJob({
+                    id,
+                    function_id: functionId,
+                    queue_name: queueName,
+                    status: 'running',
+                    lock_id: uuidv7(),
+                    last_heartbeat: new Date(Date.now() - 60_000),
+                    janitor_touch_count: 5,
+                    state,
+                })
+
+                const { service, produce } = createRealResults()
+                const janitor = createJanitor({ stallTimeoutMs: 1_000, maxTouchCount: 2 }, service)
+                const result = await janitor.runOnce()
+                await janitor.stop()
+
+                expect(result.poisonedIds).toEqual([id])
+                // The row was actually built + produced — where the invalid-date
+                // RangeError used to throw and leave the job undeleted.
+                expect(produce).toHaveBeenCalledTimes(1)
+                const row = parseProducedResult(produce)
+                expect(row.status).toBe('failed')
+                expect(row.function_kind).toBe('hog_flow')
+                expect(row.function_id).toBe(functionId)
+                expect(row.error_kind).toBe(JANITOR_POISON_PILL_ERROR_KIND)
+                // Timestamps must be real ISO microsecond strings, never NaN/"Invalid".
+                expect(row.scheduled_at).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/)
+                expect(row.finished_at).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/)
+                // Recorded first, then deleted.
+                await expect(queryJob(id)).rejects.toThrow()
+            }
+        )
 
         it('measureQueueDepths returns correct counts per queue', async () => {
             await insertRawJob({ id: uuidv7(), queue_name: 'queue-a', status: 'available' })

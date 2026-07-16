@@ -23367,7 +23367,11 @@
                 "Automox",
                 "Autumn",
                 "GetStream",
-                "Octolens"
+                "Octolens",
+                "Kajabi",
+                "Shopware",
+                "Dubsado",
+                "Campfire"
             ],
             "type": "string"
         },
@@ -23652,6 +23656,7 @@
                 "toolbar",
                 "visual_review",
                 "code_review",
+                "stamphog",
                 "settings",
                 "health",
                 "inbox",
@@ -45062,6 +45067,10 @@
                 "caption": {
                     "type": "string"
                 },
+                "hidden": {
+                    "description": "Keep the field in the config tree (so its value parses and survives job_inputs redaction) without rendering it in the source form. Used for legacy fields that a newer field supersedes.",
+                    "type": "boolean"
+                },
                 "integrationField": {
                     "description": "Name of the OAuth integration id field this account selector reads from.",
                     "type": "string"
@@ -45072,6 +45081,10 @@
                 },
                 "label": {
                     "type": "string"
+                },
+                "multiple": {
+                    "description": "Allow selecting multiple values; the field's payload value becomes string[].",
+                    "type": "boolean"
                 },
                 "name": {
                     "type": "string"
@@ -45136,6 +45149,9 @@
         "SourceFieldSelectConfig": {
             "additionalProperties": false,
             "properties": {
+                "caption": {
+                    "type": "string"
+                },
                 "converter": {
                     "$ref": "#/definitions/SourceFieldSelectConfigConverter"
                 },

@@ -9,6 +9,7 @@ import boto3
 import pyarrow as pa
 import pyarrow.parquet as pq
 from botocore.config import Config
+from botocore.exceptions import ClientError
 
 from posthog.clickhouse.client import sync_execute
 
@@ -34,8 +35,10 @@ def _upload_parquet_to_minio(table: pa.Table, key: str) -> str:
     )
     try:
         s3.create_bucket(Bucket=BUCKET)
-    except s3.exceptions.BucketAlreadyOwnedByYou:
-        pass
+    except ClientError as error:
+        error_code = error.response.get("Error", {}).get("Code")
+        if error_code not in {"BucketAlreadyExists", "BucketAlreadyOwnedByYou"}:
+            raise
 
     s3.upload_file(local_path, BUCKET, key)
     return f"{MINIO_CH_ENDPOINT}/{BUCKET}/{key}"

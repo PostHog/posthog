@@ -248,6 +248,34 @@ def _sender_authenticated(request: HttpRequest, sender_email: str) -> bool:
     return bool(envelope_domain and from_domain and envelope_domain == from_domain)
 
 
+def _collect_participants(
+    to_header: str,
+    cc_header: str,
+    inbound_token: str,
+    channel_email: str,
+    sender_email: str,
+) -> list[str]:
+    """Collect the other people on the thread from the To + Cc headers.
+
+    Excludes the support inbox itself (the Mailgun team-<token>@ inbound address
+    and the channel's own from_email) and the sender, since none of those are
+    "other participants" — they're the mailbox we received on, or the person we
+    reply back to. The result is what we keep CC'd on outbound replies, so a
+    direct recipient (someone in To with the support address only CC'd) stays on
+    the thread instead of being dropped.
+    """
+    team_inbound_address = f"team-{inbound_token}@"
+    excluded = {channel_email.lower(), sender_email.lower()}
+    participants: list[str] = []
+    for _name, addr in getaddresses([to_header, cc_header]):
+        low = addr.lower()
+        if not low or low in excluded or low.startswith(team_inbound_address):
+            continue
+        if low not in participants:
+            participants.append(low)
+    return participants
+
+
 def _resolve_team_member(email: str, team: Team) -> User | None:
     """Match a sender email to a PostHog user within the team's organization."""
     if not email:
@@ -329,16 +357,16 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
     # senders whose domain has p=quarantine or p=reject).
     sender_email, sender_name = _recover_dmarc_rewritten_sender(request, config, sender_email, sender_name)
 
-    # 6b. Parse CC recipients
-    cc_header = request.POST.get("Cc", "")
-    cc_list: list[str] = []
-    if cc_header:
-        team_inbound_address = f"team-{inbound_token}@"
-        cc_list = [
-            addr.lower()
-            for _name, addr in getaddresses([cc_header])
-            if addr and not addr.lower().startswith(team_inbound_address)
-        ]
+    # 6b. Parse other thread participants from To + Cc. We fold both into a single
+    # list (dropping the support inbox itself and the sender) so a direct recipient
+    # who only CC'd the support address still shows up and stays on replies.
+    cc_list = _collect_participants(
+        to_header=request.POST.get("To", ""),
+        cc_header=request.POST.get("Cc", ""),
+        inbound_token=inbound_token,
+        channel_email=config.from_email,
+        sender_email=sender_email,
+    )
 
     # 7. Get content (stripped by Mailgun to remove quotes/signatures)
     content = (request.POST.get("stripped-text", "") or request.POST.get("body-plain", ""))[:MAX_EMAIL_BODY_LENGTH]
@@ -417,6 +445,11 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
             )
 
             if existing_ticket:
+                # The requester is already the reply target (to=email_from); when another
+                # participant reply-alls, the requester shows up in their To/Cc and must not
+                # be folded into cc_participants or replies would deliver to them twice.
+                ticket_from = (ticket.email_from or "").lower()
+                cc_list = [addr for addr in cc_list if addr != ticket_from]
                 qs = Ticket.objects.filter(id=ticket.id, team=team)
                 if not is_team_member and cc_list:
                     qs.update(
