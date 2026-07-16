@@ -459,10 +459,15 @@ const sharedMetricsToExperimentMetrics = (
         .filter(({ metadata }) => metadata.type === type)
         .map(({ query, metadata }) => ({
             ...query,
-            // Merge breakdowns from metadata into the query
+            // Merge per-experiment customizations from metadata into the query
+            ...(metadata?.breakdownAttributionType !== undefined && {
+                breakdownAttributionType: metadata.breakdownAttributionType,
+                breakdownAttributionValue: metadata.breakdownAttributionValue,
+            }),
             breakdownFilter: {
                 ...query?.breakdownFilter,
                 breakdowns: metadata?.breakdowns || [],
+                ...(metadata?.breakdown_limit !== undefined && { breakdown_limit: metadata.breakdown_limit }),
             },
         }))
 
@@ -477,6 +482,9 @@ export type ExperimentSavedMetric = {
     metadata: {
         type: 'primary' | 'secondary'
         breakdowns?: Breakdown[]
+        breakdownAttributionType?: BreakdownAttributionType
+        breakdownAttributionValue?: number
+        breakdown_limit?: number
     }
     created_at: string
     query: ExperimentMetric
@@ -1268,11 +1276,27 @@ export interface experimentLogicActions {
     updateExposureCriteria: () => {
         value: true
     }
+    updateMetricAttribution: (
+        uuid: string,
+        attributionType: BreakdownAttributionType,
+        attributionValue?: number
+    ) => {
+        attributionType: BreakdownAttributionType
+        attributionValue: number | undefined
+        uuid: string
+    }
     updateMetricBreakdown: (
         uuid: string,
         breakdown: Breakdown
     ) => {
         breakdown: Breakdown
+        uuid: string
+    }
+    updateMetricBreakdownLimit: (
+        uuid: string,
+        breakdownLimit: number
+    ) => {
+        breakdownLimit: number
         uuid: string
     }
     validateFeatureFlag: (featureFlagKey: string) => {
@@ -1960,7 +1984,31 @@ export const experimentLogic = kea<experimentLogicType>([
                     }
                 },
                 updateMetricAttribution: (state, { uuid, attributionType, attributionValue }) => {
-                    // Attribution is funnel-only and configured on inline metrics from the results header.
+                    // Attribution is funnel-only. Shared metrics store it on saved_metrics metadata,
+                    // mirroring how updateMetricBreakdown handles them.
+                    const savedMetrics: ExperimentSavedMetric[] = [...(state?.saved_metrics || [])]
+                    const savedMetricIndex = savedMetrics.findIndex(
+                        ({ query: { uuid: savedMetricUuid } }) => savedMetricUuid === uuid
+                    )
+
+                    if (savedMetricIndex !== -1) {
+                        const savedMetric = savedMetrics[savedMetricIndex]
+                        savedMetrics[savedMetricIndex] = {
+                            ...savedMetric,
+                            metadata: {
+                                ...savedMetric.metadata,
+                                breakdownAttributionType: attributionType,
+                                breakdownAttributionValue: attributionValue,
+                            },
+                        }
+
+                        return {
+                            ...state,
+                            saved_metrics: savedMetrics,
+                        }
+                    }
+
+                    // Handle inline metric
                     const metricsKey =
                         (state?.metrics || ([] as ExperimentMetric[])).findIndex((m) => m.uuid === uuid) > -1
                             ? 'metrics'
@@ -1984,8 +2032,30 @@ export const experimentLogic = kea<experimentLogicType>([
                     }
                 },
                 updateMetricBreakdownLimit: (state, { uuid, breakdownLimit }) => {
-                    // The breakdown limit applies to all metric types and is configured on
-                    // inline metrics from the results header. It lives on breakdownFilter.
+                    // The breakdown limit applies to all metric types and lives on breakdownFilter.
+                    // Shared metrics store it on saved_metrics metadata, mirroring updateMetricBreakdown.
+                    const savedMetrics: ExperimentSavedMetric[] = [...(state?.saved_metrics || [])]
+                    const savedMetricIndex = savedMetrics.findIndex(
+                        ({ query: { uuid: savedMetricUuid } }) => savedMetricUuid === uuid
+                    )
+
+                    if (savedMetricIndex !== -1) {
+                        const savedMetric = savedMetrics[savedMetricIndex]
+                        savedMetrics[savedMetricIndex] = {
+                            ...savedMetric,
+                            metadata: {
+                                ...savedMetric.metadata,
+                                breakdown_limit: breakdownLimit,
+                            },
+                        }
+
+                        return {
+                            ...state,
+                            saved_metrics: savedMetrics,
+                        }
+                    }
+
+                    // Handle inline metric
                     const metricsKey =
                         (state?.metrics || ([] as ExperimentMetric[])).findIndex((m) => m.uuid === uuid) > -1
                             ? 'metrics'
@@ -3399,30 +3469,66 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         updateMetricAttribution: async ({ uuid }) => {
-            const isPrimary = values.experiment.metrics.some((m) => m.uuid === uuid)
+            const savedMetrics: ExperimentSavedMetric[] = [...(values.experiment.saved_metrics || [])]
+            const sharedMetric = savedMetrics.find(({ query: { uuid: savedMetricUuid } }) => savedMetricUuid === uuid)
+            const isPrimary = sharedMetric
+                ? sharedMetric.metadata.type === 'primary'
+                : values.experiment.metrics.some((m) => m.uuid === uuid)
 
-            actions.updateExperiment({
+            const updatePayload: Partial<Experiment> & { update_feature_flag_params?: boolean } = {
                 metrics: values.experiment.metrics,
                 metrics_secondary: values.experiment.metrics_secondary,
                 update_feature_flag_params: false,
-            })
+            }
 
-            if (isPrimary) {
+            // Only include saved_metrics_ids if we modified a shared metric
+            if (sharedMetric) {
+                updatePayload.saved_metrics_ids = savedMetrics.map(({ saved_metric, metadata }) => ({
+                    id: saved_metric,
+                    metadata,
+                }))
+            }
+
+            actions.updateExperiment(updatePayload)
+
+            // Attribution changes how the metric is computed, so re-run results; the recalculation
+            // flow triggers a fresh recalc via config_change, the legacy flow reloads per-metric results.
+            if (values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]) {
+                actions.refreshExperimentResults(true, 'config_change')
+            } else if (isPrimary) {
                 actions.loadPrimaryMetricsResults(true)
             } else {
                 actions.loadSecondaryMetricsResults(true)
             }
         },
         updateMetricBreakdownLimit: async ({ uuid }) => {
-            const isPrimary = values.experiment.metrics.some((m) => m.uuid === uuid)
+            const savedMetrics: ExperimentSavedMetric[] = [...(values.experiment.saved_metrics || [])]
+            const sharedMetric = savedMetrics.find(({ query: { uuid: savedMetricUuid } }) => savedMetricUuid === uuid)
+            const isPrimary = sharedMetric
+                ? sharedMetric.metadata.type === 'primary'
+                : values.experiment.metrics.some((m) => m.uuid === uuid)
 
-            actions.updateExperiment({
+            const updatePayload: Partial<Experiment> & { update_feature_flag_params?: boolean } = {
                 metrics: values.experiment.metrics,
                 metrics_secondary: values.experiment.metrics_secondary,
                 update_feature_flag_params: false,
-            })
+            }
 
-            if (isPrimary) {
+            // Only include saved_metrics_ids if we modified a shared metric
+            if (sharedMetric) {
+                updatePayload.saved_metrics_ids = savedMetrics.map(({ saved_metric, metadata }) => ({
+                    id: saved_metric,
+                    metadata,
+                }))
+            }
+
+            actions.updateExperiment(updatePayload)
+
+            // The limit changes how the metric is computed, so re-run results; the recalculation
+            // flow triggers a fresh recalc via config_change, the legacy flow reloads per-metric results.
+            if (values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]) {
+                actions.refreshExperimentResults(true, 'config_change')
+            } else if (isPrimary) {
                 actions.loadPrimaryMetricsResults(true)
             } else {
                 actions.loadSecondaryMetricsResults(true)

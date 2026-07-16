@@ -842,6 +842,64 @@ describe('experimentLogic', () => {
             expect(logic.values.experiment.saved_metrics[0].metadata.breakdowns).toEqual([breakdown])
         })
 
+        it('should update funnel attribution on shared metric metadata', () => {
+            const testExperiment: Experiment = {
+                ...experiment,
+                saved_metrics: [
+                    {
+                        id: 1,
+                        experiment: experiment.id as number,
+                        saved_metric: 123,
+                        name: 'Shared Metric',
+                        query: {
+                            uuid: 'shared-metric-uuid',
+                            kind: NodeKind.ExperimentMetric,
+                            metric_type: ExperimentMetricType.FUNNEL,
+                            series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+                        },
+                        metadata: { type: 'primary', breakdowns: [{ property: '$browser', type: 'event' }] },
+                        created_at: '2024-01-01T00:00:00Z',
+                    } satisfies ExperimentSavedMetric,
+                ],
+                metrics: [],
+            }
+
+            logic.actions.setExperiment(testExperiment)
+            logic.actions.updateMetricAttribution('shared-metric-uuid', BreakdownAttributionType.Step, 1)
+
+            const metadata = logic.values.experiment.saved_metrics[0].metadata
+            expect(metadata.breakdownAttributionType).toEqual(BreakdownAttributionType.Step)
+            expect(metadata.breakdownAttributionValue).toEqual(1)
+        })
+
+        it('should update breakdown limit on shared metric metadata', () => {
+            const testExperiment: Experiment = {
+                ...experiment,
+                saved_metrics: [
+                    {
+                        id: 1,
+                        experiment: experiment.id as number,
+                        saved_metric: 123,
+                        name: 'Shared Metric',
+                        query: {
+                            uuid: 'shared-metric-uuid',
+                            kind: NodeKind.ExperimentMetric,
+                            metric_type: ExperimentMetricType.MEAN,
+                            source: { kind: NodeKind.EventsNode, event: '$pageview' },
+                        },
+                        metadata: { type: 'primary', breakdowns: [{ property: '$browser', type: 'event' }] },
+                        created_at: '2024-01-01T00:00:00Z',
+                    } satisfies ExperimentSavedMetric,
+                ],
+                metrics: [],
+            }
+
+            logic.actions.setExperiment(testExperiment)
+            logic.actions.updateMetricBreakdownLimit('shared-metric-uuid', 10)
+
+            expect(logic.values.experiment.saved_metrics[0].metadata.breakdown_limit).toEqual(10)
+        })
+
         it('should remove breakdown from inline metric', () => {
             const testExperiment: Experiment = {
                 ...experiment,
