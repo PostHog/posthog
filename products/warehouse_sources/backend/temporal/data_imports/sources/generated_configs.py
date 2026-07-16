@@ -9,6 +9,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @config.config
+class AppdynamicsAuthMethodConfig(config.Config):
+    selection: Literal["api_client", "basic"] = "api_client"
+    api_client_name: str | None = None
+    api_client_secret: str | None = None
+    username: str | None = None
+    password: str | None = None
+
+
+@config.config
 class BigQueryDatasetProjectConfig(config.Config):
     dataset_project_id: str
     enabled: bool = config.value(converter=config.str_to_bool, default=False)
@@ -321,7 +330,10 @@ class AppcuesSourceConfig(config.Config):
 
 @config.config
 class AppdynamicsSourceConfig(config.Config):
-    pass
+    host: str
+    account_name: str
+    auth_method: AppdynamicsAuthMethodConfig
+    metric_paths: str | None = None
 
 
 @config.config
