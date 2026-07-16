@@ -23,7 +23,7 @@ import {
 
 import { calculateFreeTier, createGaugeItems, isAddonVisible, isProductVariantPrimary } from './billing-utils'
 import { getBillingLimitConfig } from './billingLimitConfig'
-import { billingLogic, getBillingApiErrorMessage } from './billingLogic'
+import { billingLogic } from './billingLogic'
 import type { billingProductLogicType } from './billingProductLogicType'
 import { DATA_PIPELINES_CUTOFF_DATE } from './constants'
 import { paymentEntryLogic } from './paymentEntryLogic'
@@ -801,11 +801,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
             } catch (error) {
                 console.error(error)
                 lemonToast.error(
-                    getBillingApiErrorMessage(
-                        error,
-                        ['reset_limit_next_period'],
-                        'There was an error removing your billing limit for next period. Please try again or contact support.'
-                    )
+                    'There was an error removing your billing limit for next period. Please try again or contact support.'
                 )
             } finally {
                 actions.setRemovingBillingLimitNextPeriod(false)

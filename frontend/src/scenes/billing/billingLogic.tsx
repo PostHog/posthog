@@ -6,7 +6,7 @@ import posthog from 'posthog-js'
 
 import { LemonDialog, Link, lemonToast } from '@posthog/lemon-ui'
 
-import api, { ApiError, getJSONOrNull } from 'lib/api'
+import api, { getJSONOrNull } from 'lib/api'
 import { FEATURE_FLAGS, FeatureFlagKey, OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
@@ -78,48 +78,6 @@ export type SwitchPlanPayload = {
     from_plan_key: string
     to_product_key: string
     to_plan_key: string
-}
-
-const getBillingApiErrorValue = (value: unknown): string | null => {
-    if (typeof value === 'string') {
-        return value
-    }
-
-    if (Array.isArray(value) && typeof value[0] === 'string') {
-        return value[0]
-    }
-
-    return null
-}
-
-export const getBillingApiErrorMessage = (error: unknown, fieldNames: string[], fallbackMessage: string): string => {
-    const data =
-        error instanceof ApiError && error.data && typeof error.data === 'object'
-            ? (error.data as Record<string, unknown>)
-            : null
-
-    if (data) {
-        for (const fieldName of fieldNames) {
-            const fieldMessage = getBillingApiErrorValue(data[fieldName])
-            if (fieldMessage) {
-                return fieldMessage
-            }
-        }
-
-        const detailMessage = getBillingApiErrorValue(data.detail)
-        if (detailMessage) {
-            return detailMessage
-        }
-    }
-
-    if (error instanceof ApiError) {
-        const detailMessage = getBillingApiErrorValue(error.detail)
-        if (detailMessage) {
-            return detailMessage
-        }
-    }
-
-    return fallbackMessage
 }
 
 const parseBillingResponse = (data: Partial<BillingType>): BillingType => {
@@ -368,11 +326,7 @@ export const billingLogic = kea<billingLogicType>([
                         return parseBillingResponse(response)
                     } catch (error: unknown) {
                         lemonToast.error(
-                            getBillingApiErrorMessage(
-                                error,
-                                ['custom_limits_usd'],
-                                'There was an error updating your billing limits. Please try again or contact support.'
-                            )
+                            'There was an error updating your billing limits. Please try again or contact support.'
                         )
                         throw error
                     }
