@@ -16,15 +16,6 @@ from posthog.models.user import User
 
 from products.billing_alerts.backend.facade import api as billing_alerts_api
 from products.billing_alerts.backend.facade.api import BillingAlertConfiguration, BillingAlertEvent
-from products.billing_alerts.backend.logic.state_machine import (
-    apply_disable,
-    apply_enable,
-    apply_outcome,
-    apply_snooze,
-    apply_threshold_change,
-    apply_unsnooze,
-    billing_alert_snapshot,
-)
 
 _DESTINATIONS_CACHE_KEY = "_billing_alert_destinations_by_alert_id"
 _NOT_PROVIDED = object()
@@ -320,16 +311,7 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
     def create(self, validated_data: dict[str, Any]) -> BillingAlertConfiguration:
         with transaction.atomic():
             alert = super().create(validated_data)
-            snapshot = billing_alert_snapshot(alert)
-
-            if not alert.enabled:
-                update_fields = apply_outcome(alert, apply_disable(snapshot))
-            elif alert.snooze_until is not None:
-                update_fields = apply_outcome(alert, apply_snooze(snapshot))
-            else:
-                return alert
-
-            alert.save(update_fields=[*update_fields, "updated_at"])
+            billing_alerts_api.initialize_billing_alert_lifecycle(alert)
             return alert
 
     def update(
@@ -351,18 +333,13 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
             if "enabled" in validated_data and validated_data["enabled"] != locked.enabled:
                 enabled_change = validated_data["enabled"]
 
-            snapshot = billing_alert_snapshot(locked)
-            if enabled_change is True:
-                apply_outcome(locked, apply_enable(snapshot))
-            elif enabled_change is False:
-                apply_outcome(locked, apply_disable(snapshot))
-            elif snooze_until is not _NOT_PROVIDED:
-                if snooze_until is None:
-                    apply_outcome(locked, apply_unsnooze(snapshot))
-                else:
-                    apply_outcome(locked, apply_snooze(snapshot))
-            elif threshold_changed:
-                apply_outcome(locked, apply_threshold_change(snapshot))
+            billing_alerts_api.apply_billing_alert_configuration_lifecycle(
+                locked,
+                enabled_change=enabled_change,
+                snooze_until_provided=snooze_until is not _NOT_PROVIDED,
+                snooze_until=snooze_until if snooze_until is not _NOT_PROVIDED else None,
+                threshold_changed=threshold_changed,
+            )
 
             return super().update(locked, validated_data)
 

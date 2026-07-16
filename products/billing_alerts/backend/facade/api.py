@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, cast
 from uuid import UUID
 
@@ -32,6 +33,15 @@ from ..alert_destinations import (
     EventKind,
 )
 from ..logic.notifications import evaluate_and_dispatch_billing_alert
+from ..logic.state_machine import (
+    apply_disable,
+    apply_enable,
+    apply_outcome,
+    apply_snooze,
+    apply_threshold_change,
+    apply_unsnooze,
+    billing_alert_snapshot,
+)
 from ..models import BillingAlertConfiguration, BillingAlertEvent
 from .contracts import BillingAlertDispatchResult
 
@@ -46,6 +56,44 @@ class BillingAlertExecutionTeamUnavailable(Exception):
 
 def billing_alert_configuration_queryset() -> QuerySet[BillingAlertConfiguration]:
     return BillingAlertConfiguration.objects.all()
+
+
+def initialize_billing_alert_lifecycle(alert: BillingAlertConfiguration) -> None:
+    """Apply lifecycle state implied by a newly created alert configuration."""
+    snapshot = billing_alert_snapshot(alert)
+
+    if not alert.enabled:
+        update_fields = apply_outcome(alert, apply_disable(snapshot))
+    elif alert.snooze_until is not None:
+        update_fields = apply_outcome(alert, apply_snooze(snapshot))
+    else:
+        return
+
+    alert.save(update_fields=[*update_fields, "updated_at"])
+
+
+def apply_billing_alert_configuration_lifecycle(
+    alert: BillingAlertConfiguration,
+    *,
+    enabled_change: bool | None,
+    snooze_until_provided: bool,
+    snooze_until: datetime | None,
+    threshold_changed: bool,
+) -> None:
+    """Apply one control-plane change through the shared lifecycle adapter."""
+    snapshot = billing_alert_snapshot(alert)
+
+    if enabled_change is True:
+        apply_outcome(alert, apply_enable(snapshot))
+    elif enabled_change is False:
+        apply_outcome(alert, apply_disable(snapshot))
+    elif snooze_until_provided:
+        if snooze_until is None:
+            apply_outcome(alert, apply_unsnooze(snapshot))
+        else:
+            apply_outcome(alert, apply_snooze(snapshot))
+    elif threshold_changed:
+        apply_outcome(alert, apply_threshold_change(snapshot))
 
 
 def execution_team_for_organization(organization_id: UUID, preferred_team: Team | None) -> Team:
@@ -180,6 +228,7 @@ __all__ = [
     "BillingAlertEvent",
     "BillingAlertExecutionTeamUnavailable",
     "EventKind",
+    "apply_billing_alert_configuration_lifecycle",
     "billing_alert_configuration_queryset",
     "create_destination",
     "delete_alert_and_destinations",
@@ -188,6 +237,7 @@ __all__ = [
     "destination_types_for_alerts",
     "evaluate_and_dispatch_alert",
     "execution_team_for_organization",
+    "initialize_billing_alert_lifecycle",
     "slack_integration_belongs_to_team",
     "visible_events_for_alert",
 ]
