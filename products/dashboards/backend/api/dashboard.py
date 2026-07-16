@@ -138,6 +138,7 @@ from products.notifications.backend.facade.api import (
     Priority,
     TargetType,
     create_notification,
+    has_been_dispatched,
 )
 from products.product_analytics.backend.api.insight import (
     DashboardTileBasicSerializer,
@@ -3309,8 +3310,8 @@ class DashboardsViewSet(
             200: DashboardSubscribeNudgeResponseSerializer,
         },
         description="Send the requesting user an in-app notification suggesting they subscribe to this "
-        "dashboard. Deduplicated server-side: at most one notification per user and dashboard within the "
-        "dedupe window, so repeat calls return 200 with created=false.",
+        "dashboard. Deduplicated server-side: at most one notification per user and dashboard, ever, "
+        "so repeat calls return 200 with created=false.",
     )
     @action(methods=["POST"], detail=True, url_path="subscribe_nudge", required_scopes=["dashboard:write"])
     def subscribe_nudge(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -3319,6 +3320,17 @@ class DashboardsViewSet(
 
         dedupe_key = f"dashboard_subscribe_nudge:{user.pk}:{dashboard.pk}"
         if not safe_cache_add(dedupe_key, "1", timeout=SUBSCRIBE_NUDGE_DEDUPE_TTL_SECONDS):
+            return Response({"created": False}, status=status.HTTP_200_OK)
+
+        # Durable backstop behind the cache sentinel: a nudge is once-ever per (user, dashboard),
+        # so losing the sentinel (cache flush, eviction, Redis outage) must not let a second one
+        # through. Mirrors the client's permanent notified marker.
+        if has_been_dispatched(
+            notification_type=NotificationType.SUBSCRIPTION_NUDGE,
+            target_type=TargetType.USER,
+            target_id=str(user.pk),
+            resource_id=str(dashboard.pk),
+        ):
             return Response({"created": False}, status=status.HTTP_200_OK)
 
         try:

@@ -803,7 +803,7 @@ export const getDashboardsSubscribeNudgeCreateUrl = (
 }
 
 /**
- * Send the requesting user an in-app notification suggesting they subscribe to this dashboard. Deduplicated server-side: at most one notification per user and dashboard within the dedupe window, so repeat calls return 200 with created=false.
+ * Send the requesting user an in-app notification suggesting they subscribe to this dashboard. Deduplicated server-side: at most one notification per user and dashboard, ever, so repeat calls return 200 with created=false.
  */
 export const dashboardsSubscribeNudgeCreate = async (
     projectId: string,

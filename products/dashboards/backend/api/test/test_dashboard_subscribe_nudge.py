@@ -61,6 +61,33 @@ class TestDashboardSubscribeNudge(APIBaseTest):
         assert second.json() == {"created": False}
         assert mock_create_notification.call_count == 1
 
+    @patch("products.dashboards.backend.api.dashboard.has_been_dispatched")
+    def test_dedupes_from_the_notification_record_when_the_cache_is_lost(
+        self, mock_has_been_dispatched: MagicMock, mock_create_notification: MagicMock
+    ) -> None:
+        mock_create_notification.return_value = MagicMock()
+        mock_has_been_dispatched.return_value = False
+
+        first = self._post_nudge(self.dashboard.id)
+        assert first.status_code == status.HTTP_201_CREATED
+
+        # The cache sentinel is gone (flush/eviction/Redis outage), but the notification record
+        # is durable — the nudge stays once-ever rather than being re-delivered.
+        cache.clear()
+        mock_has_been_dispatched.return_value = True
+
+        second = self._post_nudge(self.dashboard.id)
+
+        assert second.status_code == status.HTTP_200_OK
+        assert second.json() == {"created": False}
+        assert mock_create_notification.call_count == 1
+        mock_has_been_dispatched.assert_called_with(
+            notification_type=NotificationType.SUBSCRIPTION_NUDGE,
+            target_type=TargetType.USER,
+            target_id=str(self.user.id),
+            resource_id=str(self.dashboard.id),
+        )
+
     def test_returns_404_for_other_team_dashboard(self, mock_create_notification: MagicMock) -> None:
         other_org = Organization.objects.create(name="Other org")
         other_team = Team.objects.create(organization=other_org, name="Other team")
