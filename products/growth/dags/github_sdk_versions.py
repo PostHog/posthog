@@ -32,6 +32,7 @@ SDK_FETCH_FUNCTIONS: dict[SdkTypes, Callable[[], dict[str, Any]]] = {
     "posthog-node": lambda: fetch_node_sdk_data(),
     "posthog-react-native": lambda: fetch_react_native_sdk_data(),
     "posthog-flutter": lambda: fetch_flutter_sdk_data(),
+    "posthog-kmp": lambda: fetch_kmp_sdk_data(),
     "posthog-ios": lambda: fetch_ios_sdk_data(),
     "posthog-android": lambda: fetch_android_sdk_data(),
     "posthog-java": lambda: fetch_java_sdk_data(),
@@ -233,6 +234,11 @@ def fetch_flutter_sdk_data() -> dict[str, Any]:
 def fetch_ios_sdk_data() -> dict[str, Any]:
     """Fetch iOS SDK data from GitHub releases API"""
     return fetch_sdk_data_from_releases("PostHog/posthog-ios")
+
+
+def fetch_kmp_sdk_data() -> dict[str, Any]:
+    """Fetch Kotlin Multiplatform SDK data from GitHub releases API"""
+    return fetch_sdk_data_from_releases("PostHog/posthog-kmp", tag_prefixes=["v"])
 
 
 def fetch_android_sdk_data() -> dict[str, Any]:

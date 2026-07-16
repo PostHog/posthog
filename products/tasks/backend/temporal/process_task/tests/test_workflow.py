@@ -73,6 +73,8 @@ def _build_context(
     use_modal_resume_snapshots: bool = True,
     sandbox_event_ingest_enabled: bool = False,
     environment: str | None = None,
+    use_modal_vm_sandbox: bool = False,
+    custom_image_name: str | None = None,
 ) -> TaskProcessingContext:
     return TaskProcessingContext(
         task_id="task-id",
@@ -89,6 +91,8 @@ def _build_context(
         _branch="feature-branch",
         use_modal_resume_snapshots=use_modal_resume_snapshots,
         sandbox_event_ingest_enabled=sandbox_event_ingest_enabled,
+        use_modal_vm_sandbox=use_modal_vm_sandbox,
+        custom_image_name=custom_image_name,
     )
 
 
@@ -1134,13 +1138,22 @@ class TestProcessTaskWorkflowUnit:
 
         assert inject_fresh_tokens_on_resume not in activity_calls
 
+    @pytest.mark.parametrize(
+        "custom_image_name, expected_image_source, expected_image_source_label",
+        [
+            (None, "base_image", "published sandbox base image"),
+            ("sandbox-custom-abc", "custom_image", "custom base image sandbox-custom-abc"),
+        ],
+    )
     async def test_get_sandbox_for_repository_falls_back_to_fresh_sandbox_when_resume_injection_fails(
-        self, monkeypatch
+        self, monkeypatch, custom_image_name, expected_image_source, expected_image_source_label
     ):
         workflow = ProcessTaskWorkflow()
         workflow._context = _build_context(
             github_integration_id=123,
             state={"snapshot_external_id": "im-abc123", "resume_from_run_id": "previous-run-id"},
+            use_modal_vm_sandbox=custom_image_name is not None,
+            custom_image_name=custom_image_name,
         )
 
         prepared = PrepareSandboxForRepositoryOutput(
@@ -1205,6 +1218,8 @@ class TestProcessTaskWorkflowUnit:
         assert fresh_prepared.snapshot_external_id is None
         assert fresh_prepared.used_snapshot is False
         assert fresh_prepared.should_create_snapshot is True
+        assert fresh_prepared.image_source == expected_image_source
+        assert fresh_prepared.image_source_label == expected_image_source_label
         assert clone_repository_in_sandbox in activity_calls
 
     async def test_get_sandbox_for_repository_propagates_non_dead_sandbox_failures(self, monkeypatch):

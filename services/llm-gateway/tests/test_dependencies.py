@@ -347,7 +347,7 @@ class TestFreeTierModelGateWiring:
                     await enforce_throttles(request=request, user=user, runner=runner)
 
             assert exc_info.value.status_code == 403
-            assert "gpt-4o-transcribe" in exc_info.value.detail
+            assert "gpt-4o-transcribe" in exc_info.value.detail["error"]["message"]
         finally:
             get_settings.cache_clear()
 
@@ -370,7 +370,13 @@ class TestFreeTierModelGateWiring:
                     await enforce_throttles(request=request, user=user, runner=runner)
 
             assert exc_info.value.status_code == 403
-            assert "claude-fable-5" in exc_info.value.detail
+            error = exc_info.value.detail["error"]
+            assert "claude-fable-5" in error["message"]
+            assert error["code"] == "model_gate"
+            # Legacy PostHog Code clients route errors by substring; the
+            # "(rate_limit)" suffix sends this 403 to their usage-limit modal
+            # instead of their fatal-session teardown path.
+            assert error["message"].endswith("(rate_limit)")
         finally:
             get_settings.cache_clear()
 
