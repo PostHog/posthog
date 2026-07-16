@@ -182,7 +182,13 @@ SELECT t.organization_id AS org_id, any(a.name) AS org_name, max(a.mrr) AS mrr,
        any(a.customer_stage) AS stage, uniq(c.team_id) AS teams, sum(c.queries) AS queries,
        round(sum(c.read_gb), 0) AS read_gb,
        round(sum(c.read_gb)*{read_usd_per_gb} + sum(c.cpu_sec)*{cpu_usd_per_sec}, 0) AS cost_usd
-FROM ( /* per-team subquery as in §9 */ ) AS c
+FROM (
+    SELECT region, team_id, count() AS queries, sum(read_bytes)/1e9 AS read_gb,
+           sum(ProfileEvents_OSCPUVirtualTimeMicroseconds)/1e6 AS cpu_sec
+    FROM ( /* union with: 'us'/'eu' AS region, team_id, read_bytes, ProfileEvents_... */ )
+    WHERE team_id != 0 AND team_id IS NOT NULL
+    GROUP BY region, team_id
+) AS c
 LEFT JOIN (SELECT id, app_region, organization_id FROM all_posthog_team) AS t
     ON t.id = c.team_id AND t.app_region = c.region
 LEFT JOIN (SELECT organization_id, any(name) AS name, max(mrr) AS mrr, any(customer_stage) AS customer_stage
