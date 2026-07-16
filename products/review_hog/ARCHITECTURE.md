@@ -2929,9 +2929,9 @@ Locked with the user (AskUserQuestion, 2026-07-16):
 
 - **Visibility rule:** a skill is visible to a user iff its name is canonical (`CANONICAL_*_SKILL_NAMES` — by name, so a team-edited canonical stays visible to everyone)
   OR the **earliest live version's `created_by`** is that user.
-  This refines the 2026-06-29 "`created_by` is audit-only" lock: still audit-only for identity and editing (edits mint new versions stamped with the *editor* and do NOT transfer visibility);
+  This refines the 2026-06-29 "`created_by` is audit-only" lock: still audit-only for identity and editing (edits mint new versions stamped with the _editor_ and do NOT transfer visibility);
   the first version's author now governs **menu visibility only**.
-  Earliest *live* version rather than literally `version=1`: deleted rows are excluded, so an archived name later recreated by another user belongs to the new author
+  Earliest _live_ version rather than literally `version=1`: deleted rows are excluded, so an archived name later recreated by another user belongs to the new author
   (deleted `(name, version)` pairs can duplicate — the unique constraints only cover `deleted=False`).
 - **Strict, no grandfathering** (decided while the feature had no external adopters): `partial_update` 404s on a non-visible skill exactly like a missing one
   (a distinct error would leak that the name exists), closing the enable-any-team-skill-by-name backdoor. No data migration; the loaders backstop instead.
