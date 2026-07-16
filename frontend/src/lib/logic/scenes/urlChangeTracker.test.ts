@@ -153,6 +153,17 @@ describe('UrlChangeTracker', () => {
 
             expect(tracker.isRapidlyChanging()).toBe(false)
         })
+
+        it('flags an extreme burst of distinct URLs as a loop', () => {
+            // A runaway loop that mutates the URL each iteration (e.g. an incrementing counter) never
+            // repeats a URL, so the duplicate heuristic alone would miss it. The sheer volume - far
+            // beyond human typing - must still be caught.
+            for (let i = 0; i < 60; i++) {
+                tracker.recordChange(`/web?loop=${i}`, 'webAnalyticsLogic', 'setFilters')
+            }
+
+            expect(tracker.isRapidlyChanging()).toBe(true)
+        })
     })
 
     describe('warning throttle', () => {
