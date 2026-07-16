@@ -100,7 +100,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
         snapshotSavedBlockConsentModals: (value: boolean) => ({ value }),
         setPageUrlDraft: (value: string) => ({ value }),
         applyPageUrlDraft: true,
-        setUserAccessLevel: (level: AccessControlLevel | undefined) => ({ level }),
+        setUserAccessLevel: (level: AccessControlLevel | null) => ({ level }),
     }),
     reducers({
         type: ['screenshot' as HeatmapType, { setType: (_, { type }) => type }],
@@ -126,7 +126,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 setDisplayUrl: (_, { url }) => url ?? '',
             },
         ],
-        userAccessLevel: [undefined as AccessControlLevel | undefined, { setUserAccessLevel: (_, { level }) => level }],
+        userAccessLevel: [null as AccessControlLevel | null, { setUserAccessLevel: (_, { level }) => level }],
     }),
     listeners(({ actions, values, props }) => ({
         changeCaptureMethod: async ({ type }) => {
@@ -158,7 +158,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 actions.setBlockConsentModals(item.block_consent_modals ?? false)
                 actions.snapshotSavedBlockConsentModals(item.block_consent_modals ?? false)
                 actions.setType(item.type)
-                actions.setUserAccessLevel(item.user_access_level)
+                actions.setUserAccessLevel(item.user_access_level ?? null)
                 posthog.capture('in-app heatmap viewed', {
                     heatmap_type: item.type,
                     heatmap_status: item.status,

@@ -47,7 +47,7 @@ export function HeatmapHeader(): JSX.Element {
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.Heatmap}
                                 minAccessLevel={AccessControlLevel.Editor}
-                                userAccessLevel={userAccessLevel}
+                                userAccessLevel={userAccessLevel ?? undefined}
                             >
                                 <LemonButton
                                     type="secondary"
