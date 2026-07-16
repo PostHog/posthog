@@ -829,10 +829,9 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
             }
             try {
                 // nosemgrep: prefer-codegen-api
-                await api.create(
-                    `/api/environments/${teamId}/llm_analytics/evaluation_config/set_active_key/`,
-                    { key_id: id }
-                )
+                await api.create(`/api/environments/${teamId}/llm_analytics/evaluation_config/set_active_key/`, {
+                    key_id: id,
+                })
                 lemonToast.success('Active key updated. Evaluations will now use this key.')
             } catch (error) {
                 const detail = error instanceof ApiError ? error.detail : null
