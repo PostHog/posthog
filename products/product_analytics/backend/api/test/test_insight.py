@@ -530,7 +530,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         miss_counter = DASHBOARD_CACHE_OUTCOME_COUNTER.labels(access_method="human", result="miss")
         miss_count_before = miss_counter._value.get()
-        query_params: dict[str, str | int] = {"from_dashboard": dashboard.id}
+        query_params: dict[str, str] = {"from_dashboard": str(dashboard.id)}
         if refresh is not None:
             query_params["refresh"] = refresh
 
@@ -539,7 +539,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         dashboard.refresh_from_db()
         if expect_recorded_miss:
-            self.assertEqual(dashboard.most_recent_access["human"]["cache_miss_count"], 1)
+            most_recent_access = dashboard.most_recent_access
+            assert isinstance(most_recent_access, dict)
+            self.assertEqual(most_recent_access["human"]["cache_miss_count"], 1)
         else:
             self.assertEqual(dashboard.most_recent_access, {})
         self.assertEqual(miss_counter._value.get(), miss_count_before + 1)
@@ -565,7 +567,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/insights/{insight.id}/",
-            {"from_dashboard": dashboard.id, "refresh": "blocking"},
+            {"from_dashboard": str(dashboard.id), "refresh": "blocking"},
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -595,7 +597,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         dashboard.refresh_from_db()
-        self.assertEqual(dashboard.most_recent_access["embedded"]["cache_miss_count"], 1)
+        most_recent_access = dashboard.most_recent_access
+        assert isinstance(most_recent_access, dict)
+        self.assertEqual(most_recent_access["embedded"]["cache_miss_count"], 1)
 
     def test_get_insight_in_shared_context(self) -> None:
         filter_dict = {

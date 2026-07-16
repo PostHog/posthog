@@ -217,11 +217,11 @@ def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[t
     dashboard_pairs: list[tuple[int, int]] = []
     insight_ids_single: set[int] = set()
 
-    for insight_id, dashboard_id in (combo.split(":") for combo in combos):
-        if dashboard_id:
-            dashboard_pairs.append((int(insight_id), int(dashboard_id)))
+    for raw_insight_id, raw_dashboard_id in (combo.split(":") for combo in combos):
+        if raw_dashboard_id:
+            dashboard_pairs.append((int(raw_insight_id), int(raw_dashboard_id)))
         else:
-            insight_ids_single.add(int(insight_id))
+            insight_ids_single.add(int(raw_insight_id))
 
     candidates: list[WarmingCandidate] = []
     candidate_metric_counts: CollectionCounter[tuple[str, str, str]] = CollectionCounter()
@@ -250,8 +250,8 @@ def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[t
             dashboard_pairs, DASHBOARD_CANDIDATE_QUERY_CHUNK_SIZE, strict=False
         ):
             dashboard_q_filter = Q()
-            for insight_id, dashboard_id in dashboard_pair_chunk:
-                dashboard_q_filter |= Q(insight_id=insight_id, dashboard_id=dashboard_id)
+            for candidate_insight_id, candidate_dashboard_id in dashboard_pair_chunk:
+                dashboard_q_filter |= Q(insight_id=candidate_insight_id, dashboard_id=candidate_dashboard_id)
             if shared_only:
                 dashboard_q_filter &= Q(dashboard__sharingconfiguration__enabled=True)
 
@@ -265,7 +265,7 @@ def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[t
                     "dashboard__most_recent_access",
                 )
             )
-            for insight_id, dashboard_id, last_accessed_at, most_recent_access in dashboard_tiles:
+            for tile_insight_id, tile_dashboard_id, last_accessed_at, most_recent_access in dashboard_tiles:
                 priority, access_method, has_cache_miss_boost = _dashboard_warming_priority(
                     most_recent_access,
                     last_accessed_at,
@@ -276,8 +276,8 @@ def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[t
                     continue
                 candidates.append(
                     WarmingCandidate(
-                        insight_id=insight_id,
-                        dashboard_id=dashboard_id,
+                        insight_id=tile_insight_id,
+                        dashboard_id=tile_dashboard_id,
                         priority=priority,
                         access_method=access_method,
                         has_cache_miss_boost=has_cache_miss_boost,

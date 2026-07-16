@@ -52,6 +52,7 @@ def record_dashboard_access(
 ) -> None:
     access_timestamp = accessed_at or now()
     access_key = access_method.value
+    # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (parameterized via params tuple)
     updated_access = RawSQL(
         """
         jsonb_set(
@@ -75,13 +76,14 @@ def record_dashboard_access(
             access_key,
         ),
     )
+    # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (parameterized via params tuple)
     updated_last_accessed_at = RawSQL(
         "GREATEST(COALESCE(last_accessed_at, %s), %s)",
         (access_timestamp, access_timestamp),
         output_field=DateTimeField(),
     )
 
-    Dashboard.objects.for_team(dashboard.team_id).filter(pk=dashboard.pk).update(
+    Dashboard.objects.filter(team_id=dashboard.team_id, pk=dashboard.pk).update(
         last_accessed_at=updated_last_accessed_at,
         most_recent_access=updated_access,
     )
@@ -105,6 +107,7 @@ def record_dashboard_cache_outcome(
 
     observation_timestamp = observed_at or now()
     access_key = access_method.value
+    # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (parameterized via params tuple)
     updated_access = RawSQL(
         """
         jsonb_set(
@@ -131,4 +134,4 @@ def record_dashboard_cache_outcome(
             access_key,
         ),
     )
-    Dashboard.objects.for_team(dashboard.team_id).filter(pk=dashboard.pk).update(most_recent_access=updated_access)
+    Dashboard.objects.filter(team_id=dashboard.team_id, pk=dashboard.pk).update(most_recent_access=updated_access)
