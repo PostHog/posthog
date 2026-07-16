@@ -18,6 +18,7 @@ T_RERUN_SELECTOR = "posthog/api/test/test_rerun.py::TestRerun::test_green_on_att
 T_STALE_REREPORT = "posthog/api/test/test_stale/TestStale::test_reported_twice"
 T_MATRIX_LEGS = "posthog/api/test/test_legs/TestLegs::test_one_leg_fails"
 T_CROSS_RUN_PASS = "posthog/api/test/test_cross/TestCross::test_passes_in_another_run"
+T_PASS_THEN_FAIL = "posthog/api/test/test_order/TestOrder::test_fails_after_passing"
 T_IN_JOB_RETRY = "posthog/api/test/test_injob/TestInJob::test_pytest_retry"
 T_THREE_PRS = "posthog/api/test/test_three/TestThree::test_fails_on_three_prs"
 T_TWO_PRS = "posthog/api/test/test_two/TestTwo::test_fails_on_two_prs"
@@ -69,6 +70,10 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
             # A pass in a different run is a different commit and proves nothing.
             cls._span(8, T_CROSS_RUN_PASS, "failed", ts=earlier, run="300", branch="master"),
             cls._span(9, T_CROSS_RUN_PASS, "passed", ts=recent, run="301", attempt="2", branch="master"),
+            # One commit disagreeing with itself proves nondeterminism whichever way round it lands,
+            # so a pass on an earlier attempt than the failure still counts.
+            cls._span(24, T_PASS_THEN_FAIL, "passed", ts=earlier, run="1400", attempt="2", branch="master"),
+            cls._span(25, T_PASS_THEN_FAIL, "failed", ts=recent, run="1400", attempt="3", branch="master"),
             # In-job pytest retry: the same proof from a lane that runs with --reruns.
             cls._span(10, T_IN_JOB_RETRY, "rerun_passed", ts=recent, run="400", pr="401", branch="f1"),
             # Failures across 3 distinct PRs, no recovery: qualifies on blast radius alone.
@@ -166,6 +171,7 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
             T_STALE_REREPORT,
             T_MATRIX_LEGS,
             T_CROSS_RUN_PASS,
+            T_PASS_THEN_FAIL,
             T_IN_JOB_RETRY,
             T_THREE_PRS,
             T_MASTER,
@@ -180,6 +186,8 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
         [
             ("recovered_on_rerun_attempt", T_RERUN_RECOVERY, "confirmed_flake"),
             ("recovered_via_in_job_retry", T_IN_JOB_RETRY, "confirmed_flake"),
+            # The pass came before the failure; one commit, both outcomes, still a flake.
+            ("passed_then_failed_in_one_run", T_PASS_THEN_FAIL, "confirmed_flake"),
             # The pass is in another run, so it is another commit and proves nothing.
             ("pass_in_a_different_run", T_CROSS_RUN_PASS, "suspected_regression"),
             # A failing leg and a passing leg in one attempt is not a recovery.

@@ -62,9 +62,9 @@ _SELECT = """
             anyIf(branch, branch != '') AS branch,
             max(trial_failed) AS failed_in_run,
             max(trial_quarantined) AS quarantined_in_run,
-            max(trial_rerun_passed)
-                OR (max(trial_failed) AND maxIf(attempt, trial_passed) > minIf(attempt, trial_failed))
-                AS recovered_in_run,
+            -- Order is irrelevant: one commit disagreeing with itself is the proof, whichever
+            -- attempt failed first.
+            max(trial_rerun_passed) OR (max(trial_failed) AND max(trial_passed)) AS recovered_in_run,
             maxIf(trial_at, trial_failed OR trial_rerun_passed OR trial_quarantined) AS run_signal_at
         FROM (
             -- One row per (test, run attempt). An attempt reports every shard, so a test can appear
@@ -72,7 +72,6 @@ _SELECT = """
             SELECT
                 nodeid,
                 run_id,
-                attempt,
                 anyIf(selector, selector != '') AS selector,
                 anyIf(pr_number, pr_number != '') AS pr_number,
                 anyIf(branch, branch != '') AS branch,

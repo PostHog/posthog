@@ -52,8 +52,9 @@ _RUN_COLUMNS = """
         resource_attributes['ci.run_id'] AS run_id,
         ifNull(accurateCastOrNull(resource_attributes['ci.run_attempt'], 'Int64'), 1) AS attempt,"""
 
-# A pass only carries information when an earlier attempt of the same run failed, so first
-# attempts are excluded: the passing corpus dwarfs the signal one and must never be scanned.
+# Only re-run attempts' passes are read. Reading first-attempt passes too would mean scanning the
+# whole passing corpus, which dwarfs the signal one, to gain only the runs whose disagreement began
+# with a pass (passed on attempt 1, failed on the re-run). That is real proof, and this misses it.
 _RECOVERY_ARM = """
             OR (
                 attributes['test.outcome'] = 'passed'
