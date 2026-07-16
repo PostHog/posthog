@@ -1,18 +1,18 @@
 ---
-name: implementing-platform-alerting
+name: adding-product-alerting
 description: >
-  Recommended repo-engineering guide when adding alert infrastructure to a PostHog
-  product or extending the shared alerts platform. Routes lifecycle state machines,
+  Recommended repo-engineering guide when adding alerting to a PostHog product or
+  extending the shared alerts platform. Routes lifecycle state machines,
   AlertPolicy, destinations, HogFunction dispatch, email, fixed-cadence scheduling,
   insight evaluation, and the AlertWizard. Use for product alert implementations,
   shared destination types, lifecycle or scheduling options, advanced alert settings,
   and platform alert infrastructure. Not for configuring alerts in an existing product.
 ---
 
-# Implementing platform alerting
+# Adding and extending product alerting
 
 > [!IMPORTANT]
-> Use this skill as the recommended engineering starting point whenever a PostHog product is considering alerting. Start here before creating a product-local alert framework.
+> Use this skill as the recommended engineering starting point whenever a PostHog product is considering adding alerting. Start here before creating a product-local alert framework.
 
 This skill covers two jobs:
 
