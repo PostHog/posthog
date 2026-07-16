@@ -72,14 +72,16 @@ export interface impersonationNoticeLogicActions {
     ensureAllMembersLoaded: () => {
         value: true
     } // membersLogic
-    loadUser: (resetOnFailure?: boolean) => {
+    loadUser: (resetOnFailure?: boolean | undefined) => {
         resetOnFailure: boolean | undefined
     } // userLogic
     loadUserSuccess: (
         user: UserType | null,
-        payload?: {
-            resetOnFailure: boolean | undefined
-        }
+        payload?:
+            | {
+                  resetOnFailure: boolean | undefined
+              }
+            | undefined
     ) => {
         payload?: {
             resetOnFailure: boolean | undefined
@@ -91,9 +93,11 @@ export interface impersonationNoticeLogicActions {
     } // userLogic
     upgradeImpersonationSuccess: (
         user: UserType | null,
-        payload?: {
-            reason: string
-        }
+        payload?:
+            | {
+                  reason: string
+              }
+            | undefined
     ) => {
         payload?: {
             reason: string

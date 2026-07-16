@@ -2179,6 +2179,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d7ee2cfacbd29706479902b06d75ad8f1362900836aa32799eabc7e004bfd854"
 
 [[package]]
+name = "cohort-core"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "chrono-tz",
+ "dashmap 6.1.0",
+ "hogvm",
+ "metrics",
+ "petgraph 0.8.3",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sqlx",
+ "thiserror 2.0.18",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "cohort-event-shuffler"
 version = "0.1.0"
 dependencies = [
@@ -2210,6 +2229,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "cohort-seeder"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum 0.7.9",
+ "chrono",
+ "chrono-tz",
+ "clickhouse",
+ "cohort-core",
+ "common-alloc",
+ "common-database",
+ "common-kafka",
+ "common-liveness",
+ "common-types",
+ "envconfig",
+ "governor",
+ "lifecycle",
+ "metrics",
+ "metrics-exporter-prometheus",
+ "proptest",
+ "rdkafka",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "cohort-stream-processor"
 version = "0.1.0"
 dependencies = [
@@ -2219,6 +2271,7 @@ dependencies = [
  "axum 0.7.9",
  "chrono",
  "chrono-tz",
+ "cohort-core",
  "common-alloc",
  "common-database",
  "common-kafka",
@@ -2227,12 +2280,10 @@ dependencies = [
  "dashmap 6.1.0",
  "envconfig",
  "futures",
- "hogvm",
  "lifecycle",
  "metrics",
  "metrics-exporter-prometheus",
  "object_store",
- "petgraph 0.8.3",
  "rand 0.8.5",
  "rdkafka",
  "rocksdb",

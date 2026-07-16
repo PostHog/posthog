@@ -134,6 +134,8 @@ jobs:
                       "common-metrics": 6,
                       "common-profiler": 51,
                       "common-s3": 31,
+                      "cohort-core": 45,
+                      "cohort-seeder": 60,
                       "cyclotron-core": 17,
                       "cyclotron-janitor": 139,
                       "cyclotron-node": 31,
@@ -443,7 +445,11 @@ jobs:
                       if [ "$pkg" = "property-defs-rs" ]; then
                           extra_args="--test-threads=4"
                       fi
-                      run_nextest "$pkg" -p "$pkg" $extra_args
+                      if [ "$pkg" = "cohort-seeder" ] && [ -f cohort-seeder/Cargo.toml ] && grep -q '^pg-test-support[[:space:]]*=' cohort-seeder/Cargo.toml; then
+                          DATABASE_URL='postgres://posthog:posthog@localhost:5432/test_posthog' run_nextest "$pkg" -p "$pkg" --features pg-test-support $extra_args
+                      else
+                          run_nextest "$pkg" -p "$pkg" $extra_args
+                      fi
                       # nextest skips doctests; run them only for packages with a lib target
                       # (`cargo test --doc` errors on bin-only packages).
                       if cargo metadata --no-deps --format-version 1 | jq -e --arg p "$pkg" '[.packages[] | select(.name == $p) | .targets[] | select(.kind | index("lib"))] | length > 0' >/dev/null; then
@@ -586,6 +592,21 @@ jobs:
                   ./target/debug/personhog-test-harness gate \
                     --routers 2 --leaders 3 --partitions 8 --persons 100 --concurrency 10 \
                     --duration 18s --router-kill-after 4s --shutdown-after 8s --kill-handoff-target
+
+            - name: Run the e2e gate under chaos (graceful coordinator handover + drain)
+              run: |
+                  ./target/debug/personhog-test-harness gate \
+                    --routers 2 --leaders 3 --partitions 8 --persons 100 --concurrency 10 \
+                    --duration 15s --router-shutdown-after 4s --shutdown-after 8s
+
+            # A true coordinator crash: no lease is revoked, so the survivor
+            # is blind until the election and registration TTLs expire, and
+            # the drain issued inside that window must complete once they do.
+            - name: Run the e2e gate under chaos (coordinator crash, slow failover + drain)
+              run: |
+                  ./target/debug/personhog-test-harness gate \
+                    --routers 2 --leaders 3 --partitions 8 --persons 100 --concurrency 10 \
+                    --duration 18s --router-kill-after 4s --router-kill-fast false --shutdown-after 8s
 
             - name: Dump service logs on failure
               if: failure()
