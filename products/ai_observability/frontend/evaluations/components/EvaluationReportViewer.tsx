@@ -7,9 +7,10 @@ import { urls } from 'scenes/urls'
 
 import type {
     EvaluationReportCitation,
-    EvaluationReportMetrics,
+    EvaluationOutputType,
     EvaluationReportRun,
     EvaluationReportSection,
+    EvaluationReportStoredMetrics,
 } from '../types'
 
 // Rewrite each cited generation_id in the content into a markdown link to the
@@ -60,6 +61,9 @@ function linkifyCitations(content: string, citations: EvaluationReportCitation[]
 // well-defined subset of CommonMark: up to 3 leading spaces, then 1-6 `#`,
 // then at least one space/tab, then the title text.
 function stripRedundantLeadingHeading(content: string, sectionTitle: string): string {
+    if (!sectionTitle.trim()) {
+        return content
+    }
     const lines = content.split('\n')
     if (lines.length === 0) {
         return content
@@ -98,7 +102,10 @@ function ReportSectionContent({
     section: EvaluationReportSection
     citations: EvaluationReportCitation[]
 }): JSX.Element {
-    const markdown = linkifyCitations(stripRedundantLeadingHeading(section.content, section.title), citations)
+    const markdown = linkifyCitations(
+        stripRedundantLeadingHeading(section.content ?? '', section.title ?? ''),
+        citations
+    )
     return (
         <LemonMarkdown lowKeyHeadings className="text-sm">
             {markdown}
@@ -106,53 +113,159 @@ function ReportSectionContent({
     )
 }
 
-function formatPassRate(rate: number | null | undefined): string {
-    if (rate == null) {
-        return '—'
-    }
-    return `${rate.toFixed(2)}%`
+const RESULT_ORDER: Record<EvaluationOutputType, string[]> = {
+    boolean: ['pass', 'fail', 'na'],
+    sentiment: ['positive', 'neutral', 'negative'],
 }
 
-function MetricsCard({ metrics }: { metrics: EvaluationReportMetrics }): JSX.Element {
-    // Period-over-period delta (if we have a previous pass rate to compare)
-    let deltaEl: JSX.Element | null = null
-    if (metrics.previous_pass_rate != null) {
-        const diff = metrics.pass_rate - metrics.previous_pass_rate
-        const arrow = diff > 0 ? '▲' : diff < 0 ? '▼' : '—'
-        const color = diff > 0 ? 'text-success' : diff < 0 ? 'text-danger' : 'text-muted'
-        deltaEl = (
-            <span className={`text-xs ml-1 ${color}`}>
-                {arrow} {Math.abs(diff).toFixed(2)}pp vs previous
-            </span>
-        )
+interface EvaluationReportResultMetric {
+    key: string
+    label: string
+    count?: number
+    rate?: number
+    previousRate?: number
+}
+
+function formatResultLabel(result: string): string {
+    if (result.toLowerCase() === 'na') {
+        return 'N/A'
     }
+    const label = result.split('_').join(' ')
+    return label.length > 0 ? `${label[0].toUpperCase()}${label.slice(1)}` : result
+}
+
+function formatResultRate(rate: number | null | undefined, fractionDigits = 2): string {
+    if (rate == null) {
+        return '–'
+    }
+    return `${rate.toFixed(fractionDigits)}%`
+}
+
+function getResultMetrics(metrics: EvaluationReportStoredMetrics): EvaluationReportResultMetric[] {
+    const resultCounts = metrics.result_counts ?? {}
+    const totalResults = Object.values(resultCounts).reduce((total, count) => total + count, 0)
+    const calculatedResultRates: Record<string, number> = {}
+    if (totalResults > 0) {
+        for (const [key, count] of Object.entries(resultCounts)) {
+            calculatedResultRates[key] = (count / totalResults) * 100
+        }
+    }
+    const genericResultRates = metrics.result_rates ?? {}
+    const resultRates = Object.keys(genericResultRates).length > 0 ? genericResultRates : calculatedResultRates
+    const previousResultRates = metrics.previous_result_rates
+    const resultKeys = new Set([...Object.keys(resultCounts), ...Object.keys(resultRates)])
+    const configuredOrder = RESULT_ORDER[metrics.output_type ?? 'boolean'] ?? []
+    const orderedKeys = [...configuredOrder.filter((key) => resultKeys.delete(key)), ...Array.from(resultKeys).sort()]
+
+    return orderedKeys.map((key) => ({
+        key,
+        label: formatResultLabel(key),
+        count: resultCounts[key],
+        rate: resultRates[key],
+        previousRate: previousResultRates?.[key],
+    }))
+}
+
+function getBooleanPassRate(
+    metrics: EvaluationReportStoredMetrics,
+    resultMetrics: EvaluationReportResultMetric[]
+): number | undefined {
+    if (metrics.pass_rate != null) {
+        return metrics.pass_rate
+    }
+    const passCount = resultMetrics.find(({ key }) => key === 'pass')?.count
+    const failCount = resultMetrics.find(({ key }) => key === 'fail')?.count
+    if (passCount == null || failCount == null || passCount + failCount === 0) {
+        return undefined
+    }
+    return (passCount / (passCount + failCount)) * 100
+}
+
+export function summarizeEvaluationReportResults(metrics: EvaluationReportStoredMetrics): string {
+    const resultMetrics = getResultMetrics(metrics)
+    if ((metrics.output_type ?? 'boolean') === 'boolean') {
+        const passRate = getBooleanPassRate(metrics, resultMetrics)
+        const summaryParts = passRate == null ? [] : [`Pass rate ${formatResultRate(passRate, 1)}`]
+        summaryParts.push(
+            ...resultMetrics.filter(({ count }) => count != null).map(({ label, count }) => `${label} ${count}`)
+        )
+        return summaryParts.join(' · ') || '–'
+    }
+
+    const summary = resultMetrics
+        .map(({ label, count, rate }) => {
+            if (count == null && rate == null) {
+                return null
+            }
+            if (count == null) {
+                return `${label} ${formatResultRate(rate, 1)}`
+            }
+            return rate == null ? `${label} ${count}` : `${label} ${count} (${formatResultRate(rate, 1)})`
+        })
+        .filter((value): value is string => value != null)
+        .join(' · ')
+    return summary || '–'
+}
+
+function MetricsCard({ metrics }: { metrics: EvaluationReportStoredMetrics }): JSX.Element {
+    const resultMetrics = getResultMetrics(metrics)
+    const isBooleanMetrics = (metrics.output_type ?? 'boolean') === 'boolean'
+    const passRate = isBooleanMetrics ? getBooleanPassRate(metrics, resultMetrics) : undefined
+    const passRateDiff =
+        passRate == null || metrics.previous_pass_rate == null ? null : passRate - metrics.previous_pass_rate
+    const passRateDiffClass =
+        passRateDiff == null || passRateDiff === 0 ? 'text-muted' : passRateDiff > 0 ? 'text-success' : 'text-danger'
 
     return (
         <div className="bg-bg-light border rounded p-3 mb-3">
             <div className="flex items-center gap-6 flex-wrap text-sm">
                 <div>
-                    <div className="text-muted text-xs">Pass rate</div>
-                    <div className="font-semibold">
-                        {formatPassRate(metrics.pass_rate)}
-                        {deltaEl}
-                    </div>
-                </div>
-                <div>
                     <div className="text-muted text-xs">Total runs</div>
-                    <div className="font-semibold">{metrics.total_runs}</div>
+                    <div className="font-semibold">{metrics.total_runs ?? '–'}</div>
                 </div>
-                <div>
-                    <div className="text-muted text-xs">Pass</div>
-                    <div className="font-semibold text-success">{metrics.pass_count}</div>
-                </div>
-                <div>
-                    <div className="text-muted text-xs">Fail</div>
-                    <div className="font-semibold text-danger">{metrics.fail_count}</div>
-                </div>
-                <div>
-                    <div className="text-muted text-xs">N/A</div>
-                    <div className="font-semibold">{metrics.na_count}</div>
-                </div>
+                {passRate != null && (
+                    <div>
+                        <div className="text-muted text-xs">Pass rate</div>
+                        <div className="font-semibold">
+                            {formatResultRate(passRate)}
+                            {passRateDiff != null && (
+                                <span className={`text-xs ml-1 ${passRateDiffClass}`}>
+                                    {passRateDiff === 0 ? '→' : passRateDiff > 0 ? '▲' : '▼'}{' '}
+                                    {Math.abs(passRateDiff).toFixed(2)}pp vs previous
+                                </span>
+                            )}
+                        </div>
+                    </div>
+                )}
+                {resultMetrics.map(({ key, label, count, rate, previousRate }) => {
+                    const diff = previousRate == null || rate == null ? null : rate - previousRate
+                    const arrow = diff == null || diff === 0 ? '→' : diff > 0 ? '▲' : '▼'
+                    const booleanCountClass =
+                        isBooleanMetrics && key === 'pass'
+                            ? 'text-success'
+                            : isBooleanMetrics && key === 'fail'
+                              ? 'text-danger'
+                              : ''
+                    if (count == null && (isBooleanMetrics || rate == null)) {
+                        return null
+                    }
+                    return (
+                        <div key={key}>
+                            <div className="text-muted text-xs">{label}</div>
+                            <div className={`font-semibold ${booleanCountClass}`}>
+                                {count ?? '–'}
+                                {!isBooleanMetrics && rate != null && (
+                                    <span className="text-muted"> ({formatResultRate(rate)})</span>
+                                )}
+                                {!isBooleanMetrics && diff != null && (
+                                    <span className="text-xs text-muted ml-1">
+                                        {arrow} {Math.abs(diff).toFixed(2)}pp vs previous
+                                    </span>
+                                )}
+                            </div>
+                        </div>
+                    )
+                })}
                 {metrics.previous_total_runs != null && (
                     <div>
                         <div className="text-muted text-xs">Previous runs</div>
@@ -167,6 +280,7 @@ function MetricsCard({ metrics }: { metrics: EvaluationReportMetrics }): JSX.Ele
 function DeliveryStatusBadge({ status }: { status: string }): JSX.Element {
     const statusMap: Record<string, { label: string; status: 'success' | 'warning' | 'danger' | 'muted' }> = {
         delivered: { label: 'Delivered', status: 'success' },
+        generated: { label: 'Generated', status: 'success' },
         pending: { label: 'Pending', status: 'muted' },
         partial_failure: { label: 'Partial failure', status: 'warning' },
         failed: { label: 'Failed', status: 'danger' },
@@ -186,8 +300,8 @@ export function EvaluationReportViewer({
     compact?: boolean
 }): JSX.Element {
     const content = reportRun.content
-    const sections = content.sections ?? []
-    const metrics = content.metrics
+    const sections = useMemo(() => content.sections ?? [], [content.sections])
+    const metrics = content.metrics ?? reportRun.metadata
     const citations = useMemo(() => content.citations ?? [], [content.citations])
 
     // Default to executive summary (first section) expanded. Memoized so Expand/Collapse all
@@ -280,7 +394,7 @@ export function EvaluationReportViewer({
                         onChange={(keys) => setExpandedKeys(keys as string[])}
                         panels={sections.map((section, idx) => ({
                             key: idx.toString(),
-                            header: section.title,
+                            header: section.title?.trim() || 'Section',
                             content: <ReportSectionContent section={section} citations={citations} />,
                         }))}
                     />

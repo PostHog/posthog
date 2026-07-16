@@ -13,6 +13,34 @@ export type GeoIp = {
     city: (ip: string) => City | null
 }
 
+// Hard deadline for MMDB reads. The file lives on an S3-backed FUSE mount, where a wedged
+// mountpoint process makes reads hang forever without erroring — which blocked server
+// startup indefinitely, as the initial load is awaited before the health server comes up.
+export const MMDB_LOAD_TIMEOUT_MS = 60_000
+
+export class MmdbLoadTimeoutError extends Error {
+    constructor(location: string) {
+        super(`Timed out reading MMDB from disk after ${MMDB_LOAD_TIMEOUT_MS}ms: ${location}`)
+        this.name = 'MmdbLoadTimeoutError'
+    }
+}
+
+function withMmdbLoadTimeout<T>(promise: Promise<T>, location: string): Promise<T> {
+    return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new MmdbLoadTimeoutError(location)), MMDB_LOAD_TIMEOUT_MS)
+        promise.then(
+            (value) => {
+                clearTimeout(timer)
+                resolve(value)
+            },
+            (error) => {
+                clearTimeout(timer)
+                reject(error)
+            }
+        )
+    })
+}
+
 const geoipLoadCounter = new Counter({
     name: 'cdp_geoip_load_count',
     help: 'Number of times we load the MMDB file',
@@ -34,6 +62,7 @@ export class GeoIPService {
     private _initialMmdbPromise?: Promise<void>
     private _mmdb?: ReaderModel
     private _mmdbMetadata?: MmdbMetadata
+    private _mmdbMetadataTimedOut = false
 
     constructor(private mmdbFileLocation: string) {
         logger.info('🌎', 'GeoIPService created')
@@ -75,9 +104,17 @@ export class GeoIPService {
                     key: 'geoip_load_mmdb',
                     logExecutionTime: true,
                 },
-                async () => await Reader.open(this.mmdbFileLocation)
+                async () => await withMmdbLoadTimeout(Reader.open(this.mmdbFileLocation), this.mmdbFileLocation)
             )
         } catch (e) {
+            if (e instanceof MmdbLoadTimeoutError) {
+                // A missing or corrupt file means GeoIP is intentionally unavailable (e.g. self-hosted),
+                // but a hung read means the mount is broken. Rethrow so the initial load fails startup
+                // and the pod gets rescheduled; the background refresh catches this and keeps the
+                // already-loaded database.
+                logger.error('🌎', 'Loading MMDB from disk timed out', { location: this.mmdbFileLocation })
+                throw e
+            }
             logger.warn('🌎', 'Loading MMDB from disk failed, GeoIP lookups will be disabled', {
                 error: e.message,
                 location: this.mmdbFileLocation,
@@ -87,9 +124,17 @@ export class GeoIPService {
     }
 
     private async loadMmdbMetadata(): Promise<MmdbMetadata | undefined> {
+        const metadataLocation = this.mmdbFileLocation.replace('.mmdb', '.json')
         try {
-            return parseJSON(await fs.readFile(this.mmdbFileLocation.replace('.mmdb', '.json'), 'utf8'))
+            const metadata = parseJSON(
+                await withMmdbLoadTimeout(fs.readFile(metadataLocation, 'utf8'), metadataLocation)
+            )
+            this._mmdbMetadataTimedOut = false
+            return metadata
         } catch (e) {
+            // A timed-out read means the mount is unhealthy, not that the metadata file doesn't
+            // exist — remember it so the background refresh retries instead of assuming self-hosted.
+            this._mmdbMetadataTimedOut = e instanceof MmdbLoadTimeoutError
             logger.warn('🌎', 'Error loading MMDB metadata', {
                 error: e.message,
                 location: this.mmdbFileLocation,
@@ -105,7 +150,7 @@ export class GeoIPService {
      */
     private async backgroundRefreshMmdb(): Promise<void> {
         logger.debug('🌎', 'Checking if we need to refresh the MMDB')
-        if (!this._mmdbMetadata) {
+        if (!this._mmdbMetadata && !this._mmdbMetadataTimedOut) {
             geoipBackgroundRefreshCounter.inc({ result: 'no_metadata' })
             logger.info(
                 '🌎',
@@ -116,7 +161,12 @@ export class GeoIPService {
 
         const metadata = await this.loadMmdbMetadata()
 
-        if (metadata?.date === this._mmdbMetadata.date) {
+        if (!metadata) {
+            geoipBackgroundRefreshCounter.inc({ result: 'no_metadata' })
+            return
+        }
+
+        if (metadata.date === this._mmdbMetadata?.date) {
             geoipBackgroundRefreshCounter.inc({ result: 'up_to_date' })
             logger.debug('🌎', 'MMDB metadata is up to date, skipping refresh')
             return
@@ -125,10 +175,12 @@ export class GeoIPService {
         logger.info('🌎', 'Refreshing MMDB from disk (s3)')
 
         geoipBackgroundRefreshCounter.inc({ result: 'refreshing' })
-        const mmdb = await this.loadMmdb('background refresh')
+        // We already have a working database at this point, so a failed or timed-out
+        // reload must never take the service down — keep serving the current one.
+        const mmdb = await this.loadMmdb('background refresh').catch(() => undefined)
         if (mmdb) {
             this._mmdb = mmdb
-            this._mmdbMetadata = metadata ?? this._mmdbMetadata
+            this._mmdbMetadata = metadata
         } else {
             logger.warn('🌎', 'Background MMDB refresh failed, keeping existing MMDB')
         }

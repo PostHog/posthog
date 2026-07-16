@@ -617,16 +617,6 @@ export const OriginProductEnumApi = {
 } as const
 
 /**
- * * `implementation` - Implementation
- */
-export type SignalReportTaskRelationshipEnumApi =
-    (typeof SignalReportTaskRelationshipEnumApi)[keyof typeof SignalReportTaskRelationshipEnumApi]
-
-export const SignalReportTaskRelationshipEnumApi = {
-    Implementation: 'implementation',
-} as const
-
-/**
  * * `claude` - claude
  * * `codex` - codex
  */
@@ -716,7 +706,11 @@ export interface TaskWriteApi {
      * @nullable
      */
     signal_report?: string | null
-    signal_report_task_relationship?: SignalReportTaskRelationshipEnumApi
+    /**
+     * How the created task relates to the signal report (e.g. 'implementation', 'discussion', 'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted.
+     * @maxLength 200
+     */
+    signal_report_task_relationship?: string
     /** JSON schema used to validate the output of the task. */
     json_schema?: unknown
     /** If true, this task is for internal use and should not be exposed to end users. */
@@ -836,7 +830,11 @@ export interface PatchedTaskWriteApi {
      * @nullable
      */
     signal_report?: string | null
-    signal_report_task_relationship?: SignalReportTaskRelationshipEnumApi
+    /**
+     * How the created task relates to the signal report (e.g. 'implementation', 'discussion', 'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted.
+     * @maxLength 200
+     */
+    signal_report_task_relationship?: string
     /** JSON schema used to validate the output of the task. */
     json_schema?: unknown
     /** If true, this task is for internal use and should not be exposed to end users. */
@@ -910,6 +908,45 @@ export interface TaskPresenceBeaconRequestApi {
 }
 
 /**
+ * * `http` - http
+ * * `sse` - sse
+ */
+export type ImportedMcpServerTypeEnumApi =
+    (typeof ImportedMcpServerTypeEnumApi)[keyof typeof ImportedMcpServerTypeEnumApi]
+
+export const ImportedMcpServerTypeEnumApi = {
+    Http: 'http',
+    Sse: 'sse',
+} as const
+
+export interface ImportedMcpServerHeaderApi {
+    /** @maxLength 256 */
+    name: string
+    /** @maxLength 4096 */
+    value: string
+}
+
+/**
+ * One client-imported MCP server, in the agent server's --mcpServers entry shape.
+ */
+export interface ImportedMcpServerApi {
+    type: ImportedMcpServerTypeEnumApi
+    /** @maxLength 64 */
+    name: string
+    /** @maxLength 2048 */
+    url: string
+    headers?: ImportedMcpServerHeaderApi[]
+}
+
+/**
+ * One desktop-only MCP server relayed into the run — a name only, never configuration.
+ */
+export interface RelayedMcpServerApi {
+    /** @maxLength 64 */
+    name: string
+}
+
+/**
  * * `interactive` - interactive
  * * `background` - background
  */
@@ -973,6 +1010,16 @@ export const InitialPermissionModeEnumApi = {
  * Request body for creating a new task run
  */
 export interface ClaudeTaskRunCreateSchemaApi {
+    /**
+     * Local url-based MCP servers from the creating client (PostHog Code) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.
+     * @nullable
+     */
+    imported_mcp_servers?: ImportedMcpServerApi[] | null
+    /**
+     * Names of desktop-only MCP servers the creating client (PostHog Code) relays into the cloud sandbox over the durable event/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.
+     * @nullable
+     */
+    relayed_mcp_servers?: RelayedMcpServerApi[] | null
     /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
      *
      * * `interactive` - interactive
@@ -1074,6 +1121,16 @@ export const CodexTaskRunCreateSchemaInitialPermissionModeEnumApi = {
  * Request body for creating a new task run
  */
 export interface CodexTaskRunCreateSchemaApi {
+    /**
+     * Local url-based MCP servers from the creating client (PostHog Code) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.
+     * @nullable
+     */
+    imported_mcp_servers?: ImportedMcpServerApi[] | null
+    /**
+     * Names of desktop-only MCP servers the creating client (PostHog Code) relays into the cloud sandbox over the durable event/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.
+     * @nullable
+     */
+    relayed_mcp_servers?: RelayedMcpServerApi[] | null
     /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
      *
      * * `interactive` - interactive
@@ -1539,6 +1596,16 @@ export const TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi = {
  * Request body for creating a task run without starting execution yet.
  */
 export interface TaskRunBootstrapCreateRequestApi {
+    /**
+     * Local url-based MCP servers from the creating client (PostHog Code) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.
+     * @nullable
+     */
+    imported_mcp_servers?: ImportedMcpServerApi[] | null
+    /**
+     * Names of desktop-only MCP servers the creating client (PostHog Code) relays into the cloud sandbox over the durable event/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.
+     * @nullable
+     */
+    relayed_mcp_servers?: RelayedMcpServerApi[] | null
     /** Execution environment for the new run. Use 'cloud' for remote sandbox runs and 'local' for desktop sessions.
      *
      * * `local` - local
@@ -1623,9 +1690,9 @@ export interface TaskRunBootstrapCreateRequestApi {
  * * `failed` - failed
  * * `cancelled` - cancelled
  */
-export type TaskRunUpdateStatusEnumApi = (typeof TaskRunUpdateStatusEnumApi)[keyof typeof TaskRunUpdateStatusEnumApi]
+export type RunStatusEnumApi = (typeof RunStatusEnumApi)[keyof typeof RunStatusEnumApi]
 
-export const TaskRunUpdateStatusEnumApi = {
+export const RunStatusEnumApi = {
     NotStarted: 'not_started',
     Queued: 'queued',
     InProgress: 'in_progress',
@@ -1653,7 +1720,7 @@ export interface PatchedTaskRunUpdateApi {
      * * `completed` - completed
      * * `failed` - failed
      * * `cancelled` - cancelled */
-    status?: TaskRunUpdateStatusEnumApi
+    status?: RunStatusEnumApi
     /**
      * Git branch name to associate with the task
      * @nullable
@@ -1909,6 +1976,7 @@ export const JsonrpcEnumApi = {
  * * `close` - close
  * * `permission_response` - permission_response
  * * `set_config_option` - set_config_option
+ * * `mcp_response` - mcp_response
  */
 export type MethodEnumApi = (typeof MethodEnumApi)[keyof typeof MethodEnumApi]
 
@@ -1918,6 +1986,7 @@ export const MethodEnumApi = {
     Close: 'close',
     PermissionResponse: 'permission_response',
     SetConfigOption: 'set_config_option',
+    McpResponse: 'mcp_response',
 } as const
 
 /**
@@ -1934,7 +2003,8 @@ export interface TaskRunCommandRequestApi {
      * * `cancel` - cancel
      * * `close` - close
      * * `permission_response` - permission_response
-     * * `set_config_option` - set_config_option */
+     * * `set_config_option` - set_config_option
+     * * `mcp_response` - mcp_response */
     method: MethodEnumApi
     /** Parameters for the command */
     params?: TaskRunCommandRequestApiParams
@@ -2307,6 +2377,24 @@ export interface PaginatedTaskThreadMessageDTOListApi {
 export interface TaskThreadMessageWriteApi {
     /** Message text. */
     content: string
+}
+
+/**
+ * The team's active onboarding wizard cloud run, used to rehydrate
+ * the setup-progress FAB when the run was started server-side (drop flow).
+ */
+export interface WizardCloudRunDTOApi {
+    /** Id of the onboarding wizard task. */
+    task_id: string
+    /** Id of the task's latest run, for reconnecting to its progress stream. */
+    run_id: string
+    /** Latest run status (e.g. queued, in_progress, completed, failed). */
+    status: string
+    /**
+     * When the run was created, for the FAB's elapsed timer.
+     * @nullable
+     */
+    started_at?: string | null
 }
 
 export interface TaskRepositoriesResponseApi {

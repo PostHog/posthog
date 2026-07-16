@@ -361,7 +361,24 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "without this flag is rejected."
         ),
     )
+    can_freeze_exposure = serializers.SerializerMethodField(
+        help_text=(
+            "Whether enrollment can be frozen right now: the experiment must be running (not draft, "
+            "paused, stopped, or already frozen) and its feature flag must have release conditions "
+            "that a person cohort can narrow (no group aggregation, no holdout, no early access "
+            "conditions)."
+        ),
+    )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    flag_cleanup_task_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "ID of the Code task opened to remove the experiment's feature-flag code, when one was "
+            "requested via open_cleanup_pr on end/ship_variant. Read its status via the "
+            "flag_cleanup_task action."
+        ),
+    )
 
     class Meta:
         model = Experiment
@@ -398,12 +415,14 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "_create_in_folder",
             "conclusion",
             "conclusion_comment",
+            "flag_cleanup_task_id",
             "primary_metrics_ordered_uuids",
             "secondary_metrics_ordered_uuids",
             "only_count_matured_users",
             "update_feature_flag_params",
             "status",
             "is_legacy",
+            "can_freeze_exposure",
             "user_access_level",
         ]
         read_only_fields = [
@@ -416,6 +435,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "holdout",
             "saved_metrics",
             "status",
+            "can_freeze_exposure",
             "user_access_level",
         ]
 
@@ -427,6 +447,10 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         else:
             fields["holdout_id"].queryset = ExperimentHoldout.objects.none()  # type: ignore[attr-defined]
         return fields
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_can_freeze_exposure(self, obj: Experiment) -> bool:
+        return obj.can_freeze_exposure
 
     @tracer.start_as_current_span("ExperimentSerializer.to_representation")
     def to_representation(self, instance):
@@ -995,6 +1019,21 @@ class EndExperimentSerializer(serializers.Serializer):
             "from the linked repository. Requires the requesting user to have access to PostHog Code "
             "(403 otherwise). Only acts for allowlisted teams; ignored otherwise."
         ),
+    )
+
+
+class ExperimentFlagCleanupTaskSerializer(serializers.Serializer):
+    task_id = serializers.UUIDField(help_text="ID of the flag-cleanup Code task.")
+    run_status = serializers.ChoiceField(
+        choices=["not_started", "queued", "in_progress", "completed", "failed", "cancelled"],
+        help_text="Status of the task's latest run.",
+    )
+    is_terminal = serializers.BooleanField(
+        help_text="Whether the run has finished (successfully or not). Stop polling once true."
+    )
+    pr_url = serializers.CharField(
+        allow_null=True,
+        help_text="URL of the pull request the task opened, when it opened one.",
     )
 
 
