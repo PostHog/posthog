@@ -1,6 +1,6 @@
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { AdminLoginUrl, ImpersonationTicketContext } from './impersonationNoticeLogic'
+import type { AdminLoginUrl, ImpersonationTicketContext } from './impersonationNoticeLogic'
 
 export function AdminLoginButtons({
     ticketContext,

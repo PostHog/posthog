@@ -1,9 +1,9 @@
-import { Meta, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 import { useActions, useMountedLogic } from 'kea'
 import { useEffect } from 'react'
 
 import {
-    ImpersonationTicketContext,
+    type ImpersonationTicketContext,
     impersonationNoticeLogic,
 } from '~/layout/navigation/ImpersonationNotice/impersonationNoticeLogic'
 import { Region } from '~/types'
