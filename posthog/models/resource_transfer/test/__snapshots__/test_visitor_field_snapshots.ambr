@@ -172,6 +172,7 @@
     'deprecated_tags_v2',
     'description',
     'filters',
+    'most_recent_access',
     'name',
     'pinned',
     'quick_filter_ids',
