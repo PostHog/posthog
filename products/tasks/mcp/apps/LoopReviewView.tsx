@@ -1,8 +1,8 @@
+import { Check } from 'lucide-react'
 import { type ReactElement, type ReactNode } from 'react'
 
-import { Badge, Button, Card, CardContent } from '@posthog/quill'
-
 import { DescriptionList } from '@posthog/mcp-ui'
+import { Button, Card, CardContent } from '@posthog/quill'
 
 export interface LoopReviewRepository {
     github_integration_id: number
@@ -142,6 +142,27 @@ function describeAutoFix(behaviors: LoopReviewBehaviors | undefined): string {
 }
 
 export function LoopReviewView({ data, onCreate, state }: LoopReviewViewProps): ReactElement {
+    const created = state?.createdName
+
+    if (created) {
+        return (
+            <Card className="m-4">
+                <CardContent className="flex flex-col items-center gap-3 p-8 text-center">
+                    <div className="flex size-12 items-center justify-center rounded-full bg-success">
+                        <Check className="size-7 text-success-foreground" strokeWidth={2.5} />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                        <h2 className="text-lg font-semibold text-foreground">Loop created</h2>
+                        <p className="text-base font-medium text-foreground">{created}</p>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                        You'll find it on the Loops page. Edit, pause, or run it anytime.
+                    </p>
+                </CardContent>
+            </Card>
+        )
+    }
+
     const items: { label: string; value: ReactNode }[] = [
         { label: 'Name', value: data.name?.trim() || 'Not set' },
         { label: 'Visibility', value: data.visibility === 'team' ? 'Team' : 'Personal' },
@@ -158,39 +179,28 @@ export function LoopReviewView({ data, onCreate, state }: LoopReviewViewProps): 
         { label: 'Notifications', value: describeNotifications(data.notifications) },
     ]
 
-    const created = state?.createdName
-
     return (
         <Card className="m-4">
             <CardContent className="flex flex-col gap-4 p-4">
                 <div className="flex flex-col gap-1">
-                    <div className="flex items-center gap-2">
-                        <h2 className="text-base font-semibold text-foreground">Review this loop</h2>
-                        {created ? <Badge variant="success">Created</Badge> : null}
-                    </div>
-                    <p className="text-sm text-muted-foreground">
-                        {created
-                            ? `"${created}" was created. You can find it on the Loops page.`
-                            : 'Check everything, then create it.'}
-                    </p>
+                    <h2 className="text-base font-semibold text-foreground">Review this loop</h2>
+                    <p className="text-sm text-muted-foreground">Check everything, then create it.</p>
                 </div>
 
                 <DescriptionList items={items} />
 
                 {state?.error ? <p className="text-sm text-destructive">{state.error}</p> : null}
 
-                {created ? null : (
-                    <div className="flex justify-end">
-                        <Button
-                            onClick={() => {
-                                void onCreate?.()
-                            }}
-                            disabled={state?.loading || !onCreate}
-                        >
-                            {state?.loading ? 'Creating...' : 'Create loop'}
-                        </Button>
-                    </div>
-                )}
+                <div className="flex justify-end">
+                    <Button
+                        onClick={() => {
+                            void onCreate?.()
+                        }}
+                        disabled={state?.loading || !onCreate}
+                    >
+                        {state?.loading ? 'Creating...' : 'Create loop'}
+                    </Button>
+                </div>
             </CardContent>
         </Card>
     )
