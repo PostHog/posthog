@@ -1,4 +1,5 @@
 import uuid
+from asyncio import CancelledError
 from datetime import timedelta
 
 import pytest
@@ -185,6 +186,21 @@ class TestRefreshRecommendationsBatchActivity(APIBaseTest):
         assert result.teams_processed == 0
         assert result.recommendations_kicked == 0
         assert ErrorTrackingRecommendation.objects.filter(team_id=deleted_team_id).count() == 0
+
+    @patch(_RATE_LIMITS_COMPUTE_BATCH, side_effect=_batch_meta(_RATE_LIMITS_META))
+    @patch(_SOURCE_MAPS_COMPUTE_BATCH, side_effect=_batch_meta(_SOURCE_MAPS_META))
+    @patch(_LONG_RUNNING_COMPUTE_BATCH, side_effect=_batch_meta(_LONG_RUNNING_META))
+    @patch(_ALERTS_COMPUTE_BATCH, side_effect=CancelledError("Cancelled"))
+    def test_cancelled_compute_reverts_claims_and_propagates(self, _alerts, _long, _source, _rate_limits):
+        # A heartbeat-timeout cancellation surfaces as CancelledError (a BaseException,
+        # not Exception). It must still release the claimed rows so the next sweep can
+        # re-claim them immediately, and it must propagate so Temporal sees the failure.
+        with pytest.raises(CancelledError):
+            _run_batch_activity(RefreshBatchInputs(team_ids=[self.team.id]))
+
+        alerts_row = ErrorTrackingRecommendation.objects.get(team_id=self.team.id, type="alerts")
+        assert alerts_row.status == ErrorTrackingRecommendation.Status.READY
+        assert alerts_row.computed_at is None
 
     @patch(_RATE_LIMITS_COMPUTE_BATCH, side_effect=_batch_meta(_RATE_LIMITS_META))
     @patch(_SOURCE_MAPS_COMPUTE_BATCH, side_effect=_batch_meta(_SOURCE_MAPS_META))
