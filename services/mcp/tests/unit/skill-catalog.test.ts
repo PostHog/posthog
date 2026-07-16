@@ -75,9 +75,11 @@ describe('SkillCatalog and exec learn', () => {
         const learn = new ExecLearnCatalog([], { posthog: catalog })
         const result = catalog.read('retention-analysis')
 
-        expect(result).toContain('## Files')
+        expect(result).toContain('Files:')
         expect(result).toContain('- SKILL.md (8 lines,')
         expect(result).toContain('- references/functions.md (3 lines,')
+        expect(result).toContain('# Retention analysis')
+        expect(result).not.toContain('name: retention-analysis')
         expect(catalog.searchFile('retention-analysis', 'references/functions.md', 'dateDiff')).toContain(
             '3: Use retention cohorts with dateDiff.'
         )
