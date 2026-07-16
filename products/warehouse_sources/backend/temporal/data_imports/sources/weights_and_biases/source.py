@@ -47,6 +47,14 @@ class WeightsAndBiasesSource(ResumableSource[WeightsAndBiasesSourceConfig, Weigh
         return ExternalDataSourceType.WEIGHTSANDBIASES
 
     @property
+    def connection_host_fields(self) -> list[str]:
+        # `entity` selects which W&B account's projects/runs/artifacts the stored key pulls, so
+        # changing it retargets the preserved credential at different data. Require the key to be
+        # re-entered on change. (`host` — where the key is actually sent — is already handled by
+        # the framework's separate `host`-field check.)
+        return ["entity"]
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.WEIGHTS_AND_BIASES,

@@ -31,6 +31,11 @@ class TestWeightsAndBiasesSource:
     def test_source_type(self):
         assert self.source.source_type == ExternalDataSourceType.WEIGHTSANDBIASES
 
+    def test_entity_is_a_connection_host_field(self):
+        # Changing `entity` retargets the stored key at another W&B account's data, so the update
+        # serializer must re-require the key — guard against dropping that from the override.
+        assert "entity" in self.source.connection_host_fields
+
     def test_get_source_config(self):
         config = self.source.get_source_config
 

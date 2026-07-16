@@ -1,5 +1,5 @@
 import json
-import time
+import threading
 import dataclasses
 from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime
@@ -228,25 +228,42 @@ def _format_timestamp(value: Any) -> str:
 
 
 def _read_response_body(response: requests.Response) -> bytes:
-    """Read a streamed response body under both a size cap and a wall-clock transfer deadline.
+    """Read a streamed response body under a size cap and a hard wall-clock deadline.
 
-    The host is customer-controlled, so neither the total size nor the total transfer time can be
-    trusted: read in chunks, aborting if the body exceeds MAX_RESPONSE_BYTES or the wall-clock
-    deadline passes. The deadline closes the slow-drip hole the per-read inactivity timeout leaves.
+    The host is customer-controlled, so neither total size nor total transfer time can be trusted.
+    The read runs on a worker thread so the deadline can interrupt it mid-read: urllib3's blocking
+    read won't return while a hostile host drips bytes below the per-read inactivity timeout, so a
+    between-reads time check alone can't bound total transfer time. On timeout we close the response
+    (which unblocks the stalled read) and raise; an oversized body aborts the same way.
     """
-    deadline = time.monotonic() + MAX_TRANSFER_SECONDS
     buffer = bytearray()
-    while True:
-        if time.monotonic() > deadline:
-            response.close()
-            raise WeightsAndBiasesGraphQLError("Weights & Biases response exceeded the transfer deadline")
-        chunk = response.raw.read(RESPONSE_READ_CHUNK_BYTES, decode_content=True)
-        if not chunk:
-            return bytes(buffer)
-        buffer += chunk
-        if len(buffer) > MAX_RESPONSE_BYTES:
-            response.close()
-            raise WeightsAndBiasesGraphQLError("Weights & Biases API returned an oversized response body")
+    failure: list[BaseException] = []
+
+    def _drain() -> None:
+        try:
+            while True:
+                chunk = response.raw.read(RESPONSE_READ_CHUNK_BYTES, decode_content=True)
+                if not chunk:
+                    return
+                buffer.extend(chunk)
+                if len(buffer) > MAX_RESPONSE_BYTES:
+                    return
+        except BaseException as exc:  # re-raised to the caller once the thread joins
+            failure.append(exc)
+
+    reader = threading.Thread(target=_drain, name="wandb-response-reader", daemon=True)
+    reader.start()
+    reader.join(MAX_TRANSFER_SECONDS)
+
+    if reader.is_alive():
+        response.close()  # unblock the drip-stalled read so the daemon thread can exit
+        raise WeightsAndBiasesGraphQLError("Weights & Biases response exceeded the transfer deadline")
+    if failure:
+        raise failure[0]
+    if len(buffer) > MAX_RESPONSE_BYTES:
+        response.close()
+        raise WeightsAndBiasesGraphQLError("Weights & Biases API returned an oversized response body")
+    return bytes(buffer)
 
 
 def _execute(
