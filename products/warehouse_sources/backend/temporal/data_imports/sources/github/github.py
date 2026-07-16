@@ -902,6 +902,7 @@ def github_source(
     incremental_field: str | None = None,
     webhook_source_manager: Optional[WebhookSourceManager] = None,
     egress_identity: GithubEgressIdentity | None = None,
+    response_name: str | None = None,
 ) -> SourceResponse:
     endpoint_config = GITHUB_ENDPOINTS[endpoint]
 
@@ -987,7 +988,9 @@ def github_source(
         )
 
     return SourceResponse(
-        name=endpoint,
+        # The storage identity (Delta subdir / queryable folder). Repo-qualified schemas pass a
+        # normalized `owner_repo_endpoint`; legacy bare schemas default to the endpoint, today's value.
+        name=response_name or endpoint,
         items=items,
         primary_keys=_normalize_primary_key(endpoint_config.primary_key),
         sort_mode=actual_sort_mode,
@@ -1051,6 +1054,77 @@ def create_repo_webhook(
 
     return WebhookCreationResult(
         success=False, error=f"Failed to create webhook automatically: {response.status_code} {response.text}"
+    )
+
+
+def ensure_repo_webhook(
+    token: str,
+    repo: str,
+    webhook_url: str,
+    events: list[str],
+    secret: str,
+    egress_identity: GithubEgressIdentity | None = None,
+) -> WebhookCreationResult:
+    """Idempotently ensure a repo webhook pointing at ``webhook_url`` exists with ``secret``.
+
+    A hook already matching the URL is PATCHed (secret re-pinned, events unioned) instead of
+    re-created — a bare POST would 422 with "Hook already exists on this repository", which
+    matters both for retried creates and for reconciling a multi-repo source where some repos
+    already carry the hook. No match falls through to the plain create."""
+    hooks, error = _list_repo_hooks(token, repo, egress_identity)
+    if error == "permission":
+        return WebhookCreationResult(
+            success=False,
+            error=(
+                f"Your GitHub token lacks {_WEBHOOK_PERMISSION_HINT} needed to create a repository webhook. "
+                "Add it and reconnect, or set up the webhook manually following the steps below."
+            ),
+        )
+    if error is not None:
+        return WebhookCreationResult(success=False, error=f"Failed to create webhook automatically: {error}")
+
+    hook = _match_hook_by_url(hooks or [], webhook_url)
+    if hook is None:
+        return create_repo_webhook(token, repo, webhook_url, events, secret=secret)
+
+    merged_events = sorted(set(hook.get("events") or []) | set(events))
+    try:
+        response = github_request(
+            "PATCH",
+            f"{GITHUB_BASE_URL}/repos/{repo}/hooks/{hook['id']}",
+            source="warehouse",
+            headers=_get_headers(token),
+            installation_id=egress_identity.installation_id if egress_identity is not None else None,
+            priority=Priority.NORMAL,
+            timeout=30,
+            session=make_tracked_session(),
+            json={
+                "active": True,
+                "events": merged_events,
+                "config": {"url": webhook_url, "content_type": "json", "secret": secret},
+            },
+        )
+        raise_if_github_rate_limited(response)
+    except (GitHubEgressBudgetExhausted, GitHubRateLimitError):
+        return WebhookCreationResult(
+            success=False,
+            error="GitHub rate limit reached while updating the repository webhook; please retry shortly.",
+        )
+    except requests.exceptions.RequestException as e:
+        return WebhookCreationResult(success=False, error=f"Failed to update webhook automatically: {e}")
+
+    if response.ok:
+        return WebhookCreationResult(success=True, extra_inputs={"signing_secret": secret})
+    if _is_repo_hook_permission_error(response):
+        return WebhookCreationResult(
+            success=False,
+            error=(
+                f"Your GitHub token lacks {_WEBHOOK_PERMISSION_HINT} needed to update the repository webhook. "
+                "Add it and reconnect, or set up the webhook manually following the steps below."
+            ),
+        )
+    return WebhookCreationResult(
+        success=False, error=f"Failed to update webhook automatically: {response.status_code} {response.text}"
     )
 
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import TypedDict, TypeVar
 
+from django.conf import settings
 from django.db import transaction
 
 import structlog
@@ -36,7 +37,6 @@ from products.signals.backend.report_generation.research import (
 from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.signal_metadata import fetch_source_products_for_reports
-from products.signals.backend.slack_inbox_notifications import POSTHOG_CODE_INBOX_DEEP_LINK_SCHEME
 from products.signals.backend.task_run_artefacts import (
     SIGNALS_PRODUCT,
     TASK_RUN_TYPE_IMPLEMENTATION,
@@ -85,10 +85,10 @@ def _report_meets_team_autostart_threshold(report_priority: Priority, team_defau
 
 
 def _build_autostart_task_description(
-    *, report_id: str, summary: str, repository: str, priority: PriorityAssessment | None
+    *, report_id: str, team_id: int, summary: str, repository: str, priority: PriorityAssessment | None
 ) -> str:
     priority_line = f"Priority: {priority.priority.value}\nReason: {priority.explanation}\n\n" if priority else ""
-    report_deep_link = f"{POSTHOG_CODE_INBOX_DEEP_LINK_SCHEME}://inbox/{report_id}"
+    report_link = f"{settings.SITE_URL}/project/{team_id}/inbox/reports/{report_id}"
     return (
         f"{summary}\n\n"
         f"{priority_line}"
@@ -112,9 +112,9 @@ def _build_autostart_task_description(
         "the user to that branch so they can review the changes and decide how to proceed, and explain in your "
         "turn summary why you didn't open the PR directly. Err on the side of caution to avoid committing a "
         "social faux pas in someone else's project.\n\n"
-        "When opening the PR, include this report deep link in the description footer, "
+        "When opening the PR, include this report link in the description footer, "
         "making the footer '*Created with [PostHog Code](https://posthog.com/code?ref=pr) "
-        f"from [an inbox report]({report_deep_link}).' - "
+        f"from [this inbox report]({report_link}).' - "
         "so the human reviewer can jump straight to it."
     )
 
@@ -491,7 +491,7 @@ async def maybe_autostart_implementation_task(
         report_id=report_id,
         title=title,
         description=_build_autostart_task_description(
-            report_id=report_id, summary=summary, repository=repository, priority=priority
+            report_id=report_id, team_id=team_id, summary=summary, repository=repository, priority=priority
         ),
         user_id=task_user.id,
         repository=repository,

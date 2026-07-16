@@ -23,6 +23,7 @@ import { selectionKeyOf, type DateRangeSelection } from 'lib/components/DateFilt
 import { dateRangeForSelection, selectionForDateRange } from 'lib/components/DateFilter/dateRangeSelection'
 import { QuillDateFilter } from 'lib/components/DateFilter/QuillDateFilter'
 import { dateFilterToText, dateMapping } from 'lib/utils/dateFilters'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -47,8 +48,9 @@ type InsightQuillDateFilterProps = {
 
 export function InsightQuillDateFilter({ disabled }: InsightQuillDateFilterProps): JSX.Element {
     const { insightProps, editingDisabledReason } = useValues(insightLogic)
-    const { dateRange, trendsFilter, isTrends, isRetention } = useValues(insightVizDataLogic(insightProps))
+    const { dateRange, trendsFilter, isTrends, isRetention, querySource } = useValues(insightVizDataLogic(insightProps))
     const { updateDateRange, updateQuerySource } = useActions(insightVizDataLogic(insightProps))
+    const { reportInsightDatePickerOpened } = useActions(eventUsageLogic)
     const { weekStartDay } = useValues(teamLogic)
     const [open, setOpen] = useState(false)
 
@@ -98,7 +100,15 @@ export function InsightQuillDateFilter({ disabled }: InsightQuillDateFilterProps
     const exclusionParts = dateFilterExclusionParts(exclusions)
 
     return (
-        <Popover open={open} onOpenChange={setOpen}>
+        <Popover
+            open={open}
+            onOpenChange={(next) => {
+                if (next && !open) {
+                    reportInsightDatePickerOpened(querySource?.kind)
+                }
+                setOpen(next)
+            }}
+        >
             <PopoverTrigger
                 render={
                     <Button

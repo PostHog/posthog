@@ -4,10 +4,10 @@ import { useCallback } from 'react'
 import { IconArrowRight, IconCheck, IconLock } from '@posthog/icons'
 import { LemonButton, Popover, PopoverProps, Tooltip } from '@posthog/lemon-ui'
 
-import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import { getExternalAIProvidersTooltipTitle, openAIConsentLegalDialog } from './aiConsentCopy'
+import { aiConsentLogic } from './aiConsentLogic'
 
 export function AIConsentPopoverContent({
     onApprove,
@@ -54,8 +54,8 @@ export function AIConsentPopoverContent({
 }
 
 function AIAccessRequestPopoverContent(): JSX.Element {
-    const { requestingAiAccess, aiAccessRequested } = useValues(maxGlobalLogic)
-    const { requestAiAccess } = useActions(maxGlobalLogic)
+    const { requestingAiAccess, aiAccessRequested } = useValues(aiConsentLogic)
+    const { requestAiAccess } = useActions(aiConsentLogic)
 
     return (
         <div className="flex flex-col gap-2 m-1.5 max-w-prose">
@@ -95,10 +95,10 @@ export function AIConsentPopoverWrapper({
     onApprove?: () => void
     onDismiss?: () => void
 }): JSX.Element {
-    const { acceptDataProcessing } = useAsyncActions(maxGlobalLogic)
+    const { acceptDataProcessing } = useAsyncActions(aiConsentLogic)
     const { dataProcessingApprovalDisabledReason, dataProcessingAccepted, dataProcessingDismissed } =
-        useValues(maxGlobalLogic)
-    const { dismissDataProcessing } = useActions(maxGlobalLogic)
+        useValues(aiConsentLogic)
+    const { dismissDataProcessing } = useActions(aiConsentLogic)
     const { isAdminOrOwner } = useValues(organizationLogic)
 
     const handleDismiss = (): void => {
