@@ -167,6 +167,7 @@
     // so it reads as the (clickable) email rather than a standalone button.
     &__user-trigger.LemonButton {
         display: inline-flex;
+        max-width: 100%;
         min-height: auto;
         padding: 0 0.125rem;
         font-size: inherit;

@@ -196,7 +196,8 @@ function ImpersonationNoticeContent(): JSX.Element {
                         size="xsmall"
                         sideIcon={<IconChevronDown />}
                         loading={isChangingUser}
-                        tooltip="Change user"
+                        tooltip={`Currently impersonating ${user?.email} - click to switch user`}
+                        truncate
                         className="ImpersonationNotice__user-trigger text-warning"
                     >
                         {user?.email}
