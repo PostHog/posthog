@@ -2921,6 +2921,36 @@ file to prove a gap and another agent read it mid-experiment.
 API/MCP only for now); a partial unique index if a hard DB single-active guarantee is ever wanted (app-level matches
 perspectives today).
 
+##### ✅ BUILT 2026-07-16 — per-user VISIBILITY of custom review skills (menus show canonicals + your own)
+
+Custom review skills were team-visible: all three config menus (perspectives / validators / blind-spots) listed every team `LLMSkill` with the prefix,
+so one user's custom appeared in — and was enableable by exact name from — every teammate's Code review tab, with the clutter compounding as customs multiply.
+Locked with the user (AskUserQuestion, 2026-07-16):
+
+- **Visibility rule:** a skill is visible to a user iff its name is canonical (`CANONICAL_*_SKILL_NAMES` — by name, so a team-edited canonical stays visible to everyone)
+  OR the **earliest live version's `created_by`** is that user.
+  This refines the 2026-06-29 "`created_by` is audit-only" lock: still audit-only for identity and editing (edits mint new versions stamped with the _editor_ and do NOT transfer visibility);
+  the first version's author now governs **menu visibility only**.
+  Earliest _live_ version rather than literally `version=1`: deleted rows are excluded, so an archived name later recreated by another user belongs to the new author
+  (deleted `(name, version)` pairs can duplicate — the unique constraints only cover `deleted=False`).
+- **Strict, no grandfathering** (decided while the feature had no external adopters): `partial_update` 404s on a non-visible skill exactly like a missing one
+  (a distinct error would leak that the name exists), closing the enable-any-team-skill-by-name backdoor. No data migration; the loaders backstop instead.
+- **Loader backstop:** `load_perspectives_for_run` warn-and-skips an enabled name outside the acting user's visible set
+  (same posture and hole-preserving `pass_number` semantics as the dead-skill skip), and `_load_single_active_skill` falls back to the canonical on a foreign selection —
+  so a pre-fix foreign-enabled row stops running rather than running invisibly, self-healing with no migration.
+- **Scope:** all three review menus. The team-level Skills page (`/skills`) intentionally keeps showing all team skills —
+  this is a clutter fix, not confidentiality: bodies stay team-readable there, and teammates can still edit each other's customs (accepted risk).
+  Signals scouts share the identical all-team-menu pattern; same future problem, deliberately out of scope here.
+- **Consequences:** a custom whose author's account is deleted (`created_by` → NULL on SET_NULL) is visible to no one and stops running
+  (its config rows CASCADE with the account); cleanup is archiving from the Skills page.
+  A skill authored through an agent session is stamped with that session's user.
+  "Adopt a teammate's skill" is now duplicate-under-a-new-name (v1 `created_by` = the duplicator), not enable-by-name.
+
+Implementation: `visible_skill_names(team_id, user_id, prefix, canonical_names)` in `skill_loader.py` (one `DISTINCT ON (name) ORDER BY name, version` query over live rows),
+used by all three config viewsets (`list` + `partial_update`) and both loader paths.
+Tests: per surface, a teammate's custom is hidden from `list` and 404s on PATCH; the perspective loader skips a foreign-enabled row keeping pass-number holes;
+the single-active loader falls back to canonical on a foreign selection; existing custom-skill fixtures now stamp `created_by`.
+
 The fact that keeps all of this safe: **the output schema is fixed; only the skill (logic) is editable.** Every
 perspective validates against `IssuesReview`/`Issue`, the validator against `IssueValidation`, chunking against
 `ChunksList` — all **code, not skills** — so editing a skill cannot change the output format and the downstream
