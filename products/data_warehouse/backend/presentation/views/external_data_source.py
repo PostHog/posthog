@@ -4084,6 +4084,19 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         return Response(status=status.HTTP_200_OK, data={"success": True, "schemas_reset": schemas_reset})
 
+    @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(
+                response={"type": "object", "properties": {"success": {"type": "boolean"}}},
+                description="CDC resumed; the extraction schedule is unpaused.",
+            ),
+            400: OpenApiResponse(
+                description="CDC not enabled, the slot/publication were lost (use Repair CDC), the source is still "
+                "unreachable, or unpausing failed."
+            ),
+        },
+    )
     @action(methods=["POST"], detail=True)
     def resume_cdc(self, request: Request, *arg: Any, **kwargs: Any):
         """Resume a CDC source whose extraction schedule was paused by a non-retryable
@@ -4112,12 +4125,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         # A broken source has lost its slot/publication — resuming would just re-fail on the
         # next tick. Route the user to Repair CDC, which recreates them (and re-syncs).
-        broken = ExternalDataSchema.objects.filter(
+        cdc_schemas = ExternalDataSchema.objects.filter(
             source=instance,
             sync_type=ExternalDataSchema.SyncType.CDC,
             should_sync=True,
         ).exclude(deleted=True)
-        if any((schema.sync_type_config or {}).get("cdc_broken") for schema in broken):
+        if any((schema.sync_type_config or {}).get("cdc_broken") for schema in cdc_schemas):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": "The replication slot or publication was lost. Use Repair CDC to recreate it."},
@@ -4250,6 +4263,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": f"Could not connect to source to read CDC status: {e}"},
             )
 
+        # Paused-but-slot-intact means a non-retryable failure stopped the schedule; the UI offers
+        # Resume (vs Repair) so the user can restart without a full re-sync. Best-effort: a Temporal
+        # hiccup must not 500 this otherwise DB-only status read, so degrade to not-paused.
+        try:
+            schedule_paused = is_cdc_extraction_schedule_paused(str(instance.id))
+        except Exception:
+            logger.warning("cdc_status_schedule_paused_lookup_failed", source_id=str(instance.id), exc_info=True)
+            schedule_paused = False
+
         return Response(
             status=status.HTTP_200_OK,
             data={
@@ -4259,9 +4281,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "publication_name": cdc_config.publication_name,
                 "lag_warning_threshold_mb": cdc_config.lag_warning_threshold_mb,
                 "lag_critical_threshold_mb": cdc_config.lag_critical_threshold_mb,
-                # Paused-but-slot-intact means a non-retryable failure stopped the schedule; the UI
-                # offers Resume (vs Repair) so the user can restart without a full re-sync.
-                "schedule_paused": is_cdc_extraction_schedule_paused(str(instance.id)),
+                "schedule_paused": schedule_paused,
                 **live_status,
             },
         )

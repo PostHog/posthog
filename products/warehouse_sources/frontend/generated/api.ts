@@ -25,6 +25,7 @@ import type {
     ExternalDataSourcesListParams,
     ExternalDataSourcesOauthAccountsRetrieveParams,
     ExternalDataSourcesRepairCdcCreate200,
+    ExternalDataSourcesResumeCdcCreate200,
     ExternalDataSourcesStoredCredentialsListParams,
     ExternalDataSourcesWizardRetrieveParams,
     IntegrationAccountsResponseApi,
@@ -697,14 +698,11 @@ export const getExternalDataSourcesResumeCdcCreateUrl = (projectId: string, id: 
 export const externalDataSourcesResumeCdcCreate = async (
     projectId: string,
     id: string,
-    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSourcesResumeCdcCreateUrl(projectId, id), {
+): Promise<ExternalDataSourcesResumeCdcCreate200> => {
+    return apiMutator<ExternalDataSourcesResumeCdcCreate200>(getExternalDataSourcesResumeCdcCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSourceSerializersApi),
     })
 }
 

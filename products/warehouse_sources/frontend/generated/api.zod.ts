@@ -1892,50 +1892,6 @@ export const ExternalDataSourcesReloadCreateBody = /* @__PURE__ */ zod
     .describe('Mixin for serializers to add user access control fields')
 
 /**
- * Resume a CDC source whose extraction schedule was paused by a non-retryable
- * failure that left the replication slot intact (bad credentials, SSL/host errors).
- *
- * Once the user has fixed the root cause, this re-probes the source DB — confirming
- * the connection now succeeds and the slot/publication still exist — then unpauses the
- * extraction schedule so streaming resumes from where it left off. No re-snapshot, so
- * it's the cheap counterpart to Repair CDC. If the slot/publication are actually gone
- * (``cdc_broken``, or a live probe showing them missing), resume is refused — only
- * Repair CDC can recreate them, at the cost of a full re-sync.
- */
-export const externalDataSourcesResumeCdcCreateBodyPrefixMax = 100
-
-export const externalDataSourcesResumeCdcCreateBodyDescriptionMax = 400
-
-export const ExternalDataSourcesResumeCdcCreateBody = /* @__PURE__ */ zod
-    .object({
-        created_via: zod
-            .union([
-                zod
-                    .enum(['web', 'api', 'mcp', 'wizard', 'self_driving'])
-                    .describe(
-                        '\* `web` - web\n\* `api` - api\n\* `mcp` - mcp\n\* `wizard` - wizard\n\* `self_driving` - self_driving'
-                    ),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                "How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent\/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Code app (both derived server-side from the caller's user agent). Ignored on update.\n\n\* `web` - web\n\* `api` - api\n\* `mcp` - mcp\n\* `wizard` - wizard\n\* `self_driving` - self_driving"
-            ),
-        client_secret: zod.string(),
-        account_id: zod.string(),
-        prefix: zod.string().max(externalDataSourcesResumeCdcCreateBodyPrefixMax).nullish(),
-        description: zod.string().max(externalDataSourcesResumeCdcCreateBodyDescriptionMax).nullish(),
-        direct_query_enabled: zod
-            .boolean()
-            .optional()
-            .describe(
-                'Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources.'
-            ),
-        job_inputs: zod.unknown().optional(),
-    })
-    .describe('Mixin for serializers to add user access control fields')
-
-/**
  * Update the revenue analytics configuration and return the full external data source.
  */
 export const externalDataSourcesRevenueAnalyticsConfigPartialUpdateBodyPrefixMax = 100

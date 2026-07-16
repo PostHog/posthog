@@ -10532,6 +10532,21 @@ class TestCDCStatus(APIBaseTest):
 
     @patch(
         "products.data_warehouse.backend.presentation.views.external_data_source.is_cdc_extraction_schedule_paused",
+        side_effect=Exception("temporal unavailable"),
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.get_status",
+        return_value={"slot_exists": True, "publication_exists": True, "lag_bytes": 2048},
+    )
+    def test_schedule_paused_lookup_failure_degrades_to_false(self, _mock_get_status, _mock_paused) -> None:
+        # A Temporal outage must not 500 this otherwise DB-only status read.
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/cdc_status/")
+        assert response.status_code == 200, response.content
+        assert response.json()["schedule_paused"] is False
+
+    @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_source.is_cdc_extraction_schedule_paused",
         return_value=False,
     )
     @patch(
