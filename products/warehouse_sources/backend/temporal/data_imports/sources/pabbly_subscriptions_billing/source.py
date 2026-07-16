@@ -78,7 +78,6 @@ You can generate both keys under **Settings → API Settings** in [Pabbly Subscr
                     ),
                 ],
             ),
-            unreleasedSource=True,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
