@@ -8,6 +8,8 @@ from unittest.mock import AsyncMock, patch
 
 from parameterized import parameterized
 
+from posthog.hogql.errors import QueryError
+
 from posthog.models import ActivityLog
 from posthog.models.activity_logging.activity_log import Detail
 
@@ -1163,6 +1165,65 @@ class TestSavedQuery(APIBaseTest):
 
             # Verify get_columns was called
             mock_get_columns.assert_called_once()
+
+    def test_update_with_hogql_user_error_surfaces_message_without_capturing(self):
+        # Expected HogQL user errors (e.g. querying a table you can't access or that no longer
+        # exists) must reach the user as a ValidationError but must NOT be reported to error
+        # tracking — otherwise every such save files a junk issue.
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        saved_query = response.json()
+
+        with (
+            patch.object(DataWarehouseSavedQuery, "get_columns") as mock_get_columns,
+            patch("products.data_warehouse.backend.presentation.views.saved_query.capture_exception") as mock_capture,
+        ):
+            mock_get_columns.side_effect = QueryError("You don't have access to table `denied_table`.")
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+                {
+                    "query": {"kind": "HogQLQuery", "query": "select * from denied_table"},
+                    "edited_history_id": saved_query["latest_history_id"],
+                },
+            )
+
+            self.assertEqual(response.status_code, 400, response.content)
+            self.assertIn("You don't have access to table", response.json()["detail"])
+            mock_capture.assert_not_called()
+
+    def test_update_with_unexpected_error_is_captured(self):
+        # A genuinely unexpected failure while inferring columns should still be reported.
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        saved_query = response.json()
+
+        with (
+            patch.object(DataWarehouseSavedQuery, "get_columns") as mock_get_columns,
+            patch("products.data_warehouse.backend.presentation.views.saved_query.capture_exception") as mock_capture,
+        ):
+            mock_get_columns.side_effect = ValueError("boom")
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+                {
+                    "query": {"kind": "HogQLQuery", "query": "select event as event from events LIMIT 10"},
+                    "edited_history_id": saved_query["latest_history_id"],
+                },
+            )
+
+            self.assertEqual(response.status_code, 400, response.content)
+            mock_capture.assert_called_once()
 
     def test_create_with_activity_log(self):
         response = self.client.post(
