@@ -476,12 +476,16 @@ class HeatmapAggregateQueryScopingPermission(AccessControlPermission):
         except (ValueError, KeyError):
             return True
 
-        # Resolve the same way HeatmapsRequestSerializer.validate() does — otherwise a caller could
-        # get authorized against url_exact while the query that actually runs reads url_pattern (or
-        # vice versa), authorizing one URL and querying another.
-        url_exact, url_pattern = resolve_url_filter(
-            request.query_params.get("url_exact"), request.query_params.get("url_pattern")
-        )
+        # Resolve the same way HeatmapsRequestSerializer does — otherwise a caller could get
+        # authorized against url_exact while the query that actually runs reads url_pattern (or
+        # vice versa), authorizing one URL and querying another. `validate_url_pattern` anchors
+        # the raw url_pattern *before* `validate()` compares it against url_exact, so a raw
+        # url_pattern equal to url_exact no longer matches once anchored — apply the same
+        # transform here, or a caller could send matching raw url_exact/url_pattern values to get
+        # authorized as an exact match while the anchored pattern actually executes.
+        raw_url_pattern = request.query_params.get("url_pattern")
+        anchored_url_pattern = anchor_url_pattern(raw_url_pattern) if raw_url_pattern else raw_url_pattern
+        url_exact, _ = resolve_url_filter(request.query_params.get("url_exact"), anchored_url_pattern)
         if not url_exact:
             # A url_pattern query matches every row whose current_url satisfies the pattern, not
             # just the granted SavedHeatmap's URL — an object grant can't bound that, so patterns

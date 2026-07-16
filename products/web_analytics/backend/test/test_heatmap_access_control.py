@@ -335,6 +335,33 @@ class TestHeatmapAggregateQueryAccessControl(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.json())
 
+    def test_object_grant_cannot_smuggle_pattern_via_matching_raw_url_exact(self):
+        # Regression: HeatmapsRequestSerializer anchors url_pattern (via validate_url_pattern)
+        # before validate() compares it against url_exact, so a raw url_pattern identical to
+        # url_exact no longer matches once anchored — validate() then drops url_exact and the
+        # query runs against the (broad) pattern instead. A grant on a heatmap whose data_url
+        # happens to look like a pattern must not let a matching raw url_exact/url_pattern pair
+        # authorize as an exact match while the anchored pattern actually executes.
+        broad_pattern_heatmap = SavedHeatmap.objects.create(
+            team=self.team,
+            name="broad pattern lookalike",
+            url="https://example.com/.*",
+            data_url="https://example.com/.*",
+            target_widths=[1024],
+            created_by=self.user,
+            status=SavedHeatmap.Status.COMPLETED,
+        )
+        membership = OrganizationMembership.objects.get(user=self.viewer_user, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="heatmap",
+            resource_id=str(broad_pattern_heatmap.id),
+            access_level="viewer",
+            organization_member=membership,
+        )
+        response = self._query_aggregate(url_exact="https://example.com/.*", url_pattern="https://example.com/.*")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.json())
+
     def test_events_drilldown_does_not_expose_other_urls(self):
         self.client.force_login(self.viewer_user)
         response = self.client.get(
