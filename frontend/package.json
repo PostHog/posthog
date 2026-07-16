@@ -43,7 +43,7 @@
         "lint:fix": "cd .. && oxlint --fix --quiet",
         "format": "cd .. && oxfmt \"./{products,frontend/src,docs}/**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
         "format:check": "cd .. && oxfmt --check \"./{products,frontend/src,docs}/**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
-        "fix": "pnpm lint:fix; lint_status=$?; pnpm format; format_status=$?; if [ \"$lint_status\" -ne 0 ] || [ \"$format_status\" -ne 0 ]; then exit 1; fi",
+        "fix": "pnpm lint:fix; s=$?; pnpm format && exit $s",
         "visualize-toolbar-bundle": "pnpm exec esbuild-visualizer --metadata ./toolbar-esbuild-meta.json --filename=toolbar-esbuild-bundle-visualization.html",
         "check-toolbar-csp-eval": "node ./bin/check-toolbar-csp-eval.mjs",
         "check-toolbar-graph": "node ./bin/check-toolbar-graph.mjs",

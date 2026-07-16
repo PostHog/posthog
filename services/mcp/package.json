@@ -43,7 +43,7 @@
         "lint:fix": "oxlint --fix --quiet",
         "format": "oxfmt \"./**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
         "format:check": "oxfmt --check \"./**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
-        "fix": "pnpm lint:fix; lint_status=$?; pnpm format; format_status=$?; if [ \"$lint_status\" -ne 0 ] || [ \"$format_status\" -ne 0 ]; then exit 1; fi"
+        "fix": "pnpm lint:fix; s=$?; pnpm format && exit $s"
     },
     "dependencies": {
         "@hono/node-server": "^2.0.2",
