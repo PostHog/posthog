@@ -12,6 +12,7 @@ import type { HttpFetcher } from './http-client'
 import type { IdentityCredentialStore, StoredCredential } from './identity-credential-store'
 import type { IdentityLinkStateStore } from './identity-link-state-store'
 import type {
+    BearerVerification,
     IdentityCompleteInput,
     IdentityCompleteResult,
     IdentityExchangeResult,
@@ -61,9 +62,31 @@ export class Oauth2AuthProvider implements IdentityProvider {
     // subclass can override it to `true`.
     readonly establishesIdentity: boolean = false
 
+    /**
+     * Per-request bearer verification via userinfo. Assigned in the constructor
+     * (not a prototype method) so it is genuinely `undefined` when the provider
+     * has no `userinfoUrl` — admission treats a present `verifyBearer` as "this
+     * provider can judge bearers", and a present-but-invalid bearer forces
+     * re-auth WITHOUT consulting the durable binding. A stub that always
+     * returned null would therefore lock bound users out.
+     */
+    readonly verifyBearer?: (token: string) => Promise<BearerVerification | null>
+
     // `protected` (not `private`) so an identity-establishing subclass
     // (PostHogAuthProvider) can reach the config + http to derive a subject.
-    constructor(protected readonly deps: Oauth2ProviderDeps) {}
+    constructor(protected readonly deps: Oauth2ProviderDeps) {
+        if (deps.config.userinfoUrl) {
+            this.verifyBearer = async (token: string): Promise<BearerVerification | null> => {
+                const subject = await this.fetchSubject(token)
+                if (!subject) {
+                    return null
+                }
+                // The bearer is the credential — no refresh token and no known
+                // expiry; admission re-verifies it on every request anyway.
+                return { subject, stored: { access_token: token }, scopes: [] }
+            }
+        }
+    }
 
     get id(): string {
         return this.deps.config.id

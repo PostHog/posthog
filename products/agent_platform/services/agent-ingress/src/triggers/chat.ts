@@ -9,13 +9,22 @@
  * modes before the handler, so each handler receives an authenticated
  * `principal`. The write/stream paths additionally enforce session ownership
  * (ACL) on the principal the guard produced.
+ *
+ * Edge admission: when the agent declares an `authoritative_provider`, the
+ * write paths (`/run`, `/send`) must additionally resolve a verified canonical
+ * identity for the principal before touching a session — unauthenticated
+ * callers get `401 { auth_required }` with a link (see `admitChatPrincipal`).
  */
 
 import { z } from 'zod'
 
-import { buildClientToolResultMarker, TRIGGER_ROUTES } from '@posthog/agent-shared'
+import { buildClientToolResultMarker, createLogger, TRIGGER_ROUTES, type SessionPrincipal } from '@posthog/agent-shared'
+
+const log = createLogger('chat-trigger')
 
 import { buildElevationResponse, principalDisplay, recordElevationRequest, requireAclAccess } from '../enqueue/acl'
+import { buildAdmission, httpTransportClaim } from '../enqueue/admission-gate'
+import { readBearer } from '../enqueue/auth'
 import { enqueueOrResume } from '../enqueue/enqueue'
 import { activeStreams } from '../metrics'
 import {
@@ -28,10 +37,61 @@ import {
 import { getOwnedSession } from './session-access'
 import { defineRoute, type AuthedRouteCtx, type TriggerModule } from './types'
 
+/**
+ * Edge admission for the HTTP/chat transport (mirrors the Slack trigger): if
+ * the agent declares an authoritative provider, the claim must resolve a
+ * verified identity BEFORE any session work. Unauthenticated → respond
+ * `401 { auth_required, provider, authorize_url }`; provider/config error →
+ * fail closed with a 500. Returns the principal to use downstream — stamped
+ * with `canonical_agent_user_id` when admitted — or null when the response
+ * has already been written.
+ */
+async function admitChatPrincipal(ctx: AuthedRouteCtx<unknown>): Promise<SessionPrincipal | null> {
+    const { req, res, deps, resolved } = ctx
+    const admission = buildAdmission(deps, resolved.revision, resolved.application.slug)
+    if (!admission) {
+        return ctx.principal
+    }
+    const claim = httpTransportClaim(ctx.principal, readBearer(req), resolved.revision)
+    if (!claim) {
+        // Machine principals and the public opt-in anonymous principal carry no
+        // per-sender human identity to admit — their trust model is the auth
+        // mode the author configured (see `httpTransportClaim`).
+        return ctx.principal
+    }
+    const result = await admission.resolve(claim, {
+        application: resolved.application,
+        revision: resolved.revision,
+    })
+    if (result.kind === 'auth_required') {
+        // Unlike Slack (which must 200 to stop retries and delivers the link
+        // out-of-band), HTTP callers get the auth block in the response itself.
+        res.status(401).json({
+            error: 'auth_required',
+            auth_required: true,
+            provider: result.provider,
+            authorize_url: result.authorizeUrl,
+        })
+        return null
+    }
+    if (result.kind === 'error') {
+        log.warn({ slug: resolved.application.slug, reason: result.reason }, 'chat_admission_error')
+        res.status(500).json({ error: 'admission_failed' })
+        return null
+    }
+    if (result.kind === 'admitted' && (ctx.principal.kind === 'posthog' || ctx.principal.kind === 'jwt')) {
+        return { ...ctx.principal, canonical_agent_user_id: result.identity.canonicalId }
+    }
+    return ctx.principal
+}
+
 async function runHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatRunBodySchema>>): Promise<void> {
     const { res, deps, resolved } = ctx
     const { message, external_key: externalKey = null, supported_client_tools: supportedClientTools } = ctx.parsed
-    const sessionPrincipal = ctx.principal
+    const sessionPrincipal = await admitChatPrincipal(ctx)
+    if (!sessionPrincipal) {
+        return
+    }
     const outcome = await enqueueOrResume(
         { queue: deps.queue },
         {
@@ -65,13 +125,20 @@ async function runHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatRunBodySchema>>
         ok: true,
         session_id: outcome.sessionId,
         resumed: outcome.isResume,
-        principal: ctx.principal,
+        principal: sessionPrincipal,
     })
 }
 
 async function sendHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatSendBodySchema>>): Promise<void> {
     const { res, deps, resolved } = ctx
     const { session_id: sessionId, message, client_tool_result } = ctx.parsed
+    // Admission runs per message (like the Slack path) and before the session
+    // lookup, so a revoked binding stops advancing a session — and an
+    // unadmitted caller can't probe session ids through the 404.
+    const incomingPrincipal = await admitChatPrincipal(ctx)
+    if (!incomingPrincipal) {
+        return
+    }
     const existing = await getOwnedSession(ctx, sessionId)
     if (!existing) {
         res.status(404).json({ error: 'session_not_found' })
@@ -79,7 +146,6 @@ async function sendHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatSendBodySchema
     }
     // Strict principal match: the guard authenticated the caller; compare to
     // the principal stored at /run time.
-    const incomingPrincipal = ctx.principal
     const aclCheck = requireAclAccess(existing, incomingPrincipal)
     if (aclCheck.kind === 'denied') {
         const proposed: string =

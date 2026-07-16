@@ -115,7 +115,9 @@ Resolution order (fail-closed — never enqueue on doubt):
    matches and its authoritative credential is still active; a
    dangling/stale/revoked one falls through to re-auth.
 4. Otherwise → `auth_required`: deliver an auth block (a link) and enqueue
-   nothing. The OAuth callback runs `AdmissionService.complete`, which creates
+   nothing. Slack delivers it privately (ephemeral) and answers 200 to stop retries;
+   chat/HTTP returns it in the response itself as `401 { auth_required, provider, authorize_url }`.
+   The OAuth callback runs `AdmissionService.complete`, which creates
    the canonical identity, stores the authoritative credential under it, and
    writes the binding.
 
@@ -124,8 +126,13 @@ future turn (and the same person via another transport) resolves the same
 identity. Secondary providers' credentials (below) hang off the **canonical**
 `agent_user`, so a person's GitHub/Grafana links are shared across transports.
 
-> Wired for `slack` triggers only today; the spec schema fail-closes a spec that
-> sets `authoritative_provider` alongside a not-yet-wired trigger type.
+> Wired for `slack` and `chat` triggers today; the spec schema fail-closes a spec that
+> sets `authoritative_provider` alongside a not-yet-wired trigger type (`webhook`, `mcp`, `cron`).
+> On chat, `/run` and `/send` resolve admission before any session work,
+> and an admitted principal carries `canonical_agent_user_id` so secondary
+> credentials key off the canonical identity on HTTP too.
+> A per-request PostHog bearer satisfies a `kind: posthog` authoritative provider inline
+> (`verifyBearer` exists only when the provider has a `userinfo_url`).
 
 ## Linked identities
 

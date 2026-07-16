@@ -10,11 +10,24 @@
  *
  * Plus a passthrough agent (no authoritative_provider) that runs immediately,
  * proving backward-compatibility through the same path.
+ *
+ * The second describe proves the same gate is transport-agnostic: the chat/HTTP
+ * path returns the auth block as `401 { auth_required }` (jwt principals link
+ * like Slack ones do), and a per-request PostHog bearer satisfies a
+ * `kind: posthog` authoritative provider with no link round-trip at all.
  */
 
+import { createHmac } from 'node:crypto'
 import request from 'supertest'
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 
+import {
+    type AuthProvider,
+    jwtVerifier,
+    type PosthogIdentityIntrospector,
+    posthogVerifier,
+    type TeamOrgLookup,
+} from '@posthog/agent-ingress'
 import { canonicalKind, HttpClient, PgTransportBindingStore } from '@posthog/agent-shared'
 
 import { buildCluster, Cluster, fauxText } from '../harness'
@@ -90,6 +103,17 @@ function assistantText(conversation: unknown[]): string {
 
 const maybeDescribe = process.env.SKIP_PG_TESTS === '1' ? describe.skip : describe
 
+// Drive the real OAuth callback on the ingress route: browser hits the IdP
+// /authorize (302 → our callback), then GET /link/dogs/callback?state&code.
+async function completeLink(c: Cluster, authorizeUrl: string): Promise<void> {
+    const res = await fetch(authorizeUrl, { redirect: 'manual' })
+    const loc = new URL(res.headers.get('location') ?? '')
+    await request(c.ingress)
+        .get(loc.pathname)
+        .query({ state: loc.searchParams.get('state') ?? '', code: loc.searchParams.get('code') ?? '' })
+        .expect(200)
+}
+
 maybeDescribe('edge admission e2e (Slack, authoritative provider, mocked inference)', () => {
     let ok = false
     let dog: DogServer
@@ -103,17 +127,6 @@ maybeDescribe('edge admission e2e (Slack, authoritative provider, mocked inferen
         await c?.teardown().catch(() => undefined)
         await dog?.close().catch(() => undefined)
     })
-
-    // Drive the real OAuth callback on the ingress route: browser hits the IdP
-    // /authorize (302 → our callback), then GET /link/dogs/callback?state&code.
-    const completeLink = async (authorizeUrl: string): Promise<void> => {
-        const res = await fetch(authorizeUrl, { redirect: 'manual' })
-        const loc = new URL(res.headers.get('location') ?? '')
-        await request(c.ingress)
-            .get(loc.pathname)
-            .query({ state: loc.searchParams.get('state') ?? '', code: loc.searchParams.get('code') ?? '' })
-            .expect(200)
-    }
 
     it('Slack: unbound → auth_required (no run) → link → admitted → agent runs', async () => {
         if (!ok) {
@@ -161,7 +174,7 @@ maybeDescribe('edge admission e2e (Slack, authoritative provider, mocked inferen
         await c.drain() // nothing queued; a no-op
 
         // Complete the link → admission writes the binding + canonical identity.
-        await completeLink(authorizeUrl)
+        await completeLink(c, authorizeUrl)
         const bindings = new PgTransportBindingStore(c.pool)
 
         // Turn 2: same user → admitted → the agent actually runs and replies.
@@ -214,5 +227,213 @@ maybeDescribe('edge admission e2e (Slack, authoritative provider, mocked inferen
         await c.drain()
         const s = await c.queue.get(res.body.session_id)
         expect(assistantText(s!.conversation)).toContain('hello right away')
+    })
+})
+
+const JWT_SECRET_REF = 'EMBED_SECRET'
+const JWT_SECRET_VALUE = 'chat-admission-jwt-secret'
+
+function makeJwt(sub: string): string {
+    const b64 = (v: object): string =>
+        Buffer.from(JSON.stringify(v)).toString('base64').replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_')
+    const header = b64({ alg: 'HS256', typ: 'JWT' })
+    const payload = b64({ sub })
+    const sig = createHmac('sha256', JWT_SECRET_VALUE)
+        .update(`${header}.${payload}`)
+        .digest('base64')
+        .replace(/=+$/, '')
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+    return `${header}.${payload}.${sig}`
+}
+
+const jwtAuthProvider: AuthProvider = {
+    verifiers: [
+        jwtVerifier({
+            async resolve(ref) {
+                return ref === JWT_SECRET_REF ? JWT_SECRET_VALUE : null
+            },
+        }),
+    ],
+}
+
+// `project`-audience agents never consult the org lookup.
+const teamOrg: TeamOrgLookup = {
+    async orgForTeam() {
+        return null
+    },
+}
+
+const PH_SUB = 'ph-user-uuid-1'
+const PH_BEARER = 'phx_live_bearer'
+
+const posthogIntrospector: PosthogIdentityIntrospector = {
+    async introspect(bearer) {
+        return bearer === PH_BEARER ? { uuid: PH_SUB, email: 'alice@posthog.com', team: { id: 1 } } : null
+    },
+    async canAccessTeam(bearer) {
+        return bearer === PH_BEARER
+    },
+}
+
+// Real HTTP everywhere (the dogs IdP is a real local server), except PostHog's
+// /oauth/userinfo/ — there is no Django in the harness, so the authoritative
+// posthog provider's `verifyBearer` introspection is scripted by token.
+function posthogUserinfoHttp(validBearers: Record<string, string>): { fetch: HttpClient['fetch'] } {
+    const real = new HttpClient()
+    return {
+        fetch: (input, init) => {
+            const url = typeof input === 'string' ? input : input.toString()
+            if (url.includes('/oauth/userinfo')) {
+                const auth = ((init?.headers ?? {}) as Record<string, string>)['Authorization'] ?? ''
+                const sub = validBearers[auth.replace('Bearer ', '')]
+                if (!sub) {
+                    return Promise.resolve(new Response(JSON.stringify({ error: 'invalid_token' }), { status: 401 }))
+                }
+                return Promise.resolve(
+                    new Response(JSON.stringify({ sub }), {
+                        status: 200,
+                        headers: { 'content-type': 'application/json' },
+                    })
+                )
+            }
+            return real.fetch(input, init)
+        },
+    }
+}
+
+maybeDescribe('edge admission e2e (chat/HTTP, authoritative provider, mocked inference)', () => {
+    let ok = false
+    let dog: DogServer
+    let c: Cluster
+
+    beforeAll(async () => {
+        ok = await reachable()
+    })
+
+    afterEach(async () => {
+        await c?.teardown().catch(() => undefined)
+        await dog?.close().catch(() => undefined)
+    })
+
+    it('chat (jwt): /run → 401 auth_required (no session) → link → admitted → runs; unlink re-gates /send', async () => {
+        if (!ok) {
+            return
+        }
+        dog = await startDogServer({ userSub: 'alice-canonical' })
+        c = await buildCluster({ http: new HttpClient(), authProvider: jwtAuthProvider })
+        await c.deployAgent({
+            slug: 'gatedchat',
+            spec: {
+                triggers: [{ type: 'chat', config: {} }],
+                auth: { modes: [{ type: 'jwt', issuer_secret_ref: JWT_SECRET_REF }] },
+                authoritative_provider: 'dogs',
+                identity_providers: [
+                    {
+                        kind: 'oauth2',
+                        id: 'dogs',
+                        authorize_url: dog.authorizeUrl,
+                        token_url: dog.tokenUrl,
+                        userinfo_url: dog.userinfoUrl,
+                        client_id: 'dogs-client',
+                        scopes: ['read:dog'],
+                    },
+                ],
+            },
+        })
+        const bearer = makeJwt('alice')
+
+        // Turn 1: unbound → the auth block comes back IN the response (401),
+        // and nothing is enqueued.
+        c.setScript([fauxText('should not run yet')])
+        const first = await request(c.ingress)
+            .post('/agents/gatedchat/run')
+            .set('Authorization', `Bearer ${bearer}`)
+            .send({ message: 'hi' })
+        expect(first.status).toBe(401)
+        expect(first.body).toMatchObject({ error: 'auth_required', auth_required: true, provider: 'dogs' })
+        expect(first.body.session_id).toBeUndefined()
+        expect(first.body.authorize_url).toContain(dog.baseUrl)
+        await c.drain() // nothing queued; a no-op
+
+        await completeLink(c, first.body.authorize_url as string)
+
+        // Turn 2: same JWT sub → admitted → the agent runs; the response
+        // principal carries the canonical identity admission resolved.
+        c.setScript([fauxText('woof, admitted')])
+        const second = await request(c.ingress)
+            .post('/agents/gatedchat/run')
+            .set('Authorization', `Bearer ${bearer}`)
+            .send({ message: 'still there?' })
+        expect(second.status).toBe(200)
+        await c.drain()
+        const session = await c.queue.get(second.body.session_id)
+        expect(assistantText(session!.conversation)).toContain('woof, admitted')
+
+        const cano = await c.identities.find({
+            application_id: session!.application_id,
+            principal_kind: canonicalKind('dogs'),
+            principal_id: 'alice-canonical',
+        })
+        expect(cano).toBeTruthy()
+        expect(second.body.principal.canonical_agent_user_id).toBe(cano!.id)
+
+        // Unlink → the binding is gone, so even the EXISTING session stops
+        // advancing: /send re-runs admission per message, like the Slack path.
+        const transportUser = await c.identities.find({
+            application_id: session!.application_id,
+            principal_kind: 'jwt',
+            principal_id: 'alice',
+        })
+        await new PgTransportBindingStore(c.pool).unbind(session!.application_id, transportUser!.id)
+        const send = await request(c.ingress)
+            .post('/agents/gatedchat/send')
+            .set('Authorization', `Bearer ${bearer}`)
+            .send({ session_id: second.body.session_id, message: 'one more thing' })
+        expect(send.status).toBe(401)
+        expect(send.body.auth_required).toBe(true)
+    })
+
+    it('chat (posthog): a per-request posthog bearer satisfies a posthog authoritative provider — no link round-trip', async () => {
+        if (!ok) {
+            return
+        }
+        c = await buildCluster({
+            http: posthogUserinfoHttp({ [PH_BEARER]: PH_SUB }),
+            authProvider: { verifiers: [posthogVerifier(posthogIntrospector, teamOrg)] },
+        })
+        await c.deployAgent({
+            slug: 'phgated',
+            spec: {
+                triggers: [{ type: 'chat', config: {} }],
+                auth: { modes: [{ type: 'posthog' }] },
+                authoritative_provider: 'posthog',
+                // client_id is normally backend-injected on promote.
+                identity_providers: [{ kind: 'posthog', id: 'posthog', client_id: 'provisioned-client' }],
+            },
+        })
+
+        c.setScript([fauxText('hello, verified user')])
+        const res = await request(c.ingress)
+            .post('/agents/phgated/run')
+            .set('Authorization', `Bearer ${PH_BEARER}`)
+            .send({ message: 'hi' })
+        expect(res.status).toBe(200)
+        expect(res.body.auth_required).toBeUndefined()
+        await c.drain()
+        const session = await c.queue.get(res.body.session_id)
+        expect(assistantText(session!.conversation)).toContain('hello, verified user')
+
+        // The bearer proved the subject inline: canonical identity + binding
+        // exist without any OAuth link having run.
+        const cano = await c.identities.find({
+            application_id: session!.application_id,
+            principal_kind: canonicalKind('posthog'),
+            principal_id: PH_SUB,
+        })
+        expect(cano).toBeTruthy()
+        expect(res.body.principal.canonical_agent_user_id).toBe(cano!.id)
+        const bindings = await new PgTransportBindingStore(c.pool).listForCanonical(session!.application_id, cano!.id)
+        expect(bindings).toHaveLength(1)
     })
 })

@@ -131,9 +131,9 @@ export async function agentUserIdForPrincipal(
             // shared across transports; fall back to the raw principal on passthrough.
             return principal.canonical_agent_user_id ?? principal.agent_user_id ?? null
         case 'jwt':
-            return findOrCreate('jwt', principal.sub)
+            return principal.canonical_agent_user_id ?? (await findOrCreate('jwt', principal.sub))
         case 'posthog':
-            return findOrCreate('posthog', principal.user_id)
+            return principal.canonical_agent_user_id ?? (await findOrCreate('posthog', principal.user_id))
         default:
             return null
     }
