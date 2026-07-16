@@ -71,6 +71,12 @@ export const FeatureFlagsListQueryParams = /* @__PURE__ */ zod.object({
         .describe(
             'Filter by the user(s) who created the feature flag. Accepts a single user ID, or a JSON-encoded / comma-separated list of user IDs to match any of them.'
         ),
+    eligible_for_experiment: zod
+        .enum(['true'])
+        .optional()
+        .describe(
+            "When 'true', only return flags that can back an experiment: multivariate with 2-20 variants. Any other value is ignored."
+        ),
     evaluation_runtime: zod
         .enum(['all', 'client', 'server'])
         .optional()
@@ -1061,6 +1067,12 @@ export const featureFlagsEvaluationReasonsRetrieveQueryGroupsDefault = `{}`
 
 export const FeatureFlagsEvaluationReasonsRetrieveQueryParams = /* @__PURE__ */ zod.object({
     distinct_id: zod.string().min(1).describe('User distinct ID'),
+    flag_keys: zod
+        .array(zod.string())
+        .optional()
+        .describe(
+            'Optional list of flag keys to scope the response to. When omitted, evaluation reasons are returned for every flag in the project, which can be a very large payload on projects with many flags. Pass the specific flag(s) you are debugging to keep the response small. Accepts either repeated query params (flag_keys=a&flag_keys=b) or a JSON array string (flag_keys=["a","b"]).'
+        ),
     groups: zod
         .string()
         .default(featureFlagsEvaluationReasonsRetrieveQueryGroupsDefault)
