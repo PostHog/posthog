@@ -498,6 +498,35 @@ def build_imported_mcp_server_configs(
     return configs
 
 
+def get_relayed_mcp_server_names(task_run: TaskRun, existing_names: Iterable[str]) -> list[str]:
+    """Names of desktop-only MCP servers relayed into the run (TaskRun.relayed_mcp_servers).
+
+    Names whose entry collides with an already-resolved MCP config (the PostHog MCP, an MCP Store
+    installation, or an imported server) are dropped — existing servers win. Malformed entries are
+    skipped rather than failing the launch; the shape was validated at run creation, so this only
+    guards against drift in stored data.
+
+    Not adapter-gated (unlike imported servers): relay endpoints are loopback in the sandbox and
+    always answer, so codex reachability probing is satisfied.
+    """
+    relayed_servers = task_run.relayed_mcp_servers
+    if not isinstance(relayed_servers, list):
+        return []
+    taken = set(existing_names)
+    names: list[str] = []
+    for server in relayed_servers:
+        if not isinstance(server, dict):
+            continue
+        name = server.get("name")
+        if not isinstance(name, str) or not name:
+            continue
+        if name in taken:
+            continue
+        taken.add(name)
+        names.append(name)
+    return names
+
+
 def get_imported_mcp_server_configs(task_run: TaskRun, existing_names: Iterable[str]) -> list[McpServerConfig]:
     """Sandbox configs for the run's client-imported MCP servers.
 

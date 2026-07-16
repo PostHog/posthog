@@ -1935,6 +1935,104 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(task.runs.count(), 0)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_run_endpoint_persists_relayed_mcp_servers_outside_state(self, mock_workflow):
+        task = self.create_task()
+        servers = [{"name": "playwright"}, {"name": "internal-cli"}]
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/",
+            {
+                "environment": "cloud",
+                "mode": "interactive",
+                "runtime_adapter": "claude",
+                "model": "claude-sonnet-4-5",
+                "relayed_mcp_servers": servers,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        task_run = TaskRun.objects.get(id=response.json()["id"])
+        self.assertEqual(task_run.relayed_mcp_servers, servers)
+        # Names only, and still write-only: never echoed back, never in the plain state JSON.
+        self.assertNotIn("relayed_mcp_servers", response.json())
+        self.assertNotIn("relayed_mcp_servers", task_run.state)
+        mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_endpoint_persists_relayed_mcp_servers(self, mock_workflow):
+        task = self.create_task()
+        servers = [{"name": "playwright"}]
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"runtime_adapter": "claude", "model": "claude-sonnet-4-5", "relayed_mcp_servers": servers},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        task_run = task.runs.latest("created_at")
+        self.assertEqual(task_run.relayed_mcp_servers, servers)
+        self.assertNotIn("relayed_mcp_servers", task_run.state)
+        self.assertNotIn("relayed_mcp_servers", json.dumps(response.json()))
+
+    @parameterized.expand(
+        [
+            ("reserved_name", [{"name": "posthog"}], None),
+            ("duplicate_names", [{"name": "dup"}, {"name": "dup"}], None),
+            ("duplicate_names_differing_case", [{"name": "MyServer"}, {"name": "myserver"}], None),
+            ("too_many_servers", [{"name": f"server-{i}"} for i in range(21)], None),
+            (
+                "collides_with_imported_name_differing_case",
+                [{"name": "Grafana"}],
+                [{"type": "http", "name": "grafana", "url": "https://mcp.grafana.example.com/mcp", "headers": []}],
+            ),
+        ]
+    )
+    @patch("products.tasks.backend.presentation.serializers.is_url_allowed", return_value=(True, None))
+    def test_create_run_endpoint_rejects_invalid_relayed_mcp_servers(self, _name, relayed, imported, _mock_url_allowed):
+        task = self.create_task()
+        body: dict = {"environment": "cloud", "relayed_mcp_servers": relayed}
+        if imported is not None:
+            body["imported_mcp_servers"] = imported
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/",
+            body,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(task.runs.count(), 0)
+
+    @parameterized.expand(
+        [
+            ("reserved_name", [{"name": "posthog"}], None),
+            ("duplicate_names_differing_case", [{"name": "MyServer"}, {"name": "myserver"}], None),
+            (
+                "collides_with_imported_name",
+                [{"name": "grafana"}],
+                [{"type": "http", "name": "grafana", "url": "https://mcp.grafana.example.com/mcp", "headers": []}],
+            ),
+        ]
+    )
+    @patch("products.tasks.backend.presentation.serializers.is_url_allowed", return_value=(True, None))
+    def test_run_endpoint_rejects_invalid_relayed_mcp_servers(self, _name, relayed, imported, _mock_url_allowed):
+        task = self.create_task()
+        body: dict = {"relayed_mcp_servers": relayed}
+        if imported is not None:
+            body["imported_mcp_servers"] = imported
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            body,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(task.runs.count(), 0)
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_run_endpoint_caches_user_github_token(self, mock_workflow):
         integration = Integration.objects.create(team=self.team, kind="github", config={"access_token": "token"})
         task = Task.objects.create(
@@ -7859,6 +7957,75 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(call_kwargs["json"]["params"]["configId"], "mode")
         self.assertEqual(call_kwargs["json"]["params"]["value"], "plan")
 
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.presentation.views.api.http_requests.post")
+    def test_command_proxies_mcp_response_with_payload(self, mock_post):
+        reset_sandbox_jwt_key_cache()
+        self._mock_agent_response(
+            mock_post,
+            {"jsonrpc": "2.0", "id": "req-6", "result": {"acknowledged": True}},
+        )
+
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {
+                "jsonrpc": "2.0",
+                "method": "mcp_response",
+                "params": {
+                    "requestId": "relay-1",
+                    "server": "playwright",
+                    "payload": {"jsonrpc": "2.0", "id": 1, "result": {"content": []}},
+                },
+                "id": "req-6",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        call_kwargs = mock_post.call_args[1]
+        self.assertEqual(call_kwargs["json"]["method"], "mcp_response")
+        self.assertEqual(call_kwargs["json"]["params"]["requestId"], "relay-1")
+        self.assertEqual(call_kwargs["json"]["params"]["server"], "playwright")
+        # The relayed JSON-RPC response is forwarded to the sandbox verbatim.
+        self.assertEqual(
+            call_kwargs["json"]["params"]["payload"], {"jsonrpc": "2.0", "id": 1, "result": {"content": []}}
+        )
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.presentation.views.api.http_requests.post")
+    def test_command_proxies_mcp_response_with_error(self, mock_post):
+        reset_sandbox_jwt_key_cache()
+        self._mock_agent_response(
+            mock_post,
+            {"jsonrpc": "2.0", "id": "req-7", "result": {"acknowledged": True}},
+        )
+
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {
+                "jsonrpc": "2.0",
+                "method": "mcp_response",
+                "params": {
+                    "requestId": "relay-2",
+                    "server": "playwright",
+                    "error": {"code": -32001, "message": "server process exited"},
+                },
+                "id": "req-7",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        call_kwargs = mock_post.call_args[1]
+        self.assertEqual(call_kwargs["json"]["method"], "mcp_response")
+        self.assertEqual(call_kwargs["json"]["params"]["error"], {"code": -32001, "message": "server process exited"})
+
     def _create_posthog_ai_task(self, created_by: User | None = None):
         return Task.objects.create(
             team=self.team,
@@ -8056,6 +8223,75 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
             (
                 "set_config_option_empty_params",
                 {"jsonrpc": "2.0", "method": "set_config_option", "params": {}},
+            ),
+            (
+                "mcp_response_missing_requestId",
+                {
+                    "jsonrpc": "2.0",
+                    "method": "mcp_response",
+                    "params": {"server": "playwright", "payload": {"result": {}}},
+                },
+            ),
+            (
+                "mcp_response_missing_server",
+                {
+                    "jsonrpc": "2.0",
+                    "method": "mcp_response",
+                    "params": {"requestId": "relay-1", "payload": {"result": {}}},
+                },
+            ),
+            (
+                "mcp_response_missing_payload_and_error",
+                {
+                    "jsonrpc": "2.0",
+                    "method": "mcp_response",
+                    "params": {"requestId": "relay-1", "server": "playwright"},
+                },
+            ),
+            (
+                "mcp_response_both_payload_and_error",
+                {
+                    "jsonrpc": "2.0",
+                    "method": "mcp_response",
+                    "params": {
+                        "requestId": "relay-1",
+                        "server": "playwright",
+                        "payload": {"result": {}},
+                        "error": {"code": -32001, "message": "boom"},
+                    },
+                },
+            ),
+            (
+                "mcp_response_non_object_payload",
+                {
+                    "jsonrpc": "2.0",
+                    "method": "mcp_response",
+                    "params": {"requestId": "relay-1", "server": "playwright", "payload": "not-an-object"},
+                },
+            ),
+            (
+                "mcp_response_malformed_error",
+                {
+                    "jsonrpc": "2.0",
+                    "method": "mcp_response",
+                    "params": {
+                        "requestId": "relay-1",
+                        "server": "playwright",
+                        "error": {"code": "not-an-int", "message": "boom"},
+                    },
+                },
+            ),
+            (
+                "mcp_response_oversized_params",
+                {
+                    "jsonrpc": "2.0",
+                    "method": "mcp_response",
+                    "params": {
+                        "requestId": "relay-1",
+                        "server": "playwright",
+                        "payload": {"result": "x" * 300_001},
+                    },
+                },
             ),
         ]
     )

@@ -26,6 +26,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     McpServerConfig,
     format_allowed_domains_for_log,
     get_imported_mcp_server_configs,
+    get_relayed_mcp_server_names,
     get_sandbox_ph_mcp_configs,
     get_task_run_credential_user,
     get_user_mcp_server_configs,
@@ -165,6 +166,7 @@ class StartAgentServerOutput:
 @dataclass
 class _LaunchParams:
     mcp_configs: list[McpServerConfig]
+    relayed_mcp_servers: list[str]
     agentsh_domains: list[str] | None
     protected_base_branch: str | None
     event_ingest_token: str | None
@@ -247,6 +249,14 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes) -> _La
     if imported_mcp_configs:
         mcp_configs = mcp_configs + imported_mcp_configs
 
+    relayed_names = get_relayed_mcp_server_names(task_run, {config.name for config in mcp_configs})
+    if relayed_names:
+        emit_agent_log(
+            ctx.run_id,
+            "debug",
+            f"Resolved {len(relayed_names)} relayed MCP server name(s) for agent server: {', '.join(relayed_names)}",
+        )
+
     if mcp_configs:
         emit_agent_log(
             ctx.run_id,
@@ -287,6 +297,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes) -> _La
 
     return _LaunchParams(
         mcp_configs=mcp_configs,
+        relayed_mcp_servers=relayed_names,
         agentsh_domains=agentsh_domains,
         protected_base_branch=protected_base_branch,
         event_ingest_token=event_ingest_token,
@@ -319,6 +330,7 @@ def _invoke_start_agent_server(
             reasoning_effort=ctx.reasoning_effort,
             initial_permission_mode=ctx.initial_permission_mode,
             mcp_configs=params.mcp_configs or None,
+            relayed_mcp_servers=params.relayed_mcp_servers or None,
             allowed_domains=params.agentsh_domains,
             event_ingest_token=params.event_ingest_token,
             event_ingest_url=params.event_ingest_url,

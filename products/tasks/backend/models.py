@@ -1113,6 +1113,13 @@ class TaskRun(models.Model):
         help_text="Client-imported MCP server configs (type/name/url/headers) to make available in the sandbox",
     )
 
+    relayed_mcp_servers = models.JSONField(
+        blank=True,
+        null=True,
+        default=None,
+        help_text="Names of desktop-only MCP servers the creating client relays into this run (docs/cloud-mcp-relay.md). Names only — configuration never crosses the wire.",
+    )
+
     created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     completed_at = models.DateTimeField(null=True, blank=True)

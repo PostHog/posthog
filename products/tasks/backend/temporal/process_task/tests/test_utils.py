@@ -18,6 +18,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     build_imported_mcp_server_configs,
     get_git_identity_env_vars,
     get_github_credential_source,
+    get_relayed_mcp_server_names,
     get_sandbox_github_token,
     get_sandbox_ph_mcp_configs,
     get_task_run_actor_user,
@@ -930,3 +931,46 @@ class TestBuildImportedMcpServerConfigs(TestCase):
             ),
             McpServerConfig(type="http", name="docs", url="https://docs.example.com/mcp", headers=[]),
         ]
+
+
+class TestGetRelayedMcpServerNames(TestCase):
+    @staticmethod
+    def _task_run(relayed_mcp_servers):
+        return MagicMock(relayed_mcp_servers=relayed_mcp_servers)
+
+    def test_returns_valid_names(self):
+        task_run = self._task_run([{"name": "playwright"}, {"name": "internal-cli"}])
+
+        assert get_relayed_mcp_server_names(task_run, {"posthog"}) == ["playwright", "internal-cli"]
+
+    @parameterized.expand(
+        [
+            ("none", None),
+            ("empty_list", []),
+            # The stored column is schemaless at read time; drift must not break launches.
+            ("non_list", "junk"),
+        ]
+    )
+    def test_returns_empty_for_non_list_drift(self, _name, stored):
+        assert get_relayed_mcp_server_names(self._task_run(stored), set()) == []
+
+    def test_skips_malformed_entries(self):
+        task_run = self._task_run(
+            [
+                {"name": "playwright"},
+                "garbage",
+                {"name": ""},
+                {"name": 42},
+                {"url": "https://no-name.example.com"},
+                # duplicate of an earlier relayed entry: first one wins
+                {"name": "playwright"},
+            ]
+        )
+
+        assert get_relayed_mcp_server_names(task_run, set()) == ["playwright"]
+
+    def test_drops_names_colliding_with_resolved_configs(self):
+        task_run = self._task_run([{"name": "posthog"}, {"name": "grafana"}, {"name": "playwright"}])
+
+        # Names taken by already-resolved MCP configs (PostHog MCP, MCP Store, imported) win.
+        assert get_relayed_mcp_server_names(task_run, {"posthog", "grafana"}) == ["playwright"]

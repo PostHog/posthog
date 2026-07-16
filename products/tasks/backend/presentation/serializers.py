@@ -1571,7 +1571,66 @@ class ImportedMcpServersFieldMixin(serializers.Serializer):
         return value
 
 
-class TaskRunCreateRequestSerializer(ImportedMcpServersFieldMixin, serializers.Serializer):
+MAX_RELAYED_MCP_SERVERS = 20
+
+
+class RelayedMcpServerSerializer(serializers.Serializer):
+    """One desktop-only MCP server relayed into the run — a name only, never configuration."""
+
+    name = serializers.CharField(max_length=MAX_IMPORTED_MCP_SERVER_NAME_LENGTH)
+
+
+class RelayedMcpServersFieldMixin(serializers.Serializer):
+    """Adds the write-only relayed_mcp_servers field shared by both run-creation serializers."""
+
+    relayed_mcp_servers = RelayedMcpServerSerializer(
+        many=True,
+        required=False,
+        allow_null=True,
+        default=None,
+        write_only=True,
+        help_text=(
+            "Names of desktop-only MCP servers the creating client (PostHog Code) relays into the "
+            "cloud sandbox over the durable event/command channel. Names only — the server "
+            "configuration (command, env, URL, headers) never crosses the wire."
+        ),
+    )
+
+    def validate_relayed_mcp_servers(self, value):
+        if not value:
+            return None
+        if len(value) > MAX_RELAYED_MCP_SERVERS:
+            raise serializers.ValidationError(f"At most {MAX_RELAYED_MCP_SERVERS} relayed MCP servers are allowed.")
+        seen: set[str] = set()
+        for server in value:
+            name = server["name"]
+            name_key = name.lower()
+            if name_key in RESERVED_IMPORTED_MCP_SERVER_NAMES:
+                raise serializers.ValidationError(f"'{name}' is a reserved MCP server name.")
+            if name_key in seen:
+                raise serializers.ValidationError(f"Duplicate MCP server name: '{name}'.")
+            seen.add(name_key)
+        return value
+
+
+def get_relayed_imported_mcp_name_collision_error(attrs: dict) -> str | None:
+    """Relayed and imported MCP server names must be disjoint (case-insensitively).
+
+    Both lists feed the same sandbox `mcpServers` namespace, so a shared name would make one
+    silently shadow the other. Cross-field, so it runs in each creation serializer's ``validate``.
+    """
+    relayed = attrs.get("relayed_mcp_servers") or []
+    imported = attrs.get("imported_mcp_servers") or []
+    if not relayed or not imported:
+        return None
+    imported_names = {server["name"].lower() for server in imported}
+    for server in relayed:
+        if server["name"].lower() in imported_names:
+            return f"Relayed MCP server name '{server['name']}' collides with an imported MCP server name."
+    return None
+
+
+class TaskRunCreateRequestSerializer(ImportedMcpServersFieldMixin, RelayedMcpServersFieldMixin, serializers.Serializer):
     """Request body for creating a new task run"""
 
     PR_AUTHORSHIP_MODE_CHOICES = [mode.value for mode in PrAuthorshipMode]
@@ -1698,6 +1757,8 @@ class TaskRunCreateRequestSerializer(ImportedMcpServersFieldMixin, serializers.S
 
     def validate(self, attrs):
         errors: dict[str, str] = {}
+        if collision_error := get_relayed_imported_mcp_name_collision_error(attrs):
+            errors["relayed_mcp_servers"] = collision_error
         initial_permission_mode = attrs.get("initial_permission_mode")
         runtime_adapter = attrs.get("runtime_adapter")
         if initial_permission_mode is not None:
@@ -1758,7 +1819,9 @@ class TaskRunCreateRequestSerializer(ImportedMcpServersFieldMixin, serializers.S
         return attrs
 
 
-class TaskRunBootstrapCreateRequestSerializer(ImportedMcpServersFieldMixin, serializers.Serializer):
+class TaskRunBootstrapCreateRequestSerializer(
+    ImportedMcpServersFieldMixin, RelayedMcpServersFieldMixin, serializers.Serializer
+):
     """Request body for creating a task run without starting execution yet."""
 
     PR_AUTHORSHIP_MODE_CHOICES = [mode.value for mode in PrAuthorshipMode]
@@ -1877,6 +1940,8 @@ class TaskRunBootstrapCreateRequestSerializer(ImportedMcpServersFieldMixin, seri
 
     def validate(self, attrs):
         errors: dict[str, str] = {}
+        if collision_error := get_relayed_imported_mcp_name_collision_error(attrs):
+            errors["relayed_mcp_servers"] = collision_error
         initial_permission_mode = attrs.get("initial_permission_mode")
         runtime_adapter = attrs.get("runtime_adapter")
         if initial_permission_mode is not None:
@@ -2156,7 +2221,13 @@ class TaskRunCommandRequestSerializer(serializers.Serializer):
         "close",
         "permission_response",
         "set_config_option",
+        "mcp_response",
     ]
+
+    # Cap on the serialized mcp_response params (docs/cloud-mcp-relay.md): the relayed JSON-RPC
+    # response payload plus envelope must fit in 300 KB. Params are forwarded to the sandbox
+    # verbatim and never persisted or captured — they carry data from the user's private systems.
+    MAX_MCP_RESPONSE_PARAMS_BYTES = 300_000
 
     jsonrpc = serializers.ChoiceField(
         choices=["2.0"],
@@ -2225,6 +2296,26 @@ class TaskRunCommandRequestSerializer(serializers.Serializer):
         elif method == "set_config_option":
             self._require_nonempty_string(params, "configId")
             self._require_nonempty_string(params, "value")
+        elif method == "mcp_response":
+            self._require_nonempty_string(params, "requestId")
+            self._require_nonempty_string(params, "server")
+            payload = params.get("payload")
+            error = params.get("error")
+            if (payload is None) == (error is None):
+                raise serializers.ValidationError({"params": "mcp_response requires exactly one of payload or error"})
+            if payload is not None and not isinstance(payload, dict):
+                raise serializers.ValidationError({"params": "payload must be an object"})
+            if error is not None and (
+                not isinstance(error, dict)
+                or isinstance(error.get("code"), bool)
+                or not isinstance(error.get("code"), int)
+                or not isinstance(error.get("message"), str)
+            ):
+                raise serializers.ValidationError(
+                    {"params": "error must be an object with an integer code and a string message"}
+                )
+            if len(json.dumps(params)) > self.MAX_MCP_RESPONSE_PARAMS_BYTES:
+                raise serializers.ValidationError({"params": "mcp_response params exceed the 300 KB limit"})
         return attrs
 
 
