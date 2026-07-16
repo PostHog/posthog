@@ -115,9 +115,9 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
                 connectors: SourceConfig[],
                 manualConnectors: {
                     name: string
-                    type: ManualLinkSourceType
+                    type: import('~/types').ManualLinkSourceType
                 }[],
-                featureFlags: FeatureFlagsSet
+                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet
             ): HogFunctionTemplateType[] => {
                 const managed = connectors.map((connector: SourceConfig): HogFunctionTemplateType => {
                     const featureFlagDefined = !!connector.featureFlag
@@ -183,7 +183,10 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
 
         hogFunctionTemplatesBatchExports: [
             (s) => [s.featureFlags, s.user],
-            (featureFlags: FeatureFlagsSet, user: UserType | null): HogFunctionTemplateType[] => {
+            (
+                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
+                user: null | import('~/types').UserType
+            ): HogFunctionTemplateType[] => {
                 // HTTP is currently only used for Cloud to Cloud migrations and shouldn't be accessible to users
                 const httpEnabled =
                     featureFlags[FEATURE_FLAGS.BATCH_EXPORTS_POSTHOG_HTTP] || user?.is_impersonated || user?.is_staff

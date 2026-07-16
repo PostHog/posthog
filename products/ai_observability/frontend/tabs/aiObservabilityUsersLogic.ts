@@ -91,7 +91,7 @@ export const aiObservabilityUsersLogic = kea<aiObservabilityUsersLogicType>([
                     dateTo: string | null
                 },
                 shouldFilterTestAccounts: boolean,
-                propertyFilters: AnyPropertyFilter[],
+                propertyFilters: import('~/types').AnyPropertyFilter[],
                 usersSort: SortState,
                 groupsTaxonomicTypes: TaxonomicFilterGroupType[]
             ): DataTableNode => ({

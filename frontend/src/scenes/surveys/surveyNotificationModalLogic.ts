@@ -48,6 +48,19 @@ import {
     SurveyQuestionType,
 } from '~/types'
 
+import type {
+    AccessControlLevel,
+    BasicSurveyQuestion,
+    FeatureFlagBasicType,
+    FeatureFlagFilters,
+    LinkSurveyQuestion,
+    MultipleSurveyQuestion,
+    RatingSurveyQuestion,
+    SurveyAppearance,
+    SurveyDisplayConditions,
+    SurveySchedule,
+    SurveyType,
+} from '../../types'
 import type { NewSurvey } from './constants'
 
 export const WEBHOOK_METHOD_OPTIONS = [
@@ -895,10 +908,10 @@ export interface surveyNotificationModalLogicActions {
         survey:
             | Survey
             | {
-                  appearance: null | import('~/types').SurveyAppearance
+                  appearance: SurveyAppearance | null
                   archived: boolean
                   base_language?: string | null | undefined
-                  conditions: null | import('~/types').SurveyDisplayConditions
+                  conditions: SurveyDisplayConditions | null
                   current_iteration?: number | null | undefined
                   description: string
                   enable_iframe_embedding?: boolean | null | undefined
@@ -911,24 +924,24 @@ export interface surveyNotificationModalLogicActions {
                   iteration_count?: number | null | undefined
                   iteration_frequency_days?: number | null | undefined
                   iteration_start_dates?: string[] | undefined
-                  linked_flag: null | import('~/types').FeatureFlagBasicType
+                  linked_flag: FeatureFlagBasicType | null
                   linked_flag_id: number | null
                   name: string
                   questions: (
-                      | import('~/types').BasicSurveyQuestion
-                      | import('~/types').LinkSurveyQuestion
-                      | import('~/types').MultipleSurveyQuestion
-                      | import('~/types').RatingSurveyQuestion
+                      | BasicSurveyQuestion
+                      | LinkSurveyQuestion
+                      | MultipleSurveyQuestion
+                      | RatingSurveyQuestion
                   )[]
                   response_sampling_interval?: number | null | undefined
                   response_sampling_interval_type?: string | null | undefined
                   response_sampling_limit?: number | null | undefined
                   response_sampling_start_date?: string | null | undefined
                   responses_limit: number | null
-                  schedule?: null | import('~/types').SurveySchedule | undefined
+                  schedule?: SurveySchedule | null | undefined
                   start_date: string | null
-                  targeting_flag: null | import('~/types').FeatureFlagBasicType
-                  targeting_flag_filters?: import('~/types').FeatureFlagFilters | undefined
+                  targeting_flag: FeatureFlagBasicType | null
+                  targeting_flag_filters?: FeatureFlagFilters | undefined
                   translations?:
                       | Record<
                             string,
@@ -943,8 +956,8 @@ export interface surveyNotificationModalLogicActions {
                         >
                       | null
                       | undefined
-                  type: import('~/types').SurveyType
-                  user_access_level: import('~/types').AccessControlLevel
+                  type: SurveyType
+                  user_access_level: AccessControlLevel
               },
         payload?: any
     ) => {
@@ -952,10 +965,10 @@ export interface surveyNotificationModalLogicActions {
         survey:
             | Survey
             | {
-                  appearance: null | import('~/types').SurveyAppearance
+                  appearance: SurveyAppearance | null
                   archived: boolean
                   base_language?: string | null | undefined
-                  conditions: null | import('~/types').SurveyDisplayConditions
+                  conditions: SurveyDisplayConditions | null
                   current_iteration?: number | null | undefined
                   description: string
                   enable_iframe_embedding?: boolean | null | undefined
@@ -968,24 +981,24 @@ export interface surveyNotificationModalLogicActions {
                   iteration_count?: number | null | undefined
                   iteration_frequency_days?: number | null | undefined
                   iteration_start_dates?: string[] | undefined
-                  linked_flag: null | import('~/types').FeatureFlagBasicType
+                  linked_flag: FeatureFlagBasicType | null
                   linked_flag_id: number | null
                   name: string
                   questions: (
-                      | import('~/types').BasicSurveyQuestion
-                      | import('~/types').LinkSurveyQuestion
-                      | import('~/types').MultipleSurveyQuestion
-                      | import('~/types').RatingSurveyQuestion
+                      | BasicSurveyQuestion
+                      | LinkSurveyQuestion
+                      | MultipleSurveyQuestion
+                      | RatingSurveyQuestion
                   )[]
                   response_sampling_interval?: number | null | undefined
                   response_sampling_interval_type?: string | null | undefined
                   response_sampling_limit?: number | null | undefined
                   response_sampling_start_date?: string | null | undefined
                   responses_limit: number | null
-                  schedule?: null | import('~/types').SurveySchedule | undefined
+                  schedule?: SurveySchedule | null | undefined
                   start_date: string | null
-                  targeting_flag: null | import('~/types').FeatureFlagBasicType
-                  targeting_flag_filters?: import('~/types').FeatureFlagFilters | undefined
+                  targeting_flag: FeatureFlagBasicType | null
+                  targeting_flag_filters?: FeatureFlagFilters | undefined
                   translations?:
                       | Record<
                             string,
@@ -1000,8 +1013,8 @@ export interface surveyNotificationModalLogicActions {
                         >
                       | null
                       | undefined
-                  type: import('~/types').SurveyType
-                  user_access_level: import('~/types').AccessControlLevel
+                  type: SurveyType
+                  user_access_level: AccessControlLevel
               }
     } // surveyLogic
     clearTestResult: () => {

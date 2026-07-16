@@ -158,7 +158,7 @@ export const aiObservabilityTracesTabLogic = kea<aiObservabilityTracesTabLogicTy
                 dateFilter: { dateFrom: string | null; dateTo: string | null },
                 shouldFilterTestAccounts: boolean,
                 shouldFilterSupportTraces: boolean,
-                propertyFilters: AnyPropertyFilter[],
+                propertyFilters: import('~/types').AnyPropertyFilter[],
                 searchQuery: string,
                 personId: string | undefined,
                 group: { groupKey: string; groupTypeIndex: number } | undefined,

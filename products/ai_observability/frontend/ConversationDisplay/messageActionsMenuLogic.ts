@@ -185,7 +185,7 @@ export const messageActionsMenuLogic = kea<messageActionsMenuLogicType>([
         content: [() => [(_, props) => props.content], (content) => content],
         currentLanguageLabel: [
             (s) => [s.targetLanguage],
-            (targetLanguage: string) =>
+            (targetLanguage: LanguageCode) =>
                 SUPPORTED_LANGUAGES.find((lang) => lang.value === targetLanguage)?.label || 'English',
         ],
         dataProcessingAccepted: [

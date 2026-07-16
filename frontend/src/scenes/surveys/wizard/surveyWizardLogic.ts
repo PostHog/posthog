@@ -12,6 +12,7 @@ import {
     reducers,
     selectors,
 } from 'kea'
+import type { FieldName } from 'kea-forms/lib/index'
 import { router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -26,6 +27,7 @@ import { urls } from 'scenes/urls'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { Breadcrumb, LinkSurveyQuestion, Survey, SurveyQuestionType, SurveySchedule, SurveyType } from '~/types'
 
+import type { ProductIntentProperties } from '../../../lib/utils/product-intents'
 import type { TeamPublicType, TeamType } from '../../../types'
 import {
     SURVEY_CREATED_SOURCE,
@@ -96,15 +98,8 @@ export interface surveyWizardLogicValues {
 export interface surveyWizardLogicActions {
     reportSurveyCreated: (
         survey: Survey,
-        isDuplicate?: boolean | undefined,
-        creationSource?:
-            | 'form_builder'
-            | 'full_editor'
-            | 'llm_analytics'
-            | 'quick_create'
-            | 'template'
-            | 'wizard'
-            | undefined
+        isDuplicate?: boolean,
+        creationSource?: 'form_builder' | 'full_editor' | 'llm_analytics' | 'quick_create' | 'template' | 'wizard'
     ) => {
         creationSource:
             | 'form_builder'
@@ -122,7 +117,7 @@ export interface surveyWizardLogicActions {
     } // eventUsageLogic
     reportSurveyTemplateClicked: (
         template: SurveyTemplateType,
-        source?: string | undefined
+        source?: string
     ) => {
         source: string | undefined
         template: SurveyTemplateType
@@ -132,16 +127,14 @@ export interface surveyWizardLogicActions {
         values?: NewSurvey | Survey
     } // surveyLogic
     setSurveyValue: (
-        key: import('node_modules/kea-forms/lib').FieldName,
+        key: FieldName,
         value: any
     ) => {
-        name: import('node_modules/kea-forms/lib').FieldName
+        name: FieldName
         value: any
     } // surveyLogic
     loadSurveys: () => any // surveysLogic
-    addProductIntent: (
-        properties: import('../../../lib/utils/product-intents').ProductIntentProperties
-    ) => import('../../../lib/utils/product-intents').ProductIntentProperties // teamLogic
+    addProductIntent: (properties: ProductIntentProperties) => ProductIntentProperties // teamLogic
     launchSurvey: () => {
         value: true
     }

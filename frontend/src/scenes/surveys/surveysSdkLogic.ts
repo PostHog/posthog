@@ -28,7 +28,9 @@ export const surveysSdkLogic = kea<surveysSdkLogicType>([
     selectors({
         teamSdkVersions: [
             (s) => [s.sdkHealthData],
-            (sdkHealthData: AugmentedTeamSdkVersionsInfo): TeamSdkVersions => {
+            (
+                sdkHealthData: import('~/scenes/onboarding/shared/sdkHealth/sdkHealthLogic').AugmentedTeamSdkVersionsInfo
+            ): TeamSdkVersions => {
                 const versions: TeamSdkVersions = {}
 
                 for (const [sdkType, sdkInfo] of Object.entries(sdkHealthData ?? {})) {

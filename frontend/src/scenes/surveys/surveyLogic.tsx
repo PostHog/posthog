@@ -99,7 +99,7 @@ import {
 
 import { surveysGenerateTranslationsCreate } from 'products/surveys/frontend/generated/api'
 
-import type { SurveyQuestionDescriptionContentType } from '../../types'
+import type { ProductIntentProperties } from '../../lib/utils/product-intents'
 import type {
     AccessControlLevel,
     BasicSurveyQuestion,
@@ -107,6 +107,7 @@ import type {
     PropertyDefinition,
     SurveyAppearance,
     SurveyDisplayConditions,
+    SurveyQuestionDescriptionContentType,
     SurveyType,
     TeamPublicType,
     TeamType,
@@ -778,15 +779,8 @@ export interface surveyLogicActions {
     } // eventUsageLogic
     reportSurveyCreated: (
         survey: Survey,
-        isDuplicate?: boolean | undefined,
-        creationSource?:
-            | 'form_builder'
-            | 'full_editor'
-            | 'llm_analytics'
-            | 'quick_create'
-            | 'template'
-            | 'wizard'
-            | undefined
+        isDuplicate?: boolean,
+        creationSource?: 'form_builder' | 'full_editor' | 'llm_analytics' | 'quick_create' | 'template' | 'wizard'
     ) => {
         creationSource:
             | 'form_builder'
@@ -809,9 +803,7 @@ export interface surveyLogicActions {
         survey: Survey
     } // eventUsageLogic
     loadSurveys: () => any // surveysLogic
-    addProductIntent: (
-        properties: import('../../lib/utils/product-intents').ProductIntentProperties
-    ) => import('../../lib/utils/product-intents').ProductIntentProperties // teamLogic
+    addProductIntent: (properties: ProductIntentProperties) => ProductIntentProperties // teamLogic
     archiveResponse: (responseUuid: string) => {
         responseUuid: string
     }
@@ -3866,7 +3858,7 @@ export const surveyLogic = kea<surveyLogicType>([
             (s) => [s.survey, s.teamSdkVersions],
             (
                 survey: NewSurvey | Survey,
-                teamSdkVersions: Partial<Record<import('./surveyVersionRequirements').SurveySdkType, string | null>>
+                teamSdkVersions: import('./surveyVersionRequirements').TeamSdkVersions
             ): SurveyFeatureWarning[] => {
                 return getSurveyWarnings(survey as Survey, teamSdkVersions)
             },

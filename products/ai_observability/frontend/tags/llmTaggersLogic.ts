@@ -9,6 +9,7 @@ import { HogQLQuery, NodeKind, TrendsQuery } from '~/queries/schema/schema-gener
 import { ChartDisplayType } from '~/types'
 
 import type { FeatureFlagsSet } from '../../../../frontend/src/lib/logic/featureFlagLogic'
+import type { ProductIntentProperties } from '../../../../frontend/src/lib/utils/product-intents'
 import { aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'
 import { llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { defaultTaggerTemplates } from './templates'
@@ -68,9 +69,7 @@ export interface llmTaggersLogicActions {
         dateTo: string | null
     } // aiObservabilitySharedLogic
     loadProviderKeys: () => any // llmProviderKeysLogic
-    addProductIntent: (
-        properties: import('lib/utils/product-intents').ProductIntentProperties
-    ) => import('lib/utils/product-intents').ProductIntentProperties // teamLogic
+    addProductIntent: (properties: ProductIntentProperties) => ProductIntentProperties // teamLogic
     loadRunStats: () => any
     loadRunStatsFailure: (
         error: string,

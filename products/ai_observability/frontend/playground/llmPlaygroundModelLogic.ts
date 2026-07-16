@@ -8,6 +8,7 @@ import { modelPickerLogic, type ModelOption } from '../modelPickerLogic'
 import type { ProviderModelGroup } from '../modelPickerLogic'
 import { LLMProviderKey, llmProviderKeysLogic, normalizeLLMProvider } from '../settings/llmProviderKeysLogic'
 import { llmPlaygroundPromptsLogic, type PromptConfig } from './llmPlaygroundPromptsLogic'
+import type { PlaygroundSetupPayload } from './llmPlaygroundPromptsLogic'
 import {
     isTraceLikeSelection,
     matchClosestModel,
@@ -88,8 +89,8 @@ export interface llmPlaygroundModelLogicActions {
     setPromptConfigs: (promptConfigs: PromptConfig[]) => {
         promptConfigs: PromptConfig[]
     } // llmPlaygroundPromptsLogic
-    setupPlaygroundFromEvent: (payload: import('./llmPlaygroundPromptsLogic').PlaygroundSetupPayload) => {
-        payload: import('./llmPlaygroundPromptsLogic').PlaygroundSetupPayload
+    setupPlaygroundFromEvent: (payload: PlaygroundSetupPayload) => {
+        payload: PlaygroundSetupPayload
     } // llmPlaygroundPromptsLogic
     loadProviderKeys: () => any // llmProviderKeysLogic
     loadProviderKeysFailure: (

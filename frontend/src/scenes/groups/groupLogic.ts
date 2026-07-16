@@ -421,25 +421,31 @@ export const groupLogic = kea<groupLogicType>([
         groupTypeName: [
             (s, p) => [s.aggregationLabel, p.groupTypeIndex],
             (
-                aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun,
+                aggregationLabel: (
+                    groupTypeIndex: number | null | undefined,
+                    deferToUserWording?: boolean
+                ) => import('~/models/groupsModel').Noun,
                 index: number
             ): string => aggregationLabel(index).singular,
         ],
         groupTypeNamePlural: [
             (s, p) => [s.aggregationLabel, p.groupTypeIndex],
             (
-                aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun,
+                aggregationLabel: (
+                    groupTypeIndex: number | null | undefined,
+                    deferToUserWording?: boolean
+                ) => import('~/models/groupsModel').Noun,
                 index: number
             ): string => aggregationLabel(index).plural,
         ],
         groupType: [
             (s, p) => [s.groupTypes, p.groupTypeIndex],
-            (groupTypes: Map<GroupTypeIndex, GroupType>, index: number): string | null =>
+            (groupTypes: Map<GroupTypeIndex, import('~/types').GroupType>, index: number): string | null =>
                 groupTypes.get(index as GroupTypeIndex)?.group_type ?? null,
         ],
         groupTypeDetailDashboard: [
             (s, p) => [s.groupTypes, p.groupTypeIndex],
-            (groupTypes: Map<GroupTypeIndex, GroupType>, index: number): number | null =>
+            (groupTypes: Map<GroupTypeIndex, import('~/types').GroupType>, index: number): number | null =>
                 groupTypes.get(index as GroupTypeIndex)?.detail_dashboard ?? null,
         ],
         // Combine revenue analytics with group properties, prioritizing analytics
@@ -505,7 +511,10 @@ export const groupLogic = kea<groupLogicType>([
         backTo: [
             (s, p) => [s.aggregationLabel, p.groupTypeIndex, s.backNavigation],
             (
-                aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun,
+                aggregationLabel: (
+                    groupTypeIndex: number | null | undefined,
+                    deferToUserWording?: boolean
+                ) => import('~/models/groupsModel').Noun,
                 groupTypeIndex: number,
                 backNavigation: GroupBackNavigation | null
             ): Breadcrumb => {
@@ -552,7 +561,11 @@ export const groupLogic = kea<groupLogicType>([
         ],
         [SIDE_PANEL_CONTEXT_KEY]: [
             (s, p) => [p.groupTypeIndex, p.groupKey, s.featureFlags],
-            (groupTypeIndex: number, groupKey: string, featureFlags: FeatureFlagsSet): SidePanelSceneContext | null => {
+            (
+                groupTypeIndex: number,
+                groupKey: string,
+                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet
+            ): SidePanelSceneContext | null => {
                 if (!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS]) {
                     return null
                 }

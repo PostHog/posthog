@@ -30,6 +30,7 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 import { AnyPropertyFilter, Breadcrumb } from '~/types'
 
 import type { FeatureFlagsSet } from '../../../frontend/src/lib/logic/featureFlagLogic'
+import type { ProductIntentProperties } from '../../../frontend/src/lib/utils/product-intents'
 import type { UserType } from '../../../frontend/src/types'
 import { AI_OBSERVABILITY_CLUSTER_URL_PATTERN } from './clusters/constants'
 import { parserRecipesLogic } from './settings/parserRecipesLogic'
@@ -157,9 +158,7 @@ export interface aiObservabilitySharedLogicActions {
     setLocalDefault: (value: boolean) => {
         value: boolean
     } // filterTestAccountsDefaultsLogic
-    addProductIntent: (
-        properties: import('lib/utils/product-intents').ProductIntentProperties
-    ) => import('lib/utils/product-intents').ProductIntentProperties // teamLogic
+    addProductIntent: (properties: ProductIntentProperties) => ProductIntentProperties // teamLogic
     applyUrlState: (state: ApplyUrlStatePayload) => ApplyUrlStatePayload
     loadAIEventDefinition: () => any
     loadAIEventDefinitionFailure: (

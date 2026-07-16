@@ -178,7 +178,10 @@ export const groupsNewLogic = kea<groupsNewLogicType>([
         groupTypeName: [
             (s) => [s.aggregationLabel, s.logicProps],
             (
-                aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun,
+                aggregationLabel: (
+                    groupTypeIndex: number | null | undefined,
+                    deferToUserWording?: boolean
+                ) => import('~/models/groupsModel').Noun,
                 logicProps: GroupsNewLogicProps
             ): string => {
                 return aggregationLabel(logicProps.groupTypeIndex).singular
@@ -187,7 +190,10 @@ export const groupsNewLogic = kea<groupsNewLogicType>([
         groupTypeNamePlural: [
             (s) => [s.aggregationLabel, s.logicProps],
             (
-                aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun,
+                aggregationLabel: (
+                    groupTypeIndex: number | null | undefined,
+                    deferToUserWording?: boolean
+                ) => import('~/models/groupsModel').Noun,
                 logicProps: GroupsNewLogicProps
             ): string => {
                 return aggregationLabel(logicProps.groupTypeIndex).plural

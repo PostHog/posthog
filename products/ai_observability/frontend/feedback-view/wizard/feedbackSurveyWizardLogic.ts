@@ -278,7 +278,7 @@ export const feedbackSurveyWizardLogic = kea<feedbackSurveyWizardLogicType>([
     selectors({
         defaultAppearance: [
             (s) => [s.currentTeam],
-            (currentTeam: TeamPublicType | TeamType | null): SurveyAppearance => ({
+            (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): SurveyAppearance => ({
                 ...defaultSurveyAppearance,
                 ...currentTeam?.survey_config?.appearance,
             }),
@@ -341,7 +341,8 @@ export const feedbackSurveyWizardLogic = kea<feedbackSurveyWizardLogicType>([
         ],
         surveysNeedEnabling: [
             (s) => [s.currentTeam],
-            (currentTeam: TeamPublicType | TeamType | null): boolean => !currentTeam?.surveys_opt_in,
+            (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): boolean =>
+                !currentTeam?.surveys_opt_in,
         ],
     }),
     listeners(({ actions, values }) => ({

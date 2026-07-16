@@ -15,6 +15,7 @@ import type { SortDirection, SortState } from '../aiObservabilitySharedLogic'
 import { aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'
 import type { AIObservabilityTabId } from '../aiObservabilitySharedLogic'
 import { llmSessionTitleLazyLoaderLogic } from '../llmSessionTitleLazyLoaderLogic'
+import type { DateRangeFilter } from '../types'
 
 export type AIObservabilitySessionsViewLogicProps = Record<string, never>
 
@@ -77,9 +78,9 @@ export interface aiObservabilitySessionsViewLogicValues {
 export interface aiObservabilitySessionsViewLogicActions {
     ensureSessionTitleLoaded: (
         sessionId: string,
-        dateRange?: import('../types').DateRangeFilter | undefined
+        dateRange?: DateRangeFilter | undefined
     ) => {
-        dateRange: import('../types').DateRangeFilter | undefined
+        dateRange: DateRangeFilter | undefined
         sessionId: string
     } // llmSessionTitleLazyLoaderLogic
     loadMoreSessions: () => {
@@ -304,7 +305,7 @@ export const aiObservabilitySessionsViewLogic = kea<aiObservabilitySessionsViewL
             (
                 dateFilter: { dateFrom: string | null; dateTo: string | null },
                 shouldFilterTestAccounts: boolean,
-                propertyFilters: AnyPropertyFilter[],
+                propertyFilters: import('~/types').AnyPropertyFilter[],
                 sessionsSort: { column: string; direction: 'ASC' | 'DESC' },
                 groupsTaxonomicTypes: TaxonomicFilterGroupType[]
             ): DataTableNode => {

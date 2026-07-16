@@ -11,6 +11,7 @@ import {
     providerSortIndex,
     toLLMProvider,
 } from './settings/llmProviderKeysLogic'
+import type { CreateLLMProviderKeyPayload, UpdateLLMProviderKeyPayload } from './settings/llmProviderKeysLogic'
 import { isUnhealthyProviderKeyState, providerKeyStateSuffix } from './settings/providerKeyStateUtils'
 
 export interface ModelOption {
@@ -76,12 +77,12 @@ export interface modelPickerLogicActions {
         providerKeys: LLMProviderKey[],
         payload?:
             | {
-                  payload: import('./settings/llmProviderKeysLogic').CreateLLMProviderKeyPayload
+                  payload: CreateLLMProviderKeyPayload
               }
             | undefined
     ) => {
         payload?: {
-            payload: import('./settings/llmProviderKeysLogic').CreateLLMProviderKeyPayload
+            payload: CreateLLMProviderKeyPayload
         }
         providerKeys: LLMProviderKey[]
     } // llmProviderKeysLogic
@@ -97,13 +98,13 @@ export interface modelPickerLogicActions {
         payload?:
             | {
                   id: string
-                  payload: import('./settings/llmProviderKeysLogic').UpdateLLMProviderKeyPayload
+                  payload: UpdateLLMProviderKeyPayload
               }
             | undefined
     ) => {
         payload?: {
             id: string
-            payload: import('./settings/llmProviderKeysLogic').UpdateLLMProviderKeyPayload
+            payload: UpdateLLMProviderKeyPayload
         }
         providerKeys: LLMProviderKey[]
     } // llmProviderKeysLogic

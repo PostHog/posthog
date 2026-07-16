@@ -9,6 +9,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { BatchExportBackfill, RawBatchExportBackfill } from '~/types'
 
+import type { Dayjs } from '../../../lib/dayjs'
 import type { BatchExportConfiguration } from '../../../types'
 import { batchExportBackfillModalLogic } from './batchExportBackfillModalLogic'
 import { batchExportDataLogic } from './batchExportDataLogic'
@@ -42,13 +43,13 @@ export interface batchExportBackfillsLogicActions {
     } // batchExportBackfillModalLogic
     submitBackfillFormSuccess: (backfillForm: {
         earliest_backfill: boolean
-        end_at?: import('lib/dayjs').Dayjs | undefined
-        start_at?: import('lib/dayjs').Dayjs | undefined
+        end_at?: Dayjs | undefined
+        start_at?: Dayjs | undefined
     }) => {
         backfillForm: {
             earliest_backfill: boolean
-            end_at?: import('lib/dayjs').Dayjs | undefined
-            start_at?: import('lib/dayjs').Dayjs | undefined
+            end_at?: Dayjs | undefined
+            start_at?: Dayjs | undefined
         }
     } // batchExportBackfillModalLogic
     cancelBackfill: (backfill: BatchExportBackfill) => {

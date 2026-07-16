@@ -94,7 +94,10 @@ export const groupsSceneLogic = kea<groupsSceneLogicType>([
         groupTypeName: [
             (s) => [s.aggregationLabel, s.groupTypeIndex],
             (
-                aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun,
+                aggregationLabel: (
+                    groupTypeIndex: number | null | undefined,
+                    deferToUserWording?: boolean
+                ) => import('~/models/groupsModel').Noun,
                 groupTypeIndex: number
             ): string => {
                 return aggregationLabel(groupTypeIndex).singular
@@ -103,7 +106,10 @@ export const groupsSceneLogic = kea<groupsSceneLogicType>([
         groupTypeNamePlural: [
             (s) => [s.aggregationLabel, s.groupTypeIndex],
             (
-                aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun,
+                aggregationLabel: (
+                    groupTypeIndex: number | null | undefined,
+                    deferToUserWording?: boolean
+                ) => import('~/models/groupsModel').Noun,
                 groupTypeIndex: number
             ): string => {
                 return aggregationLabel(groupTypeIndex).plural

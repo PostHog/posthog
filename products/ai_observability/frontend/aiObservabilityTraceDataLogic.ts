@@ -410,20 +410,20 @@ export const aiObservabilityTraceDataLogic = kea<aiObservabilityTraceDataLogicTy
             (s) => [s.response],
             (
                 response:
-                    | ErrorTrackingQueryResponse
-                    | HogQLAutocompleteResponse
-                    | HogQLMetadataResponse
-                    | HogQLQueryResponse<any[]>
-                    | HogQueryResponse
-                    | LogAttributesQueryResponse
-                    | LogValuesQueryResponse
-                    | MetricsQueryResponse
                     | Record<string, any>
-                    | SessionsQueryResponse
-                    | TraceSpansAggregationQueryResponse
-                    | TraceSpansAttributeBreakdownQueryResponse
-                    | TraceSpansQueryResponse
                     | null
+                    | import('~/queries/schema').ErrorTrackingQueryResponse
+                    | import('~/queries/schema').HogQLAutocompleteResponse
+                    | import('~/queries/schema').HogQLMetadataResponse
+                    | import('~/queries/schema').HogQLQueryResponse<any[]>
+                    | import('~/queries/schema').HogQueryResponse
+                    | import('~/queries/schema').LogAttributesQueryResponse
+                    | import('~/queries/schema').LogValuesQueryResponse
+                    | import('~/queries/schema').MetricsQueryResponse
+                    | import('~/queries/schema').SessionsQueryResponse
+                    | import('~/queries/schema').TraceSpansAggregationQueryResponse
+                    | import('~/queries/schema').TraceSpansAttributeBreakdownQueryResponse
+                    | import('~/queries/schema').TraceSpansQueryResponse
             ): LLMTrace | undefined => {
                 const traceResponse = response as TraceQueryResponse | null
                 return traceResponse?.results?.[0]

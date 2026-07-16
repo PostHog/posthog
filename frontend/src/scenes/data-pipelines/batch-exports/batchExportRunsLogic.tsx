@@ -9,6 +9,7 @@ import { dayjs } from 'lib/dayjs'
 
 import { BatchExportRun, GroupedBatchExportRuns, RawBatchExportRun } from '~/types'
 
+import type { Dayjs } from '../../../lib/dayjs'
 import type { BatchExportConfiguration } from '../../../types'
 import { batchExportBackfillModalLogic } from './batchExportBackfillModalLogic'
 import { batchExportDataLogic } from './batchExportDataLogic'
@@ -45,13 +46,13 @@ export interface batchExportRunsLogicActions {
     } // batchExportBackfillModalLogic
     submitBackfillFormSuccess: (backfillForm: {
         earliest_backfill: boolean
-        end_at?: import('lib/dayjs').Dayjs | undefined
-        start_at?: import('lib/dayjs').Dayjs | undefined
+        end_at?: Dayjs | undefined
+        start_at?: Dayjs | undefined
     }) => {
         backfillForm: {
             earliest_backfill: boolean
-            end_at?: import('lib/dayjs').Dayjs | undefined
-            start_at?: import('lib/dayjs').Dayjs | undefined
+            end_at?: Dayjs | undefined
+            start_at?: Dayjs | undefined
         }
     } // batchExportBackfillModalLogic
     cancelRun: (run: BatchExportRun) => {
