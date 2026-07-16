@@ -912,10 +912,13 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
         if not application or application.name != settings.TOOLBAR_OAUTH_APPLICATION_NAME:
             return
 
+        user = access_token.user
         scoped_team_ids = access_token.scoped_teams or []
         team = Team.objects.filter(pk__in=scoped_team_ids).first() if len(scoped_team_ids) == 1 else None
-        if not team or not UserAccessControl(access_token.user, team=team).check_access_level_for_resource(
-            "toolbar", "viewer"
+        if (
+            not user
+            or not team
+            or not UserAccessControl(user, team=team).check_access_level_for_resource("toolbar", "viewer")
         ):
             raise AuthenticationFailed(detail="You don't have access to the toolbar for this project.")
 

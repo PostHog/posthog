@@ -410,19 +410,22 @@ class TestToolbarAccessTokenRevocation(APIBaseTest):
         assert self._get().status_code not in (401, 403)
 
     def test_token_rejected_after_toolbar_access_revoked(self):
+        # AuthenticationFailed maps to 401 here, same as the expired/invalid token
+        # cases above - this authenticator declares an authenticate_header, so DRF
+        # treats a rejection as "not authenticated" rather than "forbidden".
         self._deny_toolbar_access()
-        assert self._get().status_code == 403
+        assert self._get().status_code == 401
 
     def test_token_rejected_when_scoped_to_no_team(self):
         self.token.scoped_teams = []
         self.token.save()
-        assert self._get().status_code == 403
+        assert self._get().status_code == 401
 
     def test_token_rejected_when_scoped_to_multiple_teams(self):
         other_team = Team.objects.create(organization=self.organization, name="Other team")
         self.token.scoped_teams = [self.team.id, other_team.id]
         self.token.save()
-        assert self._get().status_code == 403
+        assert self._get().status_code == 401
 
     def test_non_toolbar_app_token_unaffected_by_toolbar_access_revocation(self):
         """The revocation re-check is gated on the token's OAuth application being the
