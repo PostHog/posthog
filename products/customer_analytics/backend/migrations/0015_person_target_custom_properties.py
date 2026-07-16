@@ -3,8 +3,6 @@
 import django.db.models.deletion
 from django.db import migrations, models
 
-import products.customer_analytics.backend.models.custom_property_definition
-
 
 class Migration(migrations.Migration):
     dependencies = [
@@ -18,7 +16,7 @@ class Migration(migrations.Migration):
             name="target_type",
             field=models.CharField(
                 choices=[("account", "account"), ("person", "person")],
-                default=products.customer_analytics.backend.models.custom_property_definition.TargetType["ACCOUNT"],
+                default="account",
                 help_text="What entity this property is attached to: an account (default) or a person.",
                 max_length=20,
             ),

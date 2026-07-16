@@ -2,8 +2,6 @@
 
 from django.db import migrations, models
 
-import products.customer_analytics.backend.models.custom_property_definition
-
 
 class Migration(migrations.Migration):
     dependencies = [
@@ -35,7 +33,7 @@ class Migration(migrations.Migration):
                     ("boolean", "boolean"),
                     ("select", "select"),
                 ],
-                default=products.customer_analytics.backend.models.custom_property_definition.DisplayType["TEXT"],
+                default="text",
                 max_length=20,
             ),
         ),
