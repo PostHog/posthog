@@ -3696,13 +3696,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             data={"valid": len(prereq_errors) == 0, "errors": prereq_errors},
         )
 
-    def _get_cdc_adapter_or_400(self, instance: ExternalDataSource) -> tuple[CDCSourceAdapter | None, Response | None]:
-        """Look up the engine adapter for an existing source. Returns 400 if the
-        source's type doesn't support CDC."""
+    def _get_cdc_adapter_or_400(self, instance: ExternalDataSource) -> CDCSourceAdapter | Response:
+        """Look up the engine adapter for an existing source. Returns a 400 ``Response`` if the
+        source's type doesn't support CDC, otherwise the adapter. Callers narrow with
+        ``isinstance(result, Response)`` so an unsupported source degrades into a handled error
+        instead of a bare ``assert`` that would escape as an opaque 500."""
         try:
-            return get_cdc_adapter(instance), None
+            return get_cdc_adapter(instance)
         except ValueError:
-            return None, Response(
+            return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": f"CDC is not supported for source type: {instance.source_type}"},
             )
@@ -3722,10 +3724,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         """
         instance: ExternalDataSource = self.get_object()
 
-        adapter, err = self._get_cdc_adapter_or_400(instance)
-        if err is not None:
-            return err
-        assert adapter is not None  # narrowed by _get_cdc_adapter_or_400
+        adapter = self._get_cdc_adapter_or_400(instance)
+        if isinstance(adapter, Response):
+            return adapter
 
         management_mode = request.data.get("cdc_management_mode", "posthog")
         if management_mode not in ("posthog", "self_managed"):
@@ -3783,10 +3784,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         """
         instance: ExternalDataSource = self.get_object()
 
-        adapter, err = self._get_cdc_adapter_or_400(instance)
-        if err is not None:
-            return err
-        assert adapter is not None  # narrowed by _get_cdc_adapter_or_400
+        adapter = self._get_cdc_adapter_or_400(instance)
+        if isinstance(adapter, Response):
+            return adapter
 
         if not is_cdc_enabled_for_team(self.team):
             return Response(
@@ -3877,10 +3877,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         """
         instance: ExternalDataSource = self.get_object()
 
-        adapter, err = self._get_cdc_adapter_or_400(instance)
-        if err is not None:
-            return err
-        assert adapter is not None
+        adapter = self._get_cdc_adapter_or_400(instance)
+        if isinstance(adapter, Response):
+            return adapter
 
         cdc_config = adapter.parse_cdc_config(instance)
         if not cdc_config.enabled:
@@ -3996,10 +3995,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         """
         instance: ExternalDataSource = self.get_object()
 
-        adapter, err = self._get_cdc_adapter_or_400(instance)
-        if err is not None:
-            return err
-        assert adapter is not None  # narrowed by _get_cdc_adapter_or_400
+        adapter = self._get_cdc_adapter_or_400(instance)
+        if isinstance(adapter, Response):
+            return adapter
 
         cdc_config = adapter.parse_cdc_config(instance)
         if not cdc_config.enabled:
@@ -4041,10 +4039,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         """
         instance: ExternalDataSource = self.get_object()
 
-        adapter, err = self._get_cdc_adapter_or_400(instance)
-        if err is not None:
-            return err
-        assert adapter is not None
+        adapter = self._get_cdc_adapter_or_400(instance)
+        if isinstance(adapter, Response):
+            return adapter
 
         cdc_config = adapter.parse_cdc_config(instance)
         if not cdc_config.enabled:
@@ -4103,10 +4100,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         """
         instance: ExternalDataSource = self.get_object()
 
-        adapter, err = self._get_cdc_adapter_or_400(instance)
-        if err is not None:
-            return err
-        assert adapter is not None
+        adapter = self._get_cdc_adapter_or_400(instance)
+        if isinstance(adapter, Response):
+            return adapter
 
         cdc_config = adapter.parse_cdc_config(instance)
         if not cdc_config.enabled:
