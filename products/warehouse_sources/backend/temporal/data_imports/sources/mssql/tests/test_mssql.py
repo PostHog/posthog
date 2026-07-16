@@ -21,7 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssq
     retry_on_deadlock,
     retry_on_transient_connection_error,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.source import MSSQLSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.source import MSSQLErrors, MSSQLSource
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
 
@@ -581,6 +581,10 @@ class TestMSSQLSourceNonRetryableErrors:
             "BaseSSHTunnelForwarderError: Could not establish session to SSH gateway",
             # `connect` translates paramiko's bare handshake EOFError into this message.
             _SSH_HANDSHAKE_EOF_ERROR,
+            # Azure SQL error 40615 — the server gateway rejects PostHog's IP before login. The
+            # server name and IP are volatile, so only the stable prefix can be matched.
+            "Cannot open server 'my-server' requested by the login. Client with IP address "
+            "'12.34.56.78' is not allowed to access the server.",
         ],
     )
     def test_connection_errors_are_non_retryable(self, error_msg):
@@ -660,6 +664,33 @@ class TestMSSQLSourceNonRetryableErrors:
 
         non_retryable = MSSQLSource().get_non_retryable_errors()
         assert any(pattern in str(exc_info.value) for pattern in non_retryable.keys())
+
+
+class TestValidateCredentials:
+    def test_azure_firewall_error_returns_guidance_without_capturing(self, mocker):
+        # Azure SQL error 40615: the gateway rejects PostHog's IP before login. The customer needs
+        # firewall guidance, not the generic message, and it must not be captured as error-tracking
+        # noise (the reported symptom was this falling through to capture_exception).
+        source = MSSQLSource()
+        mocker.patch.object(source, "ssh_tunnel_is_valid", return_value=(True, None))
+        mocker.patch.object(source, "is_database_host_valid", return_value=(True, None))
+        mocker.patch.object(
+            source,
+            "get_schemas",
+            side_effect=pymssql.OperationalError(
+                "Cannot open server 'my-server' requested by the login. Client with IP address "
+                "'12.34.56.78' is not allowed to access the server."
+            ),
+        )
+        capture = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mssql.source.capture_exception"
+        )
+
+        is_valid, error = source.validate_credentials(_make_config(), team_id=1)
+
+        assert is_valid is False
+        assert error == MSSQLErrors["is not allowed to access the server"]
+        capture.assert_not_called()
 
 
 class TestIsTransientConnectionError:

@@ -36,6 +36,10 @@ MSSQLErrors = {
     # sources use and match the stable prefix, not the volatile "'<username>'." that follows it.
     "Login failed for user": "Invalid user or password",
     "Adaptive Server is unavailable or does not exist": "Could not connect to SQL server - check server host and port",
+    # Azure SQL error 40615 — the server's gateway rejected PostHog's IP before login. Match the
+    # stable prefix and skip the volatile server name/IP that follows it, like the sibling firewall
+    # rule above.
+    "is not allowed to access the server": "Azure SQL Server's firewall is blocking PostHog. Add PostHog's IP addresses to the server firewall in the Azure portal (or with sp_set_firewall_rule), then try again.",
     "connection timed out": "Could not connect to SQL server - check server firewall settings",
 }
 
@@ -60,6 +64,11 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # (security group doesn't allow PostHog's IPs, the instance is stopped, or the
             # hostname is wrong), not a momentary blip, so retrying the job won't recover it.
             "Adaptive Server is unavailable or does not exist": "Could not reach your SQL Server. Check that the server is running and reachable, and that PostHog's IP addresses are allowed through its firewall / security group.",
+            # Azure SQL error 40615 — the server's gateway rejected PostHog's IP at login, before the
+            # database was reached. The firewall block is a persistent configuration issue, not a
+            # momentary blip, so retrying replays the identical rejection until the customer allows
+            # PostHog through. Match the stable prefix, not the volatile server name / IP that follows.
+            "is not allowed to access the server": "Azure SQL Server's firewall is blocking PostHog. Add PostHog's IP addresses to the server firewall in the Azure portal (or with sp_set_firewall_rule), then re-enable the sync.",
             # SQL Server error 18456 — the login was rejected (wrong username/password, or the login
             # is disabled). Deterministic until the customer fixes the credentials, so retrying just
             # replays the same rejection; surface the same actionable wording as the validation path
