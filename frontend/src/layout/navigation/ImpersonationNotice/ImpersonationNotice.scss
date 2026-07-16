@@ -1,4 +1,6 @@
 .ImpersonationNotice {
+    --impersonation-notice-border-accent: var(--color-border-warning);
+
     display: flex;
     width: 26rem;
     background-color: var(--color-bg-surface-primary);
@@ -38,6 +40,8 @@
     }
 
     &--read-write {
+        --impersonation-notice-border-accent: var(--color-border-error);
+
         .ImpersonationNotice__sidebar {
             background: var(--danger);
         }
@@ -173,7 +177,7 @@
     &__user-trigger.LemonButton {
         max-width: 100%;
         font-weight: 600;
-        border: 1px solid var(--color-border-warning);
+        border: 1px solid var(--impersonation-notice-border-accent);
         border-radius: var(--radius);
     }
 
