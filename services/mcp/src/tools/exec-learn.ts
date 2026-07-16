@@ -1,8 +1,9 @@
-import type { ProjectSkillCatalog } from '@/skills/project-skill-catalog'
+import type { ProjectSkillCatalog, ProjectSkillList } from '@/skills/project-skill-catalog'
 import {
     fitLearnOutput,
     formatLearnSearchResults,
     type LearnSearchResult,
+    MAX_GLOBAL_SKILLS,
     type SkillCatalog,
 } from '@/skills/skill-catalog'
 
@@ -18,13 +19,25 @@ export type ExecLearnGuideSummary = Omit<ExecLearnGuide, 'content'>
 const SKILL_COMMANDS = [
     'learn skills',
     'learn -s <query>',
+    'learn -d <source>:<skill> [...]',
     'learn posthog:<skill> [path]',
     'learn project:<skill> [path]',
+    'learn <source>:<skill> <path> [path...]',
+    'learn <source>:<skill> [<source>:<skill>...]',
     'learn <source>:<skill> <path> -s <query>',
     'learn <source>:<skill> <path> --lines <start>:<end>',
 ] as const
 const MAX_SEARCH_QUERY_LENGTH = 200
 const POSTHOG_SKILL_LIST_LIMIT = 300
+// Bounds on batch fan-out to keep worst-case project-side API calls per command in check.
+const MAX_DESCRIBE_SKILLS = 20
+const MAX_BATCH_READS = 10
+// Above this total, the zero-hit recovery links to `learn skills` instead of inlining every name.
+const ZERO_HIT_INLINE_LIMIT = 25
+const QUALIFIED_IDENTIFIER = /^(posthog|project):/
+// A path that itself starts with `posthog:`/`project:` parses as a multi-skill read, not a file read.
+const SKILL_READ_USAGE =
+    'Usage: learn <source>:<skill> [path...], learn <source>:<skill> <path> -s <query>, or learn <source>:<skill> <path> --lines <start>:<end>. Reads with several qualified names load several skills.'
 
 type SkillSource = 'posthog' | 'project'
 
@@ -77,7 +90,8 @@ export class ExecLearnCatalog {
         }
 
         const tokens = tokenizeLearnInput(rest)
-        const isSkillRequest = tokens[0] === 'skills' || tokens[0] === '-s' || tokens[0]!.includes(':')
+        const isSkillRequest =
+            tokens[0] === 'skills' || tokens[0] === '-s' || tokens[0] === '-d' || tokens[0]!.includes(':')
         if (!this.skillSources && isSkillRequest) {
             return JSON.stringify({
                 available: false,
@@ -95,8 +109,17 @@ export class ExecLearnCatalog {
             return await this.searchSkills(query)
         }
 
+        if (tokens[0] === '-d') {
+            return await this.describeSkills(tokens.slice(1))
+        }
+
         if (!tokens[0]!.includes(':')) {
             return this.readGuides(tokens)
+        }
+
+        // Every token a qualified identifier → read several skills in one command.
+        if (tokens.length > 1 && tokens.every((token) => QUALIFIED_IDENTIFIER.test(token))) {
+            return await this.batchReadSkills(tokens)
         }
 
         const [identifier, ...args] = tokens
@@ -105,25 +128,98 @@ export class ExecLearnCatalog {
             return await this.readSkill(skill)
         }
 
-        const [path, flag, ...flagArgs] = args
-        if (!flag) {
-            return await this.readSkill(skill, path)
+        const flagIndex = args.findIndex((token) => token === '-s' || token === '--lines')
+        if (flagIndex === -1) {
+            if (args.length === 1) {
+                return await this.readSkill(skill, args[0])
+            }
+            return await this.batchReadFiles(skill, args)
         }
+
+        const paths = args.slice(0, flagIndex)
+        if (paths.length !== 1) {
+            throw new Error(SKILL_READ_USAGE)
+        }
+        const path = paths[0]!
+        const flag = args[flagIndex]
+        const flagArgs = args.slice(flagIndex + 1)
         if (flag === '-s') {
             const query = flagArgs.join(' ')
             this.validateSearchQuery(query)
-            return await this.searchSkillFile(skill, path!, query)
+            return await this.searchSkillFile(skill, path, query)
         }
         if (flag === '--lines' && flagArgs.length === 1) {
             const range = flagArgs[0]!.match(/^(\d+):(\d+)$/)
             if (!range) {
                 throw new Error('Usage: learn <source>:<skill> <path> --lines <start>:<end>')
             }
-            return await this.readSkillLines(skill, path!, Number(range[1]), Number(range[2]))
+            return await this.readSkillLines(skill, path, Number(range[1]), Number(range[2]))
         }
-        throw new Error(
-            'Usage: learn <source>:<skill> [path], learn <source>:<skill> <path> -s <query>, or learn <source>:<skill> <path> --lines <start>:<end>'
-        )
+        throw new Error(SKILL_READ_USAGE)
+    }
+
+    private async batchReadSkills(identifiers: string[]): Promise<string> {
+        if (identifiers.length > MAX_BATCH_READS) {
+            throw new Error(`learn reads at most ${MAX_BATCH_READS} skills at once. Split the batch.`)
+        }
+        const skills = identifiers.map((identifier) => parseQualifiedSkill(identifier))
+        const outputs = await Promise.all(skills.map((skill) => this.readSkill(skill)))
+        return fitLearnOutput(outputs.join('\n\n'))
+    }
+
+    private async batchReadFiles(skill: QualifiedSkill, paths: string[]): Promise<string> {
+        if (paths.length > MAX_BATCH_READS) {
+            throw new Error(`learn reads at most ${MAX_BATCH_READS} files at once. Split the batch.`)
+        }
+        const outputs = await Promise.all(paths.map((path) => this.readSkill(skill, path)))
+        return fitLearnOutput(outputs.join('\n\n'))
+    }
+
+    private async describeSkills(identifiers: string[]): Promise<string> {
+        if (identifiers.length === 0) {
+            throw new Error('Usage: learn -d <source>:<skill> [<source>:<skill>...]')
+        }
+        if (identifiers.length > MAX_DESCRIBE_SKILLS) {
+            throw new Error(`learn -d describes at most ${MAX_DESCRIBE_SKILLS} skills at once. Split the batch.`)
+        }
+
+        const parsed = identifiers.map((identifier) => ({ identifier, skill: tryParseQualifiedSkill(identifier) }))
+        let projectDescriptions: Map<string, string> | undefined
+        let projectUnavailable: string | undefined
+        if (parsed.some(({ skill }) => skill?.source === 'project')) {
+            if (!this.skillSources?.project) {
+                projectUnavailable = this.requireProjectUnavailableReason()
+            } else {
+                try {
+                    projectDescriptions = await this.skillSources.project.descriptions()
+                } catch (error) {
+                    projectUnavailable = formatProjectError(error)
+                }
+            }
+        }
+
+        const lines = parsed.map(({ identifier, skill }) => {
+            if (!skill) {
+                return `[unknown skill: ${identifier}]`
+            }
+            if (skill.source === 'posthog') {
+                if (!this.skillSources?.posthog) {
+                    return '[posthog skills unavailable: PostHog skills are temporarily unavailable.]'
+                }
+                const description = this.skillSources.posthog.describe(skill.name)
+                return description !== undefined
+                    ? `posthog:${skill.name}: ${description}`
+                    : `[unknown skill: ${identifier}]`
+            }
+            if (projectUnavailable !== undefined) {
+                return `[project skills unavailable: ${projectUnavailable}]`
+            }
+            const description = projectDescriptions?.get(skill.name)
+            return description !== undefined
+                ? `project:${skill.name}: ${description}`
+                : `[unknown skill: ${identifier}]`
+        })
+        return fitLearnOutput(lines.join('\n'))
     }
 
     private async listSkills(): Promise<string> {
@@ -181,9 +277,51 @@ export class ExecLearnCatalog {
             }
         }
 
-        const sections = results.length > 0 ? formatLearnSearchResults(results) : `No skills matched "${query}".`
+        // Merge both sources by relevance so an exact project match can outrank a weak PostHog one.
+        const merged = results
+            .sort(
+                (left, right) =>
+                    (right.score ?? 0) - (left.score ?? 0) || left.identifier.localeCompare(right.identifier)
+            )
+            .slice(0, MAX_GLOBAL_SKILLS)
+        const sections = merged.length > 0 ? formatLearnSearchResults(merged) : await this.zeroHitRecovery(query)
         return fitLearnOutput(
             warnings.length > 0 ? `${sections}\n\n${warnings.map((warning) => `[${warning}]`).join('\n')}` : sections
+        )
+    }
+
+    private async zeroHitRecovery(query: string): Promise<string> {
+        const header =
+            `No skills matched "${query}".\n` +
+            'None of the query words appear in any skill. Try fewer or broader keywords (single words match best).'
+
+        const posthogNames = this.skillSources?.posthog?.listNames() ?? []
+        let projectListing: ProjectSkillList | undefined
+        if (!this.skillSources?.project) {
+            projectListing = { count: 0, names: [], truncated: false }
+        } else {
+            try {
+                projectListing = await this.skillSources.project.listNames()
+            } catch {
+                // Fall through to the link form; the search-level warning already explains the failure.
+            }
+        }
+
+        if (projectListing && posthogNames.length + projectListing.count <= ZERO_HIT_INLINE_LIMIT) {
+            const lines = [header, '', 'Available skills:']
+            if (posthogNames.length > 0) {
+                lines.push(`posthog: ${posthogNames.join(', ')}`)
+            }
+            if (projectListing.names.length > 0) {
+                lines.push(`project: ${projectListing.names.join(', ')}`)
+            }
+            return lines.join('\n')
+        }
+
+        return (
+            `${header}\n\n` +
+            `${posthogNames.length} posthog and ${projectListing?.count ?? 0} project skills exist — ` +
+            'run `learn skills` to list names, or `learn -d <source>:<skill>` to describe specific ones.'
         )
     }
 
@@ -262,11 +400,19 @@ export class ExecLearnCatalog {
 }
 
 function parseQualifiedSkill(identifier: string): QualifiedSkill {
-    const match = identifier.match(/^(posthog|project):(.+)$/)
-    if (!match?.[1] || !match[2]) {
+    const skill = tryParseQualifiedSkill(identifier)
+    if (!skill) {
         throw new Error(
             `Unknown guide or unqualified skill: "${identifier}". Use \`learn posthog:<skill>\` or \`learn project:<skill>\`.`
         )
+    }
+    return skill
+}
+
+function tryParseQualifiedSkill(identifier: string): QualifiedSkill | undefined {
+    const match = identifier.match(/^(posthog|project):(.+)$/)
+    if (!match?.[1] || !match[2]) {
+        return undefined
     }
     return { source: match[1] as SkillSource, name: match[2], identifier }
 }

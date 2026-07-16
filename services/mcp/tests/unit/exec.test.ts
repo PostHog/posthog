@@ -98,8 +98,11 @@ describe('exec tool', () => {
                     commands: [
                         'learn skills',
                         'learn -s <query>',
+                        'learn -d <source>:<skill> [...]',
                         'learn posthog:<skill> [path]',
                         'learn project:<skill> [path]',
+                        'learn <source>:<skill> <path> [path...]',
+                        'learn <source>:<skill> [<source>:<skill>...]',
                         'learn <source>:<skill> <path> -s <query>',
                         'learn <source>:<skill> <path> --lines <start>:<end>',
                     ],

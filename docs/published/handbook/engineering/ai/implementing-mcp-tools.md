@@ -87,6 +87,8 @@ Put optional or task-specific global guidance in the Claude exec learn catalog, 
 The built-in guides are listed in the `command` description so the model can load the relevant guide before starting a task.
 PostHog and project skills are enabled independently of the client through the `mcp-exec-skills` feature flag and discovered at runtime through `learn skills` or `learn -s <query>`.
 Read bundled PostHog skills with `learn posthog:<skill> [path]` and current-project Skills store entries with `learn project:<skill> [path]`.
+Search merges both sources into one relevance order, so an exact project match can outrank a weak PostHog one.
+Preview descriptions without reading bodies with `learn -d <source>:<skill> [...]`, and read several targets in one call with `learn <source>:<skill> <path> [path...]` or `learn <source>:<skill> [<source>:<skill>...]`.
 When the flag is enabled, every non-plugin cli client is instructed to run `learn -s "<task keywords>"` before non-trivial PostHog work, load matches by exact qualified name, and follow the loaded `SKILL.md` before selecting tools.
 Claude web and desktop keep their built-in learning topics when the flag is off. Other cli-mode clients receive only skill commands when the flag is on, without the Claude-specific learning topics.
 Keep skill names, descriptions, bodies, and references out of the tool schema.

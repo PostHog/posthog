@@ -33,6 +33,18 @@ function makeCatalog(): SkillCatalog {
     )
 }
 
+function makeProjectSkills(overrides: Partial<Record<string, unknown>> = {}): ProjectSkillCatalog {
+    return {
+        listNames: vi.fn(async () => ({ count: 1, names: ['team-conventions'], truncated: false })),
+        descriptions: vi.fn(async () => new Map([['team-conventions', 'Team-specific conventions.']])),
+        searchResults: vi.fn(async () => []),
+        read: vi.fn(async () => 'project skill'),
+        searchFile: vi.fn(async () => 'project file match'),
+        readLines: vi.fn(async () => 'project lines'),
+        ...overrides,
+    } as unknown as ProjectSkillCatalog
+}
+
 describe('SkillCatalog and exec learn', () => {
     it('lists qualified names without descriptions and ranks full-text matches deterministically', async () => {
         const catalog = makeCatalog()
@@ -94,24 +106,22 @@ describe('SkillCatalog and exec learn', () => {
         )
     })
 
-    it('merges PostHog and project search results and supports Unicode queries and quoted project paths', async () => {
-        const projectSkills = {
-            listNames: vi.fn(async () => ({ count: 1, names: ['team-conventions'], truncated: false })),
-            searchResults: vi.fn(async () => [
+    it('merges PostHog and project search results by relevance and supports Unicode and quoted paths', async () => {
+        const projectSkills = makeProjectSkills({
+            searchResults: vi.fn(async (query: string) => [
                 {
-                    identifier: 'project:team-conventions',
-                    description: 'Team-specific retention guidance.',
-                    snippets: [{ path: 'SKILL.md', line: 4, text: 'Use weekly retention.' }],
+                    identifier: 'project:conversion-playbook',
+                    description: 'Team conversion playbook.',
+                    snippets: [{ path: 'SKILL.md', line: 4, text: 'Our conversion funnel.' }],
+                    // A name match on "conversion" must outrank a PostHog body-only match.
+                    score: query.includes('conversion') ? 3300 : 900,
                 },
             ]),
-            read: vi.fn(async () => 'project skill'),
-            searchFile: vi.fn(async () => 'project file match'),
-            readLines: vi.fn(async () => 'project lines'),
-        } as unknown as ProjectSkillCatalog
+        })
         const learn = new ExecLearnCatalog([], { posthog: makeCatalog(), project: projectSkills })
 
         const listed = JSON.parse(await learn.execute('skills'))
-        const result = await learn.execute('-s retention')
+        const ranked = await learn.execute('-s conversion')
         const unicodeResult = await learn.execute('-s 日本語')
 
         expect(listed.project).toEqual({
@@ -121,11 +131,12 @@ describe('SkillCatalog and exec learn', () => {
             truncated: false,
             skills: ['project:team-conventions'],
         })
-        expect(result.indexOf('## posthog:retention-analysis')).toBeLessThan(
-            result.indexOf('## project:team-conventions')
-        )
+        // Regression guard: the name-matching project skill outranks PostHog's `funnels`,
+        // which only matches on description/body — the old code always ordered PostHog first.
+        expect(ranked.indexOf('## project:conversion-playbook')).toBeLessThan(ranked.indexOf('## posthog:funnels'))
+        expect(ranked.indexOf('## posthog:funnels')).toBeGreaterThan(-1)
         expect(unicodeResult).toContain('## posthog:retention-analysis')
-        expect(unicodeResult).toContain('## project:team-conventions')
+        expect(unicodeResult).toContain('## project:conversion-playbook')
         expect(projectSkills.searchResults).toHaveBeenLastCalledWith('日本語')
         await expect(
             learn.execute('project:team-conventions "references/team guide.md" -s weekly retention')
@@ -239,5 +250,74 @@ describe('SkillCatalog and exec learn', () => {
         expect(output).toContain('No matches for "nonexistentxyz" in retention-analysis/references/functions.md.')
         expect(output).toContain('Read it with `learn retention-analysis references/functions.md` (3 lines,')
         expect(output).toContain('--lines <start>:<end>')
+    })
+
+    it('describes a batch of qualified names, tolerating unknown names without failing the batch', async () => {
+        const learn = new ExecLearnCatalog([], { posthog: makeCatalog(), project: makeProjectSkills() })
+
+        const output = await learn.execute('-d posthog:funnels posthog:missing project:team-conventions')
+
+        expect(output).toBe(
+            'posthog:funnels: Analyze conversion funnels.\n' +
+                '[unknown skill: posthog:missing]\n' +
+                'project:team-conventions: Team-specific conventions.'
+        )
+    })
+
+    it('caps the batch describe at 20 skills', async () => {
+        const learn = new ExecLearnCatalog([], { posthog: makeCatalog() })
+        const names = Array.from({ length: 21 }, (_, index) => `posthog:s${index}`).join(' ')
+
+        await expect(learn.execute(`-d ${names}`)).rejects.toThrow('at most 20 skills')
+    })
+
+    it('reads several skills in one command', async () => {
+        const learn = new ExecLearnCatalog([], { posthog: makeCatalog() })
+
+        const output = await learn.execute('posthog:funnels posthog:retention-analysis')
+
+        expect(output).toContain('Skill: posthog:funnels')
+        expect(output).toContain('Skill: posthog:retention-analysis')
+    })
+
+    it('reads several files of one skill in one command', async () => {
+        const learn = new ExecLearnCatalog([], { posthog: makeCatalog() })
+
+        const output = await learn.execute('posthog:retention-analysis SKILL.md references/functions.md')
+
+        expect(output).toContain('File: posthog:retention-analysis/SKILL.md')
+        expect(output).toContain('File: posthog:retention-analysis/references/functions.md')
+    })
+
+    it('rejects a scoped flag combined with multiple paths', async () => {
+        const learn = new ExecLearnCatalog([], { posthog: makeCatalog() })
+
+        await expect(
+            learn.execute('posthog:retention-analysis SKILL.md references/functions.md --lines 1:2')
+        ).rejects.toThrow('Usage: learn <source>:<skill>')
+    })
+
+    it.each([
+        [1, true],
+        [40, false],
+    ])('recovers from a zero-hit search (project count=%i, inline=%s)', async (count, inline) => {
+        const projectSkills = makeProjectSkills({
+            searchResults: vi.fn(async () => []),
+            listNames: vi.fn(async () => ({ count, names: ['team-conventions'], truncated: false })),
+        })
+        const learn = new ExecLearnCatalog([], { posthog: makeCatalog(), project: projectSkills })
+
+        const output = await learn.execute('-s zzzznomatch')
+
+        expect(output).toContain('No skills matched "zzzznomatch".')
+        expect(output).toContain('None of the query words appear in any skill.')
+        if (inline) {
+            expect(output).toContain('Available skills:')
+            expect(output).toContain('posthog: funnels, retention-analysis')
+            expect(output).toContain('project: team-conventions')
+        } else {
+            expect(output).toContain('2 posthog and 40 project skills exist')
+            expect(output).toContain('learn skills')
+        }
     })
 })

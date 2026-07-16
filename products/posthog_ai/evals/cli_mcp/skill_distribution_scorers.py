@@ -103,8 +103,22 @@ def _output_mentions_skill(output: str, qualified_skill: str) -> bool:
     return re.search(rf"(?<![a-zA-Z0-9_-]){re.escape(qualified_skill)}(?![a-zA-Z0-9_-])", output) is not None
 
 
+def _is_qualified_skill_token(token: str) -> bool:
+    return token.startswith(("posthog:", "project:"))
+
+
 def _exec_skill_load_calls(parser: LogParser, qualified_skill: str) -> list[ToolCall]:
-    return [call for call in _successful_exec_calls(parser) if _exec_command(call) == ("learn", qualified_skill)]
+    loads: list[ToolCall] = []
+    for call in _successful_exec_calls(parser):
+        verb, rest = _exec_command(call)
+        if verb != "learn" or not rest:
+            continue
+        # A batch read (`learn posthog:a posthog:b`) is all qualified names; a `<skill> <path>`
+        # read (`learn posthog:a SKILL.md`) is not, so it is not counted as a load.
+        tokens = rest.split()
+        if all(_is_qualified_skill_token(token) for token in tokens) and qualified_skill in tokens:
+            loads.append(call)
+    return loads
 
 
 def _bundled_skill_loads(parser: LogParser, skill: str) -> list[_SkillLoad]:
@@ -148,6 +162,8 @@ def _is_exec_skill_command(call: ToolCall) -> bool:
         rest == "skills"
         or rest == "-s"
         or rest.startswith("-s ")
+        or rest == "-d"
+        or rest.startswith("-d ")
         or rest.startswith("posthog:")
         or rest.startswith("project:")
     )
