@@ -644,7 +644,8 @@ function SchemaBulkActions({
     schemas: readonly ExternalDataSourceSchema[]
     clearSelection: () => void
 }): JSX.Element {
-    const { bulkDisable, bulkSetFrequency, bulkSyncNow, bulkResync, bulkDeleteData } = useActions(sourceSettingsLogic)
+    const { bulkEnable, bulkDisable, bulkSetFrequency, bulkSyncNow, bulkResync, bulkDeleteData } =
+        useActions(sourceSettingsLogic)
 
     // Wrap every action so the selection clears once it's been kicked off.
     const run = (action: () => void): void => {
@@ -659,6 +660,28 @@ function SchemaBulkActions({
     // mixed selection falls back to the non-CDC set (which CDC also supports).
     const allCdc = selected.length > 0 && selected.every((schema) => schema.sync_type === 'cdc')
     const frequencyOptions = allowedSyncFrequencies(allCdc ? 'cdc' : 'incremental')
+
+    const onEnable = (): void => {
+        const needingDefaults = selected.filter((schema) => !schema.should_sync && !schema.sync_type)
+        if (needingDefaults.length === 0) {
+            run(() => bulkEnable(selected))
+            return
+        }
+        LemonDialog.open({
+            title: `Enable ${pluralize(count, 'schema', 'schemas')}?`,
+            description: `${pluralize(
+                needingDefaults.length,
+                'selected schema has',
+                'selected schemas have'
+            )} no sync method configured yet. Default settings will be applied: incremental sync where the table supports it, otherwise a full refresh. Syncing starts right after enabling.`,
+            primaryButton: {
+                children: 'Enable',
+                type: 'primary',
+                onClick: () => run(() => bulkEnable(selected)),
+            },
+            secondaryButton: { children: 'Cancel', type: 'tertiary' },
+        })
+    }
 
     const onDisable = (): void => {
         const hasDataLossType = selected.some((schema) => schema.sync_type === 'cdc' || schema.sync_type === 'webhook')
@@ -681,6 +704,9 @@ function SchemaBulkActions({
 
     return (
         <>
+            <LemonButton type="secondary" size="small" onClick={onEnable}>
+                Enable
+            </LemonButton>
             <LemonButton type="secondary" size="small" onClick={onDisable}>
                 Disable
             </LemonButton>

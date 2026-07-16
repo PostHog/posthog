@@ -1603,6 +1603,12 @@ export const ExternalDataSourcesBulkUpdateSchemasPartialUpdateBody = /* @__PURE_
                     )
                     .nullish()
                     .describe('Row-filter predicates ANDed onto the source query. Null\/empty means sync all rows.'),
+                apply_sync_defaults: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'When true and the schema has no sync method configured yet (and this update does not set one), discover the table on the source and fill in default sync settings: incremental sync with an auto-selected tracking column where supported, otherwise append, otherwise full refresh. Ignored for schemas that already have a sync method.'
+                    ),
             })
         )
         .optional()

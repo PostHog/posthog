@@ -325,6 +325,20 @@ export function schemasEligibleForSync(schemas: ExternalDataSourceSchema[]): Ext
     return schemas.filter((schema) => !!schema.sync_type && schema.should_sync)
 }
 
+// Bulk-enable payloads: already-enabled schemas are skipped; schemas without a sync method ask
+// the backend to discover and fill in default sync settings as part of the same update.
+export function buildBulkEnablePayloads(
+    schemas: ExternalDataSourceSchema[]
+): (Partial<ExternalDataSourceSchema> & Pick<ExternalDataSourceSchema, 'id'> & { apply_sync_defaults?: boolean })[] {
+    return schemas
+        .filter((schema) => !schema.should_sync)
+        .map((schema) =>
+            schema.sync_type
+                ? { id: schema.id, should_sync: true }
+                : { id: schema.id, should_sync: true, apply_sync_defaults: true }
+        )
+}
+
 export function clampFrequencyForSchema(
     requested: DataWarehouseSyncInterval,
     schema: ExternalDataSourceSchema
@@ -405,6 +419,9 @@ export interface sourceSettingsLogicActions {
         schemas: ExternalDataSourceSchema[]
     }
     bulkDisable: (schemas: ExternalDataSourceSchema[]) => {
+        schemas: ExternalDataSourceSchema[]
+    }
+    bulkEnable: (schemas: ExternalDataSourceSchema[]) => {
         schemas: ExternalDataSourceSchema[]
     }
     bulkResync: (schemas: ExternalDataSourceSchema[]) => {
@@ -664,6 +681,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
         resyncSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
         cancelSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
         deleteTable: (schema: ExternalDataSourceSchema) => ({ schema }),
+        bulkEnable: (schemas: ExternalDataSourceSchema[]) => ({ schemas }),
         bulkDisable: (schemas: ExternalDataSourceSchema[]) => ({ schemas }),
         bulkSetFrequency: (schemas: ExternalDataSourceSchema[], frequency: DataWarehouseSyncInterval) => ({
             schemas,
@@ -1414,6 +1432,36 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     } else {
                         lemonToast.error("Can't delete data at this time")
                     }
+                }
+            },
+            bulkEnable: async ({ schemas }) => {
+                const payloads = buildBulkEnablePayloads(schemas)
+                if (payloads.length === 0) {
+                    lemonToast.info('All selected schemas are already enabled')
+                    return
+                }
+                const defaultsCount = payloads.filter((payload) => payload.apply_sync_defaults).length
+                try {
+                    const updatedSchemas = await api.externalDataSources.bulkUpdateSchemas(values.sourceId, payloads)
+                    const nextSource = applySchemasToSource(values.source, updatedSchemas)
+                    if (nextSource) {
+                        actions.loadSourceSuccess(nextSource)
+                    }
+                    actions.loadJobs()
+                    posthog.capture('schemas bulk enabled', {
+                        sourceType: values.source?.source_type,
+                        count: payloads.length,
+                        defaultsApplied: defaultsCount,
+                    })
+                    lemonToast.success(
+                        defaultsCount > 0
+                            ? `Enabled ${pluralize(payloads.length, 'schema', 'schemas')} (${defaultsCount} set up with default sync settings)`
+                            : `Enabled ${pluralize(payloads.length, 'schema', 'schemas')}`
+                    )
+                } catch (e: any) {
+                    // Partial failures stay committed server-side; reload to show what did apply.
+                    actions.loadSource()
+                    lemonToast.error(e?.message || "Can't enable schemas at this time")
                 }
             },
             bulkDisable: ({ schemas }) => {
