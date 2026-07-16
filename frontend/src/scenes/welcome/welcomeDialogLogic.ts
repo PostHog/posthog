@@ -386,7 +386,7 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
         ],
         // Whether the modal should be rendered right now. Sticky once opened (see the `dialogOpen`
         // reducer) so it survives the "seen" marker being persisted and user refetches.
-        shouldShowDialog: [(s) => [s.dialogOpen], (dialogOpen): boolean => dialogOpen],
+        shouldShowDialog: [(s) => [s.dialogOpen], (dialogOpen: boolean): boolean => dialogOpen],
     }),
 
     listeners(({ actions, values }) => ({
