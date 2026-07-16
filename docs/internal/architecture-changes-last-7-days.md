@@ -202,14 +202,14 @@ quadrantChart
 
 ### Signals worth carrying forward
 
-| Area | Signal | Interpretation | Suggested response |
-| --- | --- | --- | --- |
-| Warehouse sources | Many similar source modules and scaffolds | Likely healthy repetition at the vendor boundary; risk of drift in shared plumbing | Strengthen adapter contracts and contract tests before adding deeper abstraction |
-| Workflows and ReviewHog | More states, triggers, and projections across systems | State-machine complexity is increasing | Make transitions and durable events explicit; avoid duplicated state reconstruction |
-| LLM gateway | Usage, quota, denial, and compatibility semantics span services | Boundary contract is becoming a critical dependency | Keep one canonical schema and an explicit deprecation path |
-| Performance paths | Rollouts, guards, retries, and caps recur across products | Good safety pattern, but policy duplication may emerge | Share generic guard/rollout infrastructure only where semantics match |
-| CI and developer tooling | Test selection and execution are becoming measurable | Feedback loop is strengthening | Use the telemetry to remove unnecessary CI indirection, not to add more dashboards |
-| PersonHog | Lifecycle ordering and an end-to-end harness are evolving together | Operational correctness is being formalized | Keep shutdown phases and harness scenarios aligned with a documented lifecycle |
+| Area                     | Signal                                                             | Interpretation                                                                     | Suggested response                                                                  |
+| ------------------------ | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| Warehouse sources        | Many similar source modules and scaffolds                          | Likely healthy repetition at the vendor boundary; risk of drift in shared plumbing | Strengthen adapter contracts and contract tests before adding deeper abstraction    |
+| Workflows and ReviewHog  | More states, triggers, and projections across systems              | State-machine complexity is increasing                                             | Make transitions and durable events explicit; avoid duplicated state reconstruction |
+| LLM gateway              | Usage, quota, denial, and compatibility semantics span services    | Boundary contract is becoming a critical dependency                                | Keep one canonical schema and an explicit deprecation path                          |
+| Performance paths        | Rollouts, guards, retries, and caps recur across products          | Good safety pattern, but policy duplication may emerge                             | Share generic guard/rollout infrastructure only where semantics match               |
+| CI and developer tooling | Test selection and execution are becoming measurable               | Feedback loop is strengthening                                                     | Use the telemetry to remove unnecessary CI indirection, not to add more dashboards  |
+| PersonHog                | Lifecycle ordering and an end-to-end harness are evolving together | Operational correctness is being formalized                                        | Keep shutdown phases and harness scenarios aligned with a documented lifecycle      |
 
 ## Bottom line
 
