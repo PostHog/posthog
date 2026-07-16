@@ -120,6 +120,7 @@ export interface signalSourcesLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null // sourcesDataLogic
     dataWarehouseSourcesLoading: boolean // sourcesDataLogic
+    anomalyInvestigationConfig: SignalSourceConfig | null
     conversationsConfig: SignalSourceConfig | null
     dataSourceSetupProduct: ExternalDataSourceType | null
     enabledSourcesCount: number
@@ -128,6 +129,7 @@ export interface signalSourcesLogicValues {
     githubIssuesConfig: SignalSourceConfig | null
     hasNoSources: boolean
     healthChecksConfig: SignalSourceConfig | null
+    isAnomalyInvestigationToggling: boolean
     isConversationsToggling: boolean
     isErrorTrackingToggling: boolean
     isEvalReportsToggling: boolean
@@ -1913,6 +1915,9 @@ export interface signalSourcesLogicActions {
     saveSessionAnalysisFilters: (filters: RecordingUniversalFilters) => {
         filters: RecordingUniversalFilters
     }
+    toggleAnomalyInvestigation: () => {
+        value: true
+    }
     toggleConversations: () => {
         value: true
     }
@@ -1969,6 +1974,8 @@ export interface signalSourcesLogicMeta {
         isHealthChecksToggling: (togglingSourceKeys: Set<string>) => boolean
         evalReportsConfig: (sourceConfigs: SignalSourceConfig[] | null) => SignalSourceConfig | null
         isEvalReportsToggling: (togglingSourceKeys: Set<string>) => boolean
+        anomalyInvestigationConfig: (sourceConfigs: SignalSourceConfig[] | null) => SignalSourceConfig | null
+        isAnomalyInvestigationToggling: (togglingSourceKeys: Set<string>) => boolean
         errorTrackingIsFullyEnabled: (sourceConfigs: SignalSourceConfig[] | null) => boolean
         isSessionAnalysisRunning: (sessionAnalysisConfig: SignalSourceConfig | null) => boolean
         enabledSourcesCount: (sourceConfigs: SignalSourceConfig[] | null) => number
@@ -2015,6 +2022,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         toggleHealthChecks: true,
         toggleEvalReports: true,
         toggleConversations: true,
+        toggleAnomalyInvestigation: true,
         saveSessionAnalysisFilters: (filters: RecordingUniversalFilters) => ({ filters }),
         clearSessionAnalysisFilters: true,
     }),
@@ -2072,6 +2080,8 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 toggleSourceConfigState(state, SignalSourceProduct.LlmAnalytics, SignalSourceType.EvaluationReport),
             toggleConversations: (state: SignalSourceConfig[] | null) =>
                 toggleSourceConfigState(state, SignalSourceProduct.Conversations, SignalSourceType.Ticket),
+            toggleAnomalyInvestigation: (state: SignalSourceConfig[] | null) =>
+                toggleSourceConfigState(state, SignalSourceProduct.Analytics, SignalSourceType.AnomalyInvestigation),
         },
         togglingSourceKeys: [
             new Set<string>(),
@@ -2209,6 +2219,20 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             (s) => [s.togglingSourceKeys],
             (keys: Set<string>): boolean =>
                 keys.has(`${SignalSourceProduct.LlmAnalytics}_${SignalSourceType.EvaluationReport}`),
+        ],
+        anomalyInvestigationConfig: [
+            (s) => [s.sourceConfigs],
+            (sourceConfigs: SignalSourceConfig[] | null): SignalSourceConfig | null =>
+                sourceConfigs?.find(
+                    (c) =>
+                        c.source_product === SignalSourceProduct.Analytics &&
+                        c.source_type === SignalSourceType.AnomalyInvestigation
+                ) ?? null,
+        ],
+        isAnomalyInvestigationToggling: [
+            (s) => [s.togglingSourceKeys],
+            (keys: Set<string>): boolean =>
+                keys.has(`${SignalSourceProduct.Analytics}_${SignalSourceType.AnomalyInvestigation}`),
         ],
         errorTrackingIsFullyEnabled: [
             (s) => [s.sourceConfigs],
@@ -2433,6 +2457,17 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 actions.toggleSignalSource({
                     sourceProduct: SignalSourceProduct.Conversations,
                     sourceType: SignalSourceType.Ticket,
+                    enabled: desiredEnabled,
+                })
+            },
+            toggleAnomalyInvestigation: () => {
+                // The optimistic reducer flips the config before this listener runs,
+                // so config.enabled already reflects the desired state.
+                const config = values.anomalyInvestigationConfig
+                const desiredEnabled = config?.enabled ?? true
+                actions.toggleSignalSource({
+                    sourceProduct: SignalSourceProduct.Analytics,
+                    sourceType: SignalSourceType.AnomalyInvestigation,
                     enabled: desiredEnabled,
                 })
             },
