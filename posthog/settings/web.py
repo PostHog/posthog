@@ -35,6 +35,7 @@ PRODUCTS_APPS = [
     "products.analytics_platform.backend.apps.AnalyticsPlatformConfig",
     "products.early_access_features.backend.apps.EarlyAccessFeaturesConfig",
     "products.tasks.backend.apps.TasksConfig",
+    "products.stamphog.backend.apps.StamphogConfig",
     "products.links.backend.apps.LinksConfig",
     "products.field_notes.backend.apps.FieldNotesConfig",
     "products.revenue_analytics.backend.apps.RevenueAnalyticsConfig",
@@ -97,6 +98,7 @@ PRODUCTS_APPS = [
     "products.growth.backend.apps.GrowthConfig",
     "products.reminders.backend.apps.RemindersConfig",
     "products.approvals.backend.apps.ApprovalsConfig",
+    "products.pulse.backend.apps.PulseConfig",
     "products.data_catalog.backend.apps.DataCatalogConfig",
 ]
 
@@ -566,6 +568,9 @@ SPECTACULAR_SETTINGS = {
         "MCPAuthTypeEnum": "products.mcp_store.backend.models.AUTH_TYPE_CHOICES",
         "MCPInstallationScopeEnum": ["personal", "shared"],
         "TaskRunStatusEnum": "products.tasks.backend.models.TaskRun.Status",
+        # Inline-choices variant of TaskRun.Status (labels == values), shared by
+        # TaskRunUpdate.status and ExperimentFlagCleanupTask.run_status.
+        "RunStatusEnum": ["not_started", "queued", "in_progress", "completed", "failed", "cancelled"],
         "TaskRunEnvironmentEnum": "products.tasks.backend.models.TaskRun.Environment",
         "ModelEnum": "products.batch_exports.backend.models.batch_export.BatchExport.Model",
         "RecurrenceIntervalEnum": "products.reminders.backend.models.reminder.Reminder.RecurrenceInterval",
@@ -579,6 +584,9 @@ SPECTACULAR_SETTINGS = {
         "VisionAlertMetricEnum": "products.replay_vision.backend.models.vision_action.AlertMetric",
         "VisionAlertDirectionEnum": "products.replay_vision.backend.models.vision_action.AlertDirection",
         "AutonomyPriorityEnum": "products.signals.backend.models.AutonomyPriority",
+        "TriggerEnum": "products.experiments.backend.models.experiment.ExperimentMetricsRecalculation.Trigger",
+        "ProductBriefTriggerEnum": "products.pulse.backend.models.ProductBrief.Trigger",
+        "ProductBriefStatusEnum": "products.pulse.backend.models.ProductBrief.Status",
         "UserInterviewSearchDocumentTypeEnum": "products.user_interviews.backend.facade.enums.SEARCH_DOCUMENT_TYPES",
         "BatchExportRunStatusEnum": "products.batch_exports.backend.models.batch_export.BatchExportRun.Status",
         "HeatmapType": "products.web_analytics.backend.models.heatmap_saved.SavedHeatmap.Type",

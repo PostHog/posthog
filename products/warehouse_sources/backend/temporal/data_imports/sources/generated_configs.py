@@ -490,7 +490,7 @@ class BeamerSourceConfig(config.Config):
 
 @config.config
 class BetterStackSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -1678,7 +1678,8 @@ class GitguardianSourceConfig(config.Config):
 @config.config
 class GithubSourceConfig(config.Config):
     auth_method: GithubAuthMethodConfig
-    repository: str
+    repositories: list[str] | None = config.value(converter=config.str_to_optional_list, default_factory=lambda: None)
+    repository: str | None = None
 
 
 @config.config
@@ -1968,7 +1969,8 @@ class HoneybadgerSourceConfig(config.Config):
 
 @config.config
 class HoneycombSourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config
@@ -2290,7 +2292,8 @@ class KoyebSourceConfig(config.Config):
 
 @config.config
 class KubecostSourceConfig(config.Config):
-    pass
+    host: str
+    api_key: str | None = None
 
 
 @config.config
@@ -4370,6 +4373,7 @@ class TypeformSourceConfig(config.Config):
     api_base_url: (
         Literal["https://api.typeform.com", "https://api.eu.typeform.com", "https://api.typeform.eu"] | None
     ) = config.value(default="https://api.typeform.com")
+    response_types: Literal["completed", "completed,partial,started"] | None = config.value(default="completed")
 
 
 @config.config
@@ -4678,7 +4682,7 @@ class ZendeskSunshineSourceConfig(config.Config):
 
 @config.config
 class ZendutySourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
