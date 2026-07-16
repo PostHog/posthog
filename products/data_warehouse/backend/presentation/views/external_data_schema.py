@@ -335,15 +335,18 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         max_length=128,
         help_text=(
             "Vendor API version override for this schema. `null` (default) syncs on the source's "
-            "pinned version. Must be one of the source type's supported versions. User-managed: "
-            "version-migration tooling never changes it. Not available for webhook-sync schemas."
+            "pinned version, unless the schema is not available on it — then it syncs on its "
+            "declared fallback version. Must be one of the versions this schema is available on. "
+            "User-managed: version-migration tooling never changes it. Not available for "
+            "webhook-sync schemas."
         ),
     )
     api_version_deprecation = serializers.SerializerMethodField(
         read_only=True,
         help_text=(
-            "Set when this schema's version override is deprecated by the vendor; null when there "
-            "is no override or it is not deprecated. The source-level field covers the source pin."
+            "Set when the version this schema syncs on diverges from the source's (a user override, "
+            "or a schema not available on the source's version) and is deprecated by the vendor; "
+            "null otherwise. The source-level field covers the source pin."
         ),
     )
     available_columns = serializers.SerializerMethodField(
@@ -470,9 +473,12 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             user_access_level = user_access_control.get_user_access_level(source)
         try:
             source_impl = SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
-            # The version the schema falls back to without an override, and the picker's options.
-            source_api_version: str | None = source_impl.resolve_api_version(source.api_version)
-            supported_api_versions = list(source_impl.supported_versions)
+            # The version the schema falls back to without an override, and the picker's options —
+            # both schema-aware, since a schema may not be available on every source version.
+            source_api_version: str | None = source_impl.resolve_schema_api_version(
+                schema.name, None, source.api_version
+            )
+            supported_api_versions = list(source_impl.supported_versions_for_schema(schema.name))
         except ValueError:
             source_api_version = None
             supported_api_versions = []
@@ -488,11 +494,17 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(ExternalDataSourceApiVersionDeprecationSerializer(allow_null=True))
     def get_api_version_deprecation(self, schema: ExternalDataSchema) -> dict[str, Any] | None:
-        # Only the schema-level override is judged here; a deprecated source pin surfaces on the
-        # source, not on every schema.
-        if not schema.api_version:
+        # Only judged when the schema's resolved version diverges from the source's (a user
+        # override, or a schema not available on the source's version) — a deprecated source pin
+        # surfaces on the source, not on every schema that follows it.
+        try:
+            source_impl = SourceRegistry.get_source(ExternalDataSourceType(schema.source.source_type))
+        except ValueError:
             return None
-        return api_version_deprecation_payload(schema.source.source_type, schema.api_version)
+        resolved = source_impl.resolve_schema_api_version(schema.name, schema.api_version, schema.source.api_version)
+        if not schema.api_version and resolved == source_impl.resolve_api_version(schema.source.api_version):
+            return None
+        return api_version_deprecation_payload(schema.source.source_type, resolved)
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         instance = cast(Optional[ExternalDataSchema], self.instance)
@@ -518,11 +530,12 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                     raise ValidationError(
                         {"api_version": "API version overrides are not supported for this source type."}
                     )
-                if override not in source_impl.supported_versions:
+                schema_versions = source_impl.supported_versions_for_schema(instance.name)
+                if override not in schema_versions:
                     raise ValidationError(
                         {
-                            "api_version": f"'{override}' is not a supported {instance.source.source_type} API version. "
-                            f"Supported versions: {', '.join(source_impl.supported_versions)}"
+                            "api_version": f"'{override}' is not a supported {instance.source.source_type} API version "
+                            f"for this schema. Supported versions for this schema: {', '.join(schema_versions)}"
                         }
                     )
         return attrs

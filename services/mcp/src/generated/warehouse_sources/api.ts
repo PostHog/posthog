@@ -147,7 +147,7 @@ export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(externalDataSchemasPartialUpdateBodyApiVersionMax)
         .nullish()
         .describe(
-            "Vendor API version override for this schema. `null` (default) syncs on the source's pinned version. Must be one of the source type's supported versions. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas."
+            "Vendor API version override for this schema. `null` (default) syncs on the source's pinned version, unless the schema is not available on it — then it syncs on its declared fallback version. Must be one of the versions this schema is available on. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas."
         ),
 })
 
@@ -285,7 +285,7 @@ export const ExternalDataSchemasIncrementalFieldsCreateBody = /* @__PURE__ */ zo
         .max(externalDataSchemasIncrementalFieldsCreateBodyApiVersionMax)
         .nullish()
         .describe(
-            "Vendor API version override for this schema. `null` (default) syncs on the source's pinned version. Must be one of the source type's supported versions. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas."
+            "Vendor API version override for this schema. `null` (default) syncs on the source's pinned version, unless the schema is not available on it — then it syncs on its declared fallback version. Must be one of the versions this schema is available on. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas."
         ),
 })
 
@@ -405,7 +405,7 @@ export const ExternalDataSchemasReloadCreateBody = /* @__PURE__ */ zod.object({
         .max(externalDataSchemasReloadCreateBodyApiVersionMax)
         .nullish()
         .describe(
-            "Vendor API version override for this schema. `null` (default) syncs on the source's pinned version. Must be one of the source type's supported versions. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas."
+            "Vendor API version override for this schema. `null` (default) syncs on the source's pinned version, unless the schema is not available on it — then it syncs on its declared fallback version. Must be one of the versions this schema is available on. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas."
         ),
 })
 
@@ -525,7 +525,7 @@ export const ExternalDataSchemasResyncCreateBody = /* @__PURE__ */ zod.object({
         .max(externalDataSchemasResyncCreateBodyApiVersionMax)
         .nullish()
         .describe(
-            "Vendor API version override for this schema. `null` (default) syncs on the source's pinned version. Must be one of the source type's supported versions. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas."
+            "Vendor API version override for this schema. `null` (default) syncs on the source's pinned version, unless the schema is not available on it — then it syncs on its declared fallback version. Must be one of the versions this schema is available on. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas."
         ),
 })
 

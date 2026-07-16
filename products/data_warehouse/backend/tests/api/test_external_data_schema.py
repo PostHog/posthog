@@ -3628,3 +3628,57 @@ class TestExternalDataSchemaApiVersionOverride(APIBaseTest):
             "sunset_at": None,
             "default_version": StripeSource.default_version,
         }
+
+    def test_api_version_override_validated_against_schema_availability(self):
+        schema = self._create_schema()
+        with (
+            mock.patch.object(StripeSource, "supported_versions", ("V1", "V2")),
+            mock.patch.object(StripeSource, "schema_supported_versions", {"Customer": ("V1",)}),
+        ):
+            response = self._patch(schema, {"api_version": "V2"})
+            assert response.status_code == 400
+            assert "for this schema" in str(response.json())
+
+            response = self._patch(schema, {"api_version": "V1"})
+            assert response.status_code == 200, response.json()
+        schema.refresh_from_db()
+        assert schema.api_version == "V1"
+
+    def test_source_summary_reflects_schema_availability(self):
+        schema = self._create_schema()
+        url = f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}"
+        with (
+            mock.patch.object(StripeSource, "supported_versions", (StripeSource.default_version, "V1")),
+            mock.patch.object(StripeSource, "schema_supported_versions", {"Customer": ("V1",)}),
+        ):
+            payload = self.client.get(url).json()
+        # The picker's options and the no-override fallback are constrained to what this schema
+        # is available on — the source stays pinned to the default, which this schema lacks.
+        assert payload["source"]["supported_api_versions"] == ["V1"]
+        assert payload["source"]["api_version"] == "V1"
+
+    def test_api_version_deprecation_surfaces_for_schema_fallback_but_not_source_pin(self):
+        schema = self._create_schema()
+        url = f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}"
+        versions = (StripeSource.default_version, "V1")
+        deprecated = (VersionDeprecation(version="V1", sunset_at=None),)
+
+        # No override, following a deprecated source pin: surfaces on the source, not on every schema.
+        schema.source.api_version = "V1"
+        schema.source.save(update_fields=["api_version"])
+        with (
+            mock.patch.object(StripeSource, "supported_versions", versions),
+            mock.patch.object(StripeSource, "deprecated_versions", deprecated),
+        ):
+            assert self.client.get(url).json()["api_version_deprecation"] is None
+
+        # Not available on the source's version: the schema syncs on its deprecated fallback — warn here.
+        schema.source.api_version = StripeSource.default_version
+        schema.source.save(update_fields=["api_version"])
+        with (
+            mock.patch.object(StripeSource, "supported_versions", versions),
+            mock.patch.object(StripeSource, "schema_supported_versions", {"Customer": ("V1",)}),
+            mock.patch.object(StripeSource, "deprecated_versions", deprecated),
+        ):
+            payload = self.client.get(url).json()["api_version_deprecation"]
+        assert payload == {"version": "V1", "sunset_at": None, "default_version": StripeSource.default_version}

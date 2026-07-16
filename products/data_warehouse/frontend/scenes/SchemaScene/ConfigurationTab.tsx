@@ -533,8 +533,8 @@ function ApiVersionSection({
 
     // A single supported version means an unversioned vendor (the framework's "v1" default) or
     // nothing to choose between — hide the picker unless an override is already stored (so it can
-    // still be seen and cleared).
-    if (supportedVersions.length <= 1 && !schema.api_version) {
+    // still be seen and cleared) or the schema's version is deprecated (so the banner still shows).
+    if (supportedVersions.length <= 1 && !schema.api_version && !schema.api_version_deprecation) {
         return null
     }
 
@@ -604,7 +604,12 @@ function ApiVersionSection({
                         sourceType={source?.source_type ?? 'vendor'}
                         deprecation={deprecation}
                         subject="This schema"
-                        cta={`Switch to version ${deprecation.default_version} before syncs stop working.`}
+                        // A switch CTA only makes sense when this schema is available on the migration target.
+                        cta={
+                            supportedVersions.includes(deprecation.default_version)
+                                ? `Switch to version ${deprecation.default_version} before syncs stop working.`
+                                : 'This schema is not available on newer versions, so syncs will stop working when the vendor sunsets it.'
+                        }
                     />
                 </div>
             )}

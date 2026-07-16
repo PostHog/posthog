@@ -158,6 +158,13 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # in-product deprecation warning; no per-source UI work.
     deprecated_versions: tuple[VersionDeprecation, ...] = ()
 
+    # Schemas whose vendor availability diverges from `supported_versions`, keyed by schema
+    # name → the versions the schema is available on (subset of `supported_versions`; the
+    # FIRST entry is the fallback the schema syncs on when the source's effective version is
+    # not in the set). Schemas not listed follow the source pin exactly. Declare entries when
+    # a new vendor version adds or drops endpoints.
+    schema_supported_versions: Mapping[str, tuple[str, ...]] = {}
+
     @property
     @abstractmethod
     def source_type(self) -> ExternalDataSourceType:
@@ -185,6 +192,27 @@ class _BaseSource(ABC, Generic[ConfigType]):
         """Deprecation metadata for the given pin (resolved through the default), if any."""
         effective = self.resolve_api_version(version)
         return next((d for d in self.deprecated_versions if d.version == effective), None)
+
+    def supported_versions_for_schema(self, schema_name: str) -> tuple[str, ...]:
+        """Versions a single schema is available on — `supported_versions` unless declared as diverging."""
+        return self.schema_supported_versions.get(schema_name, self.supported_versions)
+
+    def resolve_schema_api_version(self, schema_name: str, schema_override: str | None, source_pin: str | None) -> str:
+        """Effective vendor API version for one schema of a source instance.
+
+        A user override is honored verbatim (same rationale as `resolve_api_version`). Otherwise
+        the schema follows the source's effective version — unless the schema is declared as not
+        available on it, in which case it syncs on its declared fallback (first entry of its set).
+        Availability is only judged for declared schemas: an undeclared schema follows even a
+        retired pin verbatim, exactly like `resolve_api_version`.
+        """
+        if schema_override:
+            return schema_override
+        effective = self.resolve_api_version(source_pin)
+        declared = self.schema_supported_versions.get(schema_name)
+        if declared is None or effective in declared:
+            return effective
+        return declared[0]
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         """Returns the errors for which the source should be disabled on.

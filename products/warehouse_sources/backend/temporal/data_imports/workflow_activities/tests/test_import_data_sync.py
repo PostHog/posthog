@@ -5,7 +5,7 @@ from datetime import datetime
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import SimpleSource, _BaseSource
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities import import_data_sync as module
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
@@ -207,19 +207,31 @@ async def test_incremental_lookback_shifts_query_value_not_stored_watermark(is_i
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "schema_override,pinned,expected",
+    "schema_override,pinned,schema_supported_versions,expected",
     [
-        (None, "2020-01-01", "2020-01-01"),  # a stored pin is honored verbatim
-        (None, None, "vdefault"),  # no pin resolves to the source's default_version
-        ("2021-05-05", "2020-01-01", "2021-05-05"),  # a user-managed schema override wins over the source pin
+        (None, "2020-01-01", {}, "2020-01-01"),  # a stored pin is honored verbatim
+        (None, None, {}, "vdefault"),  # no pin resolves to the source's default_version
+        ("2021-05-05", "2020-01-01", {}, "2021-05-05"),  # a user-managed schema override wins over the source pin
+        # a schema declared as unavailable on the source's version syncs on its declared fallback
+        (None, "2020-01-01", {"the_schema": ("1999-09-09",)}, "1999-09-09"),
     ],
 )
-async def test_pinned_api_version_is_resolved_into_source_inputs(schema_override, pinned, expected):
+async def test_pinned_api_version_is_resolved_into_source_inputs(
+    schema_override, pinned, schema_supported_versions, expected
+):
     source = mock.MagicMock(spec=SimpleSource)
     source.parse_config.return_value = {}
     source.source_for_pipeline.return_value = mock.MagicMock()
-    source.resolve_api_version = lambda p: p or "vdefault"
+    # Real resolution logic bound to the mock, so the assertion covers the activity's argument
+    # wiring end to end rather than a stubbed resolver.
+    source.default_version = "vdefault"
+    source.schema_supported_versions = schema_supported_versions
+    source.resolve_api_version = lambda pin: _BaseSource.resolve_api_version(source, pin)
+    source.resolve_schema_api_version = lambda name, override, pin: _BaseSource.resolve_schema_api_version(
+        source, name, override, pin
+    )
     schema = _incremental_schema(is_incremental=False, lookback_seconds=None)
+    schema.name = "the_schema"
     schema.api_version = schema_override
 
     with _patched_activity_reaching_run(source, schema, api_version=pinned):
