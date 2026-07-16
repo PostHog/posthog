@@ -587,7 +587,11 @@ class EventDefinitionViewSet(
                 continue  # no-op: skip without promoting a base row or writing
 
             # Promote base -> enterprise if needed (same lazy path as single-object updates).
-            enterprise = self._get_event_definition(id=obj_id, team__project_id=self.project_id)
+            # EE_AVAILABLE is checked above, so _get_event_definition returns an EnterpriseEventDefinition
+            # that carries the verified/hidden fields (absent from the base EventDefinition type).
+            enterprise = cast(
+                EnterpriseEventDefinition, self._get_event_definition(id=obj_id, team__project_id=self.project_id)
+            )
             before_hidden = bool(enterprise.hidden)
 
             enterprise.verified = verified
