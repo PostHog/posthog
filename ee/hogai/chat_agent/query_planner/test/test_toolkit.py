@@ -370,7 +370,8 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
                 "9, 8, 7, 6, 5, 4, 3, 2, 1, 0",
             )
             self.assertEqual(
-                toolkit.retrieve_event_or_action_property_values(item, "date"), f'"{datetime(2024, 1, 1).isoformat()}"'
+                toolkit.retrieve_event_or_action_property_values(item, "date"),
+                f'"{datetime(2024, 1, 1).isoformat()}"',
             )
 
     @patch.object(DummyToolkit, "_retrieve_event_or_action_taxonomy")

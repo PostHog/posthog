@@ -4907,6 +4907,8 @@ export interface Experiment {
     _create_in_folder?: string | null
     conclusion?: ExperimentConclusion | null
     conclusion_comment?: string | null
+    /** Code task opened to remove the experiment's flag code, when requested on end/ship. */
+    flag_cleanup_task_id?: string | null
     user_access_level: AccessControlLevel
 }
 
@@ -5747,6 +5749,7 @@ export const API_SCOPE_OBJECTS = [
     'signal_scout',
     'signal_scout_internal',
     'signal_scout_report',
+    'stamphog',
     'streamlit_app',
     'subscription',
     'survey',
@@ -5997,7 +6000,8 @@ export interface DataWarehouseTable {
     name: string
     format: DataWarehouseTableTypes
     url_pattern: string
-    credential: DataWarehouseCredential
+    /** Null for tables without user-provided credentials, e.g. created by a managed pipeline. */
+    credential: DataWarehouseCredential | null
     external_data_source?: ExternalDataSource
     external_schema?: SimpleExternalDataSourceSchema
     options?: { csv_allow_double_quotes?: boolean | null }
@@ -6153,6 +6157,7 @@ export interface ExternalDataSourceCreatePayload {
     prefix?: string
     description?: string
     access_method?: 'warehouse' | 'direct'
+    direct_query_enabled?: boolean
     created_via: 'web' | 'api' | 'mcp'
     payload: Record<string, any>
 }
@@ -6174,8 +6179,9 @@ export interface ExternalDataSource {
     prefix: string | null
     description: string | null
     access_method?: 'warehouse' | 'direct'
+    direct_query_enabled?: boolean
     created_via: 'web' | 'api' | 'mcp' | 'wizard' | null
-    engine?: 'duckdb' | 'postgres' | 'mysql' | null
+    engine?: 'duckdb' | 'postgres' | 'mysql' | 'snowflake' | 'redshift' | null
     latest_error: string | null
     last_run_at?: Dayjs
     schemas: ExternalDataSourceSchema[]

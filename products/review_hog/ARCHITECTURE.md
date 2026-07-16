@@ -678,6 +678,35 @@ Mirrors the Inbox scope switch: the block can now list every review on the proje
   retrieve contract flip (teammate's review 200, other team's 404);
   2 jest tests for the auto-default rule.
 
+#### ✅ BUILT 2026-07-16 — "Show more / Show fewer" pagination on the recent-reviews list
+
+The 5-row cap became the first page: the list grows by a page per "Show more" click and collapses back in one click, on both scopes.
+
+- **Growing `limit`, not offset pages:** in-progress rows jump to the front and drop out between the 10s polls,
+  so offset pagination would shift page boundaries under the reader.
+  `GET reviews/?limit=N` (default 5, min 1, max 100 — enrichment is per-row work) caps all three merge slices;
+  the response is now a **page envelope `{results, has_more}`** (`ReviewRecentReviewsPageSerializer`),
+  with `has_more` computed server-side by probing `limit + 1` rows — no dead "Show more" click when the count is exactly the limit.
+- **`_PageEnvelopeSchema` (AutoSchema subclass):** drf-spectacular's `_is_list_view` heuristic wraps any `list` action's response in an array,
+  which generated `Promise<ReviewRecentReviewsPageApi[]>` — forced to False, and the operationId pinned back to `*_list`
+  (forcing the heuristic renames the operation `*_retrieve`, colliding with the real retrieve).
+  The two prior overrides in the codebase (event_filter_config, access_control property state) are singletons without a sibling retrieve, so they never hit the collision.
+- **Logic:** loader holds the envelope (`recentReviewsPage`); `recentReviews` / `moreReviewsAvailable` are selectors over it.
+  `reviewsLimit` reducer: +5 per `showMoreReviews`, reset to 5 on `showFewerReviews` **and on any scope change** (a different scope is a different list, user decision).
+  "Show fewer" collapses **instantly from already-loaded rows** (reducer slices, `has_more` forced true when rows were hidden)
+  while its listener refetches to reconcile — the refetch also breakpoint-drops any wider in-flight poll response that would resurrect the collapsed rows.
+  `reviewsExpanding` drives the "Show more" button's loading state (the loader's own `loading` would flash on every 10s poll);
+  `LemonButton.loading` hard-disables, so it's also the double-click guard.
+  Growth clamps at `MAX_REVIEWS_LIMIT` (100, mirroring reviews.py) and `moreReviewsAvailable` goes false at the ceiling even while `has_more` —
+  otherwise the 20th click sends `limit=105`, the API 400s, and the generic failure path strands the page in the settings-failed banner (PR review finding, fixed same day).
+  The limit is deliberately **not** mirrored to the URL — ephemeral view state, unlike scope.
+- **UI:** centered tertiary "Show more" / "Show fewer" footer row inside the card (divide-y gives the hairline);
+  "Show fewer" only when more than a page is showing, "Show more" only when `has_more`.
+  Copy is "Show fewer" (countable rows), per user's "whatever is grammatically correct".
+- Tests: BE — envelope + limit growth + has_more boundary at exact count + out-of-range 400s (wiring guard);
+  jest — grow/collapse cycle (instant collapse, has_more preserved, scope flip resets the limit).
+  Full suite: 503 backend + 3 jest green; `hogli build:openapi` regenerated cleanly (list function keeps its `reviewHogReviewsList` name).
+
 #### ✅ BUILT 2026-07-02 — authoring guide moved to a canonical skill (`review-hog-authoring`)
 
 The "Create your own …" frontend prompts were fat, self-describing instruction sets — an
