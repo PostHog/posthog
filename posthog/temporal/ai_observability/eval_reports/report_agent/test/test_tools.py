@@ -54,14 +54,30 @@ _get_trace_detail_fn = get_trace_detail.func  # type: ignore[attr-defined]
 class _ReportToolState(TypedDict):
     report: EvalReportContent
     evaluation_target: NotRequired[str]
+    team_id: NotRequired[int]
+    evaluation_id: NotRequired[str]
+    output_type: NotRequired[str]
+    period_start: NotRequired[str]
+    period_end: NotRequired[str]
 
 
 def _state_with_empty_report(*, evaluation_target: str | None = None) -> _ReportToolState:
-    """Build a minimal state dict with an empty EvalReportContent (matches runtime)."""
     state: _ReportToolState = {"report": EvalReportContent()}
     if evaluation_target is not None:
         state["evaluation_target"] = evaluation_target
     return state
+
+
+def _trace_report_tool_state() -> _ReportToolState:
+    return {
+        "report": EvalReportContent(),
+        "evaluation_target": "trace",
+        "team_id": 7,
+        "evaluation_id": "eval-id",
+        "output_type": "boolean",
+        "period_start": "2026-04-08T14:00:00+00:00",
+        "period_end": "2026-04-08T15:00:00+00:00",
+    }
 
 
 class TestChTs(SimpleTestCase):
@@ -444,14 +460,7 @@ class TestAddCitation(SimpleTestCase):
 
     @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._execute_hogql")
     def test_trace_target_allows_evaluated_trace_with_empty_generation_id(self, mock_execute_hogql: MagicMock) -> None:
-        state = {
-            **_state_with_empty_report(evaluation_target="trace"),
-            "team_id": 7,
-            "evaluation_id": "eval-id",
-            "output_type": "boolean",
-            "period_start": "2026-04-08T14:00:00+00:00",
-            "period_end": "2026-04-08T15:00:00+00:00",
-        }
+        state = _trace_report_tool_state()
         mock_execute_hogql.return_value = [["customer/trace:42"]]
         result = _add_citation_fn(
             state=state,
@@ -468,14 +477,7 @@ class TestAddCitation(SimpleTestCase):
 
     @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._execute_hogql")
     def test_trace_target_rejects_citation_outside_evaluation_period(self, mock_execute_hogql: MagicMock) -> None:
-        state = {
-            **_state_with_empty_report(evaluation_target="trace"),
-            "team_id": 7,
-            "evaluation_id": "eval-id",
-            "output_type": "boolean",
-            "period_start": "2026-04-08T14:00:00+00:00",
-            "period_end": "2026-04-08T15:00:00+00:00",
-        }
+        state = _trace_report_tool_state()
         mock_execute_hogql.return_value = []
 
         result = _add_citation_fn(
