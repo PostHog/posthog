@@ -58,10 +58,10 @@ HogFunction notification workers use `products.alerts.backend.destinations` dire
 
 1. `produce_alert_internal_event(...)` returns a `ProduceResult` or `None`.
 2. `flush_alert_internal_events(...)` flushes the shared producer. Batch workers should flush once per produced batch.
-3. `alert_internal_event_delivered(...)` confirms each produce result after the flush.
-4. The product persists notification-dependent lifecycle changes only for confirmed deliveries.
+3. `alert_internal_event_delivered(...)` checks whether the producer acknowledged each internal event after the flush.
+4. The product persists notification-dependent lifecycle changes only for acknowledged internal events.
 
-The helpers log and capture transport failures. The product owns rollback, retry timing, schedule advancement, and check-history semantics.
+This acknowledgement confirms production to the internal-event transport, not downstream HogFunction execution or final Slack, Discord, webhook, or Microsoft Teams delivery. The helpers log and capture producer failures. The product owns rollback, retry timing, schedule advancement, and check-history semantics.
 
 Email callers use `send_alert_email(...)` through the facade. The caller owns recipients, authorization, subject, template, context, error handling, and a stable `campaign_key` for the required retry and deduplication behavior.
 

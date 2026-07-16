@@ -61,11 +61,11 @@ For HogFunction destinations:
 1. Evaluate alerts and retain each pre-check snapshot or outcome needed for rollback.
 2. Produce internal events and retain each `ProduceResult`.
 3. Flush once after producing the batch.
-4. Confirm each result with `alert_internal_event_delivered(...)`.
-5. Restore delivery-dependent outcomes for failed results before persistence.
-6. Persist successful outcomes, check history, and product scheduling according to the product contract.
+4. Check producer acknowledgement for each result with `alert_internal_event_delivered(...)`.
+5. Restore delivery-dependent outcomes for unacknowledged results before persistence.
+6. Persist acknowledged outcomes, check history, and product scheduling according to the product contract.
 
-Logs is the reference for reevaluating on the next cadence after an undelivered notification.
+Producer acknowledgement does not confirm downstream HogFunction execution or final destination delivery. Logs is the reference for reevaluating on the next cadence after an internal event is not acknowledged.
 
 For email, call `send_alert_email(...)` through the facade. The product must choose authorized recipients, a stable campaign key, subject, template, and context. Decide explicitly whether an email failure blocks a lifecycle transition or is recorded separately.
 
@@ -110,4 +110,4 @@ Add the lowest-level tests that cover real regressions:
 - API schemas and tenant isolation.
 - Wizard logic and product entry points when frontend alert creation is added.
 
-Invoke `/writing-tests` when adding or substantially changing tests. Also invoke `/improving-drf-endpoints` for serializer or viewset changes and `/adopting-generated-api-types` when frontend API types are involved.
+Invoke `/writing-tests` when adding or substantially changing tests. Also invoke `/improving-drf-endpoints` for serializer or viewset changes, `/adopting-generated-api-types` when frontend API types are involved, and `/writing-kea-logics` when adding or changing alert kea logic.

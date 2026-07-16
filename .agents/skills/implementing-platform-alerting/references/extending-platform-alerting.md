@@ -39,22 +39,24 @@ If the change crosses rows, update each row deliberately. Do not hide a cross-la
 
 A new destination type normally requires all of these:
 
-1. Add the enum value, HogFunction template ID, and required fields in `destination_configs.py`.
+1. Add the enum value, HogFunction template ID, and required fields in `products/alerts/backend/destination_configs.py`.
 2. Extend validation and `build_alert_destination_config(...)` without changing existing payloads.
-3. Add or update the matching HogFunction template and sub-template compatibility.
-4. Decide which products explicitly allow the destination.
-5. Add the option to `AlertWizard` only where supported by the relevant sub-template.
-6. Cover validation, generated payloads, ownership-safe deletion, and wizard compatibility.
+3. Add or update the transport template under `posthog/cdp/templates/<destination>/template_<destination>.py` and its adjacent tests.
+4. Add alert-specific template compatibility in `frontend/src/scenes/hog-functions/sub-templates/sub-templates.ts`.
+5. Decide which products explicitly allow the destination and update their destination editors or display logic.
+6. Add the option to `AlertWizard` only where supported by the relevant sub-template.
+7. Cover validation, generated payloads, ownership-safe deletion, CDP template behavior, product rendering, and wizard compatibility.
 
 For an advanced option on an existing destination, decide whether it is transport-wide or product-specific. Transport-wide options belong in typed shared destination data and the shared builder. Product-only wording, event properties, and event-kind behavior remain in `EventKindSpec` and the product adapter.
 
 ### Delivery
 
-- Treat enqueue, flush, and confirmed delivery as separate phases.
+- Treat event creation, producer flush, and producer acknowledgement as separate phases.
+- Do not describe producer acknowledgement as final destination delivery. HogFunction execution and external destination delivery happen downstream.
 - Keep batch flushing efficient and bounded.
 - Keep helpers non-throwing only where the caller can make an explicit rollback decision from the return value.
-- Add metrics and structured failure context for new delivery phases.
-- Verify that partial batch failure rolls back only affected alerts.
+- Add metrics and structured failure context for new dispatch phases.
+- Verify that partial batch production failure rolls back only affected alerts.
 
 ### Email
 
@@ -116,6 +118,7 @@ Invoke the matching mandatory skills before editing their areas:
 | Frontend handwritten API usage or generated type adoption | `/adopting-generated-api-types` |
 | Tests                                                     | `/writing-tests`                |
 | MCP tools or `tools.yaml`                                 | `/implementing-mcp-tools`       |
+| AlertWizard or product kea logic                          | `/writing-kea-logics`           |
 
 ## 5. Reject the wrong abstraction
 
