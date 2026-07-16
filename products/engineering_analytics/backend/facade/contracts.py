@@ -163,13 +163,14 @@ class QuarantineRequestAction(StrEnum):
 
 @dataclass(frozen=True)
 class GitHubSource:
-    """A connected GitHub warehouse source the team can analyze. ``id`` is what a
-    caller passes back as ``source_id`` to select this source; ``repo`` and
-    ``prefix`` are display labels so a picker can tell two sources apart.
+    """A selectable ``(source, repo)`` the team can analyze — one entry per repository a source is
+    configured to sync, so a source syncing several repositories appears once per repo. A caller
+    passes ``id`` back as ``source_id`` and ``repo`` back as ``repo`` to read that specific repo;
+    ``prefix`` is a display label so a picker can tell two entries of the same source apart.
     """
 
     id: str
-    # Connected repository as 'owner/name' (from the source's job inputs), or '' if unknown.
+    # Configured repository as 'owner/name' (from the source's job inputs), or '' if unknown.
     repo: str
     # User-chosen warehouse table-name prefix for this source, or '' when none was set.
     prefix: str

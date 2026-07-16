@@ -830,6 +830,24 @@ class TestMultiRepoGitHubResolution(BaseTest):
             ("costgithub_posthog_posthog_com_workflow_jobs", "costgithub_posthog_posthog_com_workflow_runs"),
         }
 
+    def test_picker_lists_one_entry_per_configured_repo(self) -> None:
+        # A multi-repo source's `repositories` list drives the picker: one selectable (id, repo) per
+        # configured repo, in order, so a repo picker offers every repo the source syncs — not just
+        # the legacy one, and not the whole GitHub App's repo catalog.
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="src-picker",
+            connection_id="src-picker",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.GITHUB,
+            prefix="picker",
+            job_inputs={"repository": "PostHog/posthog", "repositories": ["PostHog/posthog", "PostHog/posthog.com"]},
+        )
+        assert list_github_sources(team=self.team) == [
+            GitHubSource(id=str(source.id), repo="PostHog/posthog", prefix="picker"),
+            GitHubSource(id=str(source.id), repo="PostHog/posthog.com", prefix="picker"),
+        ]
+
 
 class TestWorkflowHealthWindowCap(BaseTest):
     @parameterized.expand(["2000-01-01", "-500d"])

@@ -896,9 +896,9 @@ export interface RunFailureLogsApi {
 }
 
 export interface GitHubSourceApi {
-    /** Source id — pass as `source_id` to the other endpoints to read this source. */
+    /** Source id — pass back as `source_id` (with `repo`) to read this repository. */
     id: string
-    /** Connected repository as 'owner/name', or '' if unknown. */
+    /** Repository as 'owner/name' — pass back as `repo` to scope to it. One entry per repository a source syncs; '' if unknown. */
     repo: string
     /** User-chosen warehouse table-name prefix for this source, or '' when none. */
     prefix: string
@@ -1127,6 +1127,10 @@ export type EngineeringAnalyticsAuthorWorkflowCostsParams = {
      */
     date_to?: string
     /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string
+    /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string
@@ -1134,12 +1138,20 @@ export type EngineeringAnalyticsAuthorWorkflowCostsParams = {
 
 export type EngineeringAnalyticsBrokenTestsParams = {
     /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string
+    /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string
 }
 
 export type EngineeringAnalyticsCiCardsParams = {
+    /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
@@ -1162,6 +1174,10 @@ export type EngineeringAnalyticsCiFailureLogsParams = {
 }
 
 export type EngineeringAnalyticsCurrentBranchHealthParams = {
+    /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
@@ -1190,6 +1206,10 @@ export type EngineeringAnalyticsFlakyTestsParams = {
      */
     min_rerun_passes?: number
     /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string
+    /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string
@@ -1208,6 +1228,10 @@ export type EngineeringAnalyticsJobAggregatesParams = {
      * Window end: relative or ISO8601. Defaults to now.
      */
     date_to?: string
+    /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
@@ -1231,6 +1255,10 @@ export type EngineeringAnalyticsMasterFailuresParams = {
      * Window end: relative or ISO8601. Defaults to now.
      */
     date_to?: string
+    /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
@@ -1292,6 +1320,10 @@ export type EngineeringAnalyticsPullRequestsParams = {
      */
     date_from?: string
     /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string
+    /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string
@@ -1322,6 +1354,10 @@ export type EngineeringAnalyticsRepoOverviewParams = {
      */
     include_series?: boolean
     /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string
+    /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string
@@ -1340,6 +1376,10 @@ export type EngineeringAnalyticsRepoRunActivityParams = {
      * Window end: relative or ISO8601. Defaults to now.
      */
     date_to?: string
+    /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
@@ -1366,6 +1406,10 @@ export type EngineeringAnalyticsResolveBranchParams = {
 }
 
 export type EngineeringAnalyticsRunFailureLogsParams = {
+    /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string
     /**
      * Workflow run id whose failure logs to fetch.
      */
@@ -1459,6 +1503,10 @@ export type EngineeringAnalyticsWorkflowHealthParams = {
      */
     date_to?: string
     /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string
+    /**
      * Run scope for workflow health: 'all' (default) includes every run; 'pull_request' includes runs attributed to pull requests, excluding default-branch (master/main) runs. Fork PRs carry no PR attribution (a GitHub limitation), so 'pull_request' covers same-repo PRs only. Any other value is a 400.
      */
     run_scope?: EngineeringAnalyticsWorkflowHealthRunScope
@@ -1478,6 +1526,10 @@ export const EngineeringAnalyticsWorkflowHealthRunScope = {
 
 export type EngineeringAnalyticsWorkflowJobsParams = {
     /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string
+    /**
      * Which re-run attempt to scope jobs to. Omit to use the run's latest attempt; pass an explicit attempt to avoid mixing jobs across a re-run's attempts.
      */
     run_attempt?: number
@@ -1492,6 +1544,10 @@ export type EngineeringAnalyticsWorkflowJobsParams = {
 }
 
 export type EngineeringAnalyticsWorkflowRunParams = {
+    /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string
     /**
      * GitHub Actions run id to inspect.
      */

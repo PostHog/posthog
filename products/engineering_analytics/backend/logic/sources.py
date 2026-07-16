@@ -92,10 +92,11 @@ def resolve_github_tables(
     an actionable error), or ``ValueError`` when ``source_id`` is not a UUID.
 
     ``repo`` ('owner/name') scopes a repo-specific call — a team with several repos otherwise always
-    resolves the oldest, so a repo-scoped read (e.g. ``resolve_branch``) would search the wrong
-    repo's tables. When ``repo`` is given (and ``source_id`` is not), repos whose resolved identity
-    equals it (case-insensitively) are tried first; the rest still follow as a fallback, since a
-    bare row's repo can be empty while its data holds the repo.
+    resolves the oldest, so a repo-scoped read (e.g. ``resolve_branch``, or the picker selecting a
+    specific repo of a multi-repo source) would search the wrong repo's tables. Repos whose resolved
+    identity equals it (case-insensitively) are tried first — including within a chosen ``source_id``,
+    so a ``(source_id, repo)`` pair reads that exact repo; the rest still follow as a fallback, since
+    a bare row's repo can be empty while its data holds the repo.
 
     ``user_access_control`` enforces the requesting user's per-source warehouse RBAC (applied in
     ``_github_sources``): a denied ``source_id`` raises (400) and the default-oldest path skips it.
@@ -107,10 +108,11 @@ def resolve_github_tables(
     if source_id is not None:
         queryset = queryset.filter(id=_as_source_uuid(source_id))
     candidates = _repo_candidates(team=team, sources=queryset)
-    if repo and source_id is None:
+    if repo:
         # Stable sort keeps the source-oldest / legacy-repo-first order among equals; the matching
-        # repo(s) just move to the front. The non-matching tail still follows as a fallback, since a
-        # source's `repository` input can be empty while its data holds the repo.
+        # repo(s) just move to the front. Applies even with `source_id` set, so selecting a specific
+        # (source, repo) pair resolves that repo. The non-matching tail still follows as a fallback,
+        # since a bare row's repo can be empty while its data holds the repo.
         wanted = repo.casefold()
         candidates.sort(key=lambda candidate: candidate.repository.casefold() != wanted)
     for candidate in candidates:
@@ -159,21 +161,21 @@ def resolve_job_cost_source_pairs(team: Team) -> list[tuple[str, str]]:
 
 
 def list_github_sources(*, team: Team, user_access_control: "UserAccessControl | None" = None) -> list[GitHubSource]:
-    """The team's connected GitHub sources the caller may access, as selectable refs, oldest first.
+    """The team's selectable ``(source, repo)`` refs the caller may access, oldest source first.
 
-    Lists every non-deleted GitHub source the user can access — including ones whose endpoints aren't
-    fully synced yet — so a source picker shows everything they connected; selecting an unusable one
-    surfaces the same connect prompt ``resolve_github_tables`` drives. Sources the user can't access
-    (``user_access_control``) are filtered out, so the picker can't enumerate them. Each ``id`` is
-    what the caller passes back as ``source_id`` to read that source.
+    One entry per repository a source is configured to sync, so a multi-repo source contributes one
+    entry per repo — the picker lists the handful of repos actually wired to the team's sources, not
+    the whole GitHub App's repo catalog. Configured (not just synced) repos are listed, including a
+    source still backfilling, so a just-connected source shows up; selecting a not-yet-synced repo
+    surfaces the same connect prompt ``resolve_github_tables`` drives. A source with no configured
+    repo still yields one blank-repo entry so it never vanishes. Sources the user can't access
+    (``user_access_control``) are filtered out. Each entry's ``id`` + ``repo`` are what the caller
+    passes back as ``source_id`` + ``repo`` to read that specific repo.
     """
     return [
-        GitHubSource(
-            id=str(source.id),
-            repo=_source_repository(source),
-            prefix=source.prefix or "",
-        )
+        GitHubSource(id=str(source.id), repo=repo, prefix=source.prefix or "")
         for source in _github_sources(team, user_access_control)
+        for repo in (_configured_repositories(source) or [""])
     ]
 
 
@@ -248,6 +250,31 @@ def _source_repository(source: ExternalDataSource) -> str:
     if not isinstance(job_inputs, dict):
         return ""
     return str(job_inputs.get("repository") or "").strip()
+
+
+def _configured_repositories(source: ExternalDataSource) -> list[str]:
+    """The ``owner/repo`` names a source is configured to sync, in order, original case, deduped.
+
+    Reads the multi-repo ``repositories`` list, falling back to the legacy single ``repository`` —
+    the same precedence the source-side ``effective_repositories`` parser uses, but tolerant (never
+    raises) since this only drives a display picker. Case is preserved for the label; duplicates are
+    dropped case-insensitively (GitHub full names are case-insensitive). ``job_inputs`` is an
+    ``EncryptedJSONField`` that can hold any JSON value, so a non-dict yields no repos.
+    """
+    job_inputs = source.job_inputs
+    if not isinstance(job_inputs, dict):
+        return []
+    repositories = job_inputs.get("repositories")
+    raw = repositories if isinstance(repositories, list) else [job_inputs.get("repository")]
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in raw:
+        name = str(value or "").strip()
+        key = name.casefold()
+        if name and key not in seen:
+            seen.add(key)
+            result.append(name)
+    return result
 
 
 def _as_source_uuid(source_id: str) -> UUID:
