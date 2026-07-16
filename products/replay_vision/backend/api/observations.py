@@ -5,7 +5,7 @@ from django.conf import settings
 from django.db.models import Case, CharField, FloatField, Func, IntegerField, Q, QuerySet, Value, When
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Cast
-from django.http import StreamingHttpResponse
+from django.http.response import HttpResponseBase
 
 import structlog
 import django_filters
@@ -847,7 +847,7 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
 
     @extend_schema(exclude=True)
     @action(detail=True, methods=["GET"], url_path="progress", renderer_classes=[ServerSentEventRenderer])
-    def progress(self, request: Request, **kwargs: Any) -> StreamingHttpResponse:
+    def progress(self, request: Request, **kwargs: Any) -> HttpResponseBase:
         """Stream live progress (phase + rendering frame counts) for one in-flight observation as SSE.
 
         `get_object()` applies the same RBAC scoping as retrieve, so this can't leak observations the caller

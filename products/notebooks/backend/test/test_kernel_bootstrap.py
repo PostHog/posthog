@@ -87,6 +87,20 @@ class TestKernelSessionRunNode(SimpleTestCase):
         self.assertEqual(envelope["columns"], ["id", "v"])
         self.assertEqual(envelope["first_page"], [[2, 20], [3, 30]])
 
+    def test_binary_column_degrades_the_preview_instead_of_failing_the_run(self):
+        # ClickHouse's native Arrow output emits UUID/FixedString columns as fixed-size
+        # binary, so a materialized frame can hold raw bytes. pandas' ujson preview encoder
+        # raises OverflowError on them — that must degrade the display cell, not fail a run
+        # whose compute succeeded (the incident: "kernel did not return a result").
+        binary_column = pa.array([b"\x01" * 16, b"\xff" * 16], type=pa.binary(16))
+        self._write_frame("df1", pa.table({"uid": binary_column, "v": [1, 2]}))
+        path = os.path.join(self._dir.name, "frames", "df1.arrow")
+        envelope = self._run("df1", inputs=[{"name": "df1", "kind": "hogql", "path": path}])
+        self.assertEqual(envelope["status"], "ok")
+        self.assertEqual(envelope["row_count"], 2)
+        self.assertEqual(envelope["first_page"][0][1], 1)
+        self.assertIsInstance(envelope["first_page"][0][0], str)  # degraded, JSON-safe cell
+
     def test_missing_local_input_produces_a_clear_error(self):
         envelope = self._run("1 + 1", inputs=[{"name": "never_made", "kind": "local"}])
         self.assertEqual(envelope["status"], "error")
