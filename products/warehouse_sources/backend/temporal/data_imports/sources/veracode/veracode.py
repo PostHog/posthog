@@ -127,6 +127,20 @@ def validate_credentials(api_id: str, api_secret: str, region: str | None) -> tu
     return response.status_code == 200, response.status_code
 
 
+def _fetch_page_once(session: requests.Session, url: str, logger: FilteringBoundLogger) -> dict:
+    response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
+
+    if response.status_code == 429 or response.status_code >= 500:
+        raise VeracodeRetryableError(f"Veracode API error (retryable): status={response.status_code}, url={url}")
+
+    if not response.ok:
+        log = logger.warning if response.status_code == 404 else logger.error
+        log(f"Veracode API error: status={response.status_code}, body={response.text}, url={url}")
+        response.raise_for_status()
+
+    return response.json()
+
+
 @retry(
     retry=retry_if_exception_type(
         (
@@ -141,17 +155,7 @@ def validate_credentials(api_id: str, api_secret: str, region: str | None) -> tu
     reraise=True,
 )
 def _fetch_page(session: requests.Session, url: str, logger: FilteringBoundLogger) -> dict:
-    response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
-
-    if response.status_code == 429 or response.status_code >= 500:
-        raise VeracodeRetryableError(f"Veracode API error (retryable): status={response.status_code}, url={url}")
-
-    if not response.ok:
-        log = logger.warning if response.status_code == 404 else logger.error
-        log(f"Veracode API error: status={response.status_code}, body={response.text}, url={url}")
-        response.raise_for_status()
-
-    return response.json()
+    return _fetch_page_once(session, url, logger)
 
 
 def _total_pages(data: dict) -> int:

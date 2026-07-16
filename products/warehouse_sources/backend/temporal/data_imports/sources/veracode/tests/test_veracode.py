@@ -12,7 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.veracode.v
     VeracodeResumeConfig,
     VeracodeRetryableError,
     _calculate_signature,
-    _fetch_page,
+    _fetch_page_once,
     _modified_after,
     _strip_region_prefix,
     get_rows,
@@ -131,9 +131,9 @@ class TestModifiedAfter:
 
 
 class TestFetchPage:
-    # Call the undecorated function (tenacity preserves `__wrapped__`) so a single attempt is asserted
-    # without incurring retry backoff. This guards the retryable-vs-permanent status classification.
-    _fetch_once = staticmethod(_fetch_page.__wrapped__)
+    # Call the single-attempt function so retry backoff isn't incurred. This guards the
+    # retryable-vs-permanent status classification.
+    _fetch_once = staticmethod(_fetch_page_once)
 
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 502)])
     def test_retryable_statuses_raise_retryable_error(self, _name: str, status_code: int) -> None:
