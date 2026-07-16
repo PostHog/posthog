@@ -1093,18 +1093,27 @@ describe('models.optimize_for', () => {
             }
         })
 
-        it.each(['@posthog/table-query', '@posthog/memory-read', '@posthog/table-membership'])(
-            'rejects the shared-state read tool %s',
-            (id) => {
-                const res = AgentSpecSchema.safeParse({ triggers: [authTrigger], tools: [{ kind: 'native', id }] })
-                expect(res.success).toBe(false)
-                if (!res.success) {
-                    expect(res.error.issues.some((i) => i.path.includes('tools'))).toBe(true)
-                }
+        it.each([
+            // reads (confidentiality)
+            '@posthog/table-query',
+            '@posthog/memory-read',
+            '@posthog/table-membership',
+            // mutations (integrity: overwrite/destroy another caller's data, or
+            // memory-write's failIfExists existence oracle)
+            '@posthog/memory-write',
+            '@posthog/memory-update',
+            '@posthog/memory-delete',
+            '@posthog/table-delete',
+            '@posthog/table-truncate',
+        ])('rejects the shared-state read/mutate tool %s', (id) => {
+            const res = AgentSpecSchema.safeParse({ triggers: [authTrigger], tools: [{ kind: 'native', id }] })
+            expect(res.success).toBe(false)
+            if (!res.success) {
+                expect(res.error.issues.some((i) => i.path.includes('tools'))).toBe(true)
             }
-        )
+        })
 
-        it('allows write-only @posthog/table-append (no read-back of other callers)', () => {
+        it('allows @posthog/table-append (additive; runtime forces plain, non-dedupe append)', () => {
             const res = AgentSpecSchema.safeParse({
                 triggers: [authTrigger],
                 tools: [{ kind: 'native', id: '@posthog/table-append' }],

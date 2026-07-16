@@ -121,6 +121,15 @@ export interface ToolContext {
      */
     memoryReadableAppIds?: ReadonlySet<string>
     /**
+     * True when this agent is reachable via a posthog `authenticated` audience —
+     * i.e. its per-(team, application) memory/table store is shared across
+     * mutually-untrusted callers. `table-append` uses this to force PLAIN append
+     * (dedupe disabled) so its `skipped` count can't leak whether another caller
+     * already wrote a key. Set from the spec at session start; see
+     * `specHasAuthenticatedAudience`.
+     */
+    crossTenantStore?: boolean
+    /**
      * Resolve a per-session credential by target name. Set by ingress at
      * /run + /send (see `CredentialBroker`); returns null when the broker
      * isn't wired or the target isn't bound. Convention names:

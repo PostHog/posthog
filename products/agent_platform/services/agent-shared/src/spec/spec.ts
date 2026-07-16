@@ -1099,34 +1099,59 @@ export const AgentSpecObjectSchema = z.object({
 const ADMISSION_WIRED_TRIGGER_TYPES: readonly Trigger['type'][] = ['slack']
 
 /**
- * Native tools that READ per-(team, application) memory / tabular state. That
- * state is shared across ALL of an agent's callers (scoped by team+app, never
- * per-caller), so on an `authenticated` agent — open to every PostHog user —
- * one caller could read what another wrote. Write-only `@posthog/table-append`
- * is deliberately absent: appending doesn't read anyone else's data.
+ * Native memory/table tools forbidden on an `authenticated` agent. That state is
+ * scoped per (team, application) — shared across ALL of an agent's callers, never
+ * per-caller — and an `authenticated` agent is open to every PostHog user, who
+ * are mutually untrusted. So:
+ *   - READS (memory-list/search/read, table-query/count/membership) let one
+ *     caller see what another wrote — a confidentiality break.
+ *   - MUTATIONS (memory-write/update/delete, table-delete/truncate) let one
+ *     caller overwrite or destroy another caller's data, and memory-write's
+ *     failIfExists is a cross-caller existence oracle — an integrity break.
+ * `@posthog/table-append` is deliberately NOT here: it's the one additive,
+ * confidentiality-safe way for an authenticated agent to record its own signal.
+ * The runtime forces it to PLAIN append on a cross-caller store (dedupe disabled,
+ * so its `skipped` count can't leak whether another caller wrote a key) — see
+ * `crossTenantStore` on ToolContext. Rows an authenticated agent appends are
+ * caller-influenceable, so downstream readers must treat them as untrusted input.
  */
-const AUTHENTICATED_FORBIDDEN_READ_TOOLS: ReadonlySet<string> = new Set([
+export const AUTHENTICATED_FORBIDDEN_TOOLS: ReadonlySet<string> = new Set([
     '@posthog/memory-list',
     '@posthog/memory-search',
     '@posthog/memory-read',
+    '@posthog/memory-write',
+    '@posthog/memory-update',
+    '@posthog/memory-delete',
     '@posthog/table-query',
     '@posthog/table-count',
     '@posthog/table-membership',
+    '@posthog/table-delete',
+    '@posthog/table-truncate',
 ])
+
+/**
+ * Whether any trigger opens this agent to every PostHog user via a posthog
+ * `authenticated` audience. Because the memory/table store is shared across all
+ * of an agent's callers regardless of which trigger they came through, one
+ * authenticated trigger makes the whole agent's store cross-caller. Consumed by
+ * the superRefine below and by the runner (to force plain append).
+ */
+export function specHasAuthenticatedAudience(spec: z.infer<typeof AgentSpecObjectSchema>): boolean {
+    return spec.triggers.some(
+        (t) => 'auth' in t && t.auth?.modes?.some((m) => m.type === 'posthog' && m.audience === 'authenticated')
+    )
+}
 
 export const AgentSpecSchema = AgentSpecObjectSchema.superRefine((spec, ctx) => {
     // A posthog `authenticated` audience opens the agent to EVERY PostHog user
     // (see AuthModeSchema). Such an agent must hold no ambient shared authority
-    // and must not read shared per-(team, application) state — otherwise any
-    // caller could drive its shared credential (confused deputy) or read another
-    // caller's data. These are documented on the audience; enforce them here so
-    // a later revision can't silently violate them. Runs before the
-    // authoritative_provider early-return below so it applies to trigger-auth
-    // agents (which don't set authoritative_provider).
-    const hasAuthenticatedAudience = spec.triggers.some(
-        (t) => 'auth' in t && t.auth?.modes?.some((m) => m.type === 'posthog' && m.audience === 'authenticated')
-    )
-    if (hasAuthenticatedAudience) {
+    // and must not read OR mutate shared per-(team, application) state —
+    // otherwise any caller could drive its shared credential (confused deputy),
+    // read another caller's data, or destroy it. These are documented on the
+    // audience; enforce them here so a later revision can't silently violate
+    // them. Runs before the authoritative_provider early-return below so it
+    // applies to trigger-auth agents (which don't set authoritative_provider).
+    if (specHasAuthenticatedAudience(spec)) {
         if (spec.mcps.some((m) => m.kind === 'agent')) {
             ctx.addIssue({
                 code: 'custom',
@@ -1138,7 +1163,7 @@ export const AgentSpecSchema = AgentSpecObjectSchema.superRefine((spec, ctx) => 
         const forbidden = [
             ...new Set(
                 spec.tools
-                    .filter((t) => t.kind === 'native' && AUTHENTICATED_FORBIDDEN_READ_TOOLS.has(t.id))
+                    .filter((t) => t.kind === 'native' && AUTHENTICATED_FORBIDDEN_TOOLS.has(t.id))
                     .map((t) => t.id)
             ),
         ].sort()
@@ -1146,7 +1171,7 @@ export const AgentSpecSchema = AgentSpecObjectSchema.superRefine((spec, ctx) => 
             ctx.addIssue({
                 code: 'custom',
                 path: ['tools'],
-                message: `an agent with a posthog "authenticated" audience must not read shared per-(team, application) state: remove ${forbidden.join(', ')}. These stores are shared across all callers, so one caller could read another's data. Write-only @posthog/table-append is allowed.`,
+                message: `an agent with a posthog "authenticated" audience must not read or mutate shared per-(team, application) state: remove ${forbidden.join(', ')}. These stores are shared across all callers, so one caller could read, overwrite, or destroy another's data. Additive @posthog/table-append is allowed (the runtime forces it to plain, non-dedupe append).`,
             })
         }
     }

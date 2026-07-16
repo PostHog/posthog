@@ -59,7 +59,7 @@ function readScope(ctx: ToolContext, owner?: string): Scope | null {
 const OWNER = Type.Optional(
     Type.String({
         description:
-            "Read another agent's tables instead of your own: the owner AgentApplication id. Works only when that agent opted its memory into team-wide sharing (same team); otherwise returns access_denied. Omit to read your own tables.",
+            "Read another agent's tables instead of your own: the owner AgentApplication id. Works only when that agent opted into team-wide sharing (same team); otherwise returns access_denied. Omit to read your own tables.",
     })
 )
 function storeOrError(ctx: ToolContext): TabularStore | { error: string } {
@@ -134,7 +134,13 @@ export const tableAppendV1 = defineNativeTool({
             return err(s.error, 'unavailable')
         }
         try {
-            const res = await s.append(selfScope(ctx), args.table, args.rows, { dedupeOn: args.dedupe_on })
+            // On a cross-tenant store (authenticated audience), force PLAIN
+            // append: dedupe is disabled so the `skipped` count can't leak
+            // whether another (untrusted) caller already wrote a key. Duplicates
+            // are acceptable there — the table is an append-only signal, not a
+            // deduped set.
+            const dedupeOn = ctx.crossTenantStore ? undefined : args.dedupe_on
+            const res = await s.append(selfScope(ctx), args.table, args.rows, { dedupeOn })
             return ok(res)
         } catch (e) {
             return err(asError(e), asCode(e))

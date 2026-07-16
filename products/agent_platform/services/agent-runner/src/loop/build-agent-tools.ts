@@ -41,6 +41,7 @@ import {
     MemoryStore,
     TabularStore,
     Sandbox,
+    specHasAuthenticatedAudience,
     ToolContext,
     WebSearchProvider,
 } from '@posthog/agent-shared'
@@ -603,6 +604,7 @@ function buildToolContext(deps: AgentToolDeps, resolvedIdentities?: ToolContext[
         memoryStore: deps.memoryStore,
         tabularStore: deps.tabularStore,
         memoryReadableAppIds: deps.memoryReadableAppIds,
+        crossTenantStore: specHasAuthenticatedAudience(deps.rev.spec),
         webSearchProviders: deps.webSearchProviders,
         credentials: credentialBroker
             ? {
