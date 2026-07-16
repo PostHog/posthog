@@ -948,6 +948,36 @@ export const experimentsCreateFromPromptCreate = async (
     })
 }
 
+export const getExperimentsEligibleFeatureFlagsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/experiments/eligible_feature_flags/`
+}
+
+/**
+ * Returns a paginated list of feature flags eligible for use in experiments.
+ *
+ * Eligible flags must:
+ * - Be multivariate with 2 to 20 variants
+ *
+ * Query parameters:
+ * - search: Filter by flag key or name (case insensitive)
+ * - limit: Number of results per page (default: 20)
+ * - offset: Pagination offset (default: 0)
+ * - active: Filter by active status ("true" or "false")
+ * - created_by_id: Filter by creator user ID
+ * - order: Sort order field
+ * - evaluation_runtime: Filter by evaluation runtime
+ * - has_evaluation_contexts: Filter by presence of evaluation contexts ("true" or "false")
+ */
+export const experimentsEligibleFeatureFlagsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getExperimentsEligibleFeatureFlagsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getExperimentsPromptTemplatesRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/experiments/prompt_templates/`
 }

@@ -1033,6 +1033,9 @@ tools:
     experiments-create-from-prompt-create:
         operation: experiments_create_from_prompt_create
         enabled: false
+    experiments-eligible-feature-flags:
+        operation: experiments_eligible_feature_flags_retrieve
+        enabled: false
     experiments-freeze-exposure-create:
         operation: experiments_freeze_exposure_create
         enabled: false
