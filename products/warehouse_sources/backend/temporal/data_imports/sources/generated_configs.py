@@ -4679,7 +4679,7 @@ class ZendeskSunshineSourceConfig(config.Config):
 
 @config.config
 class ZendutySourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
