@@ -168,17 +168,24 @@ class TestInventoryEndpoints:
 class TestSensitiveDataStripping:
     @parameterized.expand(["pods", "endpoints", "templates"])
     def test_env_secrets_are_stripped_from_inventory_rows(self, endpoint: str) -> None:
-        # A user-configured env map on a Pod/endpoint/template can hold cloud credentials; it must
-        # never reach the warehouse where any project member with warehouse access could read it.
+        # A user-configured env map or startup command on a Pod/endpoint/template can hold cloud
+        # credentials (as env values or CLI args); none of them may reach the warehouse where any
+        # project member with warehouse access could read them.
         responses = [
             [
-                {"id": "r1", "name": "worker", "env": {"AWS_SECRET_ACCESS_KEY": "supersecret"}},
+                {
+                    "id": "r1",
+                    "name": "worker",
+                    "env": {"AWS_SECRET_ACCESS_KEY": "supersecret"},
+                    "dockerStartCmd": ["serve", "--api-key=supersecret"],
+                    "dockerEntrypoint": ["/entry.sh", "--token=supersecret"],
+                },
                 {"id": "r2", "name": "trainer", "env": {}},
             ]
         ]
         rows, _ = _collect(_FakeResumableManager(), responses, endpoint)
         assert [r["id"] for r in rows] == ["r1", "r2"]
-        assert all("env" not in r for r in rows)
+        assert all(key not in r for r in rows for key in ("env", "dockerStartCmd", "dockerEntrypoint"))
 
     def test_nested_env_is_stripped_recursively(self) -> None:
         # An endpoint can embed its template, so the secret map can be nested rather than top-level.
