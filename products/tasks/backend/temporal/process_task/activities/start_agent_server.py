@@ -213,6 +213,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes) -> _La
         raise SandboxExecutionError(
             "Task run not found for agent server launch",
             {"task_id": ctx.task_id, "run_id": ctx.run_id},
+            cause=TaskRun.DoesNotExist(f"TaskRun {ctx.run_id} not found"),
         )
     if event_stream_ingest_enabled:
         try:

@@ -457,7 +457,7 @@ def get_user_mcp_server_configs(
 
 
 def build_imported_mcp_server_configs(
-    imported_servers: list[dict[str, Any]] | None,
+    imported_servers: Any,
     existing_names: Iterable[str],
 ) -> list[McpServerConfig]:
     """Sandbox configs for client-imported MCP servers (TaskRun.imported_mcp_servers).

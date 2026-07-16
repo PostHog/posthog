@@ -1812,8 +1812,10 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(task_run.state["auto_publish"], True)
         mock_workflow.assert_not_called()
 
+    # is_url_allowed resolves DNS for real in CI, and example.com subdomains don't resolve.
+    @patch("products.tasks.backend.presentation.serializers.is_url_allowed", return_value=(True, None))
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_create_run_endpoint_persists_imported_mcp_servers_outside_state(self, mock_workflow):
+    def test_create_run_endpoint_persists_imported_mcp_servers_outside_state(self, mock_workflow, _mock_url_allowed):
         task = self.create_task()
         servers = [
             {
@@ -1845,8 +1847,9 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertNotIn("imported_mcp_servers", task_run.state)
         mock_workflow.assert_not_called()
 
+    @patch("products.tasks.backend.presentation.serializers.is_url_allowed", return_value=(True, None))
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_run_endpoint_persists_imported_mcp_servers(self, mock_workflow):
+    def test_run_endpoint_persists_imported_mcp_servers(self, mock_workflow, _mock_url_allowed):
         task = self.create_task()
         servers = [{"type": "http", "name": "grafana", "url": "https://mcp.grafana.example.com/mcp", "headers": []}]
 

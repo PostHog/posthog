@@ -158,9 +158,8 @@ async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(mocker
         return_value=[],
     )
     mocker.patch(
-        "products.tasks.backend.temporal.process_task.activities.start_agent_server.TaskRun.objects.get",
-        return_value=mocker.Mock(),
-    )
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.TaskRun.objects.filter",
+    ).return_value.first.return_value = mocker.Mock(imported_mcp_servers=None)
     create_event_ingest_token = mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.create_sandbox_event_ingest_token",
         return_value="event-ingest-token",
