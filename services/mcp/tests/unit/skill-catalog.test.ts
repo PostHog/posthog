@@ -161,4 +161,83 @@ describe('SkillCatalog and exec learn', () => {
 
         expect(() => SkillCatalog.fromZip(archive)).toThrow('Unsafe skill archive path')
     })
+
+    it.each([
+        ['analyzing', 'trends', true], // analyzing → analy ⊂ "analysis"
+        ['funnels', 'conversion', true], // funnels → funnel
+        ['sessions', 'assessment', false], // min-5 guard: "sessions" must not reach "assessing"
+    ])('light stemming links query "%s" to %s content (match=%s)', (query, skill, shouldMatch) => {
+        const catalog = SkillCatalog.fromZip(
+            makeArchive({
+                'trends/SKILL.md': makeSkill(
+                    'trends',
+                    'Chart product metrics over time.',
+                    '# Trends\n\nRun a cohort analysis.'
+                ),
+                'conversion/SKILL.md': makeSkill(
+                    'conversion',
+                    'Chart product metrics over time.',
+                    '# Conversion\n\nBuild a conversion funnel.'
+                ),
+                'assessment/SKILL.md': makeSkill(
+                    'assessment',
+                    'Review internal controls.',
+                    '# Assessment\n\nStart by assessing exposure.'
+                ),
+            })
+        )
+
+        if (shouldMatch) {
+            expect(catalog.search(query)).toContain(skill)
+        } else {
+            expect(catalog.search(query)).not.toContain(skill)
+        }
+    })
+
+    it('excludes SKILL.md frontmatter from snippets while keeping raw line numbers', () => {
+        const catalog = SkillCatalog.fromZip(
+            makeArchive({
+                'cohort-guide/SKILL.md': makeSkill(
+                    'cohort-guide',
+                    'Analyze retention cohorts.',
+                    '# Cohort guide\n\nAnalyze retention cohorts weekly.'
+                ),
+            })
+        )
+
+        const output = catalog.search('retention cohorts')
+        // The `description:` frontmatter line (raw line 3) must not surface as a snippet — the
+        // description already prints on its own — and the body match keeps its real line number.
+        expect(output).not.toContain('description:')
+        expect(output).toContain('SKILL.md:8: Analyze retention cohorts weekly.')
+    })
+
+    it('exposes descending scores from searchResults', () => {
+        const catalog = SkillCatalog.fromZip(
+            makeArchive({
+                'funnels/SKILL.md': makeSkill(
+                    'funnels',
+                    'Analyze conversion funnels.',
+                    '# Funnels\n\nBuild a conversion funnel.'
+                ),
+                'trends/SKILL.md': makeSkill(
+                    'trends',
+                    'Chart metrics over time.',
+                    '# Trends\n\nA funnel is not a trend.'
+                ),
+            })
+        )
+
+        const results = catalog.searchResults('funnel')
+        expect(results.map((result) => result.identifier)).toEqual(['funnels', 'trends'])
+        expect(results[0]!.score!).toBeGreaterThan(results[1]!.score!)
+    })
+
+    it('offers a read and line-range recovery hint when a file search finds nothing', () => {
+        const output = makeCatalog().searchFile('retention-analysis', 'references/functions.md', 'nonexistentxyz')
+
+        expect(output).toContain('No matches for "nonexistentxyz" in retention-analysis/references/functions.md.')
+        expect(output).toContain('Read it with `learn retention-analysis references/functions.md` (3 lines,')
+        expect(output).toContain('--lines <start>:<end>')
+    })
 })
