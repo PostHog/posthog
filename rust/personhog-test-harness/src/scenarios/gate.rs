@@ -263,7 +263,7 @@ pub async fn run(args: GateArgs) -> Result<()> {
                 None
             }
             ChaosEvent::RouterKill { fast } => Some(stack.kill_coordinator_router(fast).await?),
-            ChaosEvent::RouterShutdown => Some(stack.shutdown_coordinator_router()?),
+            ChaosEvent::RouterShutdown => Some(stack.shutdown_coordinator_router().await?),
         };
         println!(
             "Chaos at {:.1}s: {event} → pod {} | {}",
