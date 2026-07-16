@@ -26,8 +26,8 @@ tools:
             Live CI failures over the last 2 days, grouped into distinct failures (by failing test id + a normalized
             error signature) and classified by how each is behaving right now, most urgent first. Reach for this to
             answer "what CI failures should I care about right now" — it is the triage counterpart to the test-health
-            queue (which ranks week-long unreliability). Each row's state is the verdict: breaking_master (failing
-            on the default branch and that job's latest run is still red — trunk is broken now), novel_burst (first seen
+            queue (which ranks week-long unreliability). Each row's state is the verdict: breaking_master (failing on
+            the default branch and that job's latest run is still red — trunk is broken now), novel_burst (first seen
             within a day and already spreading across branches, not on trunk yet), potentially_resolved (hit trunk but
             that job is green again), flaky (sporadic across two or more branches over more than a day), or pr_only
             (confined to one branch — one PR's own problem). Also returns breaking_master_jobs, the default-branch jobs
