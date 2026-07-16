@@ -632,9 +632,7 @@ def test_report_heartbeat_timeout_heartbeat_not_within_timeout(team):
     ],
 )
 @pytest.mark.asyncio
-async def test_handle_import_error_downgrades_transient_github_errors(
-    error: Exception, expect_captured: bool
-) -> None:
+async def test_handle_import_error_downgrades_transient_github_errors(error: Exception, expect_captured: bool) -> None:
     job_inputs = PipelineInputs(
         source_id=uuid.uuid4(),
         run_id="run-id",
