@@ -124,7 +124,6 @@ pub struct CapturedEventHeaders {
     pub dlq_step: Option<String>,
     pub dlq_timestamp: Option<String>,
     pub content_encoding: Option<String>,
-    /// The recorded page's hostname on replay snapshot messages, stamped by the browser SDK.
     pub snapshot_host: Option<String>,
 }
 

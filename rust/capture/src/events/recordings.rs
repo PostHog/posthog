@@ -769,10 +769,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_snapshot_host_passes_through_as_a_kafka_header() {
-        // The ml-mirror anonymizer keys host classification on the `snapshot_host` Kafka header;
-        // capture silently dropping it would permanently disable classification downstream (the
-        // fallback there is also collapse-everything). It must ride the headers only — never the
-        // serialized body, which consumers must not need to parse for it.
         let cases: &[(Option<Value>, Option<&str>)] = &[
             (Some(json!("app.example.com")), Some("app.example.com")),
             (Some(json!(42)), None), // non-string stamps must not pass through
