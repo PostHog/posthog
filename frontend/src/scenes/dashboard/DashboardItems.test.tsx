@@ -242,6 +242,29 @@ describe('DashboardItems', () => {
         expect(container.firstChild).toMatchSnapshot()
     })
 
+    it.each([
+        { scenario: 'the stream is empty', tiles: [], spinnerVisible: true },
+        {
+            scenario: 'a tile is already visible',
+            tiles: [{ id: 1, insight: { id: 101, short_id: 'abc123', query: { kind: 'InsightVizNode' } } }],
+            spinnerVisible: false,
+        },
+    ])('shows the streaming spinner only when $scenario', ({ tiles, spinnerVisible }) => {
+        const defaultUseValues = mockedUseValues.getMockImplementation()!
+        mockedUseValues.mockImplementation((logic) => {
+            const values = defaultUseValues(logic)
+            return logic === dashboardLogic ? { ...values, tiles, dashboardStreaming: true } : values
+        })
+
+        const { queryByText } = render(<DashboardItems />)
+
+        if (spinnerVisible) {
+            expect(queryByText('Loading tiles...')).toBeInTheDocument()
+        } else {
+            expect(queryByText('Loading tiles...')).not.toBeInTheDocument()
+        }
+    })
+
     it('shows widget tiles on public dashboards', () => {
         const widgetTile = {
             id: 2,
