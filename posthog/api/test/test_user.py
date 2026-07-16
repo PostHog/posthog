@@ -2261,6 +2261,38 @@ class TestToolbarAccessControl(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         mock_refresh_tokens.assert_not_called()
 
+    def test_toolbar_oauth_refresh_denied_when_token_owner_has_no_team(self):
+        """A refresh token belonging to a user with no current team must be denied rather than
+        skipping the access check entirely - `if token_record and token_record.user.team` used to
+        fail open (allow refresh) for exactly this case instead of failing closed."""
+        no_team_user = User.objects.create_user(
+            email="no-team-refresh@posthog.com", password="testpass123", first_name=""
+        )
+        oauth_app = OAuthApplication.objects.create(
+            name="Test Toolbar OAuth App",
+            client_id="test_toolbar_client_id_no_team",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            user=no_team_user,
+        )
+        refresh_token = OAuthRefreshToken.objects.create(
+            user=no_team_user,
+            application=oauth_app,
+            token="test_toolbar_refresh_token_no_team",
+        )
+
+        with patch("posthog.api.user.refresh_tokens") as mock_refresh_tokens:
+            response = self.client.post(
+                "/api/user/toolbar_oauth_refresh/",
+                {"refresh_token": refresh_token.token, "client_id": oauth_app.client_id},
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_refresh_tokens.assert_not_called()
+
 
 class TestSessionAuthEndpoints(APIBaseTest):
     """
