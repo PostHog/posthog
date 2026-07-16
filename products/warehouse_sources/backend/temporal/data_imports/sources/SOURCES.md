@@ -463,6 +463,7 @@ the row lists both.
 | wrike                     | HTTP                        | requests                                                        | ✅                          |
 | writesonic                | HTTP                        | requests                                                        | ✅                          |
 | wufoo                     | HTTP                        | requests                                                        | ✅                          |
+| xmatters                  | HTTP                        | requests                                                        | ✅                          |
 | zapier_supported_storage  | HTTP                        | requests                                                        | ✅                          |
 | zendesk                   | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | zendesk_sell              | HTTP                        | requests                                                        | ✅                          |
@@ -966,7 +967,6 @@ doesn't conflict with concurrent PRs.
 - workramp
 - wufoo
 - xero
-- xmatters
 - xsolla
 - yahoo_finance
 - yandex_metrica

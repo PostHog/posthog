@@ -4589,7 +4589,9 @@ class XeroSourceConfig(config.Config):
 
 @config.config
 class XmattersSourceConfig(config.Config):
-    pass
+    subdomain: str
+    username: str
+    password: str
 
 
 @config.config
