@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import InstanaSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.instana.instana import (
+    PAGINATION_LIMIT_ERROR,
     RESPONSE_TOO_LARGE_ERROR,
     RESPONSE_TOO_SLOW_ERROR,
     InstanaHostNotAllowedError,
@@ -104,6 +105,7 @@ Your base URL is the address you use to open the Instana UI, e.g. `https://unit-
             "403 Client Error: Forbidden": "Your Instana API token is missing the permission scopes needed to sync this data. Grant the required scopes on the token, then reconnect.",
             RESPONSE_TOO_LARGE_ERROR: "Instana returned a response that was too large to process. Please contact support if this persists.",
             RESPONSE_TOO_SLOW_ERROR: "Instana took too long to send a response. Check that the base URL points at a healthy Instana instance, then reconnect.",
+            PAGINATION_LIMIT_ERROR: "Instana returned an unexpectedly large catalog that exceeded the pagination limit. Please contact support if this persists.",
         }
 
     def get_schemas(

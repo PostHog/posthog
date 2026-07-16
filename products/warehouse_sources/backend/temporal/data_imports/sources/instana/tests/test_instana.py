@@ -246,6 +246,14 @@ class TestPagedRows:
 
         assert _query(fetched[0])["page"] == ["5"]
 
+    def test_pagination_limit_aborts_runaway_walk(self) -> None:
+        # A self-hosted host can return a full page forever while omitting a reliable totalHits, so
+        # the normal termination conditions never trip; the walk must abort past MAX_CATALOG_PAGES.
+        full_page = self._page(PAGE_SIZE, page=1, total_hits=10**9)
+        with mock.patch.object(inst, "MAX_CATALOG_PAGES", 3):
+            with pytest.raises(inst.InstanaPaginationLimitError):
+                _run_get_rows("applications", [full_page])
+
 
 class TestListRows:
     def test_bare_list_body_is_yielded(self) -> None:

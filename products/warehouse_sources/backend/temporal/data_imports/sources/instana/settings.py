@@ -7,6 +7,12 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 # endpoints cap page sizes at 200, so stay at that known-safe value here too.
 PAGE_SIZE = 200
 
+# A self-hosted server the user controls can return a full page on every request while never
+# signalling the end of pagination, keeping the catalog walk (and its ingestion) running for the
+# whole activity. Cap the pages walked and fail non-retryably past it — far above any real catalog
+# (10k pages x 200 = 2M records), so a legitimate inventory is never truncated.
+MAX_CATALOG_PAGES = 10_000
+
 # `/api/events` has no pagination — the window itself bounds the response — so wide ranges must be
 # chunked. One-day chunks keep responses small while the first sync stays at ~30 requests.
 EVENTS_WINDOW_CHUNK_MS = 24 * 60 * 60 * 1000

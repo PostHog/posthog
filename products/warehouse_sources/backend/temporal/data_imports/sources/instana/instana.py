@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.instana.se
     EVENTS_DEFAULT_LOOKBACK_DAYS,
     EVENTS_WINDOW_CHUNK_MS,
     INSTANA_ENDPOINTS,
+    MAX_CATALOG_PAGES,
     PAGE_SIZE,
     SNAPSHOTS_MAX_SIZE,
     InstanaEndpointConfig,
@@ -43,6 +44,7 @@ MAX_DOWNLOAD_SECONDS = 300
 HOST_NOT_ALLOWED_ERROR = "Instana base URL is not allowed"
 RESPONSE_TOO_LARGE_ERROR = "Instana response body was too large"
 RESPONSE_TOO_SLOW_ERROR = "Instana response download was too slow"
+PAGINATION_LIMIT_ERROR = "Instana catalog pagination exceeded the page limit"
 
 
 class InstanaRetryableError(Exception):
@@ -58,6 +60,10 @@ class InstanaResponseTooLargeError(Exception):
 
 
 class InstanaResponseTooSlowError(Exception):
+    pass
+
+
+class InstanaPaginationLimitError(Exception):
     pass
 
 
@@ -293,12 +299,21 @@ def _get_paged_rows(
         logger.debug(f"Instana: resuming {config.name} from page={page}")
 
     fetched = 0
+    pages_walked = 0
     while True:
+        # A self-hosted host can return a full page forever while omitting `totalHits`, so the
+        # termination conditions below never trip; bound the walk so the loop (and its ingestion)
+        # can't run for the whole activity. Non-retryable — the same host replays the same loop.
+        if pages_walked >= MAX_CATALOG_PAGES:
+            raise InstanaPaginationLimitError(
+                f"{PAGINATION_LIMIT_ERROR}: stopped after {MAX_CATALOG_PAGES} pages for {config.name}"
+            )
         params: dict[str, Any] = {"pageSize": PAGE_SIZE}
         if page is not None:
             params["page"] = page
         url = _build_url(root, config.path, params)
         data = _fetch(session, url, logger)
+        pages_walked += 1
 
         items = _extract_items(data, config)
         if not items:
