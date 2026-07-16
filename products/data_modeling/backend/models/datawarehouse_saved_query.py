@@ -26,6 +26,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel
 from posthog.schema_enums import DataWarehouseSavedQueryOrigin
 from posthog.sync import database_sync_to_async
+from posthog.temporal.common.client import WorkerShuttingDownError
 
 from products.warehouse_sources.backend.facade.hogql import (
     CLICKHOUSE_HOGQL_MAPPING,
@@ -249,7 +250,12 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
                 DataWarehouseModelPath.objects.filter(team=self.team, path__lquery=f"*{{1,}}.{self.id.hex}").delete()
         finally:
             if should_delete_saved_query_schedule:
-                delete_saved_query_schedule(self)
+                try:
+                    delete_saved_query_schedule(self)
+                except WorkerShuttingDownError:
+                    # Web worker is being torn down mid-request. Schedule teardown is idempotent
+                    # and retryable, so skip it rather than failing the delete with shutdown noise.
+                    logger.info("revert_materialization.schedule_teardown_skipped", saved_query_id=str(self.id))
 
     def soft_delete(self):
         self.deleted = True

@@ -13,6 +13,20 @@ from temporalio.runtime import Runtime
 
 from posthog.temporal.common.codec import EncryptionCodec
 
+# CPython's ThreadPoolExecutor.submit() raises RuntimeError with this exact message once the
+# interpreter has begun shutting down. asgiref's async_to_sync drives its coroutine through such
+# an executor, so sync_connect() hits it when a gunicorn worker gets SIGTERM while a request is
+# still in flight.
+_INTERPRETER_SHUTDOWN_MESSAGE = "cannot schedule new futures after interpreter shutdown"
+
+
+class WorkerShuttingDownError(RuntimeError):
+    """Raised when a synchronous Temporal connection is attempted during interpreter shutdown.
+
+    This is an expected, self-healing shutdown race — not a bug worth reporting to error tracking.
+    Subclasses RuntimeError so existing ``except RuntimeError`` handlers keep catching it.
+    """
+
 
 async def connect(
     host: str,
@@ -69,8 +83,7 @@ async def connect(
 
 
 @async_to_sync
-async def sync_connect() -> Client:
-    """Synchronous connect to Temporal and return a Client."""
+async def _sync_connect() -> Client:
     client = await connect(
         django_settings.TEMPORAL_HOST,
         django_settings.TEMPORAL_PORT,
@@ -79,6 +92,16 @@ async def sync_connect() -> Client:
         django_settings.TEMPORAL_CLIENT_KEY,
     )
     return client
+
+
+def sync_connect() -> Client:
+    """Synchronous connect to Temporal and return a Client."""
+    try:
+        return _sync_connect()
+    except RuntimeError as e:
+        if _INTERPRETER_SHUTDOWN_MESSAGE in str(e):
+            raise WorkerShuttingDownError(_INTERPRETER_SHUTDOWN_MESSAGE) from e
+        raise
 
 
 async def async_connect() -> Client:
