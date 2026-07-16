@@ -16,6 +16,7 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.tasks.backend.logic.code_workstreams.classify import pick_primary_situation
 from products.tasks.backend.logic.code_workstreams.grouping import (
+    DEFAULT_BASE_BRANCHES,
     PrInput,
     TaskInput,
     Workstream,
@@ -158,7 +159,12 @@ def _select_recent_task_ids(team_id: int, cutoff: datetime) -> list[uuid.UUID]:
     # MAX_TASKS_PER_USER, so one high-volume user can't evict another user's tasks. The
     # MAX_TASKS_PER_TEAM cap then bounds the whole team's set, still favouring recency.
     # Candidates come from runs inside the activity window so the query's working set
-    # scales with recent activity, not the team's all-time task count.
+    # scales with recent activity, not the team's all-time task count. Only runs that
+    # could form a workstream (a PR, or a branch that isn't a default base — see
+    # workstream_key) consume cap slots: tasks that can never produce a lane must not
+    # evict ones that can. task_id tie-breakers keep ranking stable across rebuilds
+    # when activity timestamps collide, so the cap cutoff can't flicker and prune an
+    # unchanged task's workstream.
     return list(
         TaskRun.objects.filter(
             team_id=team_id,
@@ -167,17 +173,21 @@ def _select_recent_task_ids(team_id: int, cutoff: datetime) -> list[uuid.UUID]:
             task__deleted=False,
             task__created_by__isnull=False,
         )
+        .filter(
+            Q(output__pr_url__isnull=False)
+            | (Q(branch__isnull=False) & ~Q(branch="") & ~Q(branch__in=DEFAULT_BASE_BRANCHES))
+        )
         .values("task_id", "task__created_by_id")
         .annotate(last_activity=Max("updated_at"))
         .annotate(
             user_rank=Window(
                 expression=RowNumber(),
                 partition_by=F("task__created_by_id"),
-                order_by=F("last_activity").desc(),
+                order_by=(F("last_activity").desc(), F("task_id").asc()),
             )
         )
         .filter(user_rank__lte=MAX_TASKS_PER_USER)
-        .order_by("-last_activity")
+        .order_by("-last_activity", "task_id")
         .values_list("task_id", flat=True)[:MAX_TASKS_PER_TEAM]
     )
 

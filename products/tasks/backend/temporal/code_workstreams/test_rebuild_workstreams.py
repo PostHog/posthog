@@ -139,11 +139,17 @@ def _user(org: Organization) -> User:
     return User.objects.create_and_join(org, f"u{random.randint(1, 10**9)}@example.com", None)
 
 
-def _task_with_run_at(team: Team, user: User, activity_at: datetime) -> Task:
+def _task_with_run_at(
+    team: Team,
+    user: User,
+    activity_at: datetime,
+    branch: str | None = "feat/home",
+    output: dict | None = None,
+) -> Task:
     task = Task.objects.create(
         team=team, created_by=user, title="t", description="d", origin_product=Task.OriginProduct.USER_CREATED
     )
-    run = TaskRun.objects.create(task=task, team=team, status=TaskRun.Status.COMPLETED)
+    run = TaskRun.objects.create(task=task, team=team, status=TaskRun.Status.COMPLETED, branch=branch, output=output)
     # updated_at is auto_now, so set the activity timestamp with a bulk update to bypass it.
     TaskRun.objects.filter(id=run.id).update(updated_at=activity_at)
     return task
@@ -190,3 +196,50 @@ def test_select_recent_task_ids_applies_team_cap_across_users():
         selected = _select_recent_task_ids(team.id, now - ACTIVITY_WINDOW)
 
     assert len(selected) == 7
+
+
+@pytest.mark.django_db
+@freeze_time("2026-06-01")
+def test_select_recent_task_ids_breaks_activity_ties_deterministically():
+    org = _org()
+    team = _team(org)
+    user = _user(org)
+    now = timezone.now()
+
+    # More tied tasks than the cap: without a stable tie-breaker the rank-50 cutoff
+    # shuffles between rebuilds and the prune deletes an unchanged task's workstream.
+    tied = [_task_with_run_at(team, user, now - timedelta(hours=1)) for _ in range(55)]
+
+    selected = _select_recent_task_ids(team.id, now - ACTIVITY_WINDOW)
+
+    assert selected == sorted(t.id for t in tied)[:50]
+
+
+@pytest.mark.django_db
+@freeze_time("2026-06-01")
+def test_select_recent_task_ids_ignores_tasks_that_cannot_form_workstreams():
+    org = _org()
+    team = _team(org)
+    user = _user(org)
+    now = timezone.now()
+
+    # A fresh burst of lane-ineligible tasks (no PR, no feature branch) exceeds the cap...
+    junk = [
+        _task_with_run_at(team, user, now - timedelta(minutes=i), branch=branch)
+        for i, branch in enumerate([None, "", "master", "main"] * 13, start=1)
+    ]
+    # ...but must not consume slots and evict the user's older lane-bearing tasks.
+    branch_task = _task_with_run_at(team, user, now - timedelta(hours=2))
+    pr_task = _task_with_run_at(
+        team,
+        user,
+        now - timedelta(hours=3),
+        branch=None,
+        output={"pr_url": "https://github.com/org/repo/pull/1"},
+    )
+
+    selected = set(_select_recent_task_ids(team.id, now - ACTIVITY_WINDOW))
+
+    assert branch_task.id in selected
+    assert pr_task.id in selected
+    assert selected.isdisjoint({t.id for t in junk})
