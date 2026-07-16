@@ -527,3 +527,22 @@ export function appendResultsToFolders(
 export const isGroupViewShortcut = (shortcut: FileSystemEntry): boolean => {
     return !!shortcut?.type?.startsWith('group_') && !!shortcut?.type?.endsWith('_view')
 }
+
+/**
+ * Resolve a tree item's `href` (which may be a string or a builder function) into a value safe to
+ * push onto the router. Stored shortcut hrefs can be relative (e.g. "replayvision"); pushing a
+ * relative value resolves it against the current URL and lands on a nonexistent nested route, so we
+ * normalize to an absolute path by prepending a leading slash. Absolute paths and full URLs pass
+ * through untouched.
+ */
+export function resolveTreeItemHref(href: unknown, ref?: unknown): string | undefined {
+    const resolved = typeof href === 'function' ? href(ref) : href
+    if (typeof resolved !== 'string' || resolved === '') {
+        return undefined
+    }
+    // Leave absolute URLs and protocol-relative URLs (e.g. "//example.com") alone.
+    if (resolved.startsWith('/') || /^[a-z][a-z0-9+.-]*:\/\//i.test(resolved)) {
+        return resolved
+    }
+    return `/${resolved}`
+}

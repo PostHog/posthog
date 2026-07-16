@@ -39,7 +39,7 @@ import { projectTreeLogic } from './projectTreeLogic'
 import { TreeFiltersDropdownMenu } from './TreeFiltersDropdownMenu'
 import { TreeSearchField } from './TreeSearchField'
 import { TreeSortDropdownMenu } from './TreeSortDropdownMenu'
-import { calculateMovePath } from './utils'
+import { calculateMovePath, resolveTreeItemHref } from './utils'
 
 export interface ProjectTreeProps {
     logicKey?: string // key override?
@@ -275,10 +275,9 @@ export function ProjectTree({
                     name: item?.name ?? null,
                 })
 
-                if (item?.record?.href) {
-                    router.actions.push(
-                        typeof item.record.href === 'function' ? item.record.href(item.record.ref) : item.record.href
-                    )
+                const resolvedHref = resolveTreeItemHref(item?.record?.href, item?.record?.ref)
+                if (resolvedHref) {
+                    router.actions.push(resolvedHref)
                 }
 
                 if (item?.record?.path) {

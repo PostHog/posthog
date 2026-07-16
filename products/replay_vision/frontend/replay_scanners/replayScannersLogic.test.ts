@@ -1,6 +1,9 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -74,6 +77,8 @@ describe('replayScannersLogic', () => {
             },
         })
         initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.REPLAY_VISION], { [FEATURE_FLAGS.REPLAY_VISION]: true })
         logic = replayScannersLogic()
         logic.mount()
     })
@@ -370,6 +375,21 @@ describe('replayScannersLogic', () => {
 
             expect(quotaLogic.values.quota?.projected_monthly_credits).toBe(500)
             quotaLogic.unmount()
+        })
+    })
+
+    describe('feature-flag gating', () => {
+        it('short-circuits loadScanners without hitting the API when replay-vision is off', async () => {
+            // Without the flag the backend answers scanner endpoints with a 404; the guard must bail before the
+            // request so the user gets a clean NotFound page instead of a stacked "Failed to load scanners" toast.
+            logic.unmount()
+            featureFlagLogic.actions.setFeatureFlags([], {})
+            logic = replayScannersLogic()
+            logic.mount()
+
+            await expectLogic(logic, () => logic.actions.loadScanners())
+                .toDispatchActions(['loadScanners', 'loadScannersFailure'])
+                .toNotHaveDispatchedActions(['loadScannersSuccess'])
         })
     })
 
