@@ -195,18 +195,16 @@ _AUTH_HINTS: dict[str, str] = {
 }
 
 
-def _resolve_or_login(auth: AuthChoice) -> tuple[str, AuthMode]:
-    """The publish token, offering an inline device login on a TTY.
+def _login_or_fail(auth: AuthChoice) -> tuple[str, AuthMode]:
+    """Last resort when no token resolved: offer an inline device login on a TTY.
 
     Never starts a device flow non-interactively: the 15-minute code would
     dangle while an unattended agent hangs. A human mints the token up front.
     """
-    if resolved := token_for_mode(auth):
-        return resolved
     if (
         auth in ("auto", "app")
         and sys.stdin.isatty()
-        and click.confirm("No GitHub token available. Log in with the hogli-publisher app now?")
+        and click.confirm("No GitHub token available. Start a signing session now?")
     ):
         run_device_login()
         if resolved := token_for_mode("app"):
@@ -516,7 +514,7 @@ def git_publish_signed(dry_run: bool, auth: AuthChoice) -> None:
             click.echo(f"  {plan.sha[:10]} {plan.headline}")
         return
 
-    token, mode = resolved if resolved else _resolve_or_login(auth)
+    token, mode = resolved or _login_or_fail(auth)
     if auth == "auto" and mode == "gh":
         click.secho(
             "Using the long-lived gh CLI token; run `hogli git:signing-session` for a short-lived app token.",

@@ -60,12 +60,12 @@ def _require_app() -> GitHubApp:
     return app
 
 
-def session_token(now: datetime | None = None) -> str | None:
+def session_token() -> str | None:
     """The active session's token, with enough validity left for a full publish."""
     app = _configured_app()
     if app is None:
         return None
-    return cached_token(app, now=now, safety_margin=EXPIRY_SAFETY_MARGIN)
+    return cached_token(app, safety_margin=EXPIRY_SAFETY_MARGIN)
 
 
 def token_for_mode(mode: AuthChoice) -> tuple[str, AuthMode] | None:
@@ -91,18 +91,17 @@ def token_for_mode(mode: AuthChoice) -> tuple[str, AuthMode] | None:
 
 
 def run_device_login(*, force: bool = False, open_browser: bool = True) -> None:
-    if not force and session_token() is not None:
-        app = _require_app()
+    app = _require_app()
+    if not force and cached_token(app, safety_margin=EXPIRY_SAFETY_MARGIN):
         expiry = cached_token_expiry(app)
         assert expiry is not None
-        remaining = expiry - datetime.now(UTC)
-        hours, minutes = divmod(int(remaining.total_seconds()) // 60, 60)
+        hours, minutes = divmod(int((expiry - datetime.now(UTC)).total_seconds()) // 60, 60)
         click.echo(
             f"Signing session active until {expiry.astimezone():%H:%M} ({hours}h{minutes:02d}m left). "
             "Use --force to restart it."
         )
         return
-    _token, expires_at = mint_user_token(_require_app(), open_browser=open_browser)
+    _token, expires_at = mint_user_token(app, open_browser=open_browser)
     hours = int((expires_at - datetime.now(UTC)).total_seconds()) // 3600
     click.secho(f"Signing session started; valid until {expires_at.astimezone():%H:%M} (~{hours}h).", fg="green")
 

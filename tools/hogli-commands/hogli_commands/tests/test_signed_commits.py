@@ -202,8 +202,8 @@ class TestGuardRails:
 
 
 def _init_offline_github_repo(tmp_path: Path, *, workflow_file: bool = False) -> tuple[Path, str]:
-    """A repo whose origin looks like github.com but is never contacted: remote
-    state is faked via pre-created tracking refs plus the subprocess stub below."""
+    # Origin looks like github.com but is never contacted: remote state is faked
+    # via pre-created tracking refs plus the subprocess stub below.
     repo = tmp_path / "repo"
     _init_repo(repo)
     _run_git(repo, "remote", "add", "origin", "git@github.com:PostHog/test.git")
@@ -228,7 +228,7 @@ def _init_offline_github_repo(tmp_path: Path, *, workflow_file: bool = False) ->
 def _stub_gh_and_remote_git(
     monkeypatch: pytest.MonkeyPatch, head: str, gh_user_headers: str | None = None
 ) -> list[tuple[list[str], dict[str, str] | None]]:
-    """Intercept gh (fake API) and network git (ls-remote/fetch); record gh calls with their env."""
+    # Intercepts gh (fake API) and network git (ls-remote/fetch); records gh calls with their env.
     real_run = subprocess.run
     gh_calls: list[tuple[list[str], dict[str, str] | None]] = []
 
