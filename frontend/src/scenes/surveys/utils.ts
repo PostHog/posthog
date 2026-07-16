@@ -509,6 +509,17 @@ export function isSurveyRunning(survey: Pick<Survey, 'start_date' | 'end_date'>)
     return !!(survey.start_date && !survey.end_date)
 }
 
+// Auto-submit only makes sense for questions where a single selection is a complete
+// answer: any rating, or a single-choice question without a free-text "open" option.
+export function canQuestionSkipSubmitButton(
+    question: SurveyQuestion
+): question is RatingSurveyQuestion | MultipleSurveyQuestion {
+    return (
+        question.type === SurveyQuestionType.Rating ||
+        (question.type === SurveyQuestionType.SingleChoice && !question.hasOpenChoice)
+    )
+}
+
 // Some fields can only be edited in the full editor — opening such a survey
 // in the wizard would hide those values from the user, so we route them to
 // the full editor regardless of their general editor preference. Keep this

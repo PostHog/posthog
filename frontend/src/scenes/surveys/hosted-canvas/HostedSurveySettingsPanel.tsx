@@ -6,7 +6,7 @@ import { LemonButton, LemonCheckbox, LemonDialog, LemonSegmentedButton, LemonSel
 import { IconMonitor } from 'lib/lemon-ui/icons'
 import { SCALE_OPTIONS, SURVEY_RATING_SCALE, SurveyQuestionLabel } from 'scenes/surveys/constants'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
-import { isThumbQuestion } from 'scenes/surveys/utils'
+import { canQuestionSkipSubmitButton, isThumbQuestion } from 'scenes/surveys/utils'
 
 import {
     type MultipleSurveyQuestion,
@@ -188,6 +188,15 @@ export function HostedSurveySettingsPanel({
                                 )
                                 setSurveyValue('questions', next)
                             }}
+                        />
+                    )}
+
+                    {canQuestionSkipSubmitButton(question) && (
+                        <LemonCheckbox
+                            label="Automatically submit on selection"
+                            info="If enabled, the survey submits immediately after the user makes a selection and the submit button is hidden."
+                            checked={!!question.skipSubmitButton}
+                            onChange={(checked) => updateQuestionField('skipSubmitButton', checked)}
                         />
                     )}
                 </>
