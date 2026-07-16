@@ -128,14 +128,14 @@ class TestHoneybadger:
         session = MagicMock()
         session.get.return_value = _response(None, status=status)
         with pytest.raises(HoneybadgerRetryableError):
-            _fetch_page.__wrapped__(session, "https://example.com", MagicMock())
+            _fetch_page.__wrapped__(session, f"{HONEYBADGER_BASE_URL}/projects", MagicMock())
 
     @pytest.mark.parametrize("status", [401, 403, 404])
     def test_fetch_page_raises_http_error_on_permanent_statuses(self, status: int) -> None:
         session = MagicMock()
         session.get.return_value = _response(None, status=status)
         with pytest.raises(requests.HTTPError):
-            _fetch_page.__wrapped__(session, "https://example.com", MagicMock())
+            _fetch_page.__wrapped__(session, f"{HONEYBADGER_BASE_URL}/projects", MagicMock())
 
     @pytest.mark.parametrize(
         ("reset_offset", "expected_sleep"),
@@ -162,13 +162,13 @@ class TestHoneybadger:
             ) as mock_sleep,
         ):
             with pytest.raises(HoneybadgerRetryableError):
-                _fetch_page.__wrapped__(session, "https://example.com", MagicMock())
+                _fetch_page.__wrapped__(session, f"{HONEYBADGER_BASE_URL}/projects", MagicMock())
         mock_sleep.assert_called_once_with(expected_sleep)
 
     def test_fetch_page_retries_transient_error_then_succeeds(self) -> None:
         session = MagicMock()
         session.get.side_effect = [_response(None, status=500), _response({"results": [{"id": 1}]})]
-        result = _fetch_page.retry_with(wait=wait_none())(session, "https://example.com", MagicMock())
+        result = _fetch_page.retry_with(wait=wait_none())(session, f"{HONEYBADGER_BASE_URL}/projects", MagicMock())
         assert result == {"results": [{"id": 1}]}
         assert session.get.call_count == 2
 
@@ -177,8 +177,25 @@ class TestHoneybadger:
         session = MagicMock()
         session.get.return_value = _response(None, status=403)
         with pytest.raises(requests.HTTPError):
-            _fetch_page.retry_with(wait=wait_none())(session, "https://example.com", MagicMock())
+            _fetch_page.retry_with(wait=wait_none())(session, f"{HONEYBADGER_BASE_URL}/projects", MagicMock())
         assert session.get.call_count == 1
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "https://evil.com/v2/projects",
+            "http://app.honeybadger.io/v2/projects",  # https only — Basic auth in cleartext otherwise
+            "https://app.honeybadger.io.evil.com/v2/projects",
+            "https://app.honeybadger.io@evil.com/v2/projects",
+        ],
+    )
+    def test_fetch_page_refuses_off_origin_urls(self, url: str) -> None:
+        # A poisoned `links.next` or tampered resume URL must never receive the credentialed
+        # session — the request is refused before it is sent.
+        session = MagicMock()
+        with pytest.raises(ValueError, match="Refusing to fetch"):
+            _fetch_page.__wrapped__(session, url, MagicMock())
+        session.get.assert_not_called()
 
     @pytest.mark.parametrize(("status", "expected"), [(200, True), (403, False)])
     def test_validate_credentials(self, status: int, expected: bool) -> None:

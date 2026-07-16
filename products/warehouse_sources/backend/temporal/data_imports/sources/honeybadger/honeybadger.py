@@ -3,7 +3,7 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.honeybadge
 )
 
 HONEYBADGER_BASE_URL = "https://app.honeybadger.io/v2"
+_API_ORIGIN = urlparse(HONEYBADGER_BASE_URL)
 # Honeybadger caps list page sizes at 25 (default and max).
 PAGE_LIMIT = 25
 REQUEST_TIMEOUT = 60
@@ -80,6 +81,14 @@ def _to_unix_timestamp(value: Any) -> int:
     reraise=True,
 )
 def _fetch_page(session: requests.Session, url: str, logger: FilteringBoundLogger) -> dict:
+    # Every fetched URL — including `links.next` from responses and resume URLs replayed from
+    # Redis — must stay on the Honeybadger API origin: the session carries the user's token as
+    # Basic auth, so following a foreign URL would hand the credential to that host (and is an
+    # SSRF primitive).
+    parsed = urlparse(url)
+    if parsed.scheme != _API_ORIGIN.scheme or parsed.netloc != _API_ORIGIN.netloc:
+        raise ValueError(f"Refusing to fetch non-Honeybadger URL: {url}")
+
     response = session.get(url, timeout=REQUEST_TIMEOUT)
 
     # Honeybadger signals both auth failure and rate-limit exhaustion with a 403; only the
