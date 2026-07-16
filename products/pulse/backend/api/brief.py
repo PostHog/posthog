@@ -9,6 +9,7 @@ from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
+from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle
@@ -18,7 +19,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
 from posthog.models import User
-from posthog.permissions import PostHogFeatureFlagPermission
+from posthog.permissions import PostHogFeatureFlagPermission, is_service_auth
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.slo.types import SloArea, SloConfig, SloOperation
@@ -33,6 +34,15 @@ from products.pulse.backend.temporal.inputs import GENERATE_BRIEF_WORKFLOW_NAME,
 PULSE_FEATURE_FLAG = "pulse"
 
 logger = structlog.get_logger(__name__)
+
+
+class PulseProjectWritePermission(BasePermission):
+    message = "Project admin access is required to modify Pulse briefs."
+
+    def has_permission(self, request: Request, view: TeamAndOrgViewSetMixin) -> bool:
+        if request.method in SAFE_METHODS or is_service_auth(request):
+            return True
+        return view.user_access_control.check_access_level_for_object(view.team, required_level="admin")
 
 
 def _validate_anchor_access(*, anchors: dict, team_id: int, user_access_control: UserAccessControl) -> None:
@@ -251,7 +261,7 @@ class BriefConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "project"
     serializer_class = BriefConfigSerializer
     posthog_feature_flag = PULSE_FEATURE_FLAG
-    permission_classes = [PostHogFeatureFlagPermission]
+    permission_classes = [PostHogFeatureFlagPermission, PulseProjectWritePermission]
     # Fail-closed manager raises if `.all()` runs at import; the real per-request
     # scoping happens in safely_get_queryset.
     queryset = BriefConfig.objects.unscoped()
@@ -294,7 +304,7 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
     scope_object_write_actions = ["generate"]
     serializer_class = ProductBriefSerializer
     posthog_feature_flag = PULSE_FEATURE_FLAG
-    permission_classes = [PostHogFeatureFlagPermission]
+    permission_classes = [PostHogFeatureFlagPermission, PulseProjectWritePermission]
     queryset = ProductBrief.objects.unscoped()
 
     def safely_get_queryset(self, queryset: QuerySet[ProductBrief]) -> QuerySet[ProductBrief]:
