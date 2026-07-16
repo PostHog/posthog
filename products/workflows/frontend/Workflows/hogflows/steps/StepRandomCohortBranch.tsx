@@ -19,7 +19,7 @@ export function StepRandomCohortBranchConfiguration({
     node: Node<Extract<HogFlowAction, { type: 'random_cohort_branch' }>>
 }): JSX.Element {
     const action = node.data
-    const { cohorts } = action.config
+    const { cohorts = [] } = action.config
 
     const { edgesByActionId } = useValues(hogFlowEditorLogic)
     const { setWorkflowAction, setWorkflowActionEdges } = useActions(hogFlowEditorLogic)
