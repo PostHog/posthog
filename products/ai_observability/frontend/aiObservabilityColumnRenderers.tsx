@@ -5,6 +5,7 @@ import { useEffect } from 'react'
 import { IconFilter } from '@posthog/icons'
 import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { PersonDisplay, PersonIcon } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
@@ -270,8 +271,9 @@ function LazyGenerationSentimentCell({ lookup }: { lookup: GenerationSentimentLo
         }
     }, [cached, ensureGenerationSentimentLoaded, loading, lookupGenerationIdsKey, lookupKey, lookupTraceId])
 
+    // Match the loaded bar's height so the cell doesn't reflow when sentiment resolves.
     if (loading || cached === undefined) {
-        return <AIDataLoading variant="inline" />
+        return <SentimentBar loading size="full" />
     }
 
     if (cached === null) {
@@ -317,11 +319,24 @@ function LazyTraceReviewColumnCell({ traceId }: { traceId: string }): JSX.Elemen
     return <TraceReviewValue review={cached} />
 }
 
+// Generation input/output are lazily fetched per row, so a cell that grows from a
+// short placeholder to a tall message preview reflows every row beneath it — the
+// source of the generations-route layout-shift regression. Reserving a fixed height
+// (with the loading skeleton and any preview sharing it) keeps rows stable from first
+// paint. Longer previews scroll within the cell; expand the row for the full content.
+function ReservedPreviewCell({ children }: { children: React.ReactNode }): JSX.Element {
+    return <div className="h-16 overflow-y-auto">{children}</div>
+}
+
 function AIInputCell({ eventData }: { eventData: EventData }): JSX.Element {
     const { input, isLoading } = useAIData(eventData)
 
     if (isLoading) {
-        return <AIDataLoading variant="inline" />
+        return (
+            <ReservedPreviewCell>
+                <LemonSkeleton className="h-6 w-3/4" />
+            </ReservedPreviewCell>
+        )
     }
 
     let inputNormalized: CompatMessage[] | undefined
@@ -333,17 +348,25 @@ function AIInputCell({ eventData }: { eventData: EventData }): JSX.Element {
     }
 
     if (!inputNormalized?.length) {
-        return <>–</>
+        return <ReservedPreviewCell>–</ReservedPreviewCell>
     }
 
-    return <LLMMessageDisplay message={inputNormalized.at(-1)!} isOutput={false} minimal />
+    return (
+        <ReservedPreviewCell>
+            <LLMMessageDisplay message={inputNormalized.at(-1)!} isOutput={false} minimal />
+        </ReservedPreviewCell>
+    )
 }
 
 function AIOutputCell({ eventData }: { eventData: EventData }): JSX.Element {
     const { output, isLoading } = useAIData(eventData)
 
     if (isLoading) {
-        return <AIDataLoading variant="inline" />
+        return (
+            <ReservedPreviewCell>
+                <LemonSkeleton className="h-6 w-3/4" />
+            </ReservedPreviewCell>
+        )
     }
 
     let outputNormalized: CompatMessage[] | undefined
@@ -355,15 +378,15 @@ function AIOutputCell({ eventData }: { eventData: EventData }): JSX.Element {
     }
 
     if (!outputNormalized?.length) {
-        return <>–</>
+        return <ReservedPreviewCell>–</ReservedPreviewCell>
     }
 
     return (
-        <div>
+        <ReservedPreviewCell>
             {outputNormalized.map((message, index) => (
                 <LLMMessageDisplay key={index} message={message} isOutput={true} minimal />
             ))}
-        </div>
+        </ReservedPreviewCell>
     )
 }
 
