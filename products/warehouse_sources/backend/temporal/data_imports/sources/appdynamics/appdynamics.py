@@ -1,5 +1,5 @@
 import json
-import time
+import threading
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
@@ -152,45 +152,71 @@ def _fetch_oauth_token(session: requests.Session, base_url: str, auth: Appdynami
     return token, int(payload.get("expires_in") or 300)
 
 
+def _read_body_capped(response: requests.Response, byte_limit: int, error_on_limit: bool) -> bytes:
+    """Read a streamed body under a hard wall-clock deadline and a byte cap.
+
+    `iter_content` blocks until a full chunk is read, so a controller that trickles bytes
+    slowly enough to fill each chunk while still beating the read-idle timeout could occupy
+    an import worker far past ``MAX_DOWNLOAD_SECONDS``. A background timer closes the
+    connection when the deadline passes so the in-progress read is interrupted, not merely
+    checked between chunks. When ``error_on_limit`` the byte cap is a hard failure (data
+    reads); otherwise the body is truncated at the cap (best-effort error logging).
+    """
+    aborted = threading.Event()
+
+    def _abort() -> None:
+        aborted.set()
+        response.close()
+
+    timer = threading.Timer(MAX_DOWNLOAD_SECONDS, _abort)
+    timer.start()
+    data = bytearray()
+    try:
+        for chunk in response.iter_content(chunk_size=RESPONSE_CHUNK_SIZE):
+            if aborted.is_set():
+                break
+            if not chunk:
+                continue
+            data.extend(chunk)
+            if len(data) > byte_limit:
+                if error_on_limit:
+                    raise AppdynamicsError(
+                        f"AppDynamics response exceeded the {byte_limit // (1024 * 1024)} MiB size limit"
+                    )
+                del data[byte_limit:]
+                break
+    except AppdynamicsError:
+        raise
+    except Exception:
+        # Closing the connection from the watchdog surfaces here as a read error; report the
+        # real cause (the deadline) rather than the incidental socket exception.
+        if aborted.is_set():
+            raise AppdynamicsError(
+                f"AppDynamics response exceeded the {MAX_DOWNLOAD_SECONDS}s download time limit"
+            ) from None
+        raise
+    finally:
+        timer.cancel()
+        response.close()
+
+    if aborted.is_set():
+        raise AppdynamicsError(f"AppDynamics response exceeded the {MAX_DOWNLOAD_SECONDS}s download time limit")
+    return bytes(data)
+
+
 def _read_json_within_limits(response: requests.Response) -> Any:
     """Stream a response body under fixed byte and wall-clock caps, then parse it as JSON.
 
-    Reading in chunks means an oversized or trickled body is rejected before it can exhaust
-    memory or hold an import worker open indefinitely, rather than being buffered whole by
-    `requests`. Exceeding a limit is non-retryable — a host that behaves this way won't stop
-    on a retry.
+    Rejecting an oversized or trickled body before buffering it whole keeps a hostile
+    controller from exhausting memory or holding an import worker open. Exceeding a limit is
+    non-retryable — a host that behaves this way won't stop on a retry.
     """
-    deadline = time.monotonic() + MAX_DOWNLOAD_SECONDS
-    chunks: list[bytes] = []
-    total = 0
-    try:
-        for chunk in response.iter_content(chunk_size=RESPONSE_CHUNK_SIZE):
-            if not chunk:
-                continue
-            total += len(chunk)
-            if total > MAX_RESPONSE_BYTES:
-                raise AppdynamicsError(
-                    f"AppDynamics response exceeded the {MAX_RESPONSE_BYTES // (1024 * 1024)} MiB size limit"
-                )
-            if time.monotonic() > deadline:
-                raise AppdynamicsError(f"AppDynamics response exceeded the {MAX_DOWNLOAD_SECONDS}s download time limit")
-            chunks.append(chunk)
-    finally:
-        response.close()
-    return json.loads(b"".join(chunks))
+    return json.loads(_read_body_capped(response, MAX_RESPONSE_BYTES, error_on_limit=True))
 
 
 def _read_capped_text(response: requests.Response, limit: int = 64 * 1024) -> str:
-    """Read at most `limit` bytes of a streamed body for error logging, then close it."""
-    data = bytearray()
-    try:
-        for chunk in response.iter_content(chunk_size=8192):
-            data.extend(chunk)
-            if len(data) >= limit:
-                break
-    finally:
-        response.close()
-    return bytes(data[:limit]).decode("utf-8", errors="replace")
+    """Read at most `limit` bytes of a streamed body for error logging, under the deadline."""
+    return _read_body_capped(response, limit, error_on_limit=False).decode("utf-8", errors="replace")
 
 
 class AppdynamicsClient:

@@ -1,4 +1,5 @@
 import json
+import time
 from typing import Any
 from urllib.parse import urlparse
 
@@ -58,6 +59,36 @@ class FakeResponse:
             response = requests.Response()
             response.status_code = self.status_code
             raise requests.HTTPError(f"{self.status_code} Client Error", response=response)
+
+
+class _TrickleResponse:
+    """A 200 response whose body never stops arriving, to exercise the download deadline.
+
+    Yields small chunks with a gap shorter than any read-idle timeout, so only the hard
+    wall-clock deadline (which closes the connection) can end the read.
+    """
+
+    status_code = 200
+    text = ""
+
+    def __init__(self) -> None:
+        self._closed = False
+
+    @property
+    def ok(self) -> bool:
+        return True
+
+    def iter_content(self, chunk_size: int = 1) -> Any:
+        while not self._closed:
+            time.sleep(0.02)
+            yield b"x" * 8
+        raise OSError("connection closed")
+
+    def close(self) -> None:
+        self._closed = True
+
+    def json(self) -> Any:
+        return {}
 
 
 class FakeResumeManager:
@@ -250,6 +281,17 @@ class TestAppdynamicsClient:
         with mock.patch.object(appdynamics_module, "MAX_RESPONSE_BYTES", 10):
             with pytest.raises(AppdynamicsError):
                 client.get_json("/controller/rest/applications", {})
+
+    def test_download_deadline_interrupts_trickled_body(self) -> None:
+        # A trickled body never idle-times-out, so only the wall-clock deadline can end it.
+        session = FakeSession(responder=lambda path, params: _TrickleResponse())
+        with _patch_session(session):
+            client = AppdynamicsClient(BASE_URL, BASIC_AUTH, mock.MagicMock())
+        with mock.patch.object(appdynamics_module, "MAX_DOWNLOAD_SECONDS", 0.2):
+            started = time.monotonic()
+            with pytest.raises(AppdynamicsError):
+                client.get_json("/controller/rest/applications", {})
+            assert time.monotonic() - started < 5
 
 
 def _run_get_rows(
