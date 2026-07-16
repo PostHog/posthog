@@ -80,8 +80,10 @@ export interface heatmapLogicValues {
     screenshotLoaded: boolean
     screenshotLoading: boolean
     screenshotUrl: string | null
+    sidePanelContext: SidePanelSceneContext | null
     status: HeatmapStatus
     type: HeatmapType
+    userAccessLevel: AccessControlLevel | null
     width: number | null
 }
 
@@ -168,6 +170,9 @@ export interface heatmapLogicActions {
     }
     setType: (type: HeatmapType) => {
         type: HeatmapType
+    }
+    setUserAccessLevel: (level: AccessControlLevel | null) => {
+        level: AccessControlLevel | null
     }
     setWidth: (width: number) => {
         width: number
