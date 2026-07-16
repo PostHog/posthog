@@ -17,6 +17,7 @@ import type {
     ExternalDataSchemasLogsRetrieveParams,
     ExternalDataSourceConnectionOptionApi,
     ExternalDataSourceCreateApi,
+    ExternalDataSourceCreateResponseApi,
     ExternalDataSourceSerializersApi,
     ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams,
     ExternalDataSourcesCheckCdcPrerequisitesCreate200,
@@ -308,8 +309,8 @@ export const externalDataSourcesCreate = async (
     projectId: string,
     externalDataSourceCreateApi: ExternalDataSourceCreateApi,
     options?: RequestInit
-): Promise<ExternalDataSourceSerializersApi> => {
-    return apiMutator<ExternalDataSourceSerializersApi>(getExternalDataSourcesCreateUrl(projectId), {
+): Promise<ExternalDataSourceCreateResponseApi> => {
+    return apiMutator<ExternalDataSourceCreateResponseApi>(getExternalDataSourcesCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

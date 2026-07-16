@@ -1435,6 +1435,10 @@ class SourceSetupResponseSerializer(serializers.Serializer):
     )
 
 
+class ExternalDataSourceCreateResponseSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="ID of the created external data source.")
+
+
 class SourceConnectLinkSerializer(serializers.Serializer):
     source_type = serializers.CharField(help_text="The source type the link is for.")
     auth_method = serializers.ChoiceField(
@@ -1846,7 +1850,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             return payload, None, None
         try:
             credential = PendingSourceCredential.objects.for_team(self.team_id).get(
-                id=credential_id, created_by=self.request.user, expires_at__gt=timezone.now()
+                id=credential_id, created_by=cast(User, self.request.user), expires_at__gt=timezone.now()
             )
         except (PendingSourceCredential.DoesNotExist, ValueError, TypeError, DjangoValidationError):
             return (
@@ -1872,7 +1876,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # Stored credentials win over inline keys so an agent can't override what the user entered.
         return {**payload, **credential.payload}, credential, None
 
-    @extend_schema(request=ExternalDataSourceCreateSerializer, responses=ExternalDataSourceSerializers)
+    @extend_schema(
+        request=ExternalDataSourceCreateSerializer, responses={201: ExternalDataSourceCreateResponseSerializer}
+    )
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -3585,7 +3591,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         """
         queryset = (
             PendingSourceCredential.objects.for_team(self.team_id)
-            .filter(created_by=request.user, expires_at__gt=timezone.now())
+            .filter(created_by=cast(User, request.user), expires_at__gt=timezone.now())
             .order_by("-created_at")
         )
         source_type = request.query_params.get("source_type")

@@ -27332,6 +27332,11 @@ export namespace Schemas {
       direct_query_enabled?: boolean;
     }
 
+    export interface ExternalDataSourceCreateResponse {
+      /** ID of the created external data source. */
+      id: string;
+    }
+
     /**
      * One row in `inventory.external_data_sources`.
      */
