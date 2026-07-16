@@ -145,7 +145,7 @@ export function cleanPageURLForDisplay(url: string, filters: PathCleaningFilter[
     }
     const parsed = parseWebAnalyticsURL(url)
     if (parsed.isValid && parsed.pathname) {
-        const cleanedPathname = cleanPathnameForDisplay(parsed.pathname, filters)
+        const cleanedPathname = cleanPathnameForDisplay(safeDecode(parsed.pathname), filters)
         return parsed.host ? `${parsed.host}${cleanedPathname}` : cleanedPathname
     }
     return cleanPathnameForDisplay(url, filters)
