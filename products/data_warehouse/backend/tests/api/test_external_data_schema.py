@@ -232,7 +232,7 @@ class TestExternalDataSchema(APIBaseTest):
             "incremental_available": True,
             "append_available": True,
             "cdc_available": None,
-            "xmin_available": None,
+            "xmin_available": True,
             "full_refresh_available": True,
             "supports_webhooks": False,
             "webhook_only": False,
