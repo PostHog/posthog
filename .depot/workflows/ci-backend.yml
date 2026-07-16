@@ -13,7 +13,9 @@
 #   and setup-sqlx-cli are byte-equivalent mirrors of the canonical composites)
 # - permissions: pull-requests:read (no comment/auto-commit side effects)
 # - Stripped side effects: artifact uploads, CI report section posters, snapshot
-#   auto-commit (handle-snapshots), posthog-github-action telemetry,
+#   auto-commit (handle-snapshots), posthog-github-action telemetry (including the
+#   capture-test-selection job — select-tests still emits its telemetry outputs to
+#   stay apples-to-apples, they just have no consumer here),
 #   --store-durations write, test-selection verdict, Trunk flaky-test quarantine
 #   gate (canonical runs per-shard analytics-uploader steps that post to the
 #   external Trunk service; the upload is best-effort and a local "Fail on test
@@ -552,6 +554,13 @@ jobs:
             temporal_files: ${{ steps.classify.outputs.temporal_files }}
             run_poe: ${{ steps.classify.outputs.run_poe }}
             run_temporal: ${{ steps.classify.outputs.run_temporal }}
+            # Kept apples-to-apples with canonical, though the shadow strips the
+            # capture job that consumes them (posthog-github-action telemetry).
+            narrowed: ${{ steps.classify.outputs.narrowed }}
+            skip_reason: ${{ steps.classify.outputs.skip_reason }}
+            changed_file_count: ${{ steps.classify.outputs.changed_file_count }}
+            selected_test_count: ${{ steps.classify.outputs.selected_test_count }}
+            full_run_reasons_count: ${{ steps.classify.outputs.full_run_reasons_count }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -609,6 +618,24 @@ jobs:
               shell: bash
               run: |
                   set -euo pipefail
+                  # Selection telemetry, kept apples-to-apples with canonical (the shadow
+                  # strips the capture job that consumes these, per the header).
+                  emit_metrics() {
+                      local changed="" selected="" reasons=""
+                      if [[ -s /tmp/selection.json ]]; then
+                          changed=$(jq -r '.changed_file_count // empty' /tmp/selection.json)
+                          selected=$(jq -r '.combined.count // empty' /tmp/selection.json)
+                          reasons=$(jq -r '.ast.full_run_reasons | length' /tmp/selection.json)
+                      fi
+                      {
+                          echo "narrowed=$1"
+                          echo "skip_reason=$2"
+                          echo "changed_file_count=$changed"
+                          echo "selected_test_count=$selected"
+                          echo "full_run_reasons_count=$reasons"
+                      } >> "$GITHUB_OUTPUT"
+                  }
+
                   # Untrusted selection on a draft skips the heavy matrices (the
                   # pre-selection draft behavior); the ready-for-review run is full.
                   fall_back_to_skip() {
@@ -618,16 +645,17 @@ jobs:
                       echo "temporal_files=" >> "$GITHUB_OUTPUT"
                       echo "run_poe=false" >> "$GITHUB_OUTPUT"
                       echo "run_temporal=false" >> "$GITHUB_OUTPUT"
+                      emit_metrics false "$1"
                   }
 
                   if [[ "$FALLBACK_SKIP" == "true" ]]; then
-                      fall_back_to_skip
+                      fall_back_to_skip untrusted
                       exit 0
                   fi
 
                   if [[ "$SELECT_OUTCOME" != "success" ]] || [[ ! -s /tmp/selection.json ]]; then
                       echo "::warning::shadow selector did not produce output; draft skips heavy matrices (full run happens on ready for review)"
-                      fall_back_to_skip
+                      fall_back_to_skip selector_error
                       exit 0
                   fi
 
@@ -635,7 +663,7 @@ jobs:
                   if [[ "$full_run_reasons" -gt 0 ]]; then
                       echo "Selector requested a full run; draft defers it to ready for review:"
                       jq -r '.ast.full_run_reasons[]' /tmp/selection.json
-                      fall_back_to_skip
+                      fall_back_to_skip full_run_requested
                       exit 0
                   fi
 
@@ -676,6 +704,7 @@ jobs:
                   echo "temporal_files=${temporal[*]:-}" >> "$GITHUB_OUTPUT"
                   echo "run_poe=$([[ ${#poe[@]} -gt 0 ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
                   echo "run_temporal=$([[ ${#temporal[@]} -gt 0 ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+                  emit_metrics true ""
 
                   echo "Selected: ${#core[@]} core, ${#poe[@]} POE-eligible, ${#temporal[@]} temporal"
 
