@@ -1,5 +1,5 @@
 import { actions, kea, key, path, props, reducers, selectors } from 'kea'
-import { urlToAction } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -9,7 +9,7 @@ import { ActivityScope, Breadcrumb } from '~/types'
 
 import type { workflowSceneLogicType } from './workflowSceneLogicType'
 
-export const WorkflowTabs = ['workflow', 'logs', 'metrics', 'assets', 'history'] as const
+export const WorkflowTabs = ['workflow', 'invocations', 'metrics', 'assets', 'history'] as const
 export type WorkflowTab = (typeof WorkflowTabs)[number]
 
 export interface WorkflowSceneLogicProps {
@@ -68,7 +68,14 @@ export const workflowSceneLogic = kea<workflowSceneLogicType>([
         ],
     }),
     urlToAction(({ actions, values }) => ({
-        '/workflows/:id/:tab': ({ tab }) => {
+        '/workflows/:id/:tab': ({ id, tab }, searchParams) => {
+            // The invocations view used to live on the 'logs' tab. Redirect old /logs deep links
+            // (and the batch-jobs URL trigger) to /invocations so they keep resolving, preserving
+            // any query params (e.g. the metrics-page drill-down's search/level filters).
+            if (tab === 'logs') {
+                router.actions.replace(urls.workflow(id ?? 'new', 'invocations'), searchParams)
+                return
+            }
             if (tab !== values.currentTab) {
                 actions.setCurrentTab(tab as WorkflowTab)
             }

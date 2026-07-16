@@ -78,9 +78,9 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
 
         {
             // Runtime view backed by hog_invocation_results, matching the hog function scene.
-            // Keeps the 'logs' key so existing deep links and batchWorkflowJobsLogic still resolve.
+            // Old /logs deep links (and batchWorkflowJobsLogic) redirect here via workflowSceneLogic.
             label: 'Invocations',
-            key: 'logs',
+            key: 'invocations',
             content: <WorkflowInvocations id={workflowSceneProps.id!} />,
         },
         {
