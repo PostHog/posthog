@@ -112,14 +112,14 @@ def get_process_status(process: str = "") -> dict[str, Any]:
 
 
 @mcp.tool()
-def get_process_logs(process: str, lines: int = 50, grep: str = "") -> dict[str, Any]:
+def get_process_logs(process: str, lines: int = 100, grep: str = "") -> dict[str, Any]:
     """Get recent log output from a dev environment process.
     Reads from phrocs' in-memory scrollback buffer (10,000 lines per process).
     Prefer a grep pattern over a large line count when hunting for something
     specific — it filters server-side across the whole buffer.
     Args:
         process: Process name (e.g. 'backend', 'frontend', 'celery-worker').
-        lines: Number of recent lines to return (default 50, max 500).
+        lines: Number of recent lines to return (default 100, max 500).
         grep: Optional regex pattern to filter lines (e.g. 'ERROR', 'warning').
     """
     lines = min(max(lines, 1), 500)
