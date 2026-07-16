@@ -261,7 +261,7 @@ export function MessageInput({
                         ) : showChannelLogo ? (
                             <span className="inline-flex items-center gap-1.5">
                                 {buttonText}
-                                <span className="text-sm">{channelIcon[channel]}</span>
+                                <span className="text-sm dark:grayscale">{channelIcon[channel]}</span>
                             </span>
                         ) : (
                             buttonText
