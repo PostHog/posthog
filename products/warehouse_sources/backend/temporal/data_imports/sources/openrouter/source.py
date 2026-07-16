@@ -52,6 +52,8 @@ _NO_ORGANIZATION = (
 class OpenRouterSource(ResumableSource[OpenRouterSourceConfig, OpenRouterResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
+    api_docs_url = "https://openrouter.ai/docs/api-reference"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.OPENROUTER
