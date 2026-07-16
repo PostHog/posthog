@@ -354,6 +354,7 @@ async fn run_dirty_index_prune_loop(
         // writer has made the index large.
         let partitions = dirty_index.partitions_with_marks();
         gauge!("personhog_leader_dirty_index_size").set(dirty_index.len() as f64);
+        gauge!("personhog_leader_dirty_index_max_entries").set(dirty_index.max_entries() as f64);
         if partitions.is_empty() {
             continue;
         }

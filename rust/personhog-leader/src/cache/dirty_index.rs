@@ -333,6 +333,12 @@ impl DirtyIndex {
         self.size.load(Ordering::Relaxed)
     }
 
+    /// The soft entry bound — exported as a gauge so fullness
+    /// (`len / max_entries`) is alertable before writes start shedding.
+    pub fn max_entries(&self) -> usize {
+        self.max_entries
+    }
+
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }

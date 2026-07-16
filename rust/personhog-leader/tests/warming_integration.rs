@@ -432,6 +432,57 @@ async fn warming_preserves_last_write_for_same_key() {
     }
 }
 
+/// When the warm range spans the writer's committed offset, only the
+/// records at or past it may be marked: marking applied ones would send
+/// their misses to the changelog for state PG already has, and skipping
+/// unapplied ones would reopen the stale-fallback hole.
+#[tokio::test]
+async fn warming_seeds_dirty_index_only_at_or_past_the_committed_offset() {
+    let (cluster, producer) = create_test_kafka().await;
+
+    // Offset N → person_id N+1.
+    for i in 0..8 {
+        let person = make_person(1, i + 1);
+        produce_person_to_partition(&producer, 0, &person).await;
+    }
+
+    // Records at offsets 0..4 are applied to PG; 5..7 are not.
+    commit_writer_offset_at(&cluster, "personhog-writer", 0, 5);
+
+    let cache = PartitionedCache::new(100);
+    let dirty_index = DirtyIndex::new(1_000_000);
+    let mut cfg = warming_config_for("warmer-seed-committed", &cluster);
+    // Rewind the warm range below the committed offset so it spans the
+    // boundary and both seeding arms are exercised.
+    cfg.lookback_offsets = 8;
+
+    warm_from_kafka(&cfg, &cache, &dirty_index, 0)
+        .await
+        .expect("warming should succeed");
+
+    assert_eq!(dirty_index.len(), 3);
+    for person_id in 1..=8 {
+        let key = PersonCacheKey {
+            team_id: 1,
+            person_id,
+        };
+        assert!(matches!(cache.get(0, &key), CacheLookup::Found(_)));
+        match dirty_index.get(&key) {
+            None => assert!(
+                person_id <= 5,
+                "person {person_id} is unapplied, must be marked"
+            ),
+            Some(mark) => {
+                assert!(
+                    person_id > 5,
+                    "person {person_id} is applied, must not be marked"
+                );
+                assert_eq!(mark.offset, person_id - 1);
+            }
+        }
+    }
+}
+
 /// Warming must seed the dirty index for every record the writer has not
 /// applied — with no committed offset at all, that is every record — so a
 /// post-warm eviction still recovers from the changelog instead of
