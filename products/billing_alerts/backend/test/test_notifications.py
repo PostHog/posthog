@@ -4,7 +4,7 @@ from decimal import Decimal
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from products.billing_alerts.backend.alert_destinations import EVENT_KIND_CONFIG
+from products.billing_alerts.backend.alert_destinations import EVENT_KIND_CONFIG, EventKind
 from products.billing_alerts.backend.logic.notifications import (
     dispatch_billing_alert_event,
     evaluate_and_dispatch_billing_alert,
@@ -45,7 +45,7 @@ class TestBillingAlertNotifications(BaseTest):
         defaults.update(overrides)
         return BillingAlertConfiguration.objects.create(**defaults)
 
-    def _destination(self, alert: BillingAlertConfiguration, event_kind: str = "firing") -> HogFunction:
+    def _destination(self, alert: BillingAlertConfiguration, event_kind: EventKind = "firing") -> HogFunction:
         return HogFunction.objects.create(
             team_id=alert.execution_team_id,
             name="Billing alert destination",
