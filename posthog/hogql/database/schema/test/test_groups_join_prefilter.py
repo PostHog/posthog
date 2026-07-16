@@ -2,6 +2,8 @@ from datetime import UTC, datetime
 
 from posthog.test.base import APIBaseTest
 
+from parameterized import parameterized
+
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.parser import parse_select
@@ -72,27 +74,22 @@ class TestGroupsJoinPrefilter(APIBaseTest):
         sql = self._print("SELECT group_0.properties FROM events")
         self.assertNotIn("in(key,", sql)
 
-    def test_skips_filter_when_outer_where_references_lazy_join(self):
-        # Cloning a WHERE that references a lazy-join column (e.g. `group_0.properties.X`)
-        # into the inner `SELECT $group_N FROM events ...` subquery would re-trigger the
-        # same lazy join inside that inner subquery during resolution — producing unbounded
-        # recursion or a `ResolutionError`. The guard skips the optimization in that case;
-        # the outer group join still resolves and prints normally, just without the key
-        # prefilter pushed into its WHERE.
+    @parameterized.expand(
+        [
+            # Physical group_N alias, its per-project group-type-name alias (`company` →
+            # group_0, a FieldTraverser), and person.* — each references a lazy join on
+            # events. Cloning that reference into the inner `SELECT $group_N FROM events ...`
+            # subquery would re-trigger the same lazy join during resolution — unbounded
+            # recursion or a `ResolutionError`. The guard skips the prefilter; the outer
+            # group join still resolves and prints normally, just without the key prefilter.
+            ("physical_group_alias", "group_0.properties.industry = 'tech'"),
+            ("group_type_name_alias", "company.properties.industry = 'tech'"),
+            ("person_lazy_join", "person.properties.plan = 'pro'"),
+        ]
+    )
+    def test_skips_filter_when_outer_where_references_lazy_join(self, _name: str, where_predicate: str):
         sql = self._print(
-            "SELECT group_0.properties FROM events "
-            "WHERE group_0.properties.industry = 'tech' "
-            "AND timestamp > toDateTime('2026-01-01')"
-        )
-        self.assertIn("events__group_0", sql)
-        self.assertNotIn("in(key,", sql)
-
-    def test_skips_filter_when_outer_where_references_person_lazy_join(self):
-        # Same recursive-resolution risk for `person.*` references on the events table.
-        sql = self._print(
-            "SELECT group_0.properties FROM events "
-            "WHERE person.properties.plan = 'pro' "
-            "AND timestamp > toDateTime('2026-01-01')"
+            f"SELECT group_0.properties FROM events WHERE {where_predicate} AND timestamp > toDateTime('2026-01-01')"
         )
         self.assertIn("events__group_0", sql)
         self.assertNotIn("in(key,", sql)

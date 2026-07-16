@@ -8,6 +8,7 @@ from posthog.hogql.database.lazy_join_tags import GROUPS_REVENUE_ANALYTICS
 from posthog.hogql.database.models import (
     DateTimeDatabaseField,
     FieldOrTable,
+    FieldTraverser,
     IntegerDatabaseField,
     LazyJoin,
     LazyJoinToAdd,
@@ -171,7 +172,7 @@ def join_with_group_n_table(
     # blob row by row — on high-volume teams that's enough to OOM the whole query even when
     # only a handful of events are actually being selected. With the filter, the hash table is
     # bounded by the distinct `$group_N` values present in the matched events.
-    events_prefilter = _outer_events_prefilter(node)
+    events_prefilter = _outer_events_prefilter(node, context)
     if events_prefilter is not None:
         key_subquery = ast.SelectQuery(
             select=[ast.Field(chain=[f"$group_{group_index}"])],
@@ -211,6 +212,10 @@ def join_with_group_n_table(
 # resolve the same lazy join inside our inner subquery — producing unbounded recursion or a
 # `ResolutionError: Select query must have a type`. Skip the optimization in that case;
 # we'd rather pay the original groups-hash-table cost than crash.
+#
+# Per-project group-type-name aliases (e.g. `organization`, `company`) are FieldTraversers to
+# `group_N` added dynamically per project, so they're not listed here — `_group_type_name_aliases`
+# reads them off the events table at query time and unions them into the guarded set.
 EVENTS_LAZY_JOIN_ALIASES = frozenset(
     {
         "person",
@@ -233,7 +238,16 @@ EVENTS_LAZY_JOIN_ALIASES = frozenset(
 )
 
 
-def _outer_events_prefilter(node: SelectQuery):
+def _group_type_name_aliases(context: HogQLContext) -> frozenset[str]:
+    """Per-project group-type-name aliases on the events table (FieldTraversers to `group_N`)."""
+    try:
+        events_table = context.database.get_table(["events"])
+    except Exception:
+        return frozenset()
+    return frozenset(name for name, field in events_table.fields.items() if isinstance(field, FieldTraverser))
+
+
+def _outer_events_prefilter(node: SelectQuery, context: HogQLContext):
     """
     Extract a clone of the outer query's WHERE that we can safely embed inside the groups
     join subquery. We only return it when:
@@ -247,9 +261,11 @@ def _outer_events_prefilter(node: SelectQuery):
        set is bounded by a date range." Without that guard, a query whose WHERE is only
        `team_id = X` (or empty) would push a key subquery that scans every event for the
        team, which is strictly worse than no filter at all.
-    3. The WHERE does not reference any lazy-join alias on the events table. Cloning a
-       `group_N.X` / `person.X` reference into the inner subquery would re-trigger the
-       resolver on the same lazy join during inner-subquery resolution.
+    3. The WHERE does not reference any lazy-join alias on the events table — including the
+       per-project group-type-name aliases (e.g. `organization`) that resolve to `group_N`.
+       Cloning a `group_N.X` / `organization.X` / `person.X` reference into the inner
+       subquery would re-trigger the resolver on the same lazy join during inner-subquery
+       resolution.
     """
     # Deferred: lazy_tables imports the resolver, which imports database schema modules — circular.
     from posthog.hogql.transforms.lazy_tables import find_field_chains  # noqa: PLC0415
@@ -269,10 +285,8 @@ def _outer_events_prefilter(node: SelectQuery):
 
     if not _references_timestamp(where):
         return None
-    if any(
-        chain and isinstance(chain[0], str) and chain[0] in EVENTS_LAZY_JOIN_ALIASES
-        for chain in find_field_chains(where)
-    ):
+    guarded_aliases = EVENTS_LAZY_JOIN_ALIASES | _group_type_name_aliases(context)
+    if any(chain and isinstance(chain[0], str) and chain[0] in guarded_aliases for chain in find_field_chains(where)):
         return None
     return clone_expr(where)
 
