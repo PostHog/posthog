@@ -152,6 +152,22 @@ class TestFlattenUpdate:
         assert row["projectName"] == "proj"
         assert row["version"] == 1
 
+    def test_secret_config_ciphertext_is_stripped_but_plaintext_kept(self) -> None:
+        # Secret config entries carry an encrypted `string` that is recoverable offline; it must not
+        # reach the warehouse row. Non-secret entries and the secret's metadata are preserved.
+        item = {
+            "version": 1,
+            "info": {
+                "config": {
+                    "aws:region": {"string": "us-east-1"},
+                    "app:dbPassword": {"secret": True, "string": "AAABBBencrypted"},
+                }
+            },
+        }
+        row = _flatten_update(item, "my-org", "proj", "dev")
+        assert row["config"]["aws:region"] == {"string": "us-east-1"}
+        assert row["config"]["app:dbPassword"] == {"secret": True}
+
 
 class TestStackUpdates:
     def _make_pages(self, start_times_per_page: list[list[int]]) -> Any:

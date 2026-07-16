@@ -178,6 +178,24 @@ def _get_stack_rows(
             resumable_source_manager.save_state(PulumiCloudResumeConfig(next_token=next_token))
 
 
+def _redact_secret_config(config: Any) -> Any:
+    """Strip encrypted secret values out of a Pulumi stack `config` map.
+
+    Secret config entries come back as ``{"secret": true, "string": "<ciphertext>"}``. The
+    ciphertext is recoverable offline against a passphrase-protected stack, so drop the `string`
+    while keeping the metadata (that the key exists and is a secret) — anyone with warehouse read
+    access must not be able to export the ciphertexts.
+    """
+    if not isinstance(config, dict):
+        return config
+    redacted: dict[Any, Any] = {}
+    for key, entry in config.items():
+        if isinstance(entry, dict) and entry.get("secret"):
+            entry = {k: v for k, v in entry.items() if k != "string"}
+        redacted[key] = entry
+    return redacted
+
+
 def _flatten_update(item: dict[str, Any], org: str, project: str, stack: str) -> dict[str, Any]:
     """Flatten an UpdateInfo item (nested `info` from the Pulumi CLI) into one flat row, injecting
     the stack coordinates the composite primary key needs."""
@@ -189,6 +207,8 @@ def _flatten_update(item: dict[str, Any], org: str, project: str, stack: str) ->
         merged.pop("deployment", None)
         merged.update(row)
         row = merged
+    if "config" in row:
+        row["config"] = _redact_secret_config(row["config"])
     row["orgName"] = org
     row["projectName"] = project
     row["stackName"] = stack
