@@ -37,6 +37,7 @@ import {
     type VisibleDurationRange,
     visibleDurationRange,
 } from './durationBuckets'
+import { type HeatmapBrushSelection, heatmapBrushToFilters } from './heatmapBrush'
 import { traceLookupDateRange } from './traceLinks'
 import {
     type TracingFilters,
@@ -227,6 +228,9 @@ export interface tracingDataLogicActions {
         current: OverlayWindow
         previous: OverlayWindow
     } // tracingFiltersLogic
+    applyHeatmapBrush: (selection: HeatmapBrushSelection) => {
+        selection: HeatmapBrushSelection
+    }
     cancelInProgressAggregation: (controller: AbortController | null) => {
         controller: AbortController | null
     }
@@ -566,7 +570,7 @@ export interface tracingDataLogicMeta {
             filters: TracingFilters
         ) => number
         durationHistogramData: (rawDurationHistogram: DurationHistogramRow[]) => TracingDurationHistogramData
-        latencyHeatmapData: (rawLatencyHeatmap: any) => TracingLatencyHeatmapData
+        latencyHeatmapData: (rawLatencyHeatmap: LatencyHeatmapRow[]) => TracingLatencyHeatmapData
         showHeatmap: (filters: TracingFilters, compareActive: boolean) => boolean
         listRows: (spans: Span[], filters: TracingFilters) => Span[]
         listRowDurations: (listRows: Span[]) => number[]
@@ -632,6 +636,8 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         // listeners below; the scene logic additionally listens to this to sync the URL.
         // Mirrors the logs viewer's handleQueryChange.
         handleFilterChange: (filterType: string, extraProps?: Record<string, unknown>) => ({ filterType, extraProps }),
+        // A completed 2D brush on the latency heatmap — maps to a date range + duration chips.
+        applyHeatmapBrush: (selection: HeatmapBrushSelection) => ({ selection }),
         runQuery: true,
         fetchNextPage: true,
         loadMoreTraceSpans: true,
@@ -1361,6 +1367,24 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
             }),
         // Bulk restores (URL params, saved views) re-query without an interaction capture.
         setFilters: () => actions.runQuery(),
+        applyHeatmapBrush: ({ selection }) => {
+            const updates = heatmapBrushToFilters(
+                values.latencyHeatmapData,
+                selection,
+                values.filters.filterGroup,
+                values.utcDateRange.date_to
+            )
+            if (!updates) {
+                return
+            }
+            posthog.capture('tracing filter changed', {
+                filter_type: 'heatmap_brush',
+                with_duration: !!updates.filterGroup,
+            })
+            // One dispatch → one re-query via the setFilters listener (and one URL write in the
+            // scene logic) — separate setDateRange + setFilterGroup would each run the query.
+            actions.setFilters(updates)
+        },
         // Overlay drags only refetch the aggregation — the sparkline canvas range stays fixed
         // while the user moves windows around within it. The compare-flame refetch (viewer UI
         // state) lives in tracingViewerLogic.

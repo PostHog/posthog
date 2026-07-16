@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton, SpinnerOverlay } from '@posthog/lemon-ui'
+import type { HeatmapBrushData } from '@posthog/quill-charts'
 
 import { AnyScaleOptions, Sparkline } from 'lib/components/Sparkline'
 import { dayjs } from 'lib/dayjs'
@@ -47,6 +48,8 @@ interface TracingSparklineProps {
      *  it only when the heatmap should actually show (chartType 'heatmap' and no comparison). */
     latencyHeatmap?: TracingLatencyHeatmapData | null
     latencyHeatmapLoading?: boolean
+    /** Enables the heatmap's 2D brush (time window + duration range selection). */
+    onHeatmapBrush?: (selection: HeatmapBrushData) => void
     /** Disables the heatmap option with an explanation (e.g. while a comparison is active). */
     heatmapDisabledReason?: string | null
 }
@@ -64,6 +67,7 @@ export function TracingSparkline({
     onChartTypeChange,
     latencyHeatmap,
     latencyHeatmapLoading = false,
+    onHeatmapBrush,
     heatmapDisabledReason,
 }: TracingSparklineProps): JSX.Element | null {
     const [collapsed, setCollapsed] = useState(false)
@@ -255,6 +259,7 @@ export function TracingSparkline({
                         data={latencyHeatmap}
                         loading={latencyHeatmapLoading}
                         displayTimezone={displayTimezone}
+                        onBrush={onHeatmapBrush}
                     />
                 </div>
             )}

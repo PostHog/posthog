@@ -113,6 +113,7 @@ function TracingSceneContents(): JSX.Element {
         setVisibleRowRange,
         setSort,
         setChartType,
+        applyHeatmapBrush,
     } = useActions(tracingSceneLogic())
     const { addProductIntent } = useActions(teamLogic)
     const { facetRailCollapsed } = useValues(tracingConfigLogic)
@@ -209,6 +210,7 @@ function TracingSceneContents(): JSX.Element {
                     onChartTypeChange={setChartType}
                     latencyHeatmap={showHeatmap ? latencyHeatmapData : null}
                     latencyHeatmapLoading={latencyHeatmapLoading}
+                    onHeatmapBrush={applyHeatmapBrush}
                     heatmapDisabledReason={
                         compareActive ? 'The heatmap is unavailable while comparing time windows' : null
                     }
