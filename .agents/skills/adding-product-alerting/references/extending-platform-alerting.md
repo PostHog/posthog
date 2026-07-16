@@ -7,7 +7,7 @@ Use this path when adding a reusable alert capability, option, or advanced behav
 | Capability                                                                       | Primary source of truth                                              | Also inspect                                                                           |
 | -------------------------------------------------------------------------------- | -------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
 | Lifecycle state, notification action, control-plane transition, or policy option | `common/alerting/state_machine.py`                                   | Shared decision tests, every adopter policy and adapter, semgrep rule                  |
-| Fixed-cadence or shard behavior                                                  | `common/alerting/scheduling.py`                                      | Product wrappers, create/update paths, due queries, scheduler interval                 |
+| Fixed-cadence, calendar, timezone, or schedule-restriction behavior              | `products/alerts/backend/scheduling.py`                              | Product wrappers, create/update paths, due queries, scheduler interval, DST boundaries |
 | Destination type or destination-wide option                                      | `products/alerts/backend/destination_configs.py`                     | HogFunction templates/sub-templates, facade exports, product allowlists, `AlertWizard` |
 | HogFunction persistence or delivery semantics                                    | `products/alerts/backend/destinations.py`                            | Worker batching, rollback, delivery metrics, destination tests                         |
 | Email transport capability                                                       | `products/alerts/backend/email_notifications.py`                     | Facade export, campaign-key semantics, adopter templates and tests                     |
@@ -29,10 +29,12 @@ If the change crosses rows, update each row deliberately. Do not hide a cross-la
 
 ### Scheduling
 
-- Keep fixed-grid math separate from calendar and timezone rules.
+- Keep scheduling helpers pure Python with no Django or product model imports.
+- Keep fixed-grid and calendar contracts explicit instead of branching on product names.
 - Make scheduler interval assumptions explicit.
 - Preserve deterministic UUID-based sharding and stable steady-state cadence.
-- Test missed intervals, drift healing, cadence changes, and boundary times.
+- Preserve local wall-clock anchors across DST changes and evaluate restrictions in the team's timezone.
+- Test missed intervals, drift healing, cadence changes, DST transitions, overnight windows, and boundary times.
 - Keep due eligibility with the product unless a real cross-product model contract exists.
 
 ### Destinations and advanced destination options

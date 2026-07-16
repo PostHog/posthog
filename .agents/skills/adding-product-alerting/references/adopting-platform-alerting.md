@@ -71,6 +71,8 @@ For email, call `send_alert_email(...)` through the facade. The product must cho
 
 ## 6. Add scheduling and due selection
 
+Import shared scheduling math from `products.alerts.backend.scheduling`.
+
 For fixed-minute checks:
 
 - Reuse `compute_shard_offset_seconds(...)` and `advance_next_check_at(...)`.
@@ -78,7 +80,12 @@ For fixed-minute checks:
 - Keep one stable shard calculation across create, update, and evaluation paths.
 - Implement and test a product-specific due predicate with team scoping, enabled state, broken state, snooze state, and `next_check_at` behavior.
 
-For calendar scheduling, keep timezone anchors and restrictions in the product. Do not mix calendar semantics into the fixed-cadence helpers.
+For calendar-aligned checks:
+
+- Convert product interval values to `CalendarInterval`, then use `next_calendar_check_time(...)` with the team's IANA timezone.
+- Validate stored quiet-hour payloads with `validate_and_normalize_schedule_restriction(...)` and parse them with `parse_blocked_windows_tuples(...)`.
+- Use `scan_next_unblocked_utc(...)`, `is_utc_datetime_blocked(...)`, and `is_weekend(...)` instead of recreating timezone or DST logic.
+- Keep model access, API error translation, bounded-retry logging, and `next_check_at` persistence in the product adapter.
 
 ## 7. Add product orchestration
 
