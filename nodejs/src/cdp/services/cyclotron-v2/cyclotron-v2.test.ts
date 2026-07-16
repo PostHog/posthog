@@ -414,6 +414,27 @@ describe('Cyclotron V2', () => {
                 expect(parked.rows[0].c).toBe(0)
             })
 
+            it('clamps a caller-passed floor to the server floor so bounds cannot mass-wake the backlog', async () => {
+                // A past floor with a still-fresh until would land the random targets in the
+                // past — the floor is the sweep's safety property and is enforced server-side.
+                const functionId = uuidv7()
+                const id = await seedParked(functionId)
+
+                const result = await manager.rescheduleParkedJobs({
+                    teamId: 1,
+                    functionId,
+                    actionIds: ['delay_1'],
+                    sweepFloor: new Date(Date.now() - 3600_000),
+                    sweepUntil: new Date(Date.now() + 3600_000),
+                })
+
+                expect(result.swept).toBe(1)
+                // Default floor is 600s: the swept row must never wake sooner than that
+                const scheduled = new Date((await queryJob(id)).scheduled).getTime()
+                expect(scheduled).toBeGreaterThanOrEqual(Date.now() + 600_000 - 5000)
+                expect(result.sweepFloor.getTime()).toBeGreaterThanOrEqual(Date.now() + 600_000 - 5000)
+            })
+
             it.each([
                 ['count / rate inside the clamps', 30, 30],
                 ['clamped up to the min window', 5, 10],
@@ -485,8 +506,10 @@ describe('Cyclotron V2', () => {
                         sweepUntil: first.sweepUntil,
                     })
                     expect(second).toMatchObject({ swept: 1, remaining: 0, done: true })
-                    expect(second.sweepFloor).toEqual(first.sweepFloor)
+                    // sweepUntil is the idempotency bound and must stay fixed across slices;
+                    // the floor legitimately drifts forward per slice (clamped to now + floor).
                     expect(second.sweepUntil).toEqual(first.sweepUntil)
+                    expect(second.sweepFloor.getTime()).toBeGreaterThanOrEqual(first.sweepFloor.getTime())
                 } finally {
                     await slicingManager.disconnect()
                 }

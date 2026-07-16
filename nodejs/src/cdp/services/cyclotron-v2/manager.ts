@@ -478,13 +478,24 @@ export class CyclotronV2Manager {
         }
 
         try {
-            let bounds: { sweepFloor: Date; sweepUntil: Date }
+            let bounds: { sweepFloor: Date; sweepUntil: Date } | null = null
             const staleBoundsCutoff = new Date(Date.now() + this.rescheduleMinWindowSeconds * 1000)
             if (options.sweepFloor && options.sweepUntil && options.sweepUntil > staleBoundsCutoff) {
-                bounds = { sweepFloor: options.sweepFloor, sweepUntil: options.sweepUntil }
-            } else {
+                // The floor is this sweep's safety property (no sweep-induced wake sooner than
+                // floorSeconds from now — the config-cache staleness bound), so it is enforced
+                // server-side regardless of what bounds the caller passed: a floor in the past
+                // would land the random targets in the past and mass-wake the backlog. Clamping
+                // per slice only compresses the tail of the spread, never the predicate, so
+                // cross-slice idempotency (scheduled > sweepUntil) is unaffected.
+                const minFloor = new Date(Date.now() + this.rescheduleFloorSeconds * 1000)
+                const sweepFloor = options.sweepFloor > minFloor ? options.sweepFloor : minFloor
+                if (sweepFloor < options.sweepUntil) {
+                    bounds = { sweepFloor, sweepUntil: options.sweepUntil }
+                }
+            }
+            if (!bounds) {
                 if (options.sweepUntil) {
-                    logger.warn('Reschedule sweep bounds are stale, re-sizing window', {
+                    logger.warn('Reschedule sweep bounds are stale or unsafe, re-sizing window', {
                         teamId,
                         functionId,
                         sweepUntil: options.sweepUntil.toISOString(),
