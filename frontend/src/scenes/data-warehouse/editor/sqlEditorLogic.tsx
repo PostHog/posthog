@@ -529,7 +529,7 @@ export interface sqlEditorLogicValues {
     sourceQuery: DataVisualizationNode
     splitQueryRanges: QueryRange[]
     suggestedQueryInput: string
-    suggestedSource: 'hogql_fixer' | 'materialization_fix' | 'max_ai' | null
+    suggestedSource: 'hogql_fixer' | 'materialization_fix' | 'max_ai' | 'query_history' | null
     suggestionPayload: SuggestionPayload | null
     upstream: {
         edges: DataModelingEdge[]
@@ -646,7 +646,13 @@ export interface sqlEditorLogicActions {
             types?: string[][]
         }
     } // dataWarehouseViewsLogic
-    loadDatabase: ({ force }?: { force?: boolean }) => {
+    loadDatabase: (
+        args_0?:
+            | {
+                  force?: boolean
+              }
+            | undefined
+    ) => {
         force?: boolean
     } // databaseTableListLogic
     setConnection: (connectionId: string | null) => {
@@ -969,7 +975,7 @@ export interface sqlEditorLogicActions {
         suggestedQueryInput: string,
         source?: SuggestionPayload['source']
     ) => {
-        source: 'hogql_fixer' | 'materialization_fix' | 'max_ai' | undefined
+        source: 'hogql_fixer' | 'materialization_fix' | 'max_ai' | 'query_history' | undefined
         suggestedQueryInput: string
     }
     setUpstreamViewMode: (mode: 'graph' | 'table') => {
@@ -1012,7 +1018,7 @@ export interface sqlEditorLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         suggestedSource: (
             suggestionPayload: SuggestionPayload | null
-        ) => 'hogql_fixer' | 'materialization_fix' | 'max_ai' | null
+        ) => 'hogql_fixer' | 'materialization_fix' | 'max_ai' | 'query_history' | null
         diffShowRunButton: (suggestionPayload: SuggestionPayload | null) => boolean | undefined
         acceptText: (suggestionPayload: SuggestionPayload | null) => string
         rejectText: (suggestionPayload: SuggestionPayload | null) => string

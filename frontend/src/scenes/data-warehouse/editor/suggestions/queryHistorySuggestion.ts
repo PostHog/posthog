@@ -1,4 +1,4 @@
-import { sqlEditorLogicType } from '../sqlEditorLogicType'
+import type { sqlEditorLogicType } from '../sqlEditorLogic'
 
 // Handlers for restoring a previous version of a saved query from the history modal.
 // Restoring only updates the editor content — the user persists it through the normal
