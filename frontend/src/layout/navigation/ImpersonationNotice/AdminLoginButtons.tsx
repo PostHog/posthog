@@ -19,7 +19,7 @@ export function AdminLoginButtons({
         <div className="flex flex-wrap justify-end gap-2">
             {disabledReason ? (
                 <LemonButton type="secondary" size="small" disabledReason={disabledReason}>
-                    Login as {ticketContext?.email || 'customer'}
+                    Login
                 </LemonButton>
             ) : (
                 adminLoginUrls.map(({ region, url }) => (
@@ -27,11 +27,10 @@ export function AdminLoginButtons({
                         key={region}
                         type="secondary"
                         size="small"
-                        tooltip="This currently redirects to the admin login page, but in future will log you in directly."
+                        tooltip={`Login as ${ticketContext?.email} on ${region}. This currently redirects to the admin login page, but in future will log you in directly.`}
                         onClick={() => window.open(url, '_blank')}
                     >
-                        Login as {ticketContext?.email}
-                        {showRegionLabel ? ` (${region})` : ''}
+                        Login{showRegionLabel ? ` (${region})` : ''}
                     </LemonButton>
                 ))
             )}
