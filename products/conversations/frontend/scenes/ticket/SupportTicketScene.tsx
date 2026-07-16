@@ -50,7 +50,11 @@ export const scene: SceneExport<{ ticketId: string; id: string }> = {
     component: SupportTicketScene,
     logic: supportTicketSceneLogic,
     productKey: ProductKey.CONVERSATIONS,
-    paramsToProps: ({ params: { ticketId } }) => ({ ticketId, id: ticketId || 'new' }),
+    // `id` must match supportTicketSceneLogic's `key((props) => props.id)` so the logic instance
+    // App.tsx binds via BindLogic (and that the side panel context reads) is the same keyed
+    // instance the component builds directly — otherwise the side panel reads a never-populated
+    // logic instance and the access control tab never appears.
+    paramsToProps: ({ params: { ticketId } }) => ({ ticketId: ticketId || 'new', id: ticketId || 'new' }),
 }
 
 // Builds a deep link to the originating Slack thread so the Channel tag can be clickable.
