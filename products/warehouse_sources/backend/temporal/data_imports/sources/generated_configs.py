@@ -1489,7 +1489,8 @@ class FirecrawlSourceConfig(config.Config):
 
 @config.config
 class FireworksAISourceConfig(config.Config):
-    pass
+    api_key: str
+    account_id: str
 
 
 @config.config
@@ -1891,7 +1892,8 @@ class HeightSourceConfig(config.Config):
 
 @config.config
 class HeliconeSourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config
@@ -1907,7 +1909,7 @@ class HelpScoutSourceConfig(config.Config):
 
 @config.config
 class HerokuSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1987,7 +1989,7 @@ class HuntrSourceConfig(config.Config):
 class HyperspellSourceConfig(config.Config):
     api_key: str
     region: Literal["us", "eu"] = config.value(default="us")
-    user_id: str | None = None
+    user_ids: str | None = None
 
 
 @config.config
@@ -2040,7 +2042,8 @@ class InforNexusSourceConfig(config.Config):
 
 @config.config
 class InngestSourceConfig(config.Config):
-    pass
+    signing_key: str
+    environment: str | None = None
 
 
 @config.config
@@ -2255,7 +2258,7 @@ class KongKonnectSourceConfig(config.Config):
 
 @config.config
 class KoyebSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -2517,7 +2520,9 @@ class MaxioSourceConfig(config.Config):
 
 @config.config
 class Mem0SourceConfig(config.Config):
-    pass
+    api_key: str
+    org_id: str | None = None
+    project_id: str | None = None
 
 
 @config.config

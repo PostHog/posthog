@@ -179,6 +179,7 @@ the row lists both.
 | finnhub                   | HTTP                        | requests                                                        | ✅                          |
 | finnworlds                | HTTP                        | requests                                                        | ✅                          |
 | firecrawl                 | HTTP                        | requests                                                        | ✅                          |
+| fireworks_ai              | HTTP                        | requests                                                        | ✅                          |
 | fleetio                   | HTTP                        | requests                                                        | ✅                          |
 | firehydrant               | HTTP                        | requests                                                        | ✅                          |
 | flexmail                  | HTTP                        | requests                                                        | ✅                          |
@@ -215,7 +216,9 @@ the row lists both.
 | hatchet                   | HTTP                        | requests                                                        | ✅                          |
 | healthchecks              | HTTP                        | requests                                                        | ✅                          |
 | height                    | HTTP                        | requests                                                        | ✅                          |
+| helicone                  | HTTP                        | requests                                                        | ✅                          |
 | hellobaton                | HTTP                        | requests                                                        | ✅                          |
+| heroku                    | HTTP                        | requests                                                        | ✅                          |
 | hetzner                   | HTTP                        | requests                                                        | ✅                          |
 | hibob                     | HTTP                        | requests                                                        | ✅                          |
 | humanitix                 | HTTP                        | requests                                                        | ✅                          |
@@ -227,6 +230,7 @@ the row lists both.
 | imagga                    | HTTP                        | requests                                                        | ✅                          |
 | incident_io               | HTTP                        | requests                                                        | ✅                          |
 | inflowinventory           | HTTP                        | requests                                                        | ✅                          |
+| inngest                   | HTTP                        | requests                                                        | ✅                          |
 | insightly                 | HTTP                        | requests                                                        | ✅                          |
 | instatus                  | HTTP                        | requests                                                        | ✅                          |
 | intercom                  | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -245,6 +249,7 @@ the row lists both.
 | katana                    | HTTP                        | requests                                                        | ✅                          |
 | kernel                    | HTTP                        | requests                                                        | ✅                          |
 | klaviyo                   | HTTP                        | requests                                                        | ✅                          |
+| koyeb                     | HTTP                        | requests                                                        | ✅                          |
 | lago                      | HTTP                        | requests                                                        | ✅                          |
 | lambda_labs               | HTTP                        | requests                                                        | ✅                          |
 | langfuse                  | HTTP                        | requests                                                        | ✅                          |
@@ -264,6 +269,7 @@ the row lists both.
 | lob                       | HTTP                        | requests                                                        | ✅                          |
 | luma                      | HTTP                        | requests                                                        | ✅                          |
 | mailchimp                 | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| mem0                      | HTTP                        | requests                                                        | ✅                          |
 | mailerlite                | HTTP                        | requests                                                        | ✅                          |
 | mailersend                | HTTP                        | requests                                                        | ✅                          |
 | mailgun                   | HTTP                        | requests                                                        | ✅                          |
@@ -620,7 +626,6 @@ doesn't conflict with concurrent PRs.
 - fintoc
 - firebase
 - firebolt
-- fireworks_ai
 - flagsmith
 - flexmail
 - flexport
@@ -663,9 +668,7 @@ doesn't conflict with concurrent PRs.
 - harness
 - harvey
 - heap
-- helicone
 - helpscout
-- heroku
 - hetzner
 - hex
 - heygen
@@ -682,7 +685,6 @@ doesn't conflict with concurrent PRs.
 - impact
 - infisical
 - infor_nexus
-- inngest
 - insightful
 - instagram
 - instana
@@ -731,7 +733,6 @@ doesn't conflict with concurrent PRs.
 - mailtrap
 - mantle
 - marketo
-- mem0
 - mendeley
 - mercado_ads
 - mercury
