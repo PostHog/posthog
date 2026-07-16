@@ -1,7 +1,7 @@
 # Canned queries for query-cost analysis
 
-All queries run via the PostHog MCP `execute-sql` tool in the internal analytics project (project 2).
-They use the example window `2026-06-14 → 2026-07-14` (exclusive end) — substitute your window everywhere; keep per-branch date filters inside every UNION branch.
+All queries run via `posthog:execute-sql` (or the equivalent SQL tool exposed by the current agent runtime) in the internal analytics project (project 2).
+They use the example window `2026-06-14 → 2026-07-14` (exclusive end) — derive a currently covered window from §0 and substitute it everywhere; keep per-branch date filters inside every UNION branch.
 The cost expression is inlined in each query so they run standalone after one find-and-replace:
 
 ```sql
@@ -44,6 +44,7 @@ GROUP BY region
 
 Everything below reuses this UNION shape; only the projected columns change.
 The inner SELECTs must include **every column referenced outside the subquery** — an outer `WHERE user = ...` fails with "Unable to resolve field" unless `user` is projected in both branches.
+The `/* union with: ... */` comments are assembly instructions, not executable SQL. Replace each one with the two-branch UNION from §1, projecting the listed columns in both branches and applying the same date and dimension filters to each branch.
 
 ## 2. By ClickHouse user (app / api / dagster / cache_warmup / cohorts / ...)
 
@@ -133,11 +134,11 @@ LIMIT 250
 ## 8. Per-team concentration
 
 ```sql
-SELECT team_id, any(lc_org_id) AS org_id, count() AS queries,
+SELECT region, team_id, any(lc_org_id) AS org_id, count() AS queries,
        round(sum(read_bytes)/1e9, 0) AS read_gb,
        round(sum(read_bytes)/1e9*{read_usd_per_gb} + sum(ProfileEvents_OSCPUVirtualTimeMicroseconds)/1e6*{cpu_usd_per_sec}, 0) AS cost_usd
-FROM ( /* union with: team_id, lc_org_id, read_bytes, ProfileEvents_... */ )
-GROUP BY team_id
+FROM ( /* union with: region, team_id, lc_org_id, read_bytes, ProfileEvents_... */ )
+GROUP BY region, team_id
 ORDER BY cost_usd DESC
 LIMIT 30
 ```
@@ -154,7 +155,7 @@ SELECT multiIf(
            t.id IS NULL, 'deleted/unknown team',
            a.mrr > 0, 'paying customer',
            'free customer') AS bucket,
-       uniq(c.team_id) AS teams, sum(c.queries) AS queries,
+       uniq(tuple(c.region, c.team_id)) AS teams, sum(c.queries) AS queries,
        round(sum(c.read_gb), 0) AS read_gb,
        round(sum(c.read_gb)*{read_usd_per_gb} + sum(c.cpu_sec)*{cpu_usd_per_sec}, 0) AS cost_usd
 FROM (
@@ -179,7 +180,7 @@ Same join as §9, but grouped by org and with team 0 excluded inside the per-tea
 
 ```sql
 SELECT t.organization_id AS org_id, any(a.name) AS org_name, max(a.mrr) AS mrr,
-       any(a.customer_stage) AS stage, uniq(c.team_id) AS teams, sum(c.queries) AS queries,
+       any(a.customer_stage) AS stage, uniq(tuple(c.region, c.team_id)) AS teams, sum(c.queries) AS queries,
        round(sum(c.read_gb), 0) AS read_gb,
        round(sum(c.read_gb)*{read_usd_per_gb} + sum(c.cpu_sec)*{cpu_usd_per_sec}, 0) AS cost_usd
 FROM (

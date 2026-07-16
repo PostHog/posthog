@@ -3,7 +3,7 @@ name: analyzing-query-costs
 description: >
   Analyze the dollar cost of ClickHouse querying across the PostHog fleet using the
   `query_log_archive_us` / `query_log_archive_eu` data warehouse sources in the internal
-  PostHog analytics project, via the PostHog MCP (`execute-sql`). Use when asked what querying
+  PostHog analytics project, via the PostHog MCP (`posthog:execute-sql`). Use when asked what querying
   costs, which products/features/workflows/customers drive query spend, how free vs paying
   customers split, cost concentration ("top ten heaviest users"), wasted spend on failed
   queries, or for a recurring query-cost report. Covers the cost model, the region-union
@@ -16,7 +16,7 @@ description: >
 # Analyzing ClickHouse query costs
 
 Fleet-wide **dollar cost** analysis: what querying costs, who and what drives it, and where the waste is.
-This runs entirely through the PostHog MCP (`execute-sql`) against data warehouse sources in the internal "PostHog App + Website" project (project 2 on US Cloud), so it works anywhere the MCP works — including PostHog Code cloud, with no Metabase SSO.
+Before running SQL, read [`querying-posthog-data`](../../../products/posthog_ai/skills/querying-posthog-data/SKILL.md) and use `posthog:execute-sql` (or the equivalent SQL tool exposed by the current agent runtime). Select the internal "PostHog App + Website" project (project 2 on US Cloud) explicitly; do not assume the runtime's default project is correct.
 The sibling skill [`generating-clickhouse-query-performance-reports`](../generating-clickhouse-query-performance-reports/SKILL.md) is the _performance_ lens (slow queries, OOMs, root causes) over the raw `posthog.query_log_archive` via Metabase; use that when the question is "why is X slow" rather than "what does X cost".
 
 **Internal-only.** Results contain cross-customer identifiers, org names, and MRR.
@@ -35,7 +35,7 @@ FROM query_log_archive_eu   -- EU cluster
 Properties that differ from the raw `posthog.query_log_archive` documented in the sibling skill — both save you filters:
 
 - **One row per query, initial queries only.** Row types are `QueryFinish`, `ExceptionWhileProcessing`, `ExceptionBeforeStart`. There are no `QueryStart` rows and no non-initial (distributed sub-query) rows, so `count()` is a true query count and **no `is_initial_query` filter is needed**.
-- **Multi-month retention** (the raw table keeps ~3 weeks). As of 2026-07 the US table starts 2026-05-01 and the EU table 2026-06-10 — always start by checking coverage:
+- **Multi-month retention** (the raw table keeps ~3 weeks). The example dates below are observations, not guarantees — always start by checking current coverage:
 
 ```sql
 SELECT min(event_date), max(event_date) FROM query_log_archive_us WHERE event_date >= '2026-01-01'
@@ -58,7 +58,7 @@ In practice **read bytes dominate the modeled cost**, so scan volume is the numb
 
 ## Workflow
 
-1. **Check coverage, pick the window.** Default to the last 30 _complete_ days covered by both regions. For partial months compare cost **per day**, never month totals.
+1. **Check coverage, pick the window.** Derive dates from the coverage query at run time. Default to the last 30 _complete_ days covered by both regions. For partial months compare cost **per day**, never month totals.
 2. **Totals per region** — the denominator every share is computed against.
 3. **One dimension at a time**, coarse → fine: `user` (CH user), `lc_kind` × `lc_workload`, `lc_product` × `lc_feature` (the canonical disjoint view), then `lc_temporal__workflow_type` / `lc_dagster__job_name` for the background buckets.
 4. **Daily trend by bucket** (`multiIf` on the top buckets) — separates one-off backfills from steady load from _growing_ load. This changes recommendations more than any other query.
@@ -66,7 +66,7 @@ In practice **read bytes dominate the modeled cost**, so scan volume is the numb
 6. **Waste**: failed-query cost by `exception_name`; attribute `TOO_MANY_BYTES` to buckets/teams — repeated kills in one bucket from few teams = a retry loop burning money.
 7. **Access**: `lc_access_method` × `lc_chargeable` (is heavy API traffic billed? what does `sharing_token` — public embeds — cost?).
 
-Every query for steps 2–7 is ready to paste in [`references/canned-queries.md`](references/canned-queries.md).
+[`references/canned-queries.md`](references/canned-queries.md) contains the runnable totals query plus assembly templates for the remaining steps. Expand each template from the documented two-region UNION before executing it.
 
 ## Combining regions and joining to billing
 
@@ -77,11 +77,11 @@ Each branch needs its own date filter, and the inner SELECT must include every c
 FROM (
     SELECT 'us' AS region, team_id, read_bytes, ProfileEvents_OSCPUVirtualTimeMicroseconds
     FROM query_log_archive_us
-    WHERE event_date >= '2026-06-14' AND event_date < '2026-07-14'
+    WHERE event_date >= '<window-start>' AND event_date < '<window-end>'
     UNION ALL
     SELECT 'eu' AS region, team_id, read_bytes, ProfileEvents_OSCPUVirtualTimeMicroseconds
     FROM query_log_archive_eu
-    WHERE event_date >= '2026-06-14' AND event_date < '2026-07-14'
+    WHERE event_date >= '<window-start>' AND event_date < '<window-end>'
 )
 ```
 
@@ -106,7 +106,7 @@ Attribution facts that cost time if you don't know them:
 - **Background workloads mislabeled `ONLINE`** (`lc_kind='temporal' AND lc_workload='ONLINE'`) contend with user queries — worth flagging whenever it shows up big.
 - Historically dominant buckets to expect: warehouse data modeling, insight refresh + HogQL API, cache warmup, error-tracking embeddings, experiment recalculation, cohort recalculation, and one-off backfills. Verify against the live data — the mix moves.
 
-## Query mechanics (MCP `execute-sql`)
+## Query mechanics (`posthog:execute-sql`)
 
 - These are big scans (hundreds of millions of rows per month per region). A single-dimension GROUP BY over 30 days × both regions completes; heavier combinations time out — on timeout, narrow to one region and/or one week and extrapolate carefully.
 - Transient 503s happen; retry once before restructuring.
