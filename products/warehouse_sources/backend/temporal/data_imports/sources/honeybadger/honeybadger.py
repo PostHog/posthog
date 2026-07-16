@@ -44,7 +44,10 @@ class HoneybadgerResumeConfig:
 
 def _make_session(api_key: str) -> requests.Session:
     # Honeybadger authenticates with HTTP Basic auth: personal token as username, blank password.
-    session = make_tracked_session(headers={"Accept": "application/json"})
+    # Exclude requests from HTTP sample capture: project responses carry a live project token and
+    # notice responses can contain session cookies and other auth data the name-based sample
+    # scrubbers don't recognise.
+    session = make_tracked_session(headers={"Accept": "application/json"}, capture=False)
     session.auth = (api_key, "")
     return session
 
