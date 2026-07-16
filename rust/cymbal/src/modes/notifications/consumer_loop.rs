@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use common_kafka::kafka_consumer::{Offset, RecvErr, SingleTopicConsumer};
@@ -59,7 +60,17 @@ pub async fn consume_loop(
 struct MessageOutcome {
     batch_index: usize,
     offset: Offset,
-    error: Option<UnhandledError>,
+    result: HandleResult,
+}
+
+enum HandleResult {
+    Handled,
+    Failed(UnhandledError),
+    /// Not attempted because an earlier failure was already observed. Emitting
+    /// an outcome keeps the message visible to `storable_offsets`, so a later
+    /// success on its partition can't be committed past it; it redelivers
+    /// after the panic.
+    Skipped,
 }
 
 async fn handle_notification_batch(
@@ -101,29 +112,40 @@ async fn handle_notification_batch(
         notification.partition_key()
     });
 
-    // A failure aborts the rest of its group: later notifications for the same
-    // issue must not be handled (or have offsets stored) ahead of the failed
-    // one — they redeliver after the panic below.
+    // The whole batch panics (and redelivers) on any failure, so once one is
+    // observed, handling more messages only creates side effects that will be
+    // emitted again on redelivery. Stop starting new work: everything not yet
+    // in flight is skipped, bounding duplicates to the groups already running.
+    // This also halts the failed group itself, preserving per-issue ordering.
+    let failed = AtomicBool::new(false);
     let mut outcomes: Vec<MessageOutcome> = stream::iter(groups.into_iter().map(|group| async {
         let mut outcomes = Vec::with_capacity(group.len());
         for (batch_index, notification, offset) in group {
+            if failed.load(Ordering::Relaxed) {
+                outcomes.push(MessageOutcome {
+                    batch_index,
+                    offset,
+                    result: HandleResult::Skipped,
+                });
+                continue;
+            }
             match handle_notification(context, notification).await {
                 Ok(()) => {
                     metrics::counter!(NOTIFICATIONS_HANDLED_TOTAL).increment(1);
                     outcomes.push(MessageOutcome {
                         batch_index,
                         offset,
-                        error: None,
+                        result: HandleResult::Handled,
                     });
                 }
                 Err(e) => {
                     metrics::counter!(NOTIFICATIONS_HANDLE_ERRORS_TOTAL).increment(1);
+                    failed.store(true, Ordering::Relaxed);
                     outcomes.push(MessageOutcome {
                         batch_index,
                         offset,
-                        error: Some(e),
+                        result: HandleResult::Failed(e),
                     });
-                    break;
                 }
             }
         }
@@ -135,20 +157,25 @@ async fn handle_notification_batch(
 
     outcomes.sort_by_key(|outcome| outcome.batch_index);
 
-    let storable: Vec<bool> = storable_offsets(
-        outcomes
-            .iter()
-            .map(|outcome| (outcome.offset.partition(), outcome.error.is_none())),
-    );
+    let storable: Vec<bool> = storable_offsets(outcomes.iter().map(|outcome| {
+        (
+            outcome.offset.partition(),
+            matches!(outcome.result, HandleResult::Handled),
+        )
+    }));
 
     let mut first_error = None;
     // Per-partition next-offsets of the stored successes; offsets ascend per
     // partition, so the last insert holds the max.
     let mut committable: HashMap<i32, i64> = HashMap::new();
     for (outcome, store) in outcomes.into_iter().zip(storable) {
-        if let Some(error) = outcome.error {
-            first_error.get_or_insert(error);
-            continue;
+        match outcome.result {
+            HandleResult::Failed(error) => {
+                first_error.get_or_insert(error);
+                continue;
+            }
+            HandleResult::Skipped => continue,
+            HandleResult::Handled => {}
         }
         if !store {
             continue;
