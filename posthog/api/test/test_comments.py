@@ -662,6 +662,60 @@ class TestCommentsTicketAccessControl(APIBaseTest):
         )
         assert create_response.status_code == status.HTTP_201_CREATED
 
+    def test_creator_downgraded_to_viewer_cannot_edit_own_ticket_message(self) -> None:
+        AccessControl.objects.filter(resource_id=str(self.ticket.id)).update(access_level="editor")
+        own_message = Comment.objects.create(
+            team=self.team,
+            created_by=self.member,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="my reply",
+        )
+        AccessControl.objects.filter(resource_id=str(self.ticket.id)).update(access_level="viewer")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/comments/{own_message.id}?scope=conversations_ticket",
+            {"content": "edited after being downgraded"},
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        own_message.refresh_from_db()
+        assert own_message.content == "my reply"
+
+    def test_cannot_rescope_existing_comment_into_denied_ticket(self) -> None:
+        own_comment = Comment.objects.create(
+            team=self.team,
+            created_by=self.member,
+            scope="Notebook",
+            item_id="1",
+            content="a notebook comment",
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/comments/{own_comment.id}",
+            {"scope": "conversations_ticket", "item_id": str(self.ticket.id)},
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        own_comment.refresh_from_db()
+        assert own_comment.scope == "Notebook"
+
+    def test_viewer_cannot_complete_ticket_task(self) -> None:
+        AccessControl.objects.filter(resource_id=str(self.ticket.id)).update(access_level="viewer")
+        task = Comment.objects.create(
+            team=self.team,
+            created_by=self.member,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="a ticket task",
+            is_task=True,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/comments/{task.id}/complete?scope=conversations_ticket",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        task.refresh_from_db()
+        assert task.completed_at is None
+
 
 class TestDiscussionMentionInternalEvents(APIBaseTest, QueryMatchingTest):
     @mock.patch("posthog.models.comment.utils.produce_internal_event")

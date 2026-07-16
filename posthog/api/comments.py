@@ -1,4 +1,4 @@
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from django.core import exceptions as django_exceptions
 from django.db import transaction
@@ -21,6 +21,31 @@ from posthog.models.comment import Comment
 from posthog.models.comment.comment import activity_log_scope_for
 from posthog.models.comment.utils import produce_discussion_mention_events, send_mention_notifications
 from posthog.tasks.email import send_discussions_mentioned
+
+if TYPE_CHECKING:
+    from posthog.rbac.user_access_control import UserAccessControl
+
+
+def _require_ticket_editor_access(
+    *, team_id: int, item_id: str | None, user_access_control: "UserAccessControl"
+) -> None:
+    """Comments with scope=conversations_ticket are ticket messages (see TicketViewSet.reply) —
+    enforce the same object-level RBAC here, since the generic comments API is the write path the
+    Support UI actually uses and isn't gated by TicketViewSet's own access control."""
+    if not item_id:
+        return
+
+    from products.conversations.backend.models.ticket import (  # noqa: PLC0415 — keeps the generic comments API decoupled from the conversations product, only imported for ticket-scoped writes
+        Ticket,
+    )
+
+    try:
+        ticket = Ticket.objects.get(team_id=team_id, id=item_id)
+    except (Ticket.DoesNotExist, ValueError, django_exceptions.ValidationError):
+        raise exceptions.ValidationError({"item_id": "Ticket not found"})
+
+    if not user_access_control.check_access_level_for_object(ticket, required_level="editor"):
+        raise exceptions.PermissionDenied("You do not have access to this ticket")
 
 
 class CommentSerializer(serializers.ModelSerializer):
@@ -93,27 +118,6 @@ class CommentSerializer(serializers.ModelSerializer):
                     return True
         return False
 
-    def _check_ticket_editor_access(self, item_id: str | None) -> None:
-        """Comments with scope=conversations_ticket are ticket messages (see TicketViewSet.reply) —
-        enforce the same object-level RBAC here, since this generic endpoint is the write path the
-        Support UI actually uses and isn't gated by TicketViewSet's own access control."""
-        if not item_id:
-            return
-
-        from products.conversations.backend.models.ticket import (  # noqa: PLC0415 — keeps the generic comments API decoupled from the conversations product, only imported for ticket-scoped writes
-            Ticket,
-        )
-
-        team = self.context["get_team"]()
-        try:
-            ticket = Ticket.objects.get(team_id=team.id, id=item_id)
-        except (Ticket.DoesNotExist, ValueError, django_exceptions.ValidationError):
-            raise exceptions.ValidationError({"item_id": "Ticket not found"})
-
-        user_access_control = self.context["get_user_access_control"]()
-        if not user_access_control.check_access_level_for_object(ticket, required_level="editor"):
-            raise exceptions.PermissionDenied("You do not have access to this ticket")
-
     def validate(self, data):
         request = self.context["request"]
         instance = cast(Comment, self.instance)
@@ -123,6 +127,25 @@ class CommentSerializer(serializers.ModelSerializer):
                 raise exceptions.PermissionDenied("You can only modify your own comments")
             if "is_task" in data and bool(data["is_task"]) != bool(instance.is_task):
                 raise exceptions.ValidationError({"is_task": "Cannot change task state after creation."})
+
+        # Check both the comment's persisted (scope, item_id) and the submitted target — so losing
+        # ticket editor access after creation, and re-scoping a comment into or out of a ticket,
+        # are all caught, not just fresh ticket-message creation.
+        scopes_and_items = {
+            (
+                data.get("scope", instance.scope if instance else None),
+                data.get("item_id", instance.item_id if instance else None),
+            )
+        }
+        if instance:
+            scopes_and_items.add((instance.scope, instance.item_id))
+        for scope, item_id in scopes_and_items:
+            if scope == "conversations_ticket":
+                _require_ticket_editor_access(
+                    team_id=self.context["get_team"]().id,
+                    item_id=item_id,
+                    user_access_control=self.context["get_user_access_control"](),
+                )
 
         # Skip content validation when soft-deleting a comment
         is_deleting = data.get("deleted") is True
@@ -135,8 +158,6 @@ class CommentSerializer(serializers.ModelSerializer):
 
         if not instance:
             data["created_by"] = request.user
-            if data.get("scope") == "conversations_ticket":
-                self._check_ticket_editor_access(data.get("item_id"))
             if data.get("is_task"):
                 if data.get("source_comment"):
                     raise exceptions.ValidationError({"is_task": "Replies cannot be tasks."})
@@ -352,6 +373,10 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         comment = self.get_object()
         if not comment.is_task:
             raise exceptions.ValidationError("Only tasks can be marked complete")
+        if comment.scope == "conversations_ticket":
+            _require_ticket_editor_access(
+                team_id=self.team_id, item_id=comment.item_id, user_access_control=self.user_access_control
+            )
         with transaction.atomic():
             comment = Comment.objects.select_for_update().get(pk=comment.pk)
             if comment.completed_at is not None:
@@ -374,6 +399,10 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         comment = self.get_object()
         if not comment.is_task:
             raise exceptions.ValidationError("Only tasks can be reopened")
+        if comment.scope == "conversations_ticket":
+            _require_ticket_editor_access(
+                team_id=self.team_id, item_id=comment.item_id, user_access_control=self.user_access_control
+            )
         with transaction.atomic():
             comment = Comment.objects.select_for_update().get(pk=comment.pk)
             if comment.completed_at is None:
