@@ -15,8 +15,10 @@ import { Breadcrumb } from '~/types'
 import type { RecordingSnapshot } from '../../../../../common/replay-shared/src/types'
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { PersonType } from '../../../types'
-import { sessionRecordingDataCoordinatorLogic } from '../player/sessionRecordingDataCoordinatorLogic'
-import type { sessionRecordingDataCoordinatorLogicType } from '../player/sessionRecordingDataCoordinatorLogicType'
+import {
+    sessionRecordingDataCoordinatorLogic,
+    type sessionRecordingDataCoordinatorLogicType,
+} from '../player/sessionRecordingDataCoordinatorLogic'
 import { SessionRecordingPlayerProps } from '../player/SessionRecordingPlayer'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import { ExportedSessionRecordingFileV1, ExportedSessionRecordingFileV2 } from './types'

@@ -69,19 +69,16 @@ export interface sessionRecordingExperimentContextLogicActions {
 export interface sessionRecordingExperimentContextLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        experimentContextEnabled: (
-            featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
-            arg: any
-        ) => boolean
+        experimentContextEnabled: (featureFlags: FeatureFlagsSet, arg: any) => boolean
         experimentItems: (
             experimentContext: ExperimentSessionContextResponseApi | null
         ) => ExperimentSessionContextItemApi[]
         seenItems: (experimentItems: ExperimentSessionContextItemApi[]) => ExperimentSessionContextItemApi[]
         enrolledItems: (experimentItems: ExperimentSessionContextItemApi[]) => ExperimentSessionContextItemApi[]
-        seenCount: (seenItems: any) => number
-        enrolledCount: (enrolledItems: any) => number
+        seenCount: (seenItems: ExperimentSessionContextItemApi[]) => number
+        enrolledCount: (enrolledItems: ExperimentSessionContextItemApi[]) => number
         hasExperimentContext: (experimentItems: ExperimentSessionContextItemApi[]) => boolean
-        hasMultipleVariantWarning: (seenItems: any) => boolean
+        hasMultipleVariantWarning: (seenItems: ExperimentSessionContextItemApi[]) => boolean
     }
 }
 

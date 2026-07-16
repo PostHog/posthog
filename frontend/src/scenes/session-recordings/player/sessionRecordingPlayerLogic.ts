@@ -61,9 +61,10 @@ import type { PreflightStatus, SessionRecordingSnapshotSource, SessionRecordingT
 import { deletedRecordingsLogic } from '../deletedRecordingsLogic'
 import { ExportedSessionRecordingFileV2 } from '../file-playback/types'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
-import { playerCommentOverlayLogic } from './commenting/playerFrameCommentOverlayLogic'
-import type { RecordingCommentForm } from './commenting/playerFrameCommentOverlayLogic'
-import { playerCommentOverlayLogicType } from './commenting/playerFrameCommentOverlayLogicType'
+import {
+    playerCommentOverlayLogic,
+    type playerCommentOverlayLogicType,
+} from './commenting/playerFrameCommentOverlayLogic'
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { snapshotDataLogic } from './snapshotDataLogic'
 import {
