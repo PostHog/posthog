@@ -68,9 +68,9 @@ export interface VisibleSpanTimeRange {
 
 const DEFAULT_PAGE_SIZE = 100
 export const PREFETCH_SPANS = 20
-const NEW_QUERY_STARTED_ERROR_MESSAGE = 'new query started' as const
+export const NEW_QUERY_STARTED_ERROR_MESSAGE = 'new query started' as const
 
-function isUserInitiatedError(error: unknown): boolean {
+export function isUserInitiatedError(error: unknown): boolean {
     const errorStr = String(error).toLowerCase()
     return error === NEW_QUERY_STARTED_ERROR_MESSAGE || errorStr.includes('abort')
 }

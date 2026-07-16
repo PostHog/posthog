@@ -13,15 +13,19 @@
  * Faux net — wiring, not inference quality.
  */
 
-import { readdir, readFile } from 'node:fs/promises'
+import { execFile } from 'node:child_process'
+import { cp, mkdir, mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
 
 import { AgentSpecSchema } from '@posthog/agent-shared'
 import { listNativeTools } from '@posthog/agent-tools'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const BUNDLE_ROOT = resolve(__dirname, '../examples/agent-builder')
+const execFileAsync = promisify(execFile)
 
 async function loadBundle(): Promise<{ spec: Record<string, unknown>; files: Record<string, string> }> {
     const spec = JSON.parse(await readFile(join(BUNDLE_ROOT, 'spec.json'), 'utf-8')) as Record<string, unknown>
@@ -181,5 +185,23 @@ describe('example: agent-builder bundle', () => {
         expect(src).toContain('def per_file_sha256(')
         // The bundle now SHIPS an MCP — the seeder must never blank mcps[].
         expect(src).not.toContain('spec["mcps"] = []')
+    })
+
+    it('the shared example seeder starts from the production sparse checkout', async () => {
+        const tempRoot = await mkdtemp(join(tmpdir(), 'agent-builder-seed-'))
+        const sparseExamplesRoot = join(tempRoot, 'products/agent_platform/services/agent-tests/src/examples')
+
+        try {
+            await mkdir(dirname(sparseExamplesRoot), { recursive: true })
+            await cp(resolve(__dirname, '../examples'), sparseExamplesRoot, { recursive: true })
+
+            const { stdout } = await execFileAsync('python3', [join(sparseExamplesRoot, 'seed.py'), '--list'], {
+                env: { ...process.env, SEED_DUMMY_SECRETS: '0' },
+            })
+
+            expect(stdout).toContain('agent-builder')
+        } finally {
+            await rm(tempRoot, { recursive: true, force: true })
+        }
     })
 })
