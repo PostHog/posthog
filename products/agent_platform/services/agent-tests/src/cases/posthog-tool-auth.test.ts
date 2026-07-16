@@ -23,6 +23,14 @@ import { buildCluster, closeSharedPool, Cluster, fauxCallTool, fauxText } from '
 const AGENT_TEAM = 100
 const CALLER_TEAM = 200
 
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+    let resolve!: (value: T) => void
+    const promise = new Promise<T>((resolvePromise) => {
+        resolve = resolvePromise
+    })
+    return { promise, resolve }
+}
+
 // A user from CALLER_TEAM authenticating with a bearer. The principal carries
 // the caller's team; the bearer flows to tools as the `posthog_api` credential.
 const callerProvider: AuthProvider = {
@@ -90,6 +98,59 @@ describe('@posthog/* data tools: act as the calling user, not the agent team', (
         // …and never the agent's owning team.
         expect(calledUrls.some((u) => u.includes(`/api/projects/${AGENT_TEAM}/`))).toBe(false)
         // …carrying the caller's bearer (acts as the user; API enforces access).
+        const authHeaders = fetchMock.mock.calls.map((call) => {
+            const init = call[1] as { headers?: Record<string, string> } | undefined
+            return init?.headers?.Authorization
+        })
+        expect(authHeaders).toContain('Bearer caller-token')
+    })
+
+    it('makes the caller bearer available when a worker is already polling', async () => {
+        c.setScript([fauxCallTool('@posthog/agent-applications-list', { project_id: CALLER_TEAM }), fauxText('listed')])
+        await c.deployAgent({
+            slug: 'polling-worker',
+            teamId: AGENT_TEAM,
+            spec: {
+                auth: { modes: [{ type: 'posthog' }] },
+                tools: [{ kind: 'native', id: '@posthog/agent-applications-list' }],
+            },
+        })
+
+        const credentialWriteStarted = deferred<void>()
+        const firstClaimFinished = deferred<boolean>()
+        const credentialResolveFinished = deferred<void>()
+        const originalClaim = c.queue.claim.bind(c.queue)
+        const originalWrite = c.credentialBroker.write.bind(c.credentialBroker)
+        const originalResolve = c.credentialBroker.resolve.bind(c.credentialBroker)
+
+        vi.spyOn(c.queue, 'claim').mockImplementationOnce(async (timeoutMs) => {
+            await credentialWriteStarted.promise
+            const session = await originalClaim(timeoutMs)
+            firstClaimFinished.resolve(session !== null)
+            return session
+        })
+        vi.spyOn(c.credentialBroker, 'write').mockImplementationOnce(async (...args) => {
+            credentialWriteStarted.resolve()
+            if (await firstClaimFinished.promise) {
+                await credentialResolveFinished.promise
+            }
+            await originalWrite(...args)
+        })
+        vi.spyOn(c.credentialBroker, 'resolve').mockImplementationOnce(async (...args) => {
+            const credential = await originalResolve(...args)
+            credentialResolveFinished.resolve()
+            return credential
+        })
+
+        const workerLoop = c.worker.loop({ iterations: 1, claimTimeoutMs: 10 })
+        const runRequest = request(c.ingress)
+            .post('/agents/polling-worker/run')
+            .set('authorization', 'Bearer caller-token')
+            .send({ message: 'list my agents' })
+            .then((response) => response)
+        const [res] = await Promise.all([runRequest, workerLoop])
+
+        expect(res.status).toBe(200)
         const authHeaders = fetchMock.mock.calls.map((call) => {
             const init = call[1] as { headers?: Record<string, string> } | undefined
             return init?.headers?.Authorization
