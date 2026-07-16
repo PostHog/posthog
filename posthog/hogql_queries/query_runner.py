@@ -107,6 +107,7 @@ from posthog.clickhouse.query_tagging import get_query_tag_value, is_api_key_acc
 from posthog.constants import AvailableFeature
 from posthog.errors import QueryErrorCategory, classify_query_error, clickhouse_error_type
 from posthog.event_usage import AnalyticsProps, groups, report_user_or_team_action
+from posthog.exceptions import APIQueriesQuotaExceeded
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.access_controlled_resources import queried_access_controlled_resources
 from posthog.hogql_queries.insights.utils.breakdowns import has_multi_breakdown, has_single_breakdown
@@ -334,11 +335,14 @@ def shared_insights_execution_mode(
     older (or missing) recomputes synchronously — throttling forced recomputes without a
     separate clock.
 
-    Pass `team` to record when an over-quota organization's shared or embedded resources
-    trigger calculation: shared links are public, so this surface needs its own review
-    metrics before any enforcement decision.
+    Pass `team` so an organization over its API queries quota degrades to cached-only
+    results: shared links are public, and would otherwise let anyone keep triggering fresh
+    calculations for an over-quota org.
     """
     if team is not None and get_api_queries_quota_limited_until(team) is not None:
+        if settings.API_QUERIES_QUOTA_ENFORCEMENT_ENABLED:
+            API_QUERIES_QUOTA_LIMITED_COUNTER.labels(surface="shared", outcome="enforced").inc()
+            return SharedExecutionSettings(ExecutionMode.CACHE_ONLY_NEVER_CALCULATE, None)
         API_QUERIES_QUOTA_LIMITED_COUNTER.labels(surface="shared", outcome="observed").inc()
 
     if execution_mode == ExecutionMode.CALCULATE_BLOCKING_ALWAYS:
@@ -2065,7 +2069,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
     def get_api_queries_concurrency_limit(self):
         """
-        :return: None - no feature, 0 - rate limited, 1,3,<other> for actual concurrency limit
+        :return: None - no feature, 1,3,<other> for actual concurrency limit
         """
 
         # TODO - remove once no longer needed, as per https://posthog.slack.com/archives/C075D3C5HST/p1766275591753869
@@ -2075,33 +2079,37 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         if not settings.EE_AVAILABLE or not settings.API_QUERIES_ENABLED:
             return None
 
-        from posthog.constants import AvailableFeature
-
-        from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
-
-        if self.team.api_token in list_limited_team_attributes(
-            QuotaResource.API_QUERIES, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
-        ):
-            return 0
-
         feature = self.team.organization.get_available_feature(AvailableFeature.API_QUERIES_CONCURRENCY)
         return feature.get("limit") if feature else None
 
     def _check_api_queries_quota(self) -> None:
-        """Observe chargeable API queries while the organization is over its
+        """Reject chargeable API queries while the organization is over its
         api_queries_read_bytes quota.
 
-        Observe-only: the over-quota calculation is counted and tagged in the query log so
-        the would-be-limited fleet can be reviewed; nothing is blocked. Runs at calculation
-        time only, so cached results are never counted — the quota is about ClickHouse reads.
+        Runs at calculation time only, so cached results keep being served — the quota caps
+        ClickHouse reads, and serving cache reads nothing. Observe-only unless
+        API_QUERIES_QUOTA_ENFORCEMENT_ENABLED: an over-quota calculation is then counted and
+        tagged in the query log, but never blocked.
         """
         limited_until = get_api_queries_quota_limited_until(self.team)
         if limited_until is None:
             return
 
-        # Breadcrumb in the query log so the would-be-limited fleet is reviewable.
-        tag_queries(api_queries_over_quota=1)
-        API_QUERIES_QUOTA_LIMITED_COUNTER.labels(surface="api", outcome="observed").inc()
+        if not settings.API_QUERIES_QUOTA_ENFORCEMENT_ENABLED:
+            # Breadcrumb in the query log so the would-be-limited fleet is reviewable.
+            tag_queries(api_queries_over_quota=1)
+            API_QUERIES_QUOTA_LIMITED_COUNTER.labels(surface="api", outcome="observed").inc()
+            return
+
+        API_QUERIES_QUOTA_LIMITED_COUNTER.labels(surface="api", outcome="enforced").inc()
+        raise APIQueriesQuotaExceeded(
+            detail=(
+                "Your organization has read more query data over the API than its plan includes for this "
+                f"billing period. API queries will be available again after {limited_until:%Y-%m-%d %H:%M} UTC, "
+                "when the period resets. Upgrade your plan in Billing settings to restore access sooner, "
+                "or ask an org admin to do so."
+            )
+        )
 
     @abstractmethod
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:

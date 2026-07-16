@@ -943,6 +943,15 @@ KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS = int(os.getenv("KAFKA_PRODUCE_ACK_TIMEOUT_SEC
 # if `true` we highly increase the rate limit on /query endpoint and limit the number of concurrent queries
 API_QUERIES_ENABLED = get_from_env("API_QUERIES_ENABLED", False, type_cast=str_to_bool)
 
+# Enforcement switch for the `api_queries_read_bytes` quota. When `false` (observe-only),
+# queries from organizations over the quota still run — we only count them in metrics and
+# tag them in the query log so the would-be-limited fleet can be reviewed. When `true`,
+# API queries from over-quota organizations are rejected and shared/embedded resources
+# degrade to serving cached results until the billing period resets.
+API_QUERIES_QUOTA_ENFORCEMENT_ENABLED = get_from_env(
+    "API_QUERIES_QUOTA_ENFORCEMENT_ENABLED", False, type_cast=str_to_bool
+)
+
 ####
 # /api/environments deprecation
 

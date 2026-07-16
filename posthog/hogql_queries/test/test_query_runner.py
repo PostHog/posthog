@@ -10,6 +10,7 @@ from unittest import mock
 from django.conf import settings
 from django.core.cache import cache
 from django.db import connection
+from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
@@ -49,6 +50,7 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tags, reset_query_tags
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError
+from posthog.exceptions import APIQueriesQuotaExceeded
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import (
@@ -1362,41 +1364,97 @@ class TestAPIQueriesQuotaLimiting(BaseTest):
 
     @parameterized.expand(
         [
-            # name, is_query_service, team_limited, expect_breadcrumb
-            ("over_quota_api_query_observed", True, True, True),
-            ("in_app_query_not_observed", False, True, False),
-            ("unlimited_team_not_observed", True, False, False),
+            # name, enforcement_enabled, is_query_service, team_limited, expect_rejection
+            ("enforced_api_query_rejected", True, True, True, True),
+            ("observe_only_query_still_runs", False, True, True, False),
+            ("in_app_query_unaffected", True, False, True, False),
+            ("unlimited_team_unaffected", True, True, False, False),
         ]
     )
-    def test_over_quota_queries_run_and_leave_review_breadcrumb(
-        self, _name: str, is_query_service: bool, team_limited: bool, expect_breadcrumb: bool
+    def test_quota_enforcement_matrix(
+        self,
+        _name: str,
+        enforcement_enabled: bool,
+        is_query_service: bool,
+        team_limited: bool,
+        expect_rejection: bool,
     ) -> None:
         if team_limited:
             self._limit_team()
         runner = self._make_runner(is_query_service=is_query_service)
 
-        response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        with override_settings(API_QUERIES_QUOTA_ENFORCEMENT_ENABLED=enforcement_enabled):
+            if expect_rejection:
+                with self.assertRaises(APIQueriesQuotaExceeded):
+                    runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            else:
+                response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+                assert isinstance(response, TheTestCachedBasicQueryResponse)
+                assert response.results
 
-        assert isinstance(response, TheTestCachedBasicQueryResponse)
-        assert response.results
-        assert (get_query_tags().api_queries_over_quota == 1) is expect_breadcrumb
+    def test_rejection_names_reset_date_and_upgrade_path(self) -> None:
+        limited_until = self._limit_team()
+        runner = self._make_runner(is_query_service=True)
+
+        with override_settings(API_QUERIES_QUOTA_ENFORCEMENT_ENABLED=True):
+            with self.assertRaises(APIQueriesQuotaExceeded) as ctx:
+                runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        detail = str(ctx.exception.detail)
+        assert f"{datetime.fromtimestamp(limited_until, tz=UTC):%Y-%m-%d %H:%M} UTC" in detail
+        assert "Billing settings" in detail
+        assert ctx.exception.status_code == 402
+        assert ctx.exception.get_codes() == "api_queries_quota_exceeded"
 
     def test_fails_open_when_redis_unavailable(self) -> None:
         self._limit_team()
         runner = self._make_runner(is_query_service=True)
 
-        with mock.patch("ee.billing.quota_limiting.get_client", side_effect=ConnectionError("redis down")):
-            response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        with override_settings(API_QUERIES_QUOTA_ENFORCEMENT_ENABLED=True):
+            with mock.patch("ee.billing.quota_limiting.get_client", side_effect=ConnectionError("redis down")):
+                response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
 
         assert isinstance(response, TheTestCachedBasicQueryResponse)
         assert response.results
 
-    def test_shared_surfaces_keep_their_mapping_while_observing(self) -> None:
+    def test_observe_mode_leaves_review_breadcrumb_in_query_tags(self) -> None:
         self._limit_team()
+        runner = self._make_runner(is_query_service=True)
 
-        result_mode, _cache_age = shared_insights_execution_mode(ExecutionMode.CALCULATE_BLOCKING_ALWAYS, self.team)
+        response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
 
-        assert result_mode == ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+        assert isinstance(response, TheTestCachedBasicQueryResponse)
+        assert response.results
+        assert get_query_tags().api_queries_over_quota == 1
+
+    @parameterized.expand(
+        [
+            # name, enforcement_enabled, team_limited, expected_mode
+            ("enforced_degrades_to_cache_only", True, True, ExecutionMode.CACHE_ONLY_NEVER_CALCULATE),
+            (
+                "observe_only_keeps_shared_mapping",
+                False,
+                True,
+                ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+            ),
+            (
+                "unlimited_team_keeps_shared_mapping",
+                True,
+                False,
+                ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+            ),
+        ]
+    )
+    def test_shared_surfaces_degrade_to_cached_results(
+        self, _name: str, enforcement_enabled: bool, team_limited: bool, expected_mode: ExecutionMode
+    ) -> None:
+        if team_limited:
+            self._limit_team()
+
+        with override_settings(API_QUERIES_QUOTA_ENFORCEMENT_ENABLED=enforcement_enabled):
+            result_mode, _cache_age = shared_insights_execution_mode(ExecutionMode.CALCULATE_BLOCKING_ALWAYS, self.team)
+
+        assert result_mode == expected_mode
 
 
 @pytest.mark.ee
