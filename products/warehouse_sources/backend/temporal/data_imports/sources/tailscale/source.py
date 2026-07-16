@@ -47,6 +47,13 @@ class TailscaleSource(ResumableSource[TailscaleSourceConfig, TailscaleResumeConf
         return ExternalDataSourceType.TAILSCALE
 
     @property
+    def connection_host_fields(self) -> list[str]:
+        # `tailnet` selects which tailnet the stored credential reads from; retargeting it
+        # must re-require the secret so a preserved multi-tailnet credential can't be aimed
+        # at another tailnet by an editor who doesn't hold the credential.
+        return ["tailnet"]
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.TAILSCALE,

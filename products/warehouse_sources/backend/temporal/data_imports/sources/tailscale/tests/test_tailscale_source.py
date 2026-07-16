@@ -29,6 +29,11 @@ class TestTailscaleSource:
     def test_source_type(self):
         assert self.source.source_type == ExternalDataSourceType.TAILSCALE
 
+    def test_tailnet_change_requires_reentering_secrets(self):
+        # The update serializer keys off this to force re-entry of the stored credential
+        # when the tailnet is retargeted.
+        assert self.source.connection_host_fields == ["tailnet"]
+
     def test_get_source_config(self):
         config = self.source.get_source_config
 
