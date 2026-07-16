@@ -119,6 +119,45 @@ def _is_transient_connect_drop(error_message: str) -> bool:
     return any(substring in error_message for substring in _TRANSIENT_CONNECT_DROP_SUBSTRINGS)
 
 
+# An HTTP 429 (Too Many Requests) from the ClickHouse host — or a proxy/LB in front of
+# it — while opening the connection. clickhouse-connect surfaces it as
+# "HTTPDriver for <url> returned response code 429" (the same wording as the 404 we
+# classify as non-retryable in `ClickHouseSource.get_non_retryable_errors`). Unlike a
+# 404, the host is up and simply throttling us: it's transient, so we back off
+# in-process and retry rather than letting it bubble up to Temporal, which would re-run
+# the whole import activity and hammer an already rate-limited host with no delay.
+_RATE_LIMIT_STATUS_SUBSTRING = "returned response code 429"
+
+# Base backoff for a rate-limited connect. We wait longer than the connection-drop
+# backoff and grow it per attempt, so we don't immediately re-hit a host that just
+# asked us to slow down. Overridden by a `Retry-After` value when one is present.
+_RATE_LIMIT_BASE_BACKOFF_SECONDS = 5
+
+# Parse a `Retry-After: <seconds>` hint out of the error message. clickhouse-connect
+# doesn't surface response headers in its exceptions today, so this is a best-effort
+# guard for hosts/proxies that echo the header into the error body — when absent we
+# fall back to exponential backoff. We only honor the delta-seconds form, not an
+# HTTP-date, and cap it so a hostile value can't stall the worker.
+_RETRY_AFTER_RE = re.compile(r"retry-after:\s*(\d+)", re.IGNORECASE)
+_RETRY_AFTER_MAX_SECONDS = 120
+
+
+def _is_rate_limited(error_message: str) -> bool:
+    return _RATE_LIMIT_STATUS_SUBSTRING in error_message
+
+
+def _rate_limit_backoff_seconds(error_message: str, attempt: int) -> float:
+    """Seconds to wait before retrying a rate-limited connect.
+
+    Honors a `Retry-After` value from the message when present (capped), otherwise
+    backs off exponentially from the base delay.
+    """
+    match = _RETRY_AFTER_RE.search(error_message)
+    if match is not None:
+        return float(min(int(match.group(1)), _RETRY_AFTER_MAX_SECONDS))
+    return _RATE_LIMIT_BASE_BACKOFF_SECONDS * (2 ** (attempt - 1))
+
+
 def _get_client(
     *,
     host: str,
@@ -171,6 +210,17 @@ def _get_client(
                     exc_info=e,
                 )
                 time.sleep(attempt)
+                continue
+            if attempt < _MAX_CONNECT_ATTEMPTS and _is_rate_limited(message):
+                backoff = _rate_limit_backoff_seconds(message, attempt)
+                structlog.get_logger().warning(
+                    "ClickHouse host rate-limited us (HTTP 429) during connect; backing off",
+                    attempt=attempt,
+                    max_attempts=_MAX_CONNECT_ATTEMPTS,
+                    backoff_seconds=backoff,
+                    exc_info=e,
+                )
+                time.sleep(backoff)
                 continue
             raise ClickHouseConnectionError(message) from e
 
