@@ -331,7 +331,7 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                 if (!reviewDetail) {
                     return null
                 }
-                const thresholdRank = REVIEW_PRIORITY_RANK[settings?.urgency_threshold ?? 'should_fix']
+                const thresholdRank = REVIEW_PRIORITY_RANK[settings?.urgency_threshold ?? 'consider']
                 return {
                     published: reviewDetail.findings.filter(
                         (f) => REVIEW_PRIORITY_RANK[f.effective_priority] >= thresholdRank
