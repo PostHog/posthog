@@ -40,6 +40,7 @@ from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.utils_cors import cors_response
 
+from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
 from products.feature_flags.backend.facade.api import create_flag, set_flag_active, update_flag
 from products.product_tours.backend.constants import ProductTourEventName, ProductTourPersonProperties
@@ -275,6 +276,11 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         return data
 
+    # Kept @transaction.atomic so a failed create rolls back cleanly instead of leaving a tour
+    # persisted without its internal targeting flag. The trade-off (mirroring experiments'
+    # create_experiment) is that an approval-gated flag write here rolls back its pending
+    # ChangeRequest along with the tour; the update path below runs non-atomically to avoid
+    # that, which it can because the tour already exists there.
     @transaction.atomic
     def create(self, validated_data):
         request = self.context["request"]
@@ -318,7 +324,12 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         return instance
 
-    @transaction.atomic
+    # Not @transaction.atomic: the internal targeting flag writes below route through the
+    # feature flag facade's approval gate, which can raise ApprovalRequired (surfacing as a
+    # 409 + a pending ChangeRequest). Wrapping them in a transaction would roll that
+    # ChangeRequest back as the exception propagates, leaving the 409 pointing at a request
+    # that no longer exists. Running non-atomically keeps the pending ChangeRequest intact for
+    # an approver to act on — mirroring experiments' update_experiment.
     def update(self, instance, validated_data):
         request = self.context["request"]
         team = self.context["get_team"]()
@@ -755,7 +766,17 @@ class GenerateResponseSerializer(serializers.Serializer):
         ],
     ),
 )
-class ProductTourViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
+class ProductTourViewSet(
+    # Converts the ApprovalRequired raised by FeatureFlagSerializer, when a gated internal
+    # targeting flag write needs approval, into a 409 carrying the pending change_request_id
+    # rather than a 500.
+    ApprovalHandlingMixin,
+    TeamAndOrgViewSetMixin,
+    AccessControlViewSetMixin,
+    viewsets.ModelViewSet,
+):
+    """Create, read, update, and manage product tours and their targeting."""
+
     scope_object = "product_tour"
     scope_object_read_actions = ["list", "retrieve", "draft_status"]
     scope_object_write_actions = [
