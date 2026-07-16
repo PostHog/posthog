@@ -426,7 +426,7 @@ class TestFetchPageRetry:
             resp.json.return_value = {"data": [], "links": {}}
             resp.text = f"{status} body"
             if status >= 400:
-                resp.raise_for_status.side_effect = requests.HTTPError(f"{status} Client Error")
+                resp.raise_for_status.side_effect = requests.HTTPError(f"{status} Client Error", response=resp)
             return resp
 
         # Patch tenacity's backoff sleep so retries don't block the test.
