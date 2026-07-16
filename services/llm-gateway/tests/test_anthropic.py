@@ -893,6 +893,40 @@ class TestSanitizeForBedrock:
         result = self._call(data)
         assert "tool_choice" not in result
 
+    def test_drops_auto_tool_choice_when_all_tools_stripped(self) -> None:
+        # Stripping the only (server-side) tool deletes the tools key entirely; tool_choice must go
+        # with it or Bedrock rejects a tool_choice with nothing to choose from.
+        data: dict[str, Any] = {
+            "model": "m",
+            "tools": [{"type": "web_search_20250305", "name": "web_search"}],
+            "tool_choice": {"type": "auto"},
+        }
+        result = self._call(data)
+        assert "tools" not in result
+        assert "tool_choice" not in result
+
+    def test_increments_metric_for_message_and_tool_choice_strips(self) -> None:
+        from llm_gateway.api.anthropic import sanitize_for_bedrock
+        from llm_gateway.metrics.prometheus import BEDROCK_PARAM_STRIPPED
+
+        def counter(param: str) -> float:
+            return BEDROCK_PARAM_STRIPPED.labels(param=param, product="test")._value.get()
+
+        before = {param: counter(param) for param in ("messages.server_tool_blocks", "tool_choice")}
+        sanitize_for_bedrock(
+            {
+                "model": "m",
+                "tool_choice": {"type": "any"},
+                "messages": [
+                    {"role": "assistant", "content": [{"type": "server_tool_use", "name": "web_search", "input": {}}]}
+                ],
+            },
+            model="test-model",
+            product="test",
+        )
+        assert counter("messages.server_tool_blocks") == before["messages.server_tool_blocks"] + 1
+        assert counter("tool_choice") == before["tool_choice"] + 1
+
 
 class TestStripStructuredOutputFormat:
     """Unit tests for strip_structured_output_format — prunes Bedrock-rejected output_config sub-keys."""
@@ -994,14 +1028,15 @@ class TestReconcileToolChoice:
         self._call(data)
         assert data["tool_choice"] == {"type": "tool", "name": "read_data"}
 
-    def test_drops_any_when_no_tools_remain(self) -> None:
-        data: dict[str, Any] = {"tool_choice": {"type": "any"}}
+    @pytest.mark.parametrize("choice_type", ["any", "auto", "none"])
+    def test_drops_tool_choice_when_no_tools_remain(self, choice_type: str) -> None:
+        data: dict[str, Any] = {"tool_choice": {"type": choice_type}}
         self._call(data)
         assert "tool_choice" not in data
 
-    @pytest.mark.parametrize("choice_type", ["auto", "none"])
-    def test_keeps_auto_and_none_without_tools(self, choice_type: str) -> None:
-        data: dict[str, Any] = {"tool_choice": {"type": choice_type}}
+    @pytest.mark.parametrize("choice_type", ["any", "auto", "none"])
+    def test_keeps_non_named_tool_choice_when_tools_remain(self, choice_type: str) -> None:
+        data: dict[str, Any] = {"tool_choice": {"type": choice_type}, "tools": [{"name": "read_data"}]}
         self._call(data)
         assert data["tool_choice"] == {"type": choice_type}
 

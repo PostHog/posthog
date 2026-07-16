@@ -281,6 +281,7 @@ def strip_server_side_tool_uses_from_messages(data: dict[str, Any], *, model: st
     if stripped:
         data["messages"] = new_messages
         logger.warning("Stripping server-side tool blocks from messages for Bedrock", model=model, product=product)
+        BEDROCK_PARAM_STRIPPED.labels(param="messages.server_tool_blocks", product=product).inc()
 
 
 def _is_server_side_tool_block(block: Any) -> bool:
@@ -300,27 +301,29 @@ def _is_server_side_tool_block(block: Any) -> bool:
 def reconcile_tool_choice(data: dict[str, Any], *, model: str, product: str) -> None:
     """Drop a tool_choice that can no longer be satisfied after server-side tools were stripped.
 
-    Bedrock 400s on a tool_choice that names a tool absent from the (possibly now-empty) tools list,
-    or that forces tool use ("any"/"tool") when no tools remain. "auto"/"none" stay valid regardless.
+    Bedrock 400s on a tool_choice that names a tool absent from the tools list. When stripping left
+    no tools at all, tool_choice is dropped regardless of type: "any"/"tool" force tool use that
+    can't happen, and even "auto"/"none" are no-ops without tools yet still risk rejection as a
+    tool_choice with nothing to choose from.
     """
     tool_choice = data.get("tool_choice")
     if not isinstance(tool_choice, dict):
         return
 
-    choice_type = tool_choice.get("type")
-    tool_names = {tool.get("name") for tool in data.get("tools", []) if isinstance(tool, dict)}
+    tools = data.get("tools")
+    tool_names = {tool.get("name") for tool in tools if isinstance(tool, dict)} if isinstance(tools, list) else set()
 
-    drop = False
-    if choice_type == "tool":
-        drop = tool_choice.get("name") not in tool_names
-    elif choice_type == "any":
-        drop = not tool_names
+    if tool_names:
+        drop = tool_choice.get("type") == "tool" and tool_choice.get("name") not in tool_names
+    else:
+        drop = True
 
     if drop:
         del data["tool_choice"]
         logger.warning(
             "Dropping unsatisfiable tool_choice for Bedrock", tool_choice=tool_choice, model=model, product=product
         )
+        BEDROCK_PARAM_STRIPPED.labels(param="tool_choice", product=product).inc()
 
 
 async def _send_cloudflare_messages(
