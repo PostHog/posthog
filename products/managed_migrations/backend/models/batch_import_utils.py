@@ -1,6 +1,33 @@
 from typing import Optional
+from urllib.parse import urlsplit, urlunsplit
 
 from posthog.models.user import User
+
+
+def redact_part_key(key: object) -> object:
+    """Strip credential-bearing URL components from a worker part key.
+
+    url_list imports use full source URLs as part keys, and those URLs live in the
+    encrypted secrets column precisely because they can embed presigned tokens
+    (query string) or basic-auth credentials (userinfo). The worker copies them
+    verbatim into the plaintext state blob, so anything that surfaces a part key
+    must redact those components. Scheme/host/path are kept so the part stays
+    identifiable; non-URL keys (S3 object keys, date ranges, file paths) pass
+    through unchanged, as do non-string values from a malformed state blob.
+    """
+    if not isinstance(key, str) or "://" not in key:
+        return key
+    try:
+        parts = urlsplit(key)
+        if not parts.scheme or not parts.netloc:
+            return key
+        host = parts.hostname or ""
+        if parts.port is not None:
+            host = f"{host}:{parts.port}"
+        return urlunsplit((parts.scheme, host, parts.path, "", ""))
+    except ValueError:
+        # Unparseable URL-ish key (e.g. bad port/IPv6): fail closed rather than leak.
+        return "[unparseable-url-redacted]"
 
 
 def extract_batch_import_info(batch_import) -> tuple[str, str, Optional[str], Optional[str]]:

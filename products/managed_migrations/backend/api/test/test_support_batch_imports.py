@@ -2,6 +2,8 @@ from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import APIBaseTest
 
+from django.test import SimpleTestCase
+
 import structlog.testing
 from parameterized import parameterized
 from rest_framework import status
@@ -11,7 +13,37 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.managed_migrations.backend.api.support_batch_imports import BatchImportSupportDetailSerializer
+from products.managed_migrations.backend.models.batch_import_utils import redact_part_key
 from products.managed_migrations.backend.models.batch_imports import BatchImport, ContentType
+
+
+class TestRedactPartKey(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("s3_object_key", "2024/01/events-0001.jsonl.gz", "2024/01/events-0001.jsonl.gz"),
+            (
+                "date_range_key",
+                "2025-01-01T00:00:00Z-2025-01-02T00:00:00Z",
+                "2025-01-01T00:00:00Z-2025-01-02T00:00:00Z",
+            ),
+            (
+                "presigned_query_stripped",
+                "https://bucket.s3.amazonaws.com/exports/day-1.jsonl?X-Amz-Signature=abc&X-Amz-Credential=AKIA",
+                "https://bucket.s3.amazonaws.com/exports/day-1.jsonl",
+            ),
+            ("basic_auth_stripped", "https://user:pass@example.com/d.jsonl", "https://example.com/d.jsonl"),
+            ("port_kept", "https://example.com:8443/d.jsonl?token=x", "https://example.com:8443/d.jsonl"),
+            ("fragment_stripped", "https://example.com/d.jsonl#frag", "https://example.com/d.jsonl"),
+            ("non_string_passthrough", None, None),
+            (
+                "unparseable_url_fails_closed",
+                "https://example.com:99999999999/d.jsonl?token=x",
+                "[unparseable-url-redacted]",
+            ),
+        ]
+    )
+    def test_redact_part_key(self, _name, key, expected):
+        self.assertEqual(redact_part_key(key), expected)
 
 
 class TestBatchImportSupportAPI(APIBaseTest):
@@ -234,6 +266,32 @@ class TestBatchImportSupportAPI(APIBaseTest):
         self.assertEqual(data["parts_progress"]["total"], 0)
         self.assertEqual(data["source_type"], "unknown")
         self.assertIsNone(data["sink_type"])
+
+    def test_url_list_part_keys_are_redacted_in_responses(self):
+        # url_list part keys are full source URLs; presigned tokens (query string) and
+        # basic-auth credentials (userinfo) must never surface through the support API,
+        # while the DB row must keep the raw URL - the worker resolves keys against it.
+        secret_url = "https://user:secretpass@bucket.s3.amazonaws.com/exports/day-1.jsonl?X-Amz-Signature=topsecret"
+        batch_import = self._create_import(
+            status=BatchImport.Status.RUNNING,
+            lease_id="worker-lease",
+            state={"parts": [{"key": secret_url, "current_offset": 0, "total_size": None}]},
+            import_config={"source": {"type": "url_list", "urls_key": "urls"}},
+        )
+
+        list_response = self.client.get("/api/managed_migrations_support/")
+        detail_response = self.client.get(f"/api/managed_migrations_support/{batch_import.id}/")
+
+        redacted = "https://bucket.s3.amazonaws.com/exports/day-1.jsonl"
+        row = next(r for r in list_response.json()["results"] if r["id"] == str(batch_import.id))
+        self.assertEqual(row["parts_progress"]["inflight_key"], redacted)
+        self.assertEqual(detail_response.json()["state"]["parts"][0]["key"], redacted)
+        for content in (list_response.content, detail_response.content):
+            self.assertNotIn(b"secretpass", content)
+            self.assertNotIn(b"topsecret", content)
+        batch_import.refresh_from_db()
+        assert batch_import.state is not None
+        self.assertEqual(batch_import.state["parts"][0]["key"], secret_url)
 
     def test_list_filters(self):
         other_team = Team.objects.create(organization=self.organization, name="Other Team")

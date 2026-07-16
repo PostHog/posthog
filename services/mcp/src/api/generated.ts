@@ -12176,7 +12176,7 @@ export namespace Schemas {
       /** Total number of parts the worker has planned for this import. */
       total: number;
       /**
-         * Key (file/date-range identifier) of the first unfinished part - the one in flight or next up. Null when all parts are done or the worker has not started.
+         * Key (file/date-range identifier) of the first unfinished part - the one in flight or next up. Null when all parts are done or the worker has not started. URL keys (url_list sources) have their query string and userinfo redacted, since those can carry presigned tokens or credentials.
          * @nullable
          */
       inflight_key: string | null;
@@ -12193,7 +12193,7 @@ export namespace Schemas {
     }
 
     /**
-     * Raw worker progress blob: {'parts': [{'key', 'current_offset', 'total_size'}]}. A part is done when current_offset >= total_size; parts are processed in order.
+     * Raw worker progress blob: {'parts': [{'key', 'current_offset', 'total_size'}]}. A part is done when current_offset >= total_size; parts are processed in order. URL part keys (url_list sources) have their query string and userinfo redacted, since those can carry presigned tokens or credentials.
      * @nullable
      */
     export type BatchImportSupportDetailState = { [key: string]: unknown } | null;
@@ -12308,7 +12308,7 @@ export namespace Schemas {
       /** Last write to the row - the worker heartbeats this while processing. */
       readonly updated_at: string;
       /**
-         * Raw worker progress blob: {'parts': [{'key', 'current_offset', 'total_size'}]}. A part is done when current_offset >= total_size; parts are processed in order.
+         * Raw worker progress blob: {'parts': [{'key', 'current_offset', 'total_size'}]}. A part is done when current_offset >= total_size; parts are processed in order. URL part keys (url_list sources) have their query string and userinfo redacted, since those can carry presigned tokens or credentials.
          * @nullable
          */
       readonly state: BatchImportSupportDetailState;

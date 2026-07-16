@@ -14,6 +14,7 @@ from posthog.permissions import APIScopePermission, IsStaffUser
 from products.managed_migrations.backend.models.batch_import_utils import (
     extract_batch_import_info,
     get_batch_import_created_by_info,
+    redact_part_key,
 )
 from products.managed_migrations.backend.models.batch_imports import BatchImport
 
@@ -34,7 +35,7 @@ class BatchImportPartsProgressSerializer(serializers.Serializer):
     total = serializers.IntegerField(help_text="Total number of parts the worker has planned for this import.")
     inflight_key = serializers.CharField(
         allow_null=True,
-        help_text="Key (file/date-range identifier) of the first unfinished part - the one in flight or next up. Null when all parts are done or the worker has not started.",
+        help_text="Key (file/date-range identifier) of the first unfinished part - the one in flight or next up. Null when all parts are done or the worker has not started. URL keys (url_list sources) have their query string and userinfo redacted, since those can carry presigned tokens or credentials.",
     )
     inflight_offset = serializers.IntegerField(
         allow_null=True,
@@ -143,7 +144,7 @@ class BatchImportSupportListSerializer(serializers.ModelSerializer):
         return {
             "done": done,
             "total": total,
-            "inflight_key": inflight.get("key") if inflight else None,
+            "inflight_key": redact_part_key(inflight.get("key")) if inflight else None,
             "inflight_offset": inflight.get("current_offset") if inflight else None,
             "inflight_total_size": inflight.get("total_size") if inflight else None,
         }
@@ -182,9 +183,8 @@ class BatchImportSupportDetailSerializer(BatchImportSupportListSerializer):
     encrypted `secrets` column, which no support serializer exposes.
     """
 
-    state = RawJSONField(
-        read_only=True,
-        help_text="Raw worker progress blob: {'parts': [{'key', 'current_offset', 'total_size'}]}. A part is done when current_offset >= total_size; parts are processed in order.",
+    state = serializers.SerializerMethodField(
+        help_text="Raw worker progress blob: {'parts': [{'key', 'current_offset', 'total_size'}]}. A part is done when current_offset >= total_size; parts are processed in order. URL part keys (url_list sources) have their query string and userinfo redacted, since those can carry presigned tokens or credentials.",
     )
     import_config = RawJSONField(
         read_only=True,
@@ -200,6 +200,18 @@ class BatchImportSupportDetailSerializer(BatchImportSupportListSerializer):
     def get_created_by_email(self, obj: BatchImport) -> str | None:
         _id, email, _name = get_batch_import_created_by_info(obj)
         return email
+
+    @extend_schema_field({"type": "object", "nullable": True})
+    def get_state(self, obj: BatchImport) -> dict | None:
+        if obj.state is None:
+            return None
+        if not isinstance(obj.state, dict):
+            return obj.state
+        parts = obj.state.get("parts")
+        if not isinstance(parts, list):
+            return obj.state
+        redacted_parts = [{**p, "key": redact_part_key(p.get("key"))} if isinstance(p, dict) else p for p in parts]
+        return {**obj.state, "parts": redacted_parts}
 
 
 class UnscopedPersonalAPIKeyPermission(BasePermission):
