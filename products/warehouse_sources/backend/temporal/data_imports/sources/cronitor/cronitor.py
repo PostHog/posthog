@@ -103,22 +103,23 @@ _SENSITIVE_REQUEST_FIELDS = ("headers", "cookies", "body")
 
 
 def _sanitize_url(url: str) -> str:
-    """Strip credential-bearing parts of a check URL while keeping the monitored endpoint legible.
+    """Reduce a check URL to just scheme + host/port so no embedded credential can survive.
 
-    Userinfo (``user:pass@``), the query string, and the fragment can each carry a signed token or
-    API key, so drop them; keep the scheme, host/port, and path so the row still says what is being
-    monitored.
+    Userinfo (``user:pass@``), the query string, and the fragment obviously carry tokens, but the
+    path does too — Slack incoming webhooks and other tokenized callback endpoints put the secret
+    in a path segment. There's no way to tell a credential-bearing path apart from a benign one, so
+    drop the path entirely and keep only scheme and host/port: enough to say *which* endpoint is
+    monitored without persisting anything secret.
     """
     try:
         parts = urlsplit(url)
     except ValueError:
         return ""
     if not parts.hostname:
-        # No scheme/host to anchor on (relative or malformed) — can't reliably locate userinfo, so
-        # keep only the path and drop the query/fragment where tokens usually live.
-        return urlunsplit(("", "", parts.path, "", ""))
+        # No scheme/host to anchor on (relative or malformed) — nothing safe to keep.
+        return ""
     netloc = parts.hostname if parts.port is None else f"{parts.hostname}:{parts.port}"
-    return urlunsplit((parts.scheme, netloc, parts.path, "", ""))
+    return urlunsplit((parts.scheme, netloc, "", "", ""))
 
 
 def _redact_monitor(monitor: dict[str, Any]) -> dict[str, Any]:
@@ -327,7 +328,10 @@ def get_rows(
     db_incremental_field_last_value: Any = None,
 ) -> Iterator[list[dict[str, Any]]]:
     # One session reused across every request so urllib3 keeps the connection alive.
-    session = make_tracked_session()
+    # capture=False: raw monitor responses embed request cookies, bodies, and credential-bearing
+    # URLs that only `_redact_monitor` strips (after sampling would have run), so keep them out of
+    # HTTP sample capture entirely.
+    session = make_tracked_session(capture=False)
 
     if endpoint == "monitors":
         yield from _get_monitor_rows(session, api_key, logger, resumable_source_manager)
@@ -383,7 +387,9 @@ def validate_credentials(api_key: str) -> tuple[bool, int | None]:
     """
     url = _build_url("/monitors", {"page": 1, "pageSize": 1})
     try:
-        response = make_tracked_session().get(
+        # capture=False for the same reason as the sync session: the probe returns a monitor whose
+        # request config can carry credentials the generic sampler would not redact.
+        response = make_tracked_session(capture=False).get(
             url, auth=(api_key, ""), headers={"Accept": "application/json"}, timeout=10
         )
     except Exception:

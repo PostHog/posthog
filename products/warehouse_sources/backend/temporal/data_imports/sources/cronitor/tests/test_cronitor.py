@@ -134,9 +134,9 @@ class TestMonitors:
 
     def test_sensitive_request_config_is_redacted(self, monkeypatch: Any) -> None:
         # HTTP-check monitors embed the outbound request config, which can carry credentials:
-        # auth headers/cookies/body are dropped wholesale, and the check URL is stripped of its
-        # userinfo and query string (both common token vectors) while keeping host and path.
-        monitor = {
+        # auth headers/cookies/body are dropped wholesale, and the check URL is reduced to scheme
+        # + host/port so no userinfo, query string, or path segment can persist a token.
+        monitor: dict[str, Any] = {
             "key": "check-a",
             "created": "2026-01-01T00:00:00Z",
             "request": {
@@ -151,18 +151,26 @@ class TestMonitors:
         rows = _collect(_FakeResumableManager(), "monitors")
 
         assert len(rows) == 1
-        assert rows[0]["request"] == {"url": "https://example.com:8443/health", "method": "GET"}
+        assert rows[0]["request"] == {"url": "https://example.com:8443", "method": "GET"}
         # The original response dict must not be mutated in place.
         assert "headers" in monitor["request"]
         assert monitor["request"]["url"] == "https://user:pass@example.com:8443/health?token=secret#frag"
 
-    def test_monitor_without_sensitive_request_is_untouched(self, monkeypatch: Any) -> None:
-        # A credential-free monitor (no request config, or a request with a clean URL) passes
-        # through unchanged so redaction never strips useful data.
-        monitors = [
-            {"key": "job-a", "created": "2026-01-01T00:00:00Z"},
-            {"key": "check-b", "request": {"url": "https://example.com/health", "method": "HEAD"}},
-        ]
+    def test_tokenized_url_path_is_not_persisted(self, monkeypatch: Any) -> None:
+        # Slack incoming webhooks (and similar callback endpoints) embed the secret in a path
+        # segment, so the path must be dropped, not just the query string.
+        monitor: dict[str, Any] = {
+            "key": "slack-check",
+            "request": {"url": "https://hooks.slack.com/services/T00000/B00000/XXXXsecretXXXX"},
+        }
+        _patch_fetch(monkeypatch, {_monitors_url(1): {"monitors": [monitor]}})
+        rows = _collect(_FakeResumableManager(), "monitors")
+
+        assert rows[0]["request"] == {"url": "https://hooks.slack.com"}
+
+    def test_monitor_without_request_config_is_untouched(self, monkeypatch: Any) -> None:
+        # A monitor with no request config has nothing to redact and passes through unchanged.
+        monitors = [{"key": "job-a", "created": "2026-01-01T00:00:00Z"}]
         _patch_fetch(monkeypatch, {_monitors_url(1): {"monitors": monitors}})
         rows = _collect(_FakeResumableManager(), "monitors")
 
