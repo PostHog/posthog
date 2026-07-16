@@ -11,7 +11,7 @@ The implementation is split across:
 - PostHog backend branch: `posthog-code/cloud-run-steering`
 - PostHog Code branch: `posthog-code/cloud-run-steering-agent`
 
-The latest fixes make the final child-to-parent retry bound replay-safe, recover parent workflows when a child has already closed, and scope resume deduplication to ordered prompt turns instead of matching message payloads globally.
+The latest fixes patch-gate closed-child recovery for existing Temporal histories, clear all stale steer intent at sandbox boundaries, bound repeated replacement attempts, and reconcile resumed transcripts by ordered prompt occurrence instead of global prompt identity.
 
 ## What the feature does
 
@@ -306,14 +306,73 @@ The authoritative-final versus inherited-chunk reconciliation now stores each pr
 
 The regression includes two turns with identical completion payloads and verifies that only the persisted earlier completion is deduplicated while the later live completion remains.
 
+## Replay-gated replacement recovery and occurrence-aligned hydration
+
+### Closed-child recovery preserves existing Temporal command histories
+
+The three new recovery entry points now have independent Temporal patches:
+
+- Initial follow-up signaling discovers a closed child.
+- Completion signaling discovers a closed child.
+- A stale acknowledgement retry discovers a closed child.
+
+Existing histories without the matching patch retain the previous behavior and command sequence: the acknowledgement slot remains armed and no queue mutation or persistence activity is scheduled during replay.
+
+New histories record the patch before they recover the closed sandbox, restore unacknowledged messages, persist the queue, and prepare a replacement sandbox.
+
+The parameterized regression covers historical closed-child failures in all three paths and verifies that recovery commands are not introduced when the patch is absent.
+
+### Every pending steer is normalized at a sandbox boundary
+
+Closed-child and shutdown recovery now clear `steer` on the complete pending external queue, not only the message that was in flight.
+
+If `S1` discovers the child is closed while `S2` is still unsent, both messages cross the boundary as ordered normal follow-ups. The replacement sandbox cannot merge `S2` into `S1`'s new turn.
+
+The regression verifies that an in-flight steer and an unsent steer are signaled to the replacement child as two normal follow-ups in their original arrival order.
+
+### Replacement recovery has deterministic backoff and a failure budget
+
+Task management tracks consecutive sandbox replacements that fail before any follow-up is acknowledged.
+
+- Replacement delays use deterministic exponential backoff: 1, 2, 4, 8 seconds, capped at 30 seconds.
+- After five consecutive failures, the workflow stops starting replacement sandboxes and fails with the persisted follow-up queue still parked.
+- The counter resets only after the child acknowledges an accepted normal follow-up or steer.
+
+The behavior is protected by its own Temporal patch so existing histories retain their recorded timing commands.
+
+Regressions cover the deterministic delay, the maximum-attempt boundary, the parked queue, and reset after acknowledged delivery.
+
+### Repeated prompt identities reconcile by occurrence
+
+Resume reconciliation no longer assigns every matching JSON-RPC prompt to the oldest hydrated turn with the same serialized request.
+
+Hydrated and live events are split into ordered prompt occurrences, with task-run markers used when available. Matching proceeds from the newest suffix toward the oldest history, so a leaf turn whose request ID and prompt content repeat an ancestor turn binds to the latest occurrence.
+
+Authoritative final-response versus inherited-chunk reconciliation is applied only within that matched occurrence. An ancestor final response or completion cannot suppress the current turn's chunk or completion.
+
+### Promptless and partial live tails preserve unmatched events
+
+Promptless live tails align with the latest hydrated turn that actually overlaps them.
+
+Exact duplicate events are matched from the end of the turn. A live-only event does not advance or consume the hydrated cursor, so later persisted final responses and completions can still be recognized and removed without duplicating them.
+
+The combined regression covers:
+
+- Two identical prompt requests across ancestor and leaf turns.
+- A current response chunk that must not be suppressed by the ancestor final response.
+- Identical completion payloads where the current completion must survive.
+- A promptless overlapping tail whose persisted final response and completion must be removed.
+- A live-only event before those duplicates that must remain present.
+
 ## Automated validation
 
 Latest validation:
 
 - Backend `process_task` workflow suite: 48 passed.
 - Backend `execute_sandbox` workflow suite: 62 passed.
-- Backend `task_management` workflow suite: 64 passed.
-- Combined focused backend workflow run: 126 passed.
+- Backend `task_management` workflow suite: 70 passed.
+- Backend `task_management` activity suite: 16 passed.
+- Combined focused backend workflow run: 180 passed.
 - Focused PostHog Code session host suite: 142 passed.
 - PostHog Code UI suite: 1,523 passed across 172 files.
 - PostHog Code `@posthog/core` and `@posthog/ui` typechecks passed.
@@ -335,6 +394,30 @@ The running local backend and PostHog Code desktop app were tested after a full 
 Earlier validation across the branch also covered the full UI and agent packages, OpenAPI generation, Python compilation, shared and agent typechecks, and the focused Temporal, activity, client, adapter, and app-server suites.
 
 ## Live cloud-run verification
+
+### Replay-gated recovery and repeated-prompt hydration verification
+
+- Task: `415e7940-c11b-4db3-8a9e-663ee5109370`
+- A run: `96674260-aab8-4ad6-8779-8119d24e4e10`
+- B run: `0b64da48-0ff6-4822-9dc5-a030ae5065ce`
+- C run: `258128b4-fd10-446f-ae12-3affb35b87aa`
+
+The current backend and PostHog Code working trees ran through the active backend and LLM gateway tunnels.
+
+Verified:
+
+- A returned `BASE716REPLAY` once for the prompt and once for the response.
+- A normal follow-up started a 120-second terminal command. `ACTIVESTEER716REPLAY` appeared as a user message while the command was still active and returned exactly once after the tool boundary.
+- The superseded `LONG3716REPLAY` instruction remained exactly once as its user message and produced no response.
+- Queue mode returned `QUEUE716REPLAY` exactly twice.
+- A was terminalized before B was sent, and B returned `RESUME716REPLAY` exactly twice.
+- After a full Electron restart, the complete A→B transcript loaded with one restored-sandbox boundary, no pending prompt, no error, and separate cursor domains: `processedLineCount=54` and `cloudTranscriptEntryCount=225`.
+- B was terminalized before C was sent. C used the exact same `Reply with only BASE716REPLAY` prompt text as A after the new sandbox started.
+- Before and after a second full Electron restart, `BASE716REPLAY` appeared exactly four times: the A and C prompt/response pairs. The latest repeated turn's response and completion were retained.
+- The final cold transcript retained `ACTIVESTEER716REPLAY` and `QUEUE716REPLAY` exactly twice, `LONG3716REPLAY` exactly once, `RESUME716REPLAY` exactly twice, and two restored-sandbox boundaries.
+- The final cold session had no pending prompt or error, its final turn was complete, and its leaf/full counters remained separate at `processedLineCount=54` and `cloudTranscriptEntryCount=284`.
+- A new post-restart live follow-up returned `POSTCOLD716REPLAY` exactly twice, proving that live events still append after the occurrence-aligned hydration.
+- Read-only database state confirmed the exact A→B→C `state.resume_from_run_id` chain, and all three runs reached `completed`.
 
 ### Final bounded-delivery and stable-hydration verification
 

@@ -69,10 +69,17 @@ from products.tasks.backend.temporal.task_management.activities.pending_followup
 _PATCH_ID_CAPABILITY_GATED_STEERING = "tasks-capability-gated-steering-signal"
 _PATCH_ID_ACK_BEFORE_COMPLETION = "tasks-task-management-ack-before-completion"
 _PATCH_ID_ACK_BEFORE_COMPLETION_SANDBOX_GENERATION = "tasks-task-management-ack-before-completion-sandbox-generation"
+_PATCH_ID_CLOSED_CHILD_FOLLOWUP_RECOVERY = "tasks-task-management-closed-child-followup-recovery"
+_PATCH_ID_CLOSED_CHILD_COMPLETION_RECOVERY = "tasks-task-management-closed-child-completion-recovery"
+_PATCH_ID_CLOSED_CHILD_ACK_RETRY_RECOVERY = "tasks-task-management-closed-child-ack-retry-recovery"
+_PATCH_ID_CLEAR_STEER_ON_SANDBOX_BOUNDARY = "tasks-task-management-clear-steer-on-sandbox-boundary"
+_PATCH_ID_BOUNDED_SANDBOX_REPLACEMENT_RECOVERY = "tasks-task-management-bounded-sandbox-replacement-recovery"
 _CHILD_SIGNAL_TERMINAL_ERROR_TYPES = {
     "ExternalWorkflowExecutionNotFound",
     "NamespaceNotFound",
 }
+MAX_CONSECUTIVE_SANDBOX_REPLACEMENT_FAILURES = 5
+MAX_SANDBOX_REPLACEMENT_BACKOFF_SECONDS = 30
 
 
 def _ack_before_completion() -> bool:
@@ -85,6 +92,12 @@ def _ack_before_completion_for_sandbox_generation(generation: int) -> bool:
     if not workflow.in_workflow():
         return True
     return workflow.patched(f"{_PATCH_ID_ACK_BEFORE_COMPLETION_SANDBOX_GENERATION}-{generation}")
+
+
+def _patch_enabled(patch_id: str) -> bool:
+    if not workflow.in_workflow():
+        return True
+    return workflow.patched(patch_id)
 
 
 def _child_cannot_receive_signals(error: Exception) -> bool:
@@ -227,6 +240,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
         # while `_sandbox_alive=False`, we re-bootstrap before forwarding.
         self._sandbox_alive: bool = False
         self._child_steering_protocol_version: int = 0
+        self._consecutive_sandbox_replacement_failures: int = 0
 
         # Activity tracking for CI follow-up timing. `_last_active_time` is
         # set when the sandbox workflow forwards a heartbeat with
@@ -551,6 +565,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
         # nothing meaningful to complete when no sandbox is running.
         if not self._sandbox_alive:
             if self._pending_external_followups:
+                await self._wait_before_replacement_sandbox()
                 workflow.logger.info(
                     "task_management_rebootstrapping_for_followup",
                     run_id=self._run_id,
@@ -613,6 +628,8 @@ class TaskManagementWorkflow(PostHogWorkflow):
                 if followup is not None:
                     requeued_followups.append(followup)
                 continue
+            if ack.accepted and slot.signal_name in {SEND_FOLLOWUP_SIGNAL, SEND_STEER_SIGNAL}:
+                self._consecutive_sandbox_replacement_failures = 0
             workflow.logger.info(
                 "task_management_ack_received",
                 run_id=self._run_id,
@@ -626,6 +643,9 @@ class TaskManagementWorkflow(PostHogWorkflow):
         for followup in requeued_followups:
             self._insert_external_followup_in_arrival_order(followup)
         if requeued_followups:
+            if _patch_enabled(_PATCH_ID_CLEAR_STEER_ON_SANDBOX_BOUNDARY):
+                self._clear_pending_steer_intent()
+            self._record_sandbox_replacement_failure()
             # Sync the recovery buffer to reflect the re-queue; otherwise an
             # orchestrator restart would forget about the rejected follow-up.
             await self._persist_pending_followups()
@@ -658,6 +678,33 @@ class TaskManagementWorkflow(PostHogWorkflow):
                 return
         self._pending_external_followups.append(followup)
 
+    def _clear_pending_steer_intent(self) -> None:
+        for followup in self._pending_external_followups:
+            followup.steer = False
+
+    def _record_sandbox_replacement_failure(self) -> None:
+        if _patch_enabled(_PATCH_ID_BOUNDED_SANDBOX_REPLACEMENT_RECOVERY):
+            self._consecutive_sandbox_replacement_failures += 1
+
+    async def _wait_before_replacement_sandbox(self) -> None:
+        if not _patch_enabled(_PATCH_ID_BOUNDED_SANDBOX_REPLACEMENT_RECOVERY):
+            return
+        failures = self._consecutive_sandbox_replacement_failures
+        if failures >= MAX_CONSECUTIVE_SANDBOX_REPLACEMENT_FAILURES:
+            raise RuntimeError(
+                f"Sandbox replacement failed {failures} consecutive times before acknowledging a follow-up"
+            )
+        if failures == 0:
+            return
+        delay_seconds = min(2 ** (failures - 1), MAX_SANDBOX_REPLACEMENT_BACKOFF_SECONDS)
+        workflow.logger.warning(
+            "task_management_sandbox_replacement_backoff",
+            run_id=self._run_id,
+            consecutive_failures=failures,
+            delay_seconds=delay_seconds,
+        )
+        await workflow.sleep(delay_seconds)
+
     async def _recover_closed_sandbox(self, error: Exception) -> None:
         child_acks_by_id = {ack.ack_id: ack for ack in self._child_acks}
         requeued = 0
@@ -678,6 +725,9 @@ class TaskManagementWorkflow(PostHogWorkflow):
             )
             requeued += 1
 
+        self._clear_pending_steer_intent()
+        if requeued:
+            self._record_sandbox_replacement_failure()
         workflow.logger.warning(
             "task_management_closed_sandbox_recovered",
             run_id=self._run_id,
@@ -742,6 +792,10 @@ class TaskManagementWorkflow(PostHogWorkflow):
                 run_id=self._run_id,
                 count=requeued,
             )
+            self._record_sandbox_replacement_failure()
+
+        if _patch_enabled(_PATCH_ID_CLEAR_STEER_ON_SANDBOX_BOUNDARY):
+            self._clear_pending_steer_intent()
 
         # Hard-reset per-session state. The next session starts clean —
         # CI counters, fingerprint, heartbeat all belong to the previous
@@ -920,7 +974,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
         try:
             await self._sandbox_handle().signal(signal_name, args=signal_args)
         except Exception as e:
-            if _child_cannot_receive_signals(e):
+            if _child_cannot_receive_signals(e) and _patch_enabled(_PATCH_ID_CLOSED_CHILD_FOLLOWUP_RECOVERY):
                 await self._recover_closed_sandbox(e)
                 return False
             # Keep the slot — `_retry_stale_acks` will try again after
@@ -950,7 +1004,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
         try:
             await self._sandbox_handle().signal(COMPLETE_TASK_SIGNAL, args=signal_args)
         except Exception as e:
-            if _child_cannot_receive_signals(e):
+            if _child_cannot_receive_signals(e) and _patch_enabled(_PATCH_ID_CLOSED_CHILD_COMPLETION_RECOVERY):
                 await self._recover_closed_sandbox(e)
                 return
             workflow.logger.warning(
@@ -1003,7 +1057,7 @@ class TaskManagementWorkflow(PostHogWorkflow):
                     retry_count=slot.retry_count,
                 )
             except Exception as e:
-                if _child_cannot_receive_signals(e):
+                if _child_cannot_receive_signals(e) and _patch_enabled(_PATCH_ID_CLOSED_CHILD_ACK_RETRY_RECOVERY):
                     await self._recover_closed_sandbox(e)
                     return
                 # Don't advance sent_at on failure — we want to retry again
