@@ -57,7 +57,7 @@ export interface relatedFeatureFlagsLogicActions {
     loadFeatureFlags: () => any // featureFlagsLogic
     setFeatureFlagsFilters: (
         filters: Partial<FeatureFlagsFilters>,
-        replace?: boolean
+        replace?: boolean | undefined
     ) => {
         filters: Partial<FeatureFlagsFilters>
         replace: boolean | undefined
