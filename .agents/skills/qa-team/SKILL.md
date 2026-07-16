@@ -185,7 +185,7 @@ This focus has no formal checklist — omit the Checklist Coverage section from 
 #### 3b. Write the claim script
 
 ```bash
-cat > "$RUN_DIR/claim.sh" <<'EOF'
+cat > "$RUN_DIR/claim_persona.sh" <<'EOF'
 #!/bin/bash
 dir="$(cd "$(dirname "$0")" && pwd)"
 for f in "$dir"/personas/*.md; do
@@ -199,7 +199,7 @@ done
 echo "ERROR: no persona available" >&2
 exit 1
 EOF
-chmod +x "$RUN_DIR/claim.sh"
+chmod +x "$RUN_DIR/claim_persona.sh"
 ```
 
 `mv` is atomic, so concurrent agents each claim a distinct persona.
@@ -215,7 +215,7 @@ exactly:
 
 1. FIRST action — run this exact command with the Bash tool to receive your review focus:
 
-   bash {RUN_DIR}/claim.sh
+   bash {RUN_DIR}/claim_persona.sh
 
    It prints your assigned focus, expertise, checklist, and known failure patterns.
    Conduct your entire review through that lens, and follow any stop instruction it
