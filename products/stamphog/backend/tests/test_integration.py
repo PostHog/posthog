@@ -22,6 +22,7 @@ from products.stamphog.backend.logic.channel_resolution import auto_provision_ch
 from products.stamphog.backend.logic.github_client import STICKY_COMMENT_MARKER
 from products.stamphog.backend.models import DigestChannel, DigestRun, PullRequest, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.tasks.digest import send_daily_digests
+from products.stamphog.backend.temporal import activities
 from products.stamphog.backend.temporal.activities import (
     MarkReviewFailedInput,
     StamphogReviewInput,
@@ -351,17 +352,30 @@ def test_default_branch_steering_is_injected_into_sandbox(team, stamphog_chain: 
 
 
 @pytest.mark.parametrize(
-    "prior_head,prior_dismissed,expect_dismissed",
+    "prior_head,prior_verdict,prior_dismissed,expect_dismissed",
     [
-        ("sha-old", False, True),
-        ("sha-new", False, False),
-        ("sha-old", True, False),
+        ("sha-old", ReviewVerdict.APPROVED, False, True),
+        ("sha-new", ReviewVerdict.APPROVED, False, False),
+        ("sha-old", ReviewVerdict.APPROVED, True, False),
+        # A run that posted its approval to GitHub but crashed before the verdict was saved leaves an
+        # orphan the sweep must still find — posted_review_id is the marker, not the saved verdict.
+        ("sha-old", ReviewVerdict.NONE, False, True),
     ],
-    ids=["old_head_dismissed_and_stamped", "same_head_untouched", "already_dismissed_not_redone"],
+    ids=[
+        "old_head_dismissed_and_stamped",
+        "same_head_untouched",
+        "already_dismissed_not_redone",
+        "orphan_without_saved_verdict_swept",
+    ],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_dismiss_stale_approvals(
-    team, stamphog_chain: StamphogChain, prior_head: str, prior_dismissed: bool, expect_dismissed: bool
+    team,
+    stamphog_chain: StamphogChain,
+    prior_head: str,
+    prior_verdict: ReviewVerdict,
+    prior_dismissed: bool,
+    expect_dismissed: bool,
 ) -> None:
     # A prior stamphog approval posted at an earlier head must be dismissed on GitHub and stamped when a
     # new run at a different head runs. An approval at the same head, or one already dismissed, is left
@@ -374,8 +388,8 @@ def test_dismiss_stale_approvals(
         team_id=team.id,
         pull_request=pull_request,
         head_sha=prior_head,
-        status=ReviewRunStatus.COMPLETED,
-        verdict=ReviewVerdict.APPROVED,
+        status=ReviewRunStatus.COMPLETED if prior_verdict == ReviewVerdict.APPROVED else ReviewRunStatus.FAILED,
+        verdict=prior_verdict,
         posted_review_id=555,
         approval_dismissed_at=timezone.now() if prior_dismissed else None,
     )
@@ -473,6 +487,52 @@ def test_reviewer_markdown_images_are_neutralized_before_posting(team, stamphog_
     assert "![" not in body  # reference-style images are demoted to plain links (never auto-fetched)
     assert "[x][leak]" in body
     assert body.startswith("Looks fine.") and body.endswith("end.")
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_approval_posted_while_losing_supersession_race_is_dismissed(team, stamphog_chain: StamphogChain) -> None:
+    # TOCTOU on the verdict: a delivery can supersede this run after post_verdict's last status
+    # recheck but before the terminal save. The approval has already landed on GitHub by then, and
+    # the superseding delivery's dismissal sweep ran before the review existed and keys off DB
+    # fields this run never got saved — so post_verdict itself must retract the orphan, or an
+    # approval nobody owns stands on the PR forever (including after a repo disable, which
+    # supersedes active runs the same way).
+    repo_config = _repo_config(team.id)
+    recorder = stamphog_chain.recorder
+    head_sha = "sha116a"
+    recorder.register_pr(REPO, 116, _pr_object(116, "devex-dev", head_sha), _pr_files())
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=116, author_login="devex-dev"
+    )
+    run = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id,
+        pull_request=pull_request,
+        head_sha=head_sha,
+        status=ReviewRunStatus.REVIEWING,
+        output={"reviewer_raw": fakes.approved_engine_output().splitlines()[-1]},
+    )
+
+    # Inject the race at the post seam: the moment GitHub accepts the approval (right before
+    # _comment_id extracts its id), a concurrent delivery flips the run to SUPERSEDED — after every
+    # pre-write guard, before the conditional terminal save.
+    original_comment_id = activities._comment_id
+
+    def _supersede_then_extract(obj: dict) -> int | None:
+        ReviewRun.objects.for_team(team.id).filter(id=run.id).update(status=ReviewRunStatus.SUPERSEDED)
+        return original_comment_id(obj)
+
+    with patch.object(activities, "_comment_id", side_effect=_supersede_then_extract):
+        result = _run_activity(post_verdict, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
+
+    assert result == {"verdict": "skipped_superseded"}
+    approvals = [w for w in recorder.github_writes if w["kind"] == "approve_review"]
+    dismissals = [w for w in recorder.github_writes if w["kind"] == "dismiss_review"]
+    assert len(approvals) == 1
+    assert [d["review_id"] for d in dismissals] == [approvals[0]["id"]]
+    run.refresh_from_db()
+    assert run.status == ReviewRunStatus.SUPERSEDED  # the losing save never resurrected the run
+    assert run.posted_review_id == approvals[0]["id"]  # persisted despite the lost terminal save
+    assert run.approval_dismissed_at is not None
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

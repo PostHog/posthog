@@ -12,7 +12,6 @@ from __future__ import annotations
 
 from django.utils import timezone
 
-from ..facade.enums import ReviewVerdict
 from ..models import PullRequest, ReviewRun, StamphogRepoConfig
 from .github_client import StamphogGitHubClient
 
@@ -30,6 +29,10 @@ def dismiss_stale_approvals_for_head(
 ) -> int:
     """Retract every un-dismissed stamphog approval posted at a head other than ``current_head_sha``.
 
+    Keyed off ``posted_review_id`` alone — only the approve path ever sets it, and filtering on
+    ``verdict=APPROVED`` too would miss a run that posted its approval but crashed (or lost a
+    supersession race) before the verdict was saved, leaving that orphan standing forever.
+
     Returns the number dismissed. Idempotent via ``approval_dismissed_at``: a run already stamped is
     excluded, so a retry (or the activity re-running after the task skip already handled it) won't
     re-dismiss. Each dismissal is stamped right after its GitHub call so a mid-loop failure resumes
@@ -39,7 +42,6 @@ def dismiss_stale_approvals_for_head(
         ReviewRun.objects.for_team(team_id)
         .filter(
             pull_request=pull_request,
-            verdict=ReviewVerdict.APPROVED,
             posted_review_id__isnull=False,
             approval_dismissed_at__isnull=True,
         )

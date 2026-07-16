@@ -66,7 +66,15 @@ def send_digest_for_channel(digest_channel_id: str, team_id: int) -> None:
     Slack already accepted. Still a ``shared_task`` so ``send_daily_digests`` can ``.delay`` it, and
     ``provision_and_send_digest`` calls it synchronously (a task is a plain callable too).
     """
-    channel = DigestChannel.objects.for_team(team_id).filter(id=digest_channel_id).first()
+    # Writer pin: this gate decides an outward side effect (a Slack post). A channel disabled or
+    # deleted just before the task runs may not have replicated to the product-DB reader yet, and a
+    # stale enabled=True read here would post a digest the user opted out of.
+    channel = (
+        DigestChannel.objects.for_team(team_id)
+        .using(router.db_for_write(DigestChannel))
+        .filter(id=digest_channel_id)
+        .first()
+    )
     if channel is None or not channel.enabled:
         logger.info("stamphog_digest_channel_missing_or_disabled", digest_channel_id=digest_channel_id)
         return

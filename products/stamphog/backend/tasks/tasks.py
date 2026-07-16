@@ -10,6 +10,7 @@ from typing import Any, cast
 
 from django.core.cache import cache
 from django.db import IntegrityError, router, transaction
+from django.db.models import Q
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
@@ -190,32 +191,49 @@ def _mark_pr_event_processed(delivery_id: str) -> None:
 
 
 def _upsert_pull_request(repo_config: StamphogRepoConfig, pr_payload: dict[str, Any]) -> PullRequest:
-    """Upsert the PR-grain row, refreshing the descriptive fields from the payload."""
+    """Upsert the PR-grain row, refreshing the descriptive fields from a not-older payload.
+
+    Webhook deliveries can arrive out of order, so the refresh is gated on the payload's
+    ``updated_at`` clock — an older snapshot must not regress the stored title/branch/body (they
+    feed API reads and digest summaries). The gate lives in the UPDATE's WHERE clause so a
+    concurrent delivery carrying a newer snapshot wins the write race too.
+    """
     team_id = repo_config.team_id
     head = pr_payload.get("head") or {}
-    # for_team scopes the lookup, but update_or_create still needs team_id in defaults
+    incoming_updated_at = parse_datetime(pr_payload.get("updated_at") or "")
+    descriptive = {
+        "title": (pr_payload.get("title") or "")[:512],
+        "author_login": ((pr_payload.get("user") or {}).get("login") or "")[:255],
+        "pr_url": pr_payload.get("html_url", ""),
+        "head_branch": head.get("ref", ""),
+        "body_excerpt": (pr_payload.get("body") or "")[:PR_BODY_EXCERPT_MAX_CHARS],
+    }
+    # for_team scopes the lookup, but get_or_create still needs team_id in defaults
     # explicitly — queryset filters don't propagate into row creation.
-    pr_obj, _ = PullRequest.objects.for_team(team_id).update_or_create(
+    pr_obj, created = PullRequest.objects.for_team(team_id).get_or_create(
         repo_config=repo_config,
         pr_number=pr_payload["number"],
-        defaults={
-            "team_id": team_id,
-            "title": (pr_payload.get("title") or "")[:512],
-            "author_login": ((pr_payload.get("user") or {}).get("login") or "")[:255],
-            "pr_url": pr_payload.get("html_url", ""),
-            "head_branch": head.get("ref", ""),
-            "body_excerpt": (pr_payload.get("body") or "")[:PR_BODY_EXCERPT_MAX_CHARS],
-        },
+        defaults={"team_id": team_id, "payload_updated_at": incoming_updated_at, **descriptive},
     )
-    # Advance the monotonic payload clock only forward. The review path already drops strictly-older
-    # deliveries before it gets here, but the merge path has no such guard, so never regress the stored
-    # value on an out-of-order snapshot. pr_obj still holds the pre-upsert value (not in defaults above).
-    incoming_updated_at = parse_datetime(pr_payload.get("updated_at") or "")
-    if incoming_updated_at is not None and (
-        pr_obj.payload_updated_at is None or incoming_updated_at > pr_obj.payload_updated_at
-    ):
+    if created:
+        return pr_obj
+    if incoming_updated_at is None:
+        # An unordered payload can't be placed on the clock — keep the stored snapshot.
+        return pr_obj
+    refreshed = (
+        PullRequest.objects.for_team(team_id)
+        .filter(id=pr_obj.id)
+        .filter(Q(payload_updated_at__isnull=True) | Q(payload_updated_at__lte=incoming_updated_at))
+        .update(payload_updated_at=incoming_updated_at, updated_at=timezone.now(), **descriptive)
+    )
+    if refreshed:
+        for field, value in descriptive.items():
+            setattr(pr_obj, field, value)
         pr_obj.payload_updated_at = incoming_updated_at
-        pr_obj.save(update_fields=["payload_updated_at", "updated_at"])
+    else:
+        # Lost to a newer committed snapshot. Reload the clock so the caller's locked recheck
+        # (which compares pr_obj.payload_updated_at) sees the winning value, not the stale read.
+        pr_obj.refresh_from_db(fields=["payload_updated_at"])
     return pr_obj
 
 
@@ -742,13 +760,14 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
     try:
         with transaction.atomic(using=write_db):
             pr_obj = _upsert_pull_request(repo_config, pr)
-            # Race-safe recheck of the stale-payload guard, now under the PR row lock. The check above
-            # runs before this transaction, so two concurrent deliveries can both pass it; the older one
-            # would then win the row lock second and still supersede the newer run. _upsert_pull_request
-            # locks the row (update_or_create selects for update) and advances payload_updated_at
-            # monotonically, so once it returns the stored value is max(previous, incoming). A stored
-            # value strictly newer than this payload means a newer delivery already committed its run —
-            # bail before supersede/create so we don't cancel the up-to-date review for a stale head.
+            # Race-safe recheck of the stale-payload guard. The check above runs before this
+            # transaction, so two concurrent deliveries can both pass it; the older one would then
+            # still supersede the newer run. _upsert_pull_request's conditional refresh UPDATE takes
+            # the PR row lock when this payload is current (held to commit, serializing deliveries)
+            # and reloads the winning clock when it lost, so once it returns pr_obj carries
+            # max(previous, incoming). A stored value strictly newer than this payload means a newer
+            # delivery already committed its run — bail before supersede/create so we don't cancel
+            # the up-to-date review for a stale head.
             if (
                 incoming_updated_at is not None
                 and pr_obj.payload_updated_at is not None

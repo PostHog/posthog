@@ -426,6 +426,32 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
     return {"exit_code": result.exit_code}
 
 
+def _dismiss_orphaned_approval(client: StamphogGitHubClient, run: ReviewRun, team_id: int) -> None:
+    """Retract an approval this run posted to GitHub but never recorded as its saved verdict.
+
+    Reaching here means the run is being abandoned (superseded, or its head moved) after
+    ``post_approve_review`` succeeded but before the terminal save recorded APPROVED. The
+    stale-approval sweep keys off ``posted_review_id`` in the DB, which the superseding delivery
+    read before this review existed — the abandoning path itself is the only place left that can
+    retract it. Raises on GitHub failure so the activity retries; ``approval_dismissed_at`` keeps
+    the retry (and a racing sweep) idempotent.
+    """
+    if run.posted_review_id is None or run.approval_dismissed_at is not None:
+        return
+    pull_request = run.pull_request
+    client.dismiss_pr_review(
+        pull_request.repo_config.repository,
+        pull_request.pr_number,
+        run.posted_review_id,
+        "This review run was superseded before it completed — dismissing its approval; a newer run owns this PR.",
+    )
+    run.approval_dismissed_at = timezone.now()
+    ReviewRun.objects.for_team(team_id).filter(id=run.id).update(
+        approval_dismissed_at=run.approval_dismissed_at, updated_at=timezone.now()
+    )
+    activity.logger.info(f"Run {run.id}: dismissed orphaned approval {run.posted_review_id}")
+
+
 @activity.defn
 @asyncify
 def post_verdict(input: StamphogReviewInput) -> dict:
@@ -444,6 +470,10 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     # already moved. Approving here would sign off a commit nobody reviewed, or overwrite the newer
     # run's sticky comment. Guard on both signals before any GitHub write.
     if run.status == ReviewRunStatus.SUPERSEDED:
+        # A prior attempt may have approved and crashed before the terminal save; the persisted id
+        # is the only trace. Durably recorded approvals (verdict saved) are the sweep's job instead.
+        if run.verdict != ReviewVerdict.APPROVED:
+            _dismiss_orphaned_approval(client, run, input.team_id)
         activity.logger.info(f"Skipping verdict for superseded run {run.id}")
         return {"verdict": "skipped_superseded"}
     current_pr = client.get_pr(repo, pull_request.pr_number)
@@ -452,6 +482,8 @@ def post_verdict(input: StamphogReviewInput) -> dict:
         run.status = ReviewRunStatus.SUPERSEDED
         run.completed_at = timezone.now()
         run.save(update_fields=["status", "completed_at", "updated_at"])
+        if run.verdict != ReviewVerdict.APPROVED:
+            _dismiss_orphaned_approval(client, run, input.team_id)
         activity.logger.info(f"Skipping verdict for run {run.id}: head moved {run.head_sha} -> {current_head}")
         return {"verdict": "skipped_head_moved"}
 
@@ -487,14 +519,18 @@ def post_verdict(input: StamphogReviewInput) -> dict:
         run.status = ReviewRunStatus.GATED
         run.verdict = ReviewVerdict.WAIT
     elif parsed.verdict == ReviewVerdict.APPROVED:
-        # Idempotent under Temporal at-least-once retries: if a prior attempt already
-        # approved (posted_review_id persisted in the same save that flips status), skip
-        # re-approving. Residual window: GitHub approved but the save below crashed leaves
-        # the id unset, so a retry approves once more — accepted given at-least-once delivery.
+        # Idempotent under Temporal at-least-once retries: the id is persisted the moment GitHub
+        # accepts the review, so a retry after any later crash skips re-approving.
         if run.posted_review_id is None:
             body = _neutralize_active_markdown(_scrub_credentials(parsed.review_body or _approve_comment(parsed)))
             review = client.post_approve_review(repo, pull_request.pr_number, body, run.head_sha)
             run.posted_review_id = _comment_id(review)
+            # Persist the id immediately, outside the conditional terminal save below: if that save
+            # loses to a supersession or this activity crashes, this row is the only record the
+            # approval exists — the orphan-dismissal paths and the stale-approval sweep need it.
+            ReviewRun.objects.for_team(input.team_id).filter(id=run.id).update(
+                posted_review_id=run.posted_review_id, updated_at=timezone.now()
+            )
         run.status = ReviewRunStatus.COMPLETED
         run.verdict = ReviewVerdict.APPROVED
         update_fields.append("posted_review_id")
@@ -529,6 +565,10 @@ def post_verdict(input: StamphogReviewInput) -> dict:
         )
     )
     if not updated:
+        # This run lost the terminal save to a supersession that landed after the last guard. If it
+        # already posted an approval, the superseding delivery's dismissal sweep ran before the
+        # review existed and can't see it in the DB — retract it here or it stands forever.
+        _dismiss_orphaned_approval(client, run, input.team_id)
         activity.logger.info(f"Run {run.id} superseded during verdict posting; verdict not saved")
         return {"verdict": "skipped_superseded"}
 

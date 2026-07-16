@@ -18,7 +18,7 @@ import {
     VisionAlertMetricEnumApi,
     WindowDaysEnumApi,
 } from '../generated/api.schemas'
-import type { SelectionVerdictEnumApi, VisionActionApi } from '../generated/api.schemas'
+import type { VerdictEnumApi, VisionActionApi } from '../generated/api.schemas'
 import { CadenceState, cadenceToRrule, DEFAULT_CADENCE } from './cadence'
 import type { visionActionsLogicType } from './visionActionsLogicType'
 
@@ -35,7 +35,7 @@ export interface VisionActionForm {
     integration_id: number | null
     channel: string
     // Targeting ("run this on…") — empty means all of the scanner's observations.
-    verdict: SelectionVerdictEnumApi[]
+    verdict: VerdictEnumApi[]
     tags: string[]
     min_score: number | null
     max_score: number | null

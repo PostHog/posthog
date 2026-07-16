@@ -12,7 +12,11 @@ from posthog.models.scoping import team_scope
 
 from products.stamphog.backend.facade.enums import ReviewMode, ReviewRunStatus
 from products.stamphog.backend.models import PullRequest, ReviewRun, StamphogRepoConfig
-from products.stamphog.backend.tasks.tasks import process_installation_event, process_pull_request_event
+from products.stamphog.backend.tasks.tasks import (
+    _upsert_pull_request,
+    process_installation_event,
+    process_pull_request_event,
+)
 from products.stamphog.backend.tests.conftest import PRODUCT_DATABASES
 
 REPO = "acme/widgets"
@@ -457,6 +461,55 @@ def test_stale_payload_recheck_under_lock_does_not_supersede_newer_run(team, rep
         current_run.refresh_from_db()
     assert current_run.status == ReviewRunStatus.QUEUED  # the up-to-date run is left intact, not superseded
     mock_execute.assert_not_called()  # no workflow started for the stale delivery
+
+
+@pytest.mark.parametrize(
+    "incoming_updated_at,expect_refreshed",
+    [
+        ("2026-07-15T12:00:00Z", False),
+        ("2026-07-15T14:00:00Z", True),
+        ("2026-07-15T13:00:00Z", True),  # equal clock: a redelivery of the current snapshot may refresh
+    ],
+    ids=["older_snapshot_kept_out", "newer_snapshot_applied", "equal_snapshot_applied"],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_upsert_pull_request_gates_metadata_on_payload_clock(
+    team, repo_config, incoming_updated_at: str, expect_refreshed: bool
+):
+    # Out-of-order deliveries: an older snapshot reaching the upsert after a newer one committed
+    # (both passed the pre-transaction stale guard) must not regress title/branch/body — they feed
+    # API reads and digest summaries. The returned object must carry the winning clock either way,
+    # because the caller's locked stale recheck compares against it.
+    with team_scope(team.id):
+        PullRequest.objects.create(
+            team_id=team.id,
+            repo_config=repo_config,
+            pr_number=42,
+            title="fresh title",
+            head_branch="feat/fresh",
+            body_excerpt="fresh body",
+            payload_updated_at=parse_datetime("2026-07-15T13:00:00Z"),
+        )
+    incoming = {
+        "number": 42,
+        "title": "incoming title",
+        "user": {"login": "someone"},
+        "html_url": f"https://github.com/{REPO}/pull/42",
+        "head": {"ref": "feat/incoming", "sha": "sha-incoming"},
+        "body": "incoming body",
+        "updated_at": incoming_updated_at,
+    }
+
+    with team_scope(team.id):
+        pr_obj = _upsert_pull_request(repo_config, incoming)
+
+    stored = PullRequest.objects.for_team(team.id).get(pr_number=42)
+    expected_title = "incoming title" if expect_refreshed else "fresh title"
+    expected_clock = parse_datetime(max(incoming_updated_at, "2026-07-15T13:00:00Z"))
+    assert stored.title == expected_title
+    assert stored.head_branch == ("feat/incoming" if expect_refreshed else "feat/fresh")
+    assert stored.payload_updated_at == expected_clock
+    assert pr_obj.payload_updated_at == expected_clock  # the locked recheck reads this off the returned object
 
 
 def _installation_payload(
