@@ -262,6 +262,15 @@ class TaskRunDetailSerializer(DataclassSerializer):
     log_url = serializers.URLField(
         allow_null=True, required=False, help_text="Presigned S3 URL for log access (valid for 1 hour)."
     )
+    log_urls = serializers.ListField(
+        child=serializers.URLField(help_text="Presigned S3 URL for one log in the resume chain."),
+        required=False,
+        help_text=(
+            "Presigned S3 URLs for every JSONL log in the run's resume chain, oldest first "
+            "(each valid for 1 hour). Concatenated they form the run's full session history. "
+            "Empty when presigning is unavailable; fall back to the session_logs endpoint."
+        ),
+    )
     artifacts = TaskRunArtifactResponseSerializer(many=True, read_only=True)
     runtime_adapter = serializers.ChoiceField(
         choices=[adapter.value for adapter in RuntimeAdapter],
@@ -299,6 +308,7 @@ class TaskRunDetailSerializer(DataclassSerializer):
             "model",
             "reasoning_effort",
             "log_url",
+            "log_urls",
             "error_message",
             "output",
             "state",

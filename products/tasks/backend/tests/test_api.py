@@ -4243,6 +4243,38 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertIn("log_url", data)
         self.assertIsNotNone(data["log_url"])
         self.assertTrue(data["log_url"].startswith("http"))
+        self.assertEqual(len(data["log_urls"]), 1)
+        self.assertIn(f"run_{run.id}.jsonl", data["log_urls"][0])
+
+    def test_retrieve_run_log_urls_walk_resume_chain_oldest_first(self):
+        task = self.create_task()
+        ancestor = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
+        resumed = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"resume_from_run_id": str(ancestor.id)},
+        )
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{resumed.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        log_urls = response.json()["log_urls"]
+        self.assertEqual(len(log_urls), 2)
+        self.assertIn(f"run_{ancestor.id}.jsonl", log_urls[0])
+        self.assertIn(f"run_{resumed.id}.jsonl", log_urls[1])
+
+    @patch.object(object_storage, "get_presigned_url", return_value=None)
+    def test_retrieve_run_log_urls_empty_when_presigning_unavailable(self, _mock_presign):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        self.assertIsNone(data["log_url"])
+        self.assertEqual(data["log_urls"], [])
 
     def test_list_runs_only_returns_task_runs(self):
         task1 = self.create_task("Task 1")

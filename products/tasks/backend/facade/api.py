@@ -338,6 +338,34 @@ def _task_run_log_url(run: TaskRun) -> str | None:
     return presigned_url
 
 
+def _task_run_chain_log_urls(run: TaskRun) -> list[str]:
+    """Presigned S3 URLs for every log in the run's resume chain, oldest first, cached.
+
+    Lets clients bootstrap a run's full session history straight from object storage
+    instead of paging it through ``session_logs`` (which re-reads and re-parses the whole
+    chain per page). A run's ancestor chain is fixed at creation, so the list is safe to
+    cache; empty when presigning is unavailable so callers can fall back to the API.
+    """
+    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
+
+    from products.tasks.backend.redis import get_tasks_cache  # noqa: PLC0415 — keep redis off the api import path
+
+    cache_key = f"task_run_chain_log_urls:{run.id}"
+    cached_urls = get_tasks_cache().get(cache_key)
+    if cached_urls:
+        return cached_urls
+
+    urls: list[str] = []
+    for ancestor in run.get_resume_chain():
+        presigned_url = object_storage.get_presigned_url(ancestor.log_url, expiration=3600)
+        if presigned_url is None:
+            return []
+        urls.append(presigned_url)
+    if urls:
+        get_tasks_cache().set(cache_key, urls, timeout=_TASK_RUN_LOG_URL_CACHE_TTL)
+    return urls
+
+
 def _task_run_detail_to_dto(run: TaskRun) -> contracts.TaskRunDetailDTO:
     """Map a ``TaskRun`` to its HTTP detail DTO.
 
@@ -362,6 +390,7 @@ def _task_run_detail_to_dto(run: TaskRun) -> contracts.TaskRunDetailDTO:
         model=state.model,
         reasoning_effort=state.reasoning_effort.value if state.reasoning_effort is not None else None,
         log_url=_task_run_log_url(run),
+        log_urls=_task_run_chain_log_urls(run),
         error_message=run.error_message,
         output=run.output,
         state=run.state or {},
