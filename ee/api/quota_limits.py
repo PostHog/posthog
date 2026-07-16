@@ -27,6 +27,18 @@ class QuotaResourceLimitSerializer(serializers.Serializer):
     limited = serializers.BooleanField(
         help_text="True when the team is currently over its quota for this resource and limits are in effect.",
     )
+    usage = serializers.FloatField(
+        allow_null=True,
+        help_text=(
+            "Units of this resource the organization has used so far this billing period, in the "
+            "resource's native unit (credits for credit buckets). Null when billing hasn't synced "
+            "usage for the resource."
+        ),
+    )
+    limit = serializers.FloatField(
+        allow_null=True,
+        help_text="The organization's limit for this resource in the same unit. Null when unlimited or unknown.",
+    )
 
 
 class QuotaLimitsResponseSerializer(serializers.Serializer):
@@ -62,16 +74,22 @@ class QuotaLimitsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         responses={200: QuotaLimitsResponseSerializer},
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        limited = {
-            resource.value: {
+        org_usage = self.team.organization.usage or {}
+        limited = {}
+        for resource in QuotaResource:
+            summary = org_usage.get(resource.value) or {}
+            limited[resource.value] = {
                 "limited": is_team_limited(
                     self.team.api_token,
                     resource,
                     QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
                 ),
+                # usage + todays_usage is the sum the limiter compares against the limit
+                # (org_quota_limited_until); the boolean stays authoritative for gating —
+                # grace periods and refund offsets live only in the limiting decision.
+                "usage": (summary.get("usage") or 0) + (summary.get("todays_usage") or 0) if summary else None,
+                "limit": summary.get("limit"),
             }
-            for resource in QuotaResource
-        }
         return Response(
             QuotaLimitsResponseSerializer(
                 {
