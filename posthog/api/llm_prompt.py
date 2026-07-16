@@ -36,6 +36,7 @@ from posthog.api.services.llm_prompt import (
     LLMPromptDuplicateNameConflictError,
     LLMPromptEditError,
     LLMPromptLabelConflictError,
+    LLMPromptLabelLimitError,
     LLMPromptLabelNotFoundError,
     LLMPromptNotFoundError,
     LLMPromptVersionConflictError,
@@ -498,6 +499,16 @@ class LLMPromptViewSet(
             return Response(
                 {"detail": "This label was changed by someone else at the same time. Try again."},
                 status=status.HTTP_409_CONFLICT,
+            )
+        except LLMPromptLabelLimitError as err:
+            return Response(
+                {
+                    "detail": (
+                        f"This prompt has reached the maximum of {err.max_labels} labels. "
+                        "Remove a label to add a new one."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
         report_user_action(

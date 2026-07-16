@@ -19,6 +19,7 @@ from products.ai_observability.backend.models.llm_prompt import (
 
 SYNC_ARCHIVE_VERSION_INVALIDATION_LIMIT = 100
 MAX_PROMPT_VERSION = 2000
+MAX_PROMPT_LABELS = 50
 
 
 class LLMPromptNotFoundError(Exception):
@@ -31,6 +32,11 @@ class LLMPromptLabelNotFoundError(Exception):
 
 class LLMPromptLabelConflictError(Exception):
     pass
+
+
+@dataclass
+class LLMPromptLabelLimitError(Exception):
+    max_labels: int
 
 
 @dataclass
@@ -340,6 +346,9 @@ def set_prompt_label(
                 existing.prompt = target
                 existing.save()
             return PromptLabelSetResult(label=existing, previous_version=previous_version, created=False)
+
+        if LLMPromptLabel.objects.filter(team=team, prompt_name=prompt_name).count() >= MAX_PROMPT_LABELS:
+            raise LLMPromptLabelLimitError(max_labels=MAX_PROMPT_LABELS)
 
         try:
             label = LLMPromptLabel.objects.create(
