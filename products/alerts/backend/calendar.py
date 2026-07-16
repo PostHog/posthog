@@ -43,24 +43,6 @@ def to_calendar_interval(value: str) -> CalendarInterval:
         raise ValueError(f"Unhandled alert calculation interval: {value!r}") from None
 
 
-def calendar_interval_to_relativedelta(interval: CalendarInterval) -> relativedelta:
-    match interval:
-        case CalendarInterval.REAL_TIME:
-            return relativedelta(minutes=REAL_TIME_CADENCE_MINUTES)
-        case CalendarInterval.EVERY_15_MINUTES:
-            return relativedelta(minutes=EVERY_15_MINUTES_CADENCE_MINUTES)
-        case CalendarInterval.HOURLY:
-            return relativedelta(hours=1)
-        case CalendarInterval.DAILY:
-            return relativedelta(days=1)
-        case CalendarInterval.WEEKLY:
-            return relativedelta(weeks=1)
-        case CalendarInterval.MONTHLY:
-            return relativedelta(months=1)
-        case _ as unreachable:
-            raise ValueError(f"Unhandled alert calculation interval: {unreachable!r}")
-
-
 def is_weekend(now: datetime, tz_name: str) -> bool:
     team_timezone = pytz.timezone(tz_name)
     now_local = now.astimezone(team_timezone)

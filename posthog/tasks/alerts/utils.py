@@ -5,7 +5,6 @@ from django.utils import timezone
 
 import pytz
 import structlog
-from dateutil.relativedelta import relativedelta
 
 from posthog.schema import AlertCalculationInterval, AlertState, ChartDisplayType, NodeKind, TrendsQuery
 
@@ -17,7 +16,6 @@ from posthog.tasks.alerts.schedule_restriction import snap_candidate_utc_to_sche
 from products.alerts.backend.calendar import (
     EVERY_15_MINUTES_CADENCE_MINUTES as EVERY_15_MINUTES_CADENCE_MINUTES,
     REAL_TIME_CADENCE_MINUTES as REAL_TIME_CADENCE_MINUTES,
-    calendar_interval_to_relativedelta,
     is_weekend,
     next_calendar_check_time,
     to_calendar_interval,
@@ -74,10 +72,6 @@ def calculation_interval_to_order(interval: AlertCalculationInterval | None) -> 
         return CALCULATION_INTERVAL_ORDER[interval]
     except KeyError:
         raise ValueError(f"Unhandled alert calculation interval: {interval!r}")
-
-
-def alert_calculation_interval_to_relativedelta(alert_calculation_interval: AlertCalculationInterval) -> relativedelta:
-    return calendar_interval_to_relativedelta(to_calendar_interval(alert_calculation_interval))
 
 
 def skip_because_of_weekend(alert: AlertConfiguration) -> bool:
