@@ -70,6 +70,11 @@ class SnapshotsPagination(LimitOffsetPagination):
     `quarantined_count` on the paginator instance before rendering the response."""
 
     quarantined_count = 0
+    # A broken run can produce thousands of snapshots, each a verbose object. Cap the
+    # page size so one request can't return the whole set — the diff viewer only shows
+    # 100 anyway, and callers can page through the rest with offset. Without this a large
+    # `limit` returns everything, which blows MCP responses into millions of tokens.
+    max_limit = 100
 
     def get_paginated_response(self, data: object) -> Response:
         response = super().get_paginated_response(data)
