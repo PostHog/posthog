@@ -154,14 +154,14 @@ class TestGetRowsFanOut:
         rows = _collect(manager, monkeypatch, pages, "payment_methods")
         assert rows == [{"id": "pay_1", "customer_id": "cus_1"}]
 
-    def test_skips_parent_rows_without_an_id(self, monkeypatch: Any) -> None:
+    def test_parent_row_without_an_id_fails_fast(self, monkeypatch: Any) -> None:
+        # A parent row missing its primary key must raise rather than silently drop its children.
         manager = _FakeResumableManager()
         pages = {
-            ("/products", 1): [{"name": "no id"}, {"id": "pro_1"}],
-            ("/coupon/pro_1", 1): [{"id": "cou_1"}],
+            ("/products", 1): [{"name": "no id"}],
         }
-        rows = _collect(manager, monkeypatch, pages, "coupons")
-        assert rows == [{"id": "cou_1", "product_id": "pro_1"}]
+        with pytest.raises(KeyError):
+            _collect(manager, monkeypatch, pages, "coupons")
 
 
 class TestFetchPage:
