@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, path, reducers } from 'kea'
+import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
 import { FeatureFlagKey } from 'lib/constants'
@@ -108,6 +108,20 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             {
                 setFeatureFlags: () => true,
             },
+        ],
+    }),
+    selectors({
+        // Reads flag values WITHOUT emitting a `$feature_flag_called` event. Use this for
+        // speculative, dynamically-named lookups — e.g. `billing_hide_product_${type}` built
+        // per rendered product/addon — where reading through `featureFlags` would fire a usage
+        // event for every candidate key, including deleted or never-created flags, polluting
+        // flag analytics. `toJSON()` returns the underlying flag set unproxied.
+        featureFlagsWithoutTracking: [
+            (s) => [s.featureFlags],
+            (featureFlags): FeatureFlagsSet =>
+                typeof (featureFlags as { toJSON?: () => FeatureFlagsSet }).toJSON === 'function'
+                    ? (featureFlags as { toJSON: () => FeatureFlagsSet }).toJSON()
+                    : featureFlags,
         ],
     }),
     afterMount(({ actions }) => {
