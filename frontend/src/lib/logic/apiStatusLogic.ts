@@ -90,9 +90,12 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
             try {
                 if (response?.status === 403) {
                     const responseData = await response?.json()
-                    if (responseData.code === 'sensitive_action_required_reauth') {
-                        actions.setTimeSensitiveAuthenticationRequired(true)
-                    } else if (
+                    // Note: `sensitive_action_required_reauth` (session too old, or a risk-based
+                    // step-up) is intentionally not handled here. `handleFetch` in lib/api.ts owns
+                    // that flow — it shows the re-auth modal and retries the blocked request once
+                    // re-auth completes. Setting a bare `true` here would race that flow and clobber
+                    // the retry callbacks, reintroducing the "re-authenticate, still blocked" loop.
+                    if (
                         responseData.code === 'two_factor_setup_required' &&
                         !values.timeSensitiveAuthenticationRequired &&
                         !twoFactorLogic.findMounted()?.values.isTwoFactorSetupModalOpen

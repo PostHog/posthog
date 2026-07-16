@@ -7559,6 +7559,27 @@ async function handleFetch(
 
         const data = await getJSONOrNull(response)
 
+        // A sensitive action blocked by re-authentication (session too old, or a risk-based
+        // step-up): show the re-auth modal and, once the user completes it, retry the original
+        // request exactly once. Without this the blocked request is lost, so a successful
+        // re-auth leaves the user stuck — the "re-authenticate, still blocked" loop.
+        if (response.status === 403 && !isRetry && data?.code === 'sensitive_action_required_reauth') {
+            const statusLogic = apiStatusLogic.findMounted()
+            if (statusLogic) {
+                const reauthenticated = await new Promise<boolean>((resolve) => {
+                    statusLogic.actions.setTimeSensitiveAuthenticationRequired([
+                        () => resolve(true),
+                        () => resolve(false),
+                    ])
+                })
+                if (reauthenticated) {
+                    return await handleFetch(url, method, fetcher, true)
+                }
+                // Dismissed or failed re-auth falls through to the throw below, so the caller
+                // sees the original error instead of silently re-firing the doomed request.
+            }
+        }
+
         if (response.status >= 400 && data) {
             if (typeof data.error === 'string') {
                 throw new ApiError(data.error, response.status, response.headers, data)

@@ -116,6 +116,22 @@ describe('timeSensitiveAuthenticationLogic', () => {
                 showAuthenticationModal: false,
             })
         })
+
+        it('should show authentication modal when a step-up is required (no expiry window)', async () => {
+            // The backend reports `sensitive_session_expires_at: null` while a risk-based step-up
+            // is pending. A time-only check would treat that as "no reason to re-auth" and let the
+            // action fall through to a 403 — the regression this guards against.
+            userLogic.actions.loadUserSuccess({
+                ...MOCK_DEFAULT_USER,
+                sensitive_session_expires_at: null,
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.checkReauthentication()
+            }).toMatchValues({
+                showAuthenticationModal: true,
+            })
+        })
     })
 
     describe('modal interactions', () => {
@@ -135,7 +151,7 @@ describe('timeSensitiveAuthenticationLogic', () => {
             })
         })
 
-        it('should settle a pending checkReauthentication when the modal is dismissed', async () => {
+        it('should resolve a pending checkReauthentication with false when the modal is dismissed', async () => {
             userLogic.actions.loadUserSuccess({
                 ...MOCK_DEFAULT_USER,
                 sensitive_session_expires_at: dayjs().add(4, 'minutes').toISOString(),
@@ -145,9 +161,10 @@ describe('timeSensitiveAuthenticationLogic', () => {
             expect(logic.values.showAuthenticationModal).toBe(true) // guard: the check is actually pending on the modal
             logic.actions.setDismissedReauthentication(true)
 
-            // Rejects (TypeError on undefined.message in kea's listener wrapper) if dismissal
-            // rejects the stored callback pair instead of resolving it
-            await pending
+            // Must resolve `false` (not reject, not resolve truthy): callers key off this to abort
+            // the blocked action instead of re-firing it into the same 403. A regression here brings
+            // back the "re-authenticate, still blocked" loop.
+            await expect(pending).resolves.toBe(false)
 
             await expectLogic(logic).toMatchValues({ showAuthenticationModal: false })
         })

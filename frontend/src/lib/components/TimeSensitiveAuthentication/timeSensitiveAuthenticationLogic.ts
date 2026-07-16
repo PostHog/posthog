@@ -405,16 +405,24 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
             }
         },
         checkReauthentication: () => {
-            if (values.sensitiveSessionExpiresAt.diff(dayjs(), 'seconds') < LOOKAHEAD_EXPIRY_SECONDS) {
+            // Re-auth is needed if the sensitive-action window is expiring soon OR if there is no
+            // window at all. The backend reports `sensitive_session_expires_at: null` whenever a
+            // risk-based step-up is pending (see TimeSensitiveActionPermission), so a purely
+            // time-based check is blind to step-up and lets the action fall through to a 403.
+            const expiresAt = values.sensitiveSessionExpiresAt
+            const reauthRequired = !expiresAt.isValid() || expiresAt.diff(dayjs(), 'seconds') < LOOKAHEAD_EXPIRY_SECONDS
+            if (reauthRequired) {
                 // Here we try to offer a better UX by forcing re-authentication if they are about to timeout
                 // which is nicer than when they try to do something later and get a 403.
                 // We also make this a promise, so that `checkReauthentication` callsites can await
-                // `asyncActions.checkReauthentication()` and proceed once the flow concludes.
-                // Dismissal/failure resolves rather than rejects: the mount-time dispatch is
-                // fire-and-forget, so a rejection (especially a bare `reject()`) surfaces as an
-                // unhandled TypeError in kea's listener wrapper.
-                return new Promise<void>((resolve) =>
-                    actions.setTimeSensitiveAuthenticationRequired([resolve, resolve])
+                // `asyncActions.checkReauthentication()` and act on the outcome: it resolves `true`
+                // when re-auth succeeds and `false` when it is dismissed or fails, so callers can
+                // abort the blocked action instead of firing it into the same 403.
+                // It never rejects: the mount-time dispatch is fire-and-forget, so a rejection
+                // (especially a bare `reject()`) surfaces as an unhandled TypeError in kea's
+                // listener wrapper.
+                return new Promise<boolean>((resolve) =>
+                    actions.setTimeSensitiveAuthenticationRequired([() => resolve(true), () => resolve(false)])
                 )
             }
         },

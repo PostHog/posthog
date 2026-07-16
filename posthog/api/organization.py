@@ -508,23 +508,30 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not fields_to_capture:
             return
 
-        organization = self.get_object()
-        user = cast(User, request.user)
-        user_role = user.organization_memberships.get(organization=organization).level
+        # Best-effort telemetry: a failure here must never turn a valid settings update into a 500
+        # ("Failed to update organization"). The acting user may have no membership on the org
+        # (e.g. staff impersonation), so look it up defensively rather than with `.get()`.
+        try:
+            organization = self.get_object()
+            user = cast(User, request.user)
+            membership = user.organization_memberships.filter(organization=organization).first()
+            user_role = membership.level if membership is not None else None
 
-        for field, event_name in setting_events:
-            if field in request.data:
-                posthoganalytics.capture(
-                    event_name,
-                    distinct_id=str(user.distinct_id),
-                    properties={
-                        "enabled": request.data[field],
-                        "organization_id": str(organization.id),
-                        "organization_name": organization.name,
-                        "user_role": user_role,
-                    },
-                    groups=groups(organization),
-                )
+            for field, event_name in setting_events:
+                if field in request.data:
+                    posthoganalytics.capture(
+                        event_name,
+                        distinct_id=str(user.distinct_id),
+                        properties={
+                            "enabled": request.data[field],
+                            "organization_id": str(organization.id),
+                            "organization_name": organization.name,
+                            "user_role": user_role,
+                        },
+                        groups=groups(organization),
+                    )
+        except Exception as e:
+            capture_exception(e)
 
     def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         self._capture_organization_setting_events(request)

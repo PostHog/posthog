@@ -223,7 +223,14 @@ export const inviteLogic = kea<inviteLogicType>([
                     }
                     // Inviting members is a sensitive action; if re-authentication is required,
                     // await its completion so the invite resumes once the user re-authenticates.
-                    await timeSensitiveAuthenticationLogic.findMounted()?.asyncActions.checkReauthentication()
+                    const reauthenticated = await timeSensitiveAuthenticationLogic
+                        .findMounted()
+                        ?.asyncActions.checkReauthentication()
+                    if (reauthenticated === false) {
+                        // User dismissed or failed re-auth — abort quietly rather than firing a request
+                        // that would only hit the same 403.
+                        throw new DOMException('Re-authentication was not completed', 'AbortError')
+                    }
                     return await api.create<OrganizationInviteType[]>(
                         `api/organizations/${organizationLogic.values.currentOrganizationId}/invites/bulk/`,
                         payload
